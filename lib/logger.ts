@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { headers, cookies } from 'next/headers'
-import geoip from 'geoip-lite'
+// import geoip from 'geoip-lite' // Removed to fix serverless deployment issues
 
 // Use a separate client for logging that uses the service role or at least has insert permissions
 // Since we don't have SERVICE_KEY in the env vars checked previously (only ANON), 
@@ -61,21 +61,25 @@ export async function logActivity(
 
         const userAgent = headersList.get('user-agent') || 'unknown'
         
-        // GeoIP Lookup
+        // GeoIP Lookup - Temporarily removed due to serverless deployment issues
         let latitude: number | null = null
         let longitude: number | null = null
         let location: string | null = null
         
+        /* 
         if (ip && ip !== 'unknown' && ip !== '::1' && ip !== '127.0.0.1') {
-            const geo = geoip.lookup(ip)
-            if (geo) {
-                latitude = geo.ll[0]
-                longitude = geo.ll[1]
-                location = [geo.city, geo.country].filter(Boolean).join(', ')
-            }
-        } else if (ip === '::1' || ip === '127.0.0.1') {
+           // ...
+        } 
+        */
+       
+       // Try to get location from Vercel headers if available
+       const city = headersList.get('x-vercel-ip-city')
+       const country = headersList.get('x-vercel-ip-country')
+       if (city && country) {
+           location = `${city}, ${country}`
+       } else if (ip === '::1' || ip === '127.0.0.1') {
             location = 'Localhost'
-        }
+       }
         
         // Determine Actor
         let userId = overrideUserId
