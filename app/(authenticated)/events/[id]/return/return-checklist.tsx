@@ -1,5 +1,6 @@
 'use client'
 
+
 import { useState, useTransition } from 'react'
 import { processEventReturn } from '../../actions' // Adjust path if necessary
 import { Button } from "@/components/ui/button"
@@ -8,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, Loader2, CheckCircle2 } from "lucide-react"
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useLanguage } from '@/contexts/language-context'
 
 type ReturnProps = {
     event: any
@@ -15,6 +17,7 @@ type ReturnProps = {
 }
 
 export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
+    const { t } = useLanguage()
     const router = useRouter()
     const [isPending, startTransition] = useTransition()
     const [statuses, setStatuses] = useState<Record<string, string>>({})
@@ -49,8 +52,8 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
     if (totalItems === 0) {
         return (
              <div className="max-w-2xl mx-auto space-y-6 text-center pt-10">
-                 <h2 className="text-xl font-bold">No items assigned to this event.</h2>
-                 <p className="text-zinc-500">You can delete this event directly.</p>
+                 <h2 className="text-xl font-bold">{t.events.noItemsAssigned}</h2>
+                 <p className="text-zinc-500">{t.events.canDeleteDirectly}</p>
                  <Button 
                     variant="destructive" 
                     onClick={() => {
@@ -62,9 +65,9 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
                     disabled={isPending}
                  >
                      {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                     Delete Event
+                     {t.events.delete}
                  </Button>
-                 <Link href="/events"><Button variant="ghost">Cancel</Button></Link>
+                 <Link href="/events"><Button variant="ghost">{t.common.cancel}</Button></Link>
              </div>
         )
     }
@@ -78,8 +81,8 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
                     </Button>
                 </Link>
                 <div>
-                     <h2 className="text-3xl font-bold tracking-tight">Return Check-in</h2>
-                     <p className="text-zinc-500">Event: {event.name}</p>
+                     <h2 className="text-3xl font-bold tracking-tight">{t.events.closeReport}</h2>
+                     <p className="text-zinc-500">{t.events.title}: {event.name}</p>
                 </div>
             </div>
 
@@ -113,13 +116,13 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
                                                 onValueChange={(val) => handleStatusChange(item.id, val)}
                                             >
                                                 <SelectTrigger className={statuses[item.id] ? "border-green-500 bg-green-50 text-green-700 font-medium" : ""}>
-                                                    <SelectValue placeholder="Select Status" />
+                                                    <SelectValue placeholder={t.common.status} />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="available">Available</SelectItem>
-                                                    <SelectItem value="maintenance">Maintenance</SelectItem>
-                                                    <SelectItem value="lost">Lost</SelectItem>
-                                                    <SelectItem value="in_use">In Use</SelectItem>
+                                                    <SelectItem value="available">{t.items.status.available}</SelectItem>
+                                                    <SelectItem value="maintenance">{t.items.status.maintenance}</SelectItem>
+                                                    <SelectItem value="lost">{t.items.status.lost}</SelectItem>
+                                                    <SelectItem value="in_use">{t.items.status.in_use}</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -133,7 +136,7 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
 
             <div className="sticky bottom-4 bg-white/80 backdrop-blur-md p-4 border rounded-xl shadow-lg flex items-center justify-between">
                 <div className="text-sm font-medium">
-                    Checked {completedCount} / {totalItems} Items
+                    {t.events.checkedCount.replace('{completed}', completedCount.toString()).replace('{total}', totalItems.toString())}
                 </div>
                 <Button 
                     size="lg" 
@@ -142,7 +145,7 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
                     onClick={handleSubmit}
                 >
                     {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                    Finish Return & Delete Event
+                    {t.events.confirmClose}
                 </Button>
             </div>
         </div>

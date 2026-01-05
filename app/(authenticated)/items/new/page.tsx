@@ -9,12 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import Link from 'next/link'
 import { ArrowLeft, X } from "lucide-react"
 import { compressImage } from "@/lib/utils"
+import { useLanguage } from '@/contexts/language-context'
 
 const initialState = {
   error: '',
 }
 
-function CategorySelector() {
+function CategorySelector({ t }: { t: any }) {
     const [value, setValue] = useState("")
     const [isCustom, setIsCustom] = useState(false)
   
@@ -42,7 +43,7 @@ function CategorySelector() {
             <>
                 <Select onValueChange={handleSelectChange} value={value}>
                 <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
+                    <SelectValue placeholder={t.items.fields.category} />
                 </SelectTrigger>
                 <SelectContent>
                     {categories.map((c) => (
@@ -83,6 +84,7 @@ function CategorySelector() {
   }
 
 export default function NewItemPage() {
+  const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(createItem, initialState)
 
   return (
@@ -93,61 +95,61 @@ export default function NewItemPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <h2 className="text-3xl font-bold tracking-tight">New Item</h2>
+        <h2 className="text-3xl font-bold tracking-tight">{t.items.newTitle}</h2>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Item Details</CardTitle>
+          <CardTitle>{t.items.newTitle}</CardTitle>
           <CardDescription>Add a new item to the inventory (Max 4 images).</CardDescription>
         </CardHeader>
         <form action={formAction}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="name" className="text-sm font-medium leading-none">Name</label>
-              <Input id="name" name="name" placeholder="Item name" required />
+              <label htmlFor="name" className="text-sm font-medium leading-none">{t.items.fields.name}</label>
+              <Input id="name" name="name" placeholder={t.items.fields.name} required />
             </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label htmlFor="category" className="text-sm font-medium leading-none">Category</label>
-                <CategorySelector />
+                <label htmlFor="category" className="text-sm font-medium leading-none">{t.items.fields.category}</label>
+                <CategorySelector t={t} />
               </div>
               <div className="space-y-2">
-                <label htmlFor="price" className="text-sm font-medium leading-none">Price</label>
+                <label htmlFor="price" className="text-sm font-medium leading-none">{t.items.fields.price}</label>
                 <Input id="price" name="price" type="number" step="0.01" placeholder="0.00" />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
                <div className="space-y-2">
-                <label htmlFor="quantity" className="text-sm font-medium leading-none">Quantity</label>
+                <label htmlFor="quantity" className="text-sm font-medium leading-none">{t.items.fields.quantity}</label>
                 <Input id="quantity" name="quantity" type="number" min="1" defaultValue="1" required />
               </div>
                <div className="space-y-2">
-                 <label htmlFor="serial_number" className="text-sm font-medium leading-none">Serial Number</label>
+                 <label htmlFor="serial_number" className="text-sm font-medium leading-none">{t.items.fields.serial}</label>
                  <Input id="serial_number" name="serial_number" placeholder="Optional" />
                </div>
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="status" className="text-sm font-medium leading-none">Status</label>
+              <label htmlFor="status" className="text-sm font-medium leading-none">{t.items.fields.status}</label>
               <Select name="status" defaultValue="available">
                 <SelectTrigger>
                   <SelectValue placeholder="Select status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="available">Available</SelectItem>
-                  <SelectItem value="in_use">In Use</SelectItem>
-                  <SelectItem value="maintenance">Maintenance</SelectItem>
-                  <SelectItem value="lost">Lost</SelectItem>
-                  <SelectItem value="purchasing">Purchasing</SelectItem>
+                  <SelectItem value="available">{t.items.status.available}</SelectItem>
+                  <SelectItem value="in_use">{t.items.status.in_use}</SelectItem>
+                  <SelectItem value="maintenance">{t.items.status.maintenance}</SelectItem>
+                  <SelectItem value="lost">{t.items.status.lost}</SelectItem>
+                  <SelectItem value="purchasing">{t.items.status.purchasing}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="images" className="text-sm font-medium leading-none">Images (Max 4)</label>
+              <label htmlFor="images" className="text-sm font-medium leading-none">{t.items.fields.images}</label>
               <Input 
                  id="images" 
                  name="images" 
@@ -194,10 +196,10 @@ export default function NewItemPage() {
           </CardContent>
           <CardFooter className="flex justify-end gap-2">
             <Link href="/items">
-                <Button variant="outline" type="button">Cancel</Button>
+                <Button variant="outline" type="button">{t.common.cancel}</Button>
             </Link>
             <Button type="submit" disabled={isPending}>
-              {isPending ? "Saving..." : "Create Item"}
+              {isPending ? t.common.save + "..." : t.common.save}
             </Button>
           </CardFooter>
         </form>

@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Search } from "lucide-react"
+import { useLanguage } from '@/contexts/language-context'
 
 function FormatDate({ date }: { date: string }) {
     if (!date) return null
@@ -249,6 +250,80 @@ function LogDetails({ log }: { log: any }) {
         )
     }
 
+    // Templates
+    if (action.includes('TEMPLATE')) {
+        if (action === 'CREATE_TEMPLATE') {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-green-600">Created Template</span>
+                    <div className="text-sm font-semibold">{details.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                        Type: <span className="uppercase">{details.type}</span> • Items: {details.itemCount}
+                    </div>
+                </div>
+            )
+        }
+
+        if (action === 'DELETE_TEMPLATE') {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-red-600">Deleted Template</span>
+                    <div className="text-sm font-semibold">{details.name}</div>
+                    {details.id && (
+                        <div className="text-xs text-muted-foreground">
+                            Template ID: <span className="font-mono">{formatId(details.id)}</span>
+                        </div>
+                    )}
+                </div>
+            )
+        }
+
+        if (action === 'UPDATE_TEMPLATE') {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-orange-600">Updated Template</span>
+                    <div className="text-sm font-semibold">{details.name}</div>
+                </div>
+            )
+        }
+
+        if (action === 'ADD_TEMPLATE_ITEM') {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-green-600">Added Item to Template</span>
+                    <div className="text-sm">
+                        Added <b>{details.itemName}</b> {details.quantity > 1 && `(${details.quantity}x)`} to <span className="font-semibold text-purple-600">{details.templateName}</span>
+                    </div>
+                </div>
+            )
+        }
+
+        if (action === 'REMOVE_TEMPLATE_ITEM') {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-red-600">Removed Item from Template</span>
+                    <div className="text-sm">
+                        Removed <b>{details.itemName}</b> from <span className="font-semibold text-purple-600">{details.templateName}</span>
+                    </div>
+                </div>
+            )
+        }
+
+        if (action === 'UPDATE_TEMPLATE_STATUS') {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-blue-600">Updated Checklist Status</span>
+                    <div className="text-sm">
+                        <span className="font-semibold">{details.itemName}</span> in <span className="font-semibold text-purple-600">{details.templateName}</span>
+                    </div>
+                    <div className="text-xs">
+                        Status &rarr; <Badge variant="outline" className="uppercase text-[10px]">{details.newStatus}</Badge>
+                    </div>
+                </div>
+            )
+        }
+    }
+
     // Catch-all
     return (
         <div className="text-xs text-muted-foreground break-all">
@@ -271,6 +346,7 @@ import {
 // ... (existing helper functions: FormatDate, formatId, ImagePreview, LogDetails)
 
 export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
+    const { t } = useLanguage()
     const [searchText, setSearchText] = useState('')
     const [selectedUser, setSelectedUser] = useState<string>('all')
     const [selectedAction, setSelectedAction] = useState<string>('all')
@@ -302,7 +378,7 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
                     <Input
                         type="search"
-                        placeholder="Search logs..."
+                        placeholder={t.common.search}
                         className="pl-8 w-full"
                         value={searchText}
                         onChange={(e) => setSearchText(e.target.value)}
@@ -314,14 +390,14 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                         <DropdownMenuTrigger asChild>
                             <Button variant="outline" className="gap-2 whitespace-nowrap">
                                 <Filter className="h-4 w-4" />
-                                User: {selectedUser === 'all' ? 'All' : selectedUser}
+                                {t.logs.filterUser}: {selectedUser === 'all' ? t.items.status.all : selectedUser}
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-[200px] max-h-[300px] overflow-y-auto">
-                            <DropdownMenuLabel>Filter by User</DropdownMenuLabel>
+                            <DropdownMenuLabel>{t.logs.filterUser}</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuCheckboxItem checked={selectedUser === 'all'} onCheckedChange={() => setSelectedUser('all')}>
-                                All Users
+                                {t.items.status.all}
                             </DropdownMenuCheckboxItem>
                             {users.map(user => (
                                 <DropdownMenuCheckboxItem key={user} checked={selectedUser === user} onCheckedChange={() => setSelectedUser(user)}>
@@ -336,14 +412,14 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                         <DropdownMenuTrigger asChild>
                             <Button variant="outline" className="gap-2 whitespace-nowrap">
                                 <Filter className="h-4 w-4" />
-                                Action: {selectedAction === 'all' ? 'All' : selectedAction}
+                                {t.logs.filterAction}: {selectedAction === 'all' ? t.items.status.all : selectedAction}
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-[200px] max-h-[300px] overflow-y-auto">
-                            <DropdownMenuLabel>Filter by Action</DropdownMenuLabel>
+                            <DropdownMenuLabel>{t.logs.filterAction}</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuCheckboxItem checked={selectedAction === 'all'} onCheckedChange={() => setSelectedAction('all')}>
-                                All Actions
+                                {t.items.status.all}
                             </DropdownMenuCheckboxItem>
                             {actions.map(action => (
                                 <DropdownMenuCheckboxItem key={action} checked={selectedAction === action} onCheckedChange={() => setSelectedAction(action)}>
@@ -357,9 +433,9 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
 
             <Card>
                 <CardHeader className="px-4 py-4 md:px-6 md:py-6">
-                    <CardTitle>Activity Log</CardTitle>
+                    <CardTitle>{t.logs.title}</CardTitle>
                     <CardDescription>
-                        {searchText ? `Found ${filteredLogs.length} matching activities.` : 'Latest 100 system activities.'}
+                        {searchText ? `${t.common.noData} "${searchText}".` : 'Latest 100 system activities.'}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0 md:p-0">
@@ -368,11 +444,11 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-[180px]">Timestamp</TableHead>
-                                    <TableHead>User</TableHead>
-                                    <TableHead>Action</TableHead>
-                                    <TableHead>Details</TableHead>
-                                    <TableHead className="text-right">IP Address</TableHead>
+                                    <TableHead className="w-[180px]">{t.logs.columns.timestamp}</TableHead>
+                                    <TableHead>{t.logs.columns.user}</TableHead>
+                                    <TableHead>{t.logs.columns.action}</TableHead>
+                                    <TableHead>{t.logs.columns.details}</TableHead>
+                                    <TableHead className="text-right">Location / IP</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -393,14 +469,28 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                                             <LogDetails log={log} />
                                         </TableCell>
                                         <TableCell className="text-right text-xs text-muted-foreground font-mono">
-                                            {log.ip_address}
+                                            <div className="flex flex-col items-end gap-0.5">
+                                                {log.latitude && log.longitude ? (
+                                                    <a 
+                                                        href={`https://www.google.com/maps?q=${log.latitude},${log.longitude}`}
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer"
+                                                        className="flex items-center gap-1 text-blue-600 hover:underline"
+                                                    >
+                                                        <span>Map</span>
+                                                        <span className="text-[10px]">📍</span>
+                                                    </a>
+                                                ) : null}
+                                                {log.location && <span>{log.location}</span>}
+                                                <span title="IP Address">{log.ip_address}</span>
+                                            </div>
                                         </TableCell>
                                     </TableRow>
                                 ))}
                                 {filteredLogs.length === 0 && (
                                     <TableRow>
                                         <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                                            No logs found matching "{searchText}".
+                                            {t.common.noData}
                                         </TableCell>
                                     </TableRow>
                                 )}

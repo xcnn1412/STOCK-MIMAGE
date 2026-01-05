@@ -5,8 +5,9 @@ import Link from 'next/link'
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 
-export default async function CheckPage(props: { params: Promise<{ id: string }> }) {
+export default async function CheckPage(props: { params: Promise<{ id: string }>, searchParams: Promise<{ eventId?: string }> }) {
   const params = await props.params;
+  const searchParams = await props.searchParams;
   const { data: kit } = await supabase.from('kits').select('*').eq('id', params.id).single()
   
   if (!kit) notFound()
@@ -29,7 +30,7 @@ export default async function CheckPage(props: { params: Promise<{ id: string }>
             </Link>
             <h1 className="text-xl font-bold">{kit.name} Check</h1>
         </div>
-      <CheckFlow kit={kit} contents={contents || []} events={events || []} />
+      <CheckFlow kit={kit} contents={contents || []} events={events || []} initialEventId={searchParams.eventId} />
     </div>
   )
 }

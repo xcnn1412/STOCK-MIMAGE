@@ -103,6 +103,13 @@ export async function updateItem(id: string, prevState: any, formData: FormData)
   }, undefined)
 
   revalidatePath('/items')
+  
+  const returnTo = formData.get('returnTo') as string
+  if (returnTo) {
+      revalidatePath(returnTo)
+      redirect(returnTo)
+  }
+  
   redirect('/items')
 }
 
