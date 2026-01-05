@@ -10,9 +10,9 @@ export default async function AuthenticatedLayout({
   const role = cookieStore.get('session_role')?.value
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full overflow-x-hidden">
       <Navbar role={role} />
-      <main className="p-4 md:p-6 max-w-7xl mx-auto">
+      <main className="p-4 md:p-6 max-w-7xl mx-auto w-full">
         {children}
       </main>
     </div>

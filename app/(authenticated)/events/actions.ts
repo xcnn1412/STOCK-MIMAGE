@@ -31,7 +31,7 @@ export async function createEvent(prevState: any, formData: FormData) {
           name,
           location,
           staff,
-          event_date: new Date().toISOString()
+          event_date: formData.get('event_date') as string || new Date().toISOString()
       })
       .select()
       .single()

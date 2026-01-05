@@ -16,10 +16,17 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
   const supabase = createServerSupabase()
   
   // Fetch details for logging
-  const [ { data: kit }, { data: item } ] = await Promise.all([
+  const [ { data: kit }, { data: item }, { data: existingAssignment } ] = await Promise.all([
       supabase.from('kits').select('name').eq('id', kitId).single(),
-      supabase.from('items').select('name').eq('id', itemId).single()
+      supabase.from('items').select('name').eq('id', itemId).single(),
+      supabase.from('kit_contents').select('kit_id, kits(name)').eq('item_id', itemId).maybeSingle()
   ])
+
+  // Check if item is already in a kit
+  if (existingAssignment) {
+      const assignedKitName = (existingAssignment.kits as any)?.name || 'another kit'
+      return { error: `Item is already in ${assignedKitName}` }
+  }
 
   const { error } = await supabase.from('kit_contents').insert({
     kit_id: kitId,
@@ -43,7 +50,7 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
   revalidatePath(`/kits/${kitId}`)
 }
 
-export async function removeItemFromKit(contentId: string, kitId: string, formData: FormData) {
+export async function removeItemFromKit(contentId: string, kitId: string) {
   const supabase = createServerSupabase()
   
   // Fetch details before delete

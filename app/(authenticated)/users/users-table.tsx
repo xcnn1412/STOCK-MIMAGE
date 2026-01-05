@@ -8,15 +8,17 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Check, X, Shield, User, Trash2 } from "lucide-react"
 import { toast } from "sonner"
+import { useLanguage } from '@/contexts/language-context'
 
 export default function UsersTable({ users }: { users: any[] }) {
+    const { t } = useLanguage()
     const [loadingId, setLoadingId] = useState<string | null>(null)
 
     const handleToggle = async (id: string, status: boolean) => {
         setLoadingId(id)
         const res = await toggleUserApproval(id, status)
         if (res?.error) toast.error(res.error)
-        else toast.success("Status updated")
+        else toast.success(t.common.save)
         setLoadingId(null)
     }
 
@@ -25,16 +27,16 @@ export default function UsersTable({ users }: { users: any[] }) {
         setLoadingId(id)
         const res = await updateUserRole(id, newRole)
         if (res?.error) toast.error(res.error)
-        else toast.success(`User is now ${newRole}`)
+        else toast.success(t.common.save)
         setLoadingId(null)
     }
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Are you sure you want to delete this user?")) return
+        if (!confirm(t.common.confirm)) return
         setLoadingId(id)
         const res = await deleteUser(id)
         if (res?.error) toast.error(res.error)
-        else toast.success("User deleted")
+        else toast.success(t.common.delete)
         setLoadingId(null)
     }
 
@@ -45,11 +47,11 @@ export default function UsersTable({ users }: { users: any[] }) {
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Phone</TableHead>
-                            <TableHead>Role</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
+                            <TableHead>{t.users.columns.name}</TableHead>
+                            <TableHead>{t.users.columns.phone}</TableHead>
+                            <TableHead>{t.users.columns.role}</TableHead>
+                            <TableHead>{t.users.columns.status}</TableHead>
+                            <TableHead className="text-right">{t.users.columns.actions}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
