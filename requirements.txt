@@ -1,0 +1,5 @@
+# Event Stock Management System Requirements
+# Python 3.7+
+
+# No external dependencies required for basic functionality
+# All modules use Python standard library
