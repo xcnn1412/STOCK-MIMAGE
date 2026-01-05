@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
+import { cookies } from 'next/headers'
 
 function createServerSupabase() {
     return createClient(
@@ -18,6 +19,12 @@ function createServerSupabase() {
 }
 
 export async function createItem(prevState: any, formData: FormData) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) {
+      return { error: 'Unauthorized: No active session' }
+  }
+
   const name = formData.get('name') as string
   const category = formData.get('category') as string
   const serial_number = formData.get('serial_number') as string
