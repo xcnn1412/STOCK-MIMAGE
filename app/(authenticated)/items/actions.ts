@@ -84,7 +84,8 @@ export async function createItem(prevState: any, formData: FormData) {
       name, 
       category, 
       serial_number, 
-      quantity 
+      quantity,
+      image_url 
   }, undefined)
 
   revalidatePath('/items')

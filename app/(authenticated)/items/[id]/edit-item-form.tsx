@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from 'next/link'
 import { ArrowLeft, Trash, X } from "lucide-react"
+import { compressImage } from "@/lib/utils"
 
 export default function EditItemForm({ item }: { item: any }) {
   const [state, formAction, isPending] = useActionState(updateItem.bind(null, item.id), { error: '' })
@@ -42,7 +43,7 @@ export default function EditItemForm({ item }: { item: any }) {
 
   const totalImagesCount = existingImages.length + newFiles.length
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files) {
           const files = Array.from(e.target.files)
           if (totalImagesCount + files.length > 4) {
@@ -51,8 +52,22 @@ export default function EditItemForm({ item }: { item: any }) {
               e.target.value = ""
               return
           }
+
+          const processedFiles = await Promise.all(
+             files.map(async (file) => {
+                 if (file.type.startsWith('image/')) {
+                     try {
+                         return await compressImage(file)
+                     } catch (err) {
+                         console.error("Compression failed", err)
+                         return file
+                     }
+                 }
+                 return file
+             })
+          )
           
-          const newEntries = files.map(file => ({
+          const newEntries = processedFiles.map(file => ({
               file,
               preview: URL.createObjectURL(file)
           }))

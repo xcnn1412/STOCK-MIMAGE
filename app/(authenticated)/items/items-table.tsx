@@ -14,6 +14,17 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+  } from "@/components/ui/alert-dialog"
 
 type Item = {
     id: string
@@ -234,11 +245,27 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                                 <Eye className="h-4 w-4" />
                             </Button>
                         </Link>
-                        <form action={deleteItemAction.bind(null, item.id)}>
-                            <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50" title="Delete">
-                                 <Trash className="h-4 w-4" />
-                            </Button>
-                        </form>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50" title="Delete">
+                                     <Trash className="h-4 w-4" />
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This action cannot be undone. This will permanently delete <b>{item.name}</b> from the inventory.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <form action={deleteItemAction.bind(null, item.id)}>
+                                        <AlertDialogAction type="submit" className="bg-red-600 hover:bg-red-700 text-white border-none">Delete</AlertDialogAction>
+                                    </form>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     </div>
                 </TableCell>
               </TableRow>
