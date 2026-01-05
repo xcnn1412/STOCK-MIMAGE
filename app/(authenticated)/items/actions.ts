@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { logActivity } from '@/lib/logger'
 
 function createServerSupabase() {
     return createClient(
@@ -62,7 +63,9 @@ export async function createItem(prevState: any, formData: FormData) {
   // Store as JSON string if multiple, or null
   const image_url = imageUrls.length > 0 ? JSON.stringify(imageUrls) : null
 
-  const { error } = await supabase.from('items').insert({
+// ... existing code ...
+
+  const { data: newItem, error } = await supabase.from('items').insert({
     name,
     category,
     serial_number,
@@ -70,12 +73,19 @@ export async function createItem(prevState: any, formData: FormData) {
     price: price ? parseFloat(price) : null,
     quantity: quantity ? parseInt(quantity) : 1,
     image_url
-  })
+  }).select().single()
 
   if (error) {
      console.error('Insert error', error)
      return { error: error.message }
   }
+
+  await logActivity('CREATE_ITEM', { 
+      name, 
+      category, 
+      serial_number, 
+      quantity 
+  }, undefined)
 
   revalidatePath('/items')
   redirect('/items')

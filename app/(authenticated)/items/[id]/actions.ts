@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { logActivity } from '@/lib/logger'
 
 function createServerSupabase() {
     return createClient(
@@ -45,7 +46,11 @@ export async function updateItem(id: string, prevState: any, formData: FormData)
 
   const supabase = createServerSupabase()
   
+  // Fetch current state for logging
+  const { data: currentItem } = await supabase.from('items').select('*').eq('id', id).single()
+
   for (const image of validNewImages) {
+
     const filename = `${Date.now()}-${Math.random().toString(36).substring(7)}-${image.name.replace(/[^a-zA-Z0-9.]/g, '_')}`
     
     const arrayBuffer = await image.arrayBuffer()
@@ -82,6 +87,21 @@ export async function updateItem(id: string, prevState: any, formData: FormData)
      return { error: error.message }
   }
 
+  const changes: any = {}
+  if (currentItem) {
+      Object.keys(updates).forEach(key => {
+          if (JSON.stringify(updates[key]) !== JSON.stringify(currentItem[key])) {
+              changes[key] = { from: currentItem[key], to: updates[key] }
+          }
+      })
+  }
+
+  await logActivity('UPDATE_ITEM', { 
+      id,
+      name: updates.name,
+      changes
+  }, undefined)
+
   revalidatePath('/items')
   redirect('/items')
 }
@@ -89,6 +109,9 @@ export async function updateItem(id: string, prevState: any, formData: FormData)
 export async function deleteItem(id: string) {
     const supabase = createServerSupabase()
     
+    // Fetch item details before deletion for logging
+    const { data: item } = await supabase.from('items').select('name').eq('id', id).single()
+
     // Optional: Delete images from storage. 
     // We would need to fetch the item first to get image URLs.
     
@@ -96,5 +119,10 @@ export async function deleteItem(id: string) {
     if (error) {
         throw new Error(error.message)
     }
+
+    await logActivity('DELETE_ITEM', { 
+        id, 
+        name: item?.name || 'Unknown Item' 
+    }, undefined)
     revalidatePath('/items')
 }

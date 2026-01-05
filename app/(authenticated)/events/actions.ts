@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { logActivity } from '@/lib/logger'
 
 function createServerSupabase() {
     return createClient(
@@ -52,6 +53,12 @@ export async function createEvent(prevState: any, formData: FormData) {
       }
   }
 
+  await logActivity('CREATE_EVENT', { 
+      name, 
+      location, 
+      kitIds 
+  }, undefined)
+
   revalidatePath('/events')
   redirect('/events')
 }
@@ -99,6 +106,12 @@ export async function updateEvent(id: string, prevState: any, formData: FormData
           .in('id', selectedKitIds)
   }
 
+  await logActivity('UPDATE_EVENT', { 
+      id, 
+      name, 
+      kitIds: selectedKitIds 
+  }, undefined)
+
   revalidatePath('/events')
   revalidatePath(`/events/${id}/edit`)
   redirect('/events')
@@ -133,6 +146,8 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
          console.error("Delete event failed", error)
          // Should we throw?
      }
+
+     await logActivity('DELETE_EVENT', { eventId, reason: 'return' }, undefined)
 
      revalidatePath('/events')
      revalidatePath('/items')

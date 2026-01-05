@@ -2,6 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
+import { logActivity } from '@/lib/logger'
 
 function createServerSupabase() {
     return createClient(
@@ -24,6 +25,8 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
     return { error: 'Failed to add item' }
   }
 
+  await logActivity('ADD_KIT_ITEM', { kitId, itemId, quantity }, undefined)
+
   revalidatePath(`/kits/${kitId}`)
 }
 
@@ -35,6 +38,8 @@ export async function removeItemFromKit(contentId: string, kitId: string, formDa
       console.error(error)
       return { error: 'Failed to remove item' }
   }
+
+  await logActivity('REMOVE_KIT_ITEM', { contentId, kitId }, undefined)
 
   revalidatePath(`/kits/${kitId}`)
 }
@@ -48,12 +53,7 @@ export async function updateKitItemQuantity(contentId: string, quantity: number)
         throw new Error('Failed to update quantity')
     }
     
-    // We can't easily retrieve kitId here without fetching, but revalidating all kits paths might be excessive?
-    // A better approach would be to pass kitId from the component.
-    // For now, let's just assume we might need to refresh the page. 
-    // BUT since we are in a server action called from a client component on a dynamic route, 
-    // revalidatePath with 'page' type usually works if we knew the URL.
-    // Without kitId, we can't be specific. Let's make the user pass kitId?
-    // Or just revalidate everything under /kits which is acceptable for this scale.
+    await logActivity('UPDATE_KIT_ITEM', { contentId, quantity }, undefined)
+
     revalidatePath('/kits', 'layout')
 }

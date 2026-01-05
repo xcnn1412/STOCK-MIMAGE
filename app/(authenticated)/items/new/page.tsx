@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from 'next/link'
 import { ArrowLeft, X } from "lucide-react"
+import { compressImage } from "@/lib/utils"
 
 const initialState = {
   error: '',
@@ -153,11 +154,36 @@ export default function NewItemPage() {
                  type="file" 
                  accept="image/*" 
                  multiple 
-                 onChange={(e) => {
-                     if (e.target.files && e.target.files.length > 4) {
+                 onChange={async (e) => {
+                     const files = e.target.files
+                     if (!files) return
+                     
+                     if (files.length > 4) {
                          alert("Maximum 4 files allowed")
                          e.target.value = ""
+                         return
                      }
+
+                     // Compress images
+                     const dataTransfer = new DataTransfer()
+                     for (let i = 0; i < files.length; i++) {
+                         const file = files[i]
+                         if (!file.type.startsWith('image/')) {
+                             dataTransfer.items.add(file)
+                             continue
+                         }
+
+                         try {
+                            const compressed = await compressImage(file)
+                            dataTransfer.items.add(compressed)
+                         } catch (err) {
+                             console.error("Compression failed for", file.name, err)
+                             dataTransfer.items.add(file) // Fallback to original
+                         }
+                     }
+                     
+                     // Update input files
+                     e.target.files = dataTransfer.files
                  }}
               />
             </div>
