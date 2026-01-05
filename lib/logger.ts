@@ -72,11 +72,19 @@ export async function logActivity(
         } 
         */
        
-       // Try to get location from Vercel headers if available
-       const city = headersList.get('x-vercel-ip-city')
-       const country = headersList.get('x-vercel-ip-country')
+       // Try to get location from various headers (Vercel, Cloudflare, etc.)
+       const city = headersList.get('x-vercel-ip-city') || headersList.get('cf-ipcity') || headersList.get('x-geo-city')
+       const country = headersList.get('x-vercel-ip-country') || headersList.get('cf-ipcountry') || headersList.get('x-geo-country')
+       
        if (city && country) {
            location = `${city}, ${country}`
+           // Some providers might give lat/long headers too (e.g. x-vercel-ip-latitude), but city/country is often enough for reading.
+           const latHeader = headersList.get('x-vercel-ip-latitude') || headersList.get('cf-iplatitude')
+           const longHeader = headersList.get('x-vercel-ip-longitude') || headersList.get('cf-iplongitude')
+           if (latHeader && longHeader) {
+               latitude = parseFloat(latHeader)
+               longitude = parseFloat(longHeader)
+           }
        } else if (ip === '::1' || ip === '127.0.0.1') {
             location = 'Localhost'
        }
