@@ -169,6 +169,75 @@ function LogDetails({ log }: { log: any }) {
 
     // Kits
     if (action.includes('KIT')) {
+        if (action === 'ADD_KIT_ITEM') {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-green-600">Added Item to Kit</span>
+                    {details.itemName ? (
+                        <div className="text-sm">
+                            Added <b>{details.itemName}</b> to kit <span className="font-semibold text-blue-600">{details.kitName}</span>
+                            {details.quantity > 1 && <span className="text-xs text-muted-foreground ml-2">(Qty: {details.quantity})</span>}
+                        </div>
+                    ) : (
+                         <span className="text-xs text-muted-foreground italic truncate">{JSON.stringify(details)}</span>
+                    )}
+                </div>
+            )
+        }
+        
+        if (action === 'REMOVE_KIT_ITEM') {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-red-600">Removed Item from Kit</span>
+                    {details.itemName ? (
+                        <div className="text-sm">
+                            Removed <b>{details.itemName}</b> from kit <span className="font-semibold text-blue-600">{details.kitName}</span>
+                        </div>
+                    ) : (
+                        <span className="text-xs text-muted-foreground italic truncate">{JSON.stringify(details)}</span>
+                    )}
+                </div>
+            )
+        }
+
+        if (action === 'UPDATE_KIT_ITEM') {
+             return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-orange-600">Updated Kit Item</span>
+                     {details.itemName ? (
+                        <div className="text-sm">
+                            <b>{details.itemName}</b> in <span className="font-semibold text-blue-600">{details.kitName}</span>
+                            <div className="text-xs text-muted-foreground">
+                                Qty: {details.oldQuantity} &rarr; {details.newQuantity}
+                            </div>
+                        </div>
+                    ) : (
+                        <span className="text-xs text-muted-foreground italic truncate">{JSON.stringify(details)}</span>
+                    )}
+                </div>
+            )
+        }
+
+        if (action === 'CREATE_KIT') {
+             return (
+                <div className="flex flex-col gap-1">
+                    <span className="font-medium text-green-600">Created Kit</span>
+                    <div className="text-sm font-semibold">{details.name}</div>
+                    {details.description && <span className="text-xs text-muted-foreground">{details.description}</span>}
+                </div>
+            )
+        }
+
+        if (action === 'DELETE_KIT') {
+            return (
+               <div className="flex flex-col gap-1">
+                   <span className="font-medium text-red-600">Deleted Kit</span>
+                   <div className="text-sm font-semibold">{details.name || <span className="font-mono font-normal text-xs">{details.id}</span>}</div>
+                   {!details.name && <span className="text-xs text-muted-foreground italic">(Legacy log)</span>}
+               </div>
+           )
+       }
+
         return (
             <div className="flex flex-col gap-1">
                 <span className="font-medium">{action.replace(/_/g, ' ')}</span>

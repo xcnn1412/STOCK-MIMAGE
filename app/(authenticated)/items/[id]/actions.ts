@@ -112,9 +112,44 @@ export async function deleteItem(id: string) {
     // Fetch item details before deletion for logging
     const { data: item } = await supabase.from('items').select('name, image_url').eq('id', id).single()
 
-    // Optional: Delete images from storage. 
-    // We would need to fetch the item first to get image URLs.
+    // Delete images from storage. 
+    if (item?.image_url) {
+        let imageUrls: string[] = []
+        try {
+             if (item.image_url.startsWith('[')) {
+                 imageUrls = JSON.parse(item.image_url)
+             } else {
+                 imageUrls = [item.image_url]
+             }
+        } catch (e) {
+             console.error("Error parsing image_url for deletion", e)
+        }
+
+        if (imageUrls.length > 0) {
+             const paths = imageUrls.map(url => {
+                 const parts = url.split('/item-images/')
+                 if (parts.length > 1) return parts[1]
+                 return null
+             }).filter(p => p !== null) as string[]
+             
+             if (paths.length > 0) {
+                 const { error: storageError } = await supabase.storage.from('item-images').remove(paths)
+                 if (storageError) {
+                     console.error("Failed to delete images from storage", storageError)
+                 }
+             }
+        }
+    }
     
+
+    // Clean up kit contents relationships
+    const { error: kitRefError } = await supabase.from('kit_contents').delete().eq('item_id', id)
+    if (kitRefError) {
+        console.error("Failed to cleanup kit references", kitRefError)
+        // We might want to stop here? Or try to proceed? 
+        // If the FK is restrict, the next delete will fail anyway.
+    }
+
     const { error } = await supabase.from('items').delete().eq('id', id)
     if (error) {
         throw new Error(error.message)

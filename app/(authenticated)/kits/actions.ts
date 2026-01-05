@@ -35,12 +35,20 @@ export async function createKit(prevState: any, formData: FormData) {
 
 export async function deleteKit(id: string) {
     const supabase = createServerSupabase()
+    
+    // Fetch details before delete
+    const { data: kit } = await supabase.from('kits').select('name').eq('id', id).single()
+
     const { error } = await supabase.from('kits').delete().eq('id', id)
     
     if (error) {
         throw new Error(error.message)
     }
     
-    await logActivity('DELETE_KIT', { id }, undefined)
+    await logActivity('DELETE_KIT', { 
+        name: kit?.name || 'Unknown Kit',
+        id 
+    }, undefined)
+    
     revalidatePath('/kits')
 }
