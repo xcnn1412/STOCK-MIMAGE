@@ -101,13 +101,8 @@ class StockManager:
         if not event or not item:
             return False
         
-        if item_id not in event.stock_allocations:
-            return False
-        
-        if event.stock_allocations[item_id] < quantity:
-            raise ValueError(f"Event doesn't have enough allocated stock")
-        
         # Return to main stock and deallocate from event
+        # The event.deallocate_stock will handle validation and raise ValueError if needed
         item.update_quantity(quantity)
         event.deallocate_stock(item_id, quantity)
         return True
@@ -151,18 +146,25 @@ class StockManager:
     def load_from_file(self, filename: str = "stock_data.json"):
         """Load stock data from JSON file"""
         try:
+            from datetime import datetime
+            
             with open(filename, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
             # Load stock items
             for item_id, item_data in data.get('stock_items', {}).items():
-                self.add_stock_item(
+                item = self.add_stock_item(
                     item_id, 
                     item_data['name'],
                     item_data['quantity'],
                     item_data['category'],
                     item_data.get('unit', 'pieces')
                 )
+                # Restore timestamps if available
+                if 'created_at' in item_data:
+                    item.created_at = datetime.fromisoformat(item_data['created_at'])
+                if 'updated_at' in item_data:
+                    item.updated_at = datetime.fromisoformat(item_data['updated_at'])
             
             # Load events
             for event_id, event_data in data.get('events', {}).items():
@@ -173,6 +175,9 @@ class StockManager:
                     event_data['location']
                 )
                 event.stock_allocations = event_data.get('stock_allocations', {})
+                # Restore timestamp if available
+                if 'created_at' in event_data:
+                    event.created_at = datetime.fromisoformat(event_data['created_at'])
             
             return True
         except FileNotFoundError:

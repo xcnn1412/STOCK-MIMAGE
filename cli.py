@@ -40,13 +40,13 @@ class StockCLI:
     def add_stock_item(self):
         """Add a new stock item"""
         print("\n--- Add Stock Item ---")
-        item_id = input("Item ID: ").strip()
-        name = input("Item Name: ").strip()
-        quantity = int(input("Quantity: ").strip())
-        category = input("Category: ").strip()
-        unit = input("Unit (default: pieces): ").strip() or "pieces"
-        
         try:
+            item_id = input("Item ID: ").strip()
+            name = input("Item Name: ").strip()
+            quantity = int(input("Quantity: ").strip())
+            category = input("Category: ").strip()
+            unit = input("Unit (default: pieces): ").strip() or "pieces"
+            
             item = self.manager.add_stock_item(item_id, name, quantity, category, unit)
             print(f"✓ Added: {item}")
         except ValueError as e:
@@ -67,10 +67,10 @@ class StockCLI:
     def update_stock_quantity(self):
         """Update stock quantity"""
         print("\n--- Update Stock Quantity ---")
-        item_id = input("Item ID: ").strip()
-        amount = int(input("Amount (positive to add, negative to remove): ").strip())
-        
         try:
+            item_id = input("Item ID: ").strip()
+            amount = int(input("Amount (positive to add, negative to remove): ").strip())
+            
             if self.manager.update_stock_quantity(item_id, amount):
                 item = self.manager.get_stock_item(item_id)
                 print(f"✓ Updated: {item}")
@@ -82,15 +82,18 @@ class StockCLI:
     def view_low_stock(self):
         """View low stock items"""
         print("\n--- Low Stock Items ---")
-        threshold = int(input("Threshold (default: 10): ").strip() or "10")
-        items = self.manager.get_low_stock_items(threshold)
-        
-        if not items:
-            print("No low stock items.")
-            return
-        
-        for item in items:
-            print(f"  ⚠ {item}")
+        try:
+            threshold = int(input("Threshold (default: 10): ").strip() or "10")
+            items = self.manager.get_low_stock_items(threshold)
+            
+            if not items:
+                print("No low stock items.")
+                return
+            
+            for item in items:
+                print(f"  ⚠ {item}")
+        except ValueError as e:
+            print(f"✗ Error: Invalid threshold value")
     
     def remove_stock_item(self):
         """Remove a stock item"""
@@ -133,11 +136,11 @@ class StockCLI:
     def allocate_stock(self):
         """Allocate stock to event"""
         print("\n--- Allocate Stock to Event ---")
-        event_id = input("Event ID: ").strip()
-        item_id = input("Item ID: ").strip()
-        quantity = int(input("Quantity: ").strip())
-        
         try:
+            event_id = input("Event ID: ").strip()
+            item_id = input("Item ID: ").strip()
+            quantity = int(input("Quantity: ").strip())
+            
             if self.manager.allocate_stock_to_event(event_id, item_id, quantity):
                 print(f"✓ Allocated {quantity} units of {item_id} to event {event_id}")
             else:
@@ -148,11 +151,11 @@ class StockCLI:
     def deallocate_stock(self):
         """Deallocate stock from event"""
         print("\n--- Deallocate Stock from Event ---")
-        event_id = input("Event ID: ").strip()
-        item_id = input("Item ID: ").strip()
-        quantity = int(input("Quantity: ").strip())
-        
         try:
+            event_id = input("Event ID: ").strip()
+            item_id = input("Item ID: ").strip()
+            quantity = int(input("Quantity: ").strip())
+            
             if self.manager.deallocate_stock_from_event(event_id, item_id, quantity):
                 print(f"✓ Deallocated {quantity} units of {item_id} from event {event_id}")
             else:

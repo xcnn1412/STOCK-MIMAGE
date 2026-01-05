@@ -60,9 +60,13 @@ class Event:
     def deallocate_stock(self, item_id: str, quantity: int):
         """Deallocate stock from this event"""
         if item_id in self.stock_allocations:
+            if self.stock_allocations[item_id] < quantity:
+                raise ValueError(f"Cannot deallocate {quantity} units. Only {self.stock_allocations[item_id]} units allocated.")
             self.stock_allocations[item_id] -= quantity
             if self.stock_allocations[item_id] <= 0:
                 del self.stock_allocations[item_id]
+        else:
+            raise ValueError(f"Item {item_id} is not allocated to this event.")
     
     def to_dict(self):
         """Convert the event to a dictionary"""
