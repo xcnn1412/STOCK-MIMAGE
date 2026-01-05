@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { logActivity } from '@/lib/logger'
 
 function createServerSupabase() {
     return createClient(
@@ -17,14 +18,16 @@ export async function createKit(prevState: any, formData: FormData) {
   const description = formData.get('description') as string
 
   const supabase = createServerSupabase()
-  const { error } = await supabase.from('kits').insert({
+  const { data: newKit, error } = await supabase.from('kits').insert({
     name,
     description
-  })
+  }).select().single()
 
   if (error) {
      return { error: error.message }
   }
+
+  await logActivity('CREATE_KIT', { name, description }, undefined, undefined)
 
   revalidatePath('/kits')
   redirect('/kits')
@@ -37,5 +40,7 @@ export async function deleteKit(id: string) {
     if (error) {
         throw new Error(error.message)
     }
+    
+    await logActivity('DELETE_KIT', { id }, undefined)
     revalidatePath('/kits')
 }
