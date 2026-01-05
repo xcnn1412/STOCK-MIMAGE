@@ -1,0 +1,181 @@
+'use client'
+
+import { useActionState, useState } from 'react'
+import { createItem } from '../actions'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import Link from 'next/link'
+import { ArrowLeft, X } from "lucide-react"
+
+const initialState = {
+  error: '',
+}
+
+function CategorySelector() {
+    const [value, setValue] = useState("")
+    const [isCustom, setIsCustom] = useState(false)
+  
+    const categories = [
+      "กล้องถ่ายภาพ",
+      "อุปกรณ์ออกอีเวนต์",
+      "ไฟต่อเนื่อง",
+      "ไฟแฟลช",
+      "สายไฟ"
+    ]
+  
+    const handleSelectChange = (val: string) => {
+      if (val === "other") {
+        setIsCustom(true)
+        setValue("")
+      } else {
+        setIsCustom(false)
+        setValue(val)
+      }
+    }
+  
+    return (
+      <div className="space-y-2">
+        {!isCustom ? (
+            <>
+                <Select onValueChange={handleSelectChange} value={value}>
+                <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                    {categories.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                    <SelectItem value="other" className="font-medium text-blue-600">
+                    + Add New Category
+                    </SelectItem>
+                </SelectContent>
+                </Select>
+                {/* Hidden input to submit the value */}
+                <input type="hidden" name="category" value={value} />
+            </>
+        ) : (
+             <div className="flex gap-2">
+                <Input 
+                    name="category" 
+                    placeholder="Enter category name" 
+                    autoFocus 
+                    required 
+                />
+                <Button 
+                    type="button" 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => {
+                        setIsCustom(false)
+                        setValue("")
+                    }}
+                    title="Back to list"
+                >
+                    <X className="h-4 w-4" />
+                </Button>
+             </div>
+        )}
+      </div>
+    )
+  }
+
+export default function NewItemPage() {
+  const [state, formAction, isPending] = useActionState(createItem, initialState)
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6">
+      <div className="flex items-center gap-4">
+        <Link href="/items">
+          <Button variant="ghost" size="icon">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </Link>
+        <h2 className="text-3xl font-bold tracking-tight">New Item</h2>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Item Details</CardTitle>
+          <CardDescription>Add a new item to the inventory (Max 4 images).</CardDescription>
+        </CardHeader>
+        <form action={formAction}>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="name" className="text-sm font-medium leading-none">Name</label>
+              <Input id="name" name="name" placeholder="Item name" required />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label htmlFor="category" className="text-sm font-medium leading-none">Category</label>
+                <CategorySelector />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="price" className="text-sm font-medium leading-none">Price</label>
+                <Input id="price" name="price" type="number" step="0.01" placeholder="0.00" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+               <div className="space-y-2">
+                <label htmlFor="quantity" className="text-sm font-medium leading-none">Quantity</label>
+                <Input id="quantity" name="quantity" type="number" min="1" defaultValue="1" required />
+              </div>
+               <div className="space-y-2">
+                 <label htmlFor="serial_number" className="text-sm font-medium leading-none">Serial Number</label>
+                 <Input id="serial_number" name="serial_number" placeholder="Optional" />
+               </div>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="status" className="text-sm font-medium leading-none">Status</label>
+              <Select name="status" defaultValue="available">
+                <SelectTrigger>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="available">Available</SelectItem>
+                  <SelectItem value="in_use">In Use</SelectItem>
+                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                  <SelectItem value="lost">Lost</SelectItem>
+                  <SelectItem value="purchasing">Purchasing</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="images" className="text-sm font-medium leading-none">Images (Max 4)</label>
+              <Input 
+                 id="images" 
+                 name="images" 
+                 type="file" 
+                 accept="image/*" 
+                 multiple 
+                 onChange={(e) => {
+                     if (e.target.files && e.target.files.length > 4) {
+                         alert("Maximum 4 files allowed")
+                         e.target.value = ""
+                     }
+                 }}
+              />
+            </div>
+
+            {state?.error && (
+              <p className="text-sm text-red-500">{state.error}</p>
+            )}
+          </CardContent>
+          <CardFooter className="flex justify-end gap-2">
+            <Link href="/items">
+                <Button variant="outline" type="button">Cancel</Button>
+            </Link>
+            <Button type="submit" disabled={isPending}>
+              {isPending ? "Saving..." : "Create Item"}
+            </Button>
+          </CardFooter>
+        </form>
+      </Card>
+    </div>
+  )
+}
