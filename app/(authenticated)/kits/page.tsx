@@ -1,0 +1,64 @@
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import { Button } from "@/components/ui/button"
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card"
+import { Plus, Briefcase, QrCode, Trash } from "lucide-react"
+import { deleteKitAction } from './delete-kit-action'
+import { DeleteKitButton } from './delete-kit-button'
+
+export const revalidate = 0
+
+export default async function KitsPage() {
+  const { data: kits } = await supabase
+    .from('kits')
+    .select('*, kit_contents(id)')
+    .order('name')
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-bold tracking-tight">Kits</h2>
+        <Link href="/kits/new">
+          <Button>
+            <Plus className="mr-2 h-4 w-4" /> Create Kit
+          </Button>
+        </Link>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {kits?.map((kit) => (
+          <Card key={kit.id} className="flex flex-col hover:shadow-md transition-shadow">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-zinc-500" />
+                {kit.name}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1">
+              <p className="text-sm text-zinc-500 mb-4 line-clamp-2">{kit.description || "No description"}</p>
+              <div className="text-sm">
+                <span className="font-medium">{kit.kit_contents?.length || 0}</span> items inside
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-between border-t p-4 bg-zinc-50 dark:bg-zinc-900 rounded-b-xl gap-2">
+               <Link href={`/kits/${kit.id}`} className="flex-1">
+                <Button variant="outline" className="w-full">Manage</Button>
+               </Link>
+               <Link href={`/kits/${kit.id}/print`}>
+                 <Button variant="ghost" size="icon" title="Print QR">
+                    <QrCode className="h-4 w-4" />
+                 </Button>
+               </Link>
+               <DeleteKitButton id={kit.id} />
+            </CardFooter>
+          </Card>
+        ))}
+         {(!kits || kits.length === 0) && (
+              <div className="col-span-full text-center text-zinc-500 py-12 border rounded-lg border-dashed">
+                  No kits found. Create one to get started.
+              </div>
+         )}
+      </div>
+    </div>
+  )
+}
