@@ -136,6 +136,9 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
         .update({ event_id: null })
         .eq('event_id', eventId)
 
+     // Fetch event details before deletion
+     const { data: event } = await supabase.from('events').select('name').eq('id', eventId).single()
+
      // 3. Delete the event
      const { error } = await supabase
         .from('events')
@@ -147,7 +150,11 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
          // Should we throw?
      }
 
-     await logActivity('DELETE_EVENT', { eventId, reason: 'return' }, undefined)
+     await logActivity('DELETE_EVENT', { 
+         eventId, 
+         name: event?.name || 'Unknown Event',
+         reason: 'return' 
+     }, undefined)
 
      revalidatePath('/events')
      revalidatePath('/items')

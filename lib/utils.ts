@@ -5,7 +5,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export async function compressImage(file: File, maxSizeMB: number = 5): Promise<File> {
+export async function compressImage(file: File, maxSizeMB: number = 1): Promise<File> {
     if (file.size <= maxSizeMB * 1024 * 1024) {
         return file;
     }
@@ -24,11 +24,10 @@ export async function compressImage(file: File, maxSizeMB: number = 5): Promise<
             const canvas = document.createElement('canvas');
             
             // Calculate new dimensions (maintain aspect ratio)
-            // If image is very large, resizing helps compression
-            // Let's cap max dimension at 2500px which is good for web
+            // Cap max dimension at 1600px for bandwidth optimization
             let width = img.width;
             let height = img.height;
-            const maxDimension = 2500;
+            const maxDimension = 1600;
 
             if (width > maxDimension || height > maxDimension) {
                 if (width > height) {
@@ -52,7 +51,7 @@ export async function compressImage(file: File, maxSizeMB: number = 5): Promise<
             ctx.drawImage(img, 0, 0, width, height);
 
             // Attempt compression
-            // standard jpeg quality 0.8 is usually safe and efficient
+            // Reduced to 0.75 for better savings while maintaining acceptable quality
             canvas.toBlob(
                 (blob) => {
                     if (!blob) {
@@ -60,7 +59,7 @@ export async function compressImage(file: File, maxSizeMB: number = 5): Promise<
                         return;
                     }
                     
-                    // If result is still larger than limit (unlikely with resize), try lower quality
+                    // If result is still larger than limit, try lower quality
                     if (blob.size > maxSizeMB * 1024 * 1024) {
                          canvas.toBlob((blob2) => {
                              if (blob2) {
@@ -82,7 +81,7 @@ export async function compressImage(file: File, maxSizeMB: number = 5): Promise<
                     }
                 },
                 'image/jpeg',
-                0.8
+                0.75
             );
         };
         

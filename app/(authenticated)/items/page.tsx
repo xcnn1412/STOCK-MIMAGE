@@ -7,7 +7,7 @@ import { Plus, Eye, Trash } from "lucide-react"
 import { deleteItemAction } from './[id]/delete-action'
 import ItemsTable from './items-table'
 
-export const revalidate = 0 
+export const revalidate = 3600 
 
 export default async function ItemsPage() {
   const { data: items } = await supabase

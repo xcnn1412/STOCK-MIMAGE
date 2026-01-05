@@ -110,7 +110,7 @@ export async function deleteItem(id: string) {
     const supabase = createServerSupabase()
     
     // Fetch item details before deletion for logging
-    const { data: item } = await supabase.from('items').select('name').eq('id', id).single()
+    const { data: item } = await supabase.from('items').select('name, image_url').eq('id', id).single()
 
     // Optional: Delete images from storage. 
     // We would need to fetch the item first to get image URLs.
@@ -122,7 +122,8 @@ export async function deleteItem(id: string) {
 
     await logActivity('DELETE_ITEM', { 
         id, 
-        name: item?.name || 'Unknown Item' 
+        name: item?.name || 'Unknown Item',
+        images: item?.image_url
     }, undefined)
     revalidatePath('/items')
 }
