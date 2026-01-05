@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { headers, cookies } from 'next/headers'
+import geoip from 'geoip-lite'
 
 // Use a separate client for logging that uses the service role or at least has insert permissions
 // Since we don't have SERVICE_KEY in the env vars checked previously (only ANON), 
@@ -35,6 +36,12 @@ export type ActionType =
     | 'CREATE_EVENT'
     | 'UPDATE_EVENT'
     | 'DELETE_EVENT'
+    | 'CREATE_TEMPLATE'
+    | 'UPDATE_TEMPLATE'
+    | 'DELETE_TEMPLATE'
+    | 'ADD_TEMPLATE_ITEM'
+    | 'REMOVE_TEMPLATE_ITEM'
+    | 'UPDATE_TEMPLATE_STATUS'
 
 export async function logActivity(
     action: ActionType,
@@ -45,8 +52,30 @@ export async function logActivity(
     try {
         const supabase = getSupabase()
         const headersList = await headers()
-        const ip = headersList.get('x-forwarded-for') || 'unknown'
+        let ip = headersList.get('x-forwarded-for') || 'unknown'
+        
+        // Handle multiple IPs (e.g. "1.2.3.4, 5.6.7.8")
+        if (ip.includes(',')) {
+            ip = ip.split(',')[0].trim()
+        }
+
         const userAgent = headersList.get('user-agent') || 'unknown'
+        
+        // GeoIP Lookup
+        let latitude: number | null = null
+        let longitude: number | null = null
+        let location: string | null = null
+        
+        if (ip && ip !== 'unknown' && ip !== '::1' && ip !== '127.0.0.1') {
+            const geo = geoip.lookup(ip)
+            if (geo) {
+                latitude = geo.ll[0]
+                longitude = geo.ll[1]
+                location = [geo.city, geo.country].filter(Boolean).join(', ')
+            }
+        } else if (ip === '::1' || ip === '127.0.0.1') {
+            location = 'Localhost'
+        }
         
         // Determine Actor
         let userId = overrideUserId
@@ -66,7 +95,10 @@ export async function logActivity(
             target_user_id: targetUserId || null,
             details,
             ip_address: ip,
-            user_agent: userAgent
+            user_agent: userAgent,
+            location,
+            latitude,
+            longitude
         })
 
     } catch (error) {

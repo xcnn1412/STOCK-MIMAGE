@@ -8,12 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Textarea } from "@/components/ui/textarea"
 import Link from 'next/link'
 import { ArrowLeft } from "lucide-react"
+import { useLanguage } from '@/contexts/language-context'
 
 const initialState = {
   error: '',
 }
 
 export default function NewKitPage() {
+  const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(createKit, initialState)
 
   return (
@@ -24,24 +26,24 @@ export default function NewKitPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <h2 className="text-3xl font-bold tracking-tight">New Kit</h2>
+        <h2 className="text-3xl font-bold tracking-tight">{t.kits.newTitle}</h2>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Kit Details</CardTitle>
-          <CardDescription>Create a new kit to assign items to.</CardDescription>
+          <CardTitle>{t.kits.newTitle}</CardTitle>
+          <CardDescription>{t.kits.newSubtitle}</CardDescription>
         </CardHeader>
         <form action={formAction}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="name" className="text-sm font-medium leading-none">Name</label>
-              <Input id="name" name="name" placeholder="Kit Name" required />
+              <label htmlFor="name" className="text-sm font-medium leading-none">{t.kits.fields.name}</label>
+              <Input id="name" name="name" placeholder={t.kits.fields.name} required />
             </div>
             
             <div className="space-y-2">
-              <label htmlFor="description" className="text-sm font-medium leading-none">Description</label>
-              <Textarea id="description" name="description" placeholder="Describe the kit contents or purpose" />
+              <label htmlFor="description" className="text-sm font-medium leading-none">{t.kits.fields.description}</label>
+              <Textarea id="description" name="description" placeholder={t.kits.fields.description} />
             </div>
 
             {state?.error && (
@@ -50,10 +52,10 @@ export default function NewKitPage() {
           </CardContent>
           <CardFooter className="flex justify-end gap-2">
             <Link href="/kits">
-                <Button variant="outline" type="button">Cancel</Button>
+                <Button variant="outline" type="button">{t.common.cancel}</Button>
             </Link>
             <Button type="submit" disabled={isPending}>
-              {isPending ? "Saving..." : "Create Kit"}
+              {isPending ? t.common.save + "..." : t.kits.createKit}
             </Button>
           </CardFooter>
         </form>

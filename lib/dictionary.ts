@@ -1,0 +1,428 @@
+export type Locale = 'en' | 'th'
+
+export const dictionary = {
+  en: {
+    nav: {
+      inventory: 'Inventory',
+      kits: 'Kits',
+      events: 'Events',
+      examples: 'Example Kits',
+      logs: 'System Logs',
+      users: 'Users',
+      dashboard: 'Dashboard',
+    },
+    common: {
+      welcome: 'Welcome back',
+      logout: 'Logout',
+      menu: 'Menu',
+      search: 'Search',
+      actions: 'Actions',
+      view: 'View',
+      edit: 'Edit',
+      delete: 'Delete',
+      manage: 'Manage',
+      save: 'Save',
+      cancel: 'Cancel',
+      back: 'Back',
+      confirm: 'Confirm',
+      status: 'Status',
+      details: 'Details',
+      new: 'New',
+      removing: 'Removing',
+      saving: 'Saving...',
+      noData: 'No data found'
+    },
+    items: {
+      title: 'Inventory',
+      addItem: 'Add Item',
+      newTitle: 'New Item',
+      newSubtitle: 'Add a new item to the inventory (Max 4 images).',
+      editTitle: 'Edit Item',
+      searchPlaceholder: 'Search items...',
+      filterStatus: 'Filter Status',
+      columns: {
+        name: 'Name',
+        category: 'Category',
+        qty: 'Qty',
+        serial: 'Serial #',
+        kit: 'Kit',
+        event: 'Event',
+        status: 'Status',
+        price: 'Price',
+        image: 'Image'
+      },
+      fields: {
+        name: 'Name',
+        category: 'Category',
+        price: 'Price',
+        quantity: 'Quantity',
+        serial: 'Serial Number',
+        status: 'Status',
+        images: 'Images (Max 4)',
+        description: 'Description'
+      },
+      status: {
+        all: 'All',
+        available: 'Available',
+        in_use: 'In Use',
+        maintenance: 'Maintenance',
+        lost: 'Lost',
+        purchasing: 'Purchasing',
+        damaged: 'Damaged'
+      },
+      deleteTitle: 'Delete Item?', 
+      deleteConfirm: 'Permanently delete this item?'
+    },
+    kits: {
+      title: 'Kits',
+      createKit: 'Create Kit',
+      newTitle: 'New Kit',
+      newSubtitle: 'Create a new kit to assign items to.',
+      editTitle: 'Edit Kit',
+      searchPlaceholder: 'Search kits...',
+      itemCount: 'items inside',
+      items: 'Items',
+      contents: 'Contents',
+      contentsSubtitle: 'Items assigned to this kit',
+      addAvailable: 'Add available items',
+      selectKit: 'Select Kit',
+      selectItem: 'Select an item to add',
+      addToKit: 'Add to Kit',
+      noItems: 'No items',
+      manage: 'Manage',
+      printQR: 'Print QR',
+      scanTo: 'SCAN TO CHECKIN / CHECKOUT',
+      preview: 'Preview (450px x 450px)',
+      deleteTitle: 'Delete Kit?',
+      deleteConfirm: 'Only empty kits can be deleted.',
+      fields: {
+        name: 'Name',
+        description: 'Description'
+      }
+    },
+    events: {
+      title: 'Events',
+      createEvent: 'Create Event',
+      newTitle: 'New Event',
+      newSubtitle: 'Schedule a new event.',
+      editTitle: 'Edit Event',
+      trackKits: 'Track Kits',
+      finalizeJob: 'Finalize Job',
+      location: 'Location',
+      status: 'Status',
+      noKits: 'No kits assigned to this event.',
+      manageKits: 'Manage Event Kits',
+      noItemsAssigned: 'No items assigned to this event.',
+      canDeleteDirectly: 'You can delete this event directly.',
+      delete: 'Delete Event',
+      closeReport: 'Close Event Report',
+      confirmClose: 'Confirm Close Event',
+      checkedCount: 'Checked {completed} / {total} Items',
+      fields: {
+        name: 'Event Name',
+        date: 'Date & Time',
+        location: 'Location',
+        description: 'Notes / Description',
+        staff: 'Staff List'
+      }
+    },
+    examples: {
+      title: 'Example Kits',
+      createTemplate: 'Create Template',
+      newTitle: 'New Template',
+      newSubtitle: 'Define what SHOULD be in this type of kit.',
+      editTitle: 'Edit Template',
+      standardItems: 'Standard Items',
+      checklist: 'Checklist',
+      example: 'Example Kit',
+      mode: 'Mode',
+      fields: {
+        name: 'Template Name',
+        description: 'Description',
+        type: 'Type',
+        items: 'Items'
+      },
+      status: {
+        ready: 'Ready',
+        inProgress: 'In Progress',
+        none: 'None'
+      }
+    },
+    logs: {
+      title: 'System Logs',
+      filterUser: 'Filter User',
+      filterAction: 'Filter Action',
+      columns: {
+        timestamp: 'Timestamp',
+        user: 'User',
+        action: 'Action',
+        details: 'Details',
+        ip: 'IP Address'
+      }
+    },
+    users: {
+      title: 'Users',
+      addUser: 'Add User',
+      columns: {
+        lastLogin: 'Last Login',
+        role: 'Role',
+        email: 'Email',
+        fullName: 'Full Name',
+        name: 'Name',
+        phone: 'Phone',
+        status: 'Status',
+        actions: 'Actions'
+      }
+    },
+    dashboard: {
+      title: 'Dashboard',
+      subtitle: 'Inventory Management System',
+      totalInventory: 'Total Inventory',
+      itemsTotal: 'items total',
+      activeUsers: 'Active User',
+      registeredStaff: 'Registered staff',
+      itemsInUse: 'Items In Use',
+      availableRightNow: 'available right now',
+      kitStatus: 'Kit Status',
+      kitsInEvents: 'Kits currently in events',
+      quickAccess: 'Quick Access',
+      activeDeployments: 'Active Deployments',
+      noDeployments: 'No active deployments right now.',
+      manageEquipment: 'Manage equipment',
+      bagManagement: 'Bag management',
+      checkInOut: 'Check-in / Out',
+      standardSets: 'Standard Sets',
+      templates: 'Templates'
+    },
+    checkin: {
+      title: 'Check In/Out',
+      checkout: 'Check Out',
+      checkin: 'Check In',
+      selectEvent: 'Active Event',
+      selectEventPlaceholder: 'Select Event...',
+      noEvents: 'No active events',
+      selectAll: 'Select All',
+      checkoutSelected: 'Checkout Selected',
+      good: 'Good',
+      damaged: 'Damaged',
+      lost: 'Lost',
+      noItemsSelected: 'No items selected',
+      selectEventFirst: 'Please select an event first',
+      successCheckout: 'Items checked out successfully',
+      successCheckin: 'Item marked as',
+      updating: 'Updating...'
+    }
+  },
+  th: {
+    nav: {
+      inventory: 'คลังอุปกรณ์',
+      kits: 'กระเป๋า',
+      events: 'อีเวนต์',
+      examples: 'เช็คลิสต์',
+      logs: 'บันทึกการใช้งาน',
+      users: 'ผู้ใช้งาน',
+      dashboard: 'แดชบอร์ด',
+    },
+    common: {
+      welcome: 'ยินดีต้อนรับ',
+      logout: 'ออกจากระบบ',
+      menu: 'เมนู',
+      search: 'ค้นหา',
+      actions: 'จัดการ',
+      view: 'ดูรายละเอียด',
+      edit: 'แก้ไข',
+      delete: 'ลบ',
+      manage: 'จัดการ',
+      save: 'บันทึก',
+      cancel: 'ยกเลิก',
+      back: 'ย้อนกลับ',
+      confirm: 'ยืนยัน',
+      status: 'สถานะ',
+      details: 'รายละเอียด',
+      new: 'ใหม่',
+      removing: 'กำลังลบ',
+      saving: 'กำลังบันทึก...',
+      noData: 'ไม่พบข้อมูล'
+    },
+    items: {
+      title: 'คลังอุปกรณ์',
+      addItem: 'เพิ่มอุปกรณ์',
+      newTitle: 'เพิ่มอุปกรณ์ใหม่',
+      newSubtitle: 'เพิ่มอุปกรณ์ใหม่เข้าสู่ระบบ (สูงสุด 4 รูป)',
+      editTitle: 'แก้ไขอุปกรณ์',
+      searchPlaceholder: 'ค้นหาอุปกรณ์...',
+      filterStatus: 'กรองสถานะ',
+      columns: {
+        name: 'ชื่อ',
+        category: 'หมวดหมู่',
+        qty: 'จำนวน',
+        serial: 'Serial #',
+        kit: 'กระเป๋า',
+        event: 'อีเวนต์',
+        status: 'สถานะ',
+        price: 'ราคา',
+        image: 'รูปภาพ'
+      },
+      fields: {
+        name: 'ชื่ออุปกรณ์',
+        category: 'หมวดหมู่',
+        price: 'ราคา',
+        quantity: 'จำนวน',
+        serial: 'Serial Number',
+        status: 'สถานะ',
+        images: 'รูปภาพ (สูงสุด 4 รูป)',
+        description: 'รายละเอียด'
+      },
+      status: {
+        all: 'ทั้งหมด',
+        available: 'ว่าง',
+        in_use: 'กำลังใช้งาน',
+        maintenance: 'ซ่อมบำรุง',
+        lost: 'หาย',
+        purchasing: 'กำลังจัดซื้อ',
+        damaged: 'ชำรุด'
+      },
+      deleteTitle: 'ลบอุปกรณ์?',
+      deleteConfirm: 'ต้องการลบอุปกรณ์นี้ถาวรหรือไม่?'
+    },
+    kits: {
+      title: 'กระเป๋า',
+      createKit: 'สร้างกระเป๋า',
+      newTitle: 'สร้างกระเป๋าใหม่',
+      newSubtitle: 'สร้างกระเป๋าใหม่เพื่อจัดกลุ่มอุปกรณ์',
+      editTitle: 'แก้ไขกระเป๋า',
+      searchPlaceholder: 'ค้นหากระเป๋า...',
+      itemCount: 'รายการ',
+      items: 'รายการของ', // Used for "Items" header
+      contents: 'รายการในกระเป๋า',
+      contentsSubtitle: 'อุปกรณ์ที่อยู่ในกระเป๋านี้',
+      addAvailable: 'เพิ่มอุปกรณ์ที่มีอยู่',
+      selectKit: 'เลือกกระเป๋า',
+      selectItem: 'เลือกอุปกรณ์',
+      addToKit: 'เพิ่มในกระเป๋า',
+      noItems: 'ไม่มีของในกระเป๋า',
+      manage: 'จัดการ',
+      printQR: 'พิมพ์ QR',
+      scanTo: 'สแกนเพื่อเบิก/คืนของ',
+      preview: 'ตัวอย่าง (450px x 450px)',
+      deleteTitle: 'ลบกระเป๋า?',
+      deleteConfirm: 'ลบได้เฉพาะกระเป๋าเปล่าเท่านั้น',
+      fields: {
+        name: 'ชื่อกระเป๋า',
+        description: 'รายละเอียด'
+      }
+    },
+    events: {
+      title: 'อีเวนต์',
+      createEvent: 'สร้างอีเวนต์',
+      newTitle: 'สร้างอีเวนต์ใหม่',
+      newSubtitle: 'สร้างกำหนดการอีเวนต์ใหม่',
+      editTitle: 'แก้ไขอีเวนต์',
+      trackKits: 'จัดการของ',
+      finalizeJob: 'ปิดงาน',
+      location: 'สถานที่',
+      status: 'สถานะ',
+      noKits: 'ไม่มีกระเป๋าในอีเวนต์นี้',
+      manageKits: 'จัดการกระเป๋าในอีเวนต์',
+      noItemsAssigned: 'ไม่พบของที่ถูกมอบหมายในอีเวนต์นี้',
+      canDeleteDirectly: 'คุณสามารถลบอีเวนต์นี้ได้ทันที',
+      delete: 'ลบอีเวนต์',
+      closeReport: 'สรุปปิดงานอีเวนต์',
+      confirmClose: 'ยืนยันปิดงาน',
+      checkedCount: 'ตรวจสอบแล้ว {completed} / {total} รายการ',
+      fields: {
+        name: 'ชื่ออีเวนต์',
+        date: 'วันและเวลา',
+        location: 'สถานที่',
+        description: 'หมายเหตุ / รายละเอียด',
+        staff: 'รายชื่อทีมงาน'
+      }
+    },
+    examples: {
+      title: 'เช็คลิสต์',
+      createTemplate: 'สร้างแม่แบบ',
+      newTitle: 'สร้างแม่แบบใหม่',
+      newSubtitle: 'กำหนดรายการอุปกรณ์มาตรฐานสำหรับงานประเภทต่างๆ',
+      editTitle: 'แก้ไขแม่แบบ',
+      standardItems: 'รายการมาตรฐาน',
+      checklist: 'เช็คลิสต์',
+      example: 'ชุดตัวอย่าง',
+      mode: 'โหมด',
+      fields: {
+        name: 'ชื่อแม่แบบ',
+        description: 'รายละเอียด',
+        type: 'ประเภท',
+        items: 'รายการของ'
+      },
+      status: {
+        ready: 'พร้อม',
+        inProgress: 'กำลังทำ',
+        none: 'ยังไม่ทำ'
+      }
+    },
+    logs: {
+      title: 'บันทึกการใช้งาน',
+      filterUser: 'กรองผู้ใช้',
+      filterAction: 'กรองกิจกรรม',
+      columns: {
+        timestamp: 'เวลา',
+        user: 'ผู้ใช้',
+        action: 'กิจกรรม',
+        details: 'รายละเอียด',
+        ip: 'IP Address'
+      }
+    },
+    users: {
+      title: 'ผู้ใช้งาน',
+      addUser: 'เพิ่มผู้ใช้',
+      columns: {
+        lastLogin: 'ใช้งานล่าสุด',
+        role: 'สิทธิ์',
+        email: 'อีเมล',
+        fullName: 'ชื่อ-สกุล',
+        name: 'ชื่อ',
+        phone: 'เบอร์โทร',
+        status: 'สถานะ',
+        actions: 'จัดการ'
+      }
+    },
+    dashboard: {
+      title: 'แดชบอร์ด',
+      subtitle: 'ระบบจัดการคลังอุปกรณ์',
+      totalInventory: 'มูลค่าคลังรวม',
+      itemsTotal: 'รายการทั้งหมด',
+      activeUsers: 'ผู้ใช้งาน',
+      registeredStaff: 'เจ้าหน้าที่ในระบบ',
+      itemsInUse: 'อุปกรณ์ที่กำลังใช้งาน',
+      availableRightNow: 'พร้อมใช้งานขณะนี้',
+      kitStatus: 'สถานะกระเป๋า',
+      kitsInEvents: 'ดึงไปงานอีเวนต์',
+      quickAccess: 'เมนูลัด',
+      activeDeployments: 'งานที่กำลังดำเนินการ',
+      noDeployments: 'ไม่มีงานที่ดำเนินการอยู่ในขณะนี้',
+      manageEquipment: 'จัดการอุปกรณ์',
+      bagManagement: 'จัดการกระเป๋า',
+      checkInOut: 'เช็คอิน / เช็คเอาท์',
+      standardSets: 'ชุดมาตรฐาน',
+      templates: 'แม่แบบ'
+    },
+    checkin: {
+      title: 'เช็คอิน / เช็คเอาท์',
+      checkout: 'เบิกของ',
+      checkin: 'คืนของ',
+      selectEvent: 'อีเวนต์ที่ใช้งาน',
+      selectEventPlaceholder: 'เลือกอีเวนต์...',
+      noEvents: 'ไม่มีอีเวนต์ที่กำลังจัด',
+      selectAll: 'เลือกทั้งหมด',
+      checkoutSelected: 'เบิกรายการที่เลือก',
+      good: 'ปกติ',
+      damaged: 'ชำรุด',
+      lost: 'หาย',
+      noItemsSelected: 'กรุณาเลือกรายการ',
+      selectEventFirst: 'กรุณาเลือกอีเวนต์ก่อน',
+      successCheckout: 'เบิกของสำเร็จ',
+      successCheckin: 'บันทึกสถานะเรียบร้อย',
+      updating: 'กำลังบันทึก...'
+    }
+  }
+}

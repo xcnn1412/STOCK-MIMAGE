@@ -9,8 +9,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from 'next/link'
+import { useLanguage } from '@/contexts/language-context'
 
 export default function EditEventForm({ event, availableKits, assignedKitIds }: { event: any, availableKits: any[], assignedKitIds: string[] }) {
+  const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(updateEvent.bind(null, event.id), { error: '' })
 
   const Label = ({ children, htmlFor, className }: any) => (
@@ -39,13 +41,13 @@ export default function EditEventForm({ event, availableKits, assignedKitIds }: 
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <h2 className="text-3xl font-bold tracking-tight">Edit Event</h2>
+        <h2 className="text-3xl font-bold tracking-tight">{t.events.editTitle}</h2>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Event Details</CardTitle>
-          <CardDescription>Update details for {event.name}</CardDescription>
+          <CardTitle>{t.common.details}</CardTitle>
+          <CardDescription>{t.events.editTitle}: {event.name}</CardDescription>
         </CardHeader>
         <form action={formAction}>
            {/* Passing complex kit selection via hidden input or standard checkboxes if we can manage state */}
@@ -53,24 +55,24 @@ export default function EditEventForm({ event, availableKits, assignedKitIds }: 
 
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="name">Event Name</Label>
+              <Label htmlFor="name">{t.events.fields.name}</Label>
               <Input id="name" name="name" defaultValue={event.name} required />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="location">Location</Label>
+              <Label htmlFor="location">{t.events.fields.location}</Label>
               <Input id="location" name="location" defaultValue={event.location} />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="staff">Staff List</Label>
-              <Textarea id="staff" name="staff" defaultValue={event.staff} placeholder="List staff names here..." />
+              <Label htmlFor="staff">{t.events.fields.staff}</Label>
+              <Textarea id="staff" name="staff" defaultValue={event.staff} placeholder={t.events.fields.staff} />
             </div>
 
             <div className="space-y-4">
-               <Label>Assign Kits</Label>
+               <Label>{t.kits.title}</Label>
                {(availableKits.length === 0 && assignedKitIds.length === 0) ? (
-                   <p className="text-sm text-zinc-500 italic">No available kits found.</p>
+                   <p className="text-sm text-zinc-500 italic">{t.common.noData}</p>
                ) : (
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded-lg p-4 max-h-[300px] overflow-y-auto">
                        {/* Show all relevant kits: those already assigned to THIS event, and those available (null event_id) */}
@@ -85,8 +87,8 @@ export default function EditEventForm({ event, availableKits, assignedKitIds }: 
                                 onCheckedChange={(checked) => handleCheckChange(kit.id, checked as boolean)}
                                />
                                <Label htmlFor={`kit-${kit.id}`} className="font-normal cursor-pointer">
-                                   {kit.name} {checkedKits.has(kit.id) && !assignedKitIds.includes(kit.id) && <span className="text-xs text-green-600 font-bold ml-1">(New)</span>}
-                                   {initialChecked.has(kit.id) && !checkedKits.has(kit.id) && <span className="text-xs text-red-500 font-bold ml-1">(Removing)</span>}
+                                   {kit.name} {checkedKits.has(kit.id) && !assignedKitIds.includes(kit.id) && <span className="text-xs text-green-600 font-bold ml-1">({t.common.new})</span>}
+                                   {initialChecked.has(kit.id) && !checkedKits.has(kit.id) && <span className="text-xs text-red-500 font-bold ml-1">({t.common.removing})</span>}
                                </Label>
                            </div>
                        ))}
@@ -100,11 +102,11 @@ export default function EditEventForm({ event, availableKits, assignedKitIds }: 
           </CardContent>
           <CardFooter className="flex justify-end gap-2">
             <Link href="/events">
-              <Button variant="outline" type="button">Cancel</Button>
+              <Button variant="outline" type="button">{t.common.cancel}</Button>
             </Link>
             <Button type="submit" disabled={isPending}>
               {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Save Changes
+              {t.common.save}
             </Button>
           </CardFooter>
         </form>

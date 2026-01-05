@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { logActivity } from '@/lib/logger'
 
 function createServerSupabase() {
     return createClient(
@@ -15,7 +16,9 @@ function createServerSupabase() {
 export async function createTemplate(prevState: any, formData: FormData) {
   const name = formData.get('name') as string
   const description = formData.get('description') as string
-  const itemsString = formData.get('items') as string // Helper input, comma separated or similar? 
+  const type = formData.get('type') as string || 'example'
+  
+  // Helper input, comma separated or similar? 
   // User asked for "add item names only". Let's handle dynamic inputs. 
   // We can get all input keys starting with 'item-'
   
@@ -43,7 +46,8 @@ export async function createTemplate(prevState: any, formData: FormData) {
   // Transaction-like insert
   const { data: template, error } = await supabase.from('kit_templates').insert({
     name,
-    description
+    description,
+    type
   }).select().single()
 
   if (error) {
@@ -54,7 +58,8 @@ export async function createTemplate(prevState: any, formData: FormData) {
       const contents = items.map(item => ({
           template_id: template.id,
           item_name: item.name,
-          quantity: item.qty
+          quantity: item.qty,
+          status: 'none'
       }))
       
       const { error: contentError } = await supabase.from('kit_template_contents').insert(contents)
@@ -64,12 +69,28 @@ export async function createTemplate(prevState: any, formData: FormData) {
       }
   }
 
+  await logActivity('CREATE_TEMPLATE', {
+      name,
+      type, // Log the type (example/checklist)
+      itemCount: items.length
+  })
+
   revalidatePath('/example-kits')
   redirect('/example-kits')
 }
 
 export async function deleteTemplate(id: string) {
     const supabase = createServerSupabase()
+    
+    // Fetch name for logging
+    const { data: template } = await supabase.from('kit_templates').select('name').eq('id', id).single()
+
     await supabase.from('kit_templates').delete().eq('id', id)
+    
+    await logActivity('DELETE_TEMPLATE', {
+        name: template?.name || 'Unknown Template',
+        id
+    })
+
     revalidatePath('/example-kits')
 }

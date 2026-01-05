@@ -12,27 +12,30 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { logout } from '@/app/login/actions'
+import { useLanguage } from '@/contexts/language-context'
+import { LanguageSwitcher } from '@/components/language-switcher'
 
 export default function Navbar({ role }: { role?: string }) {
     const [open, setOpen] = useState(false)
+    const { t } = useLanguage()
 
     const NavItems = () => (
         <>
             <Link href="/items" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                 <Package className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
-                <span>Inventory</span>
+                <span>{t.nav.inventory}</span>
             </Link>
             <Link href="/kits" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                 <Archive className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
-                <span>Kits</span>
+                <span>{t.nav.kits}</span>
             </Link>
             <Link href="/events" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                 <Calendar className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
-                <span>Events</span>
+                <span>{t.nav.events}</span>
             </Link>
             <Link href="/example-kits" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                 <FileText className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
-                <span>Examples</span>
+                <span>{t.nav.examples}</span>
             </Link>
             
             {role === 'admin' && (
@@ -40,11 +43,11 @@ export default function Navbar({ role }: { role?: string }) {
                     <div className="h-px bg-border my-2 md:hidden" />
                     <Link href="/logs" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                         <LayoutGrid className="h-5 w-5 md:h-4 md:w-4 text-orange-500" />
-                        <span>System Logs</span>
+                        <span>{t.nav.logs}</span>
                     </Link>
                     <Link href="/users" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                         <Users className="h-5 w-5 md:h-4 md:w-4 text-blue-600" /> 
-                        <span className="font-semibold text-blue-600">Users</span>
+                        <span className="font-semibold text-blue-600">{t.nav.users}</span>
                     </Link>
                 </>
             )}
@@ -63,21 +66,25 @@ export default function Navbar({ role }: { role?: string }) {
                 <nav className="flex gap-4 text-sm font-medium items-center">
                     <NavItems />
                 </nav>
-                 <form action={logout}>
-                    <Button variant="ghost" size="icon" title="Logout">
-                        <LogOut className="h-5 w-5" />
-                        <span className="sr-only">Logout</span>
-                    </Button>
-                </form>
+                <div className="flex items-center gap-2">
+                    <LanguageSwitcher />
+                    <form action={logout}>
+                        <Button variant="ghost" size="icon" title={t.common.logout}>
+                            <LogOut className="h-5 w-5" />
+                            <span className="sr-only">{t.common.logout}</span>
+                        </Button>
+                    </form>
+                </div>
             </div>
 
             {/* Mobile Nav */}
             <div className="md:hidden flex items-center gap-2">
+                 <LanguageSwitcher />
                  <Sheet open={open} onOpenChange={setOpen}>
                     <SheetTrigger asChild>
                         <Button variant="ghost" size="icon" className="-mr-2">
                             <Menu className="h-6 w-6" />
-                            <span className="sr-only">Menu</span>
+                            <span className="sr-only">{t.common.menu}</span>
                         </Button>
                     </SheetTrigger>
                     <SheetContent side="left" className="w-[80%] sm:w-[385px] p-0">
@@ -95,7 +102,7 @@ export default function Navbar({ role }: { role?: string }) {
                             <form action={logout}>
                                 <button type="submit" className="flex items-center gap-3 text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-2 rounded transition-colors w-full text-left">
                                     <LogOut className="h-5 w-5" />
-                                    <span>Logout</span>
+                                    <span>{t.common.logout}</span>
                                 </button>
                             </form>
                         </div>
