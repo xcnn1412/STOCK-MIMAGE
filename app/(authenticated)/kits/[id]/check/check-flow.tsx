@@ -9,23 +9,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { CheckCircle2, AlertTriangle, XCircle, Loader2 } from "lucide-react"
+import { useLanguage } from '@/contexts/language-context'
 
 type Kit = any
 type Content = any
 type Event = any
 
-export default function CheckFlow({ kit, contents, events }: { kit: Kit, contents: Content[], events: Event[] }) {
-  const [selectedEventId, setSelectedEventId] = useState<string>("")
+export default function CheckFlow({ kit, contents, events, initialEventId }: { kit: Kit, contents: Content[], events: Event[], initialEventId?: string }) {
+  const { t } = useLanguage()
+  const [selectedEventId, setSelectedEventId] = useState<string>(initialEventId || "")
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
   const [isProcessing, setIsProcessing] = useState(false)
 
   const handleCheckout = async () => {
     if (!selectedEventId) {
-      toast.error("Please select an event first")
+      toast.error(t.checkin.selectEventFirst)
       return
     }
     if (selectedItems.size === 0) {
-        toast.error("No items selected")
+        toast.error(t.checkin.noItemsSelected)
         return
     }
 
@@ -36,24 +38,26 @@ export default function CheckFlow({ kit, contents, events }: { kit: Kit, content
     if (result?.error) {
         toast.error(result.error)
     } else {
-        toast.success("Items checked out successfully")
+        toast.success(t.checkin.successCheckout)
         setSelectedItems(new Set())
     }
   }
 
   const handleCheckin = async (itemId: string, condition: 'good' | 'damaged' | 'lost') => {
     if (!selectedEventId) {
-        toast.error("Please select an event first")
+        toast.error(t.checkin.selectEventFirst)
         return
     }
     
-    toast.info("Updating...")
+    toast.info(t.checkin.updating)
     const result = await checkinItem(selectedEventId, kit.id, itemId, condition)
     
     if (result?.error) {
         toast.error(result.error)
     } else {
-        toast.success(`Item marked as ${condition}`)
+        // Map condition to translated string
+        const conditionText = t.checkin[condition as keyof typeof t.checkin]
+        toast.success(`${t.checkin.successCheckin} ${conditionText}`)
     }
   }
 
@@ -69,30 +73,30 @@ export default function CheckFlow({ kit, contents, events }: { kit: Kit, content
   return (
     <div className="max-w-md mx-auto space-y-4 pb-20">
         <div className="bg-zinc-100 p-4 rounded-lg dark:bg-zinc-800">
-            <label className="text-sm font-medium mb-2 block">Active Event</label>
+            <label className="text-sm font-medium mb-2 block">{t.checkin.selectEvent}</label>
             <Select value={selectedEventId} onValueChange={setSelectedEventId}>
                 <SelectTrigger className="bg-white dark:bg-zinc-900">
-                    <SelectValue placeholder="Select Event..." />
+                    <SelectValue placeholder={t.checkin.selectEventPlaceholder} />
                 </SelectTrigger>
                 <SelectContent>
                     {events?.map(e => (
                         <SelectItem key={e.id} value={e.id}>{e.name} ({new Date(e.event_date).toLocaleDateString()})</SelectItem>
                     ))}
-                    {(!events || events.length === 0) && <SelectItem value="none" disabled>No active events</SelectItem>}
+                    {(!events || events.length === 0) && <SelectItem value="none" disabled>{t.checkin.noEvents}</SelectItem>}
                 </SelectContent>
             </Select>
         </div>
 
         <Tabs defaultValue="checkout" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="checkout">Check Out</TabsTrigger>
-                <TabsTrigger value="checkin">Check In</TabsTrigger>
+                <TabsTrigger value="checkout">{t.checkin.checkout}</TabsTrigger>
+                <TabsTrigger value="checkin">{t.checkin.checkin}</TabsTrigger>
             </TabsList>
             
             <TabsContent value="checkout" className="space-y-4">
                  <div className="bg-white dark:bg-zinc-900 rounded-lg border divide-y">
                     <div className="p-3 flex items-center justify-between bg-zinc-50 dark:bg-zinc-800">
-                        <span className="text-sm font-medium">Select All</span>
+                        <span className="text-sm font-medium">{t.checkin.selectAll}</span>
                         <Checkbox 
                             checked={selectedItems.size === contents.length && contents.length > 0}
                             onCheckedChange={(c) => {
@@ -106,7 +110,7 @@ export default function CheckFlow({ kit, contents, events }: { kit: Kit, content
                             <div className="flex flex-col">
                                 <span className="font-medium">{c.items.name}</span>
                                 <span className={`text-xs px-2 py-0.5 rounded w-fit ${c.items.status === 'in_use' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
-                                    {c.items.status}
+                                    {t.items.status[c.items.status as keyof typeof t.items.status] || c.items.status}
                                 </span>
                             </div>
                             <Checkbox 
@@ -117,7 +121,7 @@ export default function CheckFlow({ kit, contents, events }: { kit: Kit, content
                     ))}
                  </div>
                  <Button onClick={handleCheckout} disabled={isProcessing} className="w-full" size="lg">
-                    {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : "Checkout Selected"}
+                    {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : t.checkin.checkoutSelected}
                  </Button>
             </TabsContent>
             
@@ -129,18 +133,18 @@ export default function CheckFlow({ kit, contents, events }: { kit: Kit, content
                                 <div className="flex justify-between items-start">
                                     <div className="font-medium">{c.items.name}</div>
                                     <span className={`text-xs px-2 py-0.5 rounded ${c.items.status === 'in_use' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
-                                        {c.items.status}
+                                        {t.items.status[c.items.status as keyof typeof t.items.status] || c.items.status}
                                     </span>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2">
                                     <Button size="sm" variant="outline" className="border-green-200 hover:bg-green-50 text-green-700" onClick={() => handleCheckin(c.items.id, 'good')}>
-                                        <CheckCircle2 className="h-4 w-4 mr-1" /> Good
+                                        <CheckCircle2 className="h-4 w-4 mr-1" /> {t.checkin.good}
                                     </Button>
                                     <Button size="sm" variant="outline" className="border-yellow-200 hover:bg-yellow-50 text-yellow-700" onClick={() => handleCheckin(c.items.id, 'damaged')}>
-                                        <AlertTriangle className="h-4 w-4 mr-1" /> Bad
+                                        <AlertTriangle className="h-4 w-4 mr-1" /> {t.checkin.damaged}
                                     </Button>
                                     <Button size="sm" variant="outline" className="border-red-200 hover:bg-red-50 text-red-700" onClick={() => handleCheckin(c.items.id, 'lost')}>
-                                        <XCircle className="h-4 w-4 mr-1" /> Lost
+                                        <XCircle className="h-4 w-4 mr-1" /> {t.checkin.lost}
                                     </Button>
                                 </div>
                             </CardContent>

@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import Link from 'next/link'
 import { ArrowLeft, Trash, X } from "lucide-react"
 import { compressImage } from "@/lib/utils"
+import { useLanguage } from '@/contexts/language-context'
 
-export default function EditItemForm({ item }: { item: any }) {
+export default function EditItemForm({ item, returnTo }: { item: any, returnTo?: string }) {
+  const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(updateItem.bind(null, item.id), { error: '' })
   
   // Parse existing images
@@ -36,7 +38,7 @@ export default function EditItemForm({ item }: { item: any }) {
   }, [newFiles])
 
   const handleDelete = async () => {
-    if (confirm("Are you sure you want to delete this item?")) {
+    if (confirm(t.items.deleteConfirm)) {
         await deleteItem(item.id)
     }
   }
@@ -101,30 +103,31 @@ export default function EditItemForm({ item }: { item: any }) {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-            <Link href="/items">
+            <Link href={returnTo || "/items"}>
             <Button variant="ghost" size="icon">
                 <ArrowLeft className="h-4 w-4" />
             </Button>
             </Link>
-            <h2 className="text-3xl font-bold tracking-tight">Edit Item</h2>
+            <h2 className="text-3xl font-bold tracking-tight">{t.items.editTitle}</h2>
         </div>
-        <Button variant="destructive" size="icon" onClick={handleDelete} type="button" title="Delete Item">
+        <Button variant="destructive" size="icon" onClick={handleDelete} type="button" title={t.items.deleteTitle}>
             <Trash className="h-4 w-4" />
         </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Item Details</CardTitle>
+          <CardTitle>{t.items.editTitle}</CardTitle>
         </CardHeader>
         <form action={clientAction}>
+           <input type="hidden" name="returnTo" value={returnTo || ''} />
            {/* Hidden input for existing images */}
            <input type="hidden" name="existing_images" value={JSON.stringify(existingImages)} />
 
           <CardContent className="space-y-6">
             
             <div className="space-y-2">
-                <label className="text-sm font-medium leading-none">Images</label>
+                <label className="text-sm font-medium leading-none">{t.items.fields.images}</label>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {/* Existing Images */}
                     {existingImages.map((url, idx) => (
@@ -176,44 +179,44 @@ export default function EditItemForm({ item }: { item: any }) {
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="name" className="text-sm font-medium leading-none">Name</label>
+              <label htmlFor="name" className="text-sm font-medium leading-none">{t.items.fields.name}</label>
               <Input id="name" name="name" defaultValue={item.name} required />
             </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label htmlFor="category" className="text-sm font-medium leading-none">Category</label>
+                <label htmlFor="category" className="text-sm font-medium leading-none">{t.items.fields.category}</label>
                 <Input id="category" name="category" defaultValue={item.category} />
               </div>
               <div className="space-y-2">
-                <label htmlFor="price" className="text-sm font-medium leading-none">Price</label>
+                <label htmlFor="price" className="text-sm font-medium leading-none">{t.items.fields.price}</label>
                 <Input id="price" name="price" type="number" step="0.01" defaultValue={item.price} />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                   <label htmlFor="quantity" className="text-sm font-medium leading-none">Quantity</label>
+                   <label htmlFor="quantity" className="text-sm font-medium leading-none">{t.items.fields.quantity}</label>
                    <Input id="quantity" name="quantity" type="number" min="1" defaultValue={item.quantity || 1} required />
                 </div>
                 <div className="space-y-2">
-                  <label htmlFor="serial_number" className="text-sm font-medium leading-none">Serial Number</label>
+                  <label htmlFor="serial_number" className="text-sm font-medium leading-none">{t.items.fields.serial}</label>
                   <Input id="serial_number" name="serial_number" defaultValue={item.serial_number} />
                 </div>
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="status" className="text-sm font-medium leading-none">Status</label>
+              <label htmlFor="status" className="text-sm font-medium leading-none">{t.items.fields.status}</label>
               <Select name="status" defaultValue={item.status}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="available">Available</SelectItem>
-                  <SelectItem value="in_use">In Use</SelectItem>
-                  <SelectItem value="maintenance">Maintenance</SelectItem>
-                  <SelectItem value="lost">Lost</SelectItem>
-                  <SelectItem value="purchasing">Purchasing</SelectItem>
+                  <SelectItem value="available">{t.items.status.available}</SelectItem>
+                  <SelectItem value="in_use">{t.items.status.in_use}</SelectItem>
+                  <SelectItem value="maintenance">{t.items.status.maintenance}</SelectItem>
+                  <SelectItem value="lost">{t.items.status.lost}</SelectItem>
+                  <SelectItem value="purchasing">{t.items.status.purchasing}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -223,11 +226,11 @@ export default function EditItemForm({ item }: { item: any }) {
             )}
           </CardContent>
           <CardFooter className="flex justify-end gap-2">
-            <Link href="/items">
-                <Button variant="outline" type="button">Cancel</Button>
+            <Link href={returnTo || "/items"}>
+                <Button variant="outline" type="button">{t.common.cancel}</Button>
             </Link>
             <Button type="submit" disabled={isPending}>
-              {isPending ? "Saving..." : "Update Item"}
+              {isPending ? t.common.save + "..." : t.common.save}
             </Button>
           </CardFooter>
         </form>

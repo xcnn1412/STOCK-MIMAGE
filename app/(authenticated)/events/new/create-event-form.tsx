@@ -9,8 +9,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from 'next/link'
+import { ThaiDatePicker } from '@/components/thai-date-picker'
+import { useLanguage } from '@/contexts/language-context'
 
 export default function CreateEventForm({ availableKits }: { availableKits: any[] }) {
+  const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(createEvent, { error: '' })
 
   const Label = ({ children, htmlFor, className }: any) => (
@@ -25,24 +28,29 @@ export default function CreateEventForm({ availableKits }: { availableKits: any[
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <h2 className="text-3xl font-bold tracking-tight">Create New Event</h2>
+        <h2 className="text-3xl font-bold tracking-tight">{t.events.newTitle}</h2>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Event Details</CardTitle>
-          <CardDescription>Enter the details for the new event.</CardDescription>
+          <CardTitle>{t.events.newTitle}</CardTitle>
+          <CardDescription>{t.events.newSubtitle}</CardDescription>
         </CardHeader>
         <form action={formAction}>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="name">Event Name</Label>
-              <Input id="name" name="name" placeholder="e.g. Wedding at Grand Hotel" required />
+              <Label htmlFor="name">{t.events.fields.name}</Label>
+              <Input id="name" name="name" placeholder={t.events.fields.name} required />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="location">Location</Label>
-              <Input id="location" name="location" placeholder="e.g. Bangkok" />
+              <Label htmlFor="location">{t.events.fields.location}</Label>
+              <Input id="location" name="location" placeholder={t.events.fields.location} />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="event_date">{t.events.fields.date}</Label>
+              <ThaiDatePicker name="event_date" />
             </div>
 
             <div className="space-y-2">
@@ -51,9 +59,9 @@ export default function CreateEventForm({ availableKits }: { availableKits: any[
             </div>
 
             <div className="space-y-4">
-               <Label>Assign Kits</Label>
+               <Label>{t.common.actions} {t.kits.title}</Label>
                {availableKits.length === 0 ? (
-                   <p className="text-sm text-zinc-500 italic">No available kits found.</p>
+                   <p className="text-sm text-zinc-500 italic">{t.common.noData}</p>
                ) : (
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded-lg p-4 max-h-[200px] overflow-y-auto">
                        {availableKits.map((kit) => (
@@ -74,11 +82,11 @@ export default function CreateEventForm({ availableKits }: { availableKits: any[
           </CardContent>
           <CardFooter className="flex justify-end gap-2">
             <Link href="/events">
-              <Button variant="outline" type="button">Cancel</Button>
+              <Button variant="outline" type="button">{t.common.cancel}</Button>
             </Link>
             <Button type="submit" disabled={isPending}>
               {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Create Event
+              {t.events.createEvent}
             </Button>
           </CardFooter>
         </form>

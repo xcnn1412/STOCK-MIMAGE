@@ -26,6 +26,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
   } from "@/components/ui/alert-dialog"
+import { useLanguage } from '@/contexts/language-context'
 
 type Item = {
     id: string
@@ -40,6 +41,7 @@ type Item = {
 }
 
 export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
+  const { t } = useLanguage()
   const [items, setItems] = useState<Item[]>(initialItems)
 
   useEffect(() => {
@@ -111,7 +113,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
             <Input
               type="search"
-              placeholder="Filter items..."
+              placeholder={t.items.searchPlaceholder}
               className="pl-8"
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
@@ -121,24 +123,24 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
               <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="gap-2 w-full sm:w-auto">
                       <Filter className="h-4 w-4" />
-                      Status: {statusFilter === 'all' ? 'All' : statusFilter}
+                      {t.items.filterStatus}: {statusFilter === 'all' ? t.items.status.all : statusFilter}
                   </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                   <DropdownMenuCheckboxItem checked={statusFilter === 'all'} onCheckedChange={() => setStatusFilter('all')}>
-                      All
+                      {t.items.status.all}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem checked={statusFilter === 'available'} onCheckedChange={() => setStatusFilter('available')}>
-                      Available
+                      {t.items.status.available}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem checked={statusFilter === 'in_use'} onCheckedChange={() => setStatusFilter('in_use')}>
-                      In Use
+                      {t.items.status.in_use}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem checked={statusFilter === 'maintenance'} onCheckedChange={() => setStatusFilter('maintenance')}>
-                      Maintenance
+                      {t.items.status.maintenance}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem checked={statusFilter === 'lost'} onCheckedChange={() => setStatusFilter('lost')}>
-                      Lost
+                      {t.items.status.lost}
                   </DropdownMenuCheckboxItem>
               </DropdownMenuContent>
           </DropdownMenu>
@@ -180,11 +182,11 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                                     <h3 className="font-semibold text-base truncate">{item.name}</h3>
                                     <p className="text-sm text-foreground/60">{item.category}</p>
                                  </div>
-                                 <StatusBadge status={displayStatus} />
+                                 <StatusBadge status={displayStatus} t={t} />
                              </div>
                              
                              <div className="mt-2 text-sm grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-                                 <div>Qty: <span className="text-foreground">{item.quantity || 1}</span></div>
+                                 <div>{t.items.columns.qty}: <span className="text-foreground">{item.quantity || 1}</span></div>
                                  <div className="truncate">SN: <span className="text-foreground">{item.serial_number || '-'}</span></div>
                              </div>
                          </div>
@@ -204,25 +206,25 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                          <div className="flex items-center gap-1">
                              <Link href={`/items/${item.id}`}>
                                 <Button variant="ghost" size="sm" className="h-8 group">
-                                    <Eye className="h-4 w-4 mr-1.5 text-muted-foreground group-hover:text-foreground" /> View
+                                    <Eye className="h-4 w-4 mr-1.5 text-muted-foreground group-hover:text-foreground" /> {t.common.view}
                                 </Button>
                             </Link>
                             
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                     <Button variant="ghost" size="sm" className="h-8 text-red-500 hover:text-red-700 hover:bg-red-50">
-                                         <Trash className="h-4 w-4 mr-1.5" /> Delete
+                                         <Trash className="h-4 w-4 mr-1.5" /> {t.common.delete}
                                     </Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                     <AlertDialogHeader>
-                                        <AlertDialogTitle>Delete Item?</AlertDialogTitle>
+                                        <AlertDialogTitle>{t.items.deleteTitle}</AlertDialogTitle>
                                         <AlertDialogDescription>
-                                            Permanently delete <b>{item.name}</b> from inventory?
+                                            {t.items.deleteConfirm}
                                         </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogCancel>{t.common.cancel}</AlertDialogCancel>
                                         <AlertDialogAction 
                                             onClick={async (e) => {
                                                 e.preventDefault()
@@ -243,7 +245,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                                             }}
                                             className="bg-red-600 hover:bg-red-700 text-white border-none"
                                         >
-                                            Delete
+                                            {t.common.delete}
                                         </AlertDialogAction>
                                     </AlertDialogFooter>
                                 </AlertDialogContent>
@@ -255,7 +257,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
         })}
         {sortedItems.length === 0 && (
             <div className="text-center py-10 text-muted-foreground bg-muted/20 rounded-lg border border-dashed">
-                No items found.
+                {t.common.noData}
             </div>
         )}
       </div>
@@ -265,28 +267,28 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[80px]">Image</TableHead>
+              <TableHead className="w-[80px]">{t.items.columns.image}</TableHead>
               <TableHead onClick={() => handleSort('name')} className="cursor-pointer hover:bg-zinc-50 md:table-cell">
-                  <div className="flex items-center gap-1">Name <ArrowUpDown className="h-3 w-3" /></div>
+                  <div className="flex items-center gap-1">{t.items.columns.name} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('category')} className="cursor-pointer hover:bg-zinc-50 hidden md:table-cell">
-                  <div className="flex items-center gap-1">Category <ArrowUpDown className="h-3 w-3" /></div>
+                  <div className="flex items-center gap-1">{t.items.columns.category} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('quantity')} className="cursor-pointer hover:bg-zinc-50 hidden md:table-cell">
-                  <div className="flex items-center gap-1">Qty <ArrowUpDown className="h-3 w-3" /></div>
+                  <div className="flex items-center gap-1">{t.items.columns.qty} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
-              <TableHead className="hidden md:table-cell">Serial #</TableHead>
+              <TableHead className="hidden md:table-cell">{t.items.columns.serial}</TableHead>
               <TableHead onClick={() => handleSort('kit')} className="cursor-pointer hover:bg-zinc-50">
-                  <div className="flex items-center gap-1">Kit <ArrowUpDown className="h-3 w-3" /></div>
+                  <div className="flex items-center gap-1">{t.items.columns.kit} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('event')} className="cursor-pointer hover:bg-zinc-50">
-                  <div className="flex items-center gap-1">Event <ArrowUpDown className="h-3 w-3" /></div>
+                  <div className="flex items-center gap-1">{t.items.columns.event} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('status')} className="cursor-pointer hover:bg-zinc-50">
-                   <div className="flex items-center gap-1">Status <ArrowUpDown className="h-3 w-3" /></div>
+                   <div className="flex items-center gap-1">{t.items.columns.status} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('price')} className="cursor-pointer hover:bg-zinc-50 text-right">
-                  <div className="flex items-center justify-end gap-1">Price <ArrowUpDown className="h-3 w-3" /></div>
+                  <div className="flex items-center justify-end gap-1">{t.items.columns.price} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
               <TableHead className="w-[100px]"></TableHead>
             </TableRow>
@@ -355,7 +357,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                     )}
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={displayStatus} />
+                  <StatusBadge status={displayStatus} t={t} />
                 </TableCell>
                 <TableCell className="text-right">
                   {item.price ? `$${item.price}` : '-'}
@@ -363,25 +365,25 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                 <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                          <Link href={`/items/${item.id}`}>
-                            <Button variant="ghost" size="icon" title="View details">
+                            <Button variant="ghost" size="icon" title={t.common.view}>
                                 <Eye className="h-4 w-4" />
                             </Button>
                         </Link>
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50" title="Delete">
+                                <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50" title={t.common.delete}>
                                      <Trash className="h-4 w-4" />
                                 </Button>
                             </AlertDialogTrigger>
                             <AlertDialogContent>
                                 <AlertDialogHeader>
-                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                    <AlertDialogTitle>{t.items.deleteTitle}</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                        This action cannot be undone. This will permanently delete <b>{item.name}</b> from the inventory.
+                                        {t.items.deleteConfirm}
                                     </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogCancel>{t.common.cancel}</AlertDialogCancel>
                                     <AlertDialogAction 
                                         onClick={async (e) => {
                                             e.preventDefault()
@@ -401,7 +403,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                                         }}
                                         className="bg-red-600 hover:bg-red-700 text-white border-none"
                                     >
-                                        Delete
+                                        {t.common.delete}
                                     </AlertDialogAction>
                                 </AlertDialogFooter>
                             </AlertDialogContent>
@@ -413,7 +415,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
             {sortedItems.length === 0 && (
               <TableRow>
                 <TableCell colSpan={10} className="h-24 text-center text-zinc-500">
-                  No items found.
+                  {t.common.noData}
                 </TableCell>
               </TableRow>
             )}
@@ -424,7 +426,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, t }: { status: string, t: any }) {
   const styles: Record<string, string> = {
     available: "bg-green-100 text-green-800 hover:bg-green-100 border-transparent",
     in_use: "bg-blue-100 text-blue-800 hover:bg-blue-100 border-transparent",
@@ -433,5 +435,7 @@ function StatusBadge({ status }: { status: string }) {
     purchasing: "bg-purple-100 text-purple-800 hover:bg-purple-100 border-transparent",
   }
   
-  return <Badge variant="outline" className={styles[status] || ""}>{status}</Badge>
+  const statusLabel = status === 'in_use' ? t.items.status.in_use : (t.items.status[status as keyof typeof t.items.status] || status)
+
+  return <Badge variant="outline" className={styles[status] || ""}>{statusLabel}</Badge>
 }
