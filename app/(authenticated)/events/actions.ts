@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { logActivity } from '@/lib/logger'
+import { cookies } from 'next/headers'
 
 function createServerSupabase() {
     return createClient(
@@ -14,6 +15,12 @@ function createServerSupabase() {
 }
 
 export async function createEvent(prevState: any, formData: FormData) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) {
+      return { error: 'Unauthorized: No active session' }
+  }
+
   const name = formData.get('name') as string
   const location = formData.get('location') as string
   const staff = formData.get('staff') as string
@@ -65,6 +72,12 @@ export async function createEvent(prevState: any, formData: FormData) {
 
 
 export async function updateEvent(id: string, prevState: any, formData: FormData) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) {
+      return { error: 'Unauthorized: No active session' }
+  }
+
   const name = formData.get('name') as string
   const location = formData.get('location') as string
   const staff = formData.get('staff') as string
@@ -119,6 +132,12 @@ export async function updateEvent(id: string, prevState: any, formData: FormData
 
 
 export async function processEventReturn(eventId: string, itemStatuses: { itemId: string, status: string }[]) {
+     const cookieStore = await cookies()
+     const userId = cookieStore.get('session_user_id')?.value
+     if (!userId) {
+         throw new Error('Unauthorized: No active session')
+     }
+
      const supabase = createServerSupabase()
 
      // 1. Update item statuses

@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
+import { cookies } from 'next/headers'
 
 function createServerSupabase() {
     return createClient(
@@ -13,6 +14,12 @@ function createServerSupabase() {
 }
 
 export async function addItemToKit(kitId: string, itemId: string, quantity: number = 1) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) {
+      return { error: 'Unauthorized: No active session' }
+  }
+
   const supabase = createServerSupabase()
   
   // Fetch details for logging
@@ -51,6 +58,12 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
 }
 
 export async function removeItemFromKit(contentId: string, kitId: string) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) {
+      return { error: 'Unauthorized: No active session' }
+  }
+
   const supabase = createServerSupabase()
   
   // Fetch details before delete
@@ -81,6 +94,12 @@ export async function removeItemFromKit(contentId: string, kitId: string) {
 }
 
 export async function updateKitItemQuantity(contentId: string, quantity: number) {
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
+    if (!userId) {
+        throw new Error('Unauthorized: No active session')
+    }
+
     const supabase = createServerSupabase()
 
     // Fetch details before update

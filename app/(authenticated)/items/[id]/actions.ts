@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
+import { cookies } from 'next/headers'
 
 function createServerSupabase() {
     return createClient(
@@ -16,6 +17,12 @@ function createServerSupabase() {
 }
 
 export async function updateItem(id: string, prevState: any, formData: FormData) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) {
+      return { error: 'Unauthorized: No active session found' }
+  }
+
   const name = formData.get('name') as string
   const category = formData.get('category') as string
   const serial_number = formData.get('serial_number') as string
@@ -50,7 +57,6 @@ export async function updateItem(id: string, prevState: any, formData: FormData)
   const { data: currentItem } = await supabase.from('items').select('*').eq('id', id).single()
 
   for (const image of validNewImages) {
-
     const filename = `${Date.now()}-${Math.random().toString(36).substring(7)}-${image.name.replace(/[^a-zA-Z0-9.]/g, '_')}`
     
     const arrayBuffer = await image.arrayBuffer()
@@ -114,6 +120,12 @@ export async function updateItem(id: string, prevState: any, formData: FormData)
 }
 
 export async function deleteItem(id: string) {
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
+    if (!userId) {
+        throw new Error('Unauthorized: No active session found')
+    }
+
     const supabase = createServerSupabase()
     
     // Fetch item details before deletion for logging
