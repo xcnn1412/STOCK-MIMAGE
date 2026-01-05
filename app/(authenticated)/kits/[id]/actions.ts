@@ -27,7 +27,7 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
   revalidatePath(`/kits/${kitId}`)
 }
 
-export async function removeItemFromKit(contentId: string, kitId: string) {
+export async function removeItemFromKit(contentId: string, kitId: string, formData: FormData) {
   const supabase = createServerSupabase()
   const { error } = await supabase.from('kit_contents').delete().eq('id', contentId)
   
