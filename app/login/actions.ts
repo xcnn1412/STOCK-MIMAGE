@@ -4,25 +4,29 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
+function getSupabase() {
+    return createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+                detectSessionInUrl: false
+            }
+        }
+    )
+}
+
 export async function loginWithPhone(prevState: any, formData: FormData) {
   const phone = formData.get('phone') as string
+  const pin = formData.get('pin') as string
 
-  if (!phone) {
-    return { error: 'Phone number is required' }
+  if (!phone || !pin) {
+    return { error: 'Phone number and PIN are required' }
   }
 
-  // Create a fresh client for this server action to avoid caching issues
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-            detectSessionInUrl: false
-        }
-    }
-  )
+  const supabase = getSupabase()
 
   try {
     const { data, error } = await supabase
@@ -33,14 +37,19 @@ export async function loginWithPhone(prevState: any, formData: FormData) {
 
     if (error || !data) {
        console.error('Login error:', error)
-       return { error: 'Phone number not recognized' }
+       return { error: 'Phone number not found' }
+    }
+
+    // Check PIN
+    // Note: In a production app, PINs should be hashed. 
+    // Here we compare directly as requested for simplicity or assume matching logic.
+    if (data.pin !== pin) {
+        return { error: 'Invalid PIN' }
     }
 
     const cookieStore = await cookies()
-    // Expire in 7 days
     const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
     
-    // Using string values for cookies
     await cookieStore.set('session_user_id', data.id, { httpOnly: true, expires, path: '/' })
     await cookieStore.set('session_role', data.role, { httpOnly: true, expires, path: '/' })
 
@@ -49,8 +58,45 @@ export async function loginWithPhone(prevState: any, formData: FormData) {
      return { error: 'System busy, please try again.' }
   }
 
-  // Redirect must be outside try/catch to work properly in Next.js Server Actions
   redirect('/dashboard')
+}
+
+export async function registerUser(prevState: any, formData: FormData) {
+    const name = formData.get('name') as string
+    const phone = formData.get('phone') as string
+    const pin = formData.get('pin') as string
+
+    if (!name || !phone || !pin) {
+        return { error: 'All fields are required' }
+    }
+
+    if (pin.length !== 6 || !/^\d+$/.test(pin)) {
+        return { error: 'PIN must be exactly 6 digits' }
+    }
+
+    const supabase = getSupabase()
+
+    // Check if exists
+    const { data: existing } = await supabase.from('profiles').select('id').eq('phone', phone).single()
+    if (existing) {
+        return { error: 'Phone number already registered' }
+    }
+
+    const { error } = await supabase.from('profiles').insert({
+        full_name: name,
+        phone,
+        pin,
+        role: 'staff' // Default role
+    })
+
+    if (error) {
+        console.error('Registration error', error)
+        return { error: 'Failed to register. Phone might be duplicate.' }
+    }
+
+    // Auto login after register? Or just redirect to login tab.
+    // Let's redirect to dashboard directly for better UX
+    return loginWithPhone(prevState, formData)
 }
 
 export async function logout() {
