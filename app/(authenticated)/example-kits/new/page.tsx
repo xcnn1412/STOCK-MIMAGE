@@ -55,8 +55,18 @@ export default function NewTemplatePage() {
                    {items.map((id, index) => (
                        <div key={id} className="flex gap-2">
                            <Input 
-                                name={`item-${id}`} 
+                                className="flex-1"
+                                name={`item-name-${id}`} 
                                 placeholder={`Item ${index + 1} name`} 
+                                required={index === 0}
+                           />
+                           <Input 
+                                className="w-20"
+                                type="number"
+                                name={`item-qty-${id}`} 
+                                placeholder="Qty"
+                                min={1}
+                                defaultValue={1}
                                 required={index === 0}
                            />
                            {items.length > 1 && (
