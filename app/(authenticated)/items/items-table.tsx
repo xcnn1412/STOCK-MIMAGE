@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Eye, Trash, ArrowUpDown, Search, Filter } from "lucide-react"
+import { Card } from "@/components/ui/card"
 import { deleteItemAction } from './[id]/delete-action'
 import { Input } from '@/components/ui/input'
 import {
@@ -40,6 +41,10 @@ type Item = {
 
 export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   const [items, setItems] = useState<Item[]>(initialItems)
+
+  useEffect(() => {
+    setItems(initialItems)
+  }, [initialItems])
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null)
   const [filterText, setFilterText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -101,8 +106,8 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-4">
-          <div className="relative max-w-sm flex-1">
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+          <div className="relative max-w-sm flex-1 w-full">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
             <Input
               type="search"
@@ -114,7 +119,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
           </div>
           <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="gap-2">
+                  <Button variant="outline" className="gap-2 w-full sm:w-auto">
                       <Filter className="h-4 w-4" />
                       Status: {statusFilter === 'all' ? 'All' : statusFilter}
                   </Button>
@@ -139,7 +144,124 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
           </DropdownMenu>
       </div>
 
-      <div className="border rounded-lg bg-white dark:bg-zinc-900 overflow-hidden">
+      {/* Mobile View (Cards) */}
+      <div className="md:hidden grid grid-cols-1 gap-4">
+        {sortedItems.map((item) => {
+             let displayImage = null
+             try {
+                 if (item.image_url) {
+                     if (item.image_url.startsWith('[')) {
+                         const parsed = JSON.parse(item.image_url)
+                         if (Array.isArray(parsed) && parsed.length > 0) displayImage = parsed[0]
+                     } else {
+                         displayImage = item.image_url
+                     }
+                 }
+             } catch (e) {}
+
+             const kitContent = item.kit_contents && item.kit_contents[0]
+             const kit = kitContent?.kits
+             const event = kit?.events
+             const displayStatus = event ? 'in_use' : item.status
+
+             return (
+                 <Card key={item.id} className="overflow-hidden">
+                     <div className="flex p-4 gap-4">
+                         <div className="h-16 w-16 bg-zinc-100 rounded-md shrink-0 overflow-hidden border">
+                             {displayImage ? (
+                                <img src={displayImage} alt={item.name} className="h-full w-full object-cover" />
+                             ) : (
+                                <div className="h-full w-full flex items-center justify-center text-xs text-zinc-400 bg-muted">No Img</div>
+                             )}
+                         </div>
+                         <div className="flex-1 min-w-0">
+                             <div className="flex justify-between items-start gap-2">
+                                 <div className="min-w-0">
+                                    <h3 className="font-semibold text-base truncate">{item.name}</h3>
+                                    <p className="text-sm text-foreground/60">{item.category}</p>
+                                 </div>
+                                 <StatusBadge status={displayStatus} />
+                             </div>
+                             
+                             <div className="mt-2 text-sm grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
+                                 <div>Qty: <span className="text-foreground">{item.quantity || 1}</span></div>
+                                 <div className="truncate">SN: <span className="text-foreground">{item.serial_number || '-'}</span></div>
+                             </div>
+                         </div>
+                     </div>
+                     
+                     {(kit || event) && (
+                         <div className="bg-muted/30 px-4 py-2 text-sm border-t border-b flex items-center gap-4">
+                             {kit && <div className="flex items-center gap-1.5 truncate min-w-0"><span className="text-base shrink-0">📦</span> <span className="truncate" title={kit.name}>{kit.name}</span></div>}
+                             {event && <div className="flex items-center gap-1.5 truncate text-blue-600 font-medium min-w-0"><span className="text-base shrink-0">📍</span> <span className="truncate" title={event.name}>{event.name}</span></div>}
+                         </div>
+                     )}
+
+                     <div className="p-3 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900 border-t">
+                         <div className="px-1 font-medium text-sm">
+                            {item.price ? `$${item.price.toLocaleString()}` : <span className="text-muted-foreground">-</span>}
+                         </div>
+                         <div className="flex items-center gap-1">
+                             <Link href={`/items/${item.id}`}>
+                                <Button variant="ghost" size="sm" className="h-8 group">
+                                    <Eye className="h-4 w-4 mr-1.5 text-muted-foreground group-hover:text-foreground" /> View
+                                </Button>
+                            </Link>
+                            
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="h-8 text-red-500 hover:text-red-700 hover:bg-red-50">
+                                         <Trash className="h-4 w-4 mr-1.5" /> Delete
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete Item?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            Permanently delete <b>{item.name}</b> from inventory?
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction 
+                                            onClick={async (e) => {
+                                                e.preventDefault()
+                                                const btn = e.currentTarget
+                                                const originalText = btn.innerText
+                                                btn.innerText = "Deleting..."
+                                                btn.style.opacity = "0.7"
+                                                
+                                                try {
+                                                    await deleteItemAction(item.id)
+                                                    window.location.reload()
+                                                } catch (error) {
+                                                    console.error("Delete failed", error)
+                                                    alert("Failed to delete item. Please check logs.")
+                                                    btn.innerText = originalText
+                                                    btn.style.opacity = "1"
+                                                }
+                                            }}
+                                            className="bg-red-600 hover:bg-red-700 text-white border-none"
+                                        >
+                                            Delete
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                         </div>
+                     </div>
+                 </Card>
+             )
+        })}
+        {sortedItems.length === 0 && (
+            <div className="text-center py-10 text-muted-foreground bg-muted/20 rounded-lg border border-dashed">
+                No items found.
+            </div>
+        )}
+      </div>
+
+      {/* Desktop View (Table) */}
+      <div className="hidden md:block border rounded-lg bg-white dark:bg-zinc-900 overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -260,9 +382,27 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <form action={deleteItemAction.bind(null, item.id)}>
-                                        <AlertDialogAction type="submit" className="bg-red-600 hover:bg-red-700 text-white border-none">Delete</AlertDialogAction>
-                                    </form>
+                                    <AlertDialogAction 
+                                        onClick={async (e) => {
+                                            e.preventDefault()
+                                            const btn = e.currentTarget
+                                            const originalText = btn.innerText
+                                            btn.innerText = "Deleting..."
+                                            btn.style.opacity = "0.7"
+                                            
+                                            try {
+                                                await deleteItemAction(item.id)
+                                                window.location.reload()
+                                            } catch (error) {
+                                                console.error("Delete failed", error)
+                                                btn.innerText = originalText
+                                                btn.style.opacity = "1"
+                                            }
+                                        }}
+                                        className="bg-red-600 hover:bg-red-700 text-white border-none"
+                                    >
+                                        Delete
+                                    </AlertDialogAction>
                                 </AlertDialogFooter>
                             </AlertDialogContent>
                         </AlertDialog>

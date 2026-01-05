@@ -42,7 +42,10 @@ export default async function ExampleKitsPage() {
                    <ul className="list-disc list-inside text-sm text-zinc-700 dark:text-zinc-300">
                         {t.kit_template_contents?.length === 0 && <li className="text-zinc-400 italic">No items listed</li>}
                         {t.kit_template_contents?.map((c: any) => (
-                            <li key={c.id}>{c.item_name}</li>
+                            <li key={c.id}>
+                                {c.quantity > 1 && <span className="font-semibold text-zinc-900 dark:text-zinc-100">{c.quantity}x </span>}
+                                {c.item_name}
+                            </li>
                         ))}
                    </ul>
               </div>
