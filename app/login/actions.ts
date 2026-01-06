@@ -96,12 +96,19 @@ export async function loginWithPhoneAndSelfie(prevState: any, formData: FormData
     }
 
     // 3. Log Location & Login
+    const sessionId = crypto.randomUUID() // Generate unique session ID
+
     await supabase.from('login_logs').insert({
         user_id: user.id,
         latitude: latitude ? parseFloat(latitude) : null,
         longitude: longitude ? parseFloat(longitude) : null,
         selfie_url: selfiePath
     })
+
+    // UPDATE Single Session ID
+    await supabase.from('profiles')
+        .update({ active_session_id: sessionId })
+        .eq('id', user.id)
 
     // NEW: Comprehensive Activity Log
     await logActivity('LOGIN', { 
@@ -116,6 +123,7 @@ export async function loginWithPhoneAndSelfie(prevState: any, formData: FormData
     
     await cookieStore.set('session_user_id', user.id, { httpOnly: true, expires, path: '/' })
     await cookieStore.set('session_role', user.role, { httpOnly: true, expires, path: '/' })
+    await cookieStore.set('session_id', sessionId, { httpOnly: true, expires, path: '/' })
     // Store selfie path to delete on logout
     await cookieStore.set('session_selfie_path', selfiePath, { httpOnly: true, expires, path: '/' })
 
@@ -182,11 +190,19 @@ export async function logout() {
   if (selfiePath) {
       const supabase = getSupabase()
       await supabase.storage.from('login_selfies').remove([selfiePath])
+      
+      if (userId) {
+        // Clear active_session_id on server too? 
+        // Optional: It forces a logout everywhere, but we are just logging out here.
+        // It helps keep state clean.
+        await supabase.from('profiles').update({ active_session_id: null }).eq('id', userId)
+      }
   }
 
   cookieStore.delete('session_user_id')
   cookieStore.delete('session_role')
   cookieStore.delete('session_selfie_path')
+  cookieStore.delete('session_id')
   
   redirect('/login')
 }

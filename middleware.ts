@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 
 export async function middleware(request: NextRequest) {
   const userId = request.cookies.get('session_user_id')?.value
+  const sessionId = request.cookies.get('session_id')?.value
   const { pathname } = request.nextUrl
 
   // Define public paths
@@ -20,15 +21,22 @@ export async function middleware(request: NextRequest) {
       )
       
       try {
-          // Check if user exists and is approved
+          // Check if user exists, is approved, AND has matching session ID
           const { data } = await supabase
             .from('profiles')
-            .select('id, is_approved')
+            .select('id, is_approved, active_session_id')
             .eq('id', userId)
             .single()
           
+          // Verify approval AND session match
+          // If active_session_id is null in DB (legacy/logged out), we treat as invalid if we want strict mode.
+          // But for migration safety: if DB has ID, it MUST match.
           if (data && data.is_approved) {
-              isValidSession = true
+              if (data.active_session_id && data.active_session_id !== sessionId) {
+                  isValidSession = false // Session mismatch (logged in elsewhere)
+              } else {
+                  isValidSession = true
+              }
           }
       } catch (e) {
           // If connection fails, we might default to blocking or allowing?
@@ -46,6 +54,7 @@ export async function middleware(request: NextRequest) {
         response.cookies.delete('session_user_id')
         response.cookies.delete('session_role')
         response.cookies.delete('session_selfie_path')
+        response.cookies.delete('session_id') 
     }
     
     return response
