@@ -9,6 +9,15 @@ export default async function ExampleKitsPage() {
     .select('*, kit_template_contents(*)')
     .order('created_at', { ascending: false })
 
+  // Sort contents by id ascending
+  templates?.forEach(t => {
+      if (t.kit_template_contents) {
+          t.kit_template_contents.sort((a: any, b: any) => 
+              (a.id > b.id) ? 1 : ((b.id > a.id) ? -1 : 0)
+          )
+      }
+  })
+
   return (
     <ExampleKitsView templates={templates || []} />
   )
