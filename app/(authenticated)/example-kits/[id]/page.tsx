@@ -14,7 +14,7 @@ export default async function EditExampleKitPage(props: { params: Promise<{ id: 
     .from('kit_template_contents')
     .select('*')
     .eq('template_id', template.id)
-    .order('item_name')
+    .order('id', { ascending: true })
 
   return <EditTemplateView template={template} contents={contents || []} />
 }

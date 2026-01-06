@@ -37,7 +37,7 @@ export default function ExampleKitsView({ templates }: { templates: any[] }) {
                    <h4 className="text-sm font-semibold">{t.examples.standardItems}:</h4>
                    <ul className="list-disc list-inside text-sm text-zinc-700 dark:text-zinc-300">
                         {t_item.kit_template_contents?.length === 0 && <li className="text-zinc-400 italic">No items listed</li>}
-                        {t_item.kit_template_contents?.map((c: any) => (
+                       {t_item.kit_template_contents?.slice(0, 5).map((c: any) => (
                             <li key={c.id} className="flex items-center gap-2">
                                 <span className="font-semibold text-zinc-900 dark:text-zinc-100 min-w-[24px]">{c.quantity}x</span>
                                 <span>{c.item_name}</span>
@@ -52,6 +52,11 @@ export default function ExampleKitsView({ templates }: { templates: any[] }) {
                                 )}
                             </li>
                         ))}
+                        {t_item.kit_template_contents?.length > 5 && (
+                             <li className="flex items-center gap-2 text-zinc-500 pl-8">
+                                ...
+                             </li>
+                        )}
                    </ul>
               </div>
             </CardContent>

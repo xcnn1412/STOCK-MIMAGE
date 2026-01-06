@@ -7,11 +7,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardHeader, CardContent, CardTitle, CardFooter } from "@/components/ui/card"
 import { ArrowLeft, Plus, Trash, CheckCircle2, Clock, Circle, X, Save } from "lucide-react"
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { updateTemplateStatus, addTemplateItem, removeTemplateItem, updateTemplateDetails } from './actions'
 import { useLanguage } from '@/contexts/language-context'
 
 export default function EditTemplateView({ template, contents }: { template: any, contents: any[] }) {
     const { t } = useLanguage()
+    const router = useRouter()
     const [newItemName, setNewItemName] = useState('')
     const [newItemQty, setNewItemQty] = useState(1)
     const [isSaving, setIsSaving] = useState(false)
@@ -45,6 +47,7 @@ export default function EditTemplateView({ template, contents }: { template: any
                     <form action={async (formData) => {
                         setIsSaving(true)
                         await updateTemplateDetails(template.id, formData)
+                        router.push('/example-kits')
                         setIsSaving(false)
                     }} className="space-y-4">
                         <div className="space-y-2">
