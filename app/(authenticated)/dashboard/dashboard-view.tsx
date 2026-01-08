@@ -155,7 +155,50 @@ export default function DashboardView({
       <div className="space-y-4">
         <h2 className="text-lg font-semibold tracking-tight">{t.dashboard.activeDeployments}</h2>
         <Card className="border-zinc-200 dark:border-zinc-800 overflow-hidden">
-            <div className="overflow-x-auto">
+             {/* Mobile View: Cards */}
+             <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+                {activeKitsWithDetails?.map((kit: any) => (
+                    <div key={kit.id} className="p-4 flex flex-col gap-3">
+                         <div className="flex items-start justify-between gap-2">
+                             <div className="flex items-center gap-3">
+                                 <div className="w-10 h-10 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center shrink-0 shadow-sm border border-amber-200">
+                                     <Briefcase className="w-5 h-5" />
+                                 </div>
+                                 <div>
+                                     <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{kit.name}</h3>
+                                     <div className="text-xs text-zinc-500 flex items-center gap-1">
+                                         <CalendarCheck className="w-3 h-3" />
+                                         {kit.events?.event_date ? new Date(kit.events.event_date).toLocaleDateString() : '-'}
+                                     </div>
+                                 </div>
+                             </div>
+                             <Link href={`/events/${kit.events?.id}/check-kits`}>
+                                 <div className="inline-flex items-center justify-center px-3 py-1.5 text-xs font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 hover:bg-zinc-50 rounded-lg shadow-sm">
+                                     Track
+                                 </div>
+                             </Link>
+                         </div>
+                         
+                         <div className="bg-zinc-50 dark:bg-zinc-900/50 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800/50">
+                             <div className="font-medium text-sm text-zinc-700 dark:text-zinc-300 mb-1">
+                                 {kit.events?.name || 'Unknown Event'}
+                             </div>
+                             <div className="text-xs text-zinc-500 flex items-center gap-1.5">
+                                 <MapPin className="w-3.5 h-3.5" />
+                                 {kit.events?.location || 'No location'}
+                             </div>
+                         </div>
+                    </div>
+                ))}
+                 {(!activeKitsWithDetails || activeKitsWithDetails.length === 0) && (
+                    <div className="py-8 text-center text-zinc-500 text-sm">
+                        {t.dashboard.noDeployments}
+                    </div>
+                )}
+             </div>
+
+            {/* Desktop View: Table */}
+            <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm text-left">
                     <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
                         <tr>
