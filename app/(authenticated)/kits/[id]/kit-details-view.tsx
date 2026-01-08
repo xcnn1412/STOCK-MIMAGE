@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { ArrowLeft, Trash, QrCode, Pencil } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import AddItemToKitForm from './add-item-form'
+import EditKitDialog from './edit-kit-dialog'
 import { removeItemFromKit } from './actions'
 import { ItemImagePreview } from './item-image-preview'
 import { useLanguage } from '@/contexts/language-context'
@@ -33,6 +34,7 @@ export default function KitDetailsView({
             <div>
                 <div className="flex items-center gap-3">
                     <h2 className="text-3xl font-bold tracking-tight">{kit.name}</h2>
+                    <EditKitDialog kit={kit} />
                     {kit.events && (
                         <div className="bg-blue-100 text-blue-700 text-sm px-2 py-0.5 rounded-full font-medium">
                             in use @ {kit.events.name}
