@@ -1,26 +1,41 @@
 'use client'
 
+import { useState } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from 'next/link'
-import { CalendarDays, MapPin, Plus, Package, CheckCircle } from "lucide-react"
+import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
+import EventStatusBadge from './event-status-badge'
 
 export default function EventsView({ events }: { events: any[] }) {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+
+  const sortedEvents = [...events].sort((a, b) => {
+    const dateA = new Date(a.event_date).getTime()
+    const dateB = new Date(b.event_date).getTime()
+    return sortOrder === 'asc' ? dateA - dateB : dateB - dateA
+  })
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold tracking-tight">{t.events.title}</h2>
-        <Link href="/events/new">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" /> {t.events.createEvent}
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>
+                <ArrowUpDown className="mr-2 h-4 w-4" />
+                {t.events.sortDate}
+            </Button>
+            <Link href="/events/new">
+            <Button>
+                <Plus className="mr-2 h-4 w-4" /> {t.events.createEvent}
+            </Button>
+            </Link>
+        </div>
       </div>
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {events?.map((event) => (
+        {sortedEvents?.map((event) => (
           <Card key={event.id}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -35,11 +50,23 @@ export default function EventsView({ events }: { events: any[] }) {
                     {event.location}
                 </div>
                 <div className="font-medium">
-                    {new Date(event.event_date).toLocaleDateString()} {new Date(event.event_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {lang === 'th' ? (
+                        (() => {
+                            const date = new Date(event.event_date)
+                            const weekday = date.toLocaleDateString('th-TH', { weekday: 'long' })
+                            const day = date.getDate()
+                            const month = date.toLocaleDateString('th-TH', { month: 'long' })
+                            const year = date.getFullYear()
+                            return `${weekday} ที่ ${day} ${month} ${year}`
+                        })()
+                    ) : (
+                         new Date(event.event_date).toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                    )}
+                    <span className="ml-2 text-zinc-400">
+                        {new Date(event.event_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                 </div>
-                <div className="capitalize px-2 py-1 bg-zinc-100 dark:bg-zinc-800 rounded w-fit text-xs">
-                    {event.status || 'Scheduled'}
-                </div>
+                <EventStatusBadge status={event.status} date={event.event_date} />
               </div>
               <div className="flex gap-2 mt-4 pt-4 border-t">
                   <Link href={`/events/${event.id}/check-kits`} className="flex-1">
@@ -59,7 +86,7 @@ export default function EventsView({ events }: { events: any[] }) {
             </CardContent>
           </Card>
         ))}
-        {(!events || events.length === 0) && (
+        {(!sortedEvents || sortedEvents.length === 0) && (
             <div className="col-span-full text-center text-zinc-500 py-12 border rounded-lg border-dashed">
                 {t.common.noData}
             </div>
