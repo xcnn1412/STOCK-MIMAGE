@@ -126,5 +126,42 @@ export async function updateKitItemQuantity(contentId: string, quantity: number)
         contentId
     }, undefined)
 
+
     revalidatePath('/kits', 'layout')
 }
+
+export async function updateKitDetails(kitId: string, name: string, description: string) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) {
+      return { error: 'Unauthorized: No active session' }
+  }
+
+  const supabase = createServerSupabase()
+  
+  // Fetch old details for logging
+  const { data: oldKit } = await supabase.from('kits').select('name, description').eq('id', kitId).single()
+
+  const { error } = await supabase.from('kits').update({ 
+    name, 
+    description 
+  }).eq('id', kitId)
+
+  if (error) {
+    console.error(error)
+    return { error: 'Failed to update kit details' }
+  }
+
+  await logActivity('UPDATE_KIT', { 
+      kitId,
+      oldName: oldKit?.name,
+      newName: name,
+      oldDescription: oldKit?.description,
+      newDescription: description,
+      action: 'UPDATE_DETAILS'
+  }, undefined)
+
+  revalidatePath(`/kits/${kitId}`)
+  revalidatePath('/kits') 
+}
+
