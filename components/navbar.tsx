@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Button } from "@/components/ui/button"
-import { LogOut, Users, Menu, Package, Archive, Calendar, LayoutGrid, FileText } from "lucide-react"
+import { LogOut, Users, Menu, Package, Archive, Calendar, LayoutGrid, FileText, CheckCircle2 } from "lucide-react"
 import {
   Sheet,
   SheetContent,
@@ -32,6 +32,10 @@ export default function Navbar({ role }: { role?: string }) {
             <Link href="/events" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                 <Calendar className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
                 <span>{t.nav.events}</span>
+            </Link>
+            <Link href="/event-closures" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
+                <CheckCircle2 className="h-5 w-5 md:h-4 md:w-4 text-green-600" />
+                <span>ประวัติปิดงาน</span>
             </Link>
             <Link href="/example-kits" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                 <FileText className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
