@@ -146,12 +146,24 @@ function LogDetails({ log }: { log: any }) {
 
     // Events
     if (action === 'CREATE_EVENT' || action === 'UPDATE_EVENT') {
+        // Truncate long event names
+        const eventName = details.name?.length > 40 
+            ? details.name.substring(0, 40) + '...' 
+            : details.name
         return (
-            <div className="flex flex-col gap-1">
-                 <span className="font-medium">{action === 'CREATE_EVENT' ? 'New Event' : 'Updated Event'}: {details.name}</span>
-                 {details.location && <span className="text-xs">Location: {details.location}</span>}
+            <div className="flex flex-col gap-1 max-w-[350px]">
+                <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] ${action === 'CREATE_EVENT' ? 'bg-green-500' : 'bg-orange-500'}`}>
+                        {action === 'CREATE_EVENT' ? '+' : '✎'}
+                    </span>
+                    <span className="font-medium text-sm truncate" title={details.name}>
+                        {eventName}
+                    </span>
+                </div>
                  {details.kitIds && details.kitIds.length > 0 && (
-                     <span className="text-xs text-muted-foreground">Active Kits: {details.kitIds.length}</span>
+                     <span className="text-xs text-muted-foreground ml-7">
+                        🎒 Active Kits: {details.kitIds.length}
+                     </span>
                  )}
             </div>
         )
@@ -647,30 +659,54 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                     <div className="hidden md:block">
                         <Table>
                             <TableHeader>
-                                <TableRow>
-                                    <TableHead className="w-[180px]">{t.logs.columns.timestamp}</TableHead>
-                                    <TableHead>{t.logs.columns.user}</TableHead>
-                                    <TableHead>{t.logs.columns.action}</TableHead>
-                                    <TableHead>{t.logs.columns.details}</TableHead>
-                                    <TableHead className="text-right">Location / IP</TableHead>
+                                <TableRow className="bg-muted/50">
+                                    <TableHead className="w-[150px]">{t.logs.columns.timestamp}</TableHead>
+                                    <TableHead className="w-[140px]">{t.logs.columns.user}</TableHead>
+                                    <TableHead className="w-[130px]">{t.logs.columns.action}</TableHead>
+                                    <TableHead className="min-w-[200px] max-w-[350px]">{t.logs.columns.details}</TableHead>
+                                    <TableHead className="w-[120px] text-right">IP</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {paginatedLogs.map((log) => (
-                                    <TableRow key={log.id}>
-                                        <TableCell className="text-muted-foreground text-sm">
+                                    <TableRow key={log.id} className="hover:bg-muted/30">
+                                        <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
                                             <FormatDate date={log.created_at} />
                                         </TableCell>
-                                        <TableCell className="font-medium">
-                                            {log.user?.full_name || 'System'} 
-                                            {log.user?.role && <Badge variant="outline" className="ml-2 text-xs">{log.user.role}</Badge>}
+                                        <TableCell>
+                                            <div className="flex flex-col">
+                                                <span className="font-medium text-sm">{log.user?.full_name || 'System'}</span>
+                                                {log.user?.role && (
+                                                    <Badge variant="outline" className="w-fit text-[10px] mt-0.5">
+                                                        {log.user.role}
+                                                    </Badge>
+                                                )}
+                                            </div>
                                         </TableCell>
                                         <TableCell>
-                                            <Badge variant="secondary">{log.action_type}</Badge>
+                                            <Badge 
+                                                variant="secondary" 
+                                                className={`text-[10px] font-mono ${
+                                                    log.action_type.includes('DELETE') ? 'bg-red-100 text-red-700 border-red-200' :
+                                                    log.action_type.includes('CREATE') ? 'bg-green-100 text-green-700 border-green-200' :
+                                                    log.action_type.includes('UPDATE') ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                                                    log.action_type === 'LOGIN' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                                                    log.action_type === 'LOGOUT' ? 'bg-gray-100 text-gray-700 border-gray-200' :
+                                                    ''
+                                                }`}
+                                            >
+                                                {log.action_type}
+                                            </Badge>
                                         </TableCell>
-                                        <TableCell className="max-w-[400px] text-sm align-top">
-                                            {log.target && <div className="font-semibold mb-1 text-xs text-blue-600">Target: {log.target.full_name}</div>}
-                                            <LogDetails log={log} />
+                                        <TableCell className="text-sm align-top">
+                                            <div className="max-w-[350px]">
+                                                {log.target && (
+                                                    <div className="text-xs text-blue-600 mb-1">
+                                                        👤 {log.target.full_name}
+                                                    </div>
+                                                )}
+                                                <LogDetails log={log} />
+                                            </div>
                                         </TableCell>
                                         <TableCell className="text-right text-xs text-muted-foreground font-mono">
                                             <div className="flex flex-col items-end gap-0.5">
