@@ -140,7 +140,57 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
 
      const supabase = createServerSupabase()
 
-     // 1. Update item statuses
+     // Fetch event details before processing
+     const { data: event } = await supabase
+         .from('events')
+         .select('*')
+         .eq('id', eventId)
+         .single()
+
+     // Fetch kits and their items for snapshot
+     const { data: kits } = await supabase
+         .from('kits')
+         .select(`
+             id,
+             name,
+             kit_contents(
+                 quantity,
+                 items(id, name, serial_number, status, image_url)
+             )
+         `)
+         .eq('event_id', eventId)
+
+     // Build kits snapshot
+     const kitsSnapshot = kits?.map(kit => ({
+         kitId: kit.id,
+         kitName: kit.name,
+         items: kit.kit_contents?.map((kc: any) => ({
+             itemId: kc.items?.id,
+             itemName: kc.items?.name,
+             serialNumber: kc.items?.serial_number,
+             status: itemStatuses.find(s => s.itemId === kc.items?.id)?.status || kc.items?.status,
+             quantity: kc.quantity,
+             imageUrl: kc.items?.image_url
+         })) || []
+     })) || []
+
+     // 1. Save to event_closures table
+     const { error: closureError } = await supabase
+         .from('event_closures')
+         .insert({
+             event_name: event?.name || 'Unknown Event',
+             event_date: event?.event_date,
+             event_location: event?.location,
+             closed_by: userId,
+             kits_snapshot: kitsSnapshot
+         })
+
+     if (closureError) {
+         console.error('Failed to save closure record:', closureError)
+         // Continue anyway - don't block the return process
+     }
+
+     // 2. Update item statuses
      for (const item of itemStatuses) {
          await supabase
              .from('items')
@@ -148,17 +198,13 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
              .eq('id', item.itemId)
      }
 
-     // 2. Release kits (set event_id to null)
-     // We can do this by finding all kits with this event_id
+     // 3. Release kits (set event_id to null)
      await supabase
         .from('kits')
         .update({ event_id: null })
         .eq('event_id', eventId)
 
-     // Fetch event details before deletion
-     const { data: event } = await supabase.from('events').select('name').eq('id', eventId).single()
-
-     // 3. Delete the event
+     // 4. Delete the event
      const { error } = await supabase
         .from('events')
         .delete()
@@ -166,16 +212,18 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
 
      if (error) {
          console.error("Delete event failed", error)
-         // Should we throw?
      }
 
      await logActivity('DELETE_EVENT', { 
          eventId, 
          name: event?.name || 'Unknown Event',
-         reason: 'return' 
+         reason: 'return',
+         closureRecorded: !closureError
      }, undefined)
 
      revalidatePath('/events')
      revalidatePath('/items')
      revalidatePath('/kits')
+     revalidatePath('/event-closures')
 }
+
