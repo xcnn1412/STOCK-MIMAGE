@@ -26,7 +26,7 @@ export default function ExampleKitsView({ templates }: { templates: any[] }) {
           <Card key={t_item.id} className="flex flex-col">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <LayoutTemplate className="h-5 w-5 text-purple-500" />
+                <LayoutTemplate className="h-5 w-5 text-muted-foreground" />
                 {t_item.name}
               </CardTitle>
             </CardHeader>
@@ -43,8 +43,8 @@ export default function ExampleKitsView({ templates }: { templates: any[] }) {
                                 <span>{c.item_name}</span>
                                 {t_item.type === 'checklist' && c.status && c.status !== 'none' && (
                                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase font-bold tracking-wider ${
-                                        c.status === 'ready' ? 'bg-green-100 text-green-700' :
-                                        c.status === 'in-progress' ? 'bg-amber-100 text-amber-700' : 
+                                        c.status === 'ready' ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900' :
+                                        c.status === 'in-progress' ? 'bg-zinc-300 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200' : 
                                         'bg-zinc-100 text-zinc-500'
                                     }`}>
                                         {c.status}
@@ -60,10 +60,10 @@ export default function ExampleKitsView({ templates }: { templates: any[] }) {
                    </ul>
               </div>
             </CardContent>
-            <CardFooter className="flex justify-between border-t p-4 bg-zinc-50 dark:bg-zinc-900 rounded-b-xl gap-2">
+            <CardFooter className="flex justify-between border-t pt-4 gap-2">
                <div className="flex gap-2">
-                   {t_item.type === 'checklist' && (
-                       <div className="text-xs font-medium px-2 py-1 bg-blue-50 text-blue-600 rounded border border-blue-100">
+               {t_item.type === 'checklist' && (
+                       <div className="text-xs font-medium px-2 py-1 bg-zinc-100 text-zinc-600 rounded border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700">
                            {t.examples.checklist}
                        </div>
                    )}

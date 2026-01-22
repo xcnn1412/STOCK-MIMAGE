@@ -94,7 +94,7 @@ export default function DashboardView({
                 href={`https://www.google.com/maps?q=${log.latitude},${log.longitude}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 hover:bg-blue-100 transition-colors"
+                className="flex items-center gap-1.5 text-zinc-600 bg-zinc-100 px-3 py-1 rounded-full border border-zinc-200 hover:bg-zinc-200 transition-colors dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700"
               >
                 <MapPin className="h-3.5 w-3.5" />
                 <span>On Site</span>
@@ -111,42 +111,42 @@ export default function DashboardView({
               value={new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalValue)}
               subtext={`${itemsCount} ${t.dashboard.itemsTotal}`}
               icon={Wallet}
-              colorClass="bg-emerald-100 text-emerald-600"
+              colorClass="bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
           />
           <StatCard 
               title={t.dashboard.activeUsers} 
               value={usersCount || 0}
               subtext={t.dashboard.registeredStaff}
               icon={Users}
-              colorClass="bg-indigo-100 text-indigo-600"
+              colorClass="bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
           />
           <StatCard 
               title={t.dashboard.itemsInUse} 
               value={itemsInUse}
               subtext={`${itemsCount! - itemsInUse} ${t.dashboard.availableRightNow}`}
               icon={Package}
-              colorClass="bg-blue-100 text-blue-600"
+              colorClass="bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
           />
           <StatCard 
               title={t.dashboard.kitStatus} 
               value={`${activeKitsCount} / ${kitsCount}`}
               subtext={t.dashboard.kitsInEvents}
               icon={Briefcase}
-              colorClass="bg-amber-100 text-amber-600"
+              colorClass="bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
           />
       </div>
 
       {/* Warning/Alert Section if issues exist */}
       {(itemsMaintenance > 0 || itemsLost > 0) && (
-          <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 p-4 rounded-xl flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5" />
+          <div className="bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 p-4 rounded-xl flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-zinc-600 dark:text-zinc-400 mt-0.5" />
               <div>
-                  <h3 className="font-semibold text-orange-800 dark:text-orange-200">Attention Needed</h3>
-                  <p className="text-sm text-orange-700 dark:text-orange-300 mt-1">
+                  <h3 className="font-semibold text-zinc-800 dark:text-zinc-200">Attention Needed</h3>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
                       There are <b>{itemsMaintenance} items</b> in maintenance and <b>{itemsLost} items</b> reported lost. 
                       Please review the inventory.
                   </p>
-                  <Link href="/items?status=maintenance" className="text-sm font-medium text-orange-900 underline mt-2 inline-block">View Items &rarr;</Link>
+                  <Link href="/items?status=maintenance" className="text-sm font-medium text-zinc-900 dark:text-zinc-100 underline mt-2 inline-block">View Items &rarr;</Link>
               </div>
           </div>
       )}
@@ -161,7 +161,7 @@ export default function DashboardView({
                     <div key={kit.id} className="p-4 flex flex-col gap-3">
                          <div className="flex items-start justify-between gap-2">
                              <div className="flex items-center gap-3">
-                                 <div className="w-10 h-10 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center shrink-0 shadow-sm border border-amber-200">
+                                 <div className="w-10 h-10 rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 flex items-center justify-center shrink-0 shadow-sm border border-zinc-200 dark:border-zinc-700">
                                      <Briefcase className="w-5 h-5" />
                                  </div>
                                  <div>
@@ -213,7 +213,7 @@ export default function DashboardView({
                             <tr key={kit.id} className="group hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors">
                                 <td className="py-3 px-4 font-medium">
                                     <div className="flex items-center gap-2">
-                                        <div className="w-8 h-8 rounded bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                                        <div className="w-8 h-8 rounded bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 flex items-center justify-center shrink-0">
                                             <Briefcase className="w-4 h-4" />
                                         </div>
                                         {kit.name}
@@ -262,49 +262,49 @@ export default function DashboardView({
       <h2 className="text-lg font-semibold tracking-tight mt-8">{t.dashboard.quickAccess}</h2>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Link href="/items" className="group">
-            <Card className="hover:shadow-lg transition-all border-none bg-gradient-to-br from-blue-500 to-blue-600 text-white h-full group-hover:scale-[1.02]">
+            <Card className="hover:shadow-lg transition-all border-zinc-200 dark:border-zinc-800 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 h-full group-hover:scale-[1.02]">
             <CardHeader className="p-5">
-              <div className="mb-4 p-2 bg-white/20 w-fit rounded-lg backdrop-blur-sm">
-                  <Package className="h-6 w-6 text-white" />
+              <div className="mb-4 p-2 bg-white/20 dark:bg-black/10 w-fit rounded-lg">
+                  <Package className="h-6 w-6" />
               </div>
               <CardTitle className="text-lg">{t.nav.inventory}</CardTitle>
-              <CardDescription className="text-blue-100 text-xs">{t.dashboard.manageEquipment}</CardDescription>
+              <CardDescription className="text-zinc-400 dark:text-zinc-500 text-xs">{t.dashboard.manageEquipment}</CardDescription>
             </CardHeader>
           </Card>
         </Link>
         
         <Link href="/kits" className="group">
-          <Card className="hover:shadow-lg transition-all border-none bg-gradient-to-br from-amber-500 to-amber-600 text-white h-full group-hover:scale-[1.02]">
+          <Card className="hover:shadow-lg transition-all border-zinc-200 dark:border-zinc-800 bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900 h-full group-hover:scale-[1.02]">
             <CardHeader className="p-5">
-              <div className="mb-4 p-2 bg-white/20 w-fit rounded-lg backdrop-blur-sm">
-                  <Briefcase className="h-6 w-6 text-white" />
+              <div className="mb-4 p-2 bg-white/20 dark:bg-black/10 w-fit rounded-lg">
+                  <Briefcase className="h-6 w-6" />
               </div>
               <CardTitle className="text-lg">{t.nav.kits}</CardTitle>
-              <CardDescription className="text-amber-100 text-xs">{t.dashboard.bagManagement}</CardDescription>
+              <CardDescription className="text-zinc-400 dark:text-zinc-500 text-xs">{t.dashboard.bagManagement}</CardDescription>
             </CardHeader>
           </Card>
         </Link>
 
         <Link href="/events" className="group">
-          <Card className="hover:shadow-lg transition-all border-none bg-gradient-to-br from-emerald-500 to-emerald-600 text-white h-full group-hover:scale-[1.02]">
+          <Card className="hover:shadow-lg transition-all border-zinc-200 dark:border-zinc-800 bg-zinc-700 dark:bg-zinc-300 text-white dark:text-zinc-900 h-full group-hover:scale-[1.02]">
             <CardHeader className="p-5">
-              <div className="mb-4 p-2 bg-white/20 w-fit rounded-lg backdrop-blur-sm">
-                  <CalendarCheck className="h-6 w-6 text-white" />
+              <div className="mb-4 p-2 bg-white/20 dark:bg-black/10 w-fit rounded-lg">
+                  <CalendarCheck className="h-6 w-6" />
               </div>
               <CardTitle className="text-lg">{t.nav.events}</CardTitle>
-              <CardDescription className="text-emerald-100 text-xs">{t.dashboard.checkInOut}</CardDescription>
+              <CardDescription className="text-zinc-300 dark:text-zinc-500 text-xs">{t.dashboard.checkInOut}</CardDescription>
             </CardHeader>
           </Card>
         </Link>
 
         <Link href="/example-kits" className="group">
-          <Card className="hover:shadow-lg transition-all border-none bg-gradient-to-br from-purple-500 to-purple-600 text-white h-full group-hover:scale-[1.02]">
+          <Card className="hover:shadow-lg transition-all border-zinc-200 dark:border-zinc-800 bg-zinc-600 dark:bg-zinc-400 text-white dark:text-zinc-900 h-full group-hover:scale-[1.02]">
             <CardHeader className="p-5">
-              <div className="mb-4 p-2 bg-white/20 w-fit rounded-lg backdrop-blur-sm">
-                  <LayoutTemplate className="h-6 w-6 text-white" />
+              <div className="mb-4 p-2 bg-white/20 dark:bg-black/10 w-fit rounded-lg">
+                  <LayoutTemplate className="h-6 w-6" />
               </div>
               <CardTitle className="text-lg">{t.dashboard.templates}</CardTitle>
-              <CardDescription className="text-purple-100 text-xs">{t.dashboard.standardSets}</CardDescription>
+              <CardDescription className="text-zinc-300 dark:text-zinc-600 text-xs">{t.dashboard.standardSets}</CardDescription>
             </CardHeader>
           </Card>
         </Link>
