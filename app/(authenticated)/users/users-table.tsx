@@ -6,13 +6,30 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Check, X, Shield, User, Trash2 } from "lucide-react"
+import { Check, X, Shield, User, Trash2, Camera, Clock } from "lucide-react"
 import { toast } from "sonner"
 import { useLanguage } from '@/contexts/language-context'
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
 
-export default function UsersTable({ users }: { users: any[] }) {
+interface UserWithLogin {
+    id: string
+    full_name: string
+    phone: string
+    role: string
+    is_approved: boolean
+    last_login_at: string | null
+    last_login_selfie_url: string | null
+}
+
+export default function UsersTable({ users }: { users: UserWithLogin[] }) {
     const { t } = useLanguage()
     const [loadingId, setLoadingId] = useState<string | null>(null)
+    const [selectedImage, setSelectedImage] = useState<{ url: string; name: string; time: string } | null>(null)
 
     const handleToggle = async (id: string, status: boolean) => {
         setLoadingId(id)
@@ -40,23 +57,87 @@ export default function UsersTable({ users }: { users: any[] }) {
         setLoadingId(null)
     }
 
+    const formatLoginTime = (dateString: string | null) => {
+        if (!dateString) return null
+        const date = new Date(dateString)
+        return date.toLocaleString('th-TH', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        })
+    }
+
     return (
         <>
+            {/* Image Preview Modal */}
+            <Dialog open={!!selectedImage} onOpenChange={() => setSelectedImage(null)}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Camera className="h-5 w-5" />
+                            {selectedImage?.name}
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="flex flex-col items-center gap-4">
+                        {selectedImage?.url && (
+                            <img
+                                src={selectedImage.url}
+                                alt="Login Selfie"
+                                className="w-full max-h-[400px] object-contain rounded-lg border"
+                            />
+                        )}
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Clock className="h-4 w-4" />
+                            <span>{selectedImage?.time}</span>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             {/* Desktop View */}
             <div className="hidden md:block">
                 <Table>
                     <TableHeader>
                         <TableRow>
+                            <TableHead className="w-[80px]">ภาพ Login</TableHead>
                             <TableHead>{t.users.columns.name}</TableHead>
                             <TableHead>{t.users.columns.phone}</TableHead>
                             <TableHead>{t.users.columns.role}</TableHead>
                             <TableHead>{t.users.columns.status}</TableHead>
+                            <TableHead>Login ล่าสุด</TableHead>
                             <TableHead className="text-right">{t.users.columns.actions}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {users.map((user) => (
                             <TableRow key={user.id}>
+                                <TableCell>
+                                    {user.last_login_selfie_url ? (
+                                        <button
+                                            onClick={() => setSelectedImage({
+                                                url: user.last_login_selfie_url!,
+                                                name: user.full_name,
+                                                time: formatLoginTime(user.last_login_at) || ''
+                                            })}
+                                            className="relative group cursor-pointer"
+                                        >
+                                            <img
+                                                src={user.last_login_selfie_url}
+                                                alt={`${user.full_name} login`}
+                                                className="w-12 h-12 rounded-full object-cover border-2 border-gray-200 hover:border-blue-400 transition-colors"
+                                            />
+                                            <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                <Camera className="h-4 w-4 text-white" />
+                                            </div>
+                                        </button>
+                                    ) : (
+                                        <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center border-2 border-dashed border-gray-300">
+                                            <User className="h-5 w-5 text-gray-400" />
+                                        </div>
+                                    )}
+                                </TableCell>
                                 <TableCell className="font-medium">{user.full_name}</TableCell>
                                 <TableCell>{user.phone}</TableCell>
                                 <TableCell>
@@ -69,6 +150,16 @@ export default function UsersTable({ users }: { users: any[] }) {
                                         <Badge variant="outline" className="text-green-600 bg-green-50 border-green-200">Approved</Badge>
                                     ) : (
                                         <Badge variant="outline" className="text-amber-600 bg-amber-50 border-amber-200">Pending</Badge>
+                                    )}
+                                </TableCell>
+                                <TableCell>
+                                    {user.last_login_at ? (
+                                        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                            <Clock className="h-3.5 w-3.5" />
+                                            <span>{formatLoginTime(user.last_login_at)}</span>
+                                        </div>
+                                    ) : (
+                                        <span className="text-sm text-gray-400">-</span>
                                     )}
                                 </TableCell>
                                 <TableCell className="text-right">
@@ -112,19 +203,54 @@ export default function UsersTable({ users }: { users: any[] }) {
             <div className="grid grid-cols-1 gap-4 md:hidden">
                 {users.map((user) => (
                     <div key={user.id} className="flex flex-col gap-4 p-4 border rounded-lg bg-card text-card-foreground shadow-sm">
-                        <div className="flex items-start justify-between">
-                            <div>
-                                <h3 className="font-semibold leading-none tracking-tight">{user.full_name}</h3>
+                        <div className="flex items-start gap-3">
+                            {/* Selfie Image */}
+                            {user.last_login_selfie_url ? (
+                                <button
+                                    onClick={() => setSelectedImage({
+                                        url: user.last_login_selfie_url!,
+                                        name: user.full_name,
+                                        time: formatLoginTime(user.last_login_at) || ''
+                                    })}
+                                    className="relative group cursor-pointer shrink-0"
+                                >
+                                    <img
+                                        src={user.last_login_selfie_url}
+                                        alt={`${user.full_name} login`}
+                                        className="w-14 h-14 rounded-full object-cover border-2 border-gray-200"
+                                    />
+                                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <Camera className="h-4 w-4 text-white" />
+                                    </div>
+                                </button>
+                            ) : (
+                                <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center border-2 border-dashed border-gray-300 shrink-0">
+                                    <User className="h-6 w-6 text-gray-400" />
+                                </div>
+                            )}
+                            
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                    <h3 className="font-semibold leading-none tracking-tight truncate">{user.full_name}</h3>
+                                    <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                                        {user.role}
+                                    </Badge>
+                                </div>
                                 {user.phone && (
                                     <a href={`tel:${user.phone}`} className="text-sm text-blue-600 hover:underline mt-1 block">
                                         {user.phone}
                                     </a>
                                 )}
                                 {!user.phone && <p className="text-sm text-muted-foreground mt-1">No phone</p>}
+                                
+                                {/* Login Time */}
+                                {user.last_login_at && (
+                                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+                                        <Clock className="h-3 w-3" />
+                                        <span>{formatLoginTime(user.last_login_at)}</span>
+                                    </div>
+                                )}
                             </div>
-                            <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                                {user.role}
-                            </Badge>
                         </div>
                         
                         <div className="flex items-center justify-between">
@@ -171,3 +297,4 @@ export default function UsersTable({ users }: { users: any[] }) {
         </>
     )
 }
+
