@@ -333,7 +333,7 @@ function LogDetails({ log }: { log: any }) {
 }
 
 import { Button } from "@/components/ui/button"
-import { Filter, Calendar, X } from "lucide-react"
+import { Filter, Calendar, X, ChevronLeft, ChevronRight } from "lucide-react"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -374,6 +374,8 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
     const [dateFrom, setDateFrom] = useState<string | null>(null)
     const [dateTo, setDateTo] = useState<string | null>(null)
     const [datePreset, setDatePreset] = useState<string>('all')
+    const [currentPage, setCurrentPage] = useState(1)
+    const LOGS_PER_PAGE = 50
 
     // Quick date presets
     const applyDatePreset = (preset: string) => {
@@ -454,6 +456,17 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
         return matchesSearch && matchesUser && matchesAction && matchesDate
     })
 
+    // Pagination logic
+    const totalPages = Math.ceil(filteredLogs.length / LOGS_PER_PAGE)
+    const startIndex = (currentPage - 1) * LOGS_PER_PAGE
+    const endIndex = startIndex + LOGS_PER_PAGE
+    const paginatedLogs = filteredLogs.slice(startIndex, endIndex)
+
+    // Reset to page 1 when filters change
+    const handleFilterChange = () => {
+        setCurrentPage(1)
+    }
+
     return (
         <div className="space-y-4">
              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
@@ -464,7 +477,10 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                         placeholder={t.common.search}
                         className="pl-8 w-full"
                         value={searchText}
-                        onChange={(e) => setSearchText(e.target.value)}
+                    onChange={(e) => {
+                        setSearchText(e.target.value)
+                        setCurrentPage(1) // Reset to page 1 on search
+                    }}
                     />
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
@@ -621,8 +637,9 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
             <Card>
                 <CardHeader className="px-4 py-4 md:px-6 md:py-6">
                     <CardTitle>{t.logs.title}</CardTitle>
-                    <CardDescription>
-                        {searchText ? `${t.common.noData} "${searchText}".` : 'Latest 100 system activities.'}
+                <CardDescription>
+                        แสดง {paginatedLogs.length} จาก {filteredLogs.length} รายการ
+                        {filteredLogs.length > 0 && ` (หน้า ${currentPage}/${totalPages})`}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0 md:p-0">
@@ -639,7 +656,7 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {filteredLogs.map((log) => (
+                                {paginatedLogs.map((log) => (
                                     <TableRow key={log.id}>
                                         <TableCell className="text-muted-foreground text-sm">
                                             <FormatDate date={log.created_at} />
@@ -687,7 +704,7 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
 
                     {/* Mobile View */}
                     <div className="md:hidden divide-y">
-                        {filteredLogs.map((log) => (
+                        {paginatedLogs.map((log) => (
                             <div key={log.id} className="p-4 flex flex-col gap-2">
                                 <div className="flex justify-between items-start">
                                     <div className="flex flex-col">
@@ -707,12 +724,83 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                                 </div>
                             </div>
                         ))}
-                         {filteredLogs.length === 0 && (
+                         {paginatedLogs.length === 0 && (
                              <div className="p-8 text-center text-muted-foreground text-sm">
-                                 No logs found matching "{searchText}".
+                                 ไม่พบข้อมูล
                              </div>
                          )}
                     </div>
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                        <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/30">
+                            <div className="text-sm text-muted-foreground">
+                                หน้า {currentPage} จาก {totalPages}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(1)}
+                                    disabled={currentPage === 1}
+                                >
+                                    หน้าแรก
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                    disabled={currentPage === 1}
+                                >
+                                    <ChevronLeft className="h-4 w-4" />
+                                </Button>
+                                
+                                {/* Page Numbers */}
+                                <div className="hidden sm:flex items-center gap-1">
+                                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                        let pageNum
+                                        if (totalPages <= 5) {
+                                            pageNum = i + 1
+                                        } else if (currentPage <= 3) {
+                                            pageNum = i + 1
+                                        } else if (currentPage >= totalPages - 2) {
+                                            pageNum = totalPages - 4 + i
+                                        } else {
+                                            pageNum = currentPage - 2 + i
+                                        }
+                                        return (
+                                            <Button
+                                                key={pageNum}
+                                                variant={currentPage === pageNum ? 'default' : 'outline'}
+                                                size="sm"
+                                                className="w-8 h-8 p-0"
+                                                onClick={() => setCurrentPage(pageNum)}
+                                            >
+                                                {pageNum}
+                                            </Button>
+                                        )
+                                    })}
+                                </div>
+                                
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                    disabled={currentPage === totalPages}
+                                >
+                                    <ChevronRight className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCurrentPage(totalPages)}
+                                    disabled={currentPage === totalPages}
+                                >
+                                    หน้าสุดท้าย
+                                </Button>
+                            </div>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
         </div>
