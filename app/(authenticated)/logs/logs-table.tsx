@@ -333,7 +333,7 @@ function LogDetails({ log }: { log: any }) {
 }
 
 import { Button } from "@/components/ui/button"
-import { Filter } from "lucide-react"
+import { Filter, Calendar, X } from "lucide-react"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -345,11 +345,76 @@ import {
 
 // ... (existing helper functions: FormatDate, formatId, ImagePreview, LogDetails)
 
+// Helper to format date for input (use local timezone, not UTC)
+function formatDateForInput(date: Date): string {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+}
+
+// Helper to format date for display (Thai format)
+function formatDateDisplay(dateStr: string | null): string {
+    if (!dateStr) return ''
+    // Parse as local date by adding time component
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const date = new Date(year, month - 1, day)
+    return date.toLocaleDateString('th-TH', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+    })
+}
+
 export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
     const { t } = useLanguage()
     const [searchText, setSearchText] = useState('')
     const [selectedUser, setSelectedUser] = useState<string>('all')
     const [selectedAction, setSelectedAction] = useState<string>('all')
+    const [dateFrom, setDateFrom] = useState<string | null>(null)
+    const [dateTo, setDateTo] = useState<string | null>(null)
+    const [datePreset, setDatePreset] = useState<string>('all')
+
+    // Quick date presets
+    const applyDatePreset = (preset: string) => {
+        setDatePreset(preset)
+        const today = new Date()
+        today.setHours(23, 59, 59, 999)
+        
+        switch (preset) {
+            case 'today':
+                const todayStart = new Date()
+                todayStart.setHours(0, 0, 0, 0)
+                setDateFrom(formatDateForInput(todayStart))
+                setDateTo(formatDateForInput(today))
+                break
+            case '7days':
+                const sevenDaysAgo = new Date()
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+                sevenDaysAgo.setHours(0, 0, 0, 0)
+                setDateFrom(formatDateForInput(sevenDaysAgo))
+                setDateTo(formatDateForInput(today))
+                break
+            case '30days':
+                const thirtyDaysAgo = new Date()
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+                thirtyDaysAgo.setHours(0, 0, 0, 0)
+                setDateFrom(formatDateForInput(thirtyDaysAgo))
+                setDateTo(formatDateForInput(today))
+                break
+            case 'all':
+            default:
+                setDateFrom(null)
+                setDateTo(null)
+                break
+        }
+    }
+
+    const clearDateFilter = () => {
+        setDateFrom(null)
+        setDateTo(null)
+        setDatePreset('all')
+    }
 
     // Extract unique users and actions for filter options
     const users = Array.from(new Set(initialLogs.map(log => log.user?.full_name || 'System'))).sort()
@@ -368,7 +433,25 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
         const matchesUser = selectedUser === 'all' || (log.user?.full_name || 'System') === selectedUser
         const matchesAction = selectedAction === 'all' || log.action_type === selectedAction
 
-        return matchesSearch && matchesUser && matchesAction
+        // Date filtering
+        let matchesDate = true
+        if (dateFrom || dateTo) {
+            const logDate = new Date(log.created_at)
+            if (dateFrom) {
+                // Parse as local date
+                const [year, month, day] = dateFrom.split('-').map(Number)
+                const fromDate = new Date(year, month - 1, day, 0, 0, 0, 0)
+                matchesDate = matchesDate && logDate >= fromDate
+            }
+            if (dateTo) {
+                // Parse as local date
+                const [year, month, day] = dateTo.split('-').map(Number)
+                const toDate = new Date(year, month - 1, day, 23, 59, 59, 999)
+                matchesDate = matchesDate && logDate <= toDate
+            }
+        }
+
+        return matchesSearch && matchesUser && matchesAction && matchesDate
     })
 
     return (
@@ -426,6 +509,110 @@ export default function LogsTable({ initialLogs }: { initialLogs: any[] }) {
                                     {action}
                                 </DropdownMenuCheckboxItem>
                             ))}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    {/* Date Filter */}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" className={`gap-2 whitespace-nowrap ${dateFrom || dateTo ? 'border-blue-500 bg-blue-50' : ''}`}>
+                                <Calendar className="h-4 w-4" />
+                                {dateFrom || dateTo ? (
+                                    <span className="text-blue-600">
+                                        {formatDateDisplay(dateFrom)} - {formatDateDisplay(dateTo)}
+                                    </span>
+                                ) : (
+                                    <span>วันที่</span>
+                                )}
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[280px]">
+                            <DropdownMenuLabel className="flex items-center justify-between">
+                                <span>กรองตามวันที่</span>
+                                {(dateFrom || dateTo) && (
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        className="h-6 px-2 text-xs text-red-500 hover:text-red-600"
+                                        onClick={clearDateFilter}
+                                    >
+                                        <X className="h-3 w-3 mr-1" /> ล้าง
+                                    </Button>
+                                )}
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            
+                            {/* Quick Presets */}
+                            <div className="p-2 space-y-1">
+                                <p className="text-xs text-muted-foreground mb-2">เลือกด่วน</p>
+                                <div className="flex flex-wrap gap-1">
+                                    <Button 
+                                        variant={datePreset === 'today' ? 'default' : 'outline'} 
+                                        size="sm" 
+                                        className="h-7 text-xs"
+                                        onClick={() => applyDatePreset('today')}
+                                    >
+                                        วันนี้
+                                    </Button>
+                                    <Button 
+                                        variant={datePreset === '7days' ? 'default' : 'outline'} 
+                                        size="sm" 
+                                        className="h-7 text-xs"
+                                        onClick={() => applyDatePreset('7days')}
+                                    >
+                                        7 วัน
+                                    </Button>
+                                    <Button 
+                                        variant={datePreset === '30days' ? 'default' : 'outline'} 
+                                        size="sm" 
+                                        className="h-7 text-xs"
+                                        onClick={() => applyDatePreset('30days')}
+                                    >
+                                        30 วัน
+                                    </Button>
+                                    <Button 
+                                        variant={datePreset === 'all' ? 'default' : 'outline'} 
+                                        size="sm" 
+                                        className="h-7 text-xs"
+                                        onClick={() => applyDatePreset('all')}
+                                    >
+                                        ทั้งหมด
+                                    </Button>
+                                </div>
+                            </div>
+                            
+                            <DropdownMenuSeparator />
+                            
+                            {/* Custom Date Range */}
+                            <div className="p-2 space-y-3">
+                                <p className="text-xs text-muted-foreground">หรือเลือกเอง</p>
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs w-10">จาก:</label>
+                                        <input
+                                            type="date"
+                                            value={dateFrom || ''}
+                                            onChange={(e) => {
+                                                setDateFrom(e.target.value || null)
+                                                setDatePreset('custom')
+                                            }}
+                                            className="flex-1 h-8 px-2 text-sm border rounded-md bg-background"
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs w-10">ถึง:</label>
+                                        <input
+                                            type="date"
+                                            value={dateTo || ''}
+                                            onChange={(e) => {
+                                                setDateTo(e.target.value || null)
+                                                setDatePreset('custom')
+                                            }}
+                                            className="flex-1 h-8 px-2 text-sm border rounded-md bg-background"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
