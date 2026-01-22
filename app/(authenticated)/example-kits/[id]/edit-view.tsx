@@ -86,7 +86,7 @@ export default function EditTemplateView({ template, contents }: { template: any
                                         <Button 
                                             size="sm" 
                                             variant={item.status === 'ready' ? 'default' : 'outline'}
-                                            className={item.status === 'ready' ? 'bg-green-600 hover:bg-green-700' : 'text-zinc-500'}
+                                            className={item.status === 'ready' ? 'bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200' : 'text-zinc-500'}
                                             onClick={() => updateTemplateStatus(item.id, 'ready')}
                                         >
                                             <CheckCircle2 className="h-3 w-3 mr-1" /> {t.examples.status.ready}
@@ -94,7 +94,7 @@ export default function EditTemplateView({ template, contents }: { template: any
                                         <Button 
                                             size="sm" 
                                             variant={item.status === 'in-progress' ? 'default' : 'outline'}
-                                            className={item.status === 'in-progress' ? 'bg-amber-500 hover:bg-amber-600' : 'text-zinc-500'}
+                                            className={item.status === 'in-progress' ? 'bg-zinc-600 hover:bg-zinc-500 dark:bg-zinc-400 dark:text-zinc-900' : 'text-zinc-500'}
                                             onClick={() => updateTemplateStatus(item.id, 'in-progress')}
                                         >
                                             <Clock className="h-3 w-3 mr-1" /> {t.examples.status.inProgress}

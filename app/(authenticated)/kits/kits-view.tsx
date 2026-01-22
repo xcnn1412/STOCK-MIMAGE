@@ -36,7 +36,7 @@ export default function KitsView({ kits }: { kits: any[] }) {
                 <span className="font-medium">{kit.kit_contents?.length || 0}</span> {t.kits.itemCount}
               </div>
             </CardContent>
-            <CardFooter className="flex justify-between border-t p-4 bg-zinc-50 dark:bg-zinc-900 rounded-b-xl gap-2">
+            <CardFooter className="flex justify-between border-t pt-4 gap-2">
                <Link href={`/kits/${kit.id}`} className="flex-1">
                 <Button variant="outline" className="w-full">{t.kits.manage}</Button>
                </Link>

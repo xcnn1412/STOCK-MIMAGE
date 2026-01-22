@@ -115,7 +115,7 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
                                                 value={statuses[item.id] || ""} 
                                                 onValueChange={(val) => handleStatusChange(item.id, val)}
                                             >
-                                                <SelectTrigger className={statuses[item.id] ? "border-green-500 bg-green-50 text-green-700 font-medium" : ""}>
+                                                <SelectTrigger className={statuses[item.id] ? "border-zinc-500 bg-zinc-100 text-zinc-800 font-medium dark:bg-zinc-800 dark:text-zinc-200" : ""}>
                                                     <SelectValue placeholder={t.common.status} />
                                                 </SelectTrigger>
                                                 <SelectContent>
@@ -140,7 +140,7 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
                 </div>
                 <Button 
                     size="lg" 
-                    className={isComplete ? "bg-green-600 hover:bg-green-700" : ""}
+                    className={isComplete ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200" : ""}
                     disabled={!isComplete || isPending}
                     onClick={handleSubmit}
                 >

@@ -44,10 +44,10 @@ function formatThaiDate(dateStr: string | null) {
 
 function StatusBadge({ status }: { status: string }) {
     const colors: Record<string, string> = {
-        available: 'bg-green-100 text-green-700 border-green-200',
-        maintenance: 'bg-orange-100 text-orange-700 border-orange-200',
-        lost: 'bg-red-100 text-red-700 border-red-200',
-        in_use: 'bg-blue-100 text-blue-700 border-blue-200',
+        available: 'bg-zinc-900 text-white border-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:border-zinc-300',
+        maintenance: 'bg-zinc-300 text-zinc-700 border-zinc-400 dark:bg-zinc-600 dark:text-zinc-200',
+        lost: 'bg-zinc-400 text-zinc-100 border-zinc-500 line-through dark:bg-zinc-500 dark:text-zinc-200',
+        in_use: 'bg-zinc-200 text-zinc-700 border-zinc-300 dark:bg-zinc-700 dark:text-zinc-300',
     }
     return (
         <Badge variant="outline" className={`text-[10px] ${colors[status] || ''}`}>
@@ -63,11 +63,11 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
 
     return (
         <Card className="overflow-hidden">
-            <CardHeader className="pb-3 bg-gradient-to-r from-green-50 to-emerald-50 border-b">
+            <CardHeader className="pb-3 bg-zinc-50 dark:bg-zinc-900 border-b">
                 <div className="flex items-start justify-between">
                     <div className="space-y-1">
                         <CardTitle className="text-lg flex items-center gap-2">
-                            <CalendarDays className="h-5 w-5 text-green-600" />
+                            <CalendarDays className="h-5 w-5 text-muted-foreground" />
                             {closure.event_name}
                         </CardTitle>
                         {closure.event_location && (
@@ -77,7 +77,7 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
                             </CardDescription>
                         )}
                     </div>
-                    <Badge className="bg-green-600">ปิดงานแล้ว</Badge>
+                    <Badge className="bg-zinc-900 dark:bg-zinc-100 dark:text-zinc-900">ปิดงานแล้ว</Badge>
                 </div>
             </CardHeader>
             <CardContent className="pt-4">

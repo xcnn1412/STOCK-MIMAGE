@@ -34,7 +34,7 @@ export default function Navbar({ role }: { role?: string }) {
                 <span>{t.nav.events}</span>
             </Link>
             <Link href="/event-closures" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
-                <CheckCircle2 className="h-5 w-5 md:h-4 md:w-4 text-green-600" />
+                <CheckCircle2 className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
                 <span>ประวัติปิดงาน</span>
             </Link>
             <Link href="/example-kits" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
@@ -46,12 +46,12 @@ export default function Navbar({ role }: { role?: string }) {
                 <>
                     <div className="h-px bg-border my-2 md:hidden" />
                     <Link href="/logs" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
-                        <LayoutGrid className="h-5 w-5 md:h-4 md:w-4 text-orange-500" />
+                        <LayoutGrid className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
                         <span>{t.nav.logs}</span>
                     </Link>
                     <Link href="/users" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
-                        <Users className="h-5 w-5 md:h-4 md:w-4 text-blue-600" /> 
-                        <span className="font-semibold text-blue-600">{t.nav.users}</span>
+                        <Users className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" /> 
+                        <span>{t.nav.users}</span>
                     </Link>
                 </>
             )}
@@ -104,7 +104,7 @@ export default function Navbar({ role }: { role?: string }) {
                             <div className="h-px bg-border my-4" />
                             
                             <form action={logout}>
-                                <button type="submit" className="flex items-center gap-3 text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-2 rounded transition-colors w-full text-left">
+                                <button type="submit" className="flex items-center gap-3 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 px-2 py-2 rounded transition-colors w-full text-left">
                                     <LogOut className="h-5 w-5" />
                                     <span>{t.common.logout}</span>
                                 </button>

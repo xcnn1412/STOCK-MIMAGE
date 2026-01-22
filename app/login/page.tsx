@@ -220,7 +220,7 @@ export default function LoginPage() {
                         {registerState?.success && (
                             <p className="text-sm text-green-600 text-center">{registerState.success}</p>
                         )}
-                        <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={isRegisterPending}>
+                        <Button type="submit" className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200" disabled={isRegisterPending}>
                             {isRegisterPending ? "Registering..." : "Create Account"}
                         </Button>
                     </form>
