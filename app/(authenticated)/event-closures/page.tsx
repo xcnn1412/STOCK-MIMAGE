@@ -23,6 +23,6 @@ export default async function EventClosuresPage() {
         .order('closed_at', { ascending: false })
 
     return (
-        <EventClosuresView closures={closures || []} error={error} />
+        <EventClosuresView closures={closures || []} error={error ? error.message : null} />
     )
 }

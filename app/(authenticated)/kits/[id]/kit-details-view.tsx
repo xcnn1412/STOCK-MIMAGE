@@ -10,15 +10,18 @@ import EditKitDialog from './edit-kit-dialog'
 import { removeItemFromKit } from './actions'
 import { ItemImagePreview } from './item-image-preview'
 import { useLanguage } from '@/contexts/language-context'
+import type { Kit, Item, KitContent } from '@/types'
+
+type KitContentWithItem = KitContent & { items: Item }
 
 export default function KitDetailsView({ 
     kit, 
     contents, 
     availableItems 
 }: { 
-    kit: any, 
-    contents: any[], 
-    availableItems: any[] 
+    kit: Kit & { events: { name: string } | null }, 
+    contents: KitContentWithItem[], 
+    availableItems: Item[] 
 }) {
   const { t } = useLanguage()
 

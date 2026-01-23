@@ -6,8 +6,9 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Plus, Briefcase, QrCode } from "lucide-react"
 import { DeleteKitButton } from './delete-kit-button'
 import { useLanguage } from '@/contexts/language-context'
+import type { Kit } from '@/types'
 
-export default function KitsView({ kits }: { kits: any[] }) {
+export default function KitsView({ kits }: { kits: Kit[] }) {
   const { t } = useLanguage()
 
   return (

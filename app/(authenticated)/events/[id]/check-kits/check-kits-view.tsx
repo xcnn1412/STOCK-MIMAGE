@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button"
 import { ArrowLeft, ArrowRight, Package } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { useLanguage } from '@/contexts/language-context'
+import type { Event, Kit } from '@/types'
 
-export default function CheckKitsView({ event, kits }: { event: any, kits: any[] }) {
+export default function CheckKitsView({ event, kits }: { event: Event, kits: Kit[] }) {
   const { t } = useLanguage()
 
   return (

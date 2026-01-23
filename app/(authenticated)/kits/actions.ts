@@ -5,16 +5,17 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
+import type { ActionState, Database } from '@/types'
 
 function createServerSupabase() {
-    return createClient(
+    return createClient<Database>(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         { auth: { persistSession: false } }
     )
 }
 
-export async function createKit(prevState: any, formData: FormData) {
+export async function createKit(prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
   if (!userId) {

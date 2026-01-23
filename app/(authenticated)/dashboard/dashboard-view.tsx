@@ -6,17 +6,18 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Package, Briefcase, CalendarCheck, LayoutTemplate, MapPin, User, Clock, Wallet, Users, AlertTriangle } from "lucide-react"
 import { useLanguage } from "@/contexts/language-context"
 import TemplatesTable from './templates-table'
+import type { Profile, ActivityLog, Item, Kit, KitTemplate } from '@/types'
 
 interface DashboardViewProps {
-  profile: any
-  latestLog: any
+  profile: Profile | null
+  latestLog: ActivityLog | null
   itemsCount: number | null
-  items: any[] | null
+  items: Item[] | null
   kitsCount: number | null
-  activeKitsWithDetails: any[] | null
+  activeKitsWithDetails: Kit[] | null
   usersCount: number | null
   selfieUrl: string | null
-  templates?: any[]
+  templates?: KitTemplate[]
 }
 
 export default function DashboardView({

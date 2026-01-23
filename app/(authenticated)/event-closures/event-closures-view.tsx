@@ -6,28 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useLanguage } from '@/contexts/language-context'
 import { CalendarDays, MapPin, User, Package, ChevronDown, ChevronUp, Clock } from "lucide-react"
-
-interface EventClosure {
-    id: string
-    event_name: string
-    event_date: string | null
-    event_location: string | null
-    closed_at: string
-    closer: { id: string; full_name: string } | null
-    kits_snapshot: Array<{
-        kitId: string
-        kitName: string
-        items: Array<{
-            itemId: string
-            itemName: string
-            serialNumber: string | null
-            status: string
-            quantity: number
-            imageUrl: string | null
-        }>
-    }> | null
-    notes: string | null
-}
+import type { EventClosure } from '@/types'
 
 function formatThaiDate(dateStr: string | null) {
     if (!dateStr) return '-'
@@ -170,7 +149,7 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
     )
 }
 
-export default function EventClosuresView({ closures, error }: { closures: EventClosure[], error: any }) {
+export default function EventClosuresView({ closures, error }: { closures: EventClosure[], error: string | null }) {
     const { t } = useLanguage()
 
     return (
@@ -187,7 +166,7 @@ export default function EventClosuresView({ closures, error }: { closures: Event
 
             {error && (
                 <div className="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200">
-                    Error loading closures: {error.message}
+                    Error loading closures: {error}
                 </div>
             )}
 
