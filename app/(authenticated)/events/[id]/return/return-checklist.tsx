@@ -11,9 +11,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/contexts/language-context'
 
+import type { Event, Item } from '@/types'
+
 type ReturnProps = {
-    event: any
-    itemsByKit: Record<string, { kitName: string, items: any[] }>
+    event: Event
+    itemsByKit: Record<string, { kitName: string, items: Item[] }>
 }
 
 export default function CheckListForm({ event, itemsByKit }: ReturnProps) {

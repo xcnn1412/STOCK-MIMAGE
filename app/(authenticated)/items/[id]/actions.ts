@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
+import type { ActionState } from '@/types'
 
 function createServerSupabase() {
     return createClient(
@@ -16,7 +17,7 @@ function createServerSupabase() {
     )
 }
 
-export async function updateItem(id: string, prevState: any, formData: FormData) {
+export async function updateItem(id: string, prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
   if (!userId) {
@@ -77,7 +78,7 @@ export async function updateItem(id: string, prevState: any, formData: FormData)
     }
   }
 
-  const updates: any = {
+  const updates: Record<string, string | number | null> = {
     name,
     category,
     serial_number,
@@ -93,7 +94,7 @@ export async function updateItem(id: string, prevState: any, formData: FormData)
      return { error: error.message }
   }
 
-  const changes: any = {}
+  const changes: Record<string, { from: unknown; to: unknown }> = {}
   if (currentItem) {
       Object.keys(updates).forEach(key => {
           if (JSON.stringify(updates[key]) !== JSON.stringify(currentItem[key])) {

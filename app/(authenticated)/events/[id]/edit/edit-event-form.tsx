@@ -10,8 +10,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from 'next/link'
 import { useLanguage } from '@/contexts/language-context'
+import type { Event, Kit } from '@/types'
 
-export default function EditEventForm({ event, availableKits, assignedKitIds }: { event: any, availableKits: any[], assignedKitIds: string[] }) {
+export default function EditEventForm({ event, availableKits, assignedKitIds }: { event: Event, availableKits: Kit[], assignedKitIds: string[] }) {
   const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(updateEvent.bind(null, event.id), { error: '' })
 
@@ -61,12 +62,12 @@ export default function EditEventForm({ event, availableKits, assignedKitIds }: 
             
             <div className="space-y-2">
               <Label htmlFor="location">{t.events.fields.location}</Label>
-              <Input id="location" name="location" defaultValue={event.location} />
+              <Input id="location" name="location" defaultValue={event.location || ''} />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="staff">{t.events.fields.staff}</Label>
-              <Textarea id="staff" name="staff" defaultValue={event.staff} placeholder={t.events.fields.staff} />
+              <Textarea id="staff" name="staff" defaultValue={event.staff || ''} placeholder={t.events.fields.staff} />
             </div>
 
             <div className="space-y-4">

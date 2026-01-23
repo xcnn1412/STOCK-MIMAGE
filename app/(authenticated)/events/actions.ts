@@ -5,16 +5,17 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
+import type { ActionState, KitContent, Item, Database } from '@/types'
 
 function createServerSupabase() {
-    return createClient(
+    return createClient<Database>(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         { auth: { persistSession: false } }
     )
 }
 
-export async function createEvent(prevState: any, formData: FormData) {
+export async function createEvent(prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
   if (!userId) {
@@ -71,7 +72,7 @@ export async function createEvent(prevState: any, formData: FormData) {
 }
 
 
-export async function updateEvent(id: string, prevState: any, formData: FormData) {
+export async function updateEvent(id: string, prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
   if (!userId) {
@@ -164,6 +165,7 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
      const kitsSnapshot = kits?.map(kit => ({
          kitId: kit.id,
          kitName: kit.name,
+         // eslint-disable-next-line @typescript-eslint/no-explicit-any
          items: kit.kit_contents?.map((kc: any) => ({
              itemId: kc.items?.id,
              itemName: kc.items?.name,

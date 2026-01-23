@@ -7,8 +7,9 @@ import Link from 'next/link'
 import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3 } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
 import EventStatusBadge from './event-status-badge'
+import type { Event } from '@/types'
 
-export default function EventsView({ events }: { events: any[] }) {
+export default function EventsView({ events }: { events: Event[] }) {
   const { t, lang } = useLanguage()
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 

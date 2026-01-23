@@ -2,8 +2,9 @@
 
 import LogsTable from './logs-table'
 import { useLanguage } from '@/contexts/language-context'
+import type { ActivityLog } from '@/types'
 
-export default function LogsView({ logs, error }: { logs: any[], error: any }) {
+export default function LogsView({ logs, error }: { logs: ActivityLog[], error: string | null }) {
     const { t } = useLanguage()
 
     return (
@@ -13,7 +14,7 @@ export default function LogsView({ logs, error }: { logs: any[], error: any }) {
                 <p className="text-sm md:text-base text-zinc-500">View user activities and system events.</p>
                 {error && (
                     <div className="p-3 bg-red-50 text-red-600 rounded text-sm mt-2">
-                        Error loading logs: {error.message}. Please checking RLS policies.
+                        Error loading logs: {error}. Please checking RLS policies.
                     </div>
                 )}
             </div>

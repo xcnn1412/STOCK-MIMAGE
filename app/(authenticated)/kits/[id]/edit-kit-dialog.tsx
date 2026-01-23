@@ -17,8 +17,9 @@ import { Pencil } from "lucide-react"
 import { updateKitDetails } from './actions'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/contexts/language-context'
+import type { Kit } from '@/types'
 
-export default function EditKitDialog({ kit }: { kit: any }) {
+export default function EditKitDialog({ kit }: { kit: Kit }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [name, setName] = useState(kit.name)

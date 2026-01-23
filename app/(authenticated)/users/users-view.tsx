@@ -3,8 +3,9 @@
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
 import UsersTable from './users-table'
 import { useLanguage } from '@/contexts/language-context'
+import type { Profile } from '@/types'
 
-export default function UsersView({ users }: { users: any[] }) {
+export default function UsersView({ users }: { users: Profile[] }) {
     const { t } = useLanguage()
 
     return (

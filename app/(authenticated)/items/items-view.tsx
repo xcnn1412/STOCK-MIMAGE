@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import ItemsTable from './items-table'
 import { useLanguage } from '@/contexts/language-context'
+import type { Item } from '@/types'
 
-export default function ItemsView({ items }: { items: any[] }) {
+export default function ItemsView({ items }: { items: Item[] }) {
     const { t } = useLanguage()
     
     return (

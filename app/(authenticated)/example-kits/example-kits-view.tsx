@@ -6,8 +6,9 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Plus, LayoutTemplate } from "lucide-react"
 import { DeleteTemplateButton } from './delete-template-button'
 import { useLanguage } from '@/contexts/language-context'
+import type { KitTemplate, KitTemplateContent } from '@/types'
 
-export default function ExampleKitsView({ templates }: { templates: any[] }) {
+export default function ExampleKitsView({ templates }: { templates: KitTemplate[] }) {
   const { t } = useLanguage()
 
   return (
@@ -37,7 +38,7 @@ export default function ExampleKitsView({ templates }: { templates: any[] }) {
                    <h4 className="text-sm font-semibold">{t.examples.standardItems}:</h4>
                    <ul className="list-disc list-inside text-sm text-zinc-700 dark:text-zinc-300">
                         {t_item.kit_template_contents?.length === 0 && <li className="text-zinc-400 italic">No items listed</li>}
-                       {t_item.kit_template_contents?.slice(0, 5).map((c: any) => (
+                       {t_item.kit_template_contents?.slice(0, 5).map((c: KitTemplateContent) => (
                             <li key={c.id} className="flex items-center gap-2">
                                 <span className="font-semibold text-zinc-900 dark:text-zinc-100 min-w-[24px]">{c.quantity}x</span>
                                 <span>{c.item_name}</span>

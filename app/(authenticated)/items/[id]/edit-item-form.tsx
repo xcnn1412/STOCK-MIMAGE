@@ -10,8 +10,9 @@ import Link from 'next/link'
 import { ArrowLeft, Trash, X } from "lucide-react"
 import { compressImage } from "@/lib/utils"
 import { useLanguage } from '@/contexts/language-context'
+import type { Item } from '@/types'
 
-export default function EditItemForm({ item, returnTo }: { item: any, returnTo?: string }) {
+export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?: string }) {
   const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(updateItem.bind(null, item.id), { error: '' })
   

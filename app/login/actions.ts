@@ -4,9 +4,10 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { logActivity } from '@/lib/logger'
+import type { ActionState, Database } from '@/types'
 
 function getSupabase() {
-    return createClient(
+    return createClient<Database>(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
@@ -31,7 +32,7 @@ function dataURItoBlob(dataURI: string) {
     return new Blob([ab], { type: mimeString });
 }
 
-export async function loginWithPhoneAndSelfie(prevState: any, formData: FormData) {
+export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: FormData) {
   const phone = formData.get('phone') as string
   const pin = formData.get('pin') as string
   const latitude = formData.get('latitude') as string
@@ -127,7 +128,7 @@ export async function loginWithPhoneAndSelfie(prevState: any, formData: FormData
     // Store selfie path to delete on logout
     await cookieStore.set('session_selfie_path', selfiePath, { httpOnly: true, expires, path: '/' })
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Unexpected error:', err)
      return { error: 'System busy, please try again.' }
   }
@@ -135,7 +136,7 @@ export async function loginWithPhoneAndSelfie(prevState: any, formData: FormData
   redirect('/dashboard')
 }
 
-export async function registerUser(prevState: any, formData: FormData) {
+export async function registerUser(prevState: ActionState, formData: FormData) {
     const name = formData.get('name') as string
     const phone = formData.get('phone') as string
     const pin = formData.get('pin') as string

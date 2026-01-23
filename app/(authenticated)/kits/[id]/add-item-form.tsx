@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, Plus } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
+import type { Item } from '@/types'
 
-export default function AddItemToKitForm({ kitId, availableItems }: { kitId: string, availableItems: any[] }) {
+export default function AddItemToKitForm({ kitId, availableItems }: { kitId: string, availableItems: Item[] }) {
   const { t } = useLanguage()
   const [selectedItem, setSelectedItem] = useState<string>("")
   const [isPending, setIsPending] = useState(false)

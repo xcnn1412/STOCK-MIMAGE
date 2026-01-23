@@ -6,8 +6,9 @@ import { ArrowLeft, Download } from "lucide-react"
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useLanguage } from '@/contexts/language-context'
 import { toPng } from 'html-to-image'
+import type { Kit } from '@/types'
 
-export default function PrintView({ kit }: { kit: any }) {
+export default function PrintView({ kit }: { kit: Kit }) {
   const { t } = useLanguage()
   const [url, setUrl] = useState('')
   const cardRef = useRef<HTMLDivElement>(null)
