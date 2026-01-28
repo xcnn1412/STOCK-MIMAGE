@@ -30,6 +30,7 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
   const status = formData.get('status') as string
   const price = formData.get('price') as string
   const quantity = formData.get('quantity') as string
+  const description = formData.get('description') as string
   
   // Existing images from hidden input or state management could be passed, 
   // but for simplicity we might just look at what's in the DB and append/replace?
@@ -83,6 +84,7 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
     category,
     serial_number,
     status,
+    description: description || null,
     price: price ? parseFloat(price) : null,
     quantity: quantity ? parseInt(quantity) : 1,
     image_url: finalImages.length > 0 ? JSON.stringify(finalImages) : null
