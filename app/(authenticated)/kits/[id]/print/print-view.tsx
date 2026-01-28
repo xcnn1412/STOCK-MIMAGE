@@ -36,7 +36,7 @@ export default function PrintView({ kit }: { kit: Kit }) {
 
   return (
       <div className="min-h-screen bg-zinc-100 flex flex-col items-center justify-center p-4">
-       <div className="fixed top-4 left-4 z-10">
+       <div className="fixed top-20 left-4 z-10">
           <Link href={`/kits/${kit.id}`}>
              <Button variant="outline"><ArrowLeft className="mr-2 h-4 w-4"/> {t.common.back}</Button>
           </Link>
