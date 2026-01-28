@@ -22,10 +22,15 @@ export default async function CheckPage(props: { params: Promise<{ id: string }>
     .order('event_date', { ascending: false })
     .limit(20)
 
+  // Back link: if came from an event, go back to that event's check-kits page
+  const backUrl = searchParams.eventId 
+    ? `/events/${searchParams.eventId}/check-kits`
+    : '/events'
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-4">
         <div className="max-w-md mx-auto mb-4 flex items-center gap-4">
-            <Link href="/dashboard">
+            <Link href={backUrl}>
                 <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4"/></Button>
             </Link>
             <h1 className="text-xl font-bold">{kit.name} Check</h1>
@@ -34,3 +39,4 @@ export default async function CheckPage(props: { params: Promise<{ id: string }>
     </div>
   )
 }
+
