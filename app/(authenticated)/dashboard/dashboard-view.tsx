@@ -36,7 +36,8 @@ export default function DashboardView({
   // Calculate stats
   const totalValue = items?.reduce((sum, item) => sum + (item.price || 0), 0) || 0
   const itemsInUse = items?.filter(i => i.status === 'in_use').length || 0
-  const itemsMaintenance = items?.filter(i => i.status === 'maintenance' || i.status === 'damaged').length || 0
+  const itemsMaintenance = items?.filter(i => i.status === 'maintenance').length || 0
+  const itemsDamaged = items?.filter(i => i.status === 'damaged').length || 0
   const itemsLost = items?.filter(i => i.status === 'lost').length || 0
   const activeKitsCount = activeKitsWithDetails?.length || 0
 
@@ -138,14 +139,18 @@ export default function DashboardView({
       </div>
 
       {/* Warning/Alert Section if issues exist */}
-      {(itemsMaintenance > 0 || itemsLost > 0) && (
+      {(itemsMaintenance > 0 || itemsDamaged > 0 || itemsLost > 0) && (
           <div className="bg-zinc-100 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 p-4 rounded-xl flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-zinc-600 dark:text-zinc-400 mt-0.5" />
               <div>
                   <h3 className="font-semibold text-zinc-800 dark:text-zinc-200">Attention Needed</h3>
                   <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
-                      There are <b>{itemsMaintenance} items</b> in maintenance and <b>{itemsLost} items</b> reported lost. 
-                      Please review the inventory.
+                      {itemsMaintenance > 0 && <><b>{itemsMaintenance} items</b> in maintenance</>}
+                      {itemsMaintenance > 0 && itemsDamaged > 0 && ', '}
+                      {itemsDamaged > 0 && <><b>{itemsDamaged} items</b> damaged</>}
+                      {(itemsMaintenance > 0 || itemsDamaged > 0) && itemsLost > 0 && ' and '}
+                      {itemsLost > 0 && <><b>{itemsLost} items</b> reported lost</>}
+                      . Please review the inventory.
                   </p>
                   <Link href="/items?status=maintenance" className="text-sm font-medium text-zinc-900 dark:text-zinc-100 underline mt-2 inline-block">View Items &rarr;</Link>
               </div>
@@ -154,40 +159,35 @@ export default function DashboardView({
 
       {/* Active Deployments Table */}
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">{t.dashboard.activeDeployments}</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">{t.dashboard.activeDeployments}</h2>
+          {activeKitsWithDetails && activeKitsWithDetails.length > 0 && (
+            <span className="text-sm text-zinc-500">{activeKitsWithDetails.length} active</span>
+          )}
+        </div>
         <Card className="border-zinc-200 dark:border-zinc-800 overflow-hidden">
-             {/* Mobile View: Cards */}
-             <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+             {/* Mobile View: Compact Cards */}
+             <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800 max-h-[400px] overflow-y-auto">
                 {activeKitsWithDetails?.map((kit: any) => (
-                    <div key={kit.id} className="p-4 flex flex-col gap-3">
-                         <div className="flex items-start justify-between gap-2">
-                             <div className="flex items-center gap-3">
-                                 <div className="w-10 h-10 rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 flex items-center justify-center shrink-0 shadow-sm border border-zinc-200 dark:border-zinc-700">
-                                     <Briefcase className="w-5 h-5" />
-                                 </div>
-                                 <div>
-                                     <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{kit.name}</h3>
-                                     <div className="text-xs text-zinc-500 flex items-center gap-1">
-                                         <CalendarCheck className="w-3 h-3" />
-                                         {kit.events?.event_date ? new Date(kit.events.event_date).toLocaleDateString() : '-'}
-                                     </div>
-                                 </div>
+                    <div key={kit.id} className="p-3 flex items-center justify-between gap-3">
+                         <div className="flex items-center gap-3 min-w-0 flex-1">
+                             <div className="w-9 h-9 rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 flex items-center justify-center shrink-0">
+                                 <Briefcase className="w-4 h-4" />
                              </div>
+                             <div className="min-w-0 flex-1">
+                                 <h3 className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate">{kit.name}</h3>
+                                 <p className="text-xs text-zinc-500 truncate">{kit.events?.name || '-'}</p>
+                             </div>
+                         </div>
+                         <div className="flex items-center gap-2 shrink-0">
+                             <span className="text-xs text-zinc-400">
+                                 {kit.events?.event_date ? new Date(kit.events.event_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : '-'}
+                             </span>
                              <Link href={`/events/${kit.events?.id}/check-kits`}>
-                                 <div className="inline-flex items-center justify-center px-3 py-1.5 text-xs font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 hover:bg-zinc-50 rounded-lg shadow-sm">
+                                 <div className="px-2.5 py-1 text-xs font-medium bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-md">
                                      Track
                                  </div>
                              </Link>
-                         </div>
-                         
-                         <div className="bg-zinc-50 dark:bg-zinc-900/50 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800/50">
-                             <div className="font-medium text-sm text-zinc-700 dark:text-zinc-300 mb-1">
-                                 {kit.events?.name || 'Unknown Event'}
-                             </div>
-                             <div className="text-xs text-zinc-500 flex items-center gap-1.5">
-                                 <MapPin className="w-3.5 h-3.5" />
-                                 {kit.events?.location || 'No location'}
-                             </div>
                          </div>
                     </div>
                 ))}
@@ -198,45 +198,39 @@ export default function DashboardView({
                 )}
              </div>
 
-            {/* Desktop View: Table */}
-            <div className="hidden md:block overflow-x-auto">
+            {/* Desktop View: Compact Table */}
+            <div className="hidden md:block overflow-x-auto max-h-[350px] overflow-y-auto">
                 <table className="w-full text-sm text-left">
-                    <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
+                    <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 sticky top-0">
                         <tr>
-                            <th className="py-3 px-4 font-medium text-zinc-500">{t.nav.kits}</th>
-                            <th className="py-3 px-4 font-medium text-zinc-500">{t.nav.events}</th>
-                            <th className="py-3 px-4 font-medium text-zinc-500">Dates</th>
-                            <th className="py-3 px-4 font-medium text-zinc-500 text-right">Action</th>
+                            <th className="py-2.5 px-4 font-medium text-zinc-500 text-xs uppercase tracking-wide">{t.nav.kits}</th>
+                            <th className="py-2.5 px-4 font-medium text-zinc-500 text-xs uppercase tracking-wide">{t.nav.events}</th>
+                            <th className="py-2.5 px-4 font-medium text-zinc-500 text-xs uppercase tracking-wide w-24">Date</th>
+                            <th className="py-2.5 px-4 font-medium text-zinc-500 text-right text-xs uppercase tracking-wide w-20"></th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                         {activeKitsWithDetails?.map((kit: any) => (
                             <tr key={kit.id} className="group hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors">
-                                <td className="py-3 px-4 font-medium">
+                                <td className="py-2.5 px-4">
                                     <div className="flex items-center gap-2">
-                                        <div className="w-8 h-8 rounded bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 flex items-center justify-center shrink-0">
-                                            <Briefcase className="w-4 h-4" />
+                                        <div className="w-7 h-7 rounded bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 flex items-center justify-center shrink-0">
+                                            <Briefcase className="w-3.5 h-3.5" />
                                         </div>
-                                        {kit.name}
+                                        <span className="font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[150px]">{kit.name}</span>
                                     </div>
                                 </td>
-                                <td className="py-3 px-4">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                                            {kit.events?.name || 'Unknown Event'}
-                                        </span>
-                                    </div>
-                                    <div className="text-xs text-zinc-500 flex items-center gap-1 mt-0.5">
-                                        <MapPin className="w-3 h-3" />
-                                        {kit.events?.location || 'No location'}
-                                    </div>
+                                <td className="py-2.5 px-4">
+                                    <span className="text-zinc-700 dark:text-zinc-300 truncate block max-w-[200px]">
+                                        {kit.events?.name || '-'}
+                                    </span>
                                 </td>
-                                <td className="py-3 px-4 text-zinc-500">
-                                    {kit.events?.event_date ? new Date(kit.events.event_date).toLocaleDateString() : '-'}
+                                <td className="py-2.5 px-4 text-zinc-500 text-sm">
+                                    {kit.events?.event_date ? new Date(kit.events.event_date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : '-'}
                                 </td>
-                                <td className="py-3 px-4 text-right">
+                                <td className="py-2.5 px-4 text-right">
                                     <Link href={`/events/${kit.events?.id}/check-kits`}>
-                                        <div className="inline-flex items-center justify-center px-3 py-1.5 text-xs font-medium bg-white dark:bg-zinc-900 border border-zinc-200 hover:bg-zinc-50 rounded-md shadow-sm transition-colors">
+                                        <div className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-medium bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-md hover:opacity-90 transition-opacity">
                                             Track
                                         </div>
                                     </Link>
