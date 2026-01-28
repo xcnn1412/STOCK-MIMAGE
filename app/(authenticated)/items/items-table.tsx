@@ -82,14 +82,10 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
       kitName.toLowerCase().includes(searchText) ||
       eventName.toLowerCase().includes(searchText)
 
-    // Status Filter
+    // Status Filter - use actual item.status, not displayStatus
     let matchesStatus = true
     if (statusFilter !== 'all') {
-        const kitContent = item.kit_contents && item.kit_contents[0]
-        const kit = kitContent?.kits
-        const event = kit?.events
-        const displayStatus = event ? 'in_use' : item.status
-        matchesStatus = displayStatus === statusFilter
+        matchesStatus = item.status === statusFilter
     }
 
     return matchesText && matchesStatus
