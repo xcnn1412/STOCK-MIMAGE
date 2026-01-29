@@ -10,6 +10,7 @@ export const dictionary = {
       logs: 'System Logs',
       users: 'Users',
       dashboard: 'Dashboard',
+      eventClosures: 'Event Closures',
     },
     common: {
       welcome: 'Welcome back',
@@ -223,6 +224,7 @@ export const dictionary = {
       logs: 'บันทึกการใช้งาน',
       users: 'ผู้ใช้งาน',
       dashboard: 'แดชบอร์ด',
+      eventClosures: 'ประวัติปิดงาน',
     },
     common: {
       welcome: 'ยินดีต้อนรับ',

@@ -35,7 +35,7 @@ export default function Navbar({ role }: { role?: string }) {
             </Link>
             <Link href="/event-closures" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                 <CheckCircle2 className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
-                <span>ประวัติปิดงาน</span>
+                <span>{t.nav.eventClosures}</span>
             </Link>
             <Link href="/example-kits" className="flex items-center gap-3 md:gap-2 px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={() => setOpen(false)}>
                 <FileText className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground" />
