@@ -138,6 +138,9 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                   <DropdownMenuCheckboxItem checked={statusFilter === 'lost'} onCheckedChange={() => setStatusFilter('lost')}>
                       {t.items.status.lost}
                   </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={statusFilter === 'out_of_stock'} onCheckedChange={() => setStatusFilter('out_of_stock')}>
+                      {t.items.status.out_of_stock}
+                  </DropdownMenuCheckboxItem>
               </DropdownMenuContent>
           </DropdownMenu>
       </div>
@@ -259,34 +262,34 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
       </div>
 
       {/* Desktop View (Table) */}
-      <div className="hidden md:block border rounded-lg bg-white dark:bg-zinc-900 overflow-hidden">
-        <Table>
+      <div className="hidden md:block border rounded-lg bg-white dark:bg-zinc-900 overflow-x-auto">
+        <Table className="w-full table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[80px]">{t.items.columns.image}</TableHead>
-              <TableHead onClick={() => handleSort('name')} className="cursor-pointer hover:bg-zinc-50 md:table-cell">
+              <TableHead className="w-16">{t.items.columns.image}</TableHead>
+              <TableHead onClick={() => handleSort('name')} className="cursor-pointer hover:bg-zinc-50 w-[15%]">
                   <div className="flex items-center gap-1">{t.items.columns.name} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('category')} className="cursor-pointer hover:bg-zinc-50 hidden md:table-cell">
+              <TableHead onClick={() => handleSort('category')} className="cursor-pointer hover:bg-zinc-50 w-[12%]">
                   <div className="flex items-center gap-1">{t.items.columns.category} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('quantity')} className="cursor-pointer hover:bg-zinc-50 hidden md:table-cell">
+              <TableHead onClick={() => handleSort('quantity')} className="cursor-pointer hover:bg-zinc-50 w-[6%]">
                   <div className="flex items-center gap-1">{t.items.columns.qty} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
-              <TableHead className="hidden md:table-cell">{t.items.columns.serial}</TableHead>
-              <TableHead onClick={() => handleSort('kit')} className="cursor-pointer hover:bg-zinc-50">
+              <TableHead className="w-[8%]">{t.items.columns.serial}</TableHead>
+              <TableHead onClick={() => handleSort('kit')} className="cursor-pointer hover:bg-zinc-50 w-[12%]">
                   <div className="flex items-center gap-1">{t.items.columns.kit} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('event')} className="cursor-pointer hover:bg-zinc-50">
+              <TableHead onClick={() => handleSort('event')} className="cursor-pointer hover:bg-zinc-50 w-[15%]">
                   <div className="flex items-center gap-1">{t.items.columns.event} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('status')} className="cursor-pointer hover:bg-zinc-50">
+              <TableHead onClick={() => handleSort('status')} className="cursor-pointer hover:bg-zinc-50 w-[10%]">
                    <div className="flex items-center gap-1">{t.items.columns.status} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('price')} className="cursor-pointer hover:bg-zinc-50 text-right">
+              <TableHead onClick={() => handleSort('price')} className="cursor-pointer hover:bg-zinc-50 text-right w-[8%]">
                   <div className="flex items-center justify-end gap-1">{t.items.columns.price} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
-              <TableHead className="w-[100px]"></TableHead>
+              <TableHead className="w-[14%] text-right">{t.common.actions}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -328,26 +331,22 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                     <div className="h-10 w-10 bg-zinc-100 rounded-md flex items-center justify-center text-xs text-zinc-400">No Img</div>
                   )}
                 </TableCell>
-                <TableCell className="font-medium">{item.name}</TableCell>
-                <TableCell className="hidden md:table-cell">{item.category}</TableCell>
-                <TableCell className="hidden md:table-cell">{item.quantity || 1}</TableCell>
-                <TableCell className="hidden md:table-cell font-mono text-xs">{displaySerial}</TableCell>
-                <TableCell>
+                <TableCell className="font-medium truncate" title={item.name}>{item.name}</TableCell>
+                <TableCell className="truncate" title={item.category || ''}>{item.category || '-'}</TableCell>
+                <TableCell className="text-center">{item.quantity || 1}</TableCell>
+                <TableCell className="font-mono text-xs truncate" title={displaySerial}>{displaySerial}</TableCell>
+                <TableCell className="truncate">
                     {kit ? (
-                        <div className="flex items-center gap-1">
-                             <span className="font-medium text-sm">📦 {kit.name}</span>
-                        </div>
+                        <span className="text-sm truncate block" title={kit.name}>📦 {kit.name}</span>
                     ) : (
                         <span className="text-zinc-400 text-sm">-</span>
                     )}
                 </TableCell>
-                <TableCell>
+                <TableCell className="truncate">
                     {event ? (
-                         <div className="flex items-center gap-1">
-                             <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded font-medium">
-                                 📍 {event.name}
-                             </span>
-                        </div>
+                        <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded font-medium truncate inline-block max-w-full" title={event.name}>
+                            📍 {event.name}
+                        </span>
                     ) : (
                         <span className="text-zinc-400 text-sm">-</span>
                     )}
@@ -361,8 +360,9 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                 <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                          <Link href={`/items/${item.id}`}>
-                            <Button variant="ghost" size="icon" title={t.common.view}>
-                                <Eye className="h-4 w-4" />
+                            <Button variant="ghost" size="sm" className="h-8">
+                                <Eye className="h-4 w-4 mr-1.5" />
+                                {t.common.view}
                             </Button>
                         </Link>
                         <AlertDialog>
@@ -429,6 +429,8 @@ function StatusBadge({ status, t }: { status: string, t: any }) {
     maintenance: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100 border-transparent",
     lost: "bg-red-100 text-red-800 hover:bg-red-100 border-transparent",
     purchasing: "bg-purple-100 text-purple-800 hover:bg-purple-100 border-transparent",
+    damaged: "bg-orange-100 text-orange-800 hover:bg-orange-100 border-transparent",
+    out_of_stock: "bg-gray-100 text-gray-800 hover:bg-gray-100 border-transparent",
   }
   
   const statusLabel = status === 'in_use' ? t.items.status.in_use : (t.items.status[status as keyof typeof t.items.status] || status)

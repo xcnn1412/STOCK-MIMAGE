@@ -125,6 +125,8 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
                                                     <SelectItem value="maintenance">{t.items.status.maintenance}</SelectItem>
                                                     <SelectItem value="lost">{t.items.status.lost}</SelectItem>
                                                     <SelectItem value="in_use">{t.items.status.in_use}</SelectItem>
+                                                    <SelectItem value="damaged">{t.items.status.damaged}</SelectItem>
+                                                    <SelectItem value="out_of_stock">{t.items.status.out_of_stock}</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>

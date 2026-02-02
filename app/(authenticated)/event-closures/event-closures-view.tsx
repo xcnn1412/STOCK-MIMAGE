@@ -27,6 +27,8 @@ function StatusBadge({ status }: { status: string }) {
         maintenance: 'bg-zinc-300 text-zinc-700 border-zinc-400 dark:bg-zinc-600 dark:text-zinc-200',
         lost: 'bg-zinc-400 text-zinc-100 border-zinc-500 line-through dark:bg-zinc-500 dark:text-zinc-200',
         in_use: 'bg-zinc-200 text-zinc-700 border-zinc-300 dark:bg-zinc-700 dark:text-zinc-300',
+        damaged: 'bg-orange-200 text-orange-800 border-orange-400 dark:bg-orange-700 dark:text-orange-100',
+        out_of_stock: 'bg-gray-200 text-gray-700 border-gray-400 dark:bg-gray-600 dark:text-gray-200',
     }
     return (
         <Badge variant="outline" className={`text-[10px] ${colors[status] || ''}`}>
