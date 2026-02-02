@@ -233,6 +233,8 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
                   <SelectItem value="maintenance">{t.items.status.maintenance}</SelectItem>
                   <SelectItem value="lost">{t.items.status.lost}</SelectItem>
                   <SelectItem value="purchasing">{t.items.status.purchasing}</SelectItem>
+                  <SelectItem value="damaged">{t.items.status.damaged}</SelectItem>
+                  <SelectItem value="out_of_stock">{t.items.status.out_of_stock}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

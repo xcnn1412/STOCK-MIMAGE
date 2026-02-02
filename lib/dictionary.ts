@@ -69,7 +69,8 @@ export const dictionary = {
         maintenance: 'Maintenance',
         lost: 'Lost',
         purchasing: 'Purchasing',
-        damaged: 'Damaged'
+        damaged: 'Damaged',
+        out_of_stock: 'Out of Stock'
       },
       deleteTitle: 'Delete Item?', 
       deleteConfirm: 'Permanently delete this item?'
@@ -283,7 +284,8 @@ export const dictionary = {
         maintenance: 'ซ่อมบำรุง',
         lost: 'หาย',
         purchasing: 'กำลังจัดซื้อ',
-        damaged: 'ชำรุด'
+        damaged: 'ชำรุด',
+        out_of_stock: 'ของหมด'
       },
       deleteTitle: 'ลบอุปกรณ์?',
       deleteConfirm: 'ต้องการลบอุปกรณ์นี้ถาวรหรือไม่?'

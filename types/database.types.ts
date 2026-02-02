@@ -106,7 +106,7 @@ export interface Item {
   name: string
   serial_number: string | null
   description: string | null
-  status: 'available' | 'in_use' | 'maintenance' | 'lost' | 'damaged'
+  status: 'available' | 'in_use' | 'maintenance' | 'lost' | 'damaged' | 'out_of_stock'
   image_url: string | null
   category: string | null
   quantity?: number
