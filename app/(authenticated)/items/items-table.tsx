@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useTransition } from 'react'
 import Link from 'next/link'
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Eye, Trash, ArrowUpDown, Search, Filter } from "lucide-react"
+import { Eye, Trash, ArrowUpDown, Search, Filter, RefreshCw } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { deleteItemAction } from './[id]/delete-action'
+import { cleanupOrphanedItems } from './cleanup-items'
 import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
@@ -43,6 +44,8 @@ type Item = {
 export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   const { t } = useLanguage()
   const [items, setItems] = useState<Item[]>(initialItems)
+  const [isPending, startTransition] = useTransition()
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null)
 
   useEffect(() => {
     setItems(initialItems)
@@ -50,6 +53,23 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null)
   const [filterText, setFilterText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  
+  const handleCleanup = async () => {
+    startTransition(async () => {
+      const result = await cleanupOrphanedItems()
+      if (result.error) {
+        setCleanupMessage(`❌ ${result.error}`)
+      } else {
+        setCleanupMessage(`✅ ${result.message}`)
+        if (result.count && result.count > 0) {
+          // Reload page to show updated items
+          setTimeout(() => window.location.reload(), 1500)
+        }
+      }
+      // Clear message after 5 seconds
+      setTimeout(() => setCleanupMessage(null), 5000)
+    })
+  }
 
   const handleSort = (key: string) => {
       let direction: 'asc' | 'desc' = 'asc'
@@ -104,6 +124,11 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
 
   return (
     <div className="space-y-4">
+      {cleanupMessage && (
+        <div className="bg-zinc-900 text-white px-4 py-2 rounded-lg text-sm font-medium">
+          {cleanupMessage}
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
           <div className="relative max-w-sm flex-1 w-full">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-500" />
@@ -115,6 +140,15 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
               onChange={(e) => setFilterText(e.target.value)}
             />
           </div>
+          <Button 
+            variant="outline" 
+            className="gap-2 w-full sm:w-auto"
+            onClick={handleCleanup}
+            disabled={isPending}
+          >
+            <RefreshCw className={`h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
+            {isPending ? 'กำลังตรวจสอบ...' : 'แก้ไขสถานะ'}
+          </Button>
           <DropdownMenu>
               <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="gap-2 w-full sm:w-auto">

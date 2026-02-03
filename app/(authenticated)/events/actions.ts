@@ -106,7 +106,33 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   // However, we must be careful not to unset kits that belong to OTHER events if the UI was somehow manipulated, 
   // but here we act on kits currently assigned to THIS event or being set TO this event.
   
-  // First, release all kits currently assigned to this event
+  // BEFORE releasing kits, reset item statuses to prevent orphaned items
+  const { data: kitsToRelease } = await supabase
+      .from('kits')
+      .select(`
+          id,
+          kit_contents(item_id)
+      `)
+      .eq('event_id', id)
+
+  if (kitsToRelease && kitsToRelease.length > 0) {
+      // Collect all item IDs from kits being released
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const itemIds = kitsToRelease
+          .flatMap(kit => (kit.kit_contents as any)?.map((kc: any) => kc.item_id) || [])
+          .filter(Boolean)
+      
+      // Reset items to 'available' if they were 'in_use'
+      if (itemIds.length > 0) {
+          await supabase
+              .from('items')
+              .update({ status: 'available' })
+              .in('id', itemIds)
+              .eq('status', 'in_use')  // Only reset if currently in_use
+      }
+  }
+  
+  // Then, release all kits currently assigned to this event
   await supabase
       .from('kits')
       .update({ event_id: null })

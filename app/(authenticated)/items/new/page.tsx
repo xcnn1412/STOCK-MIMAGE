@@ -4,6 +4,7 @@ import { useActionState, useState } from 'react'
 import { createItem } from '../actions'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from 'next/link'
@@ -130,6 +131,19 @@ export default function NewItemPage() {
                  <label htmlFor="serial_number" className="text-sm font-medium leading-none">{t.items.fields.serial}</label>
                  <Input id="serial_number" name="serial_number" placeholder="Optional" />
                </div>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="description" className="text-sm font-medium leading-none">
+                {t.items.fields.description || 'รายละเอียดเพิ่มเติม'}
+              </label>
+              <Textarea 
+                id="description" 
+                name="description" 
+                placeholder="ระบุรายละเอียดเพิ่มเติมของอุปกรณ์..."
+                rows={4}
+                className="resize-none"
+              />
             </div>
 
             <div className="space-y-2">
