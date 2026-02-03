@@ -77,6 +77,7 @@ export async function createItem(prevState: ActionState, formData: FormData) {
     name,
     category,
     serial_number,
+    description: (formData.get('description') as string) || null,
     status: status || 'available',
     price: price ? parseFloat(price) : null,
     quantity: quantity ? parseInt(quantity) : 1,

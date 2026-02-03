@@ -188,11 +188,11 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="category" className="text-sm font-medium leading-none">{t.items.fields.category}</label>
-                <Input id="category" name="category" defaultValue={item.category} />
+                <Input id="category" name="category" defaultValue={item.category || ''} />
               </div>
               <div className="space-y-2">
                 <label htmlFor="price" className="text-sm font-medium leading-none">{t.items.fields.price}</label>
-                <Input id="price" name="price" type="number" step="0.01" defaultValue={item.price} />
+                <Input id="price" name="price" type="number" step="0.01" defaultValue={item.price?.toString() || ''} />
               </div>
             </div>
 
@@ -203,7 +203,7 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
                 </div>
                 <div className="space-y-2">
                   <label htmlFor="serial_number" className="text-sm font-medium leading-none">{t.items.fields.serial}</label>
-                  <Input id="serial_number" name="serial_number" defaultValue={item.serial_number} />
+                  <Input id="serial_number" name="serial_number" defaultValue={item.serial_number || ''} />
                 </div>
             </div>
 

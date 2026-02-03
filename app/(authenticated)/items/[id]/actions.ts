@@ -55,6 +55,25 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
 
   const supabase = createServerSupabase()
   
+  // Validate 'in_use' status - item must be in a kit assigned to an event
+  if (status === 'in_use') {
+      const { data: kitAssignment } = await supabase
+          .from('kit_contents')
+          .select(`
+              kit_id,
+              kits(event_id, name)
+          `)
+          .eq('item_id', id)
+          .not('kits.event_id', 'is', null)
+          .maybeSingle()
+      
+      if (!kitAssignment) {
+          return { 
+              error: 'ไม่สามารถตั้งสถานะเป็น "กำลังใช้งาน" ได้ - อุปกรณ์นี้ไม่ได้อยู่ใน Event ที่กำลังดำเนินการ' 
+          }
+      }
+  }
+  
   // Fetch current state for logging
   const { data: currentItem } = await supabase.from('items').select('*').eq('id', id).single()
 
