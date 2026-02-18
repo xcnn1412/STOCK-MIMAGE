@@ -77,9 +77,9 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
              
              if (selectedFiles.length > 0) {
                  setUploadProgress('Uploading images...')
-                 // Process uploads sequentially or parallel
-                 for (let i = 0; i < selectedFiles.length; i++) {
-                     const file = selectedFiles[i]
+                 
+                 // Process uploads in parallel
+                 const uploadPromises = selectedFiles.map(async (file, i) => {
                      const fileExt = file.name.split('.').pop()
                      const fileName = `${event.id}/${Date.now()}-${i}.${fileExt}`
                      
@@ -90,15 +90,22 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
                      
                      if (uploadError) {
                          console.error('Error uploading', file.name, uploadError)
-                         continue 
+                         return null
                      }
 
                      const { data: { publicUrl } } = supabase.storage
                         .from('event_closures')
                         .getPublicUrl(fileName)
                      
-                     uploadedUrls.push(publicUrl)
-                 }
+                     return publicUrl
+                 })
+
+                 const results = await Promise.all(uploadPromises)
+                 
+                 // Filter out failures
+                 results.forEach(url => {
+                     if (url) uploadedUrls.push(url)
+                 })
              }
 
              const payload = Object.entries(statuses).map(([itemId, status]) => ({ itemId, status }))
