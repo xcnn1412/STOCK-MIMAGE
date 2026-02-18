@@ -5,8 +5,11 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useLanguage } from '@/contexts/language-context'
-import { CalendarDays, MapPin, User, Package, ChevronDown, ChevronUp, Clock } from "lucide-react"
+import { CalendarDays, MapPin, User, Package, ChevronDown, ChevronUp, Clock, ImageIcon } from "lucide-react"
 import type { EventClosure } from '@/types'
+import { cleanupOldClosures } from './actions'
+import { useRouter } from 'next/navigation'
+import { useTransition } from 'react'
 
 function formatThaiDate(dateStr: string | null) {
     if (!dateStr) return '-'
@@ -146,6 +149,23 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
                         )}
                     </div>
                 )}
+                
+                {/* Closure Images */}
+                {closure.image_urls && closure.image_urls.length > 0 && (
+                    <div className="mt-4 pt-4 border-t">
+                        <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+                             <ImageIcon className="h-4 w-4" />
+                             รูปภาพปิดงาน ({closure.image_urls.length})
+                        </h4>
+                        <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                             {closure.image_urls.map((url, idx) => (
+                                 <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="block aspect-square rounded-md overflow-hidden border bg-zinc-100 group relative">
+                                     <img src={url} alt={`Closure image ${idx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                 </a>
+                             ))}
+                        </div>
+                    </div>
+                )}
             </CardContent>
         </Card>
     )
@@ -153,6 +173,30 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
 
 export default function EventClosuresView({ closures, error }: { closures: EventClosure[], error: string | null }) {
     const { t } = useLanguage()
+    const router = useRouter()
+    const [isPending, startTransition] = useTransition()
+
+    // Calculate if any closure is older than 60 days
+    const hasOldClosures = closures.some(closure => {
+        const closedAt = new Date(closure.closed_at)
+        const cutoff = new Date()
+        cutoff.setDate(cutoff.getDate() - 60)
+        return closedAt < cutoff
+    })
+
+    const handleCleanup = () => {
+        if (!confirm('ยืนยันลบประวัติการปิดงานที่เก่าเกิน 60 วัน? \nข้อมูลและรูปภาพทั้งหมดที่เกี่ยวข้องจะถูกลบถาวร')) return
+
+        startTransition(async () => {
+            const result = await cleanupOldClosures()
+            if (result.error) {
+                alert('เกิดข้อผิดพลาดในการลบข้อมูล: ' + result.error)
+            } else {
+                alert(`ลบข้อมูลสำเร็จ ${result.count} รายการ`)
+                router.refresh()
+            }
+        })
+    }
 
     return (
         <div className="space-y-6">
@@ -161,9 +205,20 @@ export default function EventClosuresView({ closures, error }: { closures: Event
                     <h2 className="text-3xl font-bold tracking-tight">ประวัติปิดงาน</h2>
                     <p className="text-muted-foreground">รายการอีเวนต์ที่ปิดงานแล้วพร้อมข้อมูลกระเป๋าและของ</p>
                 </div>
-                <Badge variant="outline" className="text-lg px-4 py-2">
-                    {closures.length} รายการ
-                </Badge>
+                <div className="flex items-center gap-4">
+                    {hasOldClosures && (
+                        <Button
+                            variant="destructive"
+                            onClick={handleCleanup}
+                            disabled={isPending}
+                        >
+                            {isPending ? 'Deleting...' : 'ลบประวัติเก่าเกิน 60 วัน'}
+                        </Button>
+                    )}
+                    <Badge variant="outline" className="text-lg px-4 py-2">
+                        {closures.length} รายการ
+                    </Badge>
+                </div>
             </div>
 
             {error && (

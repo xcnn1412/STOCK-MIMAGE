@@ -42,6 +42,7 @@ export type ActionType =
     | 'ADD_TEMPLATE_ITEM'
     | 'REMOVE_TEMPLATE_ITEM'
     | 'UPDATE_TEMPLATE_STATUS'
+    | 'CLEANUP_CLOSURES'
 
 export async function logActivity(
     action: ActionType,

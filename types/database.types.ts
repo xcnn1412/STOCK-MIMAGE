@@ -185,6 +185,8 @@ export interface EventClosure {
   closed_by: string
   closed_at: string
   kits_snapshot: KitSnapshot[]
+  notes?: string | null
+  image_urls?: string[] | null
   profiles?: Pick<Profile, 'display_name' | 'phone_number' | 'full_name'>
   // Alias for frontend convenience if mapped, or direct relation
   closer?: Pick<Profile, 'display_name' | 'phone_number' | 'full_name'>

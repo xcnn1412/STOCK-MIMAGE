@@ -158,7 +158,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 }
 
 
-export async function processEventReturn(eventId: string, itemStatuses: { itemId: string, status: string }[]) {
+export async function processEventReturn(eventId: string, itemStatuses: { itemId: string, status: string }[], imageUrls: string[] = []) {
      const cookieStore = await cookies()
      const userId = cookieStore.get('session_user_id')?.value
      if (!userId) {
@@ -210,7 +210,8 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
              event_date: event?.event_date,
              event_location: event?.location,
              closed_by: userId,
-             kits_snapshot: kitsSnapshot
+             kits_snapshot: kitsSnapshot,
+             image_urls: imageUrls
          })
 
      if (closureError) {
