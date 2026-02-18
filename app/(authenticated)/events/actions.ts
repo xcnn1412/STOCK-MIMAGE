@@ -219,13 +219,19 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
          // Continue anyway - don't block the return process
      }
 
-     // 2. Update item statuses
-     for (const item of itemStatuses) {
-         await supabase
-             .from('items')
-             .update({ status: item.status })
-             .eq('id', item.itemId)
+     // 2. Update item statuses (optimized batch update)
+     const statusGroups: Record<string, string[]> = {}
+     for (const { itemId, status } of itemStatuses) {
+         if (!statusGroups[status]) statusGroups[status] = []
+         statusGroups[status].push(itemId)
      }
+
+     await Promise.all(
+         Object.entries(statusGroups).map(([status, ids]) => 
+             // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             supabase.from('items').update({ status } as any).in('id', ids)
+         )
+     )
 
      // 3. Release kits (set event_id to null)
      await supabase
