@@ -135,6 +135,7 @@ export interface Profile {
   selfie_url?: string
   display_name?: string | null
   role: 'admin' | 'staff'
+  allowed_modules?: string[]
   is_approved: boolean
   active_session_id?: string | null
   latest_login_at?: string

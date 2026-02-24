@@ -88,3 +88,27 @@ export async function deleteUser(userId: string) {
   
     revalidatePath('/users')
 }
+
+export async function updateUserModules(userId: string, modules: string[]) {
+    const cookieStore = await cookies()
+    const sessionUserId = cookieStore.get('session_user_id')?.value
+    if (!sessionUserId) {
+        return { error: 'Unauthorized: No active session' }
+    }
+
+    const supabase = createServerSupabase()
+    
+    const { error } = await supabase
+      .from('profiles')
+      .update({ allowed_modules: modules } as Record<string, unknown>)
+      .eq('id', userId)
+  
+    if (error) {
+      console.error(error)
+      return { error: 'Failed to update modules' }
+    }
+
+    await logActivity('UPDATE_MODULES', { modules }, userId)
+  
+    revalidatePath('/users')
+}
