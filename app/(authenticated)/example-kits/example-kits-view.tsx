@@ -53,7 +53,7 @@ export default function ExampleKitsView({ templates }: { templates: KitTemplate[
                                 )}
                             </li>
                         ))}
-                        {t_item.kit_template_contents?.length > 5 && (
+                        {(t_item.kit_template_contents?.length ?? 0) > 5 && (
                              <li className="flex items-center gap-2 text-zinc-500 pl-8">
                                 ...
                              </li>

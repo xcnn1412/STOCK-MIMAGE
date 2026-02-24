@@ -6,7 +6,7 @@ export const revalidate = 0
 
 export default async function StockDashboardPage() {
   const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const userId = cookieStore.get('session_user_id')?.value || ''
   const selfiePath = cookieStore.get('session_selfie_path')?.value
 
   // Fetch data in parallel
@@ -37,14 +37,14 @@ export default async function StockDashboardPage() {
   return (
     <DashboardView 
         profile={profile}
-        latestLog={latestLog}
+        latestLog={latestLog as any}
         itemsCount={itemsCount}
-        items={items || []}
+        items={(items || []) as any}
         kitsCount={kitsCount}
-        activeKitsWithDetails={activeKitsWithDetails || []}
+        activeKitsWithDetails={(activeKitsWithDetails || []) as any}
         usersCount={usersCount}
         selfieUrl={selfieUrl}
-        templates={templates || []}
+        templates={(templates || []) as any}
     />
   )
 }

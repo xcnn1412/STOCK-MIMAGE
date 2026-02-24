@@ -1,0 +1,1 @@
+﻿app/(authenticated)/items/items-view.tsx(24,25): error TS2322: Type 'import("D:/imageautomat/stock/types/database.types").Item[]' is not assignable to type 'Item[]'.

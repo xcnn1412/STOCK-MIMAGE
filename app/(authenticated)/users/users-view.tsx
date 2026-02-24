@@ -5,7 +5,7 @@ import UsersTable from './users-table'
 import { useLanguage } from '@/contexts/language-context'
 import type { Profile } from '@/types'
 
-export default function UsersView({ users }: { users: Profile[] }) {
+export default function UsersView({ users }: { users: any[] }) {
     const { t } = useLanguage()
 
     return (

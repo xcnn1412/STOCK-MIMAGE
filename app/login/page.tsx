@@ -10,9 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
-const initialState = {
+import type { ActionState } from '@/types'
+
+const initialState: ActionState = {
   error: '',
-  success: '',
 }
 
 export default function LoginPage() {
@@ -217,8 +218,8 @@ export default function LoginPage() {
                          {registerState?.error && (
                             <p className="text-sm text-red-500 text-center">{registerState.error}</p>
                         )}
-                        {registerState?.success && (
-                            <p className="text-sm text-green-600 text-center">{registerState.success}</p>
+                        {registerState?.success && registerState?.message && (
+                            <p className="text-sm text-green-600 text-center">{registerState.message}</p>
                         )}
                         <Button type="submit" className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200" disabled={isRegisterPending}>
                             {isRegisterPending ? "Registering..." : "Create Account"}

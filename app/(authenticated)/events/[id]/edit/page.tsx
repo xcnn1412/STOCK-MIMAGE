@@ -2,6 +2,8 @@ import { supabase } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import EditEventForm from './edit-event-form'
 
+import type { Kit } from '@/types'
+
 export const revalidate = 0
 
 export default async function EditEventPage(props: { params: Promise<{ id: string }> }) {
@@ -26,8 +28,8 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
 
   // Combine them for the UI list
   // We want to show the assigned ones as Checked
-  const assignedList = assignedKits || []
-  const availableList = availableKits || []
+  const assignedList = (assignedKits || []) as Kit[]
+  const availableList = (availableKits || []) as Kit[]
   
   const allDisplayKits = [...assignedList, ...availableList].sort((a, b) => a.name.localeCompare(b.name))
   const assignedKitIds = assignedList.map(k => k.id)

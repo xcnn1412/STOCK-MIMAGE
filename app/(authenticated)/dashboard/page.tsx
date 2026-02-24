@@ -18,7 +18,7 @@ const modules = [
     icon: Target,
     label: 'KPI',
     sublabel: '',
-    href: '/kpi',
+    href: '/kpi/dashboard',
     description: 'ระบบประเมิน KPI',
   },
   {

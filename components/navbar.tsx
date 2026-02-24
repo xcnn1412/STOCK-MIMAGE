@@ -12,6 +12,12 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { logout } from '@/app/login/actions'
 import { useLanguage } from '@/contexts/language-context'
 import { LanguageSwitcher } from '@/components/language-switcher'
@@ -45,52 +51,75 @@ export default function Navbar({ role, allowedModules = ['stock'] }: NavbarProps
         return pathname === href || pathname.startsWith(href + '/')
     }
 
+    // Desktop: single-item groups render as direct links, multi-item groups as dropdowns
     const DesktopNavGroup = ({ group }: { group: NavGroup }) => {
-        const [expanded, setExpanded] = useState(true)
         const hasActiveRoute = group.items.some((item) => isActive(item.href))
 
-        return (
-            <div className="relative">
-                <button
-                    onClick={() => setExpanded(!expanded)}
-                    className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
-                        hasActiveRoute
-                            ? 'text-zinc-900 dark:text-zinc-100'
-                            : 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-400'
+        // Single item group — render as direct link
+        if (group.items.length === 1) {
+            const item = group.items[0]
+            return (
+                <Link
+                    href={item.href}
+                    className={`relative flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                        isActive(item.href)
+                            ? 'bg-zinc-900 text-white shadow-sm dark:bg-white dark:text-zinc-900'
+                            : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
                     }`}
                 >
-                    <group.icon className="h-3.5 w-3.5" />
-                    <span>{getGroupLabel(group.key)}</span>
-                    <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                </button>
-                {expanded && (
-                    <div className="flex gap-1 mt-1">
-                        {group.items.map((item) => (
+                    <item.icon className="h-4 w-4" />
+                    <span>{getLabel(item.labelKey)}</span>
+                </Link>
+            )
+        }
+
+        // Multi-item group — render as dropdown
+        return (
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <button
+                        className={`relative flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 outline-none ${
+                            hasActiveRoute
+                                ? 'bg-zinc-900 text-white shadow-sm dark:bg-white dark:text-zinc-900'
+                                : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                        }`}
+                    >
+                        <group.icon className="h-4 w-4" />
+                        <span>{getGroupLabel(group.key)}</span>
+                        <ChevronDown className="h-3.5 w-3.5 opacity-50 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                    </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-[200px]">
+                    {group.items.map((item) => (
+                        <DropdownMenuItem key={item.href} asChild>
                             <Link
-                                key={item.href}
                                 href={item.href}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm font-medium transition-colors ${
+                                className={`flex items-center gap-2.5 cursor-pointer ${
                                     isActive(item.href)
-                                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                                        : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                        ? 'bg-zinc-100 text-zinc-900 font-semibold dark:bg-zinc-800 dark:text-zinc-100'
+                                        : ''
                                 }`}
                             >
-                                <item.icon className="h-3.5 w-3.5" />
+                                <item.icon className={`h-4 w-4 ${isActive(item.href) ? 'text-zinc-900 dark:text-zinc-100' : ''}`} />
                                 <span>{getLabel(item.labelKey)}</span>
+                                {isActive(item.href) && (
+                                    <span className="ml-auto h-1.5 w-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" />
+                                )}
                             </Link>
-                        ))}
-                    </div>
-                )}
-            </div>
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
         )
     }
 
+    // Mobile nav group — used inside Sheet
     const MobileNavGroup = ({ group }: { group: NavGroup }) => {
         const hasActiveRoute = group.items.some((item) => isActive(item.href))
 
         return (
             <div className="space-y-1">
-                <div className={`flex items-center gap-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider ${
+                <div className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider ${
                     hasActiveRoute
                         ? 'text-zinc-900 dark:text-zinc-100'
                         : 'text-zinc-400 dark:text-zinc-500'
@@ -102,15 +131,18 @@ export default function Navbar({ role, allowedModules = ['stock'] }: NavbarProps
                     <Link
                         key={item.href}
                         href={item.href}
-                        className={`flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium transition-colors ${
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                             isActive(item.href)
-                                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                                : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 shadow-sm'
+                                : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
                         }`}
                         onClick={() => setOpen(false)}
                     >
                         <item.icon className="h-5 w-5" />
                         <span>{getLabel(item.labelKey)}</span>
+                        {isActive(item.href) && (
+                            <span className="ml-auto h-2 w-2 rounded-full bg-white dark:bg-zinc-900" />
+                        )}
                     </Link>
                 ))}
             </div>
@@ -118,66 +150,88 @@ export default function Navbar({ role, allowedModules = ['stock'] }: NavbarProps
     }
 
     return (
-        <header className="border-b bg-white dark:bg-zinc-900 px-4 md:px-6 py-3 flex items-center justify-between sticky top-0 z-50 shadow-sm">
-            <Link href="/dashboard" className="flex items-center gap-2">
-                <div className="bg-black text-white p-1 rounded font-bold text-sm md:text-base dark:bg-white dark:text-black">EA</div>
-                <h1 className="text-lg md:text-xl font-bold tracking-tight">Office Hub</h1>
-            </Link>
+        <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/80 backdrop-blur-lg dark:border-zinc-800/80 dark:bg-zinc-900/80">
+            <div className="flex h-14 items-center justify-between px-4 md:px-6">
+                {/* Logo */}
+                <Link href="/dashboard" className="flex items-center gap-2.5 group">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 text-white text-xs font-bold shadow-sm transition-transform duration-200 group-hover:scale-105 dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900">
+                        EA
+                    </div>
+                    <span className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                        Office Hub
+                    </span>
+                </Link>
 
-            {/* Desktop Nav */}
-            <div className="hidden md:flex items-center gap-4">
-                <nav className="flex gap-3 items-start">
-                    {visibleGroups.map((group) => (
-                        <DesktopNavGroup key={group.key} group={group} />
-                    ))}
-                </nav>
-                <div className="flex items-center gap-2 ml-2 border-l pl-4">
-                    <LanguageSwitcher />
-                    <form action={logout}>
-                        <Button variant="ghost" size="icon" title={t.common.logout}>
-                            <LogOut className="h-5 w-5" />
-                            <span className="sr-only">{t.common.logout}</span>
-                        </Button>
-                    </form>
+                {/* Desktop Nav */}
+                <div className="hidden md:flex items-center gap-1">
+                    <nav className="flex items-center gap-1">
+                        {visibleGroups.map((group) => (
+                            <DesktopNavGroup key={group.key} group={group} />
+                        ))}
+                    </nav>
+
+                    {/* Separator */}
+                    <div className="mx-2 h-6 w-px bg-zinc-200 dark:bg-zinc-700" />
+
+                    {/* Utilities */}
+                    <div className="flex items-center gap-1">
+                        <LanguageSwitcher />
+                        <form action={logout}>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                title={t.common.logout}
+                                className="h-9 w-9 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 transition-colors duration-200"
+                            >
+                                <LogOut className="h-4 w-4" />
+                                <span className="sr-only">{t.common.logout}</span>
+                            </Button>
+                        </form>
+                    </div>
                 </div>
-            </div>
 
-            {/* Mobile Nav */}
-            <div className="md:hidden flex items-center gap-2">
-                 <LanguageSwitcher />
-                 <Sheet open={open} onOpenChange={setOpen}>
-                    <SheetTrigger asChild>
-                        <Button variant="ghost" size="icon" className="-mr-2">
-                            <Menu className="h-6 w-6" />
-                            <span className="sr-only">{t.common.menu}</span>
-                        </Button>
-                    </SheetTrigger>
-                    <SheetContent side="left" className="w-[80%] sm:w-[385px] p-0">
-                        <SheetHeader className="p-6 border-b text-left bg-muted/20">
-                            <SheetTitle className="flex items-center gap-2">
-                                <div className="bg-black text-white p-1.5 rounded font-bold text-sm dark:bg-white dark:text-black">EA</div>
-                                Office Hub
-                            </SheetTitle>
-                        </SheetHeader>
-                        <div className="flex flex-col gap-4 p-4 font-medium">
-                            {visibleGroups.map((group, index) => (
-                                <div key={group.key}>
-                                    {index > 0 && <div className="h-px bg-border mb-4" />}
-                                    <MobileNavGroup group={group} />
-                                </div>
-                            ))}
-                            
-                            <div className="h-px bg-border my-2" />
-                            
-                            <form action={logout}>
-                                <button type="submit" className="flex items-center gap-3 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 px-2 py-2 rounded transition-colors w-full text-left">
-                                    <LogOut className="h-5 w-5" />
-                                    <span>{t.common.logout}</span>
-                                </button>
-                            </form>
-                        </div>
-                    </SheetContent>
-                </Sheet>
+                {/* Mobile Nav */}
+                <div className="md:hidden flex items-center gap-1">
+                    <LanguageSwitcher />
+                    <Sheet open={open} onOpenChange={setOpen}>
+                        <SheetTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg">
+                                <Menu className="h-5 w-5" />
+                                <span className="sr-only">{t.common.menu}</span>
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="left" className="w-[85%] sm:w-[320px] p-0">
+                            <SheetHeader className="p-5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 text-left">
+                                <SheetTitle className="flex items-center gap-2.5">
+                                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 text-white text-xs font-bold dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900">
+                                        EA
+                                    </div>
+                                    <span className="text-base font-bold tracking-tight">Office Hub</span>
+                                </SheetTitle>
+                            </SheetHeader>
+                            <div className="flex flex-col gap-6 p-4 overflow-y-auto">
+                                {visibleGroups.map((group, index) => (
+                                    <div key={group.key}>
+                                        {index > 0 && <div className="h-px bg-zinc-100 dark:bg-zinc-800 mb-6" />}
+                                        <MobileNavGroup group={group} />
+                                    </div>
+                                ))}
+
+                                <div className="h-px bg-zinc-100 dark:bg-zinc-800" />
+
+                                <form action={logout}>
+                                    <button
+                                        type="submit"
+                                        className="flex items-center gap-3 text-zinc-500 hover:text-red-600 hover:bg-red-50 dark:text-zinc-400 dark:hover:text-red-400 dark:hover:bg-red-950/30 px-3 py-2.5 rounded-lg transition-all duration-200 w-full text-left text-sm font-medium"
+                                    >
+                                        <LogOut className="h-5 w-5" />
+                                        <span>{t.common.logout}</span>
+                                    </button>
+                                </form>
+                            </div>
+                        </SheetContent>
+                    </Sheet>
+                </div>
             </div>
         </header>
     )

@@ -44,6 +44,14 @@ export type ActionType =
     | 'UPDATE_TEMPLATE_STATUS'
     | 'CLEANUP_CLOSURES'
     | 'UPDATE_MODULES'
+    | 'CREATE_KPI_TEMPLATE'
+    | 'UPDATE_KPI_TEMPLATE'
+    | 'DELETE_KPI_TEMPLATE'
+    | 'CREATE_KPI_ASSIGNMENT'
+    | 'UPDATE_KPI_ASSIGNMENT'
+    | 'DELETE_KPI_ASSIGNMENT'
+    | 'SUBMIT_KPI_EVALUATION'
+    | 'UPDATE_KPI_EVALUATION'
 
 export async function logActivity(
     action: ActionType,
