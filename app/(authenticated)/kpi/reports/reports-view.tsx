@@ -21,7 +21,7 @@ const MONTH_NAMES_TH = [
 const getEmoji = (pct: number) =>
   pct >= 120 ? '🔥🎉' : pct >= 100 ? '😍' : pct >= 90 ? '😊' : pct >= 70 ? '🙂' : pct >= 50 ? '😰' : pct >= 30 ? '😱' : '💀'
 const getPctColor = (pct: number) =>
-  pct >= 100 ? '#22c55e' : pct >= 70 ? '#eab308' : '#ef4444'
+  pct >= 100 ? '#16a34a' : pct >= 70 ? '#ea580c' : '#dc2626'
 
 type EvalWithRelations = KpiEvaluation & {
   kpi_assignments: KpiAssignment & {
@@ -93,15 +93,26 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
     return Array.from(names).sort()
   }, [evaluations])
 
-  // User summary (weighted)
+  // User summary (weighted) — ใช้ผลรวม actual ทุกครั้ง
   const userSummary = useMemo(() => {
-    // Group latest eval per assignment
-    const latestMap = new Map<string, typeof filteredEvals[0]>()
+    // สะสมผลรวม actual per assignment
+    const sumMap = new Map<string, { totalActual: number; target: number; weight: number; user: any; evalCount: number }>()
     filteredEvals.forEach((ev) => {
-      const existing = latestMap.get(ev.assignment_id)
-      if (!existing || (ev.evaluation_date || '') >= (existing.evaluation_date || '')) {
-        latestMap.set(ev.assignment_id, ev)
+      const a = ev.kpi_assignments
+      const id = ev.assignment_id
+      const actual = ev.actual_value || 0
+      if (!sumMap.has(id)) {
+        sumMap.set(id, {
+          totalActual: 0,
+          target: a?.target ?? 0,
+          weight: (a as any)?.weight ?? 0,
+          user: a?.profiles,
+          evalCount: 0,
+        })
       }
+      const entry = sumMap.get(id)!
+      entry.totalActual += actual
+      entry.evalCount += 1
     })
 
     const map = new Map<string, {
@@ -115,11 +126,9 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
       kpiIds: Set<string>
     }>()
 
-    latestMap.forEach((ev) => {
-      const user = ev.kpi_assignments?.profiles
+    sumMap.forEach(({ totalActual, target, weight, user, evalCount: ec }, assignmentId) => {
       if (!user) return
-      const w = (ev.kpi_assignments as any)?.weight ?? 0
-      const achPct = ev.achievement_pct || 0
+      const achPct = target > 0 ? (totalActual / target) * 100 : 0
 
       if (!map.has(user.id)) {
         map.set(user.id, {
@@ -134,18 +143,18 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
         })
       }
       const entry = map.get(user.id)!
-      entry.weightedSum += achPct * w
-      entry.totalWeight += w
-      entry.evalCount += 1
+      entry.weightedSum += achPct * weight
+      entry.totalWeight += weight
+      entry.evalCount += ec
       entry.weightedScore = entry.totalWeight > 0 ? entry.weightedSum / entry.totalWeight : 0
-      entry.kpiIds.add(ev.assignment_id)
+      entry.kpiIds.add(assignmentId)
       entry.kpiCount = entry.kpiIds.size
     })
 
     return Array.from(map.values()).sort((a, b) => b.weightedScore - a.weightedScore)
   }, [filteredEvals])
 
-  // Chart data: Group by KPI (assignment_id) — aggregate per KPI
+  // Chart data: Group by KPI (assignment_id) — ใช้ผลรวม actual ทุกครั้ง
   const kpiSummaryData = useMemo(() => {
     const map = new Map<string, {
       kpiName: string
@@ -171,8 +180,8 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
           assignee: a?.profiles?.full_name || '',
           target,
           unit: a?.target_unit || '',
-          latestActual: actual,
-          latestPct: pct,
+          latestActual: 0,
+          latestPct: 0,
           evalCount: 0,
           evals: [],
         })
@@ -180,17 +189,14 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
 
       const entry = map.get(id)!
       entry.evalCount += 1
+      entry.latestActual += actual  // สะสมรวม
+      entry.latestPct = target > 0 ? (entry.latestActual / target) * 100 : 0
       entry.evals.push({
         date: ev.evaluation_date,
         period: ev.period_label || ev.evaluation_date,
         actual,
         pct: Math.round(pct * 10) / 10,
       })
-      // latest by date
-      if (ev.evaluation_date >= entry.evals[0]?.date) {
-        entry.latestActual = actual
-        entry.latestPct = pct
-      }
     })
 
     return Array.from(map.values())
@@ -233,23 +239,30 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
   const BarTooltip = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null
     const data = payload[0]?.payload
+    const pctColor = getPctColor(data?.pct || 0)
     return (
-      <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg p-3 text-sm space-y-1">
-        <p className="font-semibold">{data?.fullName}</p>
-        {data?.assignee && <p className="text-muted-foreground text-xs">{data.assignee}</p>}
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#6366f1' }} />
-          <span>{t.kpi.common.target}: {fmt(data?.targetVal)} {data?.unit}</span>
+      <div className="bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border border-zinc-200/80 dark:border-zinc-700/80 rounded-xl shadow-2xl p-4 text-sm space-y-2 min-w-[200px]">
+        <div>
+          <p className="font-bold text-zinc-900 dark:text-zinc-100 text-[13px]">{data?.fullName}</p>
+          {data?.assignee && <p className="text-muted-foreground text-[11px] mt-0.5">{data.assignee}</p>}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#22d3ee' }} />
-          <span>{t.kpi.common.actual}: {fmt(data?.actualVal)} {data?.unit}</span>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-800 dark:bg-zinc-200 ring-2 ring-zinc-300 dark:ring-zinc-600" />
+            <span className="text-zinc-600 dark:text-zinc-400 text-xs">{t.kpi.common.target}</span>
+            <span className="ml-auto font-semibold text-xs">{fmt(data?.targetVal)} {data?.unit}</span>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full ring-2 ring-offset-1" style={{ background: pctColor, borderColor: pctColor }} />
+            <span className="text-zinc-600 dark:text-zinc-400 text-xs">{t.kpi.common.actual}</span>
+            <span className="ml-auto font-semibold text-xs">{fmt(data?.actualVal)} {data?.unit}</span>
+          </div>
         </div>
-        <div className="pt-1 border-t border-zinc-200 dark:border-zinc-600 flex items-center justify-between">
-          <span className="font-bold" style={{ color: getPctColor(data?.pct || 0) }}>
+        <div className="pt-2 border-t border-zinc-100 dark:border-zinc-700 flex items-center justify-between">
+          <span className="font-extrabold text-sm" style={{ color: pctColor }}>
             {getEmoji(data?.pct || 0)} {(data?.pct || 0).toFixed(1)}%
           </span>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-[10px] text-muted-foreground bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">
             {t.kpi.common.evaluatedTimes.replace('{count}', String(data?.evalCount || 0))}
           </span>
         </div>
@@ -261,17 +274,28 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
   const TrendTooltip = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null
     const data = payload[0]?.payload
+    const pctColor = getPctColor(data?.pct || 0)
     return (
-      <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg p-3 text-sm space-y-1">
-        <p className="font-semibold">{data?.kpiName}</p>
-        <p className="text-xs text-muted-foreground">{data?.period}</p>
-        <p>{t.kpi.common.targetArrowActual
-          .replace('{target}', fmt(data?.target))
-          .replace('{actual}', fmt(data?.actual))
-          .replace('{unit}', data?.unit || '')}</p>
-        <p className="font-bold" style={{ color: getPctColor(data?.pct || 0) }}>
-          {getEmoji(data?.pct || 0)} {data?.pct}%
-        </p>
+      <div className="bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border border-zinc-200/80 dark:border-zinc-700/80 rounded-xl shadow-2xl p-4 text-sm space-y-2 min-w-[180px]">
+        <div>
+          <p className="font-bold text-zinc-900 dark:text-zinc-100 text-[13px]">{data?.kpiName}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">{data?.period}</p>
+        </div>
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs">
+            <span className="text-zinc-500">{t.kpi.common.target}</span>
+            <span className="font-semibold">{fmt(data?.target)} {data?.unit}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-zinc-500">{t.kpi.common.actual}</span>
+            <span className="font-semibold" style={{ color: pctColor }}>{fmt(data?.actual)}</span>
+          </div>
+        </div>
+        <div className="pt-2 border-t border-zinc-100 dark:border-zinc-700">
+          <p className="font-extrabold text-center text-sm" style={{ color: pctColor }}>
+            {getEmoji(data?.pct || 0)} {data?.pct}%
+          </p>
+        </div>
       </div>
     )
   }
@@ -358,90 +382,99 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
 
       {/* Summary Stat Cards */}
       {filteredEvals.length > 0 && (() => {
-        // Compute summary stats from filtered data
-        const latestMap = new Map<string, typeof filteredEvals[0]>()
+        // summary stats — ใช้ผลรวม actual ทุกครั้ง
+        const sumMap = new Map<string, { totalActual: number; target: number; weight: number; userId: string }>()
         filteredEvals.forEach((ev) => {
-          const existing = latestMap.get(ev.assignment_id)
-          if (!existing || (ev.evaluation_date || '') >= (existing.evaluation_date || '')) {
-            latestMap.set(ev.assignment_id, ev)
+          const a = ev.kpi_assignments
+          const id = ev.assignment_id
+          const actual = ev.actual_value || 0
+          if (!sumMap.has(id)) {
+            sumMap.set(id, {
+              totalActual: 0,
+              target: a?.target ?? 0,
+              weight: (a as any)?.weight ?? 0,
+              userId: a?.profiles?.id || '',
+            })
           }
+          sumMap.get(id)!.totalActual += actual
         })
 
         const uniqueUsers = new Set<string>()
         let wScoreSum = 0, wScoreTotal = 0
         let wPctSum = 0, wPctTotal = 0
 
-        latestMap.forEach((ev) => {
-          const user = ev.kpi_assignments?.profiles
-          if (user) uniqueUsers.add(user.id)
-          const w = (ev.kpi_assignments as any)?.weight ?? 0
-          const achPct = ev.achievement_pct || 0
-          wScoreSum += achPct * w
-          wScoreTotal += w
-
-          const target = ev.kpi_assignments?.target
-          if (target && target > 0) {
-            const pct = ((ev.actual_value || 0) / target) * 100
-            wPctSum += pct * w
-            wPctTotal += w
+        sumMap.forEach(({ totalActual, target, weight, userId }) => {
+          if (userId) uniqueUsers.add(userId)
+          if (target > 0) {
+            const pct = (totalActual / target) * 100
+            if (weight > 0) {
+              wScoreSum += pct * weight
+              wScoreTotal += weight
+              wPctSum += pct * weight
+              wPctTotal += weight
+            }
           }
         })
 
         const weightedAvgScore = wScoreTotal > 0 ? wScoreSum / wScoreTotal : 0
         const weightedAvgPct = wPctTotal > 0 ? wPctSum / wPctTotal : 0
-        const kpiCount = latestMap.size
+        const kpiCount = sumMap.size
         const personCount = uniqueUsers.size
 
         return (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Card>
-              <CardContent className="p-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900 overflow-hidden">
+              <div className="h-1 bg-zinc-900 dark:bg-zinc-100" />
+              <CardContent className="p-5">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                    <Users className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                  <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                    <Users className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">พนักงาน</p>
-                    <p className="text-xl font-bold">{personCount}</p>
+                    <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">พนักงาน</p>
+                    <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{personCount}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="p-4">
+            <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900 overflow-hidden">
+              <div className="h-1 bg-zinc-900 dark:bg-zinc-100" />
+              <CardContent className="p-5">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                    <ClipboardCheck className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                  <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                    <ClipboardCheck className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">KPI ทั้งหมด</p>
-                    <p className="text-xl font-bold">{kpiCount}</p>
+                    <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">KPI ทั้งหมด</p>
+                    <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{kpiCount}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="p-4">
+            <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900 overflow-hidden">
+              <div className={`h-1 ${weightedAvgScore >= 70 ? 'bg-green-500' : weightedAvgScore >= 40 ? 'bg-orange-500' : 'bg-red-500'}`} />
+              <CardContent className="p-5">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                    <Weight className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                  <div className={`rounded-xl p-2.5 group-hover:scale-110 transition-transform duration-300 ${weightedAvgScore >= 70 ? 'bg-green-50 dark:bg-green-950/30' : weightedAvgScore >= 40 ? 'bg-orange-50 dark:bg-orange-950/30' : 'bg-red-50 dark:bg-red-950/30'}`}>
+                    <Weight className={`h-5 w-5 ${weightedAvgScore >= 70 ? 'text-green-600 dark:text-green-400' : weightedAvgScore >= 40 ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400'}`} />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">คะแนนถ่วงน้ำหนัก</p>
-                    <p className="text-xl font-bold">{weightedAvgScore.toFixed(1)}</p>
+                    <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">คะแนนถ่วงน้ำหนัก</p>
+                    <p className={`text-2xl font-bold ${weightedAvgScore >= 70 ? 'text-green-600 dark:text-green-400' : weightedAvgScore >= 40 ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400'}`}>{weightedAvgScore.toFixed(1)}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="p-4">
+            <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900 overflow-hidden">
+              <div className={`h-1 ${weightedAvgPct >= 100 ? 'bg-green-500' : weightedAvgPct >= 70 ? 'bg-orange-500' : 'bg-red-500'}`} />
+              <CardContent className="p-5">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                    <Award className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                  <div className={`rounded-xl p-2.5 group-hover:scale-110 transition-transform duration-300 ${weightedAvgPct >= 100 ? 'bg-green-50 dark:bg-green-950/30' : weightedAvgPct >= 70 ? 'bg-orange-50 dark:bg-orange-950/30' : 'bg-red-50 dark:bg-red-950/30'}`}>
+                    <Award className={`h-5 w-5 ${weightedAvgPct >= 100 ? 'text-green-600 dark:text-green-400' : weightedAvgPct >= 70 ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400'}`} />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Achievement</p>
-                    <p className="text-xl font-bold">{weightedAvgPct.toFixed(1)}%</p>
+                    <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Achievement</p>
+                    <p className={`text-2xl font-bold ${weightedAvgPct >= 100 ? 'text-green-600 dark:text-green-400' : weightedAvgPct >= 70 ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400'}`}>{weightedAvgPct.toFixed(1)}%</p>
                   </div>
                 </div>
               </CardContent>
@@ -452,32 +485,69 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
 
       {kpiSummaryData.length > 0 && (
         <>
-          {/* Bar Chart */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                {t.kpi.reports.chartTargetVsActual}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">{t.kpi.reports.chartTargetVsActualDesc}</p>
+          {/* Bar Chart: Target vs Actual — Modern Style */}
+          <Card className="border-0 shadow-sm bg-white dark:bg-zinc-900 overflow-hidden">
+            <div className="h-0.5 bg-gradient-to-r from-zinc-900 via-zinc-500 to-transparent dark:from-zinc-100 dark:via-zinc-500 dark:to-transparent" />
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2 font-bold">
+                    <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                      <TrendingUp className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                    </div>
+                    {t.kpi.reports.chartTargetVsActual}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1 ml-10">{t.kpi.reports.chartTargetVsActualDesc}</p>
+                </div>
+                <Badge variant="outline" className="text-[10px] rounded-full border-zinc-200 dark:border-zinc-700">
+                  {barChartData.length} KPIs
+                </Badge>
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="w-full" style={{ height: Math.max(200, barChartData.length * 60) }}>
+            <CardContent className="pt-2">
+              <div className="w-full" style={{ height: Math.max(220, barChartData.length * 70) }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={barChartData}
                     layout="vertical"
-                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                    margin={{ top: 10, right: 40, left: 10, bottom: 10 }}
+                    barGap={4}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
-                    <XAxis type="number" tickFormatter={(v: number) => v.toLocaleString()} fontSize={12} />
-                    <YAxis dataKey="name" type="category" width={160} fontSize={12} tick={{ fill: '#71717a' }} />
-                    <Tooltip content={<BarTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: '13px' }} />
-                    <Bar dataKey="targetVal" name={t.kpi.common.target} fill="#6366f1" radius={[0, 6, 6, 0]} barSize={20} />
-                    <Bar dataKey="actualVal" name={t.kpi.common.actualLatest} radius={[0, 6, 6, 0]} barSize={20}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f4f4f5" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      tickFormatter={(v: number) => v.toLocaleString()}
+                      fontSize={11}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#a1a1aa' }}
+                    />
+                    <YAxis
+                      dataKey="name"
+                      type="category"
+                      width={150}
+                      fontSize={11}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#52525b', fontWeight: 500 }}
+                    />
+                    <Tooltip content={<BarTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
+                    <Legend
+                      wrapperStyle={{ fontSize: '12px', paddingTop: '12px' }}
+                      iconType="circle"
+                      iconSize={8}
+                    />
+                    <Bar
+                      dataKey="targetVal"
+                      name={t.kpi.common.target}
+                      fill="#27272a"
+                      radius={[0, 8, 8, 0]}
+                      barSize={16}
+                      opacity={0.85}
+                    />
+                    <Bar dataKey="actualVal" name={t.kpi.common.actualLatest} radius={[0, 8, 8, 0]} barSize={16}>
                       {barChartData.map((entry, i) => (
-                        <Cell key={i} fill={getPctColor(entry.pct)} />
+                        <Cell key={i} fill={getPctColor(entry.pct)} opacity={0.9} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -486,27 +556,50 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
             </CardContent>
           </Card>
 
-          {/* Trend Chart */}
+          {/* Trend Chart — Modern Vertical Bars */}
           {trendData.length > 1 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4" />
-                  {t.kpi.reports.chartTrend}
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">{t.kpi.reports.chartTrendDesc}</p>
+            <Card className="border-0 shadow-sm bg-white dark:bg-zinc-900 overflow-hidden">
+              <div className="h-0.5 bg-gradient-to-r from-orange-500 via-orange-300 to-transparent" />
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2 font-bold">
+                      <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                        <BarChart3 className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                      </div>
+                      {t.kpi.reports.chartTrend}
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1 ml-10">{t.kpi.reports.chartTrendDesc}</p>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] rounded-full border-zinc-200 dark:border-zinc-700">
+                    {trendData.length} entries
+                  </Badge>
+                </div>
               </CardHeader>
-              <CardContent>
-                <div className="w-full h-[300px]">
+              <CardContent className="pt-2">
+                <div className="w-full h-[320px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={trendData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
-                      <XAxis dataKey="period" fontSize={12} tick={{ fill: '#71717a' }} />
-                      <YAxis fontSize={12} tickFormatter={(v: number) => `${v}%`} domain={[0, 'auto']} />
-                      <Tooltip content={<TrendTooltip />} />
-                      <Bar dataKey="pct" name="Achievement %" radius={[6, 6, 0, 0]} barSize={40}>
+                    <BarChart data={trendData} margin={{ top: 20, right: 30, left: 0, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f4f4f5" vertical={false} />
+                      <XAxis
+                        dataKey="period"
+                        fontSize={11}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#71717a' }}
+                      />
+                      <YAxis
+                        fontSize={11}
+                        tickFormatter={(v: number) => `${v}%`}
+                        domain={[0, 'auto']}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#a1a1aa' }}
+                      />
+                      <Tooltip content={<TrendTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
+                      <Bar dataKey="pct" name="Achievement %" radius={[8, 8, 0, 0]} barSize={36}>
                         {trendData.map((entry, i) => (
-                          <Cell key={i} fill={getPctColor(entry.pct)} />
+                          <Cell key={i} fill={getPctColor(entry.pct)} opacity={0.9} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -516,61 +609,72 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
             </Card>
           )}
 
-          {/* Radial Gauges */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Target className="h-4 w-4" />
-                {t.kpi.reports.gaugeTitle}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">{t.kpi.reports.gaugeDesc}</p>
+          {/* Achievement Gauge Cards — Modern Ring Design */}
+          <Card className="border-0 shadow-sm bg-white dark:bg-zinc-900 overflow-hidden">
+            <div className="h-0.5 bg-gradient-to-r from-green-500 via-green-300 to-transparent" />
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2 font-bold">
+                    <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                      <Target className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                    </div>
+                    {t.kpi.reports.gaugeTitle}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1 ml-10">{t.kpi.reports.gaugeDesc}</p>
+                </div>
+                <Badge variant="outline" className="text-[10px] rounded-full border-zinc-200 dark:border-zinc-700">
+                  {kpiSummaryData.length} KPIs
+                </Badge>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-2">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {kpiSummaryData.map((d, i) => {
                   const clampedPct = Math.min(d.latestPct, 100)
                   const radialData = [
-                    { name: 'bg', value: 100, fill: '#e4e4e7' },
+                    { name: 'bg', value: 100, fill: '#f4f4f5' },
                     { name: 'pct', value: clampedPct, fill: getPctColor(d.latestPct) },
                   ]
+                  const pctColor = getPctColor(d.latestPct)
                   return (
                     <div
                       key={i}
-                      className="relative rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-4 flex flex-col items-center text-center"
+                      className="group relative rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-5 flex flex-col items-center text-center hover:shadow-lg hover:border-zinc-200 dark:hover:border-zinc-700 transition-all duration-300 hover:-translate-y-0.5"
                     >
-                      <Badge variant="secondary" className="absolute top-2 right-2 text-[10px]">
+                      <Badge variant="secondary" className="absolute top-3 right-3 text-[9px] font-medium bg-zinc-100 dark:bg-zinc-800">
                         {d.evalCount} {t.kpi.common.times}
                       </Badge>
-                      <div className="w-24 h-24 relative">
+                      <div className="w-[100px] h-[100px] relative">
                         <ResponsiveContainer width="100%" height="100%">
                           <RadialBarChart
                             cx="50%" cy="50%"
-                            innerRadius="70%" outerRadius="100%"
+                            innerRadius="72%" outerRadius="100%"
                             data={radialData}
                             startAngle={90} endAngle={-270}
                           >
-                            <RadialBar dataKey="value" cornerRadius={10} background={{ fill: '#f4f4f5' }} />
+                            <RadialBar dataKey="value" cornerRadius={12} background={{ fill: '#f4f4f5' }} />
                           </RadialBarChart>
                         </ResponsiveContainer>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <span className="text-2xl">{getEmoji(d.latestPct)}</span>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <span className="text-lg font-extrabold" style={{ color: pctColor }}>
+                            {Math.round(d.latestPct)}
+                          </span>
+                          <span className="text-[9px] font-medium text-zinc-400">%</span>
                         </div>
                       </div>
-                      <p className="mt-2 font-bold text-lg" style={{ color: getPctColor(d.latestPct) }}>
-                        {d.latestPct.toFixed(1)}%
-                      </p>
-                      <p className="text-xs font-medium mt-1 line-clamp-2">{d.kpiName}</p>
+                      <p className="text-xs font-semibold mt-3 line-clamp-2 text-zinc-800 dark:text-zinc-200">{d.kpiName}</p>
                       {d.assignee && (
-                        <p className="text-xs text-muted-foreground/70 mt-0.5">{d.assignee}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{d.assignee}</p>
                       )}
-                      <div className="mt-2 text-xs space-y-0.5 w-full">
+                      <div className="mt-3 text-[11px] space-y-1 w-full border-t border-zinc-100 dark:border-zinc-700 pt-3">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">{t.kpi.common.target}</span>
-                          <span className="font-medium">{fmt(d.target)} {d.unit}</span>
+                          <span className="font-semibold text-zinc-700 dark:text-zinc-300">{fmt(d.target)} {d.unit}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">{t.kpi.common.actualShort}</span>
-                          <span className="font-medium">{fmt(d.latestActual)}</span>
+                          <span className="font-semibold" style={{ color: pctColor }}>{fmt(d.latestActual)}</span>
                         </div>
                       </div>
                     </div>
@@ -614,7 +718,10 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                     <TableCell className="text-center">{u.kpiCount}</TableCell>
                     <TableCell className="text-center">{u.evalCount} KPIs</TableCell>
                     <TableCell className="text-center">
-                      <span className="font-bold">
+                      <span className={`font-bold text-sm px-2.5 py-1 rounded-full ${u.weightedScore >= 70 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : u.weightedScore >= 40 ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        }`}>
                         {u.weightedScore.toFixed(1)}
                       </span>
                     </TableCell>

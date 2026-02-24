@@ -10,8 +10,8 @@ const th = {
       create: 'สร้าง',
       target: 'เป้าหมาย',
       actual: 'ค่าจริง',
-      actualLatest: 'ค่าจริง (ล่าสุด)',
-      actualShort: 'จริง (ล่าสุด)',
+      actualLatest: 'ค่าจริง (รวม)',
+      actualShort: 'จริง (รวม)',
       score: 'คะแนน',
       period: 'ช่วงเวลา',
       comment: 'ความคิดเห็น',
@@ -84,12 +84,12 @@ const th = {
       statEvaluations: 'ผลประเมิน',
       statAllEvals: 'การประเมินทั้งหมด',
       statAvgScore: 'คะแนนเฉลี่ย',
-      chartTargetVsActual: 'เปรียบเทียบเป้าหมาย vs ค่าจริง (ล่าสุด)',
-      chartTargetVsActualDesc: 'แต่ละ KPI แสดงเป้าหมายเทียบค่าจริงรอบล่าสุด',
+      chartTargetVsActual: 'เปรียบเทียบเป้าหมาย vs ค่าจริง (รวม)',
+      chartTargetVsActualDesc: 'แต่ละ KPI แสดงเป้าหมายเทียบผลรวมค่าจริงทุกรอบ',
       chartTrend: 'แนวโน้ม Achievement % ตามรอบประเมิน',
       chartTrendDesc: 'เปอร์เซ็นต์ที่ทำได้ในแต่ละรอบ',
       gaugeTitle: 'ผลสำเร็จตามเป้าหมาย',
-      gaugeDesc: 'ค่าล่าสุดของแต่ละ KPI',
+      gaugeDesc: 'ผลรวมค่าจริงของแต่ละ KPI',
       rankingTitle: 'อันดับพนักงาน (ตามคะแนนเฉลี่ย)',
       emptyState: 'ยังไม่มีผลประเมิน KPI',
       emptyHint: 'เริ่มต้นสร้าง Template → Assign → Evaluate',
@@ -230,8 +230,8 @@ export default th
 
 type DeepStringRecord<T> = {
   [K in keyof T]: T[K] extends Record<string, unknown>
-    ? DeepStringRecord<T[K]>
-    : string
+  ? DeepStringRecord<T[K]>
+  : string
 }
 
 export type Dictionary = DeepStringRecord<typeof th>
