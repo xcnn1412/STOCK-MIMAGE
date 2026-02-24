@@ -13,11 +13,12 @@ export default async function AssignmentsPage() {
     redirect('/kpi/dashboard')
   }
 
-  // ดึงข้อมูลพร้อมกัน: assignments + templates + profiles
+  // ดึงข้อมูลพร้อมกัน: assignments + templates + profiles + latest evaluations
   const [
     { data: assignments },
     { data: templates },
-    { data: profiles }
+    { data: profiles },
+    { data: evaluations },
   ] = await Promise.all([
     supabase
       .from('kpi_assignments')
@@ -32,6 +33,10 @@ export default async function AssignmentsPage() {
       .select('id, full_name, department, role')
       .eq('is_approved', true)
       .order('full_name'),
+    supabase
+      .from('kpi_evaluations')
+      .select('assignment_id, actual_value, score, achievement_pct, evaluation_date')
+      .order('evaluation_date', { ascending: false }),
   ])
 
   return (
@@ -39,6 +44,7 @@ export default async function AssignmentsPage() {
       assignments={assignments || []}
       templates={templates || []}
       profiles={profiles || []}
+      evaluations={evaluations || []}
     />
   )
 }

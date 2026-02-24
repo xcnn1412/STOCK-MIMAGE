@@ -53,6 +53,8 @@ export type ActionType =
     | 'SUBMIT_KPI_EVALUATION'
     | 'UPDATE_KPI_EVALUATION'
     | 'DELETE_KPI_EVALUATION'
+    | 'DELETE_ALL_KPI_EVALUATIONS'
+    | 'SUBMIT_SELF_EVALUATION'
 
 export async function logActivity(
     action: ActionType,

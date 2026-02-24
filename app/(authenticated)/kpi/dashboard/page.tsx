@@ -16,6 +16,7 @@ export default async function KpiDashboardPage() {
     { count: assignmentCount },
     { data: evaluations },
     { data: profiles },
+    { data: myAssignments },
   ] = await Promise.all([
     supabase.from('kpi_templates').select('*', { count: 'exact', head: true }),
     isAdmin
@@ -36,6 +37,15 @@ export default async function KpiDashboardPage() {
     isAdmin
       ? supabase.from('profiles').select('id, full_name, department').eq('is_approved', true).order('full_name')
       : { data: [] as any[] },
+    // Staff's own assignments for self-evaluation
+    !isAdmin && userId
+      ? supabase
+          .from('kpi_assignments')
+          .select('*, kpi_templates(*), kpi_evaluations(*)')
+          .eq('status', 'active')
+          .eq('assigned_to', userId)
+          .order('created_at', { ascending: false })
+      : { data: [] as any[] },
   ])
 
   return (
@@ -45,6 +55,7 @@ export default async function KpiDashboardPage() {
       assignmentCount={assignmentCount || 0}
       evaluations={(evaluations || []) as any}
       profiles={(profiles || []) as any}
+      myAssignments={(myAssignments || []) as any}
     />
   )
 }

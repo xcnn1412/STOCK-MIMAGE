@@ -95,6 +95,16 @@ export async function deleteTemplate(id: string) {
 
   const supabase = createServerSupabase()
 
+  // Check for linked assignments
+  const { count } = await supabase
+    .from('kpi_assignments')
+    .select('id', { count: 'exact', head: true })
+    .eq('template_id', id)
+
+  if (count && count > 0) {
+    return { error: `ไม่สามารถลบ Template ได้ เนื่องจากมี Assignment ที่ผูกอยู่ ${count} รายการ — กรุณาลบ Assignment ก่อน` }
+  }
+
   const { error } = await supabase.from('kpi_templates').delete().eq('id', id)
 
   if (error) {
@@ -131,6 +141,9 @@ export async function createAssignment(formData: FormData) {
   const custom_config_raw = formData.get('custom_config') as string | null
   const custom_config = custom_config_raw ? JSON.parse(custom_config_raw) : null
 
+  const weight = Math.max(0, Math.min(100, Number(formData.get('weight')) || 0))
+
+  // ─── 1 record = 1 เดือน ─── (ไม่ต้องใช้ monthly_targets JSONB แล้ว)
   const insertData: Record<string, unknown> = {
     assigned_to,
     target,
@@ -138,6 +151,7 @@ export async function createAssignment(formData: FormData) {
     cycle,
     period_start,
     period_end,
+    weight,
     created_by: userId,
     status: 'active',
   }
@@ -158,7 +172,7 @@ export async function createAssignment(formData: FormData) {
     return { error: 'สร้าง Assignment ไม่สำเร็จ' }
   }
 
-  await logActivity('CREATE_KPI_ASSIGNMENT', { assigned_to, template_id, custom_name })
+  await logActivity('CREATE_KPI_ASSIGNMENT', { assigned_to, template_id, custom_name, period_start })
   revalidatePath('/kpi/assignments')
   return { success: true }
 }
@@ -187,6 +201,16 @@ export async function deleteAssignment(id: string) {
 
   const supabase = createServerSupabase()
 
+  // Check for linked evaluations
+  const { count } = await supabase
+    .from('kpi_evaluations')
+    .select('id', { count: 'exact', head: true })
+    .eq('assignment_id', id)
+
+  if (count && count > 0) {
+    return { error: `ไม่สามารถลบ Assignment ได้ เนื่องจากมีผลประเมินที่ผูกอยู่ ${count} รายการ — กรุณาลบผลประเมินก่อน` }
+  }
+
   const { error } = await supabase.from('kpi_assignments').delete().eq('id', id)
 
   if (error) {
@@ -195,6 +219,53 @@ export async function deleteAssignment(id: string) {
   }
 
   await logActivity('DELETE_KPI_ASSIGNMENT', { id })
+  revalidatePath('/kpi/assignments')
+  return { success: true }
+}
+
+export async function updateAssignmentWeight(id: string, newWeight: number) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServerSupabase()
+  const weight = Math.max(0, Math.min(100, newWeight))
+
+  // Fetch this assignment to get the person
+  const { data: assignment } = await supabase
+    .from('kpi_assignments')
+    .select('assigned_to, weight')
+    .eq('id', id)
+    .single() as { data: { assigned_to: string; weight: number } | null }
+
+  if (!assignment) return { error: 'ไม่พบ Assignment' }
+
+  // Check total weight for person (excluding current assignment)
+  const { data: otherAssignments } = await supabase
+    .from('kpi_assignments')
+    .select('weight')
+    .eq('assigned_to', assignment.assigned_to)
+    .neq('id', id)
+
+  const othersTotal = (otherAssignments || []).reduce(
+    (sum, a) => sum + ((a as any).weight ?? 0), 0
+  )
+
+  if (othersTotal + weight > 100) {
+    const remaining = Math.max(0, 100 - othersTotal)
+    return { error: `น้ำหนักรวมจะเกิน 100% — เหลือได้อีก ${remaining}%` }
+  }
+
+  const { error } = await supabase
+    .from('kpi_assignments')
+    .update({ weight } as any)
+    .eq('id', id)
+
+  if (error) {
+    console.error(error)
+    return { error: 'อัปเดตน้ำหนักไม่สำเร็จ' }
+  }
+
+  await logActivity('UPDATE_KPI_ASSIGNMENT', { id, weight })
   revalidatePath('/kpi/assignments')
   return { success: true }
 }
@@ -210,15 +281,15 @@ export async function submitEvaluation(formData: FormData) {
   const supabase = createServerSupabase()
 
   const assignment_id = formData.get('assignment_id') as string
-  const score = Number(formData.get('score')) || 0
   const actual_value = Number(formData.get('actual_value')) || 0
   const comment = formData.get('comment') as string
   const evaluation_date = formData.get('evaluation_date') as string
   const period_label = formData.get('period_label') as string
 
-  // Fetch target from assignment to calculate difference & achievement %
+  // Fetch target from assignment — ตอนนี้ 1 record = 1 เดือน, ใช้ target ตรงๆ
   let difference: number | null = null
   let achievement_pct: number | null = null
+  let score = 0
 
   const { data: assignment } = await supabase
     .from('kpi_assignments')
@@ -226,9 +297,13 @@ export async function submitEvaluation(formData: FormData) {
     .eq('id', assignment_id)
     .single()
 
-  if (assignment?.target && assignment.target !== 0) {
-    difference = actual_value - assignment.target
-    achievement_pct = Math.round((actual_value / assignment.target) * 1000) / 10 // 1 decimal
+  const effectiveTarget = assignment?.target ?? 0
+
+  if (effectiveTarget && effectiveTarget !== 0) {
+    difference = actual_value - effectiveTarget
+    achievement_pct = Math.round((actual_value / effectiveTarget) * 1000) / 10 // 1 decimal
+    // Auto score: clamp achievement_pct to 0-100
+    score = Math.min(Math.max(Math.round(achievement_pct), 0), 100)
   }
 
   const { error } = await supabase.from('kpi_evaluations').insert({
@@ -252,6 +327,68 @@ export async function submitEvaluation(formData: FormData) {
   revalidatePath('/kpi/evaluate')
   revalidatePath('/kpi/reports')
   revalidatePath('/kpi/dashboard')
+  return { success: true }
+}
+
+// ─── Self-Evaluation (Staff) ─── 
+export async function submitSelfEvaluation(formData: FormData) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'กรุณาเข้าสู่ระบบก่อน' }
+
+  const supabase = createServerSupabase()
+
+  const assignment_id = formData.get('assignment_id') as string
+  const actual_value = Number(formData.get('actual_value')) || 0
+  const comment = formData.get('comment') as string
+  const evaluation_date = formData.get('evaluation_date') as string
+  const period_label = formData.get('period_label') as string
+
+  // ตรวจสอบว่า assignment เป็นของ user จริง
+  const { data: assignment } = await supabase
+    .from('kpi_assignments')
+    .select('target, assigned_to')
+    .eq('id', assignment_id)
+    .single()
+
+  if (!assignment) return { error: 'ไม่พบ KPI ที่กำหนด' }
+  if (assignment.assigned_to !== userId) return { error: 'คุณไม่มีสิทธิ์ประเมิน KPI นี้' }
+
+  // ตอนนี้ 1 record = 1 เดือน — ใช้ target ตรงจาก assignment
+  const effectiveTarget = assignment.target ?? 0
+
+  // คำนวณ difference, achievement %, score อัตโนมัติ
+  let difference: number | null = null
+  let achievement_pct: number | null = null
+  let score = 0
+
+  if (effectiveTarget && effectiveTarget !== 0) {
+    difference = actual_value - effectiveTarget
+    achievement_pct = Math.round((actual_value / effectiveTarget) * 1000) / 10
+    // Auto score: clamp achievement_pct to 0-100
+    score = Math.min(Math.max(Math.round(achievement_pct), 0), 100)
+  }
+
+  const { error } = await supabase.from('kpi_evaluations').insert({
+    assignment_id,
+    score,
+    actual_value,
+    difference,
+    achievement_pct,
+    comment,
+    evaluation_date,
+    period_label,
+    evaluated_by: userId,
+  } as any)
+
+  if (error) {
+    console.error(error)
+    return { error: 'บันทึกผลประเมินไม่สำเร็จ' }
+  }
+
+  await logActivity('SUBMIT_SELF_EVALUATION', { assignment_id, score, actual_value, difference, achievement_pct })
+  revalidatePath('/kpi/dashboard')
+  revalidatePath('/kpi/evaluate')
+  revalidatePath('/kpi/reports')
   return { success: true }
 }
 
@@ -292,5 +429,37 @@ export async function deleteEvaluation(id: string) {
   revalidatePath('/kpi/evaluate')
   revalidatePath('/kpi/reports')
   revalidatePath('/kpi/dashboard')
+  revalidatePath('/kpi/assignments')
   return { success: true }
+}
+
+export async function deleteAllEvaluationsByAssignment(assignmentId: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServerSupabase()
+
+  const { count } = await supabase
+    .from('kpi_evaluations')
+    .select('id', { count: 'exact', head: true })
+    .eq('assignment_id', assignmentId)
+
+  if (!count || count === 0) return { error: 'ไม่มีผลประเมินที่จะลบ' }
+
+  const { error } = await supabase
+    .from('kpi_evaluations')
+    .delete()
+    .eq('assignment_id', assignmentId)
+
+  if (error) {
+    console.error(error)
+    return { error: 'ลบผลประเมินไม่สำเร็จ' }
+  }
+
+  await logActivity('DELETE_ALL_KPI_EVALUATIONS', { assignmentId, count })
+  revalidatePath('/kpi/evaluate')
+  revalidatePath('/kpi/reports')
+  revalidatePath('/kpi/dashboard')
+  revalidatePath('/kpi/assignments')
+  return { success: true, count }
 }

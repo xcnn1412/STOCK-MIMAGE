@@ -503,6 +503,7 @@ export interface Database {
           period_start: string
           period_end: string
           status: string
+          monthly_targets: Json | null
           created_by: string | null
           created_at: string
         }
@@ -519,6 +520,7 @@ export interface Database {
           period_start: string
           period_end: string
           status?: string
+          monthly_targets?: Json | null
           created_by?: string | null
           created_at?: string
         }
@@ -535,6 +537,7 @@ export interface Database {
           period_start?: string
           period_end?: string
           status?: string
+          monthly_targets?: Json | null
           created_by?: string | null
           created_at?: string
         }

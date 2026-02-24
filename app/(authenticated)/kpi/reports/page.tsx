@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ReportsView from './reports-view'
 
@@ -9,6 +10,11 @@ export default async function ReportsPage() {
   const userId = cookieStore.get('session_user_id')?.value
   const role = cookieStore.get('session_role')?.value
   const isAdmin = role === 'admin'
+
+  // Non-admin users cannot access reports
+  if (!isAdmin) {
+    redirect('/kpi/dashboard')
+  }
 
   // ดึง evaluations พร้อม assignment + template + profile
   const query = supabase

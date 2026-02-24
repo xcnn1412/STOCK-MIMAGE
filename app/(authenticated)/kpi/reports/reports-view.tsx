@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { BarChart3, UserCircle, Filter, TrendingUp, Target } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { BarChart3, TrendingUp, Target, Filter, UserCircle, Building, ClipboardCheck, Award, Users, Weight, CalendarDays } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useLocale } from '@/lib/i18n/context'
 import type { KpiEvaluation, KpiAssignment, Profile } from '@/types/database.types'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -13,6 +14,10 @@ import {
 } from 'recharts'
 
 const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString()
+const MONTH_NAMES_TH = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
+]
 const getEmoji = (pct: number) =>
   pct >= 120 ? '🔥🎉' : pct >= 100 ? '😍' : pct >= 90 ? '😊' : pct >= 70 ? '🙂' : pct >= 50 ? '😰' : pct >= 30 ? '😱' : '💀'
 const getPctColor = (pct: number) =>
@@ -31,74 +36,113 @@ interface ReportsViewProps {
 }
 
 export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsViewProps) {
+  const { t } = useLocale()
   const [filterUser, setFilterUser] = useState<string>('all')
   const [filterDept, setFilterDept] = useState<string>('all')
   const [filterKpi, setFilterKpi] = useState<string>('all')
+  const [filterMonth, setFilterMonth] = useState<string>('all')
+  // Detail table local filters
+  const [detailFilterUser, setDetailFilterUser] = useState<string>('all')
+  const [detailFilterKpi, setDetailFilterKpi] = useState<string>('all')
+  const [detailFilterPeriod, setDetailFilterPeriod] = useState<string>('all')
 
-  // ดึง departments ที่มี
   const departments = useMemo(() => {
     const depts = new Set<string>()
     profiles.forEach((p) => p.department && depts.add(p.department))
     return Array.from(depts).sort()
   }, [profiles])
 
+  const monthOptions = useMemo(() => {
+    const monthSet = new Set<string>()
+    evaluations.forEach(ev => {
+      if (ev.evaluation_date) monthSet.add(ev.evaluation_date.slice(0, 7))
+      // ดึงเดือนจาก assignment period_start ด้วย
+      const ps = ev.kpi_assignments?.period_start
+      if (ps) monthSet.add(ps.slice(0, 7))
+    })
+    return Array.from(monthSet).sort().map(key => {
+      const [y, m] = key.split('-')
+      return { value: key, label: `${MONTH_NAMES_TH[parseInt(m) - 1]} ${parseInt(y) + 543}` }
+    })
+  }, [evaluations])
+
   // Filter evaluations
   const filteredEvals = useMemo(() => {
     return evaluations.filter((ev) => {
-      const assignee = ev.kpi_assignments?.profiles
-      if (filterUser !== 'all' && assignee?.id !== filterUser) return false
-      if (filterDept !== 'all' && assignee?.department !== filterDept) return false
+      const user = ev.kpi_assignments?.profiles
+      if (filterUser !== 'all' && user?.id !== filterUser) return false
+      if (filterDept !== 'all' && user?.department !== filterDept) return false
+      if (filterKpi !== 'all') {
+        const kpiName = ev.kpi_assignments?.kpi_templates?.name || ev.kpi_assignments?.custom_name || ''
+        if (kpiName !== filterKpi) return false
+      }
+      if (filterMonth !== 'all') {
+        const periodMonth = ev.kpi_assignments?.period_start?.slice(0, 7)
+        if (periodMonth !== filterMonth) return false
+      }
       return true
     })
-  }, [evaluations, filterUser, filterDept])
+  }, [evaluations, filterUser, filterDept, filterKpi, filterMonth])
 
-  // สร้าง summary per user
+  const kpiNames = useMemo(() => {
+    const names = new Set<string>()
+    evaluations.forEach((ev) => {
+      const name = ev.kpi_assignments?.kpi_templates?.name || ev.kpi_assignments?.custom_name
+      if (name) names.add(name)
+    })
+    return Array.from(names).sort()
+  }, [evaluations])
+
+  // User summary (weighted)
   const userSummary = useMemo(() => {
+    // Group latest eval per assignment
+    const latestMap = new Map<string, typeof filteredEvals[0]>()
+    filteredEvals.forEach((ev) => {
+      const existing = latestMap.get(ev.assignment_id)
+      if (!existing || (ev.evaluation_date || '') >= (existing.evaluation_date || '')) {
+        latestMap.set(ev.assignment_id, ev)
+      }
+    })
+
     const map = new Map<string, {
       name: string
       department: string
-      totalKpi: number
-      avgScore: number
-      totalScore: number
+      weightedSum: number
+      totalWeight: number
       evalCount: number
+      weightedScore: number
+      kpiCount: number
+      kpiIds: Set<string>
     }>()
 
-    filteredEvals.forEach((ev) => {
-      const assignee = ev.kpi_assignments?.profiles
-      if (!assignee) return
-      const id = assignee.id
+    latestMap.forEach((ev) => {
+      const user = ev.kpi_assignments?.profiles
+      if (!user) return
+      const w = (ev.kpi_assignments as any)?.weight ?? 0
+      const achPct = ev.achievement_pct || 0
 
-      if (!map.has(id)) {
-        map.set(id, {
-          name: assignee.full_name || '-',
-          department: assignee.department || '-',
-          totalKpi: 0,
-          avgScore: 0,
-          totalScore: 0,
+      if (!map.has(user.id)) {
+        map.set(user.id, {
+          name: user.full_name || '-',
+          department: user.department || '-',
+          weightedSum: 0,
+          totalWeight: 0,
           evalCount: 0,
+          weightedScore: 0,
+          kpiCount: 0,
+          kpiIds: new Set(),
         })
       }
-
-      const entry = map.get(id)!
-      entry.totalScore += (ev.score || 0)
+      const entry = map.get(user.id)!
+      entry.weightedSum += achPct * w
+      entry.totalWeight += w
       entry.evalCount += 1
-      entry.avgScore = entry.totalScore / entry.evalCount
+      entry.weightedScore = entry.totalWeight > 0 ? entry.weightedSum / entry.totalWeight : 0
+      entry.kpiIds.add(ev.assignment_id)
+      entry.kpiCount = entry.kpiIds.size
     })
 
-    // นับจำนวน KPI ต่อ user (unique assignment_id)
-    const kpiPerUser = new Map<string, Set<string>>()
-    filteredEvals.forEach((ev) => {
-      const userId = ev.kpi_assignments?.profiles?.id
-      if (!userId) return
-      if (!kpiPerUser.has(userId)) kpiPerUser.set(userId, new Set())
-      kpiPerUser.get(userId)!.add(ev.assignment_id)
-    })
-    kpiPerUser.forEach((kpis, userId) => {
-      const entry = map.get(userId)
-      if (entry) entry.totalKpi = kpis.size
-    })
-
-    return Array.from(map.values()).sort((a, b) => b.avgScore - a.avgScore)
+    return Array.from(map.values()).sort((a, b) => b.weightedScore - a.weightedScore)
   }, [filteredEvals])
 
   // Chart data: Group by KPI (assignment_id) — aggregate per KPI
@@ -115,20 +159,18 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
     }>()
 
     filteredEvals.forEach((ev) => {
-      const assignment = ev.kpi_assignments
-      const assignmentId = ev.assignment_id
-      const kpiName = assignment?.kpi_templates?.name || assignment?.custom_name || '-'
-      const assignee = assignment?.profiles?.full_name || ''
-      const target = assignment?.target || 0
+      const a = ev.kpi_assignments
+      const id = ev.assignment_id
+      const target = a?.target || 0
       const actual = ev.actual_value || 0
       const pct = target > 0 ? (actual / target) * 100 : 0
 
-      if (!map.has(assignmentId)) {
-        map.set(assignmentId, {
-          kpiName,
-          assignee,
+      if (!map.has(id)) {
+        map.set(id, {
+          kpiName: a?.kpi_templates?.name || a?.custom_name || '-',
+          assignee: a?.profiles?.full_name || '',
           target,
-          unit: assignment?.target_unit || '',
+          unit: a?.target_unit || '',
           latestActual: actual,
           latestPct: pct,
           evalCount: 0,
@@ -136,63 +178,55 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
         })
       }
 
-      const entry = map.get(assignmentId)!
+      const entry = map.get(id)!
       entry.evalCount += 1
       entry.evals.push({
         date: ev.evaluation_date,
         period: ev.period_label || ev.evaluation_date,
         actual,
-        pct,
+        pct: Math.round(pct * 10) / 10,
       })
-    })
-
-    // Sort evals by date, set latest
-    map.forEach((entry) => {
-      entry.evals.sort((a, b) => a.date.localeCompare(b.date))
-      const latest = entry.evals[entry.evals.length - 1]
-      if (latest) {
-        entry.latestActual = latest.actual
-        entry.latestPct = latest.pct
+      // latest by date
+      if (ev.evaluation_date >= entry.evals[0]?.date) {
+        entry.latestActual = actual
+        entry.latestPct = pct
       }
     })
 
     return Array.from(map.values())
   }, [filteredEvals])
 
-  // Bar chart data (grouped by KPI)
   const barChartData = useMemo(() => {
     return kpiSummaryData.map((d) => ({
-      name: d.kpiName.length > 25 ? d.kpiName.slice(0, 25) + '…' : d.kpiName,
+      name: d.kpiName.length > 20 ? d.kpiName.slice(0, 20) + '…' : d.kpiName,
       fullName: d.kpiName,
       assignee: d.assignee,
-      เป้าหมาย: d.target,
-      'ค่าจริง (ล่าสุด)': d.latestActual,
+      targetVal: d.target,
+      actualVal: d.latestActual,
       pct: d.latestPct,
       unit: d.unit,
       evalCount: d.evalCount,
     }))
   }, [kpiSummaryData])
 
-  // Trend line data (all evals sorted by date)
   const trendData = useMemo(() => {
-    const points = filteredEvals
+    return filteredEvals
       .map((ev) => {
-        const assignment = ev.kpi_assignments
-        const target = assignment?.target || 0
+        const a = ev.kpi_assignments
+        const target = a?.target || 0
         const actual = ev.actual_value || 0
         const pct = target > 0 ? Math.round((actual / target) * 1000) / 10 : 0
         return {
           date: ev.evaluation_date,
           period: ev.period_label || ev.evaluation_date,
-          kpiName: assignment?.kpi_templates?.name || assignment?.custom_name || '-',
+          kpiName: a?.kpi_templates?.name || a?.custom_name || '-',
           pct,
           actual,
           target,
-          unit: assignment?.target_unit || '',
+          unit: a?.target_unit || '',
         }
       })
       .sort((a, b) => a.date.localeCompare(b.date))
-    return points
   }, [filteredEvals])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -205,17 +239,19 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
         {data?.assignee && <p className="text-muted-foreground text-xs">{data.assignee}</p>}
         <div className="flex items-center gap-2">
           <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#6366f1' }} />
-          <span>เป้าหมาย: {fmt(data?.เป้าหมาย)} {data?.unit}</span>
+          <span>{t.kpi.common.target}: {fmt(data?.targetVal)} {data?.unit}</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#22d3ee' }} />
-          <span>ค่าจริง (ล่าสุด): {fmt(data?.['ค่าจริง (ล่าสุด)'])} {data?.unit}</span>
+          <span>{t.kpi.common.actual}: {fmt(data?.actualVal)} {data?.unit}</span>
         </div>
         <div className="pt-1 border-t border-zinc-200 dark:border-zinc-600 flex items-center justify-between">
           <span className="font-bold" style={{ color: getPctColor(data?.pct || 0) }}>
             {getEmoji(data?.pct || 0)} {(data?.pct || 0).toFixed(1)}%
           </span>
-          <span className="text-xs text-muted-foreground">ประเมิน {data?.evalCount} ครั้ง</span>
+          <span className="text-xs text-muted-foreground">
+            {t.kpi.common.evaluatedTimes.replace('{count}', String(data?.evalCount || 0))}
+          </span>
         </div>
       </div>
     )
@@ -229,7 +265,10 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
       <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg p-3 text-sm space-y-1">
         <p className="font-semibold">{data?.kpiName}</p>
         <p className="text-xs text-muted-foreground">{data?.period}</p>
-        <p>เป้า: {fmt(data?.target)} → จริง: {fmt(data?.actual)} {data?.unit}</p>
+        <p>{t.kpi.common.targetArrowActual
+          .replace('{target}', fmt(data?.target))
+          .replace('{actual}', fmt(data?.actual))
+          .replace('{unit}', data?.unit || '')}</p>
         <p className="font-bold" style={{ color: getPctColor(data?.pct || 0) }}>
           {getEmoji(data?.pct || 0)} {data?.pct}%
         </p>
@@ -240,69 +279,187 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <BarChart3 className="h-6 w-6" />
-          รายงาน KPI
-        </h2>
+        <h2 className="text-2xl font-bold tracking-tight">{t.kpi.reports.title}</h2>
         <p className="text-sm text-muted-foreground">
-          {isAdmin ? 'ดูผลประเมินทุกคน — Filter ตามพนักงาน/แผนก' : 'ผลประเมิน KPI ของฉัน'}
+          {isAdmin ? t.kpi.reports.subtitleAdmin : t.kpi.reports.subtitleUser}
         </p>
       </div>
 
-      {/* Filters — Admin only */}
+      {/* Filters */}
       {isAdmin && (
         <Card>
           <CardContent className="py-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">พนักงาน:</span>
-                <Select value={filterUser} onValueChange={setFilterUser}>
-                  <SelectTrigger className="w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">ทั้งหมด</SelectItem>
-                    {profiles.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.full_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Filter className="h-4 w-4" />
+                Filter:
               </div>
+              <Select value={filterUser} onValueChange={setFilterUser}>
+                <SelectTrigger className="w-[180px] h-8 text-xs">
+                  <UserCircle className="h-3 w-3 mr-1" />
+                  <SelectValue placeholder={t.kpi.common.employee} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t.kpi.common.all}</SelectItem>
+                  {profiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">แผนก:</span>
-                <Select value={filterDept} onValueChange={setFilterDept}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">ทั้งหมด</SelectItem>
-                    {departments.map((d) => (
-                      <SelectItem key={d} value={d}>{d}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select value={filterDept} onValueChange={setFilterDept}>
+                <SelectTrigger className="w-[160px] h-8 text-xs">
+                  <Building className="h-3 w-3 mr-1" />
+                  <SelectValue placeholder={t.kpi.common.department} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t.kpi.common.all}</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d} value={d}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterKpi} onValueChange={setFilterKpi}>
+                <SelectTrigger className="w-[180px] h-8 text-xs">
+                  <ClipboardCheck className="h-3 w-3 mr-1" />
+                  <SelectValue placeholder="KPI" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t.kpi.common.all}</SelectItem>
+                  {kpiNames.map((name) => (
+                    <SelectItem key={name} value={name}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterMonth} onValueChange={setFilterMonth}>
+                <SelectTrigger className="w-[180px] h-8 text-xs">
+                  <CalendarDays className="h-3 w-3 mr-1" />
+                  <SelectValue placeholder="เดือน" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">ทุกเดือน</SelectItem>
+                  {monthOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {(filterUser !== 'all' || filterDept !== 'all' || filterKpi !== 'all' || filterMonth !== 'all') && (
+                <Badge variant="secondary" className="text-xs">
+                  {filteredEvals.length} {t.kpi.common.items}
+                </Badge>
+              )}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* ===== CHARTS SECTION ===== */}
+      {/* Summary Stat Cards */}
+      {filteredEvals.length > 0 && (() => {
+        // Compute summary stats from filtered data
+        const latestMap = new Map<string, typeof filteredEvals[0]>()
+        filteredEvals.forEach((ev) => {
+          const existing = latestMap.get(ev.assignment_id)
+          if (!existing || (ev.evaluation_date || '') >= (existing.evaluation_date || '')) {
+            latestMap.set(ev.assignment_id, ev)
+          }
+        })
+
+        const uniqueUsers = new Set<string>()
+        let wScoreSum = 0, wScoreTotal = 0
+        let wPctSum = 0, wPctTotal = 0
+
+        latestMap.forEach((ev) => {
+          const user = ev.kpi_assignments?.profiles
+          if (user) uniqueUsers.add(user.id)
+          const w = (ev.kpi_assignments as any)?.weight ?? 0
+          const achPct = ev.achievement_pct || 0
+          wScoreSum += achPct * w
+          wScoreTotal += w
+
+          const target = ev.kpi_assignments?.target
+          if (target && target > 0) {
+            const pct = ((ev.actual_value || 0) / target) * 100
+            wPctSum += pct * w
+            wPctTotal += w
+          }
+        })
+
+        const weightedAvgScore = wScoreTotal > 0 ? wScoreSum / wScoreTotal : 0
+        const weightedAvgPct = wPctTotal > 0 ? wPctSum / wPctTotal : 0
+        const kpiCount = latestMap.size
+        const personCount = uniqueUsers.size
+
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
+                    <Users className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">พนักงาน</p>
+                    <p className="text-xl font-bold">{personCount}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
+                    <ClipboardCheck className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">KPI ทั้งหมด</p>
+                    <p className="text-xl font-bold">{kpiCount}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
+                    <Weight className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">คะแนนถ่วงน้ำหนัก</p>
+                    <p className="text-xl font-bold">{weightedAvgScore.toFixed(1)}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
+                    <Award className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Achievement</p>
+                    <p className="text-xl font-bold">{weightedAvgPct.toFixed(1)}%</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )
+      })()}
+
       {kpiSummaryData.length > 0 && (
         <>
-          {/* 1) Bar Chart: Target vs Latest Actual — grouped by KPI */}
+          {/* Bar Chart */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" />
-                เปรียบเทียบเป้าหมาย vs ค่าจริง (ล่าสุด) — แยกตาม KPI
+                {t.kpi.reports.chartTargetVsActual}
               </CardTitle>
-              <p className="text-xs text-muted-foreground">แต่ละ KPI แสดงเป้าหมายเทียบค่าจริงรอบล่าสุด</p>
+              <p className="text-xs text-muted-foreground">{t.kpi.reports.chartTargetVsActualDesc}</p>
             </CardHeader>
             <CardContent>
               <div className="w-full" style={{ height: Math.max(200, barChartData.length * 60) }}>
@@ -313,22 +470,12 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                     margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
-                    <XAxis
-                      type="number"
-                      tickFormatter={(v: number) => v.toLocaleString()}
-                      fontSize={12}
-                    />
-                    <YAxis
-                      dataKey="name"
-                      type="category"
-                      width={180}
-                      fontSize={12}
-                      tick={{ fill: '#71717a' }}
-                    />
+                    <XAxis type="number" tickFormatter={(v: number) => v.toLocaleString()} fontSize={12} />
+                    <YAxis dataKey="name" type="category" width={160} fontSize={12} tick={{ fill: '#71717a' }} />
                     <Tooltip content={<BarTooltip />} />
                     <Legend wrapperStyle={{ fontSize: '13px' }} />
-                    <Bar dataKey="เป้าหมาย" fill="#6366f1" radius={[0, 6, 6, 0]} barSize={20} />
-                    <Bar dataKey="ค่าจริง (ล่าสุด)" radius={[0, 6, 6, 0]} barSize={20}>
+                    <Bar dataKey="targetVal" name={t.kpi.common.target} fill="#6366f1" radius={[0, 6, 6, 0]} barSize={20} />
+                    <Bar dataKey="actualVal" name={t.kpi.common.actualLatest} radius={[0, 6, 6, 0]} barSize={20}>
                       {barChartData.map((entry, i) => (
                         <Cell key={i} fill={getPctColor(entry.pct)} />
                       ))}
@@ -339,15 +486,15 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
             </CardContent>
           </Card>
 
-          {/* 2) Trend Line Chart: Achievement % over time */}
+          {/* Trend Chart */}
           {trendData.length > 1 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <BarChart3 className="h-4 w-4" />
-                  แนวโน้ม Achievement % ตามรอบประเมิน
+                  {t.kpi.reports.chartTrend}
                 </CardTitle>
-                <p className="text-xs text-muted-foreground">แสดงเปอร์เซ็นต์ที่ทำได้ในแต่ละรอบ</p>
+                <p className="text-xs text-muted-foreground">{t.kpi.reports.chartTrendDesc}</p>
               </CardHeader>
               <CardContent>
                 <div className="w-full h-[300px]">
@@ -355,11 +502,7 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                     <BarChart data={trendData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
                       <XAxis dataKey="period" fontSize={12} tick={{ fill: '#71717a' }} />
-                      <YAxis
-                        fontSize={12}
-                        tickFormatter={(v: number) => `${v}%`}
-                        domain={[0, 'auto']}
-                      />
+                      <YAxis fontSize={12} tickFormatter={(v: number) => `${v}%`} domain={[0, 'auto']} />
                       <Tooltip content={<TrendTooltip />} />
                       <Bar dataKey="pct" name="Achievement %" radius={[6, 6, 0, 0]} barSize={40}>
                         {trendData.map((entry, i) => (
@@ -373,14 +516,14 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
             </Card>
           )}
 
-          {/* 3) Achievement Gauge Cards — per KPI (not per eval) */}
+          {/* Radial Gauges */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <Target className="h-4 w-4" />
-                ผลสำเร็จตามเป้าหมาย — แยกตาม KPI
+                {t.kpi.reports.gaugeTitle}
               </CardTitle>
-              <p className="text-xs text-muted-foreground">แสดงค่าล่าสุดของแต่ละ KPI</p>
+              <p className="text-xs text-muted-foreground">{t.kpi.reports.gaugeDesc}</p>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -395,21 +538,16 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                       key={i}
                       className="relative rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-4 flex flex-col items-center text-center"
                     >
-                      {/* Eval count badge */}
                       <Badge variant="secondary" className="absolute top-2 right-2 text-[10px]">
-                        {d.evalCount} ครั้ง
+                        {d.evalCount} {t.kpi.common.times}
                       </Badge>
-
                       <div className="w-24 h-24 relative">
                         <ResponsiveContainer width="100%" height="100%">
                           <RadialBarChart
-                            cx="50%"
-                            cy="50%"
-                            innerRadius="70%"
-                            outerRadius="100%"
+                            cx="50%" cy="50%"
+                            innerRadius="70%" outerRadius="100%"
                             data={radialData}
-                            startAngle={90}
-                            endAngle={-270}
+                            startAngle={90} endAngle={-270}
                           >
                             <RadialBar dataKey="value" cornerRadius={10} background={{ fill: '#f4f4f5' }} />
                           </RadialBarChart>
@@ -427,11 +565,11 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                       )}
                       <div className="mt-2 text-xs space-y-0.5 w-full">
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">เป้า</span>
+                          <span className="text-muted-foreground">{t.kpi.common.target}</span>
                           <span className="font-medium">{fmt(d.target)} {d.unit}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">จริง (ล่าสุด)</span>
+                          <span className="text-muted-foreground">{t.kpi.common.actualShort}</span>
                           <span className="font-medium">{fmt(d.latestActual)}</span>
                         </div>
                       </div>
@@ -444,21 +582,21 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
         </>
       )}
 
-      {/* Summary Table */}
+      {/* User Summary Table */}
       {userSummary.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">สรุปผลประเมินรายบุคคล</CardTitle>
+            <CardTitle className="text-base">{t.kpi.reports.summaryTitle}</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>พนักงาน</TableHead>
-                  <TableHead>แผนก</TableHead>
-                  <TableHead className="text-center">จำนวน KPI</TableHead>
-                  <TableHead className="text-center">ประเมินแล้ว</TableHead>
-                  <TableHead className="text-center">คะแนนเฉลี่ย</TableHead>
+                  <TableHead>{t.kpi.common.employee}</TableHead>
+                  <TableHead>{t.kpi.common.department}</TableHead>
+                  <TableHead className="text-center">{t.kpi.reports.kpiCount}</TableHead>
+                  <TableHead className="text-center">{t.kpi.common.evaluated}</TableHead>
+                  <TableHead className="text-center">คะแนนถ่วงน้ำหนัก</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -473,11 +611,11 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                     <TableCell>
                       {u.department !== '-' ? <Badge variant="outline" className="text-xs">{u.department}</Badge> : '-'}
                     </TableCell>
-                    <TableCell className="text-center">{fmt(u.totalKpi)}</TableCell>
-                    <TableCell className="text-center">{fmt(u.evalCount)}</TableCell>
+                    <TableCell className="text-center">{u.kpiCount}</TableCell>
+                    <TableCell className="text-center">{u.evalCount} KPIs</TableCell>
                     <TableCell className="text-center">
-                      <span className={`font-bold ${u.avgScore >= 70 ? 'text-green-600' : u.avgScore >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
-                        {u.avgScore.toFixed(1)}
+                      <span className="font-bold">
+                        {u.weightedScore.toFixed(1)}
                       </span>
                     </TableCell>
                   </TableRow>
@@ -488,112 +626,182 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
         </Card>
       )}
 
-      {/* Detail Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <CardTitle className="text-base">
-              รายละเอียดผลประเมิน ({fmt(filterKpi === 'all' ? filteredEvals.length : filteredEvals.filter(ev => ev.assignment_id === filterKpi).length)} รายการ)
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">KPI:</span>
-              <Select value={filterKpi} onValueChange={setFilterKpi}>
-                <SelectTrigger className="w-56 h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">ทั้งหมด</SelectItem>
-                  {(() => {
-                    const seen = new Map<string, string>()
-                    filteredEvals.forEach((ev) => {
-                      if (!seen.has(ev.assignment_id)) {
-                        const a = ev.kpi_assignments
-                        const name = a?.kpi_templates?.name || a?.custom_name || '-'
-                        const who = a?.profiles?.full_name || ''
-                        seen.set(ev.assignment_id, `${name}${who ? ` — ${who}` : ''}`)
-                      }
-                    })
-                    return Array.from(seen.entries()).map(([id, label]) => (
-                      <SelectItem key={id} value={id}>{label}</SelectItem>
-                    ))
-                  })()}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {filteredEvals.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">ไม่มีผลประเมิน</p>
-          ) : (
-            <div className="overflow-x-auto">
+      {/* Evaluations Detail Table */}
+      {filteredEvals.length > 0 && (() => {
+        // Unique employees & KPIs & periods for detail filters
+        const detailEmployees = Array.from(new Set(
+          filteredEvals.map(ev => ev.kpi_assignments?.profiles?.full_name).filter(Boolean)
+        )).sort() as string[]
+        const detailKpis = Array.from(new Set(
+          filteredEvals.map(ev => ev.kpi_assignments?.kpi_templates?.name || ev.kpi_assignments?.custom_name).filter(Boolean)
+        )).sort() as string[]
+        const detailPeriods = Array.from(new Set(
+          filteredEvals.map(ev => ev.period_label).filter(Boolean)
+        )).sort() as string[]
+
+        // Apply detail-level filters
+        const detailEvals = filteredEvals.filter(ev => {
+          if (detailFilterUser !== 'all' && ev.kpi_assignments?.profiles?.full_name !== detailFilterUser) return false
+          if (detailFilterKpi !== 'all') {
+            const kn = ev.kpi_assignments?.kpi_templates?.name || ev.kpi_assignments?.custom_name || ''
+            if (kn !== detailFilterKpi) return false
+          }
+          if (detailFilterPeriod !== 'all' && ev.period_label !== detailFilterPeriod) return false
+          return true
+        })
+
+        const hasDetailFilter = detailFilterUser !== 'all' || detailFilterKpi !== 'all' || detailFilterPeriod !== 'all'
+
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t.kpi.reports.detailTitle.replace('{count}', String(detailEvals.length))}
+              </CardTitle>
+              {/* Detail Filters */}
+              <div className="flex flex-wrap gap-2 items-center mt-2">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Filter className="h-3 w-3" />
+                  กรอง:
+                </div>
+                <Select value={detailFilterUser} onValueChange={setDetailFilterUser}>
+                  <SelectTrigger className="w-[160px] h-7 text-xs">
+                    <UserCircle className="h-3 w-3 mr-1" />
+                    <SelectValue placeholder={t.kpi.common.employee} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t.kpi.common.all}</SelectItem>
+                    {detailEmployees.map(name => (
+                      <SelectItem key={name} value={name}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={detailFilterKpi} onValueChange={setDetailFilterKpi}>
+                  <SelectTrigger className="w-[180px] h-7 text-xs">
+                    <ClipboardCheck className="h-3 w-3 mr-1" />
+                    <SelectValue placeholder="KPI" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t.kpi.common.all}</SelectItem>
+                    {detailKpis.map(name => (
+                      <SelectItem key={name} value={name}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {detailPeriods.length > 1 && (
+                  <Select value={detailFilterPeriod} onValueChange={setDetailFilterPeriod}>
+                    <SelectTrigger className="w-[180px] h-7 text-xs">
+                      <SelectValue placeholder={t.kpi.common.period} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t.kpi.common.all}</SelectItem>
+                      {detailPeriods.map(p => (
+                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {hasDetailFilter && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    {detailEvals.length} / {filteredEvals.length} {t.kpi.common.items}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {isAdmin && <TableHead>พนักงาน</TableHead>}
+                    <TableHead>{t.kpi.reports.evalDate}</TableHead>
                     <TableHead>KPI</TableHead>
-                    <TableHead className="text-center">เป้าหมาย</TableHead>
-                    <TableHead className="text-center">ค่าจริง</TableHead>
-                    <TableHead className="text-center">ผลต่าง</TableHead>
+                    <TableHead>เดือนมอบหมาย</TableHead>
+                    <TableHead>{t.kpi.common.employee}</TableHead>
+                    <TableHead className="text-center">น้ำหนัก</TableHead>
+                    <TableHead className="text-right">{t.kpi.common.target}</TableHead>
+                    <TableHead className="text-right">{t.kpi.common.actual}</TableHead>
+                    <TableHead className="text-center">{t.kpi.common.difference}</TableHead>
                     <TableHead className="text-center">%</TableHead>
-                    <TableHead className="text-center">คะแนน</TableHead>
-                    <TableHead>ช่วงเวลา</TableHead>
-                    <TableHead>วันที่ประเมิน</TableHead>
-                    <TableHead>หมายเหตุ</TableHead>
+                    <TableHead className="text-center">ผลสำเร็จ(%)</TableHead>
+                    <TableHead>{t.kpi.common.period}</TableHead>
+                    <TableHead>{t.kpi.common.comment}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEvals.filter(ev => filterKpi === 'all' || ev.assignment_id === filterKpi).map((ev) => {
-                    const assignment = ev.kpi_assignments
-                    const kpiName = assignment?.kpi_templates?.name || assignment?.custom_name || '-'
-                    const assignee = assignment?.profiles
-                    const target = assignment?.target || 0
-                    const actual = ev.actual_value || 0
-                    const diff = target ? actual - target : null
-                    const pct = target ? (actual / target) * 100 : null
-                    const diffColor = diff === null ? '' : diff >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                    const pctColor = pct === null ? '' : pct >= 100 ? 'text-green-600 dark:text-green-400' : pct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'
+                  {detailEvals
+                    .sort((a, b) => (b.evaluation_date || '').localeCompare(a.evaluation_date || ''))
+                    .map((ev) => {
+                      const a = ev.kpi_assignments
+                      const target = a?.target || 0
+                      const actual = ev.actual_value || 0
+                      const pct = target > 0 ? (actual / target) * 100 : 0
 
-                    return (
-                      <TableRow key={ev.id}>
-                        {isAdmin && (
-                          <TableCell className="font-medium">{assignee?.full_name || '-'}</TableCell>
-                        )}
-                        <TableCell>{kpiName}</TableCell>
-                        <TableCell className="text-center">{fmt(assignment?.target)} {assignment?.target_unit}</TableCell>
-                        <TableCell className="text-center">{ev.actual_value != null ? fmt(ev.actual_value) : '-'}</TableCell>
-                        <TableCell className="text-center">
-                          {diff !== null ? (
-                            <span className={`font-semibold ${diffColor}`}>
-                              {diff >= 0 ? '+' : ''}{fmt(diff)}
+                      return (
+                        <TableRow key={ev.id}>
+                          <TableCell className="text-xs whitespace-nowrap">{ev.evaluation_date || '-'}</TableCell>
+                          <TableCell className="text-sm font-medium">{a?.kpi_templates?.name || a?.custom_name || '-'}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {(() => {
+                              const ps = a?.period_start
+                              if (!ps) return '-'
+                              const [pY, pM] = ps.slice(0, 7).split('-').map(Number)
+                              if (!pY || !pM) return '-'
+                              const now = new Date()
+                              const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+                              const mKey = ps.slice(0, 7)
+                              const isPast = mKey < curKey
+                              const isCurrent = mKey === curKey
+                              return (
+                                <Badge
+                                  variant={isCurrent ? 'default' : isPast ? 'secondary' : 'outline'}
+                                  className={`text-[10px] font-medium ${isPast ? 'opacity-70' : ''}`}
+                                >
+                                  {MONTH_NAMES_TH[pM - 1]} {pY + 543}
+                                </Badge>
+                              )
+                            })()}
+                          </TableCell>
+                          <TableCell className="text-sm">{a?.profiles?.full_name || '-'}</TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="secondary" className="text-[10px]">{(a as any)?.weight ?? 0}%</Badge>
+                          </TableCell>
+                          <TableCell className="text-right text-sm text-muted-foreground">{fmt(target)} {a?.target_unit}</TableCell>
+                          <TableCell className="text-right text-sm font-medium">{fmt(actual)}</TableCell>
+                          <TableCell className="text-center">
+                            {target > 0 ? (
+                              <span className={`text-xs font-semibold ${actual - target >= 0 ? 'text-green-700 dark:text-green-500' : 'text-red-700 dark:text-red-500'}`}>
+                                {actual - target >= 0 ? '+' : ''}{fmt(actual - target)}
+                              </span>
+                            ) : '-'}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className="text-xs font-semibold">
+                              {pct.toFixed(1)}%
                             </span>
-                          ) : '-'}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {pct !== null ? (
-                            <span className={`font-semibold ${pctColor}`}>
-                              {getEmoji(pct)} {pct.toFixed(1)}%
-                            </span>
-                          ) : '-'}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className={`font-bold ${(ev.score || 0) >= 70 ? 'text-green-600' : (ev.score || 0) >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
-                            {fmt(ev.score)}
-                          </span>
-                        </TableCell>
-                        <TableCell>{ev.period_label || '-'}</TableCell>
-                        <TableCell className="text-sm">{ev.evaluation_date}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-32 truncate">{ev.comment || '-'}</TableCell>
-                      </TableRow>
-                    )
-                  })}
+                          </TableCell>
+                          <TableCell className="text-center font-bold">{ev.achievement_pct != null ? `${ev.achievement_pct}%` : '-'}</TableCell>
+                          <TableCell className="text-xs">
+                            {ev.period_label ? <Badge variant="outline" className="text-[10px]">{ev.period_label}</Badge> : '-'}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" title={ev.comment || ''}>
+                            {ev.comment || '-'}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
                 </TableBody>
               </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        )
+      })()}
+
+      {filteredEvals.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            {t.kpi.reports.noEvals}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
