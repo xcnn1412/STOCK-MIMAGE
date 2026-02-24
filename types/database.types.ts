@@ -561,6 +561,8 @@ export interface Database {
           assignment_id: string
           score: number | null
           actual_value: number | null
+          difference: number | null
+          achievement_pct: number | null
           comment: string | null
           evaluation_date: string
           period_label: string | null
@@ -572,6 +574,8 @@ export interface Database {
           assignment_id: string
           score?: number | null
           actual_value?: number | null
+          difference?: number | null
+          achievement_pct?: number | null
           comment?: string | null
           evaluation_date: string
           period_label?: string | null
@@ -583,6 +587,8 @@ export interface Database {
           assignment_id?: string
           score?: number | null
           actual_value?: number | null
+          difference?: number | null
+          achievement_pct?: number | null
           comment?: string | null
           evaluation_date?: string
           period_label?: string | null

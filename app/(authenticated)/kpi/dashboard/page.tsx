@@ -10,22 +10,32 @@ export default async function KpiDashboardPage() {
   const role = cookieStore.get('session_role')?.value
   const isAdmin = role === 'admin'
 
-  // ดึง stats ทั้งหมด
+  // ดึง stats + evaluations (แยกตาม role)
   const [
     { count: templateCount },
     { count: assignmentCount },
-    { data: myAssignments },
-    { data: recentEvaluations },
-    { count: pendingEvalCount }
+    { data: evaluations },
+    { data: profiles },
   ] = await Promise.all([
     supabase.from('kpi_templates').select('*', { count: 'exact', head: true }),
-    supabase.from('kpi_assignments').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-    // ถ้า admin ดึงทั้งหมด ถ้า staff ดึงเฉพาะตัวเอง
     isAdmin
-      ? supabase.from('kpi_assignments').select('*, kpi_templates(*), profiles!kpi_assignments_assigned_to_fkey(id, full_name, department), kpi_evaluations(*)').eq('status', 'active').order('created_at', { ascending: false }).limit(10)
-      : supabase.from('kpi_assignments').select('*, kpi_templates(*), kpi_evaluations(*)').eq('assigned_to', userId!).eq('status', 'active').order('created_at', { ascending: false }),
-    supabase.from('kpi_evaluations').select('*, kpi_assignments(*, kpi_templates(*), profiles!kpi_assignments_assigned_to_fkey(id, full_name))').order('created_at', { ascending: false }).limit(5),
-    supabase.from('kpi_assignments').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+      ? supabase.from('kpi_assignments').select('*', { count: 'exact', head: true }).eq('status', 'active')
+      : supabase.from('kpi_assignments').select('*', { count: 'exact', head: true }).eq('status', 'active').eq('assigned_to', userId!),
+    // Evaluations: Admin ดูทั้งหมด, Staff ดูเฉพาะตัวเอง
+    isAdmin
+      ? supabase
+          .from('kpi_evaluations')
+          .select('*, kpi_assignments(*, kpi_templates(*), profiles!kpi_assignments_assigned_to_fkey(id, full_name, department))')
+          .order('evaluation_date', { ascending: false })
+      : supabase
+          .from('kpi_evaluations')
+          .select('*, kpi_assignments!inner(*, kpi_templates(*), profiles!kpi_assignments_assigned_to_fkey(id, full_name, department))')
+          .eq('kpi_assignments.assigned_to', userId!)
+          .order('evaluation_date', { ascending: false }),
+    // Profiles for filter (admin only)
+    isAdmin
+      ? supabase.from('profiles').select('id, full_name, department').eq('is_approved', true).order('full_name')
+      : { data: [] as any[] },
   ])
 
   return (
@@ -33,9 +43,8 @@ export default async function KpiDashboardPage() {
       isAdmin={isAdmin}
       templateCount={templateCount || 0}
       assignmentCount={assignmentCount || 0}
-      myAssignments={(myAssignments || []) as any}
-      recentEvaluations={(recentEvaluations || []) as any}
-      pendingEvalCount={pendingEvalCount || 0}
+      evaluations={(evaluations || []) as any}
+      profiles={(profiles || []) as any}
     />
   )
 }

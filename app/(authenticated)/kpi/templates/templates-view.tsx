@@ -11,6 +11,8 @@ import { createTemplate, updateTemplate, deleteTemplate } from '../actions'
 import { KPI_MODES } from '../types'
 import type { KpiTemplate } from '@/types/database.types'
 
+const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString()
+
 const modeBadgeColors: Record<string, string> = {
   task: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
   sales: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
@@ -86,7 +88,7 @@ export default function TemplatesView({ templates }: { templates: KpiTemplate[] 
                   )}
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-muted-foreground">เป้าหมาย:</span>
-                    <span className="font-medium">{t.default_target} {t.target_unit}</span>
+                    <span className="font-medium">{fmt(t.default_target)} {t.target_unit}</span>
                   </div>
 
                   {/* Actions */}
