@@ -133,10 +133,10 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
     assignments.forEach(a => {
       // ดึงเดือนจาก period_start ของ assignment (1 record = 1 เดือน)
       if (a.period_start) monthSet.add(a.period_start.slice(0, 7))
-      // ดึงเดือนจาก evaluation dates ด้วย (สำหรับ backward compat)
-      ;(a.kpi_evaluations || []).forEach(ev => {
-        if (ev.evaluation_date) monthSet.add(ev.evaluation_date.slice(0, 7))
-      })
+        // ดึงเดือนจาก evaluation dates ด้วย (สำหรับ backward compat)
+        ; (a.kpi_evaluations || []).forEach(ev => {
+          if (ev.evaluation_date) monthSet.add(ev.evaluation_date.slice(0, 7))
+        })
     })
     return Array.from(monthSet).sort().map(key => {
       const [y, m] = key.split('-')
@@ -268,55 +268,55 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
       </div>
 
       {/* ─── Summary Cards ─── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card>
-          <CardContent className="p-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                <Users className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                <Users className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">พนักงาน</p>
-                <p className="text-xl font-bold">{summaryStats.totalEmployees}</p>
+                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">พนักงาน</p>
+                <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{summaryStats.totalEmployees}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
+        <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                <Target className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                <Target className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">KPIs ทั้งหมด</p>
-                <p className="text-xl font-bold">{summaryStats.totalKPIs}</p>
+                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">KPIs ทั้งหมด</p>
+                <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{summaryStats.totalKPIs}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
+        <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                <TrendingUp className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                <TrendingUp className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">ประเมินแล้ว</p>
-                <p className="text-xl font-bold">{summaryStats.evaluatedKPIs}<span className="text-sm font-normal text-muted-foreground">/{summaryStats.totalKPIs}</span></p>
+                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">ประเมินแล้ว</p>
+                <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{summaryStats.evaluatedKPIs}<span className="text-sm font-normal text-zinc-400">/{summaryStats.totalKPIs}</span></p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
+        <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                <ClipboardCheck className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                <ClipboardCheck className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">ความคืบหน้า</p>
-                <p className="text-xl font-bold">{summaryStats.avgCompletion.toFixed(0)}%</p>
+                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">ความคืบหน้า</p>
+                <p className={`text-2xl font-bold ${summaryStats.avgCompletion >= 100 ? 'text-green-600 dark:text-green-400' : summaryStats.avgCompletion >= 50 ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400'}`}>{summaryStats.avgCompletion.toFixed(0)}%</p>
               </div>
             </div>
           </CardContent>
@@ -334,9 +334,12 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* ─── LEFT: Employee List ─── */}
           <div className="lg:col-span-4 xl:col-span-3">
-            <Card className="sticky top-4">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">รายชื่อพนักงาน</CardTitle>
+            <Card className="sticky top-4 border-0 shadow-sm">
+              <CardHeader className="pb-3 border-b border-zinc-100 dark:border-zinc-800">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  รายชื่อพนักงาน
+                </CardTitle>
                 <CardDescription className="text-xs">{personGroups.length} คน</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -351,18 +354,20 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
                         key={group.userId}
                         type="button"
                         onClick={() => setSelectedUserId(group.userId)}
-                        className={`w-full text-left px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900 ${
-                          isSelected ? 'bg-zinc-100 dark:bg-zinc-800/80 border-l-2 border-l-zinc-800 dark:border-l-zinc-300' : ''
-                        }`}
+                        className={`w-full text-left px-4 py-3.5 border-b border-zinc-100 dark:border-zinc-800 transition-all duration-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${isSelected ? 'bg-gradient-to-r from-zinc-100 to-transparent dark:from-zinc-800/80 dark:to-transparent border-l-[3px] border-l-zinc-900 dark:border-l-zinc-100' : 'border-l-[3px] border-l-transparent'
+                          }`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="shrink-0 w-9 h-9 rounded-full bg-zinc-800 dark:bg-zinc-200 flex items-center justify-center text-white dark:text-zinc-800 text-xs font-bold">
+                          <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-sm transition-all duration-200 ${isSelected
+                            ? 'bg-gradient-to-br from-zinc-800 to-zinc-600 dark:from-zinc-100 dark:to-zinc-300 text-white dark:text-zinc-800 scale-105 ring-2 ring-zinc-400/30'
+                            : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300'
+                            }`}>
                             {group.fullName.charAt(0)}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-sm truncate">{group.fullName}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <Badge variant={statusVariant} className="text-[10px] px-1.5 py-0">
+                            <div className={`font-medium text-sm truncate transition-colors ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`}>{group.fullName}</div>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <Badge variant={statusVariant} className="text-[10px] px-1.5 py-0 rounded-full">
                                 {stats.evaluatedKPIs}/{stats.totalKPIs}
                               </Badge>
                               {stats.hasScores && (
@@ -386,28 +391,29 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
             {selectedGroup ? (
               <>
                 {/* Person Summary Card */}
-                <Card>
-                  <CardContent className="p-5">
+                <Card className="border-0 shadow-sm overflow-hidden">
+                  <div className="h-1 bg-gradient-to-r from-zinc-800 via-zinc-600 to-zinc-400 dark:from-zinc-200 dark:via-zinc-400 dark:to-zinc-600" />
+                  <CardContent className="p-6">
                     <div className="flex items-center justify-between flex-wrap gap-4">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-full bg-zinc-800 dark:bg-zinc-200 flex items-center justify-center text-white dark:text-zinc-800 text-lg font-bold shadow-md">
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-zinc-800 to-zinc-600 dark:from-zinc-100 dark:to-zinc-300 flex items-center justify-center text-white dark:text-zinc-800 text-xl font-bold shadow-lg ring-2 ring-zinc-300/20 dark:ring-zinc-600/20">
                           {selectedGroup.fullName.charAt(0)}
                         </div>
                         <div>
-                          <h3 className="text-lg font-semibold">{selectedGroup.fullName}</h3>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <h3 className="text-xl font-bold tracking-tight">{selectedGroup.fullName}</h3>
+                          <div className="flex items-center gap-2 mt-1.5">
                             {selectedGroup.department && (
-                              <Badge variant="outline" className="text-[10px]">{selectedGroup.department}</Badge>
+                              <Badge variant="outline" className="text-[10px] rounded-full border-zinc-300 dark:border-zinc-600">{selectedGroup.department}</Badge>
                             )}
                             {(() => {
                               const stats = getPersonStats(selectedGroup)
                               return (
                                 <>
-                                  <Badge variant={stats.evaluatedKPIs === stats.totalKPIs ? 'default' : 'secondary'} className="text-[10px]">
+                                  <Badge variant={stats.evaluatedKPIs === stats.totalKPIs ? 'default' : 'secondary'} className={`text-[10px] rounded-full ${stats.evaluatedKPIs === stats.totalKPIs ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-100' : ''}`}>
                                     ประเมิน {stats.evaluatedKPIs}/{stats.totalKPIs}
                                   </Badge>
                                   {stats.totalWeight > 0 && (
-                                    <Badge variant="outline" className="text-[10px] gap-0.5">
+                                    <Badge variant="outline" className="text-[10px] gap-0.5 rounded-full border-zinc-300 dark:border-zinc-600">
                                       <Weight className="h-2.5 w-2.5" />
                                       น้ำหนักรวม {stats.totalWeight}%
                                     </Badge>
@@ -418,15 +424,18 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
                           </div>
                         </div>
                       </div>
-                      {/* Overall Score Circular */}
+                      {/* Overall Score */}
                       {(() => {
                         const stats = getPersonStats(selectedGroup)
                         if (!stats.hasScores) return null
                         return (
                           <div className="flex items-center gap-3">
-                            <div className="text-right">
-                              <p className="text-xs text-muted-foreground">คะแนนถ่วงน้ำหนัก</p>
-                              <p className="text-2xl font-bold text-foreground">
+                            <div className="text-right bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl px-5 py-3">
+                              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">คะแนนถ่วงน้ำหนัก</p>
+                              <p className={`text-3xl font-extrabold ${stats.weightedScore >= 100 ? 'text-green-600 dark:text-green-400'
+                                : stats.weightedScore >= 50 ? 'text-orange-600 dark:text-orange-400'
+                                  : 'text-red-600 dark:text-red-400'
+                                }`}>
                                 {stats.weightedScore.toFixed(1)}
                               </p>
                             </div>
@@ -449,8 +458,8 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
                   // Latest eval
                   const latestEval = evalCount > 0
                     ? [...(a.kpi_evaluations || [])].sort(
-                        (x, y) => new Date(y.evaluation_date || y.created_at || '').getTime() - new Date(x.evaluation_date || x.created_at || '').getTime()
-                      )[0]
+                      (x, y) => new Date(y.evaluation_date || y.created_at || '').getTime() - new Date(x.evaluation_date || x.created_at || '').getTime()
+                    )[0]
                     : null
                   // Cumulative actual = sum of ALL evaluations
                   const cumulativeActual = (a.kpi_evaluations || []).reduce((sum, ev) => sum + (ev.actual_value || 0), 0)
@@ -466,10 +475,16 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
                   const isPast = monthKey < currentKey
                   const isCurrent = monthKey === currentKey
 
+                  const borderColor = cumulativePct != null && cumulativePct >= 100
+                    ? 'border-l-green-500 dark:border-l-green-400'
+                    : cumulativePct != null && cumulativePct > 0
+                      ? 'border-l-orange-400 dark:border-l-orange-500'
+                      : 'border-l-zinc-300 dark:border-l-zinc-600'
+
                   return (
-                    <Card key={a.id} className={`overflow-hidden ${isPast ? 'opacity-70' : ''}`}>
+                    <Card key={a.id} className={`overflow-hidden border-0 shadow-sm hover:shadow-md transition-all duration-300 ${isPast ? 'opacity-60' : ''}`}>
                       <CardContent className="p-0">
-                        <div className="p-5 space-y-4">
+                        <div className={`p-5 space-y-4 border-l-[3px] ${borderColor}`}>
                           {/* KPI Header Row */}
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1.5 min-w-0 flex-1">
@@ -510,7 +525,7 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
                                   </Badge>
                                 )}
                                 {isCurrent && evalCount > 0 && (
-                                  <Badge variant="secondary" className="text-[10px] gap-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800">
+                                  <Badge variant="secondary" className="text-[10px] gap-0.5 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border-orange-200 dark:border-orange-800">
                                     ⚠ ประเมินแล้ว
                                   </Badge>
                                 )}
@@ -579,12 +594,11 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
                                 </span>
                               </div>
                               {cumulativePct != null && (
-                                <span className={`text-xs font-semibold ${
-                                  cumulativePct >= 125 ? 'text-green-700 dark:text-green-400'
+                                <span className={`text-xs font-semibold ${cumulativePct >= 125 ? 'text-green-700 dark:text-green-400'
                                   : cumulativePct < 0 ? 'text-red-700 dark:text-red-400'
-                                  : cumulativePct <= 100 ? 'text-amber-600 dark:text-amber-400'
-                                  : 'text-foreground'
-                                }`}>
+                                    : cumulativePct <= 100 ? 'text-amber-600 dark:text-amber-400'
+                                      : 'text-foreground'
+                                  }`}>
                                   {cumulativePct.toFixed(1)}%
                                 </span>
                               )}
@@ -773,108 +787,108 @@ export default function EvaluateView({ assignments }: { assignments: AssignmentW
             const dialogTarget = evalTarget.target ?? 0
             const hasMonthly = false
             return (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <input type="hidden" name="assignment_id" value={evalTarget.id} />
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <input type="hidden" name="assignment_id" value={evalTarget.id} />
 
-              <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-3 text-sm space-y-1">
-                <p>{t.kpi.common.employee}: <strong>{(evalTarget.profiles as { full_name?: string } | null)?.full_name || '-'}</strong></p>
-                <p>{t.kpi.common.target}: <strong>{fmt(dialogTarget)} {evalTarget.target_unit}</strong>
-                  {hasMonthly && <span className="text-amber-500 text-xs ml-1">(เป้าเดือนนี้ — เป้าหลัก: {fmt(evalTarget.target)})</span>}
-                </p>
-              </div>
+                <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-3 text-sm space-y-1">
+                  <p>{t.kpi.common.employee}: <strong>{(evalTarget.profiles as { full_name?: string } | null)?.full_name || '-'}</strong></p>
+                  <p>{t.kpi.common.target}: <strong>{fmt(dialogTarget)} {evalTarget.target_unit}</strong>
+                    {hasMonthly && <span className="text-amber-500 text-xs ml-1">(เป้าเดือนนี้ — เป้าหลัก: {fmt(evalTarget.target)})</span>}
+                  </p>
+                </div>
 
-              <div>
-                <label className="text-sm font-medium">{t.kpi.evaluate.actualLabel}</label>
-                <input type="hidden" name="actual_value" value={actualValue} />
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={actualDisplay}
-                  onChange={handleActualChange}
-                  onFocus={handleActualFocus}
-                  onBlur={handleActualBlur}
-                  required
-                  placeholder={t.kpi.evaluate.actualPlaceholder}
-                />
-              </div>
+                <div>
+                  <label className="text-sm font-medium">{t.kpi.evaluate.actualLabel}</label>
+                  <input type="hidden" name="actual_value" value={actualValue} />
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={actualDisplay}
+                    onChange={handleActualChange}
+                    onFocus={handleActualFocus}
+                    onBlur={handleActualBlur}
+                    required
+                    placeholder={t.kpi.evaluate.actualPlaceholder}
+                  />
+                </div>
 
-              {/* Calculated Difference */}
-              {actualValue && dialogTarget != null && (() => {
-                const actual = parseFloat(actualValue)
-                const target = dialogTarget
-                if (isNaN(actual) || target === 0) return null
-                // Previous cumulative actual (sum of existing evaluations)
-                const prevTotal = (evalTarget.kpi_evaluations || []).reduce((sum: number, ev: any) => sum + (ev.actual_value || 0), 0)
-                const grandTotal = prevTotal + actual
-                const diff = grandTotal - target
-                const pct = (grandTotal / target) * 100
-                const isPositive = diff >= 0
-                const colorClass = 'text-foreground'
-                const emoji = pct >= 120 ? '🔥🎉' : pct >= 100 ? '😍' : pct >= 90 ? '😊' : pct >= 70 ? '🙂' : pct >= 50 ? '😰' : pct >= 30 ? '😱' : '💀'
+                {/* Calculated Difference */}
+                {actualValue && dialogTarget != null && (() => {
+                  const actual = parseFloat(actualValue)
+                  const target = dialogTarget
+                  if (isNaN(actual) || target === 0) return null
+                  // Previous cumulative actual (sum of existing evaluations)
+                  const prevTotal = (evalTarget.kpi_evaluations || []).reduce((sum: number, ev: any) => sum + (ev.actual_value || 0), 0)
+                  const grandTotal = prevTotal + actual
+                  const diff = grandTotal - target
+                  const pct = (grandTotal / target) * 100
+                  const isPositive = diff >= 0
+                  const colorClass = 'text-foreground'
+                  const emoji = pct >= 120 ? '🔥🎉' : pct >= 100 ? '😍' : pct >= 90 ? '😊' : pct >= 70 ? '🙂' : pct >= 50 ? '😰' : pct >= 30 ? '😱' : '💀'
 
-                return (
-                  <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-3 space-y-1">
-                    {prevTotal > 0 && (
-                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                        <span>ยอดสะสมก่อนหน้า</span>
-                        <span className="font-medium">{fmt(prevTotal)} {evalTarget.target_unit}</span>
+                  return (
+                    <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-3 space-y-1">
+                      {prevTotal > 0 && (
+                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                          <span>ยอดสะสมก่อนหน้า</span>
+                          <span className="font-medium">{fmt(prevTotal)} {evalTarget.target_unit}</span>
+                        </div>
+                      )}
+                      {prevTotal > 0 && (
+                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                          <span>ยอดรวม (เดิม + ครั้งนี้)</span>
+                          <span className="font-semibold text-foreground">{fmt(grandTotal)} {evalTarget.target_unit}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">{t.kpi.evaluate.diffLabel}</span>
+                        <span className={`font-semibold ${colorClass}`}>
+                          {isPositive ? '+' : ''}{fmt(diff)} {evalTarget.target_unit}
+                        </span>
                       </div>
-                    )}
-                    {prevTotal > 0 && (
-                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                        <span>ยอดรวม (เดิม + ครั้งนี้)</span>
-                        <span className="font-semibold text-foreground">{fmt(grandTotal)} {evalTarget.target_unit}</span>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">{t.kpi.evaluate.achievementLabel}</span>
+                        <span className={`font-bold text-base ${colorClass}`}>
+                          <span className="text-lg mr-1">{emoji}</span>
+                          {pct.toFixed(1)}%
+                        </span>
                       </div>
-                    )}
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">{t.kpi.evaluate.diffLabel}</span>
-                      <span className={`font-semibold ${colorClass}`}>
-                        {isPositive ? '+' : ''}{fmt(diff)} {evalTarget.target_unit}
-                      </span>
+                      <KpiProgressBar value={pct} />
                     </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">{t.kpi.evaluate.achievementLabel}</span>
-                      <span className={`font-bold text-base ${colorClass}`}>
-                        <span className="text-lg mr-1">{emoji}</span>
-                        {pct.toFixed(1)}%
-                      </span>
-                    </div>
-                    <KpiProgressBar value={pct} />
-                  </div>
-                )
-              })()}
+                  )
+                })()}
 
-              {/* Score คำนวณอัตโนมัติจาก achievement % */}
-              <div className="rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 px-3 py-2">
-                <p className="text-xs text-muted-foreground">
-                  💡 คะแนนจะคำนวณอัตโนมัติจาก ค่าจริง ÷ เป้าหมาย
-                </p>
-              </div>
+                {/* Score คำนวณอัตโนมัติจาก achievement % */}
+                <div className="rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    💡 คะแนนจะคำนวณอัตโนมัติจาก ค่าจริง ÷ เป้าหมาย
+                  </p>
+                </div>
 
-              <div>
-                <label className="text-sm font-medium">{t.kpi.evaluate.dateLabel}</label>
-                <Input name="evaluation_date" type="date" required defaultValue={new Date().toISOString().split('T')[0]} />
-              </div>
+                <div>
+                  <label className="text-sm font-medium">{t.kpi.evaluate.dateLabel}</label>
+                  <Input name="evaluation_date" type="date" required defaultValue={new Date().toISOString().split('T')[0]} />
+                </div>
 
-              <div>
-                <label className="text-sm font-medium">{t.kpi.evaluate.periodLabel}</label>
-                <Input name="period_label" placeholder={t.kpi.evaluate.periodPlaceholder} />
-              </div>
+                <div>
+                  <label className="text-sm font-medium">{t.kpi.evaluate.periodLabel}</label>
+                  <Input name="period_label" placeholder={t.kpi.evaluate.periodPlaceholder} />
+                </div>
 
-              <div>
-                <label className="text-sm font-medium">{t.kpi.evaluate.commentLabel}</label>
-                <Textarea name="comment" placeholder={t.kpi.evaluate.commentPlaceholder} rows={2} />
-              </div>
+                <div>
+                  <label className="text-sm font-medium">{t.kpi.evaluate.commentLabel}</label>
+                  <Textarea name="comment" placeholder={t.kpi.evaluate.commentPlaceholder} rows={2} />
+                </div>
 
-              {error && <p className="text-sm text-red-500">{error}</p>}
+                {error && <p className="text-sm text-red-500">{error}</p>}
 
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setEvalTarget(null)}>{t.kpi.common.cancel}</Button>
-                <Button type="submit" disabled={loading}>
-                  {loading ? t.kpi.common.saving : t.kpi.evaluate.submitBtn}
-                </Button>
-              </div>
-            </form>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setEvalTarget(null)}>{t.kpi.common.cancel}</Button>
+                  <Button type="submit" disabled={loading}>
+                    {loading ? t.kpi.common.saving : t.kpi.evaluate.submitBtn}
+                  </Button>
+                </div>
+              </form>
             )
           })()}
         </DialogContent>

@@ -109,13 +109,16 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
     return assignments.filter(a => a.period_start && getMonthKey(a.period_start) === selectedMonth)
   }, [assignments, selectedMonth])
 
-  // Build a map: assignment_id → latest evaluation
-  const latestEvalMap = useMemo(() => {
-    const map = new Map<string, Evaluation>()
+  // Build a map: assignment_id → cumulative eval data (sum of all actual values)
+  const evalSumMap = useMemo(() => {
+    const map = new Map<string, { totalActual: number; evalCount: number; latestScore: number | null; latestAchPct: number | null }>()
     for (const ev of evaluations) {
       if (!map.has(ev.assignment_id)) {
-        map.set(ev.assignment_id, ev)
+        map.set(ev.assignment_id, { totalActual: 0, evalCount: 0, latestScore: ev.score, latestAchPct: ev.achievement_pct })
       }
+      const entry = map.get(ev.assignment_id)!
+      entry.totalActual += ev.actual_value || 0
+      entry.evalCount += 1
     }
     return map
   }, [evaluations])
@@ -153,9 +156,11 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
         const w = (a as any).weight ?? 100
         totalWeight += w
 
-        const ev = latestEvalMap.get(a.id)
-        if (ev?.achievement_pct != null) {
-          weightedSum += ev.achievement_pct * w
+        const evSum = evalSumMap.get(a.id)
+        if (evSum && evSum.evalCount > 0) {
+          const target = a.target ?? 0
+          const achPct = target > 0 ? (evSum.totalActual / target) * 100 : 0
+          weightedSum += achPct * w
           hasAnyEval = true
         }
       }
@@ -167,7 +172,7 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
     }
 
     return Array.from(groupMap.values()).sort((a, b) => a.fullName.localeCompare(b.fullName))
-  }, [filteredAssignments, latestEvalMap])
+  }, [filteredAssignments, evalSumMap])
 
   // Auto-select first user when groups load
   const selectedGroup = useMemo(() => {
@@ -179,14 +184,14 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
   const summaryStats = useMemo(() => {
     const totalEmployees = personGroups.length
     const totalKPIs = filteredAssignments.length
-    const evaluatedKPIs = filteredAssignments.filter(a => latestEvalMap.has(a.id)).length
+    const evaluatedKPIs = filteredAssignments.filter(a => evalSumMap.has(a.id)).length
     const avgCompletion = totalKPIs > 0 ? (evaluatedKPIs / totalKPIs) * 100 : 0
     return { totalEmployees, totalKPIs, evaluatedKPIs, avgCompletion }
-  }, [personGroups, filteredAssignments, latestEvalMap])
+  }, [personGroups, filteredAssignments, evalSumMap])
 
   function getPersonStats(group: PersonGroup) {
     const totalKPIs = group.assignments.length
-    const evaluatedKPIs = group.assignments.filter(a => latestEvalMap.has(a.id)).length
+    const evaluatedKPIs = group.assignments.filter(a => evalSumMap.has(a.id)).length
     const totalWeight = group.totalWeight
     const weightOk = totalWeight === 100
     return { totalKPIs, evaluatedKPIs, totalWeight, weightOk, weightedScore: group.weightedScore }
@@ -255,55 +260,55 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
       </div>
 
       {/* ─── Summary Cards ─── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card>
-          <CardContent className="p-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                <Users className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                <Users className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">พนักงาน</p>
-                <p className="text-xl font-bold">{summaryStats.totalEmployees}</p>
+                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">พนักงาน</p>
+                <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{summaryStats.totalEmployees}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
+        <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                <Target className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                <Target className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">KPIs ทั้งหมด</p>
-                <p className="text-xl font-bold">{summaryStats.totalKPIs}</p>
+                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">KPIs ทั้งหมด</p>
+                <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{summaryStats.totalKPIs}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
+        <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                <TrendingUp className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                <TrendingUp className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">ประเมินแล้ว</p>
-                <p className="text-xl font-bold">{summaryStats.evaluatedKPIs}<span className="text-sm font-normal text-muted-foreground">/{summaryStats.totalKPIs}</span></p>
+                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">ประเมินแล้ว</p>
+                <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{summaryStats.evaluatedKPIs}<span className="text-sm font-normal text-zinc-400">/{summaryStats.totalKPIs}</span></p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
+        <Card className="group border-0 shadow-sm hover:shadow-md transition-all duration-300 bg-white dark:bg-zinc-900">
+          <CardContent className="p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-zinc-100 dark:bg-zinc-800 p-2.5">
-                <ClipboardCheck className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 p-2.5 group-hover:scale-110 transition-transform duration-300">
+                <ClipboardCheck className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">ความคืบหน้า</p>
-                <p className="text-xl font-bold">{summaryStats.avgCompletion.toFixed(0)}%</p>
+                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">ความคืบหน้า</p>
+                <p className={`text-2xl font-bold ${summaryStats.avgCompletion >= 100 ? 'text-green-600 dark:text-green-400' : summaryStats.avgCompletion >= 50 ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400'}`}>{summaryStats.avgCompletion.toFixed(0)}%</p>
               </div>
             </div>
           </CardContent>
@@ -321,9 +326,12 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* ─── LEFT: Employee List ─── */}
           <div className="lg:col-span-4 xl:col-span-3">
-            <Card className="sticky top-4">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">รายชื่อพนักงาน</CardTitle>
+            <Card className="sticky top-4 border-0 shadow-sm">
+              <CardHeader className="pb-3 border-b border-zinc-100 dark:border-zinc-800">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  รายชื่อพนักงาน
+                </CardTitle>
                 <CardDescription className="text-xs">{personGroups.length} คน</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -337,28 +345,29 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
                         key={group.userId}
                         type="button"
                         onClick={() => setSelectedUserId(group.userId)}
-                        className={`w-full text-left px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900 ${
-                          isSelected ? 'bg-zinc-100 dark:bg-zinc-800/80 border-l-2 border-l-zinc-800 dark:border-l-zinc-300' : ''
-                        }`}
+                        className={`w-full text-left px-4 py-3.5 border-b border-zinc-100 dark:border-zinc-800 transition-all duration-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${isSelected ? 'bg-gradient-to-r from-zinc-100 to-transparent dark:from-zinc-800/80 dark:to-transparent border-l-[3px] border-l-zinc-900 dark:border-l-zinc-100' : 'border-l-[3px] border-l-transparent'
+                          }`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="shrink-0 w-9 h-9 rounded-full bg-zinc-800 dark:bg-zinc-200 flex items-center justify-center text-white dark:text-zinc-800 text-xs font-bold">
+                          <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-sm transition-all duration-200 ${isSelected
+                            ? 'bg-gradient-to-br from-zinc-800 to-zinc-600 dark:from-zinc-100 dark:to-zinc-300 text-white dark:text-zinc-800 scale-105 ring-2 ring-zinc-400/30'
+                            : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300'
+                            }`}>
                             {group.fullName.charAt(0)}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-sm truncate">{group.fullName}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                            <div className={`font-medium text-sm truncate transition-colors ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`}>{group.fullName}</div>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 rounded-full">
                                 {stats.totalKPIs} KPIs
                               </Badge>
-                              {!stats.weightOk && (
-                                <span className="text-[10px] text-muted-foreground">
-                                  ⚖ {stats.totalWeight}%
-                                </span>
-                              )}
-                              {stats.weightOk && (
-                                <span className="text-[10px] text-muted-foreground">
+                              {stats.weightOk ? (
+                                <span className="text-[10px] text-green-600 dark:text-green-400 font-medium">
                                   ⚖ 100% ✓
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">
+                                  ⚖ {stats.totalWeight}%
                                 </span>
                               )}
                             </div>
@@ -377,33 +386,34 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
             {selectedGroup ? (
               <>
                 {/* Person Summary Card */}
-                <Card>
-                  <CardContent className="p-5">
+                <Card className="border-0 shadow-sm overflow-hidden">
+                  <div className="h-1 bg-gradient-to-r from-zinc-800 via-zinc-600 to-zinc-400 dark:from-zinc-200 dark:via-zinc-400 dark:to-zinc-600" />
+                  <CardContent className="p-6">
                     <div className="flex items-center justify-between flex-wrap gap-4">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-full bg-zinc-800 dark:bg-zinc-200 flex items-center justify-center text-white dark:text-zinc-800 text-lg font-bold shadow-md">
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-zinc-800 to-zinc-600 dark:from-zinc-100 dark:to-zinc-300 flex items-center justify-center text-white dark:text-zinc-800 text-xl font-bold shadow-lg ring-2 ring-zinc-300/20 dark:ring-zinc-600/20">
                           {selectedGroup.fullName.charAt(0)}
                         </div>
                         <div>
-                          <h3 className="text-lg font-semibold">{selectedGroup.fullName}</h3>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <h3 className="text-xl font-bold tracking-tight">{selectedGroup.fullName}</h3>
+                          <div className="flex items-center gap-2 mt-1.5">
                             {selectedGroup.department && (
-                              <Badge variant="outline" className="text-[10px]">{selectedGroup.department}</Badge>
+                              <Badge variant="outline" className="text-[10px] rounded-full border-zinc-300 dark:border-zinc-600">{selectedGroup.department}</Badge>
                             )}
                             {(() => {
                               const stats = getPersonStats(selectedGroup)
                               return (
                                 <>
-                                  <Badge variant="secondary" className="text-[10px]">
+                                  <Badge variant="secondary" className="text-[10px] rounded-full">
                                     {stats.totalKPIs} KPIs
                                   </Badge>
-                                  <Badge variant={stats.weightOk ? 'default' : 'secondary'} className="text-[10px] gap-0.5">
+                                  <Badge variant={stats.weightOk ? 'default' : 'secondary'} className={`text-[10px] gap-0.5 rounded-full ${stats.weightOk ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-100' : ''}`}>
                                     <Weight className="h-2.5 w-2.5" />
                                     น้ำหนักรวม {stats.totalWeight}%
                                     {stats.weightOk && ' ✓'}
                                   </Badge>
                                   {!stats.weightOk && (
-                                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                                    <span className="text-[10px] text-orange-600 dark:text-orange-400 flex items-center gap-0.5 font-medium">
                                       <AlertTriangle className="h-2.5 w-2.5" />
                                       {t.kpi.common.weightWarning}
                                     </span>
@@ -417,9 +427,12 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
                       {/* Weighted Score */}
                       {selectedGroup.weightedScore != null && (
                         <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <p className="text-xs text-muted-foreground">{t.kpi.common.weightedScore}</p>
-                            <p className="text-2xl font-bold text-foreground">
+                          <div className="text-right bg-zinc-50 dark:bg-zinc-800/50 rounded-2xl px-5 py-3">
+                            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">{t.kpi.common.weightedScore}</p>
+                            <p className={`text-3xl font-extrabold ${selectedGroup.weightedScore >= 70 ? 'text-green-600 dark:text-green-400'
+                              : selectedGroup.weightedScore >= 40 ? 'text-orange-600 dark:text-orange-400'
+                                : 'text-red-600 dark:text-red-400'
+                              }`}>
                               {selectedGroup.weightedScore}%
                             </p>
                           </div>
@@ -437,19 +450,23 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
                   const cycleInfo = KPI_CYCLES.find((c) => c.value === a.cycle)
                   const statusInfo = KPI_STATUSES.find((s) => s.value === a.status)
                   const weight = (a as any).weight ?? 100
-                  const ev = latestEvalMap.get(a.id)
-                  const achievementPct = ev?.achievement_pct ?? null
+                  const evSum = evalSumMap.get(a.id)
+                  const totalActual = evSum?.totalActual ?? 0
+                  const target = a.target ?? 0
+                  const achievementPct = evSum && evSum.evalCount > 0 && target > 0
+                    ? Math.round((totalActual / target) * 1000) / 10
+                    : null
 
                   const isPast = isMonthPast(a.period_start)
                   const isCurrent = isMonthCurrent(a.period_start)
-                  const hasEval = latestEvalMap.has(a.id)
+                  const hasEval = evalSumMap.has(a.id) && (evSum?.evalCount ?? 0) > 0
                   const monthLabel = getMonthLabel(a.period_start)
                   const canEdit = !isPast // Can edit current and future months
 
                   return (
-                    <Card key={a.id} className={`overflow-hidden ${isPast ? 'opacity-70' : ''}`}>
+                    <Card key={a.id} className={`overflow-hidden border-0 shadow-sm hover:shadow-md transition-all duration-300 ${isPast ? 'opacity-60' : ''}`}>
                       <CardContent className="p-0">
-                        <div className="p-5 space-y-4">
+                        <div className="p-5 space-y-4 border-l-[3px] border-l-zinc-300 dark:border-l-zinc-600">
                           {/* KPI Header Row */}
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1.5 min-w-0 flex-1">
@@ -470,34 +487,18 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
                                 </div>
 
                                 <h4 className="font-semibold text-sm">{templateName}</h4>
-                                {weight > 0 && (
-                                  editingWeight === a.id ? (
-                                    <div className="flex items-center gap-1">
-                                      <Input
-                                        type="number"
-                                        min={0}
-                                        max={100}
-                                        autoFocus
-                                        value={editWeightValue}
-                                        onChange={(e) => setEditWeightValue(e.target.value)}
-                                        onKeyDown={async (e) => {
-                                          if (e.key === 'Enter') {
-                                            e.preventDefault()
-                                            const val = Math.max(0, Math.min(100, Number(editWeightValue) || 0))
-                                            const res = await updateAssignmentWeight(a.id, val)
-                                            if (res?.error) {
-                                              setWeightError(res.error)
-                                            } else {
-                                              setEditingWeight(null)
-                                              setWeightError('')
-                                            }
-                                          }
-                                          if (e.key === 'Escape') {
-                                            setEditingWeight(null)
-                                            setWeightError('')
-                                          }
-                                        }}
-                                        onBlur={async () => {
+                                {editingWeight === a.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      autoFocus
+                                      value={editWeightValue}
+                                      onChange={(e) => setEditWeightValue(e.target.value)}
+                                      onKeyDown={async (e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault()
                                           const val = Math.max(0, Math.min(100, Number(editWeightValue) || 0))
                                           const res = await updateAssignmentWeight(a.id, val)
                                           if (res?.error) {
@@ -506,27 +507,42 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
                                             setEditingWeight(null)
                                             setWeightError('')
                                           }
-                                        }}
-                                        className="h-7 w-16 text-xs text-center"
-                                      />
-                                      <span className="text-xs text-muted-foreground">%</span>
-                                    </div>
-                                  ) : (
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[10px] font-semibold gap-0.5 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-                                      onDoubleClick={() => {
-                                        if (!canEdit) return
-                                        setEditingWeight(a.id)
-                                        setEditWeightValue(String(weight))
-                                        setWeightError('')
+                                        }
+                                        if (e.key === 'Escape') {
+                                          setEditingWeight(null)
+                                          setWeightError('')
+                                        }
                                       }}
-                                      title={canEdit ? 'ดับเบิลคลิกเพื่อแก้ไขน้ำหนัก' : 'เดือนที่ผ่านแล้ว ไม่สามารถแก้ไขได้'}
-                                    >
-                                      <Weight className="h-2.5 w-2.5" />
-                                      {weight}%
-                                    </Badge>
-                                  )
+                                      onBlur={async () => {
+                                        const val = Math.max(0, Math.min(100, Number(editWeightValue) || 0))
+                                        const res = await updateAssignmentWeight(a.id, val)
+                                        if (res?.error) {
+                                          setWeightError(res.error)
+                                        } else {
+                                          setEditingWeight(null)
+                                          setWeightError('')
+                                        }
+                                      }}
+                                      className="h-7 w-16 text-xs text-center"
+                                    />
+                                    <span className="text-xs text-muted-foreground">%</span>
+                                  </div>
+                                ) : (
+                                  <Badge
+                                    variant="secondary"
+                                    className={`text-[10px] font-semibold gap-0.5 transition-colors ${canEdit ? 'cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-700 group/weight' : 'opacity-70'}`}
+                                    onClick={() => {
+                                      if (!canEdit) return
+                                      setEditingWeight(a.id)
+                                      setEditWeightValue(String(weight))
+                                      setWeightError('')
+                                    }}
+                                    title={canEdit ? 'คลิกเพื่อแก้ไขน้ำหนัก' : 'เดือนที่ผ่านแล้ว ไม่สามารถแก้ไขได้'}
+                                  >
+                                    <Weight className="h-2.5 w-2.5" />
+                                    {weight}%
+                                    {canEdit && <Pencil className="h-2.5 w-2.5 ml-0.5 opacity-0 group-hover/weight:opacity-100 transition-opacity" />}
+                                  </Badge>
                                 )}
                                 {!a.template_id && (
                                   <Badge variant="outline" className="text-[10px]">Custom</Badge>
@@ -549,7 +565,7 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
                                   </Badge>
                                 )}
                                 {isCurrent && hasEval && (
-                                  <Badge variant="secondary" className="text-[10px] gap-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800">
+                                  <Badge variant="secondary" className="text-[10px] gap-0.5 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border-orange-200 dark:border-orange-800">
                                     ⚠ ประเมินแล้ว
                                   </Badge>
                                 )}
@@ -635,12 +651,12 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
                                     {fmt(a.target)} {a.target_unit}
                                   </span>
                                 )}
-                                {ev?.actual_value != null && editingTarget !== a.id && (
+                                {evSum && evSum.evalCount > 0 && editingTarget !== a.id && (
                                   <>
                                     <span className="text-muted-foreground text-xs mx-0.5">/</span>
                                     <span className="text-muted-foreground text-xs">{t.kpi.common.actual}:</span>
                                     <span className="font-semibold">
-                                      {fmt(ev.actual_value)}
+                                      {fmt(totalActual)}
                                     </span>
                                   </>
                                 )}
@@ -656,7 +672,14 @@ export default function AssignmentsView({ assignments, templates, profiles, eval
                             )}
                             <Progress
                               value={achievementPct != null ? Math.min(achievementPct, 100) : 0}
-                              className="h-2 [&>div]:bg-zinc-800 dark:[&>div]:bg-zinc-300"
+                              className={`h-2.5 rounded-full bg-zinc-100 dark:bg-zinc-800 ${achievementPct != null && achievementPct >= 125
+                                ? '[&>div]:bg-green-600 dark:[&>div]:bg-green-500'
+                                : achievementPct != null && achievementPct < 0
+                                  ? '[&>div]:bg-red-600 dark:[&>div]:bg-red-500'
+                                  : achievementPct != null && achievementPct <= 100
+                                    ? '[&>div]:bg-amber-500 dark:[&>div]:bg-amber-400'
+                                    : '[&>div]:bg-zinc-800 dark:[&>div]:bg-zinc-300'
+                                }`}
                             />
                             <div className="text-[11px] text-muted-foreground" />
                           </div>
