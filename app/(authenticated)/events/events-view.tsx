@@ -96,7 +96,7 @@ export default function EventsView({ events }: { events: Event[] }) {
               {/* Countdown Badge - Prominent */}
               <div className="flex items-center gap-2 mb-3">
                 <CalendarDays className="h-4 w-4 text-zinc-400 shrink-0" />
-                <EventStatusBadge status={event.status} date={event.event_date} />
+                <EventStatusBadge status={event.status || 'upcoming'} date={event.event_date} />
               </div>
               
               {/* Event Title */}

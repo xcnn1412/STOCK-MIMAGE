@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useLanguage } from '@/contexts/language-context'
 import { CalendarDays, MapPin, User, Package, ChevronDown, ChevronUp, Clock, ImageIcon } from "lucide-react"
-import type { EventClosure } from '@/types'
+import type { EventClosure, KitSnapshot } from '@/types'
 import { cleanupOldClosures } from './actions'
 import { useRouter } from 'next/navigation'
 import { useTransition } from 'react'
@@ -42,8 +42,10 @@ function StatusBadge({ status }: { status: string }) {
 
 function ClosureCard({ closure }: { closure: EventClosure }) {
     const [isExpanded, setIsExpanded] = useState(false)
-    const totalItems = closure.kits_snapshot?.reduce((sum, kit) => sum + kit.items.length, 0) || 0
-    const totalKits = closure.kits_snapshot?.length || 0
+    const kitsData = (closure.kits_snapshot || []) as unknown as KitSnapshot[]
+    const imageUrls = (closure.image_urls || []) as unknown as string[]
+    const totalItems = kitsData.reduce((sum: number, kit: KitSnapshot) => sum + kit.items.length, 0) || 0
+    const totalKits = kitsData.length || 0
 
     return (
         <Card className="overflow-hidden">
@@ -109,7 +111,7 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
 
                         {isExpanded && (
                             <div className="mt-4 space-y-4">
-                                {closure.kits_snapshot?.map((kit) => (
+                                {kitsData.map((kit) => (
                                     <div key={kit.kitId} className="border rounded-lg p-3 bg-muted/30">
                                         <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
                                             📦 {kit.kitName}
@@ -118,7 +120,7 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
                                             </Badge>
                                         </h4>
                                         <div className="space-y-2">
-                                            {kit.items.map((item, idx) => (
+                                            {kit.items.map((item: any, idx: number) => (
                                                 <div
                                                     key={item.itemId || idx}
                                                     className="flex items-center justify-between text-sm bg-white rounded p-2 border"
@@ -151,14 +153,14 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
                 )}
                 
                 {/* Closure Images */}
-                {closure.image_urls && closure.image_urls.length > 0 && (
+                {imageUrls.length > 0 && (
                     <div className="mt-4 pt-4 border-t">
                         <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
                              <ImageIcon className="h-4 w-4" />
-                             รูปภาพปิดงาน ({closure.image_urls.length})
+                             รูปภาพปิดงาน ({imageUrls.length})
                         </h4>
                         <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-                             {closure.image_urls.map((url, idx) => (
+                             {imageUrls.map((url: string, idx: number) => (
                                  <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="block aspect-square rounded-md overflow-hidden border bg-zinc-100 group relative">
                                      <img src={url} alt={`Closure image ${idx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                                  </a>

@@ -1,0 +1,37 @@
+﻿app/(authenticated)/event-closures/event-closures-view.tsx(45,47): error TS2339: Property 'reduce' does not exist on type 'string | number | boolean | { [key: string]: Json | undefined; } | Json[]'.
+app/(authenticated)/event-closures/event-closures-view.tsx(45,55): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+app/(authenticated)/event-closures/event-closures-view.tsx(45,60): error TS7006: Parameter 'kit' implicitly has an 'any' type.
+app/(authenticated)/event-closures/event-closures-view.tsx(46,46): error TS2339: Property 'length' does not exist on type 'string | number | boolean | { [key: string]: Json | undefined; } | Json[]'.
+app/(authenticated)/event-closures/event-closures-view.tsx(112,57): error TS2339: Property 'map' does not exist on type 'string | number | boolean | { [key: string]: Json | undefined; } | Json[]'.
+app/(authenticated)/event-closures/event-closures-view.tsx(112,62): error TS7006: Parameter 'kit' implicitly has an 'any' type.
+app/(authenticated)/event-closures/event-closures-view.tsx(121,61): error TS7006: Parameter 'item' implicitly has an 'any' type.
+app/(authenticated)/event-closures/event-closures-view.tsx(121,67): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+app/(authenticated)/event-closures/event-closures-view.tsx(154,59): error TS2339: Property 'length' does not exist on type 'string | number | true | { [key: string]: Json | undefined; } | Json[]'.
+app/(authenticated)/event-closures/event-closures-view.tsx(158,64): error TS2339: Property 'length' does not exist on type 'string | number | true | { [key: string]: Json | undefined; } | Json[]'.
+app/(authenticated)/event-closures/event-closures-view.tsx(161,50): error TS2339: Property 'map' does not exist on type 'string | number | true | { [key: string]: Json | undefined; } | Json[]'.
+app/(authenticated)/event-closures/event-closures-view.tsx(161,55): error TS7006: Parameter 'url' implicitly has an 'any' type.
+app/(authenticated)/event-closures/event-closures-view.tsx(161,60): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+app/(authenticated)/event-closures/page.tsx(26,28): error TS2322: Type '{ id: string; event_name: string; event_date: string | null; event_location: string | null; closed_by: string; closed_at: string; kits_snapshot: Json; notes: string | null; image_urls: Json; created_at: string; closer: { ...; }; }[]' is not assignable to type 'EventClosure[]'.
+app/(authenticated)/events/[id]/edit/page.tsx(36,34): error TS2322: Type '{ id: string; name: string; }[]' is not assignable to type 'Kit[]'.
+app/(authenticated)/events/events-view.tsx(99,35): error TS2322: Type 'string | null' is not assignable to type 'string'.
+app/(authenticated)/items/items-view.tsx(24,25): error TS2322: Type 'import("D:/imageautomat/stock/types/database.types").Item[]' is not assignable to type 'Item[]'.
+app/(authenticated)/items/page.tsx(25,16): error TS2322: Type '{ id: string; name: string; serial_number: string | null; description: string | null; status: string; image_url: string | null; category: string | null; quantity: number; price: number | null; created_at: string; kit_contents: { ...; }[]; }[]' is not assignable to type 'Item[]'.
+app/(authenticated)/kits/[id]/page.tsx(28,26): error TS2322: Type '{ id: string; name: string; description: string | null; event_id: string | null; created_at: string; events: { name: string; } | null; }' is not assignable to type '{ id: string; name: string; description: string | null; event_id: string | null; created_at: string; } & { event?: Event | null | undefined; events?: Event | null | undefined; kit_contents?: KitContent[] | undefined; } & { ...; }'.
+app/(authenticated)/kits/[id]/page.tsx(28,36): error TS2322: Type '{ id: string; items: { id: string; name: string; serial_number: string | null; description: string | null; status: string; image_url: string | null; category: string | null; quantity: number; price: number | null; created_at: string; }; }[]' is not assignable to type 'KitContentWithItem[]'.
+app/(authenticated)/kits/page.tsx(13,15): error TS2322: Type '{ id: string; name: string; description: string | null; event_id: string | null; created_at: string; kit_contents: { id: string; }[]; }[]' is not assignable to type 'Kit[]'.
+app/(authenticated)/kpi/dashboard/page.tsx(37,7): error TS2322: Type '{ id: string; assignment_id: string; score: number | null; actual_value: number | null; comment: string | null; evaluation_date: string; period_label: string | null; evaluated_by: string; created_at: string; kpi_assignments: { ...; }; }[]' is not assignable to type 'KpiEvaluation[]'.
+app/(authenticated)/logs/page.tsx(27,19): error TS2322: Type '{ id: string; action: string; action_type: string | null; details: Json; user_id: string | null; target_user_id: string | null; ip_address: string | null; user_agent: string | null; ... 6 more ...; target: SelectQueryError<...>; }[]' is not assignable to type 'ActivityLog[]'.
+app/(authenticated)/logs/page.tsx(27,37): error TS2322: Type 'PostgrestError | null' is not assignable to type 'string | null'.
+app/(authenticated)/stock/dashboard/dashboard-view.tsx(91,26): error TS2339: Property 'login_at' does not exist on type '{}'.
+app/(authenticated)/stock/dashboard/dashboard-view.tsx(91,50): error TS2339: Property 'login_at' does not exist on type '{}'.
+app/(authenticated)/stock/dashboard/dashboard-view.tsx(94,18): error TS2339: Property 'latitude' does not exist on type '{}'.
+app/(authenticated)/stock/dashboard/dashboard-view.tsx(94,34): error TS2339: Property 'longitude' does not exist on type '{}'.
+app/(authenticated)/stock/dashboard/dashboard-view.tsx(96,60): error TS2339: Property 'latitude' does not exist on type '{}'.
+app/(authenticated)/stock/dashboard/dashboard-view.tsx(96,76): error TS2339: Property 'longitude' does not exist on type '{}'.
+app/(authenticated)/stock/dashboard/page.tsx(23,52): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+app/(authenticated)/stock/dashboard/page.tsx(24,59): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+app/(authenticated)/stock/dashboard/page.tsx(40,9): error TS2322: Type '{ id: string; user_id: string; active_session_id: string | null; latitude: number | null; longitude: number | null; selfie_url: string | null; login_at: string | null; created_at: string; } | null' is not assignable to type 'ActivityLog | null'.
+app/(authenticated)/stock/dashboard/page.tsx(42,9): error TS2322: Type '{ price: number | null; status: string; }[]' is not assignable to type 'Item[]'.
+app/(authenticated)/stock/dashboard/page.tsx(44,9): error TS2322: Type '{ id: string; name: string; description: string | null; event_id: string | null; created_at: string; events: { id: string; name: string; event_date: string; location: string | null; } | null; }[]' is not assignable to type 'Kit[]'.
+app/(authenticated)/stock/dashboard/page.tsx(47,9): error TS2322: Type '{ id: string; name: string; description: string | null; type: string | null; created_at: string; kit_template_contents: { count: number; }[]; }[]' is not assignable to type 'KitTemplate[]'.
+app/(authenticated)/users/users-view.tsx(26,33): error TS2322: Type 'Profile[]' is not assignable to type 'UserWithLogin[]'.

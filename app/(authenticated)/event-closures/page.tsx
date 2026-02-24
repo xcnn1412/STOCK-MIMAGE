@@ -3,6 +3,8 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import EventClosuresView from './event-closures-view'
 
+import type { EventClosure } from '@/types'
+
 export const revalidate = 0
 
 export default async function EventClosuresPage() {
@@ -23,6 +25,6 @@ export default async function EventClosuresPage() {
         .order('closed_at', { ascending: false })
 
     return (
-        <EventClosuresView closures={closures || []} error={error ? error.message : null} />
+        <EventClosuresView closures={(closures || []) as unknown as EventClosure[]} error={error ? error.message : null} />
     )
 }

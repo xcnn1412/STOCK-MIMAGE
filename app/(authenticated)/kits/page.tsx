@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import KitsView from './kits-view'
 
+import type { Kit } from '@/types'
+
 export const revalidate = 0
 
 export default async function KitsPage() {
@@ -10,6 +12,6 @@ export default async function KitsPage() {
     .order('name')
 
   return (
-    <KitsView kits={kits || []} />
+    <KitsView kits={(kits || []) as Kit[]} />
   )
 }

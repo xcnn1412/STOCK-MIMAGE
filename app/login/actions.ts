@@ -174,7 +174,7 @@ export async function registerUser(prevState: ActionState, formData: FormData) {
         await logActivity('REGISTER', { name, phone }, undefined, newUser.id)
     }
 
-    return { error: '', success: 'Registration successful! Please wait for admin approval before logging in.' }
+    return { error: '', success: true, message: 'Registration successful! Please wait for admin approval before logging in.' }
 }
 
 export async function logout() {

@@ -24,6 +24,6 @@ export default async function ActivityLogsPage() {
         .limit(100)
     
     return (
-        <LogsView logs={logs || []} error={error} />
+        <LogsView logs={(logs || []) as any} error={error ? error.message : null} />
     )
 }

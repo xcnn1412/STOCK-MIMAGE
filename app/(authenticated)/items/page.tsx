@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import ItemsView from './items-view'
 
+import type { Item } from '@/types'
+
 export const revalidate = 3600 
 
 export default async function ItemsPage() {
@@ -22,6 +24,6 @@ export default async function ItemsPage() {
     .order('name')
 
   return (
-    <ItemsView items={items || []} />
+    <ItemsView items={(items || []) as Item[]} />
   )
 }

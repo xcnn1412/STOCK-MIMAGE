@@ -28,18 +28,7 @@ import {
     AlertDialogTrigger,
   } from "@/components/ui/alert-dialog"
 import { useLanguage } from '@/contexts/language-context'
-
-type Item = {
-    id: string
-    name: string
-    category: string
-    quantity: number | null
-    serial_number: string | null
-    status: string
-    price: number | null
-    image_url: string | null
-    kit_contents: any[]
-}
+import type { Item } from '@/types'
 
 export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   const { t } = useLanguage()

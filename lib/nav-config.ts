@@ -1,4 +1,4 @@
-import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard } from 'lucide-react'
+import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3 } from 'lucide-react'
 
 export type ModuleKey = 'stock' | 'kpi' | 'costs' | 'admin'
 
@@ -34,7 +34,11 @@ export const NAV_GROUPS: NavGroup[] = [
     key: 'kpi',
     icon: Target,
     items: [
-      { href: '/kpi', icon: Target, labelKey: 'kpi' },
+      { href: '/kpi/dashboard', icon: LayoutDashboard, labelKey: 'kpiDashboard' },
+      { href: '/kpi/templates', icon: FileText, labelKey: 'kpiTemplates' },
+      { href: '/kpi/assignments', icon: UserCheck, labelKey: 'kpiAssignments' },
+      { href: '/kpi/evaluate', icon: ClipboardCheck, labelKey: 'kpiEvaluate' },
+      { href: '/kpi/reports', icon: BarChart3, labelKey: 'kpiReports' },
     ],
   },
   {

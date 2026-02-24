@@ -41,7 +41,7 @@ export default function DashboardView({
   const itemsLost = items?.filter(i => i.status === 'lost').length || 0
   const activeKitsCount = activeKitsWithDetails?.length || 0
 
-  const log = latestLog || {}
+  const log: Record<string, any> = (latestLog || {}) as Record<string, any>
 
   const StatCard = ({ title, value, subtext, icon: Icon, colorClass }: any) => (
     <Card className="border-zinc-200 dark:border-zinc-800">
