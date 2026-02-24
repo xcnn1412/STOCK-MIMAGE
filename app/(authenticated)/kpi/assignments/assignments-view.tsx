@@ -11,6 +11,8 @@ import { createAssignment, deleteAssignment } from '../actions'
 import { KPI_MODES, KPI_CYCLES, KPI_STATUSES } from '../types'
 import type { KpiAssignment, KpiTemplate, Profile } from '@/types/database.types'
 
+const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString()
+
 const cycleBadge: Record<string, string> = {
   weekly: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
   monthly: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200',
@@ -103,7 +105,7 @@ export default function AssignmentsView({ assignments, templates, profiles }: As
                   {/* Target */}
                   <div className="text-sm">
                     <span className="text-muted-foreground">เป้าหมาย: </span>
-                    <span className="font-semibold">{a.target} {a.target_unit}</span>
+                    <span className="font-semibold">{fmt(a.target)} {a.target_unit}</span>
                   </div>
 
                   {/* Period */}

@@ -1,9 +1,18 @@
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import AssignmentsView from './assignments-view'
 
 export const revalidate = 0
 
 export default async function AssignmentsPage() {
+  // Admin only — Staff ไม่สามารถจัดการ Assignments ได้
+  const cookieStore = await cookies()
+  const role = cookieStore.get('session_role')?.value
+  if (role !== 'admin') {
+    redirect('/kpi/dashboard')
+  }
+
   // ดึงข้อมูลพร้อมกัน: assignments + templates + profiles
   const [
     { data: assignments },

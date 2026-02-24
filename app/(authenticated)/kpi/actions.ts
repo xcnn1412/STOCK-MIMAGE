@@ -27,8 +27,8 @@ async function getSession() {
 // ============================================================================
 
 export async function createTemplate(formData: FormData) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Template ได้' }
 
   const supabase = createServerSupabase()
 
@@ -61,8 +61,8 @@ export async function createTemplate(formData: FormData) {
 }
 
 export async function updateTemplate(id: string, formData: FormData) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Template ได้' }
 
   const supabase = createServerSupabase()
 
@@ -90,8 +90,8 @@ export async function updateTemplate(id: string, formData: FormData) {
 }
 
 export async function deleteTemplate(id: string) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Template ได้' }
 
   const supabase = createServerSupabase()
 
@@ -112,8 +112,8 @@ export async function deleteTemplate(id: string) {
 // ============================================================================
 
 export async function createAssignment(formData: FormData) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถมอบหมาย KPI ได้' }
 
   const supabase = createServerSupabase()
 
@@ -164,8 +164,8 @@ export async function createAssignment(formData: FormData) {
 }
 
 export async function updateAssignment(id: string, data: Record<string, unknown>) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Assignment ได้' }
 
   const supabase = createServerSupabase()
 
@@ -182,8 +182,8 @@ export async function updateAssignment(id: string, data: Record<string, unknown>
 }
 
 export async function deleteAssignment(id: string) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Assignment ได้' }
 
   const supabase = createServerSupabase()
 
@@ -216,10 +216,27 @@ export async function submitEvaluation(formData: FormData) {
   const evaluation_date = formData.get('evaluation_date') as string
   const period_label = formData.get('period_label') as string
 
+  // Fetch target from assignment to calculate difference & achievement %
+  let difference: number | null = null
+  let achievement_pct: number | null = null
+
+  const { data: assignment } = await supabase
+    .from('kpi_assignments')
+    .select('target')
+    .eq('id', assignment_id)
+    .single()
+
+  if (assignment?.target && assignment.target !== 0) {
+    difference = actual_value - assignment.target
+    achievement_pct = Math.round((actual_value / assignment.target) * 1000) / 10 // 1 decimal
+  }
+
   const { error } = await supabase.from('kpi_evaluations').insert({
     assignment_id,
     score,
     actual_value,
+    difference,
+    achievement_pct,
     comment,
     evaluation_date,
     period_label,
@@ -231,9 +248,10 @@ export async function submitEvaluation(formData: FormData) {
     return { error: 'บันทึกผลประเมินไม่สำเร็จ' }
   }
 
-  await logActivity('SUBMIT_KPI_EVALUATION', { assignment_id, score })
+  await logActivity('SUBMIT_KPI_EVALUATION', { assignment_id, score, actual_value, difference, achievement_pct })
   revalidatePath('/kpi/evaluate')
   revalidatePath('/kpi/reports')
+  revalidatePath('/kpi/dashboard')
   return { success: true }
 }
 
@@ -253,5 +271,26 @@ export async function updateEvaluation(id: string, data: Record<string, unknown>
   await logActivity('UPDATE_KPI_EVALUATION', { id, ...data })
   revalidatePath('/kpi/evaluate')
   revalidatePath('/kpi/reports')
+  revalidatePath('/kpi/dashboard')
+  return { success: true }
+}
+
+export async function deleteEvaluation(id: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServerSupabase()
+
+  const { error } = await supabase.from('kpi_evaluations').delete().eq('id', id)
+
+  if (error) {
+    console.error(error)
+    return { error: 'ลบผลประเมินไม่สำเร็จ' }
+  }
+
+  await logActivity('DELETE_KPI_EVALUATION', { id })
+  revalidatePath('/kpi/evaluate')
+  revalidatePath('/kpi/reports')
+  revalidatePath('/kpi/dashboard')
   return { success: true }
 }

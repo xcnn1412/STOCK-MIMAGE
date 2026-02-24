@@ -52,6 +52,7 @@ export type ActionType =
     | 'DELETE_KPI_ASSIGNMENT'
     | 'SUBMIT_KPI_EVALUATION'
     | 'UPDATE_KPI_EVALUATION'
+    | 'DELETE_KPI_EVALUATION'
 
 export async function logActivity(
     action: ActionType,

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, UserCheck, ClipboardCheck, BarChart3 } from 'lucide-react'
+import { LayoutDashboard, FileText, UserCheck, ClipboardCheck, BarChart3, Download } from 'lucide-react'
 
 const tabs = [
   { href: '/kpi/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -10,6 +10,7 @@ const tabs = [
   { href: '/kpi/assignments', label: 'Assignments', icon: UserCheck },
   { href: '/kpi/evaluate', label: 'Evaluate', icon: ClipboardCheck },
   { href: '/kpi/reports', label: 'Reports', icon: BarChart3 },
+  { href: '/kpi/download', label: 'Download', icon: Download },
 ]
 
 export default function KpiLayout({ children }: { children: React.ReactNode }) {
