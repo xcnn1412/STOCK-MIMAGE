@@ -11,6 +11,14 @@ export const dictionary = {
       users: 'Users',
       dashboard: 'Dashboard',
       eventClosures: 'Event Closures',
+      kpi: 'KPI',
+      costs: 'Costs',
+    },
+    navGroups: {
+      stock: 'Stock',
+      kpi: 'KPI',
+      costs: 'Costs',
+      admin: 'Admin',
     },
     common: {
       welcome: 'Welcome back',
@@ -166,6 +174,7 @@ export const dictionary = {
     users: {
       title: 'Users',
       addUser: 'Add User',
+      modules: 'Module Access',
       columns: {
         lastLogin: 'Last Login',
         role: 'Role',
@@ -226,6 +235,14 @@ export const dictionary = {
       users: 'ผู้ใช้งาน',
       dashboard: 'แดชบอร์ด',
       eventClosures: 'ประวัติปิดงาน',
+      kpi: 'ประเมิน KPI',
+      costs: 'ต้นทุน',
+    },
+    navGroups: {
+      stock: 'คลังอุปกรณ์',
+      kpi: 'ประเมิน KPI',
+      costs: 'ต้นทุน',
+      admin: 'ผู้ดูแล',
     },
     common: {
       welcome: 'ยินดีต้อนรับ',
@@ -381,6 +398,7 @@ export const dictionary = {
     users: {
       title: 'ผู้ใช้งาน',
       addUser: 'เพิ่มผู้ใช้',
+      modules: 'สิทธิ์การเข้าถึงโมดูล',
       columns: {
         lastLogin: 'ใช้งานล่าสุด',
         role: 'สิทธิ์',

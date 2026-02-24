@@ -40,6 +40,7 @@ export default async function UserManagementPage() {
 
             return {
                 ...user,
+                allowed_modules: ((user as Record<string, unknown>).allowed_modules as string[] | null) || ['stock'],
                 last_login_at: latestLogin?.login_at || null,
                 last_login_selfie_url: selfiePublicUrl
             }

@@ -1,14 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { toggleUserApproval, updateUserRole, deleteUser } from './actions'
+import { toggleUserApproval, updateUserRole, deleteUser, updateUserModules } from './actions'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Check, X, Shield, User, Trash2, Camera, Clock } from "lucide-react"
+import { Check, X, Shield, User, Trash2, Camera, Clock, Settings2 } from "lucide-react"
 import { toast } from "sonner"
 import { useLanguage } from '@/contexts/language-context'
+import { ALL_MODULES, type ModuleKey } from '@/lib/nav-config'
+import { Checkbox } from "@/components/ui/checkbox"
 import {
     Dialog,
     DialogContent,
@@ -22,6 +24,7 @@ interface UserWithLogin {
     phone: string
     role: string
     is_approved: boolean
+    allowed_modules: string[]
     last_login_at: string | null
     last_login_selfie_url: string | null
 }
@@ -30,6 +33,7 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
     const { t } = useLanguage()
     const [loadingId, setLoadingId] = useState<string | null>(null)
     const [selectedImage, setSelectedImage] = useState<{ url: string; name: string; time: string } | null>(null)
+    const [editingModules, setEditingModules] = useState<{ userId: string; modules: string[] } | null>(null)
 
     const handleToggle = async (id: string, status: boolean) => {
         setLoadingId(id)
@@ -57,6 +61,22 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
         setLoadingId(null)
     }
 
+    const handleModuleToggle = async (userId: string, moduleKey: string, currentModules: string[]) => {
+        const newModules = currentModules.includes(moduleKey)
+            ? currentModules.filter(m => m !== moduleKey)
+            : [...currentModules, moduleKey]
+        
+        setLoadingId(userId)
+        const res = await updateUserModules(userId, newModules)
+        if (res?.error) toast.error(res.error)
+        else toast.success(t.common.save)
+        setLoadingId(null)
+    }
+
+    const getGroupLabel = (key: string): string => {
+        return (t.navGroups as Record<string, string>)?.[key] ?? key
+    }
+
     const formatLoginTime = (dateString: string | null) => {
         if (!dateString) return null
         const date = new Date(dateString)
@@ -68,6 +88,26 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
             minute: '2-digit'
         })
     }
+
+    const ModuleCheckboxes = ({ user }: { user: UserWithLogin }) => (
+        <div className="flex flex-wrap gap-2">
+            {ALL_MODULES.map((moduleKey) => (
+                <label
+                    key={moduleKey}
+                    className="flex items-center gap-1.5 cursor-pointer text-sm"
+                >
+                    <Checkbox
+                        checked={user.allowed_modules.includes(moduleKey)}
+                        onCheckedChange={() => handleModuleToggle(user.id, moduleKey, user.allowed_modules)}
+                        disabled={loadingId === user.id}
+                    />
+                    <span className={user.allowed_modules.includes(moduleKey) ? 'font-medium' : 'text-muted-foreground'}>
+                        {getGroupLabel(moduleKey)}
+                    </span>
+                </label>
+            ))}
+        </div>
+    )
 
     return (
         <>
@@ -106,6 +146,7 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                             <TableHead>{t.users.columns.phone}</TableHead>
                             <TableHead>{t.users.columns.role}</TableHead>
                             <TableHead>{t.users.columns.status}</TableHead>
+                            <TableHead>{(t.users as Record<string, unknown>).modules as string}</TableHead>
                             <TableHead>Login ล่าสุด</TableHead>
                             <TableHead className="text-right">{t.users.columns.actions}</TableHead>
                         </TableRow>
@@ -151,6 +192,9 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                     ) : (
                                         <Badge variant="outline" className="text-amber-600 bg-amber-50 border-amber-200">Pending</Badge>
                                     )}
+                                </TableCell>
+                                <TableCell>
+                                    <ModuleCheckboxes user={user} />
                                 </TableCell>
                                 <TableCell>
                                     {user.last_login_at ? (
@@ -262,6 +306,15 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                             )}
                         </div>
 
+                        {/* Module Permissions */}
+                        <div className="space-y-2 pt-2 border-t">
+                            <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                                <Settings2 className="h-3.5 w-3.5" />
+                                <span>{(t.users as Record<string, unknown>).modules as string}</span>
+                            </div>
+                            <ModuleCheckboxes user={user} />
+                        </div>
+
                         <div className="flex items-center justify-end gap-2 pt-2 border-t">
                             <Button 
                                 variant="outline" 
@@ -297,4 +350,3 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
         </>
     )
 }
-

@@ -2,15 +2,36 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-export async function middleware(request: NextRequest) {
+// Module-route mapping (inlined to avoid importing components in edge runtime)
+const MODULE_ROUTES: Record<string, string[]> = {
+  stock: ['/stock/dashboard', '/items', '/kits', '/events', '/event-closures', '/example-kits'],
+  kpi: ['/kpi'],
+  costs: ['/costs'],
+  admin: ['/logs', '/users'],
+}
+
+function getModuleForPath(pathname: string): { moduleKey: string; adminOnly: boolean } | null {
+  for (const [key, routes] of Object.entries(MODULE_ROUTES)) {
+    for (const route of routes) {
+      if (pathname === route || pathname.startsWith(route + '/')) {
+        return { moduleKey: key, adminOnly: key === 'admin' }
+      }
+    }
+  }
+  return null
+}
+
+export async function proxy(request: NextRequest) {
   const userId = request.cookies.get('session_user_id')?.value
   const sessionId = request.cookies.get('session_id')?.value
+  const role = request.cookies.get('session_role')?.value
   const { pathname } = request.nextUrl
 
   // Define public paths
   const isPublicPath = pathname === '/login' || pathname === '/register'
 
   let isValidSession = false
+  let allowedModules: string[] = ['stock']
 
   // Verify session if cookie exists
   if (userId) {
@@ -24,32 +45,35 @@ export async function middleware(request: NextRequest) {
           // Check if user exists, is approved, AND has matching session ID
           const { data } = await supabase
             .from('profiles')
-            .select('id, is_approved, active_session_id')
+            .select('id, is_approved, active_session_id, allowed_modules, role')
             .eq('id', userId)
             .single()
           
           // Verify approval AND session match
-          // If active_session_id is null in DB (legacy/logged out), we treat as invalid if we want strict mode.
-          // But for migration safety: if DB has ID, it MUST match.
           if (data && data.is_approved) {
               if (data.active_session_id && data.active_session_id !== sessionId) {
                   isValidSession = false // Session mismatch (logged in elsewhere)
               } else {
                   isValidSession = true
+                  // Get allowed modules
+                  if (data.allowed_modules && Array.isArray(data.allowed_modules)) {
+                      allowedModules = data.allowed_modules
+                  }
+                  // Admin always gets admin module
+                  if (data.role === 'admin' && !allowedModules.includes('admin')) {
+                      allowedModules = [...allowedModules, 'admin']
+                  }
               }
           }
       } catch (e) {
-          // If connection fails, we might default to blocking or allowing?
-          // Security first: block if we can't verify.
-          console.error("Middleware Auth Verification Failed", e)
+          console.error("Proxy Auth Verification Failed", e)
       }
   }
 
-  // 1. If not valid session (missing or fake/revoked) AND protected route
+  // 1. If not valid session AND protected route -> redirect to login
   if (!isValidSession && !isPublicPath) {
     const response = NextResponse.redirect(new URL('/login', request.url))
     
-    // If they had a cookie but it was invalid, clear it
     if (userId) {
         response.cookies.delete('session_user_id')
         response.cookies.delete('session_role')
@@ -63,6 +87,24 @@ export async function middleware(request: NextRequest) {
   // 2. If valid session AND public path -> redirect to Dashboard
   if (isValidSession && isPublicPath) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  // 3. Module access guard — check if user has permission for this route
+  if (isValidSession && !isPublicPath) {
+    const moduleInfo = getModuleForPath(pathname)
+    if (moduleInfo) {
+      const { moduleKey, adminOnly } = moduleInfo
+      
+      // Admin-only check
+      if (adminOnly && role !== 'admin') {
+        return NextResponse.redirect(new URL('/dashboard', request.url))
+      }
+      
+      // Module permission check
+      if (!allowedModules.includes(moduleKey)) {
+        return NextResponse.redirect(new URL('/dashboard', request.url))
+      }
+    }
   }
 
   return NextResponse.next()
