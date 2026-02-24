@@ -9,6 +9,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import TemplateForm from './template-form'
 import { createTemplate, updateTemplate, deleteTemplate } from '../actions'
 import { KPI_MODES } from '../types'
+import { useLocale } from '@/lib/i18n/context'
 import type { KpiTemplate } from '@/types/database.types'
 
 const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString()
@@ -20,6 +21,7 @@ const modeBadgeColors: Record<string, string> = {
 }
 
 export default function TemplatesView({ templates }: { templates: KpiTemplate[] }) {
+  const { t } = useLocale()
   const [showForm, setShowForm] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<KpiTemplate | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -52,12 +54,12 @@ export default function TemplatesView({ templates }: { templates: KpiTemplate[] 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">KPI Templates</h2>
-          <p className="text-sm text-muted-foreground">จัดการแม่แบบ KPI — Task / Sales / Cost Reduction</p>
+          <h2 className="text-2xl font-bold tracking-tight">{t.kpi.templates.title}</h2>
+          <p className="text-sm text-muted-foreground">{t.kpi.templates.subtitle}</p>
         </div>
         <Button onClick={() => setShowForm(true)} className="gap-2">
           <Plus className="h-4 w-4" />
-          สร้าง Template
+          {t.kpi.templates.createBtn}
         </Button>
       </div>
 
@@ -65,41 +67,41 @@ export default function TemplatesView({ templates }: { templates: KpiTemplate[] 
       {templates.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            ยังไม่มี Template — คลิก &quot;สร้าง Template&quot; เพื่อเริ่มต้น
+            {t.kpi.templates.emptyState}
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {templates.map((t) => {
-            const modeInfo = KPI_MODES.find((m) => m.value === t.mode)
+          {templates.map((tmpl) => {
+            const modeInfo = KPI_MODES.find((m) => m.value === tmpl.mode)
             return (
-              <Card key={t.id} className="group relative hover:shadow-md transition-shadow">
+              <Card key={tmpl.id} className="group relative hover:shadow-md transition-shadow">
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between">
-                    <CardTitle className="text-base font-semibold">{t.name}</CardTitle>
-                    <Badge className={`text-xs ${modeBadgeColors[t.mode] || ''}`}>
-                      {modeInfo?.labelTh || t.mode}
+                    <CardTitle className="text-base font-semibold">{tmpl.name}</CardTitle>
+                    <Badge className={`text-xs ${modeBadgeColors[tmpl.mode] || ''}`}>
+                      {t.kpi.modes[modeInfo?.value || tmpl.mode] || tmpl.mode}
                     </Badge>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {t.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">{t.description}</p>
+                  {tmpl.description && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">{tmpl.description}</p>
                   )}
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">เป้าหมาย:</span>
-                    <span className="font-medium">{fmt(t.default_target)} {t.target_unit}</span>
+                    <span className="text-muted-foreground">{t.kpi.common.target}:</span>
+                    <span className="font-medium">{fmt(tmpl.default_target)} {tmpl.target_unit}</span>
                   </div>
 
                   {/* Actions */}
                   <div className="flex gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                    <Button size="sm" variant="outline" onClick={() => handleEdit(t)} className="gap-1">
+                    <Button size="sm" variant="outline" onClick={() => handleEdit(tmpl)} className="gap-1">
                       <Pencil className="h-3 w-3" />
-                      แก้ไข
+                      {t.kpi.common.edit}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => setDeleteId(t.id)} className="gap-1 text-red-600 hover:text-red-700">
+                    <Button size="sm" variant="outline" onClick={() => setDeleteId(tmpl.id)} className="gap-1 text-red-600 hover:text-red-700">
                       <Trash2 className="h-3 w-3" />
-                      ลบ
+                      {t.kpi.common.delete}
                     </Button>
                   </div>
                 </CardContent>
@@ -121,15 +123,15 @@ export default function TemplatesView({ templates }: { templates: KpiTemplate[] 
       <AlertDialog open={!!deleteId} onOpenChange={(v) => !v && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>ยืนยันการลบ Template</AlertDialogTitle>
+            <AlertDialogTitle>{t.kpi.templates.deleteTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              Template นี้จะถูกลบถาวร — Assignment ที่เชื่อมอยู่จะไม่มี template อ้างอิง
+              {t.kpi.templates.deleteDesc}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
+            <AlertDialogCancel>{t.kpi.common.cancel}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-              ลบ Template
+              {t.kpi.templates.deleteBtn}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,4 +1,5 @@
 import Navbar from '@/components/navbar'
+import KpiLocaleWrapper from '@/components/kpi-locale-wrapper'
 import { cookies } from 'next/headers'
 import { supabase } from '@/lib/supabase'
 
@@ -35,7 +36,9 @@ export default async function AuthenticatedLayout({
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full overflow-x-hidden">
       <Navbar role={role} allowedModules={allowedModules} />
       <main className="p-4 md:p-6 max-w-7xl mx-auto w-full">
-        {children}
+        <KpiLocaleWrapper>
+          {children}
+        </KpiLocaleWrapper>
       </main>
     </div>
   )
