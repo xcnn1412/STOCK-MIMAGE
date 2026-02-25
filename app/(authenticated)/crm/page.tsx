@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import CrmDashboard from './crm-dashboard'
-import { getLeads, getCrmSettings } from './actions'
+import { getLeads, getCrmSettings, getSystemUsers } from './actions'
 
 export const metadata = {
   title: 'CRM — Photobooth CRM',
@@ -8,15 +8,17 @@ export const metadata = {
 }
 
 export default async function CrmPage() {
-  const [leadsResult, settingsResult] = await Promise.all([
+  const [leadsResult, settingsResult, usersResult] = await Promise.all([
     getLeads(),
     getCrmSettings(),
+    getSystemUsers(),
   ])
 
   return (
     <CrmDashboard
       leads={leadsResult.data as any[] || []}
       settings={settingsResult.data as any[] || []}
+      users={usersResult.data as any[] || []}
     />
   )
 }

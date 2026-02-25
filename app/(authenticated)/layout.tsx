@@ -20,7 +20,7 @@ export default async function AuthenticatedLayout({
       .select('allowed_modules')
       .eq('id', userId)
       .single()
-    
+
     const modules = (profile as Record<string, unknown> | null)?.allowed_modules
     if (modules && Array.isArray(modules)) {
       allowedModules = modules as string[]
@@ -33,7 +33,7 @@ export default async function AuthenticatedLayout({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full" suppressHydrationWarning>
       <Navbar role={role} allowedModules={allowedModules} />
       <main className="p-4 md:p-6 max-w-7xl mx-auto w-full">
         <KpiLocaleWrapper>
