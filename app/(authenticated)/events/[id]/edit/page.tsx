@@ -26,8 +26,13 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
     .is('event_id', null)
     .order('name')
 
+  // 3. Fetch all user profiles for staff/seller selection
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, full_name, role')
+    .order('full_name')
+
   // Combine them for the UI list
-  // We want to show the assigned ones as Checked
   const assignedList = (assignedKits || []) as Kit[]
   const availableList = (availableKits || []) as Kit[]
   
@@ -35,6 +40,11 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
   const assignedKitIds = assignedList.map(k => k.id)
 
   return (
-    <EditEventForm event={event} availableKits={allDisplayKits} assignedKitIds={assignedKitIds} />
+    <EditEventForm
+      event={event}
+      availableKits={allDisplayKits}
+      assignedKitIds={assignedKitIds}
+      profiles={profiles || []}
+    />
   )
 }

@@ -608,6 +608,134 @@ export interface Database {
           }
         ]
       }
+      job_cost_events: {
+        Row: {
+          id: string
+          source_event_id: string | null
+          event_name: string
+          event_date: string | null
+          event_location: string | null
+          staff: string | null
+          seller: string | null
+          revenue: number
+          revenue_vat_mode: string
+          revenue_wht_rate: number
+          status: string
+          notes: string | null
+          imported_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          source_event_id?: string | null
+          event_name: string
+          event_date?: string | null
+          event_location?: string | null
+          staff?: string | null
+          seller?: string | null
+          revenue?: number
+          revenue_vat_mode?: string
+          revenue_wht_rate?: number
+          status?: string
+          notes?: string | null
+          imported_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          source_event_id?: string | null
+          event_name?: string
+          event_date?: string | null
+          event_location?: string | null
+          staff?: string | null
+          seller?: string | null
+          revenue?: number
+          revenue_vat_mode?: string
+          revenue_wht_rate?: number
+          status?: string
+          notes?: string | null
+          imported_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_cost_events_imported_by_fkey"
+            columns: ["imported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      job_cost_items: {
+        Row: {
+          id: string
+          job_event_id: string
+          category: string
+          description: string | null
+          amount: number
+          unit_price: number
+          unit: string
+          quantity: number
+          include_vat: boolean
+          vat_mode: string
+          withholding_tax_rate: number
+          cost_date: string | null
+          recorded_by: string | null
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          job_event_id: string
+          category: string
+          description?: string | null
+          amount?: number
+          unit_price?: number
+          unit?: string
+          quantity?: number
+          include_vat?: boolean
+          vat_mode?: string
+          withholding_tax_rate?: number
+          cost_date?: string | null
+          recorded_by?: string | null
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          job_event_id?: string
+          category?: string
+          description?: string | null
+          amount?: number
+          unit_price?: number
+          unit?: string
+          quantity?: number
+          include_vat?: boolean
+          vat_mode?: string
+          withholding_tax_rate?: number
+          cost_date?: string | null
+          recorded_by?: string | null
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_cost_items_job_event_id_fkey"
+            columns: ["job_event_id"]
+            isOneToOne: false
+            referencedRelation: "job_cost_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_cost_items_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -692,6 +820,14 @@ export type KpiAssignment = Tables['kpi_assignments']['Row'] & {
 }
 export type KpiEvaluation = Tables['kpi_evaluations']['Row'] & {
   kpi_assignments?: KpiAssignment | null
+}
+
+export type JobCostEvent = Tables['job_cost_events']['Row'] & {
+  job_cost_items?: JobCostItem[]
+  importer?: Pick<Profile, 'id' | 'full_name' | 'department'> | null
+}
+export type JobCostItem = Tables['job_cost_items']['Row'] & {
+  recorder?: Pick<Profile, 'id' | 'full_name'> | null
 }
 
 // ============================================================================
