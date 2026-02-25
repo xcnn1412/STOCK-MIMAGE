@@ -2,22 +2,34 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ContactRound, LayoutDashboard, Settings, Globe } from 'lucide-react'
+import { ContactRound, LayoutDashboard, Settings, Globe, Archive, CalendarDays, BarChart3, Download } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { Locale } from '@/lib/i18n'
 
 const tabMeta = [
-  { href: '/crm', key: 'dashboard' as const, icon: LayoutDashboard, exact: true },
+  { href: '/crm', key: 'kanban' as const, icon: LayoutDashboard, exact: true },
+  { href: '/crm/dashboard', key: 'dashboard' as const, icon: BarChart3, exact: false },
+  { href: '/crm/payments', key: 'payments' as const, icon: CalendarDays, exact: false },
+  { href: '/crm/download', key: 'download' as const, icon: Download, exact: false },
+  { href: '/crm/archive', key: 'archive' as const, icon: Archive, exact: false },
   { href: '/crm/settings', key: 'settings' as const, icon: Settings, exact: false },
 ]
 
 const labels = {
   en: {
+    kanban: 'Kanban',
     dashboard: 'Dashboard',
+    payments: 'Payments',
+    download: 'Download',
+    archive: 'Archive',
     settings: 'Settings',
   },
   th: {
+    kanban: 'Kanban',
     dashboard: 'แดชบอร์ด',
+    payments: 'การชำระเงิน',
+    download: 'ดาวน์โหลด',
+    archive: 'คลังเก็บ',
     settings: 'ตั้งค่า',
   },
 }
@@ -30,8 +42,7 @@ export default function CrmNav() {
 
   const isActive = (href: string, exact: boolean) => {
     if (exact) {
-      // Dashboard: active for /crm and /crm/[uuid] but not /crm/settings
-      return pathname === href || (pathname.startsWith('/crm/') && !pathname.startsWith('/crm/settings'))
+      return pathname === href || (pathname.startsWith('/crm/') && !pathname.startsWith('/crm/settings') && !pathname.startsWith('/crm/archive') && !pathname.startsWith('/crm/payments') && !pathname.startsWith('/crm/dashboard') && !pathname.startsWith('/crm/download'))
     }
     return pathname.startsWith(href)
   }

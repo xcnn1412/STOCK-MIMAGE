@@ -21,6 +21,22 @@ async function getSession() {
 }
 
 // ============================================================================
+// System Users — fetch from profiles
+// ============================================================================
+
+export async function getSystemUsers() {
+  const supabase = createServerSupabase()
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, department')
+    .eq('is_approved', true)
+    .order('full_name')
+
+  if (error) return { error: error.message, data: [] }
+  return { data: data || [] }
+}
+
+// ============================================================================
 // CRM Settings — CRUD
 // ============================================================================
 
@@ -30,7 +46,7 @@ export async function getCrmSettings(category?: string) {
     .from('crm_settings')
     .select('*')
     .order('sort_order', { ascending: true })
-  
+
   if (category) {
     query = query.eq('category', category)
   }
@@ -71,7 +87,7 @@ export async function updateCrmSetting(id: string, formData: FormData) {
 
   const supabase = createServerSupabase()
   const updates: Record<string, unknown> = {}
-  
+
   const fields = ['value', 'label_th', 'label_en', 'color', 'description', 'category']
   fields.forEach(f => {
     const v = formData.get(f)
@@ -125,12 +141,18 @@ export async function getLeads(filters?: {
   month?: string
   is_returning?: boolean
   search?: string
+  includeArchived?: boolean
 }) {
   const supabase = createServerSupabase()
   let query = supabase
     .from('crm_leads')
     .select('*')
     .order('created_at', { ascending: false })
+
+  // By default, exclude archived leads
+  if (!filters?.includeArchived) {
+    query = query.is('archived_at', null)
+  }
 
   if (filters?.status) query = query.eq('status', filters.status)
   if (filters?.source) query = query.eq('lead_source', filters.source)
@@ -147,6 +169,18 @@ export async function getLeads(filters?: {
   }
 
   const { data, error } = await query
+  if (error) return { error: error.message, data: [] }
+  return { data: data || [] }
+}
+
+export async function getArchivedLeads() {
+  const supabase = createServerSupabase()
+  const { data, error } = await supabase
+    .from('crm_leads')
+    .select('*')
+    .not('archived_at', 'is', null)
+    .order('archived_at', { ascending: false })
+
   if (error) return { error: error.message, data: [] }
   return { data: data || [] }
 }
@@ -193,11 +227,22 @@ export async function createLead(formData: FormData) {
     quoted_price: Number(formData.get('quoted_price') || 0),
     confirmed_price: Number(formData.get('confirmed_price') || 0),
     deposit: Number(formData.get('deposit') || 0),
+    installment_1: Number(formData.get('installment_1') || 0),
+    installment_2: Number(formData.get('installment_2') || 0),
+    installment_3: Number(formData.get('installment_3') || 0),
+    installment_4: Number(formData.get('installment_4') || 0),
+    installment_1_date: (formData.get('installment_1_date') as string) || null,
+    installment_2_date: (formData.get('installment_2_date') as string) || null,
+    installment_3_date: (formData.get('installment_3_date') as string) || null,
+    installment_4_date: (formData.get('installment_4_date') as string) || null,
     quotation_ref: formData.get('quotation_ref') as string || null,
     notes: formData.get('notes') as string || null,
-    assigned_to: formData.get('assigned_to') as string || null,
     created_by: userId,
     status: 'lead',
+    tags: (formData.get('tags') as string || '').split(',').map(t => t.trim()).filter(Boolean),
+    assigned_sales: (formData.get('assigned_sales') as string || '').split(',').filter(Boolean),
+    assigned_graphics: (formData.get('assigned_graphics') as string || '').split(',').filter(Boolean),
+    assigned_staff: (formData.get('assigned_staff') as string || '').split(',').filter(Boolean),
   }
 
   const { data, error } = await supabase.from('crm_leads').insert(lead).select().single()
@@ -224,26 +269,47 @@ export async function updateLead(id: string, formData: FormData) {
   const textFields = [
     'customer_name', 'customer_line', 'customer_phone', 'customer_type',
     'lead_source', 'event_location', 'event_details', 'package_name',
-    'quotation_ref', 'notes', 'assigned_to'
+    'quotation_ref', 'notes'
   ]
   textFields.forEach(f => {
     const v = formData.get(f)
     if (v !== null) updates[f] = v as string || null
   })
 
-  const dateFields = ['event_date', 'event_end_date']
+  const dateFields = ['event_date', 'event_end_date', 'installment_1_date', 'installment_2_date', 'installment_3_date', 'installment_4_date', 'installment_1_paid_date', 'installment_2_paid_date', 'installment_3_paid_date', 'installment_4_paid_date']
   dateFields.forEach(f => {
     const v = formData.get(f)
     if (v !== null) updates[f] = (v as string) || null
   })
 
-  const numFields = ['quoted_price', 'confirmed_price', 'deposit']
+  const numFields = ['quoted_price', 'confirmed_price', 'deposit', 'installment_1', 'installment_2', 'installment_3', 'installment_4']
   numFields.forEach(f => {
     const v = formData.get(f)
     if (v !== null) updates[f] = Number(v) || 0
   })
 
   if (formData.has('is_returning')) updates.is_returning = formData.get('is_returning') === 'true'
+
+  // Installment paid booleans
+  const paidFields = ['installment_1_paid', 'installment_2_paid', 'installment_3_paid', 'installment_4_paid']
+  paidFields.forEach(f => {
+    if (formData.has(f)) updates[f] = formData.get(f) === 'true'
+  })
+
+  // Tags — comma-separated string to array
+  if (formData.has('tags')) {
+    const tagsStr = formData.get('tags') as string || ''
+    updates.tags = tagsStr.split(',').map(t => t.trim()).filter(Boolean)
+  }
+
+  // Staff assignment arrays — comma-separated string to array
+  const arrayFields = ['assigned_sales', 'assigned_graphics', 'assigned_staff']
+  arrayFields.forEach(f => {
+    if (formData.has(f)) {
+      const str = formData.get(f) as string || ''
+      updates[f] = str.split(',').filter(Boolean)
+    }
+  })
 
   // Auto-calculate event_days
   const ed = (updates.event_date as string) || null
@@ -305,6 +371,57 @@ export async function deleteLead(id: string) {
 
   await logActivity('DELETE_CRM_LEAD', { id })
   revalidatePath('/crm')
+  return { success: true }
+}
+
+export async function archiveLead(id: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServerSupabase()
+  const { error } = await supabase
+    .from('crm_leads')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) return { error: error.message }
+
+  // Log activity
+  await supabase.from('crm_activities').insert({
+    lead_id: id,
+    created_by: userId,
+    activity_type: 'note',
+    description: 'ย้ายไปที่ Archive',
+  })
+
+  await logActivity('ARCHIVE_CRM_LEAD', { id })
+  revalidatePath('/crm')
+  revalidatePath(`/crm/${id}`)
+  return { success: true }
+}
+
+export async function unarchiveLead(id: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServerSupabase()
+  const { error } = await supabase
+    .from('crm_leads')
+    .update({ archived_at: null })
+    .eq('id', id)
+  if (error) return { error: error.message }
+
+  // Log activity
+  await supabase.from('crm_activities').insert({
+    lead_id: id,
+    created_by: userId,
+    activity_type: 'note',
+    description: 'นำออกจาก Archive แล้ว',
+  })
+
+  await logActivity('UNARCHIVE_CRM_LEAD', { id })
+  revalidatePath('/crm')
+  revalidatePath(`/crm/${id}`)
+  revalidatePath('/crm/archive')
   return { success: true }
 }
 
@@ -376,7 +493,7 @@ export async function createEventFromLead(leadId: string) {
       event_name: `${lead.customer_name} — ${lead.package_name || 'N/A'}`,
       event_date: lead.event_date,
       event_location: lead.event_location,
-      staff: lead.assigned_to,
+      staff: null,
       revenue: lead.confirmed_price || lead.quoted_price || 0,
       status: 'draft',
       notes: lead.notes,

@@ -16,13 +16,13 @@ function getSupabase() {
     })
 }
 
-export type ActionType = 
-    | 'LOGIN' 
-    | 'LOGOUT' 
-    | 'REGISTER' 
-    | 'APPROVE_USER' 
+export type ActionType =
+    | 'LOGIN'
+    | 'LOGOUT'
+    | 'REGISTER'
+    | 'APPROVE_USER'
     | 'REVOKE_USER'
-    | 'UPDATE_ROLE' 
+    | 'UPDATE_ROLE'
     | 'DELETE_USER'
     | 'CREATE_ITEM'
     | 'UPDATE_ITEM'
@@ -74,6 +74,8 @@ export type ActionType =
     | 'CREATE_CRM_SETTING'
     | 'UPDATE_CRM_SETTING'
     | 'DELETE_CRM_SETTING'
+    | 'ARCHIVE_CRM_LEAD'
+    | 'UNARCHIVE_CRM_LEAD'
 
 export async function logActivity(
     action: ActionType,
@@ -85,42 +87,42 @@ export async function logActivity(
         const supabase = getSupabase()
         const headersList = await headers()
         let ip = headersList.get('x-forwarded-for') || 'unknown'
-        
+
         // Handle multiple IPs (e.g. "1.2.3.4, 5.6.7.8")
         if (ip.includes(',')) {
             ip = ip.split(',')[0].trim()
         }
 
         const userAgent = headersList.get('user-agent') || 'unknown'
-        
+
         // GeoIP Lookup - Temporarily removed due to serverless deployment issues
         let latitude: number | null = null
         let longitude: number | null = null
         let location: string | null = null
-        
+
         /* 
         if (ip && ip !== 'unknown' && ip !== '::1' && ip !== '127.0.0.1') {
            // ...
         } 
         */
-       
-       // Try to get location from various headers (Vercel, Cloudflare, etc.)
-       const city = headersList.get('x-vercel-ip-city') || headersList.get('cf-ipcity') || headersList.get('x-geo-city')
-       const country = headersList.get('x-vercel-ip-country') || headersList.get('cf-ipcountry') || headersList.get('x-geo-country')
-       
-       if (city && country) {
-           location = `${city}, ${country}`
-           // Some providers might give lat/long headers too (e.g. x-vercel-ip-latitude), but city/country is often enough for reading.
-           const latHeader = headersList.get('x-vercel-ip-latitude') || headersList.get('cf-iplatitude')
-           const longHeader = headersList.get('x-vercel-ip-longitude') || headersList.get('cf-iplongitude')
-           if (latHeader && longHeader) {
-               latitude = parseFloat(latHeader)
-               longitude = parseFloat(longHeader)
-           }
-       } else if (ip === '::1' || ip === '127.0.0.1') {
+
+        // Try to get location from various headers (Vercel, Cloudflare, etc.)
+        const city = headersList.get('x-vercel-ip-city') || headersList.get('cf-ipcity') || headersList.get('x-geo-city')
+        const country = headersList.get('x-vercel-ip-country') || headersList.get('cf-ipcountry') || headersList.get('x-geo-country')
+
+        if (city && country) {
+            location = `${city}, ${country}`
+            // Some providers might give lat/long headers too (e.g. x-vercel-ip-latitude), but city/country is often enough for reading.
+            const latHeader = headersList.get('x-vercel-ip-latitude') || headersList.get('cf-iplatitude')
+            const longHeader = headersList.get('x-vercel-ip-longitude') || headersList.get('cf-iplongitude')
+            if (latHeader && longHeader) {
+                latitude = parseFloat(latHeader)
+                longitude = parseFloat(longHeader)
+            }
+        } else if (ip === '::1' || ip === '127.0.0.1') {
             location = 'Localhost'
-       }
-        
+        }
+
         // Determine Actor
         let userId = overrideUserId
         if (!userId) {

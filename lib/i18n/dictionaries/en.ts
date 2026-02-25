@@ -226,6 +226,205 @@ const en: Dictionary = {
       myEvals: 'My Evaluations',
     },
   },
+
+  crm: {
+    // ===== Dashboard =====
+    dashboard: {
+      title: 'Photobooth CRM',
+      subtitle: 'Manage your events and customers',
+      addEvent: 'Add Event',
+      eventsThisMonth: 'Events This Month',
+      eventsThisMonthSub: '{count} total events',
+      pipelineValue: 'Pipeline',
+      pipelineSub: 'potential deal value',
+      conversionRate: 'Conversion Rate',
+      conversionSub: '{won} won / {total} total',
+      needsAttention: 'Needs Attention',
+      needsAttentionSub: '{overdue} overdue · {unassigned} unassigned',
+      noLeads: 'No leads found',
+    },
+
+    // ===== View Modes =====
+    viewModes: {
+      kanban: 'Kanban',
+      table: 'Table',
+    },
+
+    // ===== Filters =====
+    filters: {
+      searchCustomer: 'Search customer...',
+      allStatus: 'All Status',
+      allChannel: 'All Channel',
+    },
+
+    // ===== Statuses =====
+    statuses: {
+      lead: 'Lead',
+      quotation_sent: 'Quotation Sent',
+      accepted: 'Accepted',
+      rejected: 'Rejected',
+    },
+
+    // ===== Kanban =====
+    kanban: {
+      dropHere: 'Drop here',
+      deposit: 'Deposit',
+      overdue: 'Overdue',
+      returning: 'Returning',
+      tags: 'Tags',
+    },
+
+    // ===== Table Headers =====
+    table: {
+      customer: 'Customer',
+      assignee: 'Assignee',
+      status: 'Status',
+      channel: 'Channel',
+      eventDate: 'Event Date',
+      package: 'Package',
+      quoted: 'Quoted',
+      depositCol: 'Deposit',
+    },
+
+    // ===== Add Lead Dialog =====
+    addLead: {
+      title: 'Add New Lead',
+      description: 'Fill in customer and event details to create a new lead.',
+      customerStatus: 'Customer Status',
+      newCustomer: 'New Customer',
+      returningCustomer: 'Returning Customer',
+      customerName: 'Customer Name',
+      customerNameRequired: 'Customer Name',
+      lineId: 'LINE ID',
+      lineIdPlaceholder: 'LINE name',
+      phone: 'Phone',
+      phonePlaceholder: 'Phone number',
+      customerType: 'Customer Type',
+      customerTypePlaceholder: 'Select type',
+      channel: 'Channel',
+      channelPlaceholder: 'Channel',
+      assignee: 'Assignee',
+      assigneePlaceholder: 'Assignee',
+      eventDate: 'Event Date',
+      location: 'Location',
+      locationPlaceholder: 'Location',
+      eventDetails: 'Event Details',
+      eventDetailsPlaceholder: 'Event details',
+      package: 'Package',
+      packagePlaceholder: 'Select package',
+      quotedPrice: 'Quoted Price (฿)',
+      deposit: 'Deposit (฿)',
+      installment1: 'Installment 1 (฿)',
+      installment2: 'Installment 2 (฿)',
+      installment3: 'Installment 3 (฿)',
+      installment4: 'Installment 4 (฿)',
+      dueDate: 'Due Date',
+      quotationRef: 'Quotation Ref',
+      notes: 'Notes',
+      notesPlaceholder: 'Notes...',
+      cancel: 'Cancel',
+      saving: 'Saving...',
+      createLead: 'Create Lead',
+    },
+
+    // ===== Lead Detail =====
+    detail: {
+      created: 'Created',
+      currentStatus: 'Current Status',
+      edit: 'Edit',
+      save: 'Save',
+      saving: 'Saving...',
+      cancel: 'Cancel',
+      viewEvent: 'View Event',
+      openEvent: 'Open Event',
+      deleteConfirm: 'Are you sure you want to delete this lead?',
+
+      // Customer Information
+      customerInfo: 'Customer Information',
+      name: 'Name',
+      lineId: 'LINE ID',
+      phone: 'Phone',
+      type: 'Type',
+      channel: 'Channel',
+      assignee: 'Assignee',
+      returningCustomer: 'Returning Customer',
+      selectType: 'Select type',
+      selectSource: 'Select source',
+
+      // Event Information
+      eventInfo: 'Event Information',
+      eventDate: 'Event Date',
+      endDate: 'End Date',
+      duration: 'Duration',
+      day: 'day',
+      days: 'days',
+      locationLabel: 'Location',
+      details: 'Details',
+      eventDetailsPlaceholder: 'Event details...',
+
+      // Financial
+      financial: 'Financial',
+      package: 'Package',
+      selectPackage: 'Select package',
+      quotedPrice: 'Quoted Price',
+      confirmedPrice: 'Confirmed Price',
+      depositLabel: 'Deposit',
+      installment1: 'Installment 1',
+      installment2: 'Installment 2',
+      installment3: 'Installment 3',
+      installment4: 'Installment 4',
+      dueDate: 'Due Date',
+      paid: 'Paid',
+      paidDate: 'Actual Payment Date',
+      unpaid: 'Unpaid',
+      overdue: 'Payment Overdue',
+      quotationRef: 'Quotation Ref',
+      notesLabel: 'Notes',
+      notesPlaceholder: 'Additional notes...',
+      tagsLabel: 'Tags',
+      selectTags: 'Select tags',
+      noTags: 'No tags',
+      generalTags: 'General Tags',
+      statusTags: 'Status Tags',
+    },
+
+    // ===== Activity Timeline =====
+    activity: {
+      title: 'Activity Timeline',
+      addNotePlaceholder: 'Add note...',
+      add: 'Add',
+      noActivities: 'No activities yet',
+      by: 'by',
+      call: 'Call',
+      line: 'Line',
+      email: 'Email',
+      meeting: 'Meeting',
+      note: 'Note',
+    },
+
+    // ===== Settings =====
+    settings: {
+      title: 'CRM Settings',
+      subtitle: 'Manage packages, customer types, and lead sources',
+      packages: '📦 Packages',
+      customerTypes: '👥 Customer Types',
+      leadSources: '📢 Lead Sources',
+      tags: '🏷️ Tags',
+      tagGeneral: 'General',
+      tagLead: 'Lead',
+      tagQuotationSent: 'Quotation Sent',
+      tagAccepted: 'Accepted',
+      tagRejected: 'Rejected',
+      add: 'Add',
+      valueKey: 'Value (key)',
+      labelTh: 'Label TH',
+      labelEn: 'Label EN',
+      price: 'Price',
+      sort: 'Sort',
+      noSettings: 'No settings configured yet',
+      deleteConfirm: 'Delete this setting?',
+    },
+  },
 }
 
 export default en
