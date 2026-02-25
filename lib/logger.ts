@@ -64,6 +64,16 @@ export type ActionType =
     | 'CREATE_COST_ITEM'
     | 'UPDATE_COST_ITEM'
     | 'DELETE_COST_ITEM'
+    // CRM Module
+    | 'CREATE_CRM_LEAD'
+    | 'UPDATE_CRM_LEAD'
+    | 'DELETE_CRM_LEAD'
+    | 'UPDATE_CRM_STATUS'
+    | 'CREATE_CRM_ACTIVITY'
+    | 'CREATE_EVENT_FROM_CRM'
+    | 'CREATE_CRM_SETTING'
+    | 'UPDATE_CRM_SETTING'
+    | 'DELETE_CRM_SETTING'
 
 export async function logActivity(
     action: ActionType,

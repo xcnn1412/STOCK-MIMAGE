@@ -74,6 +74,17 @@ export default function Navbar({ role, allowedModules = ['stock'] }: NavbarProps
         }
 
         // Multi-item group — render as dropdown
+        // Module accent colors for premium dropdown headers
+        const moduleAccents: Record<string, { from: string; to: string; iconBg: string; activeBg: string }> = {
+            stock: { from: 'from-zinc-700', to: 'to-zinc-900', iconBg: 'bg-zinc-100 dark:bg-zinc-800', activeBg: 'bg-zinc-50 dark:bg-zinc-800/60' },
+            kpi: { from: 'from-amber-500', to: 'to-orange-600', iconBg: 'bg-amber-50 dark:bg-amber-950/30', activeBg: 'bg-amber-50/60 dark:bg-amber-950/20' },
+            costs: { from: 'from-emerald-500', to: 'to-teal-600', iconBg: 'bg-emerald-50 dark:bg-emerald-950/30', activeBg: 'bg-emerald-50/60 dark:bg-emerald-950/20' },
+            crm: { from: 'from-blue-500', to: 'to-indigo-600', iconBg: 'bg-blue-50 dark:bg-blue-950/30', activeBg: 'bg-blue-50/60 dark:bg-blue-950/20' },
+            admin: { from: 'from-purple-500', to: 'to-violet-600', iconBg: 'bg-purple-50 dark:bg-purple-950/30', activeBg: 'bg-purple-50/60 dark:bg-purple-950/20' },
+        }
+
+        const accent = moduleAccents[group.key] || moduleAccents.stock
+
         return (
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -89,25 +100,42 @@ export default function Navbar({ role, allowedModules = ['stock'] }: NavbarProps
                         <ChevronDown className="h-3.5 w-3.5 opacity-50 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
                     </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-[200px]">
-                    {group.items.map((item) => (
-                        <DropdownMenuItem key={item.href} asChild>
-                            <Link
-                                href={item.href}
-                                className={`flex items-center gap-2.5 cursor-pointer ${
-                                    isActive(item.href)
-                                        ? 'bg-zinc-100 text-zinc-900 font-semibold dark:bg-zinc-800 dark:text-zinc-100'
-                                        : ''
-                                }`}
-                            >
-                                <item.icon className={`h-4 w-4 ${isActive(item.href) ? 'text-zinc-900 dark:text-zinc-100' : ''}`} />
-                                <span>{getLabel(item.labelKey)}</span>
-                                {isActive(item.href) && (
-                                    <span className="ml-auto h-1.5 w-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100" />
-                                )}
-                            </Link>
-                        </DropdownMenuItem>
-                    ))}
+                <DropdownMenuContent align="start" className="min-w-[220px] p-1.5 rounded-xl shadow-lg border-zinc-200/80 dark:border-zinc-700/80">
+                    {/* Dropdown header with gradient accent */}
+                    <div className="flex items-center gap-2.5 px-3 py-2 mb-1">
+                        <div className={`flex items-center justify-center h-7 w-7 rounded-lg bg-gradient-to-br ${accent.from} ${accent.to} text-white shadow-sm`}>
+                            <group.icon className="h-3.5 w-3.5" />
+                        </div>
+                        <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 tracking-wide uppercase">
+                            {getGroupLabel(group.key)}
+                        </span>
+                    </div>
+                    <div className="h-px bg-zinc-100 dark:bg-zinc-800 mx-2 mb-1" />
+                    {group.items.map((item) => {
+                        const active = isActive(item.href)
+                        return (
+                            <DropdownMenuItem key={item.href} asChild className="rounded-lg">
+                                <Link
+                                    href={item.href}
+                                    className={`flex items-center gap-3 cursor-pointer px-3 py-2.5 rounded-lg transition-all duration-150 ${
+                                        active
+                                            ? `${accent.activeBg} font-semibold`
+                                            : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
+                                    }`}
+                                >
+                                    <div className={`flex items-center justify-center h-8 w-8 rounded-lg ${active ? accent.iconBg : 'bg-zinc-100/80 dark:bg-zinc-800/60'} transition-colors`}>
+                                        <item.icon className={`h-4 w-4 ${active ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 dark:text-zinc-400'}`} />
+                                    </div>
+                                    <span className={`text-sm ${active ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-700 dark:text-zinc-300'}`}>
+                                        {getLabel(item.labelKey)}
+                                    </span>
+                                    {active && (
+                                        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100 animate-pulse" />
+                                    )}
+                                </Link>
+                            </DropdownMenuItem>
+                        )
+                    })}
                 </DropdownMenuContent>
             </DropdownMenu>
         )

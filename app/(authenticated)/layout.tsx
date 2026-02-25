@@ -33,7 +33,7 @@ export default async function AuthenticatedLayout({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full overflow-x-hidden">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full">
       <Navbar role={role} allowedModules={allowedModules} />
       <main className="p-4 md:p-6 max-w-7xl mx-auto w-full">
         <KpiLocaleWrapper>

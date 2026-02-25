@@ -1,13 +1,14 @@
-import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3 } from 'lucide-react'
+import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings } from 'lucide-react'
 
-export type ModuleKey = 'stock' | 'kpi' | 'costs' | 'admin'
+export type ModuleKey = 'stock' | 'kpi' | 'costs' | 'crm' | 'admin'
 
-export const ALL_MODULES: ModuleKey[] = ['stock', 'kpi', 'costs']
+export const ALL_MODULES: ModuleKey[] = ['stock', 'kpi', 'costs', 'crm']
 
 export interface NavItem {
   href: string
   icon: typeof Package
   labelKey: string
+  description?: string
 }
 
 export interface NavGroup {
@@ -46,6 +47,14 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: DollarSign,
     items: [
       { href: '/costs', icon: DollarSign, labelKey: 'costs' },
+    ],
+  },
+  {
+    key: 'crm',
+    icon: ContactRound,
+    items: [
+      { href: '/crm', icon: LayoutDashboard, labelKey: 'crmDashboard' },
+      { href: '/crm/settings', icon: Settings, labelKey: 'crmSettings' },
     ],
   },
   {
