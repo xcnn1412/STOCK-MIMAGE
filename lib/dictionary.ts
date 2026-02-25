@@ -13,11 +13,15 @@ export const dictionary = {
       eventClosures: 'Event Closures',
       kpi: 'KPI',
       costs: 'Costs',
+      crm: 'CRM',
+      crmDashboard: 'Dashboard',
+      crmSettings: 'Settings',
     },
     navGroups: {
       stock: 'Stock',
       kpi: 'KPI',
       costs: 'Costs',
+      crm: 'CRM',
       admin: 'Admin',
     },
     common: {
@@ -237,11 +241,15 @@ export const dictionary = {
       eventClosures: 'ประวัติปิดงาน',
       kpi: 'ประเมิน KPI',
       costs: 'ต้นทุน',
+      crm: 'CRM',
+      crmDashboard: 'แดชบอร์ด',
+      crmSettings: 'ตั้งค่า',
     },
     navGroups: {
       stock: 'คลังอุปกรณ์',
       kpi: 'ประเมิน KPI',
       costs: 'ต้นทุน',
+      crm: 'CRM',
       admin: 'ผู้ดูแล',
     },
     common: {
