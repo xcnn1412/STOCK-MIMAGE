@@ -310,14 +310,16 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
       </div>
 
       {/* Filters */}
-      {isAdmin && (
-        <Card>
-          <CardContent className="py-4">
-            <div className="flex flex-wrap gap-3 items-center">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Filter className="h-4 w-4" />
-                Filter:
-              </div>
+      <Card>
+        <CardContent className="py-4">
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Filter className="h-4 w-4" />
+              Filter:
+            </div>
+
+            {/* Admin-only: Employee filter */}
+            {isAdmin && (
               <Select value={filterUser} onValueChange={setFilterUser}>
                 <SelectTrigger className="w-[180px] h-8 text-xs">
                   <UserCircle className="h-3 w-3 mr-1" />
@@ -330,7 +332,10 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                   ))}
                 </SelectContent>
               </Select>
+            )}
 
+            {/* Admin-only: Department filter */}
+            {isAdmin && (
               <Select value={filterDept} onValueChange={setFilterDept}>
                 <SelectTrigger className="w-[160px] h-8 text-xs">
                   <Building className="h-3 w-3 mr-1" />
@@ -343,42 +348,44 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                   ))}
                 </SelectContent>
               </Select>
+            )}
 
-              <Select value={filterKpi} onValueChange={setFilterKpi}>
-                <SelectTrigger className="w-[180px] h-8 text-xs">
-                  <ClipboardCheck className="h-3 w-3 mr-1" />
-                  <SelectValue placeholder="KPI" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t.kpi.common.all}</SelectItem>
-                  {kpiNames.map((name) => (
-                    <SelectItem key={name} value={name}>{name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* KPI filter — visible to all */}
+            <Select value={filterKpi} onValueChange={setFilterKpi}>
+              <SelectTrigger className="w-[180px] h-8 text-xs">
+                <ClipboardCheck className="h-3 w-3 mr-1" />
+                <SelectValue placeholder="KPI" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t.kpi.common.all}</SelectItem>
+                {kpiNames.map((name) => (
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-              <Select value={filterMonth} onValueChange={setFilterMonth}>
-                <SelectTrigger className="w-[180px] h-8 text-xs">
-                  <CalendarDays className="h-3 w-3 mr-1" />
-                  <SelectValue placeholder="เดือน" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">ทุกเดือน</SelectItem>
-                  {monthOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* Month filter — visible to all */}
+            <Select value={filterMonth} onValueChange={setFilterMonth}>
+              <SelectTrigger className="w-[180px] h-8 text-xs">
+                <CalendarDays className="h-3 w-3 mr-1" />
+                <SelectValue placeholder="เดือน" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">ทุกเดือน</SelectItem>
+                {monthOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-              {(filterUser !== 'all' || filterDept !== 'all' || filterKpi !== 'all' || filterMonth !== 'all') && (
-                <Badge variant="secondary" className="text-xs">
-                  {filteredEvals.length} {t.kpi.common.items}
-                </Badge>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            {(filterUser !== 'all' || filterDept !== 'all' || filterKpi !== 'all' || filterMonth !== 'all') && (
+              <Badge variant="secondary" className="text-xs">
+                {filteredEvals.length} {t.kpi.common.items}
+              </Badge>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Summary Stat Cards */}
       {filteredEvals.length > 0 && (() => {
@@ -686,8 +693,8 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
         </>
       )}
 
-      {/* User Summary Table */}
-      {userSummary.length > 0 && (
+      {/* User Summary Table — Admin only */}
+      {isAdmin && userSummary.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t.kpi.reports.summaryTitle}</CardTitle>
@@ -771,18 +778,20 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                   <Filter className="h-3 w-3" />
                   กรอง:
                 </div>
-                <Select value={detailFilterUser} onValueChange={setDetailFilterUser}>
-                  <SelectTrigger className="w-[160px] h-7 text-xs">
-                    <UserCircle className="h-3 w-3 mr-1" />
-                    <SelectValue placeholder={t.kpi.common.employee} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{t.kpi.common.all}</SelectItem>
-                    {detailEmployees.map(name => (
-                      <SelectItem key={name} value={name}>{name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {isAdmin && (
+                  <Select value={detailFilterUser} onValueChange={setDetailFilterUser}>
+                    <SelectTrigger className="w-[160px] h-7 text-xs">
+                      <UserCircle className="h-3 w-3 mr-1" />
+                      <SelectValue placeholder={t.kpi.common.employee} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t.kpi.common.all}</SelectItem>
+                      {detailEmployees.map(name => (
+                        <SelectItem key={name} value={name}>{name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Select value={detailFilterKpi} onValueChange={setDetailFilterKpi}>
                   <SelectTrigger className="w-[180px] h-7 text-xs">
                     <ClipboardCheck className="h-3 w-3 mr-1" />
@@ -822,7 +831,7 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                     <TableHead>{t.kpi.reports.evalDate}</TableHead>
                     <TableHead>KPI</TableHead>
                     <TableHead>เดือนมอบหมาย</TableHead>
-                    <TableHead>{t.kpi.common.employee}</TableHead>
+                    {isAdmin && <TableHead>{t.kpi.common.employee}</TableHead>}
                     <TableHead className="text-center">น้ำหนัก</TableHead>
                     <TableHead className="text-right">{t.kpi.common.target}</TableHead>
                     <TableHead className="text-right">{t.kpi.common.actual}</TableHead>
@@ -867,7 +876,7 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                               )
                             })()}
                           </TableCell>
-                          <TableCell className="text-sm">{a?.profiles?.full_name || '-'}</TableCell>
+                          {isAdmin && <TableCell className="text-sm">{a?.profiles?.full_name || '-'}</TableCell>}
                           <TableCell className="text-center">
                             <Badge variant="secondary" className="text-[10px]">{(a as any)?.weight ?? 0}%</Badge>
                           </TableCell>

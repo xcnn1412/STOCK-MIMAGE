@@ -25,6 +25,7 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
   const name = formData.get('name') as string
   const location = formData.get('location') as string
   const staff = formData.get('staff') as string
+  const seller = formData.get('seller') as string
   const kitIds = formData.getAll('kits') as string[] 
   
   if (!name) {
@@ -39,6 +40,7 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
           name,
           location,
           staff,
+          seller,
           event_date: formData.get('event_date') as string || new Date().toISOString()
       })
       .select()
@@ -82,6 +84,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   const name = formData.get('name') as string
   const location = formData.get('location') as string
   const staff = formData.get('staff') as string
+  const seller = formData.get('seller') as string
   // These are the kits that SHOULD be assigned now
   const selectedKitIds = formData.getAll('kits') as string[] 
 
@@ -92,7 +95,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   // 1. Update basic info
   const { error: updateError } = await supabase
       .from('events')
-      .update({ name, location, staff })
+      .update({ name, location, staff, seller })
       .eq('id', id)
   
   if (updateError) return { error: 'Failed to update event details' }

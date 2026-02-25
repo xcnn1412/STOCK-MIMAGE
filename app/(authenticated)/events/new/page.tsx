@@ -5,14 +5,22 @@ export const revalidate = 0
 
 export default async function NewEventPage() {
   // Fetch kits that are not currently assigned to an event
-  // We assume 'event_id' is null for available kits
   const { data: availableKits } = await supabase
     .from('kits')
     .select('id, name')
     .is('event_id', null)
     .order('name')
 
+  // Fetch all user profiles for staff/seller selection
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, full_name, role')
+    .order('full_name')
+
   return (
-    <CreateEventForm availableKits={availableKits || []} />
+    <CreateEventForm
+      availableKits={availableKits || []}
+      profiles={profiles || []}
+    />
   )
 }

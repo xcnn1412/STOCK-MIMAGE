@@ -55,6 +55,15 @@ export type ActionType =
     | 'DELETE_KPI_EVALUATION'
     | 'DELETE_ALL_KPI_EVALUATIONS'
     | 'SUBMIT_SELF_EVALUATION'
+    // Cost Module
+    | 'IMPORT_EVENT_TO_COSTS'
+    | 'IMPORT_CLOSURE_TO_COSTS'
+    | 'CREATE_JOB_EVENT_MANUAL'
+    | 'UPDATE_JOB_EVENT'
+    | 'DELETE_JOB_EVENT'
+    | 'CREATE_COST_ITEM'
+    | 'UPDATE_COST_ITEM'
+    | 'DELETE_COST_ITEM'
 
 export async function logActivity(
     action: ActionType,
