@@ -23,8 +23,8 @@ import {
   Users, Briefcase, Palette, Wrench, ChevronDown
 } from 'lucide-react'
 import {
-  updateLeadStatus, updateLead, createActivity, createEventFromLead, deleteLead,
-  archiveLead, unarchiveLead
+  updateLeadStatus, updateLead, createActivity, deleteLead,
+  archiveLead, unarchiveLead, getLead
 } from '../actions'
 import { STATUS_CONFIG, ALL_STATUSES, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
@@ -215,16 +215,18 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
 
   const handleOpenEvent = async () => {
     setLoading(true)
-    const result = await createEventFromLead(lead.id)
+    // Re-check from server to prevent stale data
+    const { data: freshLead } = await getLead(lead.id)
+    if (freshLead?.event_id) {
+      const proceed = confirm('Lead นี้เปิดอีเวนต์แล้ว ต้องการสร้างอีเวนต์ใหม่หรือไม่?')
+      if (!proceed) {
+        setLoading(false)
+        router.refresh()
+        return
+      }
+    }
     setLoading(false)
-    if (result.error) {
-      alert(result.error)
-      return
-    }
-    router.refresh()
-    if (result.eventId) {
-      router.push(`/costs/events/${result.eventId}`)
-    }
+    router.push(`/events/new?from_crm=${lead.id}`)
   }
 
   const handleDelete = async () => {

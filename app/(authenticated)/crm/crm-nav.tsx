@@ -7,12 +7,12 @@ import { useLocale } from '@/lib/i18n/context'
 import type { Locale } from '@/lib/i18n'
 
 const tabMeta = [
-  { href: '/crm', key: 'kanban' as const, icon: LayoutDashboard, exact: true },
-  { href: '/crm/dashboard', key: 'dashboard' as const, icon: BarChart3, exact: false },
-  { href: '/crm/payments', key: 'payments' as const, icon: CalendarDays, exact: false },
-  { href: '/crm/download', key: 'download' as const, icon: Download, exact: false },
-  { href: '/crm/archive', key: 'archive' as const, icon: Archive, exact: false },
-  { href: '/crm/settings', key: 'settings' as const, icon: Settings, exact: false },
+  { href: '/crm', key: 'kanban' as const, icon: LayoutDashboard, exact: true, adminOnly: false },
+  { href: '/crm/dashboard', key: 'dashboard' as const, icon: BarChart3, exact: false, adminOnly: false },
+  { href: '/crm/payments', key: 'payments' as const, icon: CalendarDays, exact: false, adminOnly: false },
+  { href: '/crm/download', key: 'download' as const, icon: Download, exact: false, adminOnly: true },
+  { href: '/crm/archive', key: 'archive' as const, icon: Archive, exact: false, adminOnly: false },
+  { href: '/crm/settings', key: 'settings' as const, icon: Settings, exact: false, adminOnly: true },
 ]
 
 const labels = {
@@ -34,7 +34,7 @@ const labels = {
   },
 }
 
-export default function CrmNav() {
+export default function CrmNav({ role }: { role: string }) {
   const pathname = usePathname()
   const { locale, setLocale } = useLocale()
 
@@ -67,7 +67,9 @@ export default function CrmNav() {
 
         {/* Navigation Tabs */}
         <nav className="flex gap-1">
-          {tabMeta.map(tab => {
+          {tabMeta
+            .filter(tab => !tab.adminOnly || role === 'admin')
+            .map(tab => {
             const Icon = tab.icon
             const active = isActive(tab.href, tab.exact)
             const label = t[tab.key]

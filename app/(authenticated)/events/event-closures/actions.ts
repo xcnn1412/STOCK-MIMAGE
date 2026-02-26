@@ -82,6 +82,6 @@ export async function cleanupOldClosures() {
         details: `Deleted ${oldClosures.length} closures older than 60 days`
     }, undefined)
 
-    revalidatePath('/event-closures')
+    revalidatePath('/events/event-closures')
     return { success: true, count: oldClosures.length }
 }
