@@ -1,17 +1,11 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 
-function createServerSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
-  )
-}
+
 
 async function getSession() {
   const cookieStore = await cookies()
@@ -25,7 +19,7 @@ async function getSession() {
 // ============================================================================
 
 export async function getSystemUsers() {
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name, department')
@@ -41,7 +35,7 @@ export async function getSystemUsers() {
 // ============================================================================
 
 export async function getCrmSettings(category?: string) {
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   let query = supabase
     .from('crm_settings')
     .select('*')
@@ -60,7 +54,7 @@ export async function createCrmSetting(formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const category = formData.get('category') as string
   const value = formData.get('value') as string
   const label_th = formData.get('label_th') as string
@@ -85,7 +79,7 @@ export async function updateCrmSetting(id: string, formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const updates: Record<string, unknown> = {}
 
   const fields = ['value', 'label_th', 'label_en', 'color', 'description', 'category']
@@ -109,7 +103,7 @@ export async function deleteCrmSetting(id: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { error } = await supabase.from('crm_settings').delete().eq('id', id)
   if (error) return { error: error.message }
 
@@ -122,7 +116,7 @@ export async function toggleCrmSetting(id: string, is_active: boolean) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { error } = await supabase.from('crm_settings').update({ is_active }).eq('id', id)
   if (error) return { error: error.message }
 
@@ -143,7 +137,7 @@ export async function getLeads(filters?: {
   search?: string
   includeArchived?: boolean
 }) {
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   let query = supabase
     .from('crm_leads')
     .select('*')
@@ -178,7 +172,7 @@ export async function getLeads(filters?: {
 }
 
 export async function getArchivedLeads() {
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('crm_leads')
     .select('*')
@@ -190,7 +184,7 @@ export async function getArchivedLeads() {
 }
 
 export async function getLead(id: string) {
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('crm_leads')
     .select('*')
@@ -205,7 +199,7 @@ export async function createLead(formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const eventDate = formData.get('event_date') as string || null
   const eventEndDate = formData.get('event_end_date') as string || null
@@ -267,7 +261,7 @@ export async function updateLead(id: string, formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
 
   const textFields = [
@@ -336,7 +330,7 @@ export async function updateLeadStatus(id: string, newStatus: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   // Get current status
   const { data: lead } = await supabase.from('crm_leads').select('status').eq('id', id).single()
@@ -369,7 +363,7 @@ export async function deleteLead(id: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { error } = await supabase.from('crm_leads').delete().eq('id', id)
   if (error) return { error: error.message }
 
@@ -382,7 +376,7 @@ export async function archiveLead(id: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { error } = await supabase
     .from('crm_leads')
     .update({ archived_at: new Date().toISOString() })
@@ -407,7 +401,7 @@ export async function unarchiveLead(id: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { error } = await supabase
     .from('crm_leads')
     .update({ archived_at: null })
@@ -434,7 +428,7 @@ export async function unarchiveLead(id: string) {
 // ============================================================================
 
 export async function getActivities(leadId: string) {
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('crm_activities')
     .select('*, profiles:created_by(full_name)')
@@ -449,7 +443,7 @@ export async function createActivity(leadId: string, formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const activity_type = formData.get('activity_type') as string
   const description = formData.get('description') as string
 
@@ -478,7 +472,7 @@ export async function createEventFromLead(leadId: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   // Get lead data
   const { data: lead, error: leadErr } = await supabase

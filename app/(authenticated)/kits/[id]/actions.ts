@@ -1,17 +1,11 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 
-function createServerSupabase() {
-    return createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false } }
-    )
-}
+
 
 export async function addItemToKit(kitId: string, itemId: string, quantity: number = 1) {
   const cookieStore = await cookies()
@@ -20,7 +14,7 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
       return { error: 'Unauthorized: No active session' }
   }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   
   // Fetch details for logging
   const [ { data: kit }, { data: item }, { data: existingAssignment } ] = await Promise.all([
@@ -64,7 +58,7 @@ export async function removeItemFromKit(contentId: string, kitId: string) {
       return { error: 'Unauthorized: No active session' }
   }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   
   // Fetch details before delete
   const { data: content } = await supabase.from('kit_contents')
@@ -100,7 +94,7 @@ export async function updateKitItemQuantity(contentId: string, quantity: number)
         throw new Error('Unauthorized: No active session')
     }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
 
     // Fetch details before update
     const { data: content } = await supabase.from('kit_contents')
@@ -137,7 +131,7 @@ export async function updateKitDetails(kitId: string, name: string, description:
       return { error: 'Unauthorized: No active session' }
   }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   
   // Fetch old details for logging
   const { data: oldKit } = await supabase.from('kits').select('name, description').eq('id', kitId).single()

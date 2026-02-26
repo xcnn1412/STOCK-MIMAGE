@@ -1,18 +1,11 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database.types'
 
-function createServerSupabase() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
-  )
-}
 
 /** ดึง session user id + role */
 async function getSession() {
@@ -30,7 +23,7 @@ export async function createTemplate(formData: FormData) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Template ได้' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const name = formData.get('name') as string
   const mode = formData.get('mode') as string
@@ -68,7 +61,7 @@ export async function updateTemplate(id: string, formData: FormData) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Template ได้' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const name = formData.get('name') as string
   const mode = formData.get('mode') as string
@@ -101,7 +94,7 @@ export async function deleteTemplate(id: string) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Template ได้' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   // Check for linked assignments
   const { count } = await supabase
@@ -133,7 +126,7 @@ export async function createAssignment(formData: FormData) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถมอบหมาย KPI ได้' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const template_id = formData.get('template_id') as string | null
   const assigned_to = formData.get('assigned_to') as string
@@ -193,7 +186,7 @@ export async function updateAssignment(id: string, data: Record<string, unknown>
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Assignment ได้' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const { error } = await supabase.from('kpi_assignments').update(data as any).eq('id', id)
 
@@ -211,7 +204,7 @@ export async function deleteAssignment(id: string) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถจัดการ Assignment ได้' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   // Check for linked evaluations
   const { count } = await supabase
@@ -239,7 +232,7 @@ export async function updateAssignmentWeight(id: string, newWeight: number) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const weight = Math.max(0, Math.min(100, newWeight))
 
   // Fetch this assignment to get the person
@@ -290,7 +283,7 @@ export async function submitEvaluation(formData: FormData) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถประเมินผลได้' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const assignment_id = formData.get('assignment_id') as string
   const actual_value = Number(formData.get('actual_value')) || 0
@@ -347,7 +340,7 @@ export async function submitSelfEvaluation(formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'กรุณาเข้าสู่ระบบก่อน' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const assignment_id = formData.get('assignment_id') as string
   const actual_value = Number(formData.get('actual_value')) || 0
@@ -408,7 +401,7 @@ export async function updateEvaluation(id: string, data: Record<string, unknown>
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const { error } = await supabase.from('kpi_evaluations').update(data as any).eq('id', id)
 
@@ -428,7 +421,7 @@ export async function deleteEvaluation(id: string) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const { error } = await supabase.from('kpi_evaluations').delete().eq('id', id)
 
@@ -449,7 +442,7 @@ export async function deleteAllEvaluationsByAssignment(assignmentId: string) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const { count } = await supabase
     .from('kpi_evaluations')

@@ -1,16 +1,10 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 
-function createServerSupabase() {
-    return createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false } }
-    )
-}
+
 
 import { logActivity } from '@/lib/logger'
 
@@ -19,7 +13,7 @@ export async function updateTemplateStatus(itemId: string, status: string) {
     const userId = cookieStore.get('session_user_id')?.value
     if (!userId) return { error: 'Unauthorized' }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     // Fetch details for log
     const { data: item } = await supabase
         .from('kit_template_contents')
@@ -52,7 +46,7 @@ export async function addTemplateItem(templateId: string, name: string, quantity
     const userId = cookieStore.get('session_user_id')?.value
     if (!userId) return { error: 'Unauthorized' }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     // Fetch template name
     const { data: template } = await supabase.from('kit_templates').select('name').eq('id', templateId).single()
 
@@ -85,7 +79,7 @@ export async function removeTemplateItem(itemId: string, templateId: string) {
     const userId = cookieStore.get('session_user_id')?.value
     if (!userId) return { error: 'Unauthorized' }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     // Fetch details before delete
     const { data: item } = await supabase
         .from('kit_template_contents')
@@ -117,7 +111,7 @@ export async function updateTemplateDetails(templateId: string, formData: FormDa
     const userId = cookieStore.get('session_user_id')?.value
     if (!userId) return { error: 'Unauthorized' }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     const name = formData.get('name') as string
     const description = formData.get('description') as string
     

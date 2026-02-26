@@ -1,21 +1,12 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import type { ActionState } from '@/types'
 
-function createServerSupabase() {
-    return createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          auth: { persistSession: false }
-        }
-    )
-}
 
 export async function updateItem(id: string, prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
@@ -53,7 +44,7 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
       return { error: 'Maximum 4 images allowed.' }
   }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   
   // Validate 'in_use' status - item must be in a kit assigned to an event
   if (status === 'in_use') {
@@ -148,7 +139,7 @@ export async function deleteItem(id: string) {
         throw new Error('Unauthorized: No active session found')
     }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     
     // Fetch item details before deletion for logging
     const { data: item } = await supabase.from('items').select('name, image_url').eq('id', id).single()

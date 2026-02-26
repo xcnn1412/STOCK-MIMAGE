@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabaseServer as supabase } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import EventCostDetailView from './event-cost-detail-view'
 

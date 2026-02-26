@@ -1,23 +1,12 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import type { ActionState, Database } from '@/types'
 
-function createServerSupabase() {
-    return createClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          auth: {
-            persistSession: false
-          }
-        }
-    )
-}
 
 export async function createItem(prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
@@ -37,7 +26,7 @@ export async function createItem(prevState: ActionState, formData: FormData) {
   const images = formData.getAll('images') as File[]
   const validImages = images.filter(img => img.size > 0).slice(0, 4) // Limit to 4
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const imageUrls: string[] = []
   let uploadErrors: string[] = []
 

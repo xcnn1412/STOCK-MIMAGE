@@ -1,18 +1,11 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import { Database } from '@/types/database.types'
 
-function createServerSupabase() {
-    return createClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false } }
-    )
-}
 
 export async function cleanupOldClosures() {
     const cookieStore = await cookies()
@@ -21,7 +14,7 @@ export async function cleanupOldClosures() {
         return { error: 'Unauthorized' }
     }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     
     // Calculate cutoff date (60 days ago)
     const cutoffDate = new Date()

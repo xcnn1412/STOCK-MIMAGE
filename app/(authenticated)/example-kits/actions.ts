@@ -1,19 +1,12 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types'
 
-function createServerSupabase() {
-    return createClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false } }
-    )
-}
 
 export async function createTemplate(prevState: any, formData: FormData) {
   const cookieStore = await cookies()
@@ -49,7 +42,7 @@ export async function createTemplate(prevState: any, formData: FormData) {
 
   const items = Array.from(itemsMap.values()).filter(i => i.name !== '')
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   // Transaction-like insert
   const { data: template, error } = await supabase.from('kit_templates').insert({
@@ -94,7 +87,7 @@ export async function deleteTemplate(id: string) {
         throw new Error('Unauthorized: No active session')
     }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     
     // Fetch name for logging
     const { data: template } = await supabase.from('kit_templates').select('name').eq('id', id).single()

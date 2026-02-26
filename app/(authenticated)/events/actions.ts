@@ -1,19 +1,12 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import type { ActionState, KitContent, Item, Database } from '@/types'
 
-function createServerSupabase() {
-    return createClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false } }
-    )
-}
 
 export async function createEvent(prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
@@ -32,7 +25,7 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
       return { error: 'Event name is required' }
   }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   
   const { data: event, error: eventError } = await supabase
       .from('events')
@@ -90,7 +83,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 
   if (!name) return { error: 'Event name is required' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   // 1. Update basic info
   const { error: updateError } = await supabase
@@ -168,7 +161,7 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
          throw new Error('Unauthorized: No active session')
      }
 
-     const supabase = createServerSupabase()
+     const supabase = createServiceClient()
 
      // Fetch event details before processing
      const { data: event } = await supabase

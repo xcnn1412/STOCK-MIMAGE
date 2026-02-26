@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabaseServer as supabase } from '@/lib/supabase-server'
 import CheckFlow from './check-flow'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
