@@ -12,5 +12,5 @@ export default async function CostsEventsPage() {
     `)
     .order('event_date', { ascending: false })
 
-  return <EventsListView jobEvents={jobEvents || []} />
+  return <EventsListView jobEvents={(jobEvents || []) as any} />
 }

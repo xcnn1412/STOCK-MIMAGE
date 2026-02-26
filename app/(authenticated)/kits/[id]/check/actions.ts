@@ -1,13 +1,23 @@
 'use server'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
+
+function createServerSupabase() {
+    return createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { auth: { persistSession: false } }
+    )
+}
 
 export async function checkoutItems(eventId: string, kitId: string, itemIds: string[]) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
 
   if (!userId) return { error: "Unauthorized" }
+
+  const supabase = createServerSupabase()
 
   // 1. Update items status to 'in_use'
   const { error: updateError } = await supabase
@@ -40,7 +50,9 @@ export async function checkinItem(eventId: string, kitId: string, itemId: string
 
     if (!userId) return { error: "Unauthorized" }
 
-    // Termine new status
+    const supabase = createServerSupabase()
+
+    // Determine new status
     let newStatus = 'available'
     if (condition === 'damaged') newStatus = 'maintenance'
     if (condition === 'lost') newStatus = 'lost'

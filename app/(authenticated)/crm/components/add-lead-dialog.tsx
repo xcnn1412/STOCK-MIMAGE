@@ -259,7 +259,7 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
                   <Input id={`installment_${n}`} name={`installment_${n}`} type="number" placeholder="0" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor={`installment_${n}_date`} className="text-sm">{tc.addDialog?.dueDate || 'วันนัดชำระ'}</Label>
+                  <Label htmlFor={`installment_${n}_date`} className="text-sm">{locale === 'th' ? 'วันนัดชำระ' : 'Due Date'}</Label>
                   <Input id={`installment_${n}_date`} name={`installment_${n}_date`} type="date" />
                 </div>
               </div>
