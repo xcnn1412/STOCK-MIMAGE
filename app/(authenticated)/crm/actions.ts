@@ -158,7 +158,11 @@ export async function getLeads(filters?: {
   if (filters?.source) query = query.eq('lead_source', filters.source)
   if (filters?.is_returning !== undefined) query = query.eq('is_returning', filters.is_returning)
   if (filters?.search) {
-    query = query.or(`customer_name.ilike.%${filters.search}%,customer_line.ilike.%${filters.search}%`)
+    // Sanitize: strip PostgREST special chars to prevent filter manipulation
+    const sanitized = filters.search.replace(/[.,()]/g, '').trim()
+    if (sanitized) {
+      query = query.or(`customer_name.ilike.%${sanitized}%,customer_line.ilike.%${sanitized}%`)
+    }
   }
   if (filters?.month) {
     const [year, month] = filters.month.split('-')

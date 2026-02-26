@@ -1,9 +1,11 @@
 'use server'
 
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
+import bcrypt from 'bcryptjs'
 import { logActivity } from '@/lib/logger'
+import { checkRateLimit } from '@/lib/rate-limit'
 import type { ActionState, Database } from '@/types'
 
 function getSupabase() {
@@ -47,6 +49,14 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
       return { error: 'Selfie is required for verification' }
   }
 
+  // Rate limiting: 5 attempts per 15 minutes per IP+phone
+  const headersList = await headers()
+  const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  const rateLimitResult = checkRateLimit(`${ip}:${phone}`)
+  if (!rateLimitResult.allowed) {
+      return { error: `พยายามเข้าสู่ระบบมากเกินไป กรุณารอ ${rateLimitResult.retryAfterMinutes} นาที` }
+  }
+
   const supabase = getSupabase()
 
   try {
@@ -61,7 +71,8 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
        return { error: 'Phone number not found' }
     }
 
-    if (user.pin !== pin) {
+    const pinValid = await bcrypt.compare(pin, user.pin || '')
+    if (!pinValid) {
         return { error: 'Invalid PIN' }
     }
 
@@ -121,12 +132,19 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
     // 4. Set Session
     const cookieStore = await cookies()
     const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+      expires,
+      path: '/'
+    }
     
-    await cookieStore.set('session_user_id', user.id, { httpOnly: true, expires, path: '/' })
-    await cookieStore.set('session_role', user.role, { httpOnly: true, expires, path: '/' })
-    await cookieStore.set('session_id', sessionId, { httpOnly: true, expires, path: '/' })
+    await cookieStore.set('session_user_id', user.id, cookieOptions)
+    await cookieStore.set('session_role', user.role, cookieOptions)
+    await cookieStore.set('session_id', sessionId, cookieOptions)
     // Store selfie path to delete on logout
-    await cookieStore.set('session_selfie_path', selfiePath, { httpOnly: true, expires, path: '/' })
+    await cookieStore.set('session_selfie_path', selfiePath, cookieOptions)
 
   } catch (err: unknown) {
     console.error('Unexpected error:', err)
@@ -157,10 +175,12 @@ export async function registerUser(prevState: ActionState, formData: FormData) {
         return { error: 'Phone number already registered' }
     }
 
+    const hashedPin = await bcrypt.hash(pin, 12)
+
     const { data: newUser, error } = await supabase.from('profiles').insert({
         full_name: name,
         phone,
-        pin,
+        pin: hashedPin,
         role: 'staff', // Default role
         is_approved: false
     }).select().single()

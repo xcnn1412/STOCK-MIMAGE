@@ -38,7 +38,11 @@ export async function createTemplate(formData: FormData) {
   const default_target = Number(formData.get('default_target')) || 0
   const target_unit = (formData.get('target_unit') as string) || ''
   const configRaw = formData.get('config') as string
-  const config = configRaw ? JSON.parse(configRaw) : {}
+  let config: Record<string, unknown> = {}
+  try {
+    config = configRaw ? JSON.parse(configRaw) : {}
+    if (typeof config !== 'object' || config === null) config = {}
+  } catch { config = {} }
 
   const { error } = await supabase.from('kpi_templates').insert({
     name,
@@ -72,7 +76,11 @@ export async function updateTemplate(id: string, formData: FormData) {
   const default_target = Number(formData.get('default_target')) || 0
   const target_unit = (formData.get('target_unit') as string) || ''
   const configRaw = formData.get('config') as string
-  const config = configRaw ? JSON.parse(configRaw) : {}
+  let config: Record<string, unknown> = {}
+  try {
+    config = configRaw ? JSON.parse(configRaw) : {}
+    if (typeof config !== 'object' || config === null) config = {}
+  } catch { config = {} }
 
   const { error } = await supabase
     .from('kpi_templates')
@@ -139,7 +147,11 @@ export async function createAssignment(formData: FormData) {
   const custom_name = formData.get('custom_name') as string | null
   const custom_mode = formData.get('custom_mode') as string | null
   const custom_config_raw = formData.get('custom_config') as string | null
-  const custom_config = custom_config_raw ? JSON.parse(custom_config_raw) : null
+  let custom_config: Record<string, unknown> | null = null
+  try {
+    custom_config = custom_config_raw ? JSON.parse(custom_config_raw) : null
+    if (custom_config && (typeof custom_config !== 'object')) custom_config = null
+  } catch { custom_config = null }
 
   const weight = Math.max(0, Math.min(100, Number(formData.get('weight')) || 0))
 

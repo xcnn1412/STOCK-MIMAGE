@@ -27,7 +27,7 @@ export default async function CostsReportsPage() {
     .from('job_cost_events')
     .select('source_event_id')
 
-  const importedIds = (imported || []).map(e => e.source_event_id).filter(Boolean)
+  const importedIds = (imported || []).map(e => e.source_event_id).filter((id): id is string => id !== null)
 
   return (
     <ReportsView

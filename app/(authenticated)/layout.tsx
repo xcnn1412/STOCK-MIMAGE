@@ -1,7 +1,15 @@
 import Navbar from '@/components/navbar'
 import KpiLocaleWrapper from '@/components/kpi-locale-wrapper'
 import { cookies } from 'next/headers'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
+
+function createServerSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false } }
+  )
+}
 
 export default async function AuthenticatedLayout({
   children,
@@ -9,18 +17,21 @@ export default async function AuthenticatedLayout({
   children: React.ReactNode
 }) {
   const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value
   const userId = cookieStore.get('session_user_id')?.value
 
-  // Fetch user's allowed modules
+  // Fetch role and modules from DB (single query — source of truth)
+  let role: string | undefined
   let allowedModules = ['stock']
+
   if (userId) {
+    const supabase = createServerSupabase()
     const { data: profile } = await supabase
       .from('profiles')
-      .select('allowed_modules')
+      .select('role, allowed_modules')
       .eq('id', userId)
       .single()
 
+    role = (profile as Record<string, unknown> | null)?.role as string | undefined
     const modules = (profile as Record<string, unknown> | null)?.allowed_modules
     if (modules && Array.isArray(modules)) {
       allowedModules = modules as string[]

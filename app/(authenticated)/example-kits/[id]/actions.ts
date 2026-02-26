@@ -2,6 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
+import { cookies } from 'next/headers'
 
 function createServerSupabase() {
     return createClient(
@@ -14,8 +15,11 @@ function createServerSupabase() {
 import { logActivity } from '@/lib/logger'
 
 export async function updateTemplateStatus(itemId: string, status: string) {
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
+    if (!userId) return { error: 'Unauthorized' }
+
     const supabase = createServerSupabase()
-    
     // Fetch details for log
     const { data: item } = await supabase
         .from('kit_template_contents')
@@ -44,8 +48,11 @@ export async function updateTemplateStatus(itemId: string, status: string) {
 }
 
 export async function addTemplateItem(templateId: string, name: string, quantity: number) {
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
+    if (!userId) return { error: 'Unauthorized' }
+
     const supabase = createServerSupabase()
-    
     // Fetch template name
     const { data: template } = await supabase.from('kit_templates').select('name').eq('id', templateId).single()
 
@@ -74,8 +81,11 @@ export async function addTemplateItem(templateId: string, name: string, quantity
 }
 
 export async function removeTemplateItem(itemId: string, templateId: string) {
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
+    if (!userId) return { error: 'Unauthorized' }
+
     const supabase = createServerSupabase()
-    
     // Fetch details before delete
     const { data: item } = await supabase
         .from('kit_template_contents')
@@ -103,6 +113,10 @@ export async function removeTemplateItem(itemId: string, templateId: string) {
 }
 
 export async function updateTemplateDetails(templateId: string, formData: FormData) {
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
+    if (!userId) return { error: 'Unauthorized' }
+
     const supabase = createServerSupabase()
     const name = formData.get('name') as string
     const description = formData.get('description') as string

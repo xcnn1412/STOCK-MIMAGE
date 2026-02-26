@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useLocale } from '@/lib/i18n/context'
-import * as XLSX from 'xlsx'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -186,8 +185,7 @@ export default function DownloadView({ templates, assignments, evaluations, isAd
   }
 
   const exportAllExcel = () => {
-    const wb = XLSX.utils.book_new()
-
+    // Export as CSV with BOM (opens correctly in Excel with Thai support)
     const headers = [
       locale === 'th' ? 'ชื่อ KPI' : 'KPI Name',
       locale === 'th' ? 'โหมด' : 'Mode',
@@ -209,36 +207,26 @@ export default function DownloadView({ templates, assignments, evaluations, isAd
       const target = Number(a?.target) || 0
       const actual = Number(ev.actual_value) || 0
       const diff = target > 0 ? actual - target : 0
-      const achPct = ev.achievement_pct != null ? Number(ev.achievement_pct) : (target > 0 ? Math.round((actual / target) * 1000) / 10 : 0)
+      const achPct = ev.achievement_pct != null ? String(ev.achievement_pct) : (target > 0 ? ((actual / target) * 100).toFixed(1) : '0')
       return [
         a?.kpi_templates?.name || a?.custom_name || '',
         a?.kpi_templates?.mode || a?.custom_mode || '',
         a?.profiles?.full_name || '',
         a?.profiles?.department || '',
-        target,
+        String(target),
         a?.target_unit || '',
         a?.cycle || '',
         a?.status || '',
         ev.evaluation_date || '',
         ev.period_label || '',
-        actual,
-        diff,
+        String(actual),
+        String(diff),
         achPct,
         ev.comment || '',
       ]
     })
 
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
-    ws['!cols'] = [
-      { wch: 25 }, { wch: 12 }, { wch: 22 }, { wch: 15 },
-      { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 10 },
-      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 },
-      { wch: 30 },
-    ]
-    ws['!autofilter'] = { ref: `A1:M${rows.length + 1}` }
-    XLSX.utils.book_append_sheet(wb, ws, 'KPI Report')
-
-    XLSX.writeFile(wb, `kpi_report_${today()}.xlsx`)
+    downloadCsv(`kpi_report_${today()}.csv`, toCsv(headers, rows))
     flash('all-excel')
   }
 

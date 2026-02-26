@@ -7,7 +7,7 @@ export default async function CostsImportPage() {
   // ดึง Events ที่ยังเปิดอยู่
   const { data: events } = await supabase
     .from('events')
-    .select('id, name, event_date, location, staff, seller, status')
+    .select('id, name, event_date, location, staff, status')
     .order('event_date', { ascending: false })
 
   // ดึง Event Closures (งานที่ปิดแล้ว)
@@ -25,9 +25,9 @@ export default async function CostsImportPage() {
 
   return (
     <ImportView
-      events={events || []}
+      events={(events || []) as any}
       closures={closures || []}
-      importedEventIds={Array.from(importedEventIds)}
+      importedEventIds={Array.from(importedEventIds) as string[]}
     />
   )
 }
