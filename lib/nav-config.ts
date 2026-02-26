@@ -1,8 +1,8 @@
-import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, ClipboardList } from 'lucide-react'
+import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, ClipboardList, Banknote } from 'lucide-react'
 
-export type ModuleKey = 'crm' | 'events' | 'stock' | 'checkout' | 'costs' | 'kpi' | 'admin'
+export type ModuleKey = 'crm' | 'events' | 'stock' | 'checkout' | 'costs' | 'finance' | 'kpi' | 'admin'
 
-export const ALL_MODULES: ModuleKey[] = ['crm', 'events', 'stock', 'checkout', 'costs', 'kpi']
+export const ALL_MODULES: ModuleKey[] = ['crm', 'events', 'stock', 'checkout', 'costs', 'finance', 'kpi']
 
 export interface NavItem {
   href: string
@@ -57,6 +57,13 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: DollarSign,
     items: [
       { href: '/costs', icon: DollarSign, labelKey: 'costs' },
+    ],
+  },
+  {
+    key: 'finance',
+    icon: Banknote,
+    items: [
+      { href: '/finance', icon: Banknote, labelKey: 'finance' },
     ],
   },
   {

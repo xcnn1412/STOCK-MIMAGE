@@ -8,6 +8,7 @@ const MODULE_ROUTES: Record<string, string[]> = {
   events: ['/events'],
   kpi: ['/kpi'],
   costs: ['/costs'],
+  finance: ['/finance'],
   admin: ['/logs', '/users'],
 }
 

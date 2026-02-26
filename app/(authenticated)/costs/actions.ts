@@ -151,8 +151,9 @@ export async function updateJobEvent(id: string, data: {
 
 /** ลบ Job Event + cost items ทั้งหมด (CASCADE) */
 export async function deleteJobEvent(id: string) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
+  if (role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถลบได้' }
 
   const supabase = createServiceClient()
 
@@ -191,6 +192,7 @@ export async function createCostItem(formData: FormData) {
   const supabase = createServiceClient()
 
   const jobEventId = formData.get('job_event_id') as string
+  const title = formData.get('title') as string || null
   const category = formData.get('category') as string
   const description = formData.get('description') as string
   const amount = Number(formData.get('amount')) || 0
@@ -207,6 +209,7 @@ export async function createCostItem(formData: FormData) {
     .from('job_cost_items')
     .insert({
       job_event_id: jobEventId,
+      title,
       category,
       description,
       amount,
@@ -236,6 +239,7 @@ export async function createCostItem(formData: FormData) {
 
 /** อัปเดตรายการต้นทุน */
 export async function updateCostItem(id: string, data: {
+  title?: string | null
   category?: string
   description?: string
   amount?: number
@@ -248,8 +252,9 @@ export async function updateCostItem(id: string, data: {
   cost_date?: string | null
   notes?: string | null
 }) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
+  if (role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถแก้ไขได้' }
 
   const supabase = createServiceClient()
 
@@ -273,8 +278,9 @@ export async function updateCostItem(id: string, data: {
 
 /** ลบรายการต้นทุน */
 export async function deleteCostItem(id: string) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
+  if (role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถลบได้' }
 
   const supabase = createServiceClient()
 

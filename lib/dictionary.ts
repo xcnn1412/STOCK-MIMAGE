@@ -17,6 +17,7 @@ export const dictionary = {
       crmDashboard: 'Dashboard',
       crmSettings: 'Settings',
       checkout: 'Checkout',
+      finance: 'Finance',
     },
     navGroups: {
       crm: 'CRM',
@@ -25,6 +26,7 @@ export const dictionary = {
       checkout: 'Checkout',
       costs: 'Costs',
       kpi: 'KPI',
+      finance: 'Finance',
       admin: 'Admin',
     },
     common: {
@@ -248,6 +250,7 @@ export const dictionary = {
       crmDashboard: 'แดชบอร์ด',
       crmSettings: 'ตั้งค่า',
       checkout: 'เบิก',
+      finance: 'เบิกเงิน',
     },
     navGroups: {
       crm: 'CRM',
@@ -256,6 +259,7 @@ export const dictionary = {
       checkout: 'เบิก',
       costs: 'ต้นทุน',
       kpi: 'ประเมิน KPI',
+      finance: 'เบิกเงิน',
       admin: 'ผู้ดูแล',
     },
     common: {

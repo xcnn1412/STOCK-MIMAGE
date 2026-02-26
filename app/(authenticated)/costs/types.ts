@@ -31,3 +31,65 @@ export function getCategoryLabel(category: string, locale: 'th' | 'en' = 'th') {
 export function getCategoryColor(category: string) {
   return COST_CATEGORIES.find(c => c.value === category)?.color || '#6b7280'
 }
+
+// ============================================================================
+// Expense Claims (ระบบเบิกเงิน / Finance)
+// ============================================================================
+
+/** สถานะใบเบิก */
+export const CLAIM_STATUSES = [
+  { value: 'pending', label: 'Pending', labelTh: 'รออนุมัติ', color: '#f59e0b' },
+  { value: 'approved', label: 'Approved', labelTh: 'อนุมัติแล้ว', color: '#22c55e' },
+  { value: 'rejected', label: 'Rejected', labelTh: 'ปฏิเสธ', color: '#ef4444' },
+] as const
+
+export type ClaimStatus = typeof CLAIM_STATUSES[number]['value']
+
+/** ประเภทใบเบิก */
+export const CLAIM_TYPES = [
+  { value: 'event', label: 'Event', labelTh: 'เบิกงานอีเวนต์' },
+  { value: 'other', label: 'Other', labelTh: 'เบิกค่าอื่นๆ' },
+] as const
+
+export type ClaimType = typeof CLAIM_TYPES[number]['value']
+
+/** Type สำหรับ expense_claims row */
+export interface ExpenseClaim {
+  id: string
+  claim_number: string
+  claim_type: ClaimType
+  job_event_id: string | null
+  title: string
+  description: string | null
+  category: string
+  amount: number
+  unit_price: number
+  unit: string
+  quantity: number
+  total_amount: number
+  vat_mode: string
+  include_vat: boolean
+  withholding_tax_rate: number
+  receipt_urls: string[]
+  status: ClaimStatus
+  submitted_by: string | null
+  approved_by: string | null
+  approved_at: string | null
+  reject_reason: string | null
+  expense_date: string
+  notes: string | null
+  created_at: string
+  // Joined
+  submitter?: { id: string; full_name: string } | null
+  approver?: { id: string; full_name: string } | null
+  job_event?: { id: string; event_name: string } | null
+}
+
+export function getClaimStatusLabel(status: string, locale: 'th' | 'en' = 'th') {
+  const s = CLAIM_STATUSES.find(c => c.value === status)
+  return locale === 'th' ? (s?.labelTh || status) : (s?.label || status)
+}
+
+export function getClaimStatusColor(status: string) {
+  return CLAIM_STATUSES.find(c => c.value === status)?.color || '#6b7280'
+}

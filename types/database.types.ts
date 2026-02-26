@@ -671,6 +671,7 @@ export interface Database {
         Row: {
           id: string
           job_event_id: string
+          title: string | null
           category: string
           description: string | null
           amount: number
@@ -688,6 +689,7 @@ export interface Database {
         Insert: {
           id?: string
           job_event_id: string
+          title?: string | null
           category: string
           description?: string | null
           amount?: number
@@ -705,6 +707,7 @@ export interface Database {
         Update: {
           id?: string
           job_event_id?: string
+          title?: string | null
           category?: string
           description?: string | null
           amount?: number
