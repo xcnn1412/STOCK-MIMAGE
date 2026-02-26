@@ -76,6 +76,11 @@ export type ActionType =
     | 'DELETE_CRM_SETTING'
     | 'ARCHIVE_CRM_LEAD'
     | 'UNARCHIVE_CRM_LEAD'
+    // Finance Module (เบิกเงิน)
+    | 'CREATE_EXPENSE_CLAIM'
+    | 'APPROVE_EXPENSE_CLAIM'
+    | 'REJECT_EXPENSE_CLAIM'
+    | 'DELETE_EXPENSE_CLAIM'
 
 export async function logActivity(
     action: ActionType,

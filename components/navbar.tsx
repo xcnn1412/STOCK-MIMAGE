@@ -30,6 +30,7 @@ const moduleAccents: Record<string, { from: string; to: string; iconBg: string; 
     checkout: { from: 'from-rose-500', to: 'to-pink-600', iconBg: 'bg-rose-50 dark:bg-rose-950/30', activeBg: 'bg-rose-50/60 dark:bg-rose-950/20' },
     kpi: { from: 'from-amber-500', to: 'to-orange-600', iconBg: 'bg-amber-50 dark:bg-amber-950/30', activeBg: 'bg-amber-50/60 dark:bg-amber-950/20' },
     costs: { from: 'from-emerald-500', to: 'to-teal-600', iconBg: 'bg-emerald-50 dark:bg-emerald-950/30', activeBg: 'bg-emerald-50/60 dark:bg-emerald-950/20' },
+    finance: { from: 'from-teal-500', to: 'to-cyan-600', iconBg: 'bg-teal-50 dark:bg-teal-950/30', activeBg: 'bg-teal-50/60 dark:bg-teal-950/20' },
     crm: { from: 'from-blue-500', to: 'to-indigo-600', iconBg: 'bg-blue-50 dark:bg-blue-950/30', activeBg: 'bg-blue-50/60 dark:bg-blue-950/20' },
     admin: { from: 'from-purple-500', to: 'to-violet-600', iconBg: 'bg-purple-50 dark:bg-purple-950/30', activeBg: 'bg-purple-50/60 dark:bg-purple-950/20' },
 }

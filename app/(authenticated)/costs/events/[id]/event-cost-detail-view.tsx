@@ -12,20 +12,36 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   DollarSign, Plus, Trash2, Edit3, CalendarDays, MapPin,
   Check, ArrowLeft, Users, Car, Package, UtensilsCrossed,
-  Building2, Megaphone, MoreHorizontal, Receipt, Percent
+  Building2, Megaphone, MoreHorizontal, Receipt, Percent,
+  Clock, CheckCircle2, XCircle, Banknote, ExternalLink, RefreshCw
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLocale } from '@/lib/i18n/context'
 import { createCostItem, updateCostItem, deleteCostItem, updateJobEvent } from '../../actions'
-import { COST_CATEGORIES, getCategoryColor, getCategoryLabel } from '../../types'
+import { recreateCostItemFromClaim } from '@/app/(authenticated)/finance/actions'
+import { getCategoryColor, getCategoryLabel } from '../../types'
+import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
 import CostSummaryDashboard from '../../components/cost-summary-dashboard'
-import { getActiveStaff, getStaffDisplayName } from '@/database/staff-members'
-import { getActiveVehicles, getVehicleDisplayName } from '@/database/vehicles'
 import type { BarSegment } from '../../components/cost-summary-dashboard'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
+
+interface ExpenseClaimRow {
+  id: string
+  claim_number: string
+  title: string
+  amount: number
+  quantity: number
+  total_amount: number
+  status: string
+  category: string
+  expense_date: string
+  claim_type: string
+  reject_reason: string | null
+  submitter?: { id: string; full_name: string } | null
+}
 
 const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 const fmtDec = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -64,7 +80,7 @@ function calcTax(amount: number, vatMode: string, whtRate: number) {
   return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
 }
 
-export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWithItems }) {
+export default function EventCostDetailView({ jobEvent, expenseClaims = [], categories = [], categoryItems = [], staffProfiles = [] }: { jobEvent: JobEventWithItems; expenseClaims?: ExpenseClaimRow[]; categories?: FinanceCategory[]; categoryItems?: CategoryItem[]; staffProfiles?: StaffProfile[] }) {
   const [isPending, startTransition] = useTransition()
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingRevenue, setEditingRevenue] = useState(false)
@@ -128,6 +144,7 @@ export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWi
     const form = new FormData(e.currentTarget)
     startTransition(async () => {
       await updateCostItem(editingItem.id, {
+        title: (form.get('title') as string) || null,
         category: form.get('category') as string,
         description: form.get('description') as string,
         amount: Number(form.get('amount') || 0),
@@ -364,11 +381,11 @@ export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWi
         costVat={totalVat}
         costWht={totalWht}
         costNetPayable={totalNetPayable}
-        barSegments={COST_CATEGORIES.map(cat => {
+        barSegments={categories.map(cat => {
           const catCost = costByCategory[cat.value]?.total || 0
           if (!catCost) return null
           return {
-            label: isEn ? cat.label : cat.labelTh,
+            label: isEn ? cat.label : cat.label_th,
             amount: catCost,
             color: cat.color,
             icon: categoryIcons[cat.value] || MoreHorizontal,
@@ -419,7 +436,7 @@ export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWi
                   </tr>
                 </thead>
                 <tbody>
-                  {COST_CATEGORIES.map(cat => {
+                  {categories.map(cat => {
                     const group = costByCategory[cat.value]
                     if (!group) return null
                     return (
@@ -430,7 +447,7 @@ export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWi
                             <div className="flex items-center gap-2">
                               <span className="w-1 h-4 rounded-full" style={{ backgroundColor: cat.color }} />
                               <span className="text-xs font-bold uppercase tracking-wider" style={{ color: cat.color }}>
-                                {isEn ? cat.label : cat.labelTh}
+                                {isEn ? cat.label : cat.label_th}
                               </span>
                             </div>
                           </td>
@@ -462,7 +479,35 @@ export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWi
                                 ) : ''}
                               </td>
                               <td className="py-3 px-4 text-right font-mono font-semibold">{fmtDec(tax.netPayable)}</td>
-                              <td className="py-3 px-4 text-xs text-muted-foreground max-w-[140px] truncate">{item.notes || ''}</td>
+                              <td className="py-3 px-4 text-xs max-w-[160px]">
+                                {(() => {
+                                  if (!item.notes) return <span className="text-muted-foreground">{''}  </span>
+                                  // Format: "EXP-202602-001::uuid"
+                                  const match = item.notes.match(/^(EXP-\d{6}-\d{3})::(.+)$/)
+                                  if (match) {
+                                    return (
+                                      <a
+                                        href={`/finance/${match[2]}`}
+                                        className="inline-flex items-center gap-1 text-emerald-600 hover:text-emerald-700 hover:underline transition-colors font-medium"
+                                      >
+                                        <Banknote className="h-3 w-3" />
+                                        {match[1]}
+                                      </a>
+                                    )
+                                  }
+                                  // Fallback: old format "จากใบเบิก EXP-XXX"
+                                  const oldMatch = item.notes.match(/EXP-\d{6}-\d{3}/)
+                                  if (oldMatch) {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
+                                        <Banknote className="h-3 w-3" />
+                                        {oldMatch[0]}
+                                      </span>
+                                    )
+                                  }
+                                  return <span className="text-muted-foreground truncate">{item.notes}</span>
+                                })()}
+                              </td>
                               <td className="py-3 px-2">
                                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                   <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingItem(item)}>
@@ -512,6 +557,109 @@ export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWi
         </CardContent>
       </Card>
 
+      {/* Expense Claims from Finance (ใบเบิกเงิน) */}
+      {expenseClaims.length > 0 && (
+        <Card className="border-0 shadow-sm overflow-hidden">
+          <CardHeader className="flex flex-row items-center justify-between bg-emerald-50/50 dark:bg-emerald-950/20">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Banknote className="h-4 w-4 text-emerald-500" />
+                {isEn ? 'Expense Claims' : 'ใบเบิกเงิน'}
+              </CardTitle>
+              <CardDescription>
+                {expenseClaims.length} {isEn ? 'claims linked to this event' : 'รายการที่ผูกกับอีเวนต์นี้'}
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {expenseClaims.map(claim => {
+                const statusConfig = {
+                  pending: { icon: Clock, color: '#f59e0b', label: isEn ? 'Pending' : 'รออนุมัติ', bg: 'bg-amber-50 dark:bg-amber-950/20' },
+                  approved: { icon: CheckCircle2, color: '#22c55e', label: isEn ? 'Approved' : 'อนุมัติแล้ว', bg: 'bg-emerald-50 dark:bg-emerald-950/20' },
+                  rejected: { icon: XCircle, color: '#ef4444', label: isEn ? 'Rejected' : 'ปฏิเสธ', bg: 'bg-red-50 dark:bg-red-950/20' },
+                }[claim.status] || { icon: Clock, color: '#6b7280', label: claim.status, bg: '' }
+                const StatusIcon = statusConfig.icon
+                // เช็คว่ามี cost item ที่สร้างจากใบเบิกนี้หรือยัง
+                const hasCostItem = costItems.some(ci => ci.notes?.includes(claim.claim_number))
+                return (
+                  <div key={claim.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-center justify-center h-8 w-8 rounded-lg shrink-0" style={{ backgroundColor: `${statusConfig.color}15` }}>
+                        <StatusIcon className="h-4 w-4" style={{ color: statusConfig.color }} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-zinc-400">{claim.claim_number}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-white" style={{ backgroundColor: statusConfig.color }}>
+                            {statusConfig.label}
+                          </span>
+                          {claim.status === 'approved' && !hasCostItem && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-amber-700 bg-amber-100 dark:bg-amber-900/30">
+                              {isEn ? 'No cost item' : 'ยังไม่มีรายการต้นทุน'}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate mt-0.5">{claim.title}</p>
+                        <p className="text-xs text-zinc-500">
+                          {claim.submitter?.full_name || '—'} • {formatDate(claim.expense_date)}
+                        </p>
+                        {claim.status === 'rejected' && claim.reject_reason && (
+                          <p className="text-xs text-red-500 mt-0.5">❌ {claim.reject_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-4">
+                      {claim.status === 'approved' && !hasCostItem && (
+                        <button
+                          onClick={() => {
+                            startTransition(async () => {
+                              await recreateCostItemFromClaim(claim.id, jobEvent.id)
+                              router.refresh()
+                            })
+                          }}
+                          disabled={isPending}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 transition-colors disabled:opacity-50"
+                          title={isEn ? 'Recreate cost item' : 'สร้างรายการต้นทุนใหม่'}
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          {isEn ? 'Recreate' : 'สร้างใหม่'}
+                        </button>
+                      )}
+                      <span className="text-sm font-bold font-mono text-zinc-900 dark:text-zinc-100">
+                        ฿{fmt(claim.total_amount || (claim.amount * claim.quantity))}
+                      </span>
+                      <a
+                        href={`/finance/${claim.id}`}
+                        className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                        title={isEn ? 'View in Finance' : 'ดูในเบิกเงิน'}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {/* Summary */}
+            <div className="border-t border-zinc-200 dark:border-zinc-700 px-5 py-3 bg-zinc-50/80 dark:bg-zinc-900/50 flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                {isEn ? 'Pending claims total' : 'ยอดรววรออนุมัติ'}:
+                <span className="font-bold text-amber-600 ml-1">
+                  ฿{fmt(expenseClaims.filter(c => c.status === 'pending').reduce((s, c) => s + (c.total_amount || c.amount * c.quantity), 0))}
+                </span>
+              </span>
+              <span className="text-muted-foreground">
+                {isEn ? 'Approved total' : 'ยอดอนุมัติแล้ว'}:
+                <span className="font-bold text-emerald-600 ml-1">
+                  ฿{fmt(expenseClaims.filter(c => c.status === 'approved').reduce((s, c) => s + (c.total_amount || c.amount * c.quantity), 0))}
+                </span>
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Add Cost Dialog */}
       <CostFormDialog
         open={showAddForm}
@@ -521,6 +669,9 @@ export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWi
         isEn={isEn}
         title={isEn ? 'Add Cost Item' : 'เพิ่มรายการค่าใช้จ่าย'}
         submitLabel={isEn ? 'Add' : 'เพิ่ม'}
+        categories={categories}
+        categoryItems={categoryItems}
+        staffProfiles={staffProfiles}
       />
 
       {/* Edit Cost Dialog */}
@@ -533,7 +684,11 @@ export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWi
           isEn={isEn}
           title={isEn ? 'Edit Cost Item' : 'แก้ไขรายการค่าใช้จ่าย'}
           submitLabel={isEn ? 'Update' : 'อัปเดต'}
+          categories={categories}
+          categoryItems={categoryItems}
+          staffProfiles={staffProfiles}
           defaultValues={{
+            title: (editingItem as any).title || '',
             category: editingItem.category,
             description: editingItem.description || '',
             amount: String(editingItem.amount),
@@ -558,7 +713,7 @@ export default function EventCostDetailView({ jobEvent }: { jobEvent: JobEventWi
 
 function CostFormDialog({
   open, onClose, onSubmit, isPending, isEn, title, submitLabel,
-  defaultValues,
+  defaultValues, categories = [], categoryItems = [], staffProfiles = [],
 }: {
   open: boolean
   onClose: () => void
@@ -567,7 +722,11 @@ function CostFormDialog({
   isEn: boolean
   title: string
   submitLabel: string
+  categories?: FinanceCategory[]
+  categoryItems?: CategoryItem[]
+  staffProfiles?: StaffProfile[]
   defaultValues?: {
+    title?: string
     category?: string
     description?: string
     amount?: string
@@ -588,9 +747,6 @@ function CostFormDialog({
   const [vatMode, setVatMode] = useState(defaultValues?.vat_mode || (defaultValues?.include_vat ? 'excluded' : 'none'))
   const [whtRate, setWhtRate] = useState(defaultValues?.withholding_tax_rate || '0')
 
-  const staffList = getActiveStaff()
-  const vehicleList = getActiveVehicles()
-
   const whtRateNum = Number(whtRate) || 0
   const tax = calcTax(computedAmount, vatMode, whtRateNum)
 
@@ -601,6 +757,17 @@ function CostFormDialog({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
+          {/* Title — หัวข้อการเบิก */}
+          <div className="space-y-2">
+            <Label>{isEn ? 'Claim Title' : 'หัวข้อการเบิก'} *</Label>
+            <Input
+              name="title"
+              required
+              defaultValue={defaultValues?.title}
+              placeholder={isEn ? 'e.g. Travel expenses, Equipment cost' : 'เช่น ค่าเดินทางไปงาน, ค่าอุปกรณ์'}
+            />
+          </div>
+
           {/* Category */}
           <div className="space-y-2">
             <Label>{isEn ? 'Category' : 'หมวด'} *</Label>
@@ -609,11 +776,11 @@ function CostFormDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {COST_CATEGORIES.map(cat => (
+                {categories.map(cat => (
                   <SelectItem key={cat.value} value={cat.value}>
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
-                      {isEn ? cat.label : cat.labelTh}
+                      {isEn ? cat.label : cat.label_th}
                     </div>
                   </SelectItem>
                 ))}
@@ -621,47 +788,53 @@ function CostFormDialog({
             </Select>
           </div>
 
-          {/* Description — dropdown for Staff / Travel, text input for others */}
-          <div className="space-y-2">
-            <Label>{isEn ? 'Description' : 'รายละเอียด'}</Label>
-            {selectedCategory === 'staff' ? (
-              <Select name="description" defaultValue={defaultValues?.description || ''}>
-                <SelectTrigger>
-                  <SelectValue placeholder={isEn ? 'Select staff member' : 'เลือกชื่อพนักงาน'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {staffList.map(s => (
-                    <SelectItem key={s.id} value={getStaffDisplayName(s)}>
-                      <div className="flex items-center gap-2">
-                        <Users className="h-3.5 w-3.5 text-zinc-400" />
-                        <span>{getStaffDisplayName(s)}</span>
-                        {s.role && <span className="text-xs text-muted-foreground">· {s.role}</span>}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : selectedCategory === 'travel' ? (
-              <Select name="description" defaultValue={defaultValues?.description || ''}>
-                <SelectTrigger>
-                  <SelectValue placeholder={isEn ? 'Select vehicle' : 'เลือกรถ'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {vehicleList.map(v => (
-                    <SelectItem key={v.id} value={getVehicleDisplayName(v)}>
-                      <div className="flex items-center gap-2">
-                        <Car className="h-3.5 w-3.5 text-zinc-400" />
-                        <span className="font-mono text-sm">{v.licensePlate}</span>
-                        <span className="text-muted-foreground">— {v.name}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input name="description" defaultValue={defaultValues?.description} placeholder={isEn ? 'e.g. Staff wages for 3 people' : 'เช่น ค่าสตาฟ 3 คน'} />
-            )}
-          </div>
+          {/* Description — uses detail_source from settings */}
+          {(() => {
+            const activeCat = categories.find(c => c.value === selectedCategory)
+            const source = activeCat?.detail_source || 'none'
+            return (
+              <div className="space-y-2">
+                <Label>{isEn ? 'Description' : 'รายละเอียด'}</Label>
+                {source === 'staff' ? (
+                  <Select name="description" defaultValue={defaultValues?.description || ''}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={isEn ? 'Select staff member' : 'เลือกชื่อพนักงาน'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {staffProfiles.map(s => (
+                        <SelectItem key={s.id} value={s.full_name}>
+                          <div className="flex items-center gap-2">
+                            <Users className="h-3.5 w-3.5 text-zinc-400" />
+                            <span>{s.full_name}</span>
+                            {s.role && <span className="text-xs text-muted-foreground">· {s.role}</span>}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : source === 'custom' ? (
+                  (() => {
+                    const activeCat = categories.find(c => c.value === selectedCategory)
+                    const items = categoryItems.filter(i => i.category_id === activeCat?.id)
+                    return (
+                      <Select name="description" defaultValue={defaultValues?.description || ''}>
+                        <SelectTrigger>
+                          <SelectValue placeholder={isEn ? 'Select...' : 'เลือก...'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {items.map(item => (
+                            <SelectItem key={item.id} value={item.label}>{item.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )
+                  })()
+                ) : (
+                  <Input name="description" defaultValue={defaultValues?.description} placeholder={isEn ? 'e.g. Staff wages for 3 people' : 'เช่น ค่าสตาฟ 3 คน'} />
+                )}
+              </div>
+            )
+          })()}
 
           {/* Unit Price + Unit + Quantity */}
           <div className="grid grid-cols-3 gap-3">
