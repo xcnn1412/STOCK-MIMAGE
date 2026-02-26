@@ -114,41 +114,41 @@ export default function ArchiveView({ leads, settings }: ArchiveViewProps) {
                                         {/* Left: Info */}
                                         <Link href={`/crm/${lead.id}`} className="flex-1 min-w-0 group">
                                             <div className="flex items-center gap-3 mb-2">
-                                                <div className="font-semibold text-sm text-zinc-900 dark:text-zinc-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                                                <div className="font-semibold text-base text-zinc-900 dark:text-zinc-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
                                                     {lead.customer_name}
                                                 </div>
-                                                <Badge className={`${statusCfg.bgColor} ${statusCfg.textColor} border-0 text-[10px] shrink-0`}>
+                                                <Badge className={`${statusCfg.bgColor} ${statusCfg.textColor} border-0 text-[12px] shrink-0`}>
                                                     {tc.statuses[lead.status] || statusCfg.label}
                                                 </Badge>
                                                 {lead.is_returning && (
-                                                    <Badge className="text-[9px] px-1.5 py-0 bg-amber-50 text-amber-600 border border-amber-200/60 gap-0.5 shrink-0">
-                                                        <RefreshCw className="h-2.5 w-2.5" />
+                                                    <Badge className="text-[11px] px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-200/60 gap-1 shrink-0">
+                                                        <RefreshCw className="h-3 w-3" />
                                                         {tc.kanban.returning}
                                                     </Badge>
                                                 )}
                                             </div>
-                                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-zinc-500 dark:text-zinc-400">
                                                 {lead.event_date && (
                                                     <span className="flex items-center gap-1">
-                                                        <Calendar className="h-3 w-3" />
+                                                        <Calendar className="h-3.5 w-3.5" />
                                                         {lead.event_date}
                                                     </span>
                                                 )}
                                                 {lead.event_location && (
                                                     <span className="flex items-center gap-1">
-                                                        <MapPin className="h-3 w-3" />
+                                                        <MapPin className="h-3.5 w-3.5" />
                                                         {lead.event_location}
                                                     </span>
                                                 )}
                                                 {sourceSetting && (
                                                     <span className="flex items-center gap-1">
-                                                        <MessageSquare className="h-3 w-3" />
+                                                        <MessageSquare className="h-3.5 w-3.5" />
                                                         {getSettingLabel(sourceSetting)}
                                                     </span>
                                                 )}
                                                 {pkgSetting && (
                                                     <span className="flex items-center gap-1">
-                                                        <Package className="h-3 w-3" />
+                                                        <Package className="h-3.5 w-3.5" />
                                                         {getSettingLabel(pkgSetting)}
                                                     </span>
                                                 )}
@@ -163,10 +163,10 @@ export default function ArchiveView({ leads, settings }: ArchiveViewProps) {
                                         {/* Right: Archive info + Restore */}
                                         <div className="flex items-center gap-3 shrink-0">
                                             <div className="text-right hidden sm:block">
-                                                <div className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                                                <div className="text-[12px] text-zinc-400 dark:text-zinc-500">
                                                     {locale === 'th' ? 'เก็บเมื่อ' : 'Archived'}
                                                 </div>
-                                                <div className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+                                                <div className="text-[13px] text-zinc-500 dark:text-zinc-400 font-medium">
                                                     {archivedDate}
                                                 </div>
                                             </div>
