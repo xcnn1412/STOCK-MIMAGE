@@ -4,7 +4,8 @@ import { createClient } from '@supabase/supabase-js'
 
 // Module-route mapping (inlined to avoid importing components in edge runtime)
 const MODULE_ROUTES: Record<string, string[]> = {
-  stock: ['/stock/dashboard', '/items', '/kits', '/events', '/event-closures', '/example-kits'],
+  stock: ['/stock/dashboard', '/items', '/kits', '/example-kits'],
+  events: ['/events'],
   kpi: ['/kpi'],
   costs: ['/costs'],
   admin: ['/logs', '/users'],

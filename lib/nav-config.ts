@@ -1,8 +1,8 @@
-import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings } from 'lucide-react'
+import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, ClipboardList } from 'lucide-react'
 
-export type ModuleKey = 'stock' | 'kpi' | 'costs' | 'crm' | 'admin'
+export type ModuleKey = 'crm' | 'events' | 'stock' | 'checkout' | 'costs' | 'kpi' | 'admin'
 
-export const ALL_MODULES: ModuleKey[] = ['stock', 'kpi', 'costs', 'crm']
+export const ALL_MODULES: ModuleKey[] = ['crm', 'events', 'stock', 'checkout', 'costs', 'kpi']
 
 export interface NavItem {
   href: string
@@ -20,15 +20,43 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
   {
+    key: 'crm',
+    icon: ContactRound,
+    items: [
+      { href: '/crm', icon: LayoutDashboard, labelKey: 'crmDashboard' },
+      { href: '/crm/settings', icon: Settings, labelKey: 'crmSettings' },
+    ],
+  },
+  {
+    key: 'events',
+    icon: Calendar,
+    items: [
+      { href: '/events', icon: Calendar, labelKey: 'events' },
+      { href: '/events/event-closures', icon: CheckCircle2, labelKey: 'eventClosures' },
+    ],
+  },
+  {
     key: 'stock',
     icon: Package,
     items: [
       { href: '/stock/dashboard', icon: LayoutDashboard, labelKey: 'dashboard' },
       { href: '/items', icon: Package, labelKey: 'inventory' },
       { href: '/kits', icon: Archive, labelKey: 'kits' },
-      { href: '/events', icon: Calendar, labelKey: 'events' },
-      { href: '/event-closures', icon: CheckCircle2, labelKey: 'eventClosures' },
       { href: '/example-kits', icon: FileText, labelKey: 'examples' },
+    ],
+  },
+  {
+    key: 'checkout',
+    icon: ClipboardList,
+    items: [
+      { href: '/checkout', icon: ClipboardList, labelKey: 'checkout' },
+    ],
+  },
+  {
+    key: 'costs',
+    icon: DollarSign,
+    items: [
+      { href: '/costs', icon: DollarSign, labelKey: 'costs' },
     ],
   },
   {
@@ -40,21 +68,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/kpi/assignments', icon: UserCheck, labelKey: 'kpiAssignments' },
       { href: '/kpi/evaluate', icon: ClipboardCheck, labelKey: 'kpiEvaluate' },
       { href: '/kpi/reports', icon: BarChart3, labelKey: 'kpiReports' },
-    ],
-  },
-  {
-    key: 'costs',
-    icon: DollarSign,
-    items: [
-      { href: '/costs', icon: DollarSign, labelKey: 'costs' },
-    ],
-  },
-  {
-    key: 'crm',
-    icon: ContactRound,
-    items: [
-      { href: '/crm', icon: LayoutDashboard, labelKey: 'crmDashboard' },
-      { href: '/crm/settings', icon: Settings, labelKey: 'crmSettings' },
     ],
   },
   {

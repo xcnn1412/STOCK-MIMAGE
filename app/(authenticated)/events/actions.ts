@@ -62,6 +62,28 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
       kitIds 
   }, undefined)
 
+  // If created from CRM, link the event back to the CRM lead
+  const fromCrm = formData.get('from_crm') as string
+  if (fromCrm) {
+    await supabase
+      .from('crm_leads')
+      .update({ event_id: event.id, updated_at: new Date().toISOString() })
+      .eq('id', fromCrm)
+    
+    // Log activity on the CRM lead
+    const cookieStore2 = await cookies()
+    const uid = cookieStore2.get('session_user_id')?.value
+    await supabase.from('crm_activities').insert({
+      lead_id: fromCrm,
+      created_by: uid,
+      activity_type: 'note',
+      description: `เปิดอีเวนต์แล้ว: ${name}`,
+    })
+
+    revalidatePath('/crm')
+    revalidatePath(`/crm/${fromCrm}`)
+  }
+
   revalidatePath('/events')
   redirect('/events')
 }
@@ -255,6 +277,13 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
      revalidatePath('/events')
      revalidatePath('/items')
      revalidatePath('/kits')
-     revalidatePath('/event-closures')
+     revalidatePath('/events/event-closures')
+
+     // 6. Clear event_id on CRM leads that referenced this event
+     await supabase
+       .from('crm_leads')
+       .update({ event_id: null })
+       .eq('event_id', eventId)
+     revalidatePath('/crm')
 }
 

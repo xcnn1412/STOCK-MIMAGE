@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ArrowLeft, Loader2, Users, UserCheck, Search } from "lucide-react"
+import { ArrowLeft, Loader2, Users, UserCheck, Search, Info } from "lucide-react"
 import Link from 'next/link'
 import { ThaiDatePicker } from '@/components/thai-date-picker'
 import { useLanguage } from '@/contexts/language-context'
@@ -17,19 +17,30 @@ interface Profile {
   role: string
 }
 
+interface Prefill {
+  name: string
+  location: string
+  eventDate: string
+  sellerNames: string[]
+  staffNames: string[]
+  crmLeadId: string
+}
+
 export default function CreateEventForm({
   availableKits,
   profiles,
+  prefill,
 }: {
   availableKits: any[]
   profiles: Profile[]
+  prefill?: Prefill
 }) {
   const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(createEvent, { error: '' })
 
-  // Multi-select state for staff and seller
-  const [selectedStaff, setSelectedStaff] = useState<string[]>([])
-  const [selectedSellers, setSelectedSellers] = useState<string[]>([])
+  // Multi-select state for staff and seller — initialize from prefill if available
+  const [selectedStaff, setSelectedStaff] = useState<string[]>(prefill?.staffNames || [])
+  const [selectedSellers, setSelectedSellers] = useState<string[]>(prefill?.sellerNames || [])
   const [staffSearch, setStaffSearch] = useState('')
   const [sellerSearch, setSellerSearch] = useState('')
 
@@ -73,24 +84,37 @@ export default function CreateEventForm({
           <CardTitle>{t.events.newTitle}</CardTitle>
           <CardDescription>{t.events.newSubtitle}</CardDescription>
         </CardHeader>
-        <form action={formAction}>
+         <form action={formAction}>
+          {/* Hidden field: CRM lead ID for linking back */}
+          {prefill?.crmLeadId && (
+            <input type="hidden" name="from_crm" value={prefill.crmLeadId} />
+          )}
           <CardContent className="space-y-6">
+            {/* CRM prefill banner */}
+            {prefill && (
+              <div className="flex items-start gap-2.5 p-3 rounded-lg bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800">
+                <Info className="h-4 w-4 text-sky-600 dark:text-sky-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-sky-700 dark:text-sky-300">
+                  ข้อมูลถูกดึงจาก CRM อัตโนมัติ — ตรวจสอบแล้วกด &quot;สร้างอีเวนต์&quot;
+                </p>
+              </div>
+            )}
             {/* ชื่ออีเวนต์ */}
             <div className="space-y-2">
               <Label htmlFor="name">{t.events.fields.name}</Label>
-              <Input id="name" name="name" placeholder={t.events.fields.name} required />
+              <Input id="name" name="name" placeholder={t.events.fields.name} required defaultValue={prefill?.name || ''} />
             </div>
 
             {/* สถานที่ */}
             <div className="space-y-2">
               <Label htmlFor="location">{t.events.fields.location}</Label>
-              <Input id="location" name="location" placeholder={t.events.fields.location} />
+              <Input id="location" name="location" placeholder={t.events.fields.location} defaultValue={prefill?.location || ''} />
             </div>
 
             {/* วันและเวลา */}
             <div className="space-y-2">
               <Label htmlFor="event_date">{t.events.fields.date}</Label>
-              <ThaiDatePicker name="event_date" />
+              <ThaiDatePicker name="event_date" defaultValue={prefill?.eventDate ? new Date(prefill.eventDate) : undefined} />
             </div>
 
             {/* ผู้ขาย (Seller) — Multi-select from users */}
