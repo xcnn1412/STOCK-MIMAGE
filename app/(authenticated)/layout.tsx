@@ -1,15 +1,7 @@
 import Navbar from '@/components/navbar'
 import KpiLocaleWrapper from '@/components/kpi-locale-wrapper'
 import { cookies } from 'next/headers'
-import { createClient } from '@supabase/supabase-js'
-
-function createServerSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
-  )
-}
+import { createServiceClient } from '@/lib/supabase-server'
 
 export default async function AuthenticatedLayout({
   children,
@@ -24,7 +16,7 @@ export default async function AuthenticatedLayout({
   let allowedModules = ['stock']
 
   if (userId) {
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     const { data: profile } = await supabase
       .from('profiles')
       .select('role, allowed_modules')

@@ -1,16 +1,9 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types'
 
-function createServerSupabase() {
-    return createClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false } }
-    )
-}
 
 /**
  * Cleanup orphaned items
@@ -25,7 +18,7 @@ export async function cleanupOrphanedItems() {
         return { error: 'Unauthorized: No active session found' }
     }
     
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     
     // 1. Fetch all items with status 'in_use'
     const { data: items, error: fetchError } = await supabase

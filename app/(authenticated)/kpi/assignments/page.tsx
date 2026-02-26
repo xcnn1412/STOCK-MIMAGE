@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { supabaseServer as supabase } from '@/lib/supabase-server'
 import AssignmentsView from './assignments-view'
 
 export const revalidate = 0

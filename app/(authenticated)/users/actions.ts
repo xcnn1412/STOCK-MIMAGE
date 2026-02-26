@@ -1,17 +1,11 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 
-function createServerSupabase() {
-    return createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false } }
-    )
-}
+
 
 export async function toggleUserApproval(userId: string, currentStatus: boolean) {
   const cookieStore = await cookies()
@@ -20,7 +14,7 @@ export async function toggleUserApproval(userId: string, currentStatus: boolean)
       return { error: 'Unauthorized: No active session' }
   }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   
   const { error } = await supabase
     .from('profiles')
@@ -48,7 +42,7 @@ export async function updateUserRole(userId: string, role: string) {
         return { error: 'Unauthorized: No active session' }
     }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     
     const { error } = await supabase
       .from('profiles')
@@ -72,7 +66,7 @@ export async function deleteUser(userId: string) {
         return { error: 'Unauthorized: No active session' }
     }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     
     const { error } = await supabase
       .from('profiles')
@@ -96,7 +90,7 @@ export async function updateUserModules(userId: string, modules: string[]) {
         return { error: 'Unauthorized: No active session' }
     }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     
     const { error } = await supabase
       .from('profiles')

@@ -1,18 +1,11 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/database.types'
 
-function createServerSupabase() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
-  )
-}
 
 async function getSession() {
   const cookieStore = await cookies()
@@ -30,7 +23,7 @@ export async function importEventFromStock(eventId: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   // ตรวจว่า import ซ้ำหรือเปล่า
   const { data: existing } = await supabase
@@ -82,7 +75,7 @@ export async function importEventFromClosure(closureId: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   // ดึงข้อมูล Closure
   const { data: closure, error: closureErr } = await supabase
@@ -136,7 +129,7 @@ export async function updateJobEvent(id: string, data: {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const { error } = await supabase
     .from('job_cost_events')
@@ -161,7 +154,7 @@ export async function deleteJobEvent(id: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   // ดึงข้อมูลก่อนลบ
   const { data: event } = await supabase
@@ -195,7 +188,7 @@ export async function createCostItem(formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const jobEventId = formData.get('job_event_id') as string
   const category = formData.get('category') as string
@@ -258,7 +251,7 @@ export async function updateCostItem(id: string, data: {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const { error } = await supabase
     .from('job_cost_items')
@@ -283,7 +276,7 @@ export async function deleteCostItem(id: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const { error } = await supabase
     .from('job_cost_items')
@@ -305,7 +298,7 @@ export async function createJobEventManual(formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
 
   const eventName = formData.get('event_name') as string
   const eventDate = formData.get('event_date') as string || null

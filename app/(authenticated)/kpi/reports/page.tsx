@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers'
-import { supabase } from '@/lib/supabase'
+import { supabaseServer as supabase } from '@/lib/supabase-server'
 import ReportsView from './reports-view'
 
 export const revalidate = 0

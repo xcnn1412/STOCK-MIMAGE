@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabaseServer as supabase } from '@/lib/supabase-server'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import LogsView from './logs-view'

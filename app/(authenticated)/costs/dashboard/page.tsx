@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabaseServer as supabase } from '@/lib/supabase-server'
 import DashboardView from './dashboard-view'
 
 export const revalidate = 0

@@ -1,19 +1,12 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import type { ActionState, Database } from '@/types'
 
-function createServerSupabase() {
-    return createClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false } }
-    )
-}
 
 export async function createKit(prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
@@ -25,7 +18,7 @@ export async function createKit(prevState: ActionState, formData: FormData) {
   const name = formData.get('name') as string
   const description = formData.get('description') as string
 
-  const supabase = createServerSupabase()
+  const supabase = createServiceClient()
   const { data: newKit, error } = await supabase.from('kits').insert({
     name,
     description
@@ -48,7 +41,7 @@ export async function deleteKit(id: string) {
         throw new Error('Unauthorized: No active session')
     }
 
-    const supabase = createServerSupabase()
+    const supabase = createServiceClient()
     
     // Fetch details before delete
     const { data: kit } = await supabase.from('kits').select('name').eq('id', id).single()

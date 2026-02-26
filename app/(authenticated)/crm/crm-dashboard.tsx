@@ -202,8 +202,8 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
               <div className="text-3xl font-extrabold text-zinc-900 dark:text-zinc-100 tracking-tight">
                 {data.count}
               </div>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 tabular-nums">
-                ฿{data.value.toLocaleString()}
+              <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mt-1.5 tabular-nums tracking-tight">
+                <span className="text-zinc-400 dark:text-zinc-500 font-normal">฿</span>{data.value.toLocaleString()}
               </p>
             </div>
           )

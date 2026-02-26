@@ -133,10 +133,10 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
                     className="h-3 w-3 rounded-full shadow-sm"
                     style={{ backgroundColor: config.color }}
                   />
-                  <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 [writing-mode:vertical-lr] tracking-wider uppercase">
+                  <span className="text-[12px] font-bold text-zinc-500 dark:text-zinc-400 [writing-mode:vertical-lr] tracking-wider uppercase">
                     {getStatusLabel(status)}
                   </span>
-                  <span className="flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-zinc-200/80 dark:bg-zinc-700/80 text-[10px] font-bold text-zinc-600 dark:text-zinc-300">
+                  <span className="flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-zinc-200/80 dark:bg-zinc-700/80 text-[12px] font-bold text-zinc-600 dark:text-zinc-300">
                     {statusLeads.length}
                   </span>
                 </div>
@@ -147,7 +147,7 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
                     className="h-3 w-3 rounded-full shadow-sm"
                     style={{ backgroundColor: config.color }}
                   />
-                  <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200 tracking-tight uppercase">
+                  <span className="text-base font-bold text-zinc-800 dark:text-zinc-200 tracking-tight uppercase">
                     {getStatusLabel(status)}
                   </span>
                 </div>
@@ -163,7 +163,7 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
                 <div className="flex flex-col gap-2 px-2 pb-3 min-h-[120px] flex-1">
                   {statusLeads.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-[100px] text-zinc-300 dark:text-zinc-700 border-2 border-dashed border-zinc-200/80 dark:border-zinc-800 rounded-xl">
-                      <div className="text-[11px] font-medium">{tc.kanban.dropHere}</div>
+                      <div className="text-[13px] font-medium">{tc.kanban.dropHere}</div>
                     </div>
                   )}
                   {statusLeads.map(lead => (
@@ -323,22 +323,22 @@ function KanbanCard({
         <div className="p-3.5 space-y-3">
           {/* Header: Avatar + Name + Expand toggle */}
           <div className="flex items-start gap-3">
-            <div className={`shrink-0 flex items-center justify-center h-10 w-10 rounded-xl bg-linear-to-br ${avatarGradient} text-white text-xs font-bold shadow-sm ring-2 ring-white/80 dark:ring-zinc-700/80`}>
+            <div className={`shrink-0 flex items-center justify-center h-10 w-10 rounded-xl bg-linear-to-br ${avatarGradient} text-white text-[15px] font-bold shadow-sm ring-2 ring-white/80 dark:ring-zinc-700/80`}>
               {initials}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="font-semibold text-sm text-zinc-900 dark:text-zinc-100 leading-snug truncate">
+              <div className="font-semibold text-base text-zinc-900 dark:text-zinc-100 leading-snug truncate">
                 {lead.customer_name}
               </div>
               {/* Compact summary when collapsed */}
               <div className="flex items-center gap-2 mt-0.5">
                 {price > 0 && (
-                  <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-300 tabular-nums">
+                  <span className="text-[13px] font-bold text-zinc-600 dark:text-zinc-300 tabular-nums">
                     ฿{price.toLocaleString()}
                   </span>
                 )}
                 {lead.event_date && (
-                  <span className={`text-[10px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-zinc-400'}`}>
+                  <span className={`text-[12px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-zinc-400'}`}>
                     {lead.event_date}
                   </span>
                 )}
@@ -363,31 +363,31 @@ function KanbanCard({
               {(isOverdue || lead.is_returning || sourceSetting || overduePayments.length > 0 || upcomingPayments.length > 0) && (
                 <div className="flex flex-wrap gap-1.5">
                   {overduePayments.length > 0 && (
-                    <Badge className="text-[10px] px-2 py-0.5 bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200/60 dark:border-red-800/40 gap-1 font-semibold animate-pulse">
+                    <Badge className="text-[12px] px-2 py-0.5 bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200/60 dark:border-red-800/40 gap-1 font-semibold animate-pulse">
                       <AlertCircle className="h-3 w-3" />
                       เลยกำหนดงวด {overduePayments.join(', ')}
                     </Badge>
                   )}
                   {upcomingPayments.length > 0 && (
-                    <Badge className="text-[10px] px-2 py-0.5 bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-400 border border-orange-200/60 dark:border-orange-800/40 gap-1 font-semibold">
+                    <Badge className="text-[12px] px-2 py-0.5 bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-400 border border-orange-200/60 dark:border-orange-800/40 gap-1 font-semibold">
                       <Calendar className="h-3 w-3" />
                       ใกล้กำหนดงวด {upcomingPayments.join(', ')}
                     </Badge>
                   )}
                   {isOverdue && (
-                    <Badge className="text-[10px] px-2 py-0.5 bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200/60 dark:border-red-800/40 gap-1 font-semibold">
+                    <Badge className="text-[12px] px-2 py-0.5 bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200/60 dark:border-red-800/40 gap-1 font-semibold">
                       <AlertCircle className="h-3 w-3" />
                       {tc.kanban.overdue}
                     </Badge>
                   )}
                   {lead.is_returning && (
-                    <Badge className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/40 gap-1 font-semibold">
+                    <Badge className="text-[12px] px-2 py-0.5 bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/40 gap-1 font-semibold">
                       <RefreshCw className="h-3 w-3" />
                       {tc.kanban.returning}
                     </Badge>
                   )}
                   {sourceSetting && (
-                    <Badge className="text-[10px] px-2 py-0.5 bg-zinc-50 text-zinc-500 dark:bg-zinc-700/40 dark:text-zinc-400 border border-zinc-200/60 dark:border-zinc-700/40 gap-1 font-semibold">
+                    <Badge className="text-[12px] px-2 py-0.5 bg-zinc-50 text-zinc-500 dark:bg-zinc-700/40 dark:text-zinc-400 border border-zinc-200/60 dark:border-zinc-700/40 gap-1 font-semibold">
                       <MessageSquare className="h-3 w-3" />
                       {getSettingLabel(sourceSetting)}
                     </Badge>
@@ -401,7 +401,7 @@ function KanbanCard({
                   {allTags.map((tag, i) => (
                     <span
                       key={i}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full"
+                      className="inline-flex items-center gap-1.5 text-[13px] font-bold px-2.5 py-1 rounded-full"
                       style={{
                         backgroundColor: `${tag.color}18`,
                         color: tag.color,
@@ -419,7 +419,7 @@ function KanbanCard({
               {(lead.event_date || lead.event_location) && (
                 <div className="space-y-1.5 bg-zinc-50/80 dark:bg-zinc-900/40 rounded-lg px-3 py-2.5">
                   {lead.event_date && (
-                    <div className="flex items-center gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-[15px]">
                       <Calendar className="h-3.5 w-3.5 shrink-0" style={{ color: isOverdue ? '#ef4444' : '#a1a1aa' }} />
                       <span className={`${isOverdue ? 'text-red-500 dark:text-red-400 font-semibold' : 'text-zinc-600 dark:text-zinc-400'}`}>
                         {lead.event_date}
@@ -427,7 +427,7 @@ function KanbanCard({
                     </div>
                   )}
                   {lead.event_location && (
-                    <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    <div className="flex items-center gap-2 text-[15px] text-zinc-500 dark:text-zinc-400">
                       <MapPin className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
                       <span className="truncate">{lead.event_location}</span>
                     </div>
@@ -440,11 +440,11 @@ function KanbanCard({
                 <div className="space-y-1.5">
                   {lead.assigned_sales?.length > 0 && (
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[9px] font-bold uppercase tracking-wide text-zinc-800 dark:text-zinc-200 shrink-0 w-10">Sale</span>
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-zinc-800 dark:text-zinc-200 shrink-0 w-12">Sale</span>
                       {lead.assigned_sales.map(id => {
                         const u = users.find(x => x.id === id)
                         return (
-                          <span key={id} className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                          <span key={id} className="text-[12px] font-medium px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
                             {u?.full_name || id.slice(0, 6)}
                           </span>
                         )
@@ -453,11 +453,11 @@ function KanbanCard({
                   )}
                   {lead.assigned_graphics?.length > 0 && (
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[9px] font-bold uppercase tracking-wide text-zinc-800 dark:text-zinc-200 shrink-0 w-10">Graphic</span>
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-zinc-800 dark:text-zinc-200 shrink-0 w-12">Graphic</span>
                       {lead.assigned_graphics.map(id => {
                         const u = users.find(x => x.id === id)
                         return (
-                          <span key={id} className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400">
+                          <span key={id} className="text-[12px] font-medium px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400">
                             {u?.full_name || id.slice(0, 6)}
                           </span>
                         )
@@ -466,11 +466,11 @@ function KanbanCard({
                   )}
                   {lead.assigned_staff?.length > 0 && (
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[9px] font-bold uppercase tracking-wide text-zinc-800 dark:text-zinc-200 shrink-0 w-10">Staff</span>
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-zinc-800 dark:text-zinc-200 shrink-0 w-12">Staff</span>
                       {lead.assigned_staff.map(id => {
                         const u = users.find(x => x.id === id)
                         return (
-                          <span key={id} className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+                          <span key={id} className="text-[12px] font-medium px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
                             {u?.full_name || id.slice(0, 6)}
                           </span>
                         )
@@ -483,11 +483,11 @@ function KanbanCard({
               {/* Bottom: Package + Price */}
               {(lead.package_name || price > 0) && (
                 <div className="flex items-center justify-between pt-2.5 border-t border-zinc-100 dark:border-zinc-700/40">
-                  <span className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate max-w-[120px] font-medium">
+                  <span className="text-[13px] text-zinc-400 dark:text-zinc-500 truncate max-w-[120px] font-medium">
                     {pkgSetting ? getSettingLabel(pkgSetting) : (lead.package_name || '—')}
                   </span>
                   {price > 0 && (
-                    <span className="text-sm font-bold text-zinc-800 dark:text-zinc-100 tabular-nums tracking-tight">
+                    <span className="text-base font-bold text-zinc-800 dark:text-zinc-100 tabular-nums tracking-tight">
                       ฿{price.toLocaleString()}
                     </span>
                   )}
@@ -498,8 +498,8 @@ function KanbanCard({
               {price > 0 && lead.deposit > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">{tc.kanban.deposit}</span>
-                    <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 tabular-nums">
+                    <span className="text-[12px] text-zinc-400 dark:text-zinc-500 font-medium">{tc.kanban.deposit}</span>
+                    <span className="text-[12px] font-semibold text-zinc-500 dark:text-zinc-400 tabular-nums">
                       ฿{lead.deposit.toLocaleString()} / ฿{price.toLocaleString()}
                     </span>
                   </div>
