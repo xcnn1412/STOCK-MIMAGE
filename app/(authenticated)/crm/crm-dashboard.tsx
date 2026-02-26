@@ -109,6 +109,7 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [sourceFilter, setSourceFilter] = useState<string>('all')
+  const [saleFilter, setSaleFilter] = useState<string>('all')
   const [addDialogOpen, setAddDialogOpen] = useState(false)
 
   // Helper: get setting label by locale
@@ -137,11 +138,18 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
     settings.filter(s => s.category === 'lead_source' && s.is_active),
     [settings])
 
+  // Sales users — users who are assigned to at least one lead
+  const salesUsers = useMemo(() => {
+    const salesIds = new Set(leads.flatMap(l => l.assigned_sales || []))
+    return users.filter(u => salesIds.has(u.id))
+  }, [leads, users])
+
   // Filter leads
   const filteredLeads = useMemo(() => {
     return leads.filter(lead => {
       if (statusFilter !== 'all' && lead.status !== statusFilter) return false
       if (sourceFilter !== 'all' && lead.lead_source !== sourceFilter) return false
+      if (saleFilter !== 'all' && !(lead.assigned_sales || []).includes(saleFilter)) return false
       if (search) {
         const q = search.toLowerCase()
         if (!lead.customer_name.toLowerCase().includes(q) &&
@@ -150,7 +158,7 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
       }
       return true
     })
-  }, [leads, statusFilter, sourceFilter, search])
+  }, [leads, statusFilter, sourceFilter, saleFilter, search])
 
   // Summary stats — per-status breakdown
   const stats = useMemo(() => {
@@ -272,6 +280,17 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
               <SelectItem value="all">{tc.filters.allChannel}</SelectItem>
               {sources.map(s => (
                 <SelectItem key={s.value} value={s.value}>{getSettingLabel(s)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={saleFilter} onValueChange={setSaleFilter}>
+            <SelectTrigger className="h-9 w-[150px]">
+              <SelectValue placeholder={tc.filters.allSale} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tc.filters.allSale}</SelectItem>
+              {salesUsers.map(u => (
+                <SelectItem key={u.id} value={u.id}>{u.full_name || u.id.slice(0, 8)}</SelectItem>
               ))}
             </SelectContent>
           </Select>

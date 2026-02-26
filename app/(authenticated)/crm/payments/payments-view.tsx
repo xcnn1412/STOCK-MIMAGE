@@ -214,27 +214,36 @@ export default function PaymentsView({ leads }: { leads: Lead[] }) {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div
+                className="relative"
+                style={{
+                    width: '100vw',
+                    marginLeft: 'calc(-50vw + 50%)',
+                    paddingLeft: '1rem',
+                    paddingRight: '1rem',
+                }}
+            >
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 {/* Calendar */}
-                <div className="lg:col-span-2">
-                    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 overflow-hidden">
+                <div className="lg:col-span-3">
+                    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 overflow-hidden shadow-sm">
                         {/* Calendar Header */}
-                        <div className="flex items-center justify-between p-4 border-b border-zinc-100 dark:border-zinc-800">
-                            <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                                <ChevronLeft className="h-5 w-5 text-zinc-500" />
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+                            <button onClick={prevMonth} className="p-2.5 rounded-xl hover:bg-zinc-200/60 dark:hover:bg-zinc-700/60 transition-colors">
+                                <ChevronLeft className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
                             </button>
-                            <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                            <h2 className="text-xl font-extrabold text-zinc-900 dark:text-zinc-100 tracking-tight">
                                 {months[currentMonth]} {currentYear + (locale === 'th' ? 543 : 0)}
                             </h2>
-                            <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                                <ChevronRight className="h-5 w-5 text-zinc-500" />
+                            <button onClick={nextMonth} className="p-2.5 rounded-xl hover:bg-zinc-200/60 dark:hover:bg-zinc-700/60 transition-colors">
+                                <ChevronRight className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
                             </button>
                         </div>
 
                         {/* Weekday headers */}
-                        <div className="grid grid-cols-7 border-b border-zinc-100 dark:border-zinc-800">
-                            {weekdays.map(d => (
-                                <div key={d} className="py-2 text-center text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">
+                        <div className="grid grid-cols-7 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/30 dark:bg-zinc-800/20">
+                            {weekdays.map((d, di) => (
+                                <div key={d} className={`py-2.5 text-center text-[13px] font-bold uppercase tracking-wide ${di === 0 || di === 6 ? 'text-zinc-400/80 dark:text-zinc-500/80' : 'text-zinc-500 dark:text-zinc-400'}`}>
                                     {d}
                                 </div>
                             ))}
@@ -244,7 +253,7 @@ export default function PaymentsView({ leads }: { leads: Lead[] }) {
                         <div className="grid grid-cols-7">
                             {calendarDays.map((day, i) => {
                                 if (day === null) {
-                                    return <div key={`empty-${i}`} className="min-h-[80px] border-b border-r border-zinc-50 dark:border-zinc-800/40 bg-zinc-25 dark:bg-zinc-900/40" />
+                                    return <div key={`empty-${i}`} className="min-h-[207px] border-b border-r border-zinc-100/60 dark:border-zinc-800/40 bg-zinc-50/30 dark:bg-zinc-900/40" />
                                 }
 
                                 const dateStr = getDateStr(day)
@@ -254,37 +263,47 @@ export default function PaymentsView({ leads }: { leads: Lead[] }) {
                                 const hasOverdue = payments.some(p => !p.isPaid && new Date(p.dueDate) < today)
                                 const hasPaid = payments.some(p => p.isPaid)
                                 const hasUnpaid = payments.some(p => !p.isPaid)
+                                const dayOfWeek = new Date(currentYear, currentMonth, day).getDay()
+                                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
 
                                 return (
                                     <button
                                         key={day}
                                         onClick={() => setSelectedDate(isSelected ? null : dateStr)}
                                         className={`
-                      min-h-[80px] p-1.5 border-b border-r border-zinc-100 dark:border-zinc-800/40
+                      min-h-[207px] p-2 border-b border-r border-zinc-100 dark:border-zinc-800/40
                       text-left transition-all duration-150 relative group
-                      ${isSelected ? 'bg-blue-50/80 dark:bg-blue-950/30 ring-2 ring-inset ring-blue-400/50' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'}
+                      ${isSelected
+                          ? 'bg-blue-50/80 dark:bg-blue-950/30 ring-2 ring-inset ring-blue-400/50'
+                          : isWeekend
+                            ? 'bg-zinc-50/40 dark:bg-zinc-900/30 hover:bg-zinc-100/50 dark:hover:bg-zinc-800/40'
+                            : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'}
                     `}
                                     >
                                         <span className={`
-                      inline-flex items-center justify-center h-7 w-7 rounded-full text-sm font-semibold
-                      ${isToday ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/30' : 'text-zinc-700 dark:text-zinc-300'}
+                      inline-flex items-center justify-center h-8 w-8 rounded-full text-[15px] font-bold
+                      ${isToday
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                          : isWeekend
+                            ? 'text-zinc-400 dark:text-zinc-500'
+                            : 'text-zinc-700 dark:text-zinc-300'}
                     `}>
                                             {day}
                                         </span>
 
-                                        {/* Payment dots */}
+                                        {/* Payment entries */}
                                         {payments.length > 0 && (
-                                            <div className="mt-1 space-y-0.5">
+                                            <div className="mt-1.5 space-y-1">
                                                 {payments.slice(0, 3).map((p, idx) => (
                                                     <div
                                                         key={idx}
                                                         className={`
-                              flex items-center gap-1 rounded px-1 py-0.5 text-[9px] font-semibold truncate
+                              flex items-center gap-1 rounded-md px-1.5 py-[3px] text-[11px] font-semibold truncate leading-tight
                               ${p.isPaid
-                                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
+                                                                ? 'bg-emerald-100/80 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
                                                                 : hasOverdue && !p.isPaid && new Date(p.dueDate) < today
-                                                                    ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'
-                                                                    : 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
+                                                                    ? 'bg-red-100/80 text-red-700 dark:bg-red-950/40 dark:text-red-400'
+                                                                    : 'bg-blue-100/80 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
                                                             }
                             `}
                                                     >
@@ -292,17 +311,17 @@ export default function PaymentsView({ leads }: { leads: Lead[] }) {
                                                     </div>
                                                 ))}
                                                 {payments.length > 3 && (
-                                                    <div className="text-[9px] text-zinc-400 pl-1">+{payments.length - 3}</div>
+                                                    <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 pl-1.5">+{payments.length - 3} {locale === 'th' ? 'รายการ' : 'more'}</div>
                                                 )}
                                             </div>
                                         )}
 
                                         {/* Status indicators */}
                                         {payments.length > 0 && (
-                                            <div className="absolute top-1.5 right-1.5 flex gap-0.5">
-                                                {hasOverdue && <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />}
-                                                {hasPaid && <span className="h-2 w-2 rounded-full bg-emerald-500" />}
-                                                {hasUnpaid && !hasOverdue && <span className="h-2 w-2 rounded-full bg-blue-500" />}
+                                            <div className="absolute top-2 right-2 flex gap-1">
+                                                {hasOverdue && <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse shadow-sm shadow-red-500/30" />}
+                                                {hasPaid && <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/20" />}
+                                                {hasUnpaid && !hasOverdue && <span className="h-2.5 w-2.5 rounded-full bg-blue-500 shadow-sm shadow-blue-500/20" />}
                                             </div>
                                         )}
                                     </button>
@@ -314,9 +333,9 @@ export default function PaymentsView({ leads }: { leads: Lead[] }) {
 
                 {/* Payment Detail Panel */}
                 <div>
-                    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 sticky top-4">
-                        <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-4 flex items-center gap-2">
-                            <CalendarDays className="h-4 w-4 text-blue-500" />
+                    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-5 sticky top-4 shadow-sm">
+                        <h3 className="text-base font-extrabold text-zinc-900 dark:text-zinc-100 mb-5 flex items-center gap-2.5">
+                            <CalendarDays className="h-5 w-5 text-blue-500" />
                             {selectedDate
                                 ? `${locale === 'th' ? 'รายการวันที่' : 'Payments for'} ${selectedDate}`
                                 : (locale === 'th' ? 'เลือกวันที่บนปฏิทิน' : 'Select a date on the calendar')
@@ -324,15 +343,15 @@ export default function PaymentsView({ leads }: { leads: Lead[] }) {
                         </h3>
 
                         {!selectedDate ? (
-                            <div className="text-center py-8">
-                                <CalendarDays className="h-10 w-10 text-zinc-300 dark:text-zinc-600 mx-auto mb-3" />
-                                <p className="text-sm text-zinc-400 dark:text-zinc-500">
+                            <div className="text-center py-10">
+                                <CalendarDays className="h-12 w-12 text-zinc-300 dark:text-zinc-600 mx-auto mb-3" />
+                                <p className="text-sm text-zinc-400 dark:text-zinc-500 leading-relaxed">
                                     {locale === 'th' ? 'คลิกที่วันที่บนปฏิทิน\nเพื่อดูรายละเอียดการชำระ' : 'Click a date on the calendar\nto see payment details'}
                                 </p>
                             </div>
                         ) : selectedPayments.length === 0 ? (
-                            <div className="text-center py-8">
-                                <CheckCircle2 className="h-10 w-10 text-zinc-300 dark:text-zinc-600 mx-auto mb-3" />
+                            <div className="text-center py-10">
+                                <CheckCircle2 className="h-12 w-12 text-zinc-300 dark:text-zinc-600 mx-auto mb-3" />
                                 <p className="text-sm text-zinc-400 dark:text-zinc-500">
                                     {locale === 'th' ? 'ไม่มีรายการชำระในวันนี้' : 'No payments on this date'}
                                 </p>
@@ -344,7 +363,7 @@ export default function PaymentsView({ leads }: { leads: Lead[] }) {
                                     return (
                                         <Link key={i} href={`/crm/${p.leadId}`}>
                                             <div className={`
-                        p-3 rounded-lg border transition-all duration-200
+                        p-4 rounded-xl border transition-all duration-200
                         hover:shadow-md hover:-translate-y-0.5 cursor-pointer
                         ${p.isPaid
                                                     ? 'border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/20'
@@ -354,41 +373,41 @@ export default function PaymentsView({ leads }: { leads: Lead[] }) {
                                                 }
                       `}>
                                                 {/* Customer name + status */}
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                                                <div className="flex items-center justify-between mb-2.5">
+                                                    <span className="text-[15px] font-bold text-zinc-900 dark:text-zinc-100 truncate">
                                                         {p.customerName}
                                                     </span>
                                                     <span
-                                                        className="h-2.5 w-2.5 rounded-full shrink-0"
+                                                        className="h-3 w-3 rounded-full shrink-0 shadow-sm"
                                                         style={{ backgroundColor: STATUS_COLORS[p.status] || '#9ca3af' }}
                                                     />
                                                 </div>
 
                                                 {/* Installment info */}
                                                 <div className="flex items-center justify-between">
-                                                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                                    <span className="text-[13px] text-zinc-500 dark:text-zinc-400 font-medium">
                                                         {locale === 'th' ? `งวดที่ ${p.installmentNum}` : `Installment ${p.installmentNum}`}
                                                     </span>
-                                                    <span className="text-sm font-extrabold text-zinc-900 dark:text-zinc-100 tabular-nums">
-                                                        ฿{p.amount.toLocaleString()}
+                                                    <span className="text-base font-extrabold text-zinc-900 dark:text-zinc-100 tabular-nums tracking-tight">
+                                                        <span className="text-zinc-400 dark:text-zinc-500 font-bold">฿</span>{p.amount.toLocaleString()}
                                                     </span>
                                                 </div>
 
                                                 {/* Status badge */}
-                                                <div className="mt-2">
+                                                <div className="mt-2.5">
                                                     {p.isPaid ? (
-                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 rounded-full">
-                                                            <CheckCircle2 className="h-3 w-3" />
+                                                        <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 px-2.5 py-1 rounded-full">
+                                                            <CheckCircle2 className="h-3.5 w-3.5" />
                                                             {locale === 'th' ? 'ชำระแล้ว' : 'Paid'}{p.paidDate ? ` (${p.paidDate})` : ''}
                                                         </span>
                                                     ) : isOverdue ? (
-                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/40 px-2 py-0.5 rounded-full animate-pulse">
-                                                            <AlertCircle className="h-3 w-3" />
+                                                        <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/40 px-2.5 py-1 rounded-full animate-pulse">
+                                                            <AlertCircle className="h-3.5 w-3.5" />
                                                             {locale === 'th' ? 'เลยกำหนดชำระ' : 'Overdue'}
                                                         </span>
                                                     ) : (
-                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded-full">
-                                                            <Clock className="h-3 w-3" />
+                                                        <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 rounded-full">
+                                                            <Clock className="h-3.5 w-3.5" />
                                                             {locale === 'th' ? 'รอชำระ' : 'Pending'}
                                                         </span>
                                                     )}
@@ -399,18 +418,19 @@ export default function PaymentsView({ leads }: { leads: Lead[] }) {
                                 })}
 
                                 {/* Total for selected date */}
-                                <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-                                    <span className="text-xs font-semibold text-zinc-500">
+                                <div className="pt-4 mt-1 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                                    <span className="text-[13px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
                                         {locale === 'th' ? 'รวม' : 'Total'}
                                     </span>
-                                    <span className="text-sm font-extrabold text-zinc-900 dark:text-zinc-100 tabular-nums">
-                                        ฿{selectedPayments.reduce((s, p) => s + p.amount, 0).toLocaleString()}
+                                    <span className="text-lg font-extrabold text-zinc-900 dark:text-zinc-100 tabular-nums tracking-tight">
+                                        <span className="text-zinc-400 dark:text-zinc-500 font-bold">฿</span>{selectedPayments.reduce((s, p) => s + p.amount, 0).toLocaleString()}
                                     </span>
                                 </div>
                             </div>
                         )}
                     </div>
                 </div>
+            </div>
             </div>
         </div>
     )

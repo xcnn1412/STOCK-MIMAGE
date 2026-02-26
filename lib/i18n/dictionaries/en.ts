@@ -255,6 +255,7 @@ const en: Dictionary = {
       searchCustomer: 'Search customer...',
       allStatus: 'All Status',
       allChannel: 'All Channel',
+      allSale: 'All Sales',
     },
 
     // ===== Statuses =====

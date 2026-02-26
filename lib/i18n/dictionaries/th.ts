@@ -253,6 +253,7 @@ const th = {
       searchCustomer: 'ค้นหาลูกค้า...',
       allStatus: 'ทุกสถานะ',
       allChannel: 'ทุกช่องทาง',
+      allSale: 'ทุก Sale',
     },
 
     // ===== Statuses =====

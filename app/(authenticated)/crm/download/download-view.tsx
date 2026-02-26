@@ -146,6 +146,8 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
     const [includeFinancial, setIncludeFinancial] = useState(true)
     const [includeInstallment, setIncludeInstallment] = useState(true)
     const [exported, setExported] = useState(false)
+    const [page, setPage] = useState(1)
+    const [pageSize, setPageSize] = useState(50)
 
     const getSettingLabel = (cat: string, val: string) => {
         const s = settings.find(s => s.category === cat && s.value === val)
@@ -156,6 +158,11 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
         if (filterStatus === 'all') return leads
         return leads.filter(l => l.status === filterStatus)
     }, [leads, filterStatus])
+
+    // Reset page when filter changes
+    const totalPages = Math.max(1, Math.ceil(filteredLeads.length / pageSize))
+    const currentPage = Math.min(page, totalPages)
+    const pagedLeads = filteredLeads.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
     const buildCsvData = () => {
         const headers: string[] = [tc.name, tc.status, tc.createdAt]
@@ -223,7 +230,6 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
 
     const downloadCsv = () => {
         const { headers, rows } = buildCsvData()
-        // BOM for Thai encoding
         const bom = '\uFEFF'
         const csvContent = bom + [
             headers.map(h => `"${h}"`).join(','),
@@ -242,7 +248,6 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
     }
 
     const downloadExcel = () => {
-        // Export as TSV with .xls extension (universally openable)
         const { headers, rows } = buildCsvData()
         const bom = '\uFEFF'
         const tsvContent = bom + [
@@ -264,204 +269,308 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div>
-                <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{tc.title}</h2>
-                <p className="text-xs text-zinc-500 mt-0.5">{tc.subtitle}</p>
+            <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-11 w-11 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 text-white shadow-md">
+                    <Download className="h-5 w-5" />
+                </div>
+                <div>
+                    <h2 className="text-2xl font-extrabold text-zinc-900 dark:text-zinc-100 tracking-tight">{tc.title}</h2>
+                    <p className="text-[14px] text-zinc-500 mt-0.5">{tc.subtitle}</p>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left: Filters + Options */}
-                <div className="space-y-6">
-                    {/* Status Filter */}
-                    <Card className="shadow-sm">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                                <div className="flex items-center justify-center h-6 w-6 rounded-md bg-blue-50 dark:bg-blue-950/40">
-                                    <Filter className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                                </div>
-                                {tc.filterStatus}
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-2">
-                            {['all', 'lead', 'quotation_sent', 'accepted', 'rejected'].map(s => (
-                                <button
-                                    key={s}
-                                    onClick={() => setFilterStatus(s)}
-                                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-all ${filterStatus === s
-                                        ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
-                                        : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
-                                        }`}
-                                >
-                                    {s === 'all' ? tc.allStatuses : statusLabels[s] || s}
-                                    <span className="float-right text-zinc-400">
-                                        {s === 'all' ? leads.length : leads.filter(l => l.status === s).length}
-                                    </span>
-                                </button>
-                            ))}
-                        </CardContent>
-                    </Card>
-
-                    {/* Data Selection */}
-                    <Card className="shadow-sm">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                                <div className="flex items-center justify-center h-6 w-6 rounded-md bg-violet-50 dark:bg-violet-950/40">
-                                    <CheckCircle2 className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
-                                </div>
-                                {tc.includeFields}
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            <ToggleRow icon={Users} label={tc.customerInfo} checked={includeCustomer} onChange={setIncludeCustomer} color="text-blue-500" />
-                            <ToggleRow icon={Calendar} label={tc.eventInfo} checked={includeEvent} onChange={setIncludeEvent} color="text-violet-500" />
-                            <ToggleRow icon={DollarSign} label={tc.financialInfo} checked={includeFinancial} onChange={setIncludeFinancial} color="text-emerald-500" />
-                            <ToggleRow icon={FileSpreadsheet} label={tc.installmentInfo} checked={includeInstallment} onChange={setIncludeInstallment} color="text-amber-500" />
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* Right: Preview + Download */}
-                <div className="lg:col-span-2 space-y-6">
-                    {/* Summary */}
-                    <Card className="shadow-sm">
-                        <CardContent className="p-4 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-sm">
-                                    <FileSpreadsheet className="h-5 w-5" />
-                                </div>
-                                <div>
-                                    <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{tc.totalRecords}</p>
-                                    <p className="text-xs text-zinc-500">{filteredLeads.length} {tc.records}</p>
-                                </div>
+            {/* Top Row: 3 cards side by side */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {/* Card 1: Status Filter */}
+                <Card className="shadow-sm border-zinc-200/80 dark:border-zinc-800/80">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2.5">
+                            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-blue-50 dark:bg-blue-950/40">
+                                <Filter className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                             </div>
-                            <div className="flex gap-2">
-                                <Button onClick={downloadCsv} size="sm" variant="outline" className="text-xs gap-1.5">
-                                    <Download className="h-3.5 w-3.5" />
-                                    {tc.downloadCsv}
-                                </Button>
-                                <Button onClick={downloadExcel} size="sm" className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
-                                    <FileSpreadsheet className="h-3.5 w-3.5" />
-                                    {tc.downloadExcel}
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
+                            {tc.filterStatus}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1">
+                        {['all', 'lead', 'quotation_sent', 'accepted', 'rejected'].map(s => (
+                            <button
+                                key={s}
+                                onClick={() => { setFilterStatus(s); setPage(1) }}
+                                className={`w-full text-left px-3.5 py-2 rounded-xl text-[13px] font-medium transition-all ${filterStatus === s
+                                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 shadow-sm ring-1 ring-blue-200/60 dark:ring-blue-800/60'
+                                    : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                                    }`}
+                            >
+                                {s === 'all' ? tc.allStatuses : statusLabels[s] || s}
+                                <span className="float-right tabular-nums text-zinc-400 font-semibold">
+                                    {s === 'all' ? leads.length : leads.filter(l => l.status === s).length}
+                                </span>
+                            </button>
+                        ))}
+                    </CardContent>
+                </Card>
 
-                    {exported && (
-                        <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg text-xs text-emerald-700 dark:text-emerald-300 font-medium">
-                            <CheckCircle2 className="h-4 w-4" />
-                            {tc.exported}
+                {/* Card 2: Summary + Download */}
+                <Card className="shadow-sm border-zinc-200/80 dark:border-zinc-800/80">
+                    <CardContent className="p-5 flex flex-col justify-between h-full">
+                        <div className="flex items-center gap-4 mb-5">
+                            <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 text-white shadow-md">
+                                <FileSpreadsheet className="h-6 w-6" />
+                            </div>
+                            <div>
+                                <p className="text-[14px] font-bold text-zinc-900 dark:text-zinc-100">{tc.totalRecords}</p>
+                                <p className="text-2xl font-extrabold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                                    {filteredLeads.length} <span className="text-[14px] font-medium text-zinc-400">{tc.records}</span>
+                                </p>
+                            </div>
                         </div>
-                    )}
+                        <div className="space-y-2.5">
+                            <Button onClick={downloadCsv} variant="outline" className="text-[13px] gap-2 h-10 w-full">
+                                <Download className="h-4 w-4" />
+                                {tc.downloadCsv}
+                            </Button>
+                            <Button onClick={downloadExcel} className="text-[13px] gap-2 h-10 w-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">
+                                <FileSpreadsheet className="h-4 w-4" />
+                                {tc.downloadExcel}
+                            </Button>
+                        </div>
+                        {exported && (
+                            <div className="flex items-center gap-2 mt-3 px-3 py-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-[13px] text-emerald-700 dark:text-emerald-300 font-medium">
+                                <CheckCircle2 className="h-4 w-4" />
+                                {tc.exported}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
 
-                    {/* Preview Table */}
-                    <Card className="shadow-sm">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                                <div className="flex items-center justify-center h-6 w-6 rounded-md bg-orange-50 dark:bg-orange-950/40">
-                                    <FileSpreadsheet className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
-                                </div>
-                                {tc.preview}
-                                <Badge variant="outline" className="text-[10px] ml-auto">{filteredLeads.length} {tc.records}</Badge>
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-                                <table className="w-full text-xs">
-                                    <thead className="sticky top-0 bg-white dark:bg-zinc-900 z-10">
-                                        <tr className="border-b border-zinc-200 dark:border-zinc-700">
-                                            <th className="text-left py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.name}</th>
-                                            <th className="text-left py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.status}</th>
+                {/* Card 3: Data Selection */}
+                <Card className="shadow-sm border-zinc-200/80 dark:border-zinc-800/80">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2.5">
+                            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-violet-50 dark:bg-violet-950/40">
+                                <CheckCircle2 className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                            </div>
+                            {tc.includeFields}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                        <ToggleRow icon={Users} label={tc.customerInfo} checked={includeCustomer} onChange={setIncludeCustomer} color="text-blue-500" />
+                        <ToggleRow icon={Calendar} label={tc.eventInfo} checked={includeEvent} onChange={setIncludeEvent} color="text-violet-500" />
+                        <ToggleRow icon={DollarSign} label={tc.financialInfo} checked={includeFinancial} onChange={setIncludeFinancial} color="text-emerald-500" />
+                        <ToggleRow icon={FileSpreadsheet} label={tc.installmentInfo} checked={includeInstallment} onChange={setIncludeInstallment} color="text-amber-500" />
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Full-width data table */}
+            <div
+                className="relative"
+                style={{
+                    width: '100vw',
+                    marginLeft: 'calc(-50vw + 50%)',
+                    paddingLeft: '1rem',
+                    paddingRight: '1rem',
+                }}
+            >
+                <Card className="shadow-sm border-zinc-200/80 dark:border-zinc-800/80">
+                    {/* Table Header with pagination controls */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
+                        <div className="flex items-center gap-2.5">
+                            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-orange-50 dark:bg-orange-950/40">
+                                <FileSpreadsheet className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                            </div>
+                            <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                                {locale === 'th' ? 'ข้อมูลที่จะดาวน์โหลด' : 'Data to Download'}
+                            </span>
+                            <Badge variant="outline" className="text-[12px] px-2.5 py-0.5">{filteredLeads.length} {tc.records}</Badge>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            {/* Records per page selector */}
+                            <div className="flex items-center gap-2">
+                                <span className="text-[13px] text-zinc-500">{locale === 'th' ? 'แสดง' : 'Show'}</span>
+                                <select
+                                    value={pageSize}
+                                    onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}
+                                    className="h-8 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[13px] text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-400/40"
+                                >
+                                    {[50, 100, 200, 500].map(n => (
+                                        <option key={n} value={n}>{n}</option>
+                                    ))}
+                                </select>
+                                <span className="text-[13px] text-zinc-500">{locale === 'th' ? 'รายการ/หน้า' : 'per page'}</span>
+                            </div>
+                            {/* Page navigation */}
+                            <div className="flex items-center gap-1">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                                    disabled={currentPage <= 1}
+                                    className="h-8 w-8 p-0"
+                                >
+                                    <span className="sr-only">Previous</span>
+                                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                                </Button>
+                                <span className="text-[13px] text-zinc-600 dark:text-zinc-400 px-2 tabular-nums font-medium">
+                                    {currentPage} / {totalPages}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={currentPage >= totalPages}
+                                    className="h-8 w-8 p-0"
+                                >
+                                    <span className="sr-only">Next</span>
+                                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Data Table */}
+                    <CardContent className="p-0">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead className="sticky top-0 bg-zinc-50/80 dark:bg-zinc-800/50 z-10">
+                                    <tr className="border-b border-zinc-200 dark:border-zinc-700">
+                                        <th className="text-left py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.name}</th>
+                                        <th className="text-left py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.status}</th>
+                                        {includeCustomer && (
+                                            <>
+                                                <th className="text-left py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.phone}</th>
+                                                <th className="text-left py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.lineId}</th>
+                                                <th className="text-left py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.source}</th>
+                                            </>
+                                        )}
+                                        {includeEvent && (
+                                            <>
+                                                <th className="text-left py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.eventDate}</th>
+                                                <th className="text-left py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.endDate}</th>
+                                                <th className="text-left py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.location}</th>
+                                            </>
+                                        )}
+                                        {includeFinancial && (
+                                            <>
+                                                <th className="text-left py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.package}</th>
+                                                <th className="text-right py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.quotedPrice}</th>
+                                                <th className="text-right py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.confirmedPrice}</th>
+                                                <th className="text-right py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.deposit}</th>
+                                            </>
+                                        )}
+                                        {includeInstallment && [1, 2, 3, 4].map(n => (
+                                            <th key={n} className="text-right py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">
+                                                {locale === 'th' ? `งวด ${n}` : `Inst. ${n}`}
+                                            </th>
+                                        ))}
+                                        <th className="text-right py-3 px-4 font-semibold text-zinc-500 whitespace-nowrap">{tc.createdAt}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pagedLeads.map((l, idx) => (
+                                        <tr key={l.id} className={`border-b border-zinc-100/80 dark:border-zinc-800/40 hover:bg-blue-50/40 dark:hover:bg-zinc-800/30 transition-colors ${idx % 2 === 0 ? 'bg-zinc-50/30 dark:bg-zinc-900/30' : ''}`}>
+                                            <td className="py-2.5 px-4 font-medium text-zinc-900 dark:text-zinc-100 whitespace-nowrap">{l.customer_name}</td>
+                                            <td className="py-2.5 px-4 whitespace-nowrap">
+                                                <Badge variant="outline" className="text-[12px] px-2 py-0.5">
+                                                    {statusLabels[l.status] || l.status}
+                                                </Badge>
+                                            </td>
                                             {includeCustomer && (
                                                 <>
-                                                    <th className="text-left py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.phone}</th>
-                                                    <th className="text-left py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.lineId}</th>
-                                                    <th className="text-left py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.source}</th>
+                                                    <td className="py-2.5 px-4 text-zinc-500 whitespace-nowrap">{l.customer_phone || '—'}</td>
+                                                    <td className="py-2.5 px-4 text-zinc-500 whitespace-nowrap">{l.customer_line || '—'}</td>
+                                                    <td className="py-2.5 px-4 text-zinc-500 whitespace-nowrap">{l.lead_source ? getSettingLabel('source', l.lead_source) : '—'}</td>
                                                 </>
                                             )}
                                             {includeEvent && (
                                                 <>
-                                                    <th className="text-left py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.eventDate}</th>
-                                                    <th className="text-left py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.endDate}</th>
-                                                    <th className="text-left py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.location}</th>
+                                                    <td className="py-2.5 px-4 text-zinc-500 whitespace-nowrap">{l.event_date || '—'}</td>
+                                                    <td className="py-2.5 px-4 text-zinc-500 whitespace-nowrap">{l.event_end_date || '—'}</td>
+                                                    <td className="py-2.5 px-4 text-zinc-500 whitespace-nowrap">{l.event_location || '—'}</td>
                                                 </>
                                             )}
                                             {includeFinancial && (
                                                 <>
-                                                    <th className="text-left py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.package}</th>
-                                                    <th className="text-right py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.quotedPrice}</th>
-                                                    <th className="text-right py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.confirmedPrice}</th>
-                                                    <th className="text-right py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">{tc.deposit}</th>
+                                                    <td className="py-2.5 px-4 text-zinc-500 whitespace-nowrap">{l.package_name ? getSettingLabel('package', l.package_name) : '—'}</td>
+                                                    <td className="py-2.5 px-4 text-right text-zinc-700 dark:text-zinc-300 whitespace-nowrap">{l.quoted_price ? `฿${l.quoted_price.toLocaleString()}` : '—'}</td>
+                                                    <td className="py-2.5 px-4 text-right text-zinc-700 dark:text-zinc-300 whitespace-nowrap">{l.confirmed_price ? `฿${l.confirmed_price.toLocaleString()}` : '—'}</td>
+                                                    <td className="py-2.5 px-4 text-right text-zinc-700 dark:text-zinc-300 whitespace-nowrap">{l.deposit ? `฿${l.deposit.toLocaleString()}` : '—'}</td>
                                                 </>
                                             )}
-                                            {includeInstallment && [1, 2, 3, 4].map(n => (
-                                                <th key={n} className="text-right py-2 pr-3 font-semibold text-zinc-500 whitespace-nowrap">
-                                                    {locale === 'th' ? `งวด ${n}` : `Inst. ${n}`}
-                                                </th>
-                                            ))}
-                                            <th className="text-right py-2 font-semibold text-zinc-500 whitespace-nowrap">{tc.createdAt}</th>
+                                            {includeInstallment && [1, 2, 3, 4].map(n => {
+                                                const amt = (l as any)[`installment_${n}`] as number
+                                                const isPaid = (l as any)[`installment_${n}_paid`] as boolean
+                                                return (
+                                                    <td key={n} className="py-2.5 px-4 text-right whitespace-nowrap">
+                                                        {amt ? (
+                                                            <span className={isPaid ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-700 dark:text-zinc-300'}>
+                                                                {isPaid ? '✓ ' : ''}฿{amt.toLocaleString()}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-zinc-300 dark:text-zinc-600">—</span>
+                                                        )}
+                                                    </td>
+                                                )
+                                            })}
+                                            <td className="py-2.5 px-4 text-right text-zinc-500 whitespace-nowrap">{l.created_at.slice(0, 10)}</td>
                                         </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredLeads.slice(0, 20).map(l => (
-                                            <tr key={l.id} className="border-b border-zinc-50 dark:border-zinc-800/50 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30">
-                                                <td className="py-1.5 pr-3 font-medium text-zinc-900 dark:text-zinc-100 whitespace-nowrap">{l.customer_name}</td>
-                                                <td className="py-1.5 pr-3 whitespace-nowrap">
-                                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                                        {statusLabels[l.status] || l.status}
-                                                    </Badge>
-                                                </td>
-                                                {includeCustomer && (
-                                                    <>
-                                                        <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{l.customer_phone || '—'}</td>
-                                                        <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{l.customer_line || '—'}</td>
-                                                        <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{l.lead_source ? getSettingLabel('source', l.lead_source) : '—'}</td>
-                                                    </>
-                                                )}
-                                                {includeEvent && (
-                                                    <>
-                                                        <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{l.event_date || '—'}</td>
-                                                        <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{l.event_end_date || '—'}</td>
-                                                        <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{l.event_location || '—'}</td>
-                                                    </>
-                                                )}
-                                                {includeFinancial && (
-                                                    <>
-                                                        <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{l.package_name ? getSettingLabel('package', l.package_name) : '—'}</td>
-                                                        <td className="py-1.5 pr-3 text-right text-zinc-700 dark:text-zinc-300 whitespace-nowrap">{l.quoted_price ? `฿${l.quoted_price.toLocaleString()}` : '—'}</td>
-                                                        <td className="py-1.5 pr-3 text-right text-zinc-700 dark:text-zinc-300 whitespace-nowrap">{l.confirmed_price ? `฿${l.confirmed_price.toLocaleString()}` : '—'}</td>
-                                                        <td className="py-1.5 pr-3 text-right text-zinc-700 dark:text-zinc-300 whitespace-nowrap">{l.deposit ? `฿${l.deposit.toLocaleString()}` : '—'}</td>
-                                                    </>
-                                                )}
-                                                {includeInstallment && [1, 2, 3, 4].map(n => {
-                                                    const amt = (l as any)[`installment_${n}`] as number
-                                                    const isPaid = (l as any)[`installment_${n}_paid`] as boolean
-                                                    return (
-                                                        <td key={n} className="py-1.5 pr-3 text-right whitespace-nowrap">
-                                                            {amt ? (
-                                                                <span className={isPaid ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-700 dark:text-zinc-300'}>
-                                                                    {isPaid ? '✓ ' : ''}฿{amt.toLocaleString()}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-zinc-300 dark:text-zinc-600">—</span>
-                                                            )}
-                                                        </td>
-                                                    )
-                                                })}
-                                                <td className="py-1.5 text-right text-zinc-500 whitespace-nowrap">{l.created_at.slice(0, 10)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                                {filteredLeads.length > 20 && (
-                                    <p className="text-center text-[10px] text-zinc-400 py-2">
-                                        {locale === 'th' ? `...แสดง 20 จาก ${filteredLeads.length} รายการ` : `...showing 20 of ${filteredLeads.length} records`}
-                                    </p>
-                                )}
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Bottom pagination */}
+                        <div className="flex items-center justify-between px-5 py-3 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20">
+                            <span className="text-[13px] text-zinc-500">
+                                {locale === 'th'
+                                    ? `แสดง ${((currentPage - 1) * pageSize) + 1}–${Math.min(currentPage * pageSize, filteredLeads.length)} จาก ${filteredLeads.length} รายการ`
+                                    : `Showing ${((currentPage - 1) * pageSize) + 1}–${Math.min(currentPage * pageSize, filteredLeads.length)} of ${filteredLeads.length} records`
+                                }
+                            </span>
+                            <div className="flex items-center gap-1">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(1)}
+                                    disabled={currentPage <= 1}
+                                    className="h-8 px-2 text-[12px]"
+                                >
+                                    {locale === 'th' ? 'หน้าแรก' : 'First'}
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                                    disabled={currentPage <= 1}
+                                    className="h-8 w-8 p-0"
+                                >
+                                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                                </Button>
+                                <span className="text-[13px] text-zinc-600 dark:text-zinc-400 px-3 tabular-nums font-medium">
+                                    {locale === 'th' ? `หน้า ${currentPage} / ${totalPages}` : `Page ${currentPage} / ${totalPages}`}
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={currentPage >= totalPages}
+                                    className="h-8 w-8 p-0"
+                                >
+                                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(totalPages)}
+                                    disabled={currentPage >= totalPages}
+                                    className="h-8 px-2 text-[12px]"
+                                >
+                                    {locale === 'th' ? 'หน้าสุดท้าย' : 'Last'}
+                                </Button>
                             </div>
-                        </CardContent>
-                    </Card>
-                </div>
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
         </div>
     )
@@ -481,12 +590,12 @@ function ToggleRow({
     color: string
 }) {
     return (
-        <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-                <Icon className={`h-3.5 w-3.5 ${color}`} />
-                <Label className="text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">{label}</Label>
+        <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-zinc-50/80 dark:bg-zinc-800/30 hover:bg-zinc-100/80 dark:hover:bg-zinc-800/50 transition-colors">
+            <div className="flex items-center gap-2.5">
+                <Icon className={`h-4 w-4 ${color}`} />
+                <Label className="text-[14px] font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer">{label}</Label>
             </div>
             <Switch checked={checked} onCheckedChange={onChange} />
         </div>
     )
-}
+}

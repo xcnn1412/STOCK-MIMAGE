@@ -230,9 +230,9 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
                 {/* Status Breakdown */}
                 <Card className="shadow-sm">
                     <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                            <div className="flex items-center justify-center h-6 w-6 rounded-md bg-blue-50 dark:bg-blue-950/40">
-                                <BarChart3 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                            <div className="flex items-center justify-center h-7 w-7 rounded-md bg-blue-50 dark:bg-blue-950/40">
+                                <BarChart3 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                             </div>
                             {tc.statusBreakdown}
                         </CardTitle>
@@ -244,12 +244,12 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
                             return (
                                 <div key={status} className="space-y-1.5">
                                     <div className="flex items-center justify-between">
-                                        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                                        <span className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
                                             {(statusLabels as any)[status] || status}
                                         </span>
-                                        <span className="text-xs text-zinc-500">{count} ({pct.toFixed(0)}%)</span>
+                                        <span className="text-[13px] text-zinc-500">{count} ({pct.toFixed(0)}%)</span>
                                     </div>
-                                    <div className="h-2 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                                    <div className="h-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                                         <div
                                             className="h-full rounded-full transition-all duration-500"
                                             style={{ width: `${pct}%`, backgroundColor: cfg.color }}
@@ -259,7 +259,7 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
                             )
                         })}
                         {statusBreakdown.length === 0 && (
-                            <p className="text-xs text-zinc-400 text-center py-4">{tc.noData}</p>
+                            <p className="text-[13px] text-zinc-400 text-center py-4">{tc.noData}</p>
                         )}
                     </CardContent>
                 </Card>
@@ -267,25 +267,25 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
                 {/* Monthly Trend */}
                 <Card className="shadow-sm">
                     <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                            <div className="flex items-center justify-center h-6 w-6 rounded-md bg-violet-50 dark:bg-violet-950/40">
-                                <TrendingUp className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                            <div className="flex items-center justify-center h-7 w-7 rounded-md bg-violet-50 dark:bg-violet-950/40">
+                                <TrendingUp className="h-4 w-4 text-violet-600 dark:text-violet-400" />
                             </div>
                             {tc.monthlyTrend}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="flex items-end gap-2 h-36">
+                        <div className="flex items-end gap-2 h-44">
                             {monthlyTrend.map((m, i) => (
                                 <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                                    <span className="text-[10px] font-semibold text-zinc-700 dark:text-zinc-300">{m.count}</span>
+                                    <span className="text-[12px] font-semibold text-zinc-700 dark:text-zinc-300">{m.count}</span>
                                     <div className="w-full relative">
                                         <div
                                             className="w-full bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-md transition-all duration-500"
                                             style={{ height: `${Math.max((m.count / maxMonthly) * 100, 4)}px`, minHeight: '4px' }}
                                         />
                                     </div>
-                                    <span className="text-[10px] text-zinc-500">{m.label}</span>
+                                    <span className="text-[12px] text-zinc-500">{m.label}</span>
                                 </div>
                             ))}
                         </div>
@@ -298,9 +298,9 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
                 {/* Source Breakdown */}
                 <Card className="shadow-sm">
                     <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                            <div className="flex items-center justify-center h-6 w-6 rounded-md bg-amber-50 dark:bg-amber-950/40">
-                                <TrendingUp className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                            <div className="flex items-center justify-center h-7 w-7 rounded-md bg-amber-50 dark:bg-amber-950/40">
+                                <TrendingUp className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                             </div>
                             {tc.sourceBreakdown}
                         </CardTitle>
@@ -310,18 +310,18 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
                             const pct = leads.length > 0 ? (count / leads.length) * 100 : 0
                             return (
                                 <div key={src} className="flex items-center justify-between py-1 border-b border-zinc-50 dark:border-zinc-800 last:border-0">
-                                    <span className="text-xs text-zinc-700 dark:text-zinc-300">{getSourceLabel(src)}</span>
+                                    <span className="text-[13px] text-zinc-700 dark:text-zinc-300">{getSourceLabel(src)}</span>
                                     <div className="flex items-center gap-2">
                                         <div className="w-16 h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                                             <div className="h-full bg-amber-500 rounded-full" style={{ width: `${pct}%` }} />
                                         </div>
-                                        <span className="text-xs text-zinc-500 w-6 text-right">{count}</span>
+                                        <span className="text-[13px] text-zinc-500 w-6 text-right">{count}</span>
                                     </div>
                                 </div>
                             )
                         })}
                         {sourceBreakdown.length === 0 && (
-                            <p className="text-xs text-zinc-400 text-center py-4">{tc.noData}</p>
+                            <p className="text-[13px] text-zinc-400 text-center py-4">{tc.noData}</p>
                         )}
                     </CardContent>
                 </Card>
@@ -329,9 +329,9 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
                 {/* Package Breakdown */}
                 <Card className="shadow-sm">
                     <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                            <div className="flex items-center justify-center h-6 w-6 rounded-md bg-emerald-50 dark:bg-emerald-950/40">
-                                <Package className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                            <div className="flex items-center justify-center h-7 w-7 rounded-md bg-emerald-50 dark:bg-emerald-950/40">
+                                <Package className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                             </div>
                             {tc.packageBreakdown}
                         </CardTitle>
@@ -341,18 +341,18 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
                             const pct = leads.length > 0 ? (count / leads.length) * 100 : 0
                             return (
                                 <div key={pkg} className="flex items-center justify-between py-1 border-b border-zinc-50 dark:border-zinc-800 last:border-0">
-                                    <span className="text-xs text-zinc-700 dark:text-zinc-300">{getPkgLabel(pkg)}</span>
+                                    <span className="text-[13px] text-zinc-700 dark:text-zinc-300">{getPkgLabel(pkg)}</span>
                                     <div className="flex items-center gap-2">
                                         <div className="w-16 h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                                             <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${pct}%` }} />
                                         </div>
-                                        <span className="text-xs text-zinc-500 w-6 text-right">{count}</span>
+                                        <span className="text-[13px] text-zinc-500 w-6 text-right">{count}</span>
                                     </div>
                                 </div>
                             )
                         })}
                         {packageBreakdown.length === 0 && (
-                            <p className="text-xs text-zinc-400 text-center py-4">{tc.noData}</p>
+                            <p className="text-[13px] text-zinc-400 text-center py-4">{tc.noData}</p>
                         )}
                     </CardContent>
                 </Card>
@@ -361,16 +361,16 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
             {/* Recent Leads */}
             <Card className="shadow-sm">
                 <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                        <div className="flex items-center justify-center h-6 w-6 rounded-md bg-indigo-50 dark:bg-indigo-950/40">
-                            <Clock className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <div className="flex items-center justify-center h-7 w-7 rounded-md bg-indigo-50 dark:bg-indigo-950/40">
+                            <Clock className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                         </div>
                         {tc.recentLeads}
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
+                        <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                                     <th className="text-left py-2 pr-4 font-semibold text-zinc-500">{locale === 'th' ? 'ชื่อ' : 'Name'}</th>
@@ -387,7 +387,7 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
                                         <tr key={l.id} className="border-b border-zinc-50 dark:border-zinc-800/50 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
                                             <td className="py-2 pr-4 font-medium text-zinc-900 dark:text-zinc-100">{l.customer_name}</td>
                                             <td className="py-2 pr-4">
-                                                <Badge className={`${cfg.bg} ${cfg.text} border-0 text-[10px] px-2 py-0`}>
+                                                <Badge className={`${cfg.bg} ${cfg.text} border-0 text-[12px] px-2.5 py-0.5`}>
                                                     {(statusLabels as any)[l.status] || l.status}
                                                 </Badge>
                                             </td>
@@ -441,15 +441,15 @@ function StatCard({
 
     return (
         <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CardContent className="p-4">
+            <CardContent className="p-5">
                 <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">{label}</p>
-                        <p className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{value}</p>
-                        {subtitle && <p className="text-[10px] text-zinc-400">{subtitle}</p>}
+                    <div className="space-y-1.5">
+                        <p className="text-[13px] text-zinc-500 dark:text-zinc-400">{label}</p>
+                        <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{value}</p>
+                        {subtitle && <p className="text-[12px] text-zinc-400">{subtitle}</p>}
                     </div>
-                    <div className={`flex items-center justify-center h-8 w-8 rounded-lg ${bgMap[color] || bgMap.blue}`}>
-                        <Icon className={`h-4 w-4 ${iconMap[color] || iconMap.blue}`} />
+                    <div className={`flex items-center justify-center h-10 w-10 rounded-lg ${bgMap[color] || bgMap.blue}`}>
+                        <Icon className={`h-5 w-5 ${iconMap[color] || iconMap.blue}`} />
                     </div>
                 </div>
             </CardContent>
