@@ -4,12 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Download, FileSpreadsheet, FileJson } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
-import { COST_CATEGORIES } from '../types'
+import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
 
-export default function DownloadView({ jobEvents }: { jobEvents: JobEventWithItems[] }) {
+export default function DownloadView({ jobEvents, categories }: { jobEvents: JobEventWithItems[]; categories: FinanceCategory[] }) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
 
@@ -29,13 +29,13 @@ export default function DownloadView({ jobEvents }: { jobEvents: JobEventWithIte
 
       if (event.job_cost_items?.length) {
         event.job_cost_items.forEach((item, idx) => {
-          const catInfo = COST_CATEGORIES.find(c => c.value === item.category)
+          const catInfo = categories.find(c => c.value === item.category)
           rows.push([
             idx === 0 ? event.event_name : '',
             idx === 0 ? (event.event_date || '') : '',
             idx === 0 ? (event.event_location || '') : '',
             idx === 0 ? String(event.revenue || 0) : '',
-            catInfo?.labelTh || item.category,
+            catInfo?.label_th || item.category,
             item.description || '',
             String(item.amount || 0),
             item.cost_date || '',

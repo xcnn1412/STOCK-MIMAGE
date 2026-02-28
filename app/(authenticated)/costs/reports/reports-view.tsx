@@ -9,7 +9,8 @@ import {
   TrendingUp, TrendingDown, BarChart3, Users, UserCheck, CalendarDays
 } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
-import { COST_CATEGORIES, getCategoryColor } from '../types'
+import { getCategoryColor } from '../types'
+import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
 import CostSummaryDashboard from '../components/cost-summary-dashboard'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 
@@ -62,11 +63,13 @@ export default function ReportsView({
   activeEvents,
   closedEvents,
   importedIds,
+  categories,
 }: {
   jobEvents: JobEventWithItems[]
   activeEvents: { id: string; event_date: string | null }[]
   closedEvents: { id: string; event_date: string | null }[]
   importedIds: string[]
+  categories: FinanceCategory[]
 }) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
@@ -249,21 +252,21 @@ export default function ReportsView({
           ) : (
             <div className="space-y-3">
               {sortedCats.map(([cat, amount]) => {
-                const catInfo = COST_CATEGORIES.find(c => c.value === cat)
+                const catInfo = categories.find(c => c.value === cat)
                 const totalAll = sortedCats.reduce((s, [, a]) => s + a, 0)
                 const pct = totalAll > 0 ? (amount / totalAll) * 100 : 0
                 return (
                   <div key={cat} className="flex items-center gap-3">
                     <div className="flex items-center gap-2 w-28 shrink-0">
-                      <span className="w-1 h-4 rounded-full shrink-0" style={{ backgroundColor: getCategoryColor(cat) }} />
+                      <span className="w-1 h-4 rounded-full shrink-0" style={{ backgroundColor: getCategoryColor(cat, categories) }} />
                       <span className="text-sm font-medium truncate">
-                        {isEn ? (catInfo?.label || cat) : (catInfo?.labelTh || cat)}
+                        {isEn ? (catInfo?.label || cat) : (catInfo?.label_th || cat)}
                       </span>
                     </div>
                     <div className="flex-1 h-6 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%`, backgroundColor: getCategoryColor(cat) }}
+                        style={{ width: `${pct}%`, backgroundColor: getCategoryColor(cat, categories) }}
                       />
                     </div>
                     <span className="w-24 text-sm text-right font-mono font-semibold">฿{fmt(amount)}</span>

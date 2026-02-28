@@ -1,4 +1,5 @@
 import { getClaims } from './actions'
+import { getFinanceCategories } from './settings-actions'
 import ClaimsListView from './claims-list-view'
 import type { ExpenseClaim } from '../costs/types'
 
@@ -10,12 +11,16 @@ export const metadata = {
 }
 
 export default async function FinancePage() {
-  const { data, error } = await getClaims()
+  const [{ data, error }, categories] = await Promise.all([
+    getClaims(),
+    getFinanceCategories(),
+  ])
 
   return (
     <ClaimsListView
       claims={(data || []) as unknown as ExpenseClaim[]}
       error={error || null}
+      categories={categories}
     />
   )
 }
