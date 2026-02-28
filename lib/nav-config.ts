@@ -24,7 +24,6 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: ContactRound,
     items: [
       { href: '/crm', icon: LayoutDashboard, labelKey: 'crmDashboard' },
-      { href: '/crm/settings', icon: Settings, labelKey: 'crmSettings' },
     ],
   },
   {
@@ -80,6 +79,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: LayoutGrid,
     adminOnly: true,
     items: [
+      { href: '/settings', icon: Settings, labelKey: 'settings' },
       { href: '/logs', icon: LayoutGrid, labelKey: 'logs' },
       { href: '/users', icon: Users, labelKey: 'users' },
     ],

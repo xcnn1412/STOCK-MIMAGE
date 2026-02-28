@@ -20,16 +20,40 @@ import { useLocale } from '@/lib/i18n/context'
 // Types & Constants
 // ============================================================================
 
-export type LeadStatus = 'lead' | 'quotation_sent' | 'accepted' | 'rejected'
+export type LeadStatus = string
 
-export const STATUS_CONFIG: Record<LeadStatus, { label: string; labelTh: string; color: string; bgColor: string; textColor: string }> = {
+// Fallback config for unknown statuses
+const FALLBACK_STATUS = { label: 'Unknown', labelTh: 'ไม่ทราบ', color: '#9ca3af', bgColor: 'bg-zinc-100 dark:bg-zinc-800', textColor: 'text-zinc-600 dark:text-zinc-400' }
+
+// Get ordered status list from settings
+export function getStatusesFromSettings(settings: CrmSetting[]): string[] {
+  return settings
+    .filter(s => s.category === 'kanban_status' && s.is_active)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map(s => s.value)
+}
+
+// Get status config from settings (color, labels, etc.)
+export function getStatusConfig(settings: CrmSetting[], status: string): { label: string; labelTh: string; color: string; bgColor: string; textColor: string } {
+  const s = settings.find(st => st.category === 'kanban_status' && st.value === status)
+  if (!s) return FALLBACK_STATUS
+  return {
+    label: s.label_en,
+    labelTh: s.label_th,
+    color: s.color || '#9ca3af',
+    bgColor: `bg-zinc-100 dark:bg-zinc-800`,
+    textColor: `text-zinc-600 dark:text-zinc-400`,
+  }
+}
+
+// Legacy compat — still exported for consumers that haven't migrated
+export const ALL_STATUSES: LeadStatus[] = ['lead', 'quotation_sent', 'accepted', 'rejected']
+export const STATUS_CONFIG: Record<string, { label: string; labelTh: string; color: string; bgColor: string; textColor: string }> = {
   lead: { label: 'Lead', labelTh: 'ลูกค้าใหม่', color: '#3b82f6', bgColor: 'bg-blue-50 dark:bg-blue-950/30', textColor: 'text-blue-700 dark:text-blue-300' },
   quotation_sent: { label: 'Quotation Sent', labelTh: 'ส่งใบเสนอราคา', color: '#f59e0b', bgColor: 'bg-amber-50 dark:bg-amber-950/30', textColor: 'text-amber-700 dark:text-amber-300' },
   accepted: { label: 'Accepted', labelTh: 'ตอบรับ', color: '#10b981', bgColor: 'bg-emerald-50 dark:bg-emerald-950/30', textColor: 'text-emerald-700 dark:text-emerald-300' },
   rejected: { label: 'Rejected', labelTh: 'ปฏิเสธ', color: '#6b7280', bgColor: 'bg-zinc-100 dark:bg-zinc-800', textColor: 'text-zinc-600 dark:text-zinc-400' },
 }
-
-export const ALL_STATUSES: LeadStatus[] = ['lead', 'quotation_sent', 'accepted', 'rejected']
 
 export interface CrmLead {
   id: string
@@ -68,6 +92,8 @@ export interface CrmLead {
   installment_2_paid_date: string | null
   installment_3_paid_date: string | null
   installment_4_paid_date: string | null
+  vat_mode: string // 'none' | 'included' | 'excluded'
+  wht_rate: number // 0 | 1 | 2 | 3 | 5
   quotation_ref: string | null
   notes: string | null
   event_id: string | null
@@ -117,10 +143,14 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
     return locale === 'th' ? setting.label_th : setting.label_en
   }, [locale])
 
+  // Dynamic statuses from settings
+  const kanbanStatuses = useMemo(() => getStatusesFromSettings(settings), [settings])
+
   // Helper: get status label by locale
   const getStatusLabel = useCallback((status: LeadStatus) => {
-    return tc.statuses[status] || STATUS_CONFIG[status].label
-  }, [tc])
+    const cfg = getStatusConfig(settings, status)
+    return tc.statuses[status] || cfg.labelTh || cfg.label
+  }, [tc, settings])
 
   // Restore view mode from localStorage
   useEffect(() => {
@@ -162,17 +192,17 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
 
   // Summary stats — per-status breakdown
   const stats = useMemo(() => {
-    const statusCounts = ALL_STATUSES.reduce((acc, s) => {
+    const statusCounts = kanbanStatuses.reduce((acc, s) => {
       const filtered = leads.filter(l => l.status === s)
       acc[s] = {
         count: filtered.length,
         value: filtered.reduce((sum, l) => sum + (l.confirmed_price || l.quoted_price || 0), 0),
       }
       return acc
-    }, {} as Record<LeadStatus, { count: number; value: number }>)
+    }, {} as Record<string, { count: number; value: number }>)
 
-    return { ...statusCounts, total: leads.length }
-  }, [leads])
+    return { statusCounts, total: leads.length }
+  }, [leads, kanbanStatuses])
 
   return (
     <div className="space-y-6">
@@ -197,9 +227,9 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
 
       {/* Summary Cards — per-status */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {ALL_STATUSES.map((status) => {
-          const cfg = STATUS_CONFIG[status]
-          const data = stats[status]
+        {kanbanStatuses.map((status) => {
+          const cfg = getStatusConfig(settings, status)
+          const data = stats.statusCounts[status] || { count: 0, value: 0 }
           return (
             <div key={status} className="relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-5">
               <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: `linear-gradient(to bottom, ${cfg.color}, ${cfg.color}dd)` }} />
@@ -262,10 +292,10 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{tc.filters.allStatus}</SelectItem>
-              {ALL_STATUSES.map(s => (
+              {kanbanStatuses.map(s => (
                 <SelectItem key={s} value={s}>
                   <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: STATUS_CONFIG[s].color }} />
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getStatusConfig(settings, s).color }} />
                     {getStatusLabel(s)}
                   </span>
                 </SelectItem>
@@ -337,7 +367,8 @@ function TableView({ leads, settings }: { leads: CrmLead[]; settings: CrmSetting
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const getStatusLabel = (status: LeadStatus) => {
-    return tc.statuses[status] || STATUS_CONFIG[status].label
+    const cfg = getStatusConfig(settings, status)
+    return tc.statuses[status] || cfg.labelTh || cfg.label
   }
 
   const getSettingLabel = (setting: CrmSetting) => {
@@ -398,7 +429,7 @@ function TableView({ leads, settings }: { leads: CrmLead[]; settings: CrmSetting
         </thead>
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {sortedLeads.map(lead => {
-            const statusCfg = STATUS_CONFIG[lead.status]
+            const statusCfg = getStatusConfig(settings, lead.status)
             const sourceSetting = settings.find(s => s.category === 'lead_source' && s.value === lead.lead_source)
             const pkgSetting = settings.find(s => s.category === 'package' && s.value === lead.package_name)
             const overdue = isOverdue(lead)

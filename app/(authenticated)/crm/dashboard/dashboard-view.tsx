@@ -21,19 +21,14 @@ type Lead = {
     confirmed_price: number
     deposit: number
     event_date: string | null
-    installment_1: number
-    installment_2: number
-    installment_3: number
-    installment_4: number
-    installment_1_date: string | null
-    installment_2_date: string | null
-    installment_3_date: string | null
-    installment_4_date: string | null
-    installment_1_paid: boolean
-    installment_2_paid: boolean
-    installment_3_paid: boolean
-    installment_4_paid: boolean
     tags: string[]
+}
+
+type PaymentStats = {
+    overdueCount: number
+    paidCount: number
+    totalOutstanding: number
+    totalPaid: number
 }
 
 type Setting = {
@@ -105,7 +100,7 @@ const t = {
     },
 }
 
-export default function DashboardView({ leads, settings }: { leads: Lead[]; settings: Setting[] }) {
+export default function DashboardView({ leads, settings, paymentStats }: { leads: Lead[]; settings: Setting[]; paymentStats: PaymentStats }) {
     const { locale } = useLocale()
     const tc = t[locale] || t.th
     const statusLabels = STATUS_LABELS[locale] || STATUS_LABELS.th
@@ -120,32 +115,20 @@ export default function DashboardView({ leads, settings }: { leads: Lead[]; sett
         const confirmedRevenue = accepted.reduce((sum, l) => sum + (l.confirmed_price || 0), 0)
         const avgDeal = accepted.length > 0 ? confirmedRevenue / accepted.length : 0
         const conversionRate = leads.length > 0 ? (accepted.length / leads.length) * 100 : 0
-
         const upcomingEvents = leads.filter(l => l.event_date && new Date(l.event_date) >= today).length
 
-        let overdueCount = 0
-        let paidCount = 0
-        let totalOutstanding = 0
-        let totalPaid = 0
-
-        for (const l of leads) {
-            for (let n = 1; n <= 4; n++) {
-                const amount = (l as any)[`installment_${n}`] as number
-                const date = (l as any)[`installment_${n}_date`] as string | null
-                const isPaid = (l as any)[`installment_${n}_paid`] as boolean
-                if (!amount || amount <= 0) continue
-                if (isPaid) {
-                    paidCount++
-                    totalPaid += amount
-                } else {
-                    totalOutstanding += amount
-                    if (date && new Date(date) < today) overdueCount++
-                }
-            }
+        return {
+            totalRevenue,
+            confirmedRevenue,
+            avgDeal,
+            conversionRate,
+            upcomingEvents,
+            overdueCount: paymentStats.overdueCount,
+            paidCount: paymentStats.paidCount,
+            totalOutstanding: paymentStats.totalOutstanding,
+            totalPaid: paymentStats.totalPaid,
         }
-
-        return { totalRevenue, confirmedRevenue, avgDeal, conversionRate, upcomingEvents, overdueCount, paidCount, totalOutstanding, totalPaid }
-    }, [leads])
+    }, [leads, paymentStats])
 
     // === Status Breakdown ===
     const statusBreakdown = useMemo(() => {

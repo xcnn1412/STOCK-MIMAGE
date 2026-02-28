@@ -20,7 +20,7 @@ export const dictionary = {
       costsDownload: 'Download',
       crm: 'CRM',
       crmDashboard: 'Dashboard',
-      crmSettings: 'Settings',
+      settings: 'Settings',
 
       finance: 'Finance',
     },
@@ -258,7 +258,7 @@ export const dictionary = {
       costsDownload: 'ดาวน์โหลด',
       crm: 'CRM',
       crmDashboard: 'แดชบอร์ด',
-      crmSettings: 'ตั้งค่า',
+      settings: 'ตั้งค่า',
 
       finance: 'เบิกเงิน',
     },

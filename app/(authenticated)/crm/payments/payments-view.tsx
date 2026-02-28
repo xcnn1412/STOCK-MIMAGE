@@ -5,32 +5,8 @@ import Link from 'next/link'
 import { useLocale } from '@/lib/i18n/context'
 import { ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Clock, CalendarDays } from 'lucide-react'
 
-type Lead = {
-    id: string
-    customer_name: string
-    status: string
-    installment_1: number
-    installment_2: number
-    installment_3: number
-    installment_4: number
-    installment_1_date: string | null
-    installment_2_date: string | null
-    installment_3_date: string | null
-    installment_4_date: string | null
-    installment_1_paid: boolean
-    installment_2_paid: boolean
-    installment_3_paid: boolean
-    installment_4_paid: boolean
-    installment_1_paid_date: string | null
-    installment_2_paid_date: string | null
-    installment_3_paid_date: string | null
-    installment_4_paid_date: string | null
-    deposit: number
-    confirmed_price: number
-    quoted_price: number
-}
-
 type PaymentEntry = {
+    id?: string
     leadId: string
     customerName: string
     status: string
@@ -58,38 +34,12 @@ const MONTH_LABELS = {
     en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
 }
 
-export default function PaymentsView({ leads }: { leads: Lead[] }) {
+export default function PaymentsView({ payments: allPayments }: { payments: PaymentEntry[] }) {
     const { locale } = useLocale()
     const today = new Date()
     const [currentMonth, setCurrentMonth] = useState(today.getMonth())
     const [currentYear, setCurrentYear] = useState(today.getFullYear())
     const [selectedDate, setSelectedDate] = useState<string | null>(null)
-
-    // Extract all payment entries
-    const allPayments = useMemo(() => {
-        const entries: PaymentEntry[] = []
-        for (const lead of leads) {
-            for (let n = 1; n <= 4; n++) {
-                const amount = (lead as any)[`installment_${n}`] as number
-                const dueDate = (lead as any)[`installment_${n}_date`] as string | null
-                const isPaid = (lead as any)[`installment_${n}_paid`] as boolean
-                const paidDate = (lead as any)[`installment_${n}_paid_date`] as string | null
-                if (amount && amount > 0 && dueDate) {
-                    entries.push({
-                        leadId: lead.id,
-                        customerName: lead.customer_name,
-                        status: lead.status,
-                        installmentNum: n,
-                        amount,
-                        dueDate,
-                        isPaid: isPaid || false,
-                        paidDate,
-                    })
-                }
-            }
-        }
-        return entries
-    }, [leads])
 
     // Group payments by date
     const paymentsByDate = useMemo(() => {

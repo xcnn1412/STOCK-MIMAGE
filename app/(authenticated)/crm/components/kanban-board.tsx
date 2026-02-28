@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { updateLeadStatus } from '../actions'
 import {
-  ALL_STATUSES, STATUS_CONFIG,
+  ALL_STATUSES, STATUS_CONFIG, getStatusesFromSettings, getStatusConfig,
   type CrmLead, type CrmSetting, type LeadStatus
 } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
@@ -45,7 +45,8 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
   )
 
   const getStatusLabel = (status: LeadStatus) => {
-    return tc.statuses[status] || STATUS_CONFIG[status].label
+    const cfg = getStatusConfig(settings, status)
+    return tc.statuses[status] || cfg.labelTh || cfg.label
   }
 
   const handleDragStart = useCallback((e: React.DragEvent, leadId: string) => {
@@ -105,8 +106,8 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
         minHeight: 'calc(100vh - 280px)',
       }}
     >
-      {ALL_STATUSES.map(status => {
-        const config = STATUS_CONFIG[status]
+      {getStatusesFromSettings(settings).map(status => {
+        const config = getStatusConfig(settings, status)
         const statusLeads = optimisticLeads.filter(l => l.status === status)
         const isDragOver = dragOverStatus === status
         const isCollapsed = collapsedCols.has(status)

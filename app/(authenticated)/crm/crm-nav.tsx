@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ContactRound, LayoutDashboard, Settings, Globe, Archive, CalendarDays, BarChart3, Download } from 'lucide-react'
+import { ContactRound, LayoutDashboard, Globe, Archive, CalendarDays, BarChart3, Download } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { Locale } from '@/lib/i18n'
 
@@ -12,7 +12,6 @@ const tabMeta = [
   { href: '/crm/payments', key: 'payments' as const, icon: CalendarDays, exact: false, adminOnly: false },
   { href: '/crm/download', key: 'download' as const, icon: Download, exact: false, adminOnly: true },
   { href: '/crm/archive', key: 'archive' as const, icon: Archive, exact: false, adminOnly: false },
-  { href: '/crm/settings', key: 'settings' as const, icon: Settings, exact: false, adminOnly: true },
 ]
 
 const labels = {
@@ -22,7 +21,6 @@ const labels = {
     payments: 'Payments',
     download: 'Download',
     archive: 'Archive',
-    settings: 'Settings',
   },
   th: {
     kanban: 'Kanban',
@@ -30,7 +28,6 @@ const labels = {
     payments: 'การชำระเงิน',
     download: 'ดาวน์โหลด',
     archive: 'คลังเก็บ',
-    settings: 'ตั้งค่า',
   },
 }
 

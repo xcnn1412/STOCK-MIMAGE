@@ -8,39 +8,44 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
-import { ArrowLeft, Plus, Trash2, Package, Users, MessageSquare, Pencil, Check, X, Tag } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Package, Users, MessageSquare, Pencil, Check, X, Tag, Columns3 } from 'lucide-react'
 import { createCrmSetting, updateCrmSetting, deleteCrmSetting, toggleCrmSetting } from '../actions'
 import type { CrmSetting } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
 import ColorWheel from '../components/color-wheel'
 
 
-type TabKey = 'package' | 'customer_type' | 'lead_source' | 'tag'
-type TagSubKey = 'tag' | 'tag_lead' | 'tag_quotation_sent' | 'tag_accepted' | 'tag_rejected'
+type TabKey = 'kanban_status' | 'package' | 'customer_type' | 'lead_source' | 'tag'
 
 export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }) {
   const router = useRouter()
-  const { t } = useLocale()
+  const { locale, t } = useLocale()
   const tc = t.crm.settings
-  const [activeTab, setActiveTab] = useState<TabKey>('package')
-  const [tagSubTab, setTagSubTab] = useState<TagSubKey>('tag')
+  const [activeTab, setActiveTab] = useState<TabKey>('kanban_status')
+  const [tagSubTab, setTagSubTab] = useState<string>('tag')
   const [addMode, setAddMode] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const TABS: { key: TabKey; label: string; icon: typeof Package }[] = [
+    { key: 'kanban_status', label: locale === 'th' ? 'สถานะ Kanban' : 'Kanban Status', icon: Columns3 },
     { key: 'package', label: tc.packages, icon: Package },
     { key: 'customer_type', label: tc.customerTypes, icon: Users },
     { key: 'lead_source', label: tc.leadSources, icon: MessageSquare },
     { key: 'tag', label: tc.tags, icon: Tag },
   ]
 
-  const TAG_SUB_TABS: { key: TagSubKey; label: string }[] = [
+  // Dynamic tag sub-tabs: "ทั่วไป" + one per kanban_status
+  const kanbanStatuses = settings
+    .filter(s => s.category === 'kanban_status' && s.is_active)
+    .sort((a, b) => a.sort_order - b.sort_order)
+
+  const TAG_SUB_TABS: { key: string; label: string }[] = [
     { key: 'tag', label: tc.tagGeneral },
-    { key: 'tag_lead', label: tc.tagLead },
-    { key: 'tag_quotation_sent', label: tc.tagQuotationSent },
-    { key: 'tag_accepted', label: tc.tagAccepted },
-    { key: 'tag_rejected', label: tc.tagRejected },
+    ...kanbanStatuses.map(s => ({
+      key: `tag_${s.value}`,
+      label: locale === 'th' ? s.label_th : s.label_en,
+    })),
   ]
 
   // When in the "tag" main tab, use the sub-tab as the effective category
@@ -183,8 +188,8 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                   <X className="h-3 w-3" />
                 </Button>
               </div>
-              {/* Color wheel for tag categories */}
-              {activeTab === 'tag' && (
+              {/* Color wheel for tag or kanban_status categories */}
+              {(activeTab === 'tag' || activeTab === 'kanban_status') && (
                 <div className="flex justify-center py-1">
                   <ColorWheel size={200} value="#3b82f6" name="color" />
                 </div>
@@ -222,8 +227,8 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
-                  {/* Color wheel for tag edit */}
-                  {activeTab === 'tag' && (
+                  {/* Color wheel for tag or kanban_status edit */}
+                  {(activeTab === 'tag' || activeTab === 'kanban_status') && (
                     <div className="flex justify-center py-1">
                       <ColorWheel size={200} value={setting.color || '#3b82f6'} name="color" />
                     </div>
@@ -232,8 +237,8 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
               ) : (
                 <div className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors group">
                   <div className="flex items-center gap-3 min-w-0">
-                    {/* Color swatch for tags */}
-                    {activeTab === 'tag' && (
+                    {/* Color swatch for tags and kanban_status */}
+                    {(activeTab === 'tag' || activeTab === 'kanban_status') && (
                       <span
                         className="h-4 w-4 rounded-full shrink-0 ring-1 ring-zinc-200 dark:ring-zinc-700"
                         style={{ backgroundColor: setting.color || '#3b82f6' }}
