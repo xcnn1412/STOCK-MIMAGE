@@ -55,11 +55,23 @@ type Setting = {
     value: string
     label_th: string
     label_en: string
+    is_active?: boolean
+    sort_order?: number
+    color?: string
 }
 
-const STATUS_LABELS = {
-    th: { lead: 'ลูกค้าใหม่', quotation_sent: 'ส่งใบเสนอราคา', accepted: 'ตอบรับ', rejected: 'ปฏิเสธ' } as Record<string, string>,
-    en: { lead: 'Lead', quotation_sent: 'Quotation Sent', accepted: 'Accepted', rejected: 'Rejected' } as Record<string, string>,
+// Dynamic status labels from kanban_status settings
+const getStatusLabel = (status: string, settings: Setting[], locale: string) => {
+    const s = settings.find(s => s.category === 'kanban_status' && s.value === status)
+    if (s) return locale === 'th' ? s.label_th : s.label_en
+    return status
+}
+
+const getKanbanStatuses = (settings: Setting[]) => {
+    return settings
+        .filter(s => s.category === 'kanban_status' && s.is_active !== false)
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+        .map(s => s.value)
 }
 
 const t = {
@@ -138,7 +150,8 @@ const t = {
 export default function DownloadView({ leads, settings }: { leads: Lead[]; settings: Setting[] }) {
     const { locale } = useLocale()
     const tc = t[locale] || t.th
-    const statusLabels = STATUS_LABELS[locale] || STATUS_LABELS.th
+    const statusLabel = (s: string) => getStatusLabel(s, settings, locale)
+    const kanbanStatuses = getKanbanStatuses(settings)
 
     const [filterStatus, setFilterStatus] = useState<string>('all')
     const [includeCustomer, setIncludeCustomer] = useState(true)
@@ -183,7 +196,7 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
         const rows: string[][] = filteredLeads.map(l => {
             const row: string[] = [
                 l.customer_name,
-                statusLabels[l.status] || l.status,
+                statusLabel(l.status),
                 l.created_at.slice(0, 10),
             ]
             if (includeCustomer) {
@@ -292,7 +305,7 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-1">
-                        {['all', 'lead', 'quotation_sent', 'accepted', 'rejected'].map(s => (
+                        {['all', ...kanbanStatuses].map(s => (
                             <button
                                 key={s}
                                 onClick={() => { setFilterStatus(s); setPage(1) }}
@@ -301,7 +314,7 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
                                     : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
                                     }`}
                             >
-                                {s === 'all' ? tc.allStatuses : statusLabels[s] || s}
+                                {s === 'all' ? tc.allStatuses : statusLabel(s)}
                                 <span className="float-right tabular-nums text-zinc-400 font-semibold">
                                     {s === 'all' ? leads.length : leads.filter(l => l.status === s).length}
                                 </span>
@@ -472,7 +485,7 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
                                             <td className="py-2.5 px-4 font-medium text-zinc-900 dark:text-zinc-100 whitespace-nowrap">{l.customer_name}</td>
                                             <td className="py-2.5 px-4 whitespace-nowrap">
                                                 <Badge variant="outline" className="text-[12px] px-2 py-0.5">
-                                                    {statusLabels[l.status] || l.status}
+                                                    {statusLabel(l.status)}
                                                 </Badge>
                                             </td>
                                             {includeCustomer && (
@@ -598,4 +611,4 @@ function ToggleRow({
             <Switch checked={checked} onCheckedChange={onChange} />
         </div>
     )
-}
+}
