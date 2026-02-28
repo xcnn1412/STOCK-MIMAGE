@@ -290,7 +290,7 @@ function KanbanCard({
     }
   }
 
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
 
   const toggleExpand = (e: React.MouseEvent) => {
     e.preventDefault()
