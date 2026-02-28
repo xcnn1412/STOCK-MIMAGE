@@ -24,9 +24,10 @@ import {
 } from 'lucide-react'
 import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
-  archiveLead, unarchiveLead, getLead
+  archiveLead, unarchiveLead, getLead, saveAllInstallments
 } from '../actions'
-import { STATUS_CONFIG, ALL_STATUSES, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
+import type { LeadInstallment } from '../actions'
+import { STATUS_CONFIG, ALL_STATUSES, getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
 
 interface SystemUser {
@@ -48,9 +49,10 @@ interface LeadDetailProps {
   }>
   settings: CrmSetting[]
   users: SystemUser[]
+  installments: LeadInstallment[]
 }
 
-export default function LeadDetail({ lead, activities, settings, users }: LeadDetailProps) {
+export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments }: LeadDetailProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.detail
@@ -69,12 +71,24 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
   const [localStaff, setLocalStaff] = useState<string[]>(lead.assigned_staff || [])
 
   const getStatusLabel = (status: string) => {
-    return ts[status] || STATUS_CONFIG[status as LeadStatus]?.label || status
+    const cfg = getStatusConfig(settings, status)
+    return ts[status] || cfg.labelTh || cfg.label || status
   }
 
   const getSettingLabel = (setting: CrmSetting) => {
     return locale === 'th' ? setting.label_th : setting.label_en
   }
+
+  // ---------- Dynamic installments + tax state ----------
+  const [formInstallments, setFormInstallments] = useState(
+    initialInstallments.map(inst => ({
+      installment_number: inst.installment_number,
+      amount: inst.amount || 0,
+      due_date: inst.due_date || '',
+      is_paid: inst.is_paid || false,
+      paid_date: inst.paid_date || '',
+    }))
+  )
 
   // ---------- Editable form state ----------
   const [form, setForm] = useState({
@@ -92,22 +106,8 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
     quoted_price: lead.quoted_price || 0,
     confirmed_price: lead.confirmed_price || 0,
     deposit: lead.deposit || 0,
-    installment_1: lead.installment_1 || 0,
-    installment_2: lead.installment_2 || 0,
-    installment_3: lead.installment_3 || 0,
-    installment_4: lead.installment_4 || 0,
-    installment_1_date: lead.installment_1_date || '',
-    installment_2_date: lead.installment_2_date || '',
-    installment_3_date: lead.installment_3_date || '',
-    installment_4_date: lead.installment_4_date || '',
-    installment_1_paid: lead.installment_1_paid || false,
-    installment_2_paid: lead.installment_2_paid || false,
-    installment_3_paid: lead.installment_3_paid || false,
-    installment_4_paid: lead.installment_4_paid || false,
-    installment_1_paid_date: lead.installment_1_paid_date || '',
-    installment_2_paid_date: lead.installment_2_paid_date || '',
-    installment_3_paid_date: lead.installment_3_paid_date || '',
-    installment_4_paid_date: lead.installment_4_paid_date || '',
+    vat_mode: lead.vat_mode || 'none',
+    wht_rate: lead.wht_rate || 0,
     quotation_ref: lead.quotation_ref || '',
     notes: lead.notes || '',
     tags: lead.tags || [] as string[],
@@ -117,7 +117,7 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
     setForm(prev => ({ ...prev, [key]: value }))
   }
 
-  const statusConfig = STATUS_CONFIG[lead.status]
+  const statusConfig = getStatusConfig(settings, lead.status)
   const pkgSetting = settings.find(s => s.category === 'package' && s.value === lead.package_name)
   const sourceSetting = settings.find(s => s.category === 'lead_source' && s.value === lead.lead_source)
   const typeSetting = settings.find(s => s.category === 'customer_type' && s.value === lead.customer_type)
@@ -149,10 +149,19 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
         formData.set(key, String(value))
       }
     })
-    const result = await updateLead(lead.id, formData)
+    const [leadResult, installResult] = await Promise.all([
+      updateLead(lead.id, formData),
+      saveAllInstallments(lead.id, formInstallments.map(inst => ({
+        installment_number: inst.installment_number,
+        amount: inst.amount,
+        due_date: inst.due_date || null,
+        is_paid: inst.is_paid,
+        paid_date: inst.paid_date || null,
+      }))),
+    ])
     setSaving(false)
-    if (result.error) {
-      alert(result.error)
+    if (leadResult.error || installResult.error) {
+      alert(leadResult.error || installResult.error)
       return
     }
     setEditing(false)
@@ -176,26 +185,21 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
       quoted_price: lead.quoted_price || 0,
       confirmed_price: lead.confirmed_price || 0,
       deposit: lead.deposit || 0,
-      installment_1: lead.installment_1 || 0,
-      installment_2: lead.installment_2 || 0,
-      installment_3: lead.installment_3 || 0,
-      installment_4: lead.installment_4 || 0,
-      installment_1_date: lead.installment_1_date || '',
-      installment_2_date: lead.installment_2_date || '',
-      installment_3_date: lead.installment_3_date || '',
-      installment_4_date: lead.installment_4_date || '',
-      installment_1_paid: lead.installment_1_paid || false,
-      installment_2_paid: lead.installment_2_paid || false,
-      installment_3_paid: lead.installment_3_paid || false,
-      installment_4_paid: lead.installment_4_paid || false,
-      installment_1_paid_date: lead.installment_1_paid_date || '',
-      installment_2_paid_date: lead.installment_2_paid_date || '',
-      installment_3_paid_date: lead.installment_3_paid_date || '',
-      installment_4_paid_date: lead.installment_4_paid_date || '',
+      vat_mode: lead.vat_mode || 'none',
+      wht_rate: lead.wht_rate || 0,
       quotation_ref: lead.quotation_ref || '',
       notes: lead.notes || '',
       tags: lead.tags || [],
     })
+    setFormInstallments(
+      initialInstallments.map(inst => ({
+        installment_number: inst.installment_number,
+        amount: inst.amount || 0,
+        due_date: inst.due_date || '',
+        is_paid: inst.is_paid || false,
+        paid_date: inst.paid_date || '',
+      }))
+    )
     setEditing(false)
   }
 
@@ -416,8 +420,8 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
             </Badge>
           </div>
           <div className="flex flex-wrap gap-2 mt-3">
-            {ALL_STATUSES.filter(s => s !== lead.status).map(s => {
-              const cfg = STATUS_CONFIG[s]
+            {getStatusesFromSettings(settings).filter(s => s !== lead.status).map(s => {
+              const cfg = getStatusConfig(settings, s)
               return (
                 <Button
                   key={s}
@@ -800,7 +804,21 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {editing ? (
+              {editing ? (() => {
+                // Tax calculation helpers
+                const basePrice = form.confirmed_price || form.quoted_price || 0
+                const vatAmount = form.vat_mode === 'excluded' ? basePrice * 0.07
+                  : form.vat_mode === 'included' ? basePrice - (basePrice / 1.07) : 0
+                const priceBeforeVat = form.vat_mode === 'included' ? basePrice / 1.07
+                  : basePrice
+                const whtAmount = priceBeforeVat * (form.wht_rate / 100)
+                const netTotal = form.vat_mode === 'excluded'
+                  ? basePrice + vatAmount - whtAmount
+                  : basePrice - whtAmount
+                const totalPaid = form.deposit + formInstallments.filter(i => i.is_paid).reduce((s, i) => s + i.amount, 0)
+                const outstanding = netTotal - totalPaid
+
+                return (
                 <div className="space-y-4">
                   <EditSelect
                     label={tc.package}
@@ -812,48 +830,178 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
                   <EditField label={`${tc.quotedPrice} (฿)`} value={String(form.quoted_price)} onChange={v => updateForm('quoted_price', Number(v) || 0)} type="number" />
                   <EditField label={`${tc.confirmedPrice} (฿)`} value={String(form.confirmed_price)} onChange={v => updateForm('confirmed_price', Number(v) || 0)} type="number" />
                   <EditField label={`${tc.depositLabel} (฿)`} value={String(form.deposit)} onChange={v => updateForm('deposit', Number(v) || 0)} type="number" />
-                  {[1, 2, 3, 4].map(n => {
-                    const amountKey = `installment_${n}` as keyof typeof form
-                    const dateKey = `installment_${n}_date` as keyof typeof form
-                    const paidKey = `installment_${n}_paid` as keyof typeof form
-                    const paidDateKey = `installment_${n}_paid_date` as keyof typeof form
-                    const label = (tc as any)[`installment${n}`]
-                    const isPaid = form[paidKey] as boolean
-                    return (
-                      <div key={n} className="space-y-2">
+
+                  {/* Tax Settings */}
+                  <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
+                    <p className="text-xs font-semibold text-zinc-500 mb-3">{locale === 'th' ? '💰 การคำนวณภาษี' : '💰 Tax Calculation'}</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <EditSelect
+                        label={locale === 'th' ? 'VAT' : 'VAT Mode'}
+                        value={form.vat_mode}
+                        onChange={v => updateForm('vat_mode', v)}
+                        options={[
+                          { value: 'none', label: locale === 'th' ? 'ไม่มี VAT' : 'No VAT' },
+                          { value: 'included', label: locale === 'th' ? 'รวม VAT แล้ว' : 'VAT Included' },
+                          { value: 'excluded', label: locale === 'th' ? 'ยังไม่รวม VAT' : 'VAT Excluded' },
+                        ]}
+                      />
+                      <EditSelect
+                        label={locale === 'th' ? 'หัก ณ ที่จ่าย' : 'WHT Rate'}
+                        value={String(form.wht_rate)}
+                        onChange={v => updateForm('wht_rate', Number(v))}
+                        options={[
+                          { value: '0', label: locale === 'th' ? 'ไม่หัก' : 'None' },
+                          { value: '1', label: '1%' },
+                          { value: '2', label: '2%' },
+                          { value: '3', label: '3%' },
+                          { value: '5', label: '5%' },
+                        ]}
+                      />
+                    </div>
+                    {/* Tax Summary */}
+                    {(form.vat_mode !== 'none' || form.wht_rate > 0) && basePrice > 0 && (
+                      <div className="mt-3 p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
+                        {form.vat_mode !== 'none' && (
+                          <>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
+                              <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-zinc-500">VAT 7%</span>
+                              <span className="font-medium text-blue-600 dark:text-blue-400">+฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            </div>
+                          </>
+                        )}
+                        {form.wht_rate > 0 && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${form.wht_rate}%` : `WHT ${form.wht_rate}%`}</span>
+                            <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          </div>
+                        )}
+                        <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
+                          <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
+                          <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Dynamic Installments */}
+                  <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold text-zinc-500">{locale === 'th' ? '📋 งวดชำระเงิน' : '📋 Payment Installments'}</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1"
+                        onClick={() => {
+                          const nextNum = formInstallments.length + 1
+                          setFormInstallments(prev => [...prev, {
+                            installment_number: nextNum,
+                            amount: 0,
+                            due_date: '',
+                            is_paid: false,
+                            paid_date: '',
+                          }])
+                        }}
+                      >
+                        + {locale === 'th' ? 'เพิ่มงวด' : 'Add'}
+                      </Button>
+                    </div>
+                    {formInstallments.map((inst, idx) => (
+                      <div key={idx} className="space-y-2 mb-4 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 relative">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                            {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => {
+                              setFormInstallments(prev => prev.filter((_, i) => i !== idx).map((item, i) => ({ ...item, installment_number: i + 1 })))
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                         <div className="grid grid-cols-2 gap-3">
-                          <EditField label={`${label} (฿)`} value={String(form[amountKey])} onChange={v => updateForm(amountKey, Number(v) || 0)} type="number" />
-                          <EditField label={(tc as any).dueDate || 'วันนัดชำระ'} value={String(form[dateKey] || '')} onChange={v => updateForm(dateKey, v)} type="date" />
+                          <EditField
+                            label={`${locale === 'th' ? 'จำนวน' : 'Amount'} (฿)`}
+                            value={String(inst.amount)}
+                            onChange={v => {
+                              setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, amount: Number(v) || 0 } : item))
+                            }}
+                            type="number"
+                          />
+                          <EditField
+                            label={(tc as any).dueDate || 'วันนัดชำระ'}
+                            value={inst.due_date}
+                            onChange={v => {
+                              setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, due_date: v } : item))
+                            }}
+                            type="date"
+                          />
                         </div>
                         <div className="flex items-center gap-3 pl-1">
                           <label className="flex items-center gap-2 cursor-pointer select-none">
                             <input
                               type="checkbox"
-                              checked={isPaid}
+                              checked={inst.is_paid}
                               onChange={e => {
-                                updateForm(paidKey, e.target.checked)
-                                if (e.target.checked && !form[paidDateKey]) {
-                                  updateForm(paidDateKey, new Date().toISOString().split('T')[0])
-                                }
-                                if (!e.target.checked) {
-                                  updateForm(paidDateKey, '')
-                                }
+                                setFormInstallments(prev => prev.map((item, i) => i === idx ? {
+                                  ...item,
+                                  is_paid: e.target.checked,
+                                  paid_date: e.target.checked ? (item.paid_date || new Date().toISOString().split('T')[0]) : '',
+                                } : item))
                               }}
                               className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
                             />
-                            <span className={`text-xs font-medium ${isPaid ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
+                            <span className={`text-xs font-medium ${inst.is_paid ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
                               {(tc as any).paid || 'ชำระแล้ว'}
                             </span>
                           </label>
-                          {isPaid && (
+                          {inst.is_paid && (
                             <div className="flex-1 max-w-[180px]">
-                              <EditField label={(tc as any).paidDate || 'วันที่ชำระจริง'} value={String(form[paidDateKey] || '')} onChange={v => updateForm(paidDateKey, v)} type="date" />
+                              <EditField
+                                label={(tc as any).paidDate || 'วันที่ชำระจริง'}
+                                value={inst.paid_date}
+                                onChange={v => {
+                                  setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, paid_date: v } : item))
+                                }}
+                                type="date"
+                              />
                             </div>
                           )}
                         </div>
                       </div>
-                    )
-                  })}
+                    ))}
+                    {formInstallments.length === 0 && (
+                      <p className="text-xs text-zinc-400 text-center py-3">{locale === 'th' ? 'ยังไม่มีงวดชำระ' : 'No installments yet'}</p>
+                    )}
+                  </div>
+
+                  {/* Outstanding Balance */}
+                  {netTotal > 0 && (
+                    <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                          {locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding'}
+                        </span>
+                        <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
+                          ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
+                        <span>{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}: ฿{totalPaid.toLocaleString()}</span>
+                        <span>{locale === 'th' ? 'ยอดสุทธิ' : 'Net'}: ฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                      </div>
+                    </div>
+                  )}
+
                   <EditField label={tc.quotationRef} value={form.quotation_ref} onChange={v => updateForm('quotation_ref', v)} />
                   <div>
                     <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{tc.notesLabel}</Label>
@@ -866,32 +1014,73 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
                     />
                   </div>
                 </div>
-              ) : (
+                )
+              })() : (() => {
+                // View mode: tax calculation
+                const basePrice = lead.confirmed_price || lead.quoted_price || 0
+                const vatMode = lead.vat_mode || 'none'
+                const whtRate = lead.wht_rate || 0
+                const vatAmount = vatMode === 'excluded' ? basePrice * 0.07
+                  : vatMode === 'included' ? basePrice - (basePrice / 1.07) : 0
+                const priceBeforeVat = vatMode === 'included' ? basePrice / 1.07 : basePrice
+                const whtAmount = priceBeforeVat * (whtRate / 100)
+                const netTotal = vatMode === 'excluded'
+                  ? basePrice + vatAmount - whtAmount
+                  : basePrice - whtAmount
+                const totalPaid = (lead.deposit || 0) + initialInstallments.filter(i => i.is_paid).reduce((s, i) => s + (i.amount || 0), 0)
+                const outstanding = netTotal - totalPaid
+
+                return (
                 <>
                   <InfoRow label={tc.package} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
                   <InfoRow label={tc.quotedPrice} value={lead.quoted_price ? `฿${lead.quoted_price.toLocaleString()}` : null} />
                   <InfoRow label={tc.confirmedPrice} value={lead.confirmed_price ? `฿${lead.confirmed_price.toLocaleString()}` : null} />
                   <InfoRow label={tc.depositLabel} value={lead.deposit ? `฿${lead.deposit.toLocaleString()}` : null} />
-                  {[1, 2, 3, 4].map(n => {
-                    const amount = (lead as any)[`installment_${n}`]
-                    const date = (lead as any)[`installment_${n}_date`]
-                    const isPaid = (lead as any)[`installment_${n}_paid`]
-                    const paidDate = (lead as any)[`installment_${n}_paid_date`]
-                    const label = (tc as any)[`installment${n}`]
-                    const isOverduePayment = date && !isPaid && new Date(date) < new Date()
-                    if (!amount && !date) return null
 
-                    const borderColor = isPaid
+                  {/* Tax Summary in View Mode */}
+                  {(vatMode !== 'none' || whtRate > 0) && basePrice > 0 && (
+                    <div className="p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
+                      {vatMode !== 'none' && (
+                        <>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
+                            <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-zinc-500">VAT 7% ({vatMode === 'included' ? (locale === 'th' ? 'รวมแล้ว' : 'incl.') : (locale === 'th' ? 'ยังไม่รวม' : 'excl.')})</span>
+                            <span className="font-medium text-blue-600 dark:text-blue-400">{vatMode === 'excluded' ? '+' : ''}฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          </div>
+                        </>
+                      )}
+                      {whtRate > 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${whtRate}%` : `WHT ${whtRate}%`}</span>
+                          <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        </div>
+                      )}
+                      <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
+                        <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
+                        <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dynamic Installments (View) */}
+                  {initialInstallments.map(inst => {
+                    const isOverduePayment = inst.due_date && !inst.is_paid && new Date(inst.due_date) < new Date()
+                    const borderColor = inst.is_paid
                       ? 'border-l-emerald-500'
                       : isOverduePayment
                         ? 'border-l-red-500'
                         : 'border-l-zinc-200 dark:border-l-zinc-700'
 
                     return (
-                      <div key={n} className={`border-l-[3px] ${borderColor} rounded-r-lg bg-zinc-50/50 dark:bg-zinc-800/30 px-3 py-2.5`}>
+                      <div key={inst.id} className={`border-l-[3px] ${borderColor} rounded-r-lg bg-zinc-50/50 dark:bg-zinc-800/30 px-3 py-2.5`}>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{label}</span>
-                          {isPaid ? (
+                          <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                            {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
+                          </span>
+                          {inst.is_paid ? (
                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full">
                               ✓ {(tc as any).paid || 'ชำระแล้ว'}
                             </span>
@@ -899,7 +1088,7 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 px-2 py-0.5 rounded-full">
                               ⚠ {(tc as any).overdue || 'เลยกำหนด'}
                             </span>
-                          ) : date ? (
+                          ) : inst.due_date ? (
                             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
                               {(tc as any).unpaid || 'ยังไม่ชำระ'}
                             </span>
@@ -907,26 +1096,46 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
                         </div>
                         <div className="flex items-baseline justify-between">
                           <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                            {amount ? `฿${amount.toLocaleString()}` : '—'}
+                            {inst.amount ? `฿${inst.amount.toLocaleString()}` : '—'}
                           </span>
-                          {date && (
+                          {inst.due_date && (
                             <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                              {(tc as any).dueDate || 'วันนัดชำระ'}: {date}
+                              {(tc as any).dueDate || 'วันนัดชำระ'}: {inst.due_date}
                             </span>
                           )}
                         </div>
-                        {isPaid && paidDate && (
+                        {inst.is_paid && inst.paid_date && (
                           <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">
-                            {(tc as any).paidDate || 'วันที่ชำระจริง'}: {paidDate}
+                            {(tc as any).paidDate || 'วันที่ชำระจริง'}: {inst.paid_date}
                           </div>
                         )}
                       </div>
                     )
                   })}
+
+                  {/* Outstanding Balance (View) */}
+                  {basePrice > 0 && (
+                    <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                          {locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding'}
+                        </span>
+                        <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
+                          ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
+                        <span>{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}: ฿{totalPaid.toLocaleString()}</span>
+                        <span>{locale === 'th' ? 'ยอดสุทธิ' : 'Net'}: ฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                      </div>
+                    </div>
+                  )}
+
                   <InfoRow label={tc.quotationRef} value={lead.quotation_ref} />
                   {lead.notes && <InfoRow label={tc.notesLabel} value={lead.notes} />}
                 </>
-              )}
+                )
+              })()}
             </CardContent>
           </Card>
         </div>
@@ -1009,8 +1218,7 @@ export default function LeadDetail({ lead, activities, settings, users }: LeadDe
                             )}
                             <span className="text-xs text-zinc-400">→</span>
                             {activity.new_status && (
-                              <Badge className={`text-[10px] border-0 ${STATUS_CONFIG[activity.new_status as LeadStatus]?.bgColor || ''
-                                } ${STATUS_CONFIG[activity.new_status as LeadStatus]?.textColor || ''}`}>
+                              <Badge className={`text-[10px] border-0`} style={{ backgroundColor: `${getStatusConfig(settings, activity.new_status).color}15`, color: getStatusConfig(settings, activity.new_status).color }}>
                                 {getStatusLabel(activity.new_status)}
                               </Badge>
                             )}

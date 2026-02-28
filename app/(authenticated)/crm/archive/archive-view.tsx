@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { unarchiveLead } from '../actions'
-import { STATUS_CONFIG, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
+import { STATUS_CONFIG, getStatusConfig, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
 
 interface ArchiveViewProps {
@@ -97,7 +97,7 @@ export default function ArchiveView({ leads, settings }: ArchiveViewProps) {
             ) : (
                 <div className="space-y-2">
                     {filteredLeads.map(lead => {
-                        const statusCfg = STATUS_CONFIG[lead.status]
+                        const statusCfg = getStatusConfig(settings, lead.status)
                         const pkgSetting = settings.find(s => s.category === 'package' && s.value === lead.package_name)
                         const sourceSetting = settings.find(s => s.category === 'lead_source' && s.value === lead.lead_source)
                         const price = lead.confirmed_price || lead.quoted_price || 0
@@ -117,8 +117,8 @@ export default function ArchiveView({ leads, settings }: ArchiveViewProps) {
                                                 <div className="font-semibold text-base text-zinc-900 dark:text-zinc-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
                                                     {lead.customer_name}
                                                 </div>
-                                                <Badge className={`${statusCfg.bgColor} ${statusCfg.textColor} border-0 text-[12px] shrink-0`}>
-                                                    {tc.statuses[lead.status] || statusCfg.label}
+                                                <Badge className="border-0 text-[12px] shrink-0" style={{ backgroundColor: `${statusCfg.color}15`, color: statusCfg.color }}>
+                                                    {tc.statuses[lead.status] || statusCfg.labelTh || statusCfg.label}
                                                 </Badge>
                                                 {lead.is_returning && (
                                                     <Badge className="text-[11px] px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-200/60 gap-1 shrink-0">

@@ -274,21 +274,32 @@ export async function updateLead(id: string, formData: FormData) {
     if (v !== null) updates[f] = v as string || null
   })
 
-  const dateFields = ['event_date', 'event_end_date', 'installment_1_date', 'installment_2_date', 'installment_3_date', 'installment_4_date', 'installment_1_paid_date', 'installment_2_paid_date', 'installment_3_paid_date', 'installment_4_paid_date']
+  const dateFields = ['event_date', 'event_end_date']
   dateFields.forEach(f => {
     const v = formData.get(f)
     if (v !== null) updates[f] = (v as string) || null
   })
 
-  const numFields = ['quoted_price', 'confirmed_price', 'deposit', 'installment_1', 'installment_2', 'installment_3', 'installment_4']
+  const numFields = ['quoted_price', 'confirmed_price', 'deposit', 'wht_rate']
   numFields.forEach(f => {
     const v = formData.get(f)
     if (v !== null) updates[f] = Number(v) || 0
   })
 
   if (formData.has('is_returning')) updates.is_returning = formData.get('is_returning') === 'true'
+  if (formData.has('vat_mode')) updates.vat_mode = formData.get('vat_mode') as string || 'none'
 
-  // Installment paid booleans
+  // Legacy installment fields — still accept updates for backward compat
+  const legacyDateFields = ['installment_1_date', 'installment_2_date', 'installment_3_date', 'installment_4_date', 'installment_1_paid_date', 'installment_2_paid_date', 'installment_3_paid_date', 'installment_4_paid_date']
+  legacyDateFields.forEach(f => {
+    const v = formData.get(f)
+    if (v !== null) updates[f] = (v as string) || null
+  })
+  const legacyNumFields = ['installment_1', 'installment_2', 'installment_3', 'installment_4']
+  legacyNumFields.forEach(f => {
+    const v = formData.get(f)
+    if (v !== null) updates[f] = Number(v) || 0
+  })
   const paidFields = ['installment_1_paid', 'installment_2_paid', 'installment_3_paid', 'installment_4_paid']
   paidFields.forEach(f => {
     if (formData.has(f)) updates[f] = formData.get(f) === 'true'
@@ -521,4 +532,136 @@ export async function createEventFromLead(leadId: string) {
   revalidatePath(`/crm/${leadId}`)
   revalidatePath('/costs/events')
   return { success: true, eventId: event.id }
+}
+
+// ============================================================================
+// CRM Lead Installments — CRUD (Normalized)
+// ============================================================================
+
+export interface LeadInstallment {
+  id: string
+  lead_id: string
+  installment_number: number
+  amount: number
+  due_date: string | null
+  is_paid: boolean
+  paid_date: string | null
+  created_at: string
+}
+
+export async function getLeadInstallments(leadId: string) {
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('crm_lead_installments')
+    .select('*')
+    .eq('lead_id', leadId)
+    .order('installment_number', { ascending: true })
+
+  if (error) return []
+  return (data || []) as LeadInstallment[]
+}
+
+export async function upsertInstallment(leadId: string, installment: {
+  installment_number: number
+  amount: number
+  due_date: string | null
+  is_paid: boolean
+  paid_date: string | null
+}) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { error } = await supabase
+    .from('crm_lead_installments')
+    .upsert(
+      {
+        lead_id: leadId,
+        installment_number: installment.installment_number,
+        amount: installment.amount,
+        due_date: installment.due_date || null,
+        is_paid: installment.is_paid,
+        paid_date: installment.paid_date || null,
+      },
+      { onConflict: 'lead_id,installment_number' }
+    )
+
+  if (error) return { error: error.message }
+
+  // Also update lead's updated_at
+  await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', leadId)
+
+  revalidatePath(`/crm/${leadId}`)
+  revalidatePath('/crm/payments')
+  return { success: true }
+}
+
+export async function deleteInstallment(id: string, leadId: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { error } = await supabase.from('crm_lead_installments').delete().eq('id', id)
+  if (error) return { error: error.message }
+
+  // Re-number remaining installments
+  const { data: remaining } = await supabase
+    .from('crm_lead_installments')
+    .select('id, installment_number')
+    .eq('lead_id', leadId)
+    .order('installment_number', { ascending: true })
+
+  if (remaining) {
+    for (let i = 0; i < remaining.length; i++) {
+      if (remaining[i].installment_number !== i + 1) {
+        await supabase
+          .from('crm_lead_installments')
+          .update({ installment_number: i + 1 })
+          .eq('id', remaining[i].id)
+      }
+    }
+  }
+
+  await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', leadId)
+
+  revalidatePath(`/crm/${leadId}`)
+  revalidatePath('/crm/payments')
+  return { success: true }
+}
+
+/** Bulk save all installments for a lead (used by the lead detail form) */
+export async function saveAllInstallments(leadId: string, installments: Array<{
+  installment_number: number
+  amount: number
+  due_date: string | null
+  is_paid: boolean
+  paid_date: string | null
+}>) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  // Delete existing
+  await supabase.from('crm_lead_installments').delete().eq('lead_id', leadId)
+
+  // Insert new
+  if (installments.length > 0) {
+    const rows = installments.map(inst => ({
+      lead_id: leadId,
+      installment_number: inst.installment_number,
+      amount: inst.amount,
+      due_date: inst.due_date || null,
+      is_paid: inst.is_paid,
+      paid_date: inst.paid_date || null,
+    }))
+    const { error } = await supabase.from('crm_lead_installments').insert(rows)
+    if (error) return { error: error.message }
+  }
+
+  await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', leadId)
+
+  revalidatePath(`/crm/${leadId}`)
+  revalidatePath('/crm/payments')
+  return { success: true }
 }

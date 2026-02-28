@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { getLead, getActivities, getCrmSettings, getSystemUsers } from '../actions'
+import { getLead, getActivities, getCrmSettings, getSystemUsers, getLeadInstallments } from '../actions'
 import LeadDetail from './lead-detail'
 
 interface PageProps {
@@ -16,11 +16,12 @@ export async function generateMetadata({ params }: PageProps) {
 
 export default async function LeadDetailPage({ params }: PageProps) {
   const { id } = await params
-  const [leadResult, activitiesResult, settingsResult, usersResult] = await Promise.all([
+  const [leadResult, activitiesResult, settingsResult, usersResult, installments] = await Promise.all([
     getLead(id),
     getActivities(id),
     getCrmSettings(),
     getSystemUsers(),
+    getLeadInstallments(id),
   ])
 
   if (!leadResult.data) notFound()
@@ -31,6 +32,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
       activities={activitiesResult.data as any[] || []}
       settings={settingsResult.data as any[] || []}
       users={usersResult.data as any[] || []}
+      installments={installments}
     />
   )
 }
