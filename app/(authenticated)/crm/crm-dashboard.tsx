@@ -226,12 +226,12 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
       </div>
 
       {/* Summary Cards — per-status */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="flex gap-4">
         {kanbanStatuses.map((status) => {
           const cfg = getStatusConfig(settings, status)
           const data = stats.statusCounts[status] || { count: 0, value: 0 }
           return (
-            <div key={status} className="relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-5">
+            <div key={status} className="flex-1 min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-5">
               <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: `linear-gradient(to bottom, ${cfg.color}, ${cfg.color}dd)` }} />
               <div className="flex items-center gap-2 mb-3">
                 <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: cfg.color }} />
