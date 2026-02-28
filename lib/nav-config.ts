@@ -1,8 +1,8 @@
-import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, ClipboardList, Banknote } from 'lucide-react'
+import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download } from 'lucide-react'
 
-export type ModuleKey = 'crm' | 'events' | 'stock' | 'checkout' | 'costs' | 'finance' | 'kpi' | 'admin'
+export type ModuleKey = 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'admin'
 
-export const ALL_MODULES: ModuleKey[] = ['crm', 'events', 'stock', 'checkout', 'costs', 'finance', 'kpi']
+export const ALL_MODULES: ModuleKey[] = ['crm', 'events', 'stock', 'costs', 'finance', 'kpi']
 
 export interface NavItem {
   href: string
@@ -45,18 +45,16 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/example-kits', icon: FileText, labelKey: 'examples' },
     ],
   },
-  {
-    key: 'checkout',
-    icon: ClipboardList,
-    items: [
-      { href: '/checkout', icon: ClipboardList, labelKey: 'checkout' },
-    ],
-  },
+
   {
     key: 'costs',
     icon: DollarSign,
     items: [
-      { href: '/costs', icon: DollarSign, labelKey: 'costs' },
+      { href: '/costs/dashboard', icon: LayoutDashboard, labelKey: 'costsDashboard' },
+      { href: '/costs/import', icon: Import, labelKey: 'costsImport' },
+      { href: '/costs/events', icon: List, labelKey: 'costsEvents' },
+      { href: '/costs/reports', icon: BarChart3, labelKey: 'costsReports' },
+      { href: '/costs/download', icon: Download, labelKey: 'costsDownload' },
     ],
   },
   {

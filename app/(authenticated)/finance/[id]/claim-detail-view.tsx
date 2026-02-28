@@ -337,7 +337,7 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
                   <Tag className="h-4 w-4 text-zinc-400" />
                   <span className="text-zinc-500">{isEn ? 'Category:' : 'หมวด:'}</span>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                    {getCategoryLabel(claim.category, locale)}
+                    {getCategoryLabel(claim.category, locale, categories)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">

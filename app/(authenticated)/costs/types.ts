@@ -1,6 +1,7 @@
 // Job Costing Module — Types & Constants
+import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
 
-/** หมวดต้นทุน */
+/** @deprecated ใช้ finance_categories จาก DB แทน — เก็บไว้เป็น fallback เท่านั้น */
 export const COST_CATEGORIES = [
   { value: 'staff', label: 'Staff', labelTh: 'ค่าสตาฟ', icon: 'Users', color: '#ef4444' },
   { value: 'travel', label: 'Travel', labelTh: 'ค่าเดินทาง', icon: 'Car', color: '#f97316' },
@@ -21,14 +22,22 @@ export const JOB_STATUSES = [
 
 export type JobStatus = typeof JOB_STATUSES[number]['value']
 
-/** หา label ภาษาไทย ตามหมวด */
-export function getCategoryLabel(category: string, locale: 'th' | 'en' = 'th') {
+/** หา label ภาษาไทย ตามหมวด — ใช้ finance_categories จาก DB ก่อน, fallback เป็น hardcode */
+export function getCategoryLabel(category: string, locale: 'th' | 'en' = 'th', dbCategories?: FinanceCategory[]) {
+  if (dbCategories) {
+    const dbCat = dbCategories.find(c => c.value === category)
+    if (dbCat) return locale === 'th' ? dbCat.label_th : dbCat.label
+  }
   const cat = COST_CATEGORIES.find(c => c.value === category)
   return locale === 'th' ? (cat?.labelTh || category) : (cat?.label || category)
 }
 
-/** หา color ตามหมวด */
-export function getCategoryColor(category: string) {
+/** หา color ตามหมวด — ใช้ finance_categories จาก DB ก่อน, fallback เป็น hardcode */
+export function getCategoryColor(category: string, dbCategories?: FinanceCategory[]) {
+  if (dbCategories) {
+    const dbCat = dbCategories.find(c => c.value === category)
+    if (dbCat) return dbCat.color
+  }
   return COST_CATEGORIES.find(c => c.value === category)?.color || '#6b7280'
 }
 

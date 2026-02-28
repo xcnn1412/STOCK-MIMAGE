@@ -6,6 +6,7 @@ import { PlusCircle, FileText, Clock, CheckCircle2, XCircle, Filter, Banknote } 
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
 import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../costs/types'
+import type { FinanceCategory } from './settings-actions'
 
 const statusIcons: Record<string, typeof Clock> = {
   pending: Clock,
@@ -13,7 +14,7 @@ const statusIcons: Record<string, typeof Clock> = {
   rejected: XCircle,
 }
 
-export default function ClaimsListView({ claims, error }: { claims: ExpenseClaim[]; error: string | null }) {
+export default function ClaimsListView({ claims, error, categories = [] }: { claims: ExpenseClaim[]; error: string | null; categories?: FinanceCategory[] }) {
   const { locale } = useLocale()
   const [filterStatus, setFilterStatus] = useState<string>('all')
 
@@ -159,7 +160,7 @@ export default function ClaimsListView({ claims, error }: { claims: ExpenseClaim
                     ฿{(claim.total_amount || 0).toLocaleString()}
                   </p>
                   <p className="text-xs text-zinc-400">
-                    {getCategoryLabel(claim.category, locale)}
+                    {getCategoryLabel(claim.category, locale, categories)}
                   </p>
                 </div>
               </Link>

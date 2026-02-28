@@ -27,7 +27,6 @@ import { NAV_GROUPS, type NavGroup } from '@/lib/nav-config'
 const moduleAccents: Record<string, { from: string; to: string; iconBg: string; activeBg: string }> = {
     stock: { from: 'from-zinc-700', to: 'to-zinc-900', iconBg: 'bg-zinc-100 dark:bg-zinc-800', activeBg: 'bg-zinc-50 dark:bg-zinc-800/60' },
     events: { from: 'from-sky-500', to: 'to-cyan-600', iconBg: 'bg-sky-50 dark:bg-sky-950/30', activeBg: 'bg-sky-50/60 dark:bg-sky-950/20' },
-    checkout: { from: 'from-rose-500', to: 'to-pink-600', iconBg: 'bg-rose-50 dark:bg-rose-950/30', activeBg: 'bg-rose-50/60 dark:bg-rose-950/20' },
     kpi: { from: 'from-amber-500', to: 'to-orange-600', iconBg: 'bg-amber-50 dark:bg-amber-950/30', activeBg: 'bg-amber-50/60 dark:bg-amber-950/20' },
     costs: { from: 'from-emerald-500', to: 'to-teal-600', iconBg: 'bg-emerald-50 dark:bg-emerald-950/30', activeBg: 'bg-emerald-50/60 dark:bg-emerald-950/20' },
     finance: { from: 'from-teal-500', to: 'to-cyan-600', iconBg: 'bg-teal-50 dark:bg-teal-950/30', activeBg: 'bg-teal-50/60 dark:bg-teal-950/20' },

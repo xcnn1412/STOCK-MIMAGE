@@ -3,14 +3,15 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { DollarSign, TrendingUp, TrendingDown, BarChart3, CalendarDays } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
-import { COST_CATEGORIES, getCategoryColor } from '../types'
+import { getCategoryColor } from '../types'
+import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
 
 const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 
-export default function DashboardView({ jobEvents }: { jobEvents: JobEventWithItems[] }) {
+export default function DashboardView({ jobEvents, categories }: { jobEvents: JobEventWithItems[]; categories: FinanceCategory[] }) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
 
@@ -113,13 +114,13 @@ export default function DashboardView({ jobEvents }: { jobEvents: JobEventWithIt
             </p>
           ) : (
             <div className="space-y-3">
-              {COST_CATEGORIES.filter(cat => costByCategory[cat.value]).map(cat => {
+              {categories.filter(cat => costByCategory[cat.value]).map(cat => {
                 const amount = costByCategory[cat.value] || 0
                 const pct = totalCost > 0 ? (amount / totalCost) * 100 : 0
                 return (
                   <div key={cat.value} className="flex items-center gap-3">
                     <div className="w-28 text-sm font-medium truncate">
-                      {isEn ? cat.label : cat.labelTh}
+                      {isEn ? cat.label : cat.label_th}
                     </div>
                     <div className="flex-1 h-6 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                       <div
@@ -136,6 +137,25 @@ export default function DashboardView({ jobEvents }: { jobEvents: JobEventWithIt
                   </div>
                 )
               })}
+              {/* Show any categories from data not in DB settings */}
+              {Object.entries(costByCategory)
+                .filter(([key]) => !categories.some(c => c.value === key))
+                .map(([cat, amount]) => {
+                  const pct = totalCost > 0 ? (amount / totalCost) * 100 : 0
+                  return (
+                    <div key={cat} className="flex items-center gap-3">
+                      <div className="w-28 text-sm font-medium truncate text-muted-foreground">{cat}</div>
+                      <div className="flex-1 h-6 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500 bg-zinc-400"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <div className="w-24 text-sm text-right font-mono">฿{fmt(amount)}</div>
+                      <div className="w-14 text-xs text-right text-muted-foreground">{pct.toFixed(1)}%</div>
+                    </div>
+                  )
+                })}
             </div>
           )}
         </CardContent>
