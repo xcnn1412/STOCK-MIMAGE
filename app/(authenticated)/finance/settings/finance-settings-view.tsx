@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Plus, Trash2, Edit3, Save, X, Eye, EyeOff,
-  Tag, Users, ChevronDown, ChevronRight
+  Tag, Users, ChevronDown, ChevronRight, GripVertical
 } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import {
-  createCategory, updateCategory, deleteCategory,
+  createCategory, updateCategory, deleteCategory, reorderCategories,
   createCategoryItem, updateCategoryItem, deleteCategoryItem,
 } from '../settings-actions'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
@@ -57,6 +57,54 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
   const [editItemLabel, setEditItemLabel] = useState('')
 
   const [error, setError] = useState<string | null>(null)
+
+  // -- Drag & Drop state --
+  const [dragCatId, setDragCatId] = useState<string | null>(null)
+  const [dragOverCatId, setDragOverCatId] = useState<string | null>(null)
+  const [localCategories, setLocalCategories] = useState<FinanceCategory[] | null>(null)
+
+  const displayCategories = localCategories || categories
+
+  const handleDragStart = useCallback((e: React.DragEvent, catId: string) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', catId)
+    setDragCatId(catId)
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent, catId: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverCatId !== catId) setDragOverCatId(catId)
+  }, [dragOverCatId])
+
+  const handleDragEnd = useCallback(() => {
+    setDragCatId(null)
+    setDragOverCatId(null)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent, targetCatId: string) => {
+    e.preventDefault()
+    const sourceCatId = e.dataTransfer.getData('text/plain')
+    setDragCatId(null)
+    setDragOverCatId(null)
+    if (!sourceCatId || sourceCatId === targetCatId) return
+
+    const cats = [...(localCategories || categories)]
+    const sourceIdx = cats.findIndex(c => c.id === sourceCatId)
+    const targetIdx = cats.findIndex(c => c.id === targetCatId)
+    if (sourceIdx === -1 || targetIdx === -1) return
+
+    const [moved] = cats.splice(sourceIdx, 1)
+    cats.splice(targetIdx, 0, moved)
+    setLocalCategories(cats)
+
+    // Save to DB
+    startTransition(async () => {
+      await reorderCategories(cats.map(c => c.id))
+      setLocalCategories(null)
+      router.refresh()
+    })
+  }, [localCategories, categories, startTransition, router])
 
   const inputCls = "w-full px-2.5 py-1.5 text-sm border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 outline-none focus:ring-2 focus:ring-emerald-500/30"
 
@@ -173,12 +221,21 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
                 <input value={newLabelTh} onChange={e => setNewLabelTh(e.target.value)} placeholder="ค่าขนส่ง" className={inputCls} />
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              {PRESET_COLORS.map(c => (
-                <button key={c} onClick={() => setNewColor(c)}
-                  className={`h-6 w-6 rounded-full border-2 transition-all ${newColor === c ? 'border-zinc-900 dark:border-white scale-110' : 'border-transparent'}`}
-                  style={{ backgroundColor: c }} />
-              ))}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                {PRESET_COLORS.map(c => (
+                  <button key={c} onClick={() => setNewColor(c)}
+                    className={`h-6 w-6 rounded-full border-2 transition-all ${newColor === c ? 'border-zinc-900 dark:border-white scale-110' : 'border-transparent'}`}
+                    style={{ backgroundColor: c }} />
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 ml-2">
+                <input type="color" value={newColor} onChange={e => setNewColor(e.target.value)}
+                  className="h-6 w-6 rounded border-0 cursor-pointer p-0 bg-transparent" />
+                <input type="text" value={newColor} onChange={e => setNewColor(e.target.value)}
+                  className="w-20 px-2 py-1 text-xs font-mono border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 outline-none"
+                  placeholder="#hex" />
+              </div>
             </div>
             <div>
               <label className="text-[10px] font-medium text-zinc-500 uppercase mb-1 block">{isEn ? 'Description Mode' : 'รายละเอียด'}</label>
@@ -209,7 +266,7 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
 
         {/* Category Rows */}
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {categories.map(cat => {
+          {displayCategories.map(cat => {
             const items = categoryItems.filter(i => i.category_id === cat.id)
             const isCustom = cat.detail_source === 'custom'
             const isExpanded = expandedCatId === cat.id && isCustom
@@ -218,7 +275,13 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
             return (
               <div key={cat.id}>
                 {/* Category Row */}
-                <div className={`flex items-center gap-3 px-5 py-3 transition-colors ${!cat.is_active ? 'opacity-40' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'} ${isCustom ? 'cursor-pointer' : ''}`}
+                <div
+                  draggable={editCatId !== cat.id}
+                  onDragStart={e => handleDragStart(e, cat.id)}
+                  onDragOver={e => handleDragOver(e, cat.id)}
+                  onDragEnd={handleDragEnd}
+                  onDrop={e => handleDrop(e, cat.id)}
+                  className={`flex items-center gap-3 px-5 py-3 transition-all duration-200 ${!cat.is_active ? 'opacity-40' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'} ${isCustom ? 'cursor-pointer' : ''} ${dragCatId === cat.id ? 'opacity-30 scale-95' : ''} ${dragOverCatId === cat.id && dragCatId !== cat.id ? 'ring-2 ring-emerald-400/60 bg-emerald-50/30 dark:bg-emerald-950/10' : ''}`}
                   onClick={() => isCustom && setExpandedCatId(isExpanded ? null : cat.id)}>
 
                   {editCatId === cat.id ? (
@@ -227,12 +290,21 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
                         <input value={editLabel} onChange={e => setEditLabel(e.target.value)} className={inputCls} placeholder="Label EN" />
                         <input value={editLabelTh} onChange={e => setEditLabelTh(e.target.value)} className={inputCls} placeholder="Label TH" />
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        {PRESET_COLORS.map(c => (
-                          <button key={c} onClick={() => setEditColor(c)}
-                            className={`h-5 w-5 rounded-full border-2 transition-all ${editColor === c ? 'border-zinc-900 dark:border-white scale-110' : 'border-transparent'}`}
-                            style={{ backgroundColor: c }} />
-                        ))}
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
+                          {PRESET_COLORS.map(c => (
+                            <button key={c} onClick={() => setEditColor(c)}
+                              className={`h-5 w-5 rounded-full border-2 transition-all ${editColor === c ? 'border-zinc-900 dark:border-white scale-110' : 'border-transparent'}`}
+                              style={{ backgroundColor: c }} />
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-1.5 ml-2">
+                          <input type="color" value={editColor} onChange={e => setEditColor(e.target.value)}
+                            className="h-5 w-5 rounded border-0 cursor-pointer p-0 bg-transparent" />
+                          <input type="text" value={editColor} onChange={e => setEditColor(e.target.value)}
+                            className="w-20 px-2 py-0.5 text-xs font-mono border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 outline-none"
+                            placeholder="#hex" />
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-medium text-zinc-500 uppercase shrink-0">{isEn ? 'Detail:' : 'รายละเอียด:'}</span>
@@ -259,6 +331,7 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
                     </div>
                   ) : (
                     <>
+                      <GripVertical className="h-4 w-4 text-zinc-300 dark:text-zinc-600 shrink-0 cursor-grab active:cursor-grabbing" />
                       {isCustom && (
                         isExpanded
                           ? <ChevronDown className="h-4 w-4 text-zinc-400 shrink-0" />

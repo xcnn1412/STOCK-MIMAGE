@@ -123,6 +123,23 @@ export async function deleteCategory(id: string) {
   return { success: true }
 }
 
+export async function reorderCategories(orderedIds: string[]) {
+  const { role } = await getSession()
+  if (role !== 'admin') return { error: 'Admin เท่านั้น' }
+
+  const supabase = createServiceClient()
+  const updates = orderedIds.map((id, index) =>
+    supabase.from('finance_categories').update({ sort_order: index + 1 }).eq('id', id)
+  )
+  await Promise.all(updates)
+
+  revalidatePath('/finance/settings')
+  revalidatePath('/settings')
+  revalidatePath('/finance')
+  revalidatePath('/costs')
+  return { success: true }
+}
+
 // ============================================================================
 // Category Items — รายการย่อยของแต่ละหมวด (ใช้เป็น dropdown เมื่อ detail_source=custom)
 // ============================================================================

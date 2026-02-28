@@ -41,16 +41,15 @@ type Setting = {
     is_active: boolean
 }
 
-const STATUS_COLORS: Record<string, { bg: string; text: string; color: string }> = {
-    lead: { bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-300', color: '#3b82f6' },
-    quotation_sent: { bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-300', color: '#f59e0b' },
-    accepted: { bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-300', color: '#10b981' },
-    rejected: { bg: 'bg-zinc-100 dark:bg-zinc-800', text: 'text-zinc-600 dark:text-zinc-400', color: '#6b7280' },
+// Dynamic status helpers from kanban_status settings
+const getStatusColor = (status: string, settings: Setting[]): string => {
+    const s = settings.find(s => s.category === 'kanban_status' && s.value === status)
+    return s?.color || '#6b7280'
 }
-
-const STATUS_LABELS = {
-    th: { lead: 'ลูกค้าใหม่', quotation_sent: 'ส่งใบเสนอราคา', accepted: 'ตอบรับ', rejected: 'ปฏิเสธ' },
-    en: { lead: 'Lead', quotation_sent: 'Quotation Sent', accepted: 'Accepted', rejected: 'Rejected' },
+const getStatusLabel = (status: string, settings: Setting[], locale: string): string => {
+    const s = settings.find(s => s.category === 'kanban_status' && s.value === status)
+    if (s) return locale === 'th' ? s.label_th : s.label_en
+    return status
 }
 
 const t = {
@@ -103,7 +102,6 @@ const t = {
 export default function DashboardView({ leads, settings, paymentStats }: { leads: Lead[]; settings: Setting[]; paymentStats: PaymentStats }) {
     const { locale } = useLocale()
     const tc = t[locale] || t.th
-    const statusLabels = STATUS_LABELS[locale] || STATUS_LABELS.th
     const today = new Date()
 
     const getSettingLabel = (s: Setting) => locale === 'th' ? s.label_th : s.label_en
@@ -222,20 +220,20 @@ export default function DashboardView({ leads, settings, paymentStats }: { leads
                     </CardHeader>
                     <CardContent className="space-y-3">
                         {statusBreakdown.map(([status, count]) => {
-                            const cfg = STATUS_COLORS[status] || STATUS_COLORS.lead
+                            const statusColor = getStatusColor(status, settings)
                             const pct = leads.length > 0 ? (count / leads.length) * 100 : 0
                             return (
                                 <div key={status} className="space-y-1.5">
                                     <div className="flex items-center justify-between">
                                         <span className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
-                                            {(statusLabels as any)[status] || status}
+                                            {getStatusLabel(status, settings, locale)}
                                         </span>
                                         <span className="text-[13px] text-zinc-500">{count} ({pct.toFixed(0)}%)</span>
                                     </div>
                                     <div className="h-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                                         <div
                                             className="h-full rounded-full transition-all duration-500"
-                                            style={{ width: `${pct}%`, backgroundColor: cfg.color }}
+                                            style={{ width: `${pct}%`, backgroundColor: statusColor }}
                                         />
                                     </div>
                                 </div>
@@ -365,13 +363,13 @@ export default function DashboardView({ leads, settings, paymentStats }: { leads
                             </thead>
                             <tbody>
                                 {recentLeads.map(l => {
-                                    const cfg = STATUS_COLORS[l.status] || STATUS_COLORS.lead
+                                    const color = getStatusColor(l.status, settings)
                                     return (
                                         <tr key={l.id} className="border-b border-zinc-50 dark:border-zinc-800/50 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
                                             <td className="py-2 pr-4 font-medium text-zinc-900 dark:text-zinc-100">{l.customer_name}</td>
                                             <td className="py-2 pr-4">
-                                                <Badge className={`${cfg.bg} ${cfg.text} border-0 text-[12px] px-2.5 py-0.5`}>
-                                                    {(statusLabels as any)[l.status] || l.status}
+                                                <Badge className="border-0 text-[12px] px-2.5 py-0.5" style={{ backgroundColor: `${color}15`, color }}>
+                                                    {getStatusLabel(l.status, settings, locale)}
                                                 </Badge>
                                             </td>
                                             <td className="py-2 pr-4 text-zinc-500">{l.lead_source ? getSourceLabel(l.lead_source) : '—'}</td>
