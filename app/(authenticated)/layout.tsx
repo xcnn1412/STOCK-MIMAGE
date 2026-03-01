@@ -1,6 +1,7 @@
 import Navbar from '@/components/navbar'
 import KpiLocaleWrapper from '@/components/kpi-locale-wrapper'
-import { cookies } from 'next/headers'
+import SessionTimeout from '@/components/session-timeout'
+import { getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
 
 export default async function AuthenticatedLayout({
@@ -8,8 +9,7 @@ export default async function AuthenticatedLayout({
 }: {
   children: React.ReactNode
 }) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const { userId } = await getSessionLight()
 
   // Fetch role and modules from DB (single query — source of truth)
   let role: string | undefined
@@ -38,6 +38,7 @@ export default async function AuthenticatedLayout({
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full" suppressHydrationWarning>
       <Navbar role={role} allowedModules={allowedModules} />
+      <SessionTimeout />
       <main className="p-4 md:p-6 max-w-7xl mx-auto w-full">
         <KpiLocaleWrapper>
           {children}

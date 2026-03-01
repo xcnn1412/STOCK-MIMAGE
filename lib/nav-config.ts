@@ -1,4 +1,4 @@
-import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download } from 'lucide-react'
+import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield } from 'lucide-react'
 
 export type ModuleKey = 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'admin'
 
@@ -79,6 +79,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: LayoutGrid,
     adminOnly: true,
     items: [
+      { href: '/security', icon: Shield, labelKey: 'security' },
       { href: '/settings', icon: Settings, labelKey: 'settings' },
       { href: '/logs', icon: LayoutGrid, labelKey: 'logs' },
       { href: '/users', icon: Users, labelKey: 'users' },

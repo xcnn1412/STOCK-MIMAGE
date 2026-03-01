@@ -21,6 +21,7 @@ export const dictionary = {
       crm: 'CRM',
       crmDashboard: 'Dashboard',
       settings: 'Settings',
+      security: 'Security',
 
       finance: 'Finance',
     },
@@ -94,7 +95,7 @@ export const dictionary = {
         damaged: 'Damaged',
         out_of_stock: 'Out of Stock'
       },
-      deleteTitle: 'Delete Item?', 
+      deleteTitle: 'Delete Item?',
       deleteConfirm: 'Permanently delete this item?'
     },
     kits: {
@@ -259,6 +260,7 @@ export const dictionary = {
       crm: 'CRM',
       crmDashboard: 'แดชบอร์ด',
       settings: 'ตั้งค่า',
+      security: 'ความปลอดภัย',
 
       finance: 'เบิกเงิน',
     },

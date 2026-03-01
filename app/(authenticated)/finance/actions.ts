@@ -107,7 +107,8 @@ export async function createClaim(formData: FormData) {
   const job_event_id = formData.get('job_event_id') as string || null
 
   if (!title) return { error: 'กรุณากรอกหัวข้อการเบิก' }
-  if (amount <= 0 && unit_price <= 0) return { error: 'กรุณากรอกจำนวนเงินที่ถูกต้อง' }
+  if (amount <= 0 && unit_price <= 0) return { error: 'กรุณากรอกจำนวนเงินที่ถูกต้อง (ราคาต่อหน่วยต้องมากกว่า 0)' }
+  if (claim_type === 'event' && !job_event_id) return { error: 'กรุณาเลือกอีเวนต์' }
 
   const { data, error } = await supabase
     .from('expense_claims')
@@ -134,8 +135,9 @@ export async function createClaim(formData: FormData) {
     .single()
 
   if (error) {
-    console.error(error)
-    return { error: 'เกิดข้อผิดพลาดในการสร้างใบเบิก' }
+    console.error('Create claim error:', error)
+    const detail = error.details || error.hint || ''
+    return { error: `เกิดข้อผิดพลาดในการสร้างใบเบิก: ${error.message}${detail ? ` (${detail})` : ''} [${error.code}]` }
   }
 
   await logActivity('CREATE_EXPENSE_CLAIM', {

@@ -643,7 +643,7 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
             {/* Summary */}
             <div className="border-t border-zinc-200 dark:border-zinc-700 px-5 py-3 bg-zinc-50/80 dark:bg-zinc-900/50 flex items-center justify-between text-sm">
               <span className="text-muted-foreground">
-                {isEn ? 'Pending claims total' : 'ยอดรววรออนุมัติ'}:
+                {isEn ? 'Pending claims total' : 'ยอดรวมรออนุมัติ'}:
                 <span className="font-bold text-amber-600 ml-1">
                   ฿{fmt(expenseClaims.filter(c => c.status === 'pending').reduce((s, c) => s + (c.total_amount || c.amount * c.quantity), 0))}
                 </span>
