@@ -225,16 +225,10 @@ export async function createLead(formData: FormData) {
     quoted_price: Number(formData.get('quoted_price') || 0),
     confirmed_price: Number(formData.get('confirmed_price') || 0),
     deposit: Number(formData.get('deposit') || 0),
-    installment_1: Number(formData.get('installment_1') || 0),
-    installment_2: Number(formData.get('installment_2') || 0),
-    installment_3: Number(formData.get('installment_3') || 0),
-    installment_4: Number(formData.get('installment_4') || 0),
-    installment_1_date: (formData.get('installment_1_date') as string) || null,
-    installment_2_date: (formData.get('installment_2_date') as string) || null,
-    installment_3_date: (formData.get('installment_3_date') as string) || null,
-    installment_4_date: (formData.get('installment_4_date') as string) || null,
     quotation_ref: formData.get('quotation_ref') as string || null,
     notes: formData.get('notes') as string || null,
+    vat_mode: formData.get('vat_mode') as string || 'none',
+    wht_rate: Number(formData.get('wht_rate') || 0),
     created_by: userId,
     status: 'lead',
     tags: (formData.get('tags') as string || '').split(',').map(t => t.trim()).filter(Boolean),
@@ -245,6 +239,29 @@ export async function createLead(formData: FormData) {
 
   const { data, error } = await supabase.from('crm_leads').insert(lead).select().single()
   if (error) return { error: error.message }
+
+  // Save dynamic installments
+  const installmentCount = Number(formData.get('installment_count') || 0)
+  if (installmentCount > 0) {
+    const installmentRows = []
+    for (let i = 1; i <= installmentCount; i++) {
+      const amount = Number(formData.get(`installment_${i}`) || 0)
+      const dueDate = (formData.get(`installment_${i}_date`) as string) || null
+      if (amount > 0 || dueDate) {
+        installmentRows.push({
+          lead_id: data.id,
+          installment_number: i,
+          amount,
+          due_date: dueDate,
+          is_paid: false,
+          paid_date: null,
+        })
+      }
+    }
+    if (installmentRows.length > 0) {
+      await supabase.from('crm_lead_installments').insert(installmentRows)
+    }
+  }
 
   await logActivity('CREATE_CRM_LEAD', {
     id: data.id,

@@ -20,7 +20,7 @@ import {
   ArrowLeft, Phone, MessageSquare, Mail, Pencil, Save, X,
   FileText, ExternalLink, Clock, User, Calendar, MapPin,
   DollarSign, Package, AlertCircle, Trash2, Tag, Archive, ArchiveRestore,
-  Users, Briefcase, Palette, Wrench, ChevronDown
+  Users, Briefcase, Palette, Wrench, ChevronDown, ChevronUp
 } from 'lucide-react'
 import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
@@ -59,8 +59,13 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   const ta = t.crm.activity
   const ts = t.crm.statuses
   const [loading, setLoading] = useState(false)
-  const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Per-card editing state
+  type CardSection = 'customer' | 'event' | 'financial'
+  const [editingCard, setEditingCard] = useState<CardSection | null>(null)
+  // Collapsible state — defaults open
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const toggleCollapse = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
   const [activityType, setActivityType] = useState('note')
   const [activityDesc, setActivityDesc] = useState('')
   const [addingActivity, setAddingActivity] = useState(false)
@@ -139,36 +144,55 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     router.refresh()
   }
 
-  const handleSave = async () => {
+  const handleSaveCard = async (section: CardSection) => {
     setSaving(true)
     const formData = new FormData()
-    Object.entries(form).forEach(([key, value]) => {
+
+    // Choose which fields to save based on section
+    const fieldsBySection: Record<CardSection, string[]> = {
+      customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'lead_source', 'is_returning'],
+      event: ['event_date', 'event_end_date', 'event_location', 'event_details'],
+      financial: ['package_name', 'quoted_price', 'confirmed_price', 'deposit', 'vat_mode', 'wht_rate', 'quotation_ref', 'notes'],
+    }
+
+    const fields = fieldsBySection[section]
+    fields.forEach(key => {
+      const value = (form as any)[key]
       if (key === 'tags') {
         formData.set(key, (value as string[]).join(','))
       } else {
         formData.set(key, String(value))
       }
     })
-    const [leadResult, installResult] = await Promise.all([
-      updateLead(lead.id, formData),
-      saveAllInstallments(lead.id, formInstallments.map(inst => ({
-        installment_number: inst.installment_number,
-        amount: inst.amount,
-        due_date: inst.due_date || null,
-        is_paid: inst.is_paid,
-        paid_date: inst.paid_date || null,
-      }))),
-    ])
+
+    const promises: Promise<any>[] = [updateLead(lead.id, formData)]
+
+    // Also save installments when saving financial section
+    if (section === 'financial') {
+      promises.push(
+        saveAllInstallments(lead.id, formInstallments.map(inst => ({
+          installment_number: inst.installment_number,
+          amount: inst.amount,
+          due_date: inst.due_date || null,
+          is_paid: inst.is_paid,
+          paid_date: inst.paid_date || null,
+        })))
+      )
+    }
+
+    const results = await Promise.all(promises)
     setSaving(false)
-    if (leadResult.error || installResult.error) {
-      alert(leadResult.error || installResult.error)
+
+    const hasError = results.some((r: any) => r?.error)
+    if (hasError) {
+      alert(results.find((r: any) => r?.error)?.error)
       return
     }
-    setEditing(false)
+    setEditingCard(null)
     router.refresh()
   }
 
-  const handleCancelEdit = () => {
+  const handleCancelCardEdit = () => {
     // Reset form to original lead data
     setForm({
       customer_name: lead.customer_name || '',
@@ -200,8 +224,72 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         paid_date: inst.paid_date || '',
       }))
     )
-    setEditing(false)
+    setEditingCard(null)
   }
+
+  // Reusable collapsible card header
+  const CollapsibleCardHeader = ({ sectionKey, icon, iconBg, title, editKey }: {
+    sectionKey: string
+    icon: React.ReactNode
+    iconBg: string
+    title: string
+    editKey?: CardSection
+  }) => (
+    <CardHeader className="pb-3">
+      <div className="flex items-center justify-between">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <div className={`flex items-center justify-center h-6 w-6 rounded-md ${iconBg}`}>
+            {icon}
+          </div>
+          {title}
+        </CardTitle>
+        <div className="flex items-center gap-1">
+          {editKey && !collapsed[sectionKey] && editingCard !== editKey && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-zinc-400 hover:text-blue-600"
+              onClick={() => setEditingCard(editKey)}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-zinc-400 hover:text-zinc-600"
+            onClick={() => toggleCollapse(sectionKey)}
+          >
+            {collapsed[sectionKey] ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+          </Button>
+        </div>
+      </div>
+    </CardHeader>
+  )
+
+  // Save/Cancel buttons for per-card editing
+  const CardEditActions = ({ section }: { section: CardSection }) => (
+    <div className="flex items-center gap-2 pt-3 mt-3 border-t border-zinc-100 dark:border-zinc-800">
+      <Button
+        onClick={() => handleSaveCard(section)}
+        disabled={saving}
+        size="sm"
+        className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 h-8 text-xs"
+      >
+        <Save className="h-3.5 w-3.5" />
+        {saving ? tc.saving : tc.save}
+      </Button>
+      <Button
+        onClick={handleCancelCardEdit}
+        variant="outline"
+        size="sm"
+        className="gap-1.5 h-8 text-xs"
+      >
+        <X className="h-3.5 w-3.5" />
+        {tc.cancel}
+      </Button>
+    </div>
+  )
 
   const handleAddActivity = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -335,7 +423,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
-                {editing ? form.customer_name : lead.customer_name}
+                {editingCard === 'customer' ? form.customer_name : lead.customer_name}
               </h1>
               {lead.is_returning && (
                 <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-600">{t.crm.kanban.returning}</Badge>
@@ -357,24 +445,6 @@ export default function LeadDetail({ lead, activities, settings, users, installm
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Edit toggle */}
-          {editing ? (
-            <>
-              <Button onClick={handleSave} disabled={saving} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5">
-                <Save className="h-4 w-4" />
-                {saving ? tc.saving : tc.save}
-              </Button>
-              <Button onClick={handleCancelEdit} variant="outline" size="sm" className="gap-1.5">
-                <X className="h-4 w-4" />
-                {tc.cancel}
-              </Button>
-            </>
-          ) : (
-            <Button onClick={() => setEditing(true)} variant="outline" size="sm" className="gap-1.5">
-              <Pencil className="h-4 w-4" />
-              {tc.edit}
-            </Button>
-          )}
           {lead.event_id ? (
             <Link href={`/costs/events/${lead.event_id}`}>
               <Button variant="outline" size="sm">
@@ -679,132 +749,133 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         <div className="space-y-6">
           {/* Customer Info */}
           <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <div className="flex items-center justify-center h-6 w-6 rounded-md bg-blue-50 dark:bg-blue-950/40">
-                  <User className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                </div>
-                {tc.customerInfo}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {editing ? (
-                <div className="space-y-4">
-                  <EditField label={tc.name} value={form.customer_name} onChange={v => updateForm('customer_name', v)} />
-                  <EditField label={tc.lineId} value={form.customer_line} onChange={v => updateForm('customer_line', v)} placeholder="@line_id" />
-                  <EditField label={tc.phone} value={form.customer_phone} onChange={v => updateForm('customer_phone', v)} placeholder="0xx-xxx-xxxx" />
-                  <EditSelect
-                    label={tc.type}
-                    value={form.customer_type}
-                    onChange={v => updateForm('customer_type', v)}
-                    options={customerTypes.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
-                    placeholder={tc.selectType}
-                  />
-                  <EditSelect
-                    label={tc.channel}
-                    value={form.lead_source}
-                    onChange={v => updateForm('lead_source', v)}
-                    options={sources.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
-                    placeholder={tc.selectSource}
-                  />
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-zinc-500">{tc.returningCustomer}</Label>
-                    <Switch
-                      checked={form.is_returning}
-                      onCheckedChange={v => updateForm('is_returning', v)}
+            <CollapsibleCardHeader
+              sectionKey="customer"
+              icon={<User className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />}
+              iconBg="bg-blue-50 dark:bg-blue-950/40"
+              title={tc.customerInfo}
+              editKey="customer"
+            />
+            {!collapsed.customer && (
+              <CardContent className="space-y-3">
+                {editingCard === 'customer' ? (
+                  <div className="space-y-4">
+                    <EditField label={tc.name} value={form.customer_name} onChange={v => updateForm('customer_name', v)} />
+                    <EditField label={tc.lineId} value={form.customer_line} onChange={v => updateForm('customer_line', v)} placeholder="@line_id" />
+                    <EditField label={tc.phone} value={form.customer_phone} onChange={v => updateForm('customer_phone', v)} placeholder="0xx-xxx-xxxx" />
+                    <EditSelect
+                      label={tc.type}
+                      value={form.customer_type}
+                      onChange={v => updateForm('customer_type', v)}
+                      options={customerTypes.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
+                      placeholder={tc.selectType}
                     />
+                    <EditSelect
+                      label={tc.channel}
+                      value={form.lead_source}
+                      onChange={v => updateForm('lead_source', v)}
+                      options={sources.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
+                      placeholder={tc.selectSource}
+                    />
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-zinc-500">{tc.returningCustomer}</Label>
+                      <Switch
+                        checked={form.is_returning}
+                        onCheckedChange={v => updateForm('is_returning', v)}
+                      />
+                    </div>
+                    <CardEditActions section="customer" />
                   </div>
-                </div>
-              ) : (
-                <>
-                  <InfoRow label={tc.name} value={lead.customer_name} />
-                  <InfoRow label={tc.lineId} value={lead.customer_line} />
-                  <InfoRow label={tc.phone} value={lead.customer_phone} />
-                  <InfoRow label={tc.type} value={typeSetting ? getSettingLabel(typeSetting) : lead.customer_type} />
-                  <InfoRow label={tc.channel} value={sourceSetting ? getSettingLabel(sourceSetting) : lead.lead_source} />
-                </>
-              )}
-            </CardContent>
+                ) : (
+                  <>
+                    <InfoRow label={tc.name} value={lead.customer_name} />
+                    <InfoRow label={tc.lineId} value={lead.customer_line} />
+                    <InfoRow label={tc.phone} value={lead.customer_phone} />
+                    <InfoRow label={tc.type} value={typeSetting ? getSettingLabel(typeSetting) : lead.customer_type} />
+                    <InfoRow label={tc.channel} value={sourceSetting ? getSettingLabel(sourceSetting) : lead.lead_source} />
+                  </>
+                )}
+              </CardContent>
+            )}
           </Card>
 
           {/* Event Info */}
           <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <div className="flex items-center justify-center h-6 w-6 rounded-md bg-violet-50 dark:bg-violet-950/40">
-                  <Calendar className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
-                </div>
-                {tc.eventInfo}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {editing ? (
-                <div className="space-y-4">
-                  <EditField label={tc.eventDate} value={form.event_date} onChange={v => updateForm('event_date', v)} type="date" />
-                  <EditField label={tc.endDate} value={form.event_end_date} onChange={v => updateForm('event_end_date', v)} type="date" />
-                  {/* Auto-calculated duration */}
-                  {form.event_date && form.event_end_date && (
-                    <div className="flex justify-between items-center px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30">
-                      <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">{tc.duration}</span>
-                      <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border-0 text-xs">
-                        {(() => {
-                          const start = new Date(form.event_date)
-                          const end = new Date(form.event_end_date)
-                          const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
-                          return `${days} ${days === 1 ? tc.day : tc.days}`
-                        })()}
-                      </Badge>
+            <CollapsibleCardHeader
+              sectionKey="event"
+              icon={<Calendar className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />}
+              iconBg="bg-violet-50 dark:bg-violet-950/40"
+              title={tc.eventInfo}
+              editKey="event"
+            />
+            {!collapsed.event && (
+              <CardContent className="space-y-3">
+                {editingCard === 'event' ? (
+                  <div className="space-y-4">
+                    <EditField label={tc.eventDate} value={form.event_date} onChange={v => updateForm('event_date', v)} type="date" />
+                    <EditField label={tc.endDate} value={form.event_end_date} onChange={v => updateForm('event_end_date', v)} type="date" />
+                    {form.event_date && form.event_end_date && (
+                      <div className="flex justify-between items-center px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30">
+                        <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">{tc.duration}</span>
+                        <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border-0 text-xs">
+                          {(() => {
+                            const start = new Date(form.event_date)
+                            const end = new Date(form.event_end_date)
+                            const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+                            return `${days} ${days === 1 ? tc.day : tc.days}`
+                          })()}
+                        </Badge>
+                      </div>
+                    )}
+                    <EditField label={tc.locationLabel} value={form.event_location} onChange={v => updateForm('event_location', v)} />
+                    <div>
+                      <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{tc.details}</Label>
+                      <Textarea
+                        value={form.event_details}
+                        onChange={e => updateForm('event_details', e.target.value)}
+                        rows={3}
+                        className="text-sm"
+                        placeholder={tc.eventDetailsPlaceholder}
+                      />
                     </div>
-                  )}
-                  <EditField label={tc.locationLabel} value={form.event_location} onChange={v => updateForm('event_location', v)} />
-                  <div>
-                    <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{tc.details}</Label>
-                    <Textarea
-                      value={form.event_details}
-                      onChange={e => updateForm('event_details', e.target.value)}
-                      rows={3}
-                      className="text-sm"
-                      placeholder={tc.eventDetailsPlaceholder}
-                    />
+                    <CardEditActions section="event" />
                   </div>
-                </div>
-              ) : (
-                <>
-                  <InfoRow label={tc.eventDate} value={lead.event_date} />
-                  <InfoRow label={tc.endDate} value={lead.event_end_date} />
-                  {/* Auto-calculated duration */}
-                  {lead.event_date && lead.event_end_date && (
-                    <div className="flex justify-between items-start gap-4">
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{tc.duration}</span>
-                      <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border-0 text-xs">
-                        {(() => {
-                          const start = new Date(lead.event_date)
-                          const end = new Date(lead.event_end_date)
-                          const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
-                          return `${days} ${days === 1 ? tc.day : tc.days}`
-                        })()}
-                      </Badge>
-                    </div>
-                  )}
-                  <InfoRow label={tc.locationLabel} value={lead.event_location} />
-                  <InfoRow label={tc.details} value={lead.event_details} />
-                </>
-              )}
-            </CardContent>
+                ) : (
+                  <>
+                    <InfoRow label={tc.eventDate} value={lead.event_date} />
+                    <InfoRow label={tc.endDate} value={lead.event_end_date} />
+                    {lead.event_date && lead.event_end_date && (
+                      <div className="flex justify-between items-start gap-4">
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{tc.duration}</span>
+                        <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border-0 text-xs">
+                          {(() => {
+                            const start = new Date(lead.event_date)
+                            const end = new Date(lead.event_end_date)
+                            const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+                            return `${days} ${days === 1 ? tc.day : tc.days}`
+                          })()}
+                        </Badge>
+                      </div>
+                    )}
+                    <InfoRow label={tc.locationLabel} value={lead.event_location} />
+                    <InfoRow label={tc.details} value={lead.event_details} />
+                  </>
+                )}
+              </CardContent>
+            )}
           </Card>
 
           {/* Financial Info */}
           <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <div className="flex items-center justify-center h-6 w-6 rounded-md bg-emerald-50 dark:bg-emerald-950/40">
-                  <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                {tc.financial}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {editing ? (() => {
+            <CollapsibleCardHeader
+              sectionKey="financial"
+              icon={<DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />}
+              iconBg="bg-emerald-50 dark:bg-emerald-950/40"
+              title={tc.financial}
+              editKey="financial"
+            />
+            {!collapsed.financial && <CardContent className="space-y-3">
+              {editingCard === 'financial' ? (() => {
                 // Tax calculation helpers
                 const basePrice = form.confirmed_price || form.quoted_price || 0
                 const vatAmount = form.vat_mode === 'excluded' ? basePrice * 0.07
@@ -819,201 +890,202 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                 const outstanding = netTotal - totalPaid
 
                 return (
-                <div className="space-y-4">
-                  <EditSelect
-                    label={tc.package}
-                    value={form.package_name}
-                    onChange={handlePackageChange}
-                    options={packages.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
-                    placeholder={tc.selectPackage}
-                  />
-                  <EditField label={`${tc.quotedPrice} (฿)`} value={String(form.quoted_price)} onChange={v => updateForm('quoted_price', Number(v) || 0)} type="number" />
-                  <EditField label={`${tc.confirmedPrice} (฿)`} value={String(form.confirmed_price)} onChange={v => updateForm('confirmed_price', Number(v) || 0)} type="number" />
-                  <EditField label={`${tc.depositLabel} (฿)`} value={String(form.deposit)} onChange={v => updateForm('deposit', Number(v) || 0)} type="number" />
+                  <div className="space-y-4">
+                    <EditSelect
+                      label={tc.package}
+                      value={form.package_name}
+                      onChange={handlePackageChange}
+                      options={packages.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
+                      placeholder={tc.selectPackage}
+                    />
+                    <EditField label={`${tc.quotedPrice} (฿)`} value={String(form.quoted_price)} onChange={v => updateForm('quoted_price', Number(v) || 0)} type="number" />
+                    <EditField label={`${tc.confirmedPrice} (฿)`} value={String(form.confirmed_price)} onChange={v => updateForm('confirmed_price', Number(v) || 0)} type="number" />
+                    <EditField label={`${tc.depositLabel} (฿)`} value={String(form.deposit)} onChange={v => updateForm('deposit', Number(v) || 0)} type="number" />
 
-                  {/* Tax Settings */}
-                  <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
-                    <p className="text-xs font-semibold text-zinc-500 mb-3">{locale === 'th' ? '💰 การคำนวณภาษี' : '💰 Tax Calculation'}</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <EditSelect
-                        label={locale === 'th' ? 'VAT' : 'VAT Mode'}
-                        value={form.vat_mode}
-                        onChange={v => updateForm('vat_mode', v)}
-                        options={[
-                          { value: 'none', label: locale === 'th' ? 'ไม่มี VAT' : 'No VAT' },
-                          { value: 'included', label: locale === 'th' ? 'รวม VAT แล้ว' : 'VAT Included' },
-                          { value: 'excluded', label: locale === 'th' ? 'ยังไม่รวม VAT' : 'VAT Excluded' },
-                        ]}
-                      />
-                      <EditSelect
-                        label={locale === 'th' ? 'หัก ณ ที่จ่าย' : 'WHT Rate'}
-                        value={String(form.wht_rate)}
-                        onChange={v => updateForm('wht_rate', Number(v))}
-                        options={[
-                          { value: '0', label: locale === 'th' ? 'ไม่หัก' : 'None' },
-                          { value: '1', label: '1%' },
-                          { value: '2', label: '2%' },
-                          { value: '3', label: '3%' },
-                          { value: '5', label: '5%' },
-                        ]}
-                      />
-                    </div>
-                    {/* Tax Summary */}
-                    {(form.vat_mode !== 'none' || form.wht_rate > 0) && basePrice > 0 && (
-                      <div className="mt-3 p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
-                        {form.vat_mode !== 'none' && (
-                          <>
-                            <div className="flex justify-between text-xs">
-                              <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
-                              <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            </div>
-                            <div className="flex justify-between text-xs">
-                              <span className="text-zinc-500">VAT 7%</span>
-                              <span className="font-medium text-blue-600 dark:text-blue-400">+฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            </div>
-                          </>
-                        )}
-                        {form.wht_rate > 0 && (
-                          <div className="flex justify-between text-xs">
-                            <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${form.wht_rate}%` : `WHT ${form.wht_rate}%`}</span>
-                            <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                          </div>
-                        )}
-                        <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
-                          <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
-                          <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        </div>
+                    {/* Tax Settings */}
+                    <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
+                      <p className="text-xs font-semibold text-zinc-500 mb-3">{locale === 'th' ? '💰 การคำนวณภาษี' : '💰 Tax Calculation'}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <EditSelect
+                          label={locale === 'th' ? 'VAT' : 'VAT Mode'}
+                          value={form.vat_mode}
+                          onChange={v => updateForm('vat_mode', v)}
+                          options={[
+                            { value: 'none', label: locale === 'th' ? 'ไม่มี VAT' : 'No VAT' },
+                            { value: 'included', label: locale === 'th' ? 'รวม VAT แล้ว' : 'VAT Included' },
+                            { value: 'excluded', label: locale === 'th' ? 'ยังไม่รวม VAT' : 'VAT Excluded' },
+                          ]}
+                        />
+                        <EditSelect
+                          label={locale === 'th' ? 'หัก ณ ที่จ่าย' : 'WHT Rate'}
+                          value={String(form.wht_rate)}
+                          onChange={v => updateForm('wht_rate', Number(v))}
+                          options={[
+                            { value: '0', label: locale === 'th' ? 'ไม่หัก' : 'None' },
+                            { value: '1', label: '1%' },
+                            { value: '2', label: '2%' },
+                            { value: '3', label: '3%' },
+                            { value: '5', label: '5%' },
+                          ]}
+                        />
                       </div>
-                    )}
-                  </div>
-
-                  {/* Dynamic Installments */}
-                  <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-semibold text-zinc-500">{locale === 'th' ? '📋 งวดชำระเงิน' : '📋 Payment Installments'}</p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs gap-1"
-                        onClick={() => {
-                          const nextNum = formInstallments.length + 1
-                          setFormInstallments(prev => [...prev, {
-                            installment_number: nextNum,
-                            amount: 0,
-                            due_date: '',
-                            is_paid: false,
-                            paid_date: '',
-                          }])
-                        }}
-                      >
-                        + {locale === 'th' ? 'เพิ่มงวด' : 'Add'}
-                      </Button>
-                    </div>
-                    {formInstallments.map((inst, idx) => (
-                      <div key={idx} className="space-y-2 mb-4 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 relative">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                            {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
-                          </span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
-                            onClick={() => {
-                              setFormInstallments(prev => prev.filter((_, i) => i !== idx).map((item, i) => ({ ...item, installment_number: i + 1 })))
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <EditField
-                            label={`${locale === 'th' ? 'จำนวน' : 'Amount'} (฿)`}
-                            value={String(inst.amount)}
-                            onChange={v => {
-                              setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, amount: Number(v) || 0 } : item))
-                            }}
-                            type="number"
-                          />
-                          <EditField
-                            label={(tc as any).dueDate || 'วันนัดชำระ'}
-                            value={inst.due_date}
-                            onChange={v => {
-                              setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, due_date: v } : item))
-                            }}
-                            type="date"
-                          />
-                        </div>
-                        <div className="flex items-center gap-3 pl-1">
-                          <label className="flex items-center gap-2 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={inst.is_paid}
-                              onChange={e => {
-                                setFormInstallments(prev => prev.map((item, i) => i === idx ? {
-                                  ...item,
-                                  is_paid: e.target.checked,
-                                  paid_date: e.target.checked ? (item.paid_date || new Date().toISOString().split('T')[0]) : '',
-                                } : item))
-                              }}
-                              className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
-                            />
-                            <span className={`text-xs font-medium ${inst.is_paid ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
-                              {(tc as any).paid || 'ชำระแล้ว'}
-                            </span>
-                          </label>
-                          {inst.is_paid && (
-                            <div className="flex-1 max-w-[180px]">
-                              <EditField
-                                label={(tc as any).paidDate || 'วันที่ชำระจริง'}
-                                value={inst.paid_date}
-                                onChange={v => {
-                                  setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, paid_date: v } : item))
-                                }}
-                                type="date"
-                              />
+                      {/* Tax Summary */}
+                      {(form.vat_mode !== 'none' || form.wht_rate > 0) && basePrice > 0 && (
+                        <div className="mt-3 p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
+                          {form.vat_mode !== 'none' && (
+                            <>
+                              <div className="flex justify-between text-xs">
+                                <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
+                                <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                              </div>
+                              <div className="flex justify-between text-xs">
+                                <span className="text-zinc-500">VAT 7%</span>
+                                <span className="font-medium text-blue-600 dark:text-blue-400">+฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                              </div>
+                            </>
+                          )}
+                          {form.wht_rate > 0 && (
+                            <div className="flex justify-between text-xs">
+                              <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${form.wht_rate}%` : `WHT ${form.wht_rate}%`}</span>
+                              <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                             </div>
                           )}
+                          <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
+                            <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
+                            <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Dynamic Installments */}
+                    <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-semibold text-zinc-500">{locale === 'th' ? '📋 งวดชำระเงิน' : '📋 Payment Installments'}</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                          onClick={() => {
+                            const nextNum = formInstallments.length + 1
+                            setFormInstallments(prev => [...prev, {
+                              installment_number: nextNum,
+                              amount: 0,
+                              due_date: '',
+                              is_paid: false,
+                              paid_date: '',
+                            }])
+                          }}
+                        >
+                          + {locale === 'th' ? 'เพิ่มงวด' : 'Add'}
+                        </Button>
+                      </div>
+                      {formInstallments.map((inst, idx) => (
+                        <div key={idx} className="space-y-2 mb-4 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 relative">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                              {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                              onClick={() => {
+                                setFormInstallments(prev => prev.filter((_, i) => i !== idx).map((item, i) => ({ ...item, installment_number: i + 1 })))
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <EditField
+                              label={`${locale === 'th' ? 'จำนวน' : 'Amount'} (฿)`}
+                              value={String(inst.amount)}
+                              onChange={v => {
+                                setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, amount: Number(v) || 0 } : item))
+                              }}
+                              type="number"
+                            />
+                            <EditField
+                              label={(tc as any).dueDate || 'วันนัดชำระ'}
+                              value={inst.due_date}
+                              onChange={v => {
+                                setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, due_date: v } : item))
+                              }}
+                              type="date"
+                            />
+                          </div>
+                          <div className="flex items-center gap-3 pl-1">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={inst.is_paid}
+                                onChange={e => {
+                                  setFormInstallments(prev => prev.map((item, i) => i === idx ? {
+                                    ...item,
+                                    is_paid: e.target.checked,
+                                    paid_date: e.target.checked ? (item.paid_date || new Date().toISOString().split('T')[0]) : '',
+                                  } : item))
+                                }}
+                                className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                              />
+                              <span className={`text-xs font-medium ${inst.is_paid ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
+                                {(tc as any).paid || 'ชำระแล้ว'}
+                              </span>
+                            </label>
+                            {inst.is_paid && (
+                              <div className="flex-1 max-w-[180px]">
+                                <EditField
+                                  label={(tc as any).paidDate || 'วันที่ชำระจริง'}
+                                  value={inst.paid_date}
+                                  onChange={v => {
+                                    setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, paid_date: v } : item))
+                                  }}
+                                  type="date"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {formInstallments.length === 0 && (
+                        <p className="text-xs text-zinc-400 text-center py-3">{locale === 'th' ? 'ยังไม่มีงวดชำระ' : 'No installments yet'}</p>
+                      )}
+                    </div>
+
+                    {/* Outstanding Balance */}
+                    {netTotal > 0 && (
+                      <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                            {locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding'}
+                          </span>
+                          <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
+                            ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
+                          <span>{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}: ฿{totalPaid.toLocaleString()}</span>
+                          <span>{locale === 'th' ? 'ยอดสุทธิ' : 'Net'}: ฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                         </div>
                       </div>
-                    ))}
-                    {formInstallments.length === 0 && (
-                      <p className="text-xs text-zinc-400 text-center py-3">{locale === 'th' ? 'ยังไม่มีงวดชำระ' : 'No installments yet'}</p>
                     )}
-                  </div>
 
-                  {/* Outstanding Balance */}
-                  {netTotal > 0 && (
-                    <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                          {locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding'}
-                        </span>
-                        <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
-                          ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
-                        <span>{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}: ฿{totalPaid.toLocaleString()}</span>
-                        <span>{locale === 'th' ? 'ยอดสุทธิ' : 'Net'}: ฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                      </div>
+                    <EditField label={tc.quotationRef} value={form.quotation_ref} onChange={v => updateForm('quotation_ref', v)} />
+                    <div>
+                      <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{tc.notesLabel}</Label>
+                      <Textarea
+                        value={form.notes}
+                        onChange={e => updateForm('notes', e.target.value)}
+                        rows={3}
+                        className="text-sm"
+                        placeholder={tc.notesPlaceholder}
+                      />
                     </div>
-                  )}
-
-                  <EditField label={tc.quotationRef} value={form.quotation_ref} onChange={v => updateForm('quotation_ref', v)} />
-                  <div>
-                    <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{tc.notesLabel}</Label>
-                    <Textarea
-                      value={form.notes}
-                      onChange={e => updateForm('notes', e.target.value)}
-                      rows={3}
-                      className="text-sm"
-                      placeholder={tc.notesPlaceholder}
-                    />
+                    <CardEditActions section="financial" />
                   </div>
-                </div>
                 )
               })() : (() => {
                 // View mode: tax calculation
@@ -1031,127 +1103,125 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                 const outstanding = netTotal - totalPaid
 
                 return (
-                <>
-                  <InfoRow label={tc.package} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
-                  <InfoRow label={tc.quotedPrice} value={lead.quoted_price ? `฿${lead.quoted_price.toLocaleString()}` : null} />
-                  <InfoRow label={tc.confirmedPrice} value={lead.confirmed_price ? `฿${lead.confirmed_price.toLocaleString()}` : null} />
-                  <InfoRow label={tc.depositLabel} value={lead.deposit ? `฿${lead.deposit.toLocaleString()}` : null} />
+                  <>
+                    <InfoRow label={tc.package} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
+                    <InfoRow label={tc.quotedPrice} value={lead.quoted_price ? `฿${lead.quoted_price.toLocaleString()}` : null} />
+                    <InfoRow label={tc.confirmedPrice} value={lead.confirmed_price ? `฿${lead.confirmed_price.toLocaleString()}` : null} />
+                    <InfoRow label={tc.depositLabel} value={lead.deposit ? `฿${lead.deposit.toLocaleString()}` : null} />
 
-                  {/* Tax Summary in View Mode */}
-                  {(vatMode !== 'none' || whtRate > 0) && basePrice > 0 && (
-                    <div className="p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
-                      {vatMode !== 'none' && (
-                        <>
+                    {/* Tax Summary in View Mode */}
+                    {(vatMode !== 'none' || whtRate > 0) && basePrice > 0 && (
+                      <div className="p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
+                        {vatMode !== 'none' && (
+                          <>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
+                              <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-zinc-500">VAT 7% ({vatMode === 'included' ? (locale === 'th' ? 'รวมแล้ว' : 'incl.') : (locale === 'th' ? 'ยังไม่รวม' : 'excl.')})</span>
+                              <span className="font-medium text-blue-600 dark:text-blue-400">{vatMode === 'excluded' ? '+' : ''}฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            </div>
+                          </>
+                        )}
+                        {whtRate > 0 && (
                           <div className="flex justify-between text-xs">
-                            <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
-                            <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-zinc-500">VAT 7% ({vatMode === 'included' ? (locale === 'th' ? 'รวมแล้ว' : 'incl.') : (locale === 'th' ? 'ยังไม่รวม' : 'excl.')})</span>
-                            <span className="font-medium text-blue-600 dark:text-blue-400">{vatMode === 'excluded' ? '+' : ''}฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                          </div>
-                        </>
-                      )}
-                      {whtRate > 0 && (
-                        <div className="flex justify-between text-xs">
-                          <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${whtRate}%` : `WHT ${whtRate}%`}</span>
-                          <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        </div>
-                      )}
-                      <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
-                        <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
-                        <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Dynamic Installments (View) */}
-                  {initialInstallments.map(inst => {
-                    const isOverduePayment = inst.due_date && !inst.is_paid && new Date(inst.due_date) < new Date()
-                    const borderColor = inst.is_paid
-                      ? 'border-l-emerald-500'
-                      : isOverduePayment
-                        ? 'border-l-red-500'
-                        : 'border-l-zinc-200 dark:border-l-zinc-700'
-
-                    return (
-                      <div key={inst.id} className={`border-l-[3px] ${borderColor} rounded-r-lg bg-zinc-50/50 dark:bg-zinc-800/30 px-3 py-2.5`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                            {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
-                          </span>
-                          {inst.is_paid ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full">
-                              ✓ {(tc as any).paid || 'ชำระแล้ว'}
-                            </span>
-                          ) : isOverduePayment ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 px-2 py-0.5 rounded-full">
-                              ⚠ {(tc as any).overdue || 'เลยกำหนด'}
-                            </span>
-                          ) : inst.due_date ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
-                              {(tc as any).unpaid || 'ยังไม่ชำระ'}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="flex items-baseline justify-between">
-                          <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                            {inst.amount ? `฿${inst.amount.toLocaleString()}` : '—'}
-                          </span>
-                          {inst.due_date && (
-                            <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                              {(tc as any).dueDate || 'วันนัดชำระ'}: {inst.due_date}
-                            </span>
-                          )}
-                        </div>
-                        {inst.is_paid && inst.paid_date && (
-                          <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">
-                            {(tc as any).paidDate || 'วันที่ชำระจริง'}: {inst.paid_date}
+                            <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${whtRate}%` : `WHT ${whtRate}%`}</span>
+                            <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                           </div>
                         )}
+                        <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
+                          <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
+                          <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        </div>
                       </div>
-                    )
-                  })}
+                    )}
 
-                  {/* Outstanding Balance (View) */}
-                  {basePrice > 0 && (
-                    <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                          {locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding'}
-                        </span>
-                        <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
-                          ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
-                        <span>{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}: ฿{totalPaid.toLocaleString()}</span>
-                        <span>{locale === 'th' ? 'ยอดสุทธิ' : 'Net'}: ฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                      </div>
-                    </div>
-                  )}
+                    {/* Dynamic Installments (View) */}
+                    {initialInstallments.map(inst => {
+                      const isOverduePayment = inst.due_date && !inst.is_paid && new Date(inst.due_date) < new Date()
+                      const borderColor = inst.is_paid
+                        ? 'border-l-emerald-500'
+                        : isOverduePayment
+                          ? 'border-l-red-500'
+                          : 'border-l-zinc-200 dark:border-l-zinc-700'
 
-                  <InfoRow label={tc.quotationRef} value={lead.quotation_ref} />
-                  {lead.notes && <InfoRow label={tc.notesLabel} value={lead.notes} />}
-                </>
+                      return (
+                        <div key={inst.id} className={`border-l-[3px] ${borderColor} rounded-r-lg bg-zinc-50/50 dark:bg-zinc-800/30 px-3 py-2.5`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                              {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
+                            </span>
+                            {inst.is_paid ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full">
+                                ✓ {(tc as any).paid || 'ชำระแล้ว'}
+                              </span>
+                            ) : isOverduePayment ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 px-2 py-0.5 rounded-full">
+                                ⚠ {(tc as any).overdue || 'เลยกำหนด'}
+                              </span>
+                            ) : inst.due_date ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
+                                {(tc as any).unpaid || 'ยังไม่ชำระ'}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                              {inst.amount ? `฿${inst.amount.toLocaleString()}` : '—'}
+                            </span>
+                            {inst.due_date && (
+                              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                {(tc as any).dueDate || 'วันนัดชำระ'}: {inst.due_date}
+                              </span>
+                            )}
+                          </div>
+                          {inst.is_paid && inst.paid_date && (
+                            <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+                              {(tc as any).paidDate || 'วันที่ชำระจริง'}: {inst.paid_date}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+
+                    {/* Outstanding Balance (View) */}
+                    {basePrice > 0 && (
+                      <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                            {locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding'}
+                          </span>
+                          <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
+                            ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
+                          <span>{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}: ฿{totalPaid.toLocaleString()}</span>
+                          <span>{locale === 'th' ? 'ยอดสุทธิ' : 'Net'}: ฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <InfoRow label={tc.quotationRef} value={lead.quotation_ref} />
+                    {lead.notes && <InfoRow label={tc.notesLabel} value={lead.notes} />}
+                  </>
                 )
               })()}
-            </CardContent>
+            </CardContent>}
           </Card>
         </div>
 
         {/* Right: Activity Timeline */}
         <div>
           <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <div className="flex items-center justify-center h-6 w-6 rounded-md bg-orange-50 dark:bg-orange-950/40">
-                  <Clock className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
-                </div>
-                {ta.title}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+            <CollapsibleCardHeader
+              sectionKey="activity"
+              icon={<Clock className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />}
+              iconBg="bg-orange-50 dark:bg-orange-950/40"
+              title={ta.title}
+            />
+            {!collapsed.activity && <CardContent>
               {/* Add Activity Form */}
               <form onSubmit={handleAddActivity} className="mb-6 space-y-3">
                 <div className="flex gap-2">
@@ -1243,7 +1313,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                   )
                 })}
               </div>
-            </CardContent>
+            </CardContent>}
           </Card>
         </div>
       </div>
