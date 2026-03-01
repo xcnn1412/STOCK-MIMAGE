@@ -106,8 +106,8 @@ export default function PaymentsView({ payments: allPayments }: { payments: Paym
     return (
         <div className="space-y-6">
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-5">
+            <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                <div className="flex-shrink-0 w-[160px] sm:w-auto sm:flex-1 sm:min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3.5 sm:p-5 snap-start">
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500 to-blue-600" />
                     <div className="flex items-center gap-2 mb-2">
                         <CalendarDays className="h-4 w-4 text-blue-500" />
@@ -121,7 +121,7 @@ export default function PaymentsView({ payments: allPayments }: { payments: Paym
                     <p className="text-xs text-zinc-400 mt-1">{monthPayments.filter(p => !p.isPaid).length} {locale === 'th' ? 'รายการ' : 'items'}</p>
                 </div>
 
-                <div className="relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-5">
+                <div className="flex-shrink-0 w-[160px] sm:w-auto sm:flex-1 sm:min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3.5 sm:p-5 snap-start">
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald-500 to-emerald-600" />
                     <div className="flex items-center gap-2 mb-2">
                         <CheckCircle2 className="h-4 w-4 text-emerald-500" />
@@ -135,7 +135,7 @@ export default function PaymentsView({ payments: allPayments }: { payments: Paym
                     <p className="text-xs text-zinc-400 mt-1">{monthPayments.filter(p => p.isPaid).length} {locale === 'th' ? 'รายการ' : 'items'}</p>
                 </div>
 
-                <div className="relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-5">
+                <div className="flex-shrink-0 w-[160px] sm:w-auto sm:flex-1 sm:min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3.5 sm:p-5 snap-start">
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-500 to-red-600" />
                     <div className="flex items-center gap-2 mb-2">
                         <AlertCircle className="h-4 w-4 text-red-500" />
@@ -149,7 +149,7 @@ export default function PaymentsView({ payments: allPayments }: { payments: Paym
                     <p className="text-xs text-zinc-400 mt-1">{overdueCount} {locale === 'th' ? 'รายการ' : 'items'}</p>
                 </div>
 
-                <div className="relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-5">
+                <div className="flex-shrink-0 w-[160px] sm:w-auto sm:flex-1 sm:min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3.5 sm:p-5 snap-start">
                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-violet-500 to-violet-600" />
                     <div className="flex items-center gap-2 mb-2">
                         <Clock className="h-4 w-4 text-violet-500" />
@@ -176,7 +176,7 @@ export default function PaymentsView({ payments: allPayments }: { payments: Paym
                                 <button onClick={prevMonth} className="p-2.5 rounded-xl hover:bg-zinc-200/60 dark:hover:bg-zinc-700/60 transition-colors">
                                     <ChevronLeft className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
                                 </button>
-                                <h2 className="text-xl font-extrabold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                                <h2 className="text-lg sm:text-xl font-extrabold text-zinc-900 dark:text-zinc-100 tracking-tight">
                                     {months[currentMonth]} {currentYear + (locale === 'th' ? 543 : 0)}
                                 </h2>
                                 <button onClick={nextMonth} className="p-2.5 rounded-xl hover:bg-zinc-200/60 dark:hover:bg-zinc-700/60 transition-colors">
@@ -187,7 +187,7 @@ export default function PaymentsView({ payments: allPayments }: { payments: Paym
                             {/* Weekday headers */}
                             <div className="grid grid-cols-7 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/30 dark:bg-zinc-800/20">
                                 {weekdays.map((d, di) => (
-                                    <div key={d} className={`py-2.5 text-center text-[13px] font-bold uppercase tracking-wide ${di === 0 || di === 6 ? 'text-zinc-400/80 dark:text-zinc-500/80' : 'text-zinc-500 dark:text-zinc-400'}`}>
+                                    <div key={d} className={`py-2 sm:py-2.5 text-center text-[11px] sm:text-[13px] font-bold uppercase tracking-wide ${di === 0 || di === 6 ? 'text-zinc-400/80 dark:text-zinc-500/80' : 'text-zinc-500 dark:text-zinc-400'}`}>
                                         {d}
                                     </div>
                                 ))}
@@ -197,7 +197,7 @@ export default function PaymentsView({ payments: allPayments }: { payments: Paym
                             <div className="grid grid-cols-7">
                                 {calendarDays.map((day, i) => {
                                     if (day === null) {
-                                        return <div key={`empty-${i}`} className="min-h-[207px] border-b border-r border-zinc-100/60 dark:border-zinc-800/40 bg-zinc-50/30 dark:bg-zinc-900/40" />
+                                        return <div key={`empty-${i}`} className="min-h-[100px] sm:min-h-[207px] border-b border-r border-zinc-100/60 dark:border-zinc-800/40 bg-zinc-50/30 dark:bg-zinc-900/40" />
                                     }
 
                                     const dateStr = getDateStr(day)

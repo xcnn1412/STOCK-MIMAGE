@@ -39,7 +39,7 @@ export default async function AuthenticatedLayout({
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full flex" suppressHydrationWarning>
       <Sidebar role={role} allowedModules={allowedModules} />
       <SessionTimeout />
-      <div className="flex-1 flex flex-col min-h-screen min-w-0">
+      <div className="flex-1 flex flex-col min-h-screen min-w-0 pt-14 md:pt-0">
         <main className="flex-1 p-4 md:p-6 w-full">
           <KpiLocaleWrapper>
             {children}

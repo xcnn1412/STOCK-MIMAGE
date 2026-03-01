@@ -147,7 +147,7 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[85vh] sm:max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-lg font-bold">{tc.title}</DialogTitle>
           <DialogDescription>
