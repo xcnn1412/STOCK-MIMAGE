@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import {
   AlertCircle, User, Calendar, MessageSquare,
-  GripVertical, MapPin, RefreshCw, ChevronDown, ChevronRight
+  GripVertical, MapPin, RefreshCw, ChevronDown, ChevronRight, Pencil
 } from 'lucide-react'
 import { updateLeadStatus } from '../actions'
 import {
@@ -294,21 +294,21 @@ function KanbanCard({
   const [expanded, setExpanded] = useState(false)
 
   const toggleExpand = (e: React.MouseEvent) => {
-    e.preventDefault()
     e.stopPropagation()
     setExpanded(prev => !prev)
   }
 
   return (
-    <Link href={`/crm/${lead.id}`} className="group">
+    <div className="group">
       <div
         draggable
         onDragStart={e => onDragStart(e, lead.id)}
         onDragEnd={onDragEnd}
+        onClick={toggleExpand}
         className={`
           relative bg-white dark:bg-zinc-800/90 rounded-xl overflow-hidden
           border border-zinc-200/70 dark:border-zinc-700/50
-          cursor-grab active:cursor-grabbing
+          cursor-pointer active:cursor-grabbing
           transition-all duration-200 ease-out
           hover:shadow-lg hover:shadow-zinc-200/50 dark:hover:shadow-zinc-900/50
           hover:-translate-y-0.5 hover:border-zinc-300 dark:hover:border-zinc-600
@@ -322,7 +322,7 @@ function KanbanCard({
         />
 
         <div className="p-3.5 space-y-3">
-          {/* Header: Avatar + Name + Expand toggle */}
+          {/* Header: Avatar + Name + Edit button */}
           <div className="flex items-start gap-3">
             <div className={`shrink-0 flex items-center justify-center h-10 w-10 rounded-xl bg-linear-to-br ${avatarGradient} text-white text-[15px] font-bold shadow-sm ring-2 ring-white/80 dark:ring-zinc-700/80`}>
               {initials}
@@ -345,15 +345,13 @@ function KanbanCard({
                 )}
               </div>
             </div>
-            <button
-              onClick={toggleExpand}
-              className="shrink-0 mt-1 p-0.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-700/50 transition-colors"
+            <Link
+              href={`/crm/${lead.id}`}
+              onClick={e => e.stopPropagation()}
+              className="shrink-0 mt-1 p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
             >
-              {expanded
-                ? <ChevronDown className="h-4 w-4 text-zinc-400" />
-                : <ChevronRight className="h-4 w-4 text-zinc-400" />
-              }
-            </button>
+              <Pencil className="h-3.5 w-3.5 text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" />
+            </Link>
           </div>
 
           {/* Expanded detail section */}
@@ -518,8 +516,8 @@ function KanbanCard({
             </div>
           )}
         </div>
-      </div >
-    </Link >
+      </div>
+    </div>
   )
 }
 
