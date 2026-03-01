@@ -98,95 +98,175 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
     })
   }, [])
 
-  return (
-    <div
-      className="flex gap-2 sm:gap-3 overflow-x-auto pb-4 px-1 snap-x snap-mandatory md:snap-none"
-      style={{
-        scrollbarWidth: 'thin',
-        minHeight: 'calc(100vh - 320px)',
-        WebkitOverflowScrolling: 'touch',
-      }}
-    >
-      {getStatusesFromSettings(settings).map(status => {
-        const config = getStatusConfig(settings, status)
-        const statusLeads = optimisticLeads.filter(l => l.status === status)
-        const isDragOver = dragOverStatus === status
-        const isCollapsed = collapsedCols.has(status)
+  const kanbanStatuses = getStatusesFromSettings(settings)
+  const [mobileTab, setMobileTab] = useState<string>(kanbanStatuses[0] || '')
 
-        return (
-          <div
-            key={status}
-            className={`flex flex-col rounded-xl transition-all duration-300 snap-start ${isCollapsed ? 'min-w-[40px] max-w-[40px] sm:min-w-[48px] sm:max-w-[48px]' : 'flex-1 min-w-[200px] sm:min-w-[220px]'} ${isDragOver
-              ? 'ring-2 ring-blue-400/60 dark:ring-blue-500/40 bg-blue-50/40 dark:bg-blue-950/20 scale-[1.01]'
-              : 'bg-zinc-100/60 dark:bg-zinc-900/40'
-              }`}
-            onDragOver={e => handleDragOver(e, status)}
-            onDragLeave={handleDragLeave}
-            onDrop={e => handleDrop(e, status)}
-          >
-            {/* Column Header */}
-            <div
-              className="px-3 pt-3 pb-2 cursor-pointer select-none"
-              onClick={() => toggleColumn(status)}
-            >
-              {isCollapsed ? (
-                <div className="flex flex-col items-center gap-2">
-                  <div
-                    className="h-3 w-3 rounded-full shadow-sm"
-                    style={{ backgroundColor: config.color }}
-                  />
-                  <span className="text-[12px] font-bold text-zinc-500 dark:text-zinc-400 [writing-mode:vertical-lr] tracking-wider uppercase">
-                    {getStatusLabel(status)}
-                  </span>
-                  <span className="flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-zinc-200/80 dark:bg-zinc-700/80 text-[12px] font-bold text-zinc-600 dark:text-zinc-300">
-                    {statusLeads.length}
-                  </span>
+  return (
+    <>
+      {/* ====== MOBILE: Tab-based View (< md) ====== */}
+      <div className="md:hidden">
+        {/* Status Tabs */}
+        <div
+          className="flex gap-1.5 overflow-x-auto pb-2 -mx-2 px-2 mb-3"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {kanbanStatuses.map(status => {
+            const config = getStatusConfig(settings, status)
+            const count = optimisticLeads.filter(l => l.status === status).length
+            const isActive = mobileTab === status
+            return (
+              <button
+                key={status}
+                onClick={() => setMobileTab(status)}
+                className={`
+                  flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide
+                  whitespace-nowrap shrink-0 transition-all duration-200
+                  ${isActive
+                    ? 'text-white shadow-md scale-[1.02]'
+                    : 'bg-zinc-100 dark:bg-zinc-800/60 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                  }
+                `}
+                style={isActive ? { backgroundColor: config.color } : undefined}
+              >
+                <span
+                  className="h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: isActive ? '#fff' : config.color }}
+                />
+                {getStatusLabel(status)}
+                <span className={`
+                  ml-0.5 flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full text-[11px] font-bold
+                  ${isActive
+                    ? 'bg-white/25 text-white'
+                    : 'bg-zinc-200/80 dark:bg-zinc-700/80 text-zinc-600 dark:text-zinc-300'
+                  }
+                `}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Active Tab Cards */}
+        {kanbanStatuses.map(status => {
+          if (status !== mobileTab) return null
+          const config = getStatusConfig(settings, status)
+          const statusLeads = optimisticLeads.filter(l => l.status === status)
+
+          return (
+            <div key={status} className="space-y-2">
+              {statusLeads.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-zinc-300 dark:text-zinc-700 border-2 border-dashed border-zinc-200/80 dark:border-zinc-800 rounded-xl">
+                  <div className="text-sm font-medium">{tc.kanban.dropHere}</div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <ChevronDown className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                  <div
-                    className="h-3 w-3 rounded-full shadow-sm"
-                    style={{ backgroundColor: config.color }}
+                statusLeads.map(lead => (
+                  <MemoKanbanCard
+                    key={lead.id}
+                    lead={lead}
+                    settings={settings}
+                    users={users}
+                    statusColor={config.color}
+                    isDragging={false}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
                   />
-                  <span className="text-sm sm:text-base font-bold text-zinc-800 dark:text-zinc-200 tracking-tight uppercase truncate">
-                    {getStatusLabel(status)}
-                  </span>
-                </div>
+                ))
               )}
             </div>
+          )
+        })}
+      </div>
 
-            {!isCollapsed && (
-              <>
-                {/* Color accent bar */}
-                <div className="mx-3 h-[2px] rounded-full mb-2 opacity-40" style={{ backgroundColor: config.color }} />
+      {/* ====== DESKTOP: Multi-column View (md+) ====== */}
+      <div
+        className="hidden md:flex gap-3 overflow-x-auto pb-4 px-1"
+        style={{
+          scrollbarWidth: 'thin',
+          minHeight: 'calc(100vh - 320px)',
+        }}
+      >
+        {kanbanStatuses.map(status => {
+          const config = getStatusConfig(settings, status)
+          const statusLeads = optimisticLeads.filter(l => l.status === status)
+          const isDragOver = dragOverStatus === status
+          const isCollapsed = collapsedCols.has(status)
 
-                {/* Cards */}
-                <div className="flex flex-col gap-1.5 sm:gap-2 px-1.5 sm:px-2 pb-3 min-h-[80px] sm:min-h-[120px] flex-1">
-                  {statusLeads.length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-[100px] text-zinc-300 dark:text-zinc-700 border-2 border-dashed border-zinc-200/80 dark:border-zinc-800 rounded-xl">
-                      <div className="text-[13px] font-medium">{tc.kanban.dropHere}</div>
-                    </div>
-                  )}
-                  {statusLeads.map(lead => (
-                    <MemoKanbanCard
-                      key={lead.id}
-                      lead={lead}
-                      settings={settings}
-                      users={users}
-                      statusColor={config.color}
-                      isDragging={draggingId === lead.id}
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
+          return (
+            <div
+              key={status}
+              className={`flex flex-col rounded-xl transition-all duration-300 ${isCollapsed ? 'min-w-[48px] max-w-[48px]' : 'flex-1 min-w-[220px]'} ${isDragOver
+                ? 'ring-2 ring-blue-400/60 dark:ring-blue-500/40 bg-blue-50/40 dark:bg-blue-950/20 scale-[1.01]'
+                : 'bg-zinc-100/60 dark:bg-zinc-900/40'
+                }`}
+              onDragOver={e => handleDragOver(e, status)}
+              onDragLeave={handleDragLeave}
+              onDrop={e => handleDrop(e, status)}
+            >
+              {/* Column Header */}
+              <div
+                className="px-3 pt-3 pb-2 cursor-pointer select-none"
+                onClick={() => toggleColumn(status)}
+              >
+                {isCollapsed ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div
+                      className="h-3 w-3 rounded-full shadow-sm"
+                      style={{ backgroundColor: config.color }}
                     />
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )
-      })}
-    </div>
+                    <span className="text-[12px] font-bold text-zinc-500 dark:text-zinc-400 [writing-mode:vertical-lr] tracking-wider uppercase">
+                      {getStatusLabel(status)}
+                    </span>
+                    <span className="flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-zinc-200/80 dark:bg-zinc-700/80 text-[12px] font-bold text-zinc-600 dark:text-zinc-300">
+                      {statusLeads.length}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <ChevronDown className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                    <div
+                      className="h-3 w-3 rounded-full shadow-sm"
+                      style={{ backgroundColor: config.color }}
+                    />
+                    <span className="text-base font-bold text-zinc-800 dark:text-zinc-200 tracking-tight uppercase">
+                      {getStatusLabel(status)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {!isCollapsed && (
+                <>
+                  {/* Color accent bar */}
+                  <div className="mx-3 h-[2px] rounded-full mb-2 opacity-40" style={{ backgroundColor: config.color }} />
+
+                  {/* Cards */}
+                  <div className="flex flex-col gap-2 px-2 pb-3 min-h-[120px] flex-1">
+                    {statusLeads.length === 0 && (
+                      <div className="flex flex-col items-center justify-center h-[100px] text-zinc-300 dark:text-zinc-700 border-2 border-dashed border-zinc-200/80 dark:border-zinc-800 rounded-xl">
+                        <div className="text-[13px] font-medium">{tc.kanban.dropHere}</div>
+                      </div>
+                    )}
+                    {statusLeads.map(lead => (
+                      <MemoKanbanCard
+                        key={lead.id}
+                        lead={lead}
+                        settings={settings}
+                        users={users}
+                        statusColor={config.color}
+                        isDragging={draggingId === lead.id}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </>
   )
 }
 
