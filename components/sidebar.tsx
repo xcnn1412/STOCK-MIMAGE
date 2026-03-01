@@ -42,12 +42,14 @@ function SidebarGroup({
     isActive,
     getLabel,
     getGroupLabel,
+    onNavigate,
 }: {
     group: NavGroup
     collapsed: boolean
     isActive: (href: string, exact?: boolean) => boolean
     getLabel: (key: string) => string
     getGroupLabel: (key: string) => string
+    onNavigate?: () => void
 }) {
     const hasActiveRoute = group.items.some(item => isActive(item.href, item.exact))
     const [open, setOpen] = useState(hasActiveRoute)
@@ -94,6 +96,7 @@ function SidebarGroup({
                             <Link
                                 key={item.href}
                                 href={item.href}
+                                onClick={onNavigate}
                                 className={`
                   flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
                   transition-all duration-200
@@ -145,6 +148,16 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
         setMobileOpen(false)
     }, [pathname])
 
+    // Prevent body scroll when mobile sidebar is open
+    useEffect(() => {
+        if (mobileOpen) {
+            document.body.style.overflow = 'hidden'
+        } else {
+            document.body.style.overflow = ''
+        }
+        return () => { document.body.style.overflow = '' }
+    }, [mobileOpen])
+
     const visibleGroups = NAV_GROUPS.filter(group => {
         if (group.adminOnly && role !== 'admin') return false
         if (!allowedModules.includes(group.key)) return false
@@ -164,12 +177,14 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
         return pathname === href || pathname.startsWith(href + '/')
     }
 
-    // Sidebar content (shared between desktop and mobile)
-    const sidebarContent = (isMobile: boolean) => (
+    const closeMobile = useCallback(() => setMobileOpen(false), [])
+
+    // Sidebar navigation content (shared between desktop and mobile drawer)
+    const sidebarNav = (isMobile: boolean) => (
         <div className="flex flex-col h-full">
             {/* Logo */}
             <div className={`flex items-center ${collapsed && !isMobile ? 'justify-center px-2' : 'px-4'} h-14 shrink-0 border-b border-zinc-200/80 dark:border-zinc-800/80`}>
-                <Link href="/dashboard" className="flex items-center gap-2.5 group">
+                <Link href="/dashboard" className="flex items-center gap-2.5 group" onClick={isMobile ? closeMobile : undefined}>
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 text-white text-xs font-bold shadow-sm transition-transform duration-200 group-hover:scale-105 dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900 shrink-0">
                         EA
                     </div>
@@ -193,6 +208,7 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                         isActive={isActive}
                         getLabel={getLabel}
                         getGroupLabel={getGroupLabel}
+                        onNavigate={isMobile ? closeMobile : undefined}
                     />
                 ))}
             </nav>
@@ -249,7 +265,7 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
 
     return (
         <>
-            {/* Desktop Sidebar */}
+            {/* ====== DESKTOP SIDEBAR (md+) ====== */}
             <aside
                 className={`
           hidden md:flex flex-col shrink-0 h-screen sticky top-0
@@ -259,7 +275,7 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
           ${collapsed ? 'w-0 border-r-0' : 'w-[240px]'}
         `}
             >
-                {sidebarContent(false)}
+                {sidebarNav(false)}
             </aside>
 
             {/* Desktop: Floating toggle when collapsed */}
@@ -273,10 +289,10 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                 </button>
             )}
 
-            {/* Mobile: Top bar with hamburger */}
-            <div className="md:hidden sticky top-0 z-50 flex items-center justify-between h-14 px-4 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-lg border-b border-zinc-200/80 dark:border-zinc-800/80">
+            {/* ====== MOBILE TOP BAR (<md) ====== */}
+            <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between h-14 px-4 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-lg border-b border-zinc-200/80 dark:border-zinc-800/80">
                 <Link href="/dashboard" className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 text-white text-xs font-bold dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 text-white text-xs font-bold dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900 shrink-0">
                         EA
                     </div>
                     <span className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
@@ -288,7 +304,7 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-9 w-9 rounded-lg"
+                        className="h-10 w-10 rounded-lg"
                         onClick={() => setMobileOpen(!mobileOpen)}
                     >
                         {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -296,17 +312,17 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                 </div>
             </div>
 
-            {/* Mobile: Overlay sidebar */}
+            {/* ====== MOBILE DRAWER OVERLAY ====== */}
             {mobileOpen && (
                 <>
                     <div
-                        className="md:hidden fixed inset-0 bg-black/50 z-40 animate-in fade-in duration-200"
-                        onClick={() => setMobileOpen(false)}
+                        className="md:hidden fixed inset-0 bg-black/50 z-[60] animate-in fade-in duration-200"
+                        onClick={closeMobile}
                     />
                     <aside
-                        className="md:hidden fixed top-0 left-0 bottom-0 w-[280px] bg-white dark:bg-zinc-900 z-50 shadow-2xl animate-in slide-in-from-left duration-300"
+                        className="md:hidden fixed top-0 left-0 bottom-0 w-[280px] bg-white dark:bg-zinc-900 z-[70] shadow-2xl animate-in slide-in-from-left duration-300"
                     >
-                        {sidebarContent(true)}
+                        {sidebarNav(true)}
                     </aside>
                 </>
             )}

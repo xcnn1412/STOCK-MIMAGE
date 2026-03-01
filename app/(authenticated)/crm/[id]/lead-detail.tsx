@@ -421,8 +421,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
             </Button>
           </Link>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-zinc-100 truncate">
                 {editingCard === 'customer' ? form.customer_name : lead.customer_name}
               </h1>
               {lead.is_returning && (
@@ -444,7 +444,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {lead.event_id ? (
             <Link href={`/costs/events/${lead.event_id}`}>
               <Button variant="outline" size="sm">
@@ -489,7 +489,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
               {getStatusLabel(lead.status)}
             </Badge>
           </div>
-          <div className="flex flex-wrap gap-2 mt-3">
+          <div className="flex gap-2 mt-3 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             {getStatusesFromSettings(settings).filter(s => s !== lead.status).map(s => {
               const cfg = getStatusConfig(settings, s)
               return (
@@ -499,7 +499,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                   size="sm"
                   onClick={() => handleStatusChange(s)}
                   disabled={loading}
-                  className="text-xs"
+                  className="text-xs shrink-0 whitespace-nowrap"
                 >
                   <span className="h-2 w-2 rounded-full mr-1.5" style={{ backgroundColor: cfg.color }} />
                   {getStatusLabel(s)}

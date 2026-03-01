@@ -100,10 +100,11 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
 
   return (
     <div
-      className="flex gap-3 overflow-x-auto pb-4 px-1"
+      className="flex gap-2 sm:gap-3 overflow-x-auto pb-4 px-1 snap-x snap-mandatory md:snap-none"
       style={{
         scrollbarWidth: 'thin',
-        minHeight: 'calc(100vh - 280px)',
+        minHeight: 'calc(100vh - 320px)',
+        WebkitOverflowScrolling: 'touch',
       }}
     >
       {getStatusesFromSettings(settings).map(status => {
@@ -115,7 +116,7 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
         return (
           <div
             key={status}
-            className={`flex flex-col rounded-xl transition-all duration-300 ${isCollapsed ? 'min-w-[48px] max-w-[48px]' : 'flex-1 min-w-[220px]'} ${isDragOver
+            className={`flex flex-col rounded-xl transition-all duration-300 snap-start ${isCollapsed ? 'min-w-[40px] max-w-[40px] sm:min-w-[48px] sm:max-w-[48px]' : 'flex-1 min-w-[200px] sm:min-w-[220px]'} ${isDragOver
               ? 'ring-2 ring-blue-400/60 dark:ring-blue-500/40 bg-blue-50/40 dark:bg-blue-950/20 scale-[1.01]'
               : 'bg-zinc-100/60 dark:bg-zinc-900/40'
               }`}
@@ -148,7 +149,7 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
                     className="h-3 w-3 rounded-full shadow-sm"
                     style={{ backgroundColor: config.color }}
                   />
-                  <span className="text-base font-bold text-zinc-800 dark:text-zinc-200 tracking-tight uppercase">
+                  <span className="text-sm sm:text-base font-bold text-zinc-800 dark:text-zinc-200 tracking-tight uppercase truncate">
                     {getStatusLabel(status)}
                   </span>
                 </div>
@@ -161,7 +162,7 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
                 <div className="mx-3 h-[2px] rounded-full mb-2 opacity-40" style={{ backgroundColor: config.color }} />
 
                 {/* Cards */}
-                <div className="flex flex-col gap-2 px-2 pb-3 min-h-[120px] flex-1">
+                <div className="flex flex-col gap-1.5 sm:gap-2 px-1.5 sm:px-2 pb-3 min-h-[80px] sm:min-h-[120px] flex-1">
                   {statusLeads.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-[100px] text-zinc-300 dark:text-zinc-700 border-2 border-dashed border-zinc-200/80 dark:border-zinc-800 rounded-xl">
                       <div className="text-[13px] font-medium">{tc.kanban.dropHere}</div>
@@ -321,7 +322,7 @@ function KanbanCard({
           style={{ background: `linear-gradient(90deg, ${statusColor}, ${statusColor}90)` }}
         />
 
-        <div className="p-3.5 space-y-3">
+        <div className="p-2.5 sm:p-3.5 space-y-2.5 sm:space-y-3">
           {/* Header: Avatar + Name + Edit button */}
           <div className="flex items-start gap-3">
             <div className={`shrink-0 flex items-center justify-center h-10 w-10 rounded-xl bg-linear-to-br ${avatarGradient} text-white text-[15px] font-bold shadow-sm ring-2 ring-white/80 dark:ring-zinc-700/80`}>

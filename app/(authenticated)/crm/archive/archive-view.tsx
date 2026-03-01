@@ -110,7 +110,7 @@ export default function ArchiveView({ leads, settings }: ArchiveViewProps) {
                         return (
                             <Card key={lead.id} className="border-zinc-200/60 dark:border-zinc-800/60 hover:shadow-md transition-shadow">
                                 <CardContent className="p-4">
-                                    <div className="flex items-start gap-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
                                         {/* Left: Info */}
                                         <Link href={`/crm/${lead.id}`} className="flex-1 min-w-0 group">
                                             <div className="flex items-center gap-3 mb-2">
