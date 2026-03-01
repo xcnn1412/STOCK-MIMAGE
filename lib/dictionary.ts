@@ -19,11 +19,18 @@ export const dictionary = {
       costsReports: 'Reports',
       costsDownload: 'Download',
       crm: 'CRM',
+      crmKanban: 'Kanban',
       crmDashboard: 'Dashboard',
+      crmPayments: 'Payments',
+      crmDownload: 'Download',
+      crmArchive: 'Archive',
+      crmSettings: 'Settings',
       settings: 'Settings',
       security: 'Security',
 
       finance: 'Finance',
+      financeNew: 'New Request',
+      financeSettings: 'Settings',
     },
     navGroups: {
       crm: 'CRM',
@@ -54,7 +61,9 @@ export const dictionary = {
       new: 'New',
       removing: 'Removing',
       saving: 'Saving...',
-      noData: 'No data found'
+      noData: 'No data found',
+      collapse: 'Collapse',
+      expand: 'Expand',
     },
     items: {
       title: 'Inventory',
@@ -258,11 +267,18 @@ export const dictionary = {
       costsReports: 'รายงาน',
       costsDownload: 'ดาวน์โหลด',
       crm: 'CRM',
+      crmKanban: 'Kanban',
       crmDashboard: 'แดชบอร์ด',
+      crmPayments: 'การชำระเงิน',
+      crmDownload: 'ดาวน์โหลด',
+      crmArchive: 'คลังเก็บ',
+      crmSettings: 'ตั้งค่า',
       settings: 'ตั้งค่า',
       security: 'ความปลอดภัย',
 
       finance: 'เบิกเงิน',
+      financeNew: 'สร้างใบเบิก',
+      financeSettings: 'ตั้งค่า',
     },
     navGroups: {
       crm: 'CRM',
@@ -293,7 +309,9 @@ export const dictionary = {
       new: 'ใหม่',
       removing: 'กำลังลบ',
       saving: 'กำลังบันทึก...',
-      noData: 'ไม่พบข้อมูล'
+      noData: 'ไม่พบข้อมูล',
+      collapse: 'ย่อเมนู',
+      expand: 'ขยายเมนู',
     },
     items: {
       title: 'คลังอุปกรณ์',

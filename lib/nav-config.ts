@@ -1,4 +1,4 @@
-import { Package, Archive, Calendar, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield } from 'lucide-react'
+import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield } from 'lucide-react'
 
 export type ModuleKey = 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'admin'
 
@@ -9,6 +9,7 @@ export interface NavItem {
   icon: typeof Package
   labelKey: string
   description?: string
+  exact?: boolean
 }
 
 export interface NavGroup {
@@ -23,14 +24,19 @@ export const NAV_GROUPS: NavGroup[] = [
     key: 'crm',
     icon: ContactRound,
     items: [
-      { href: '/crm', icon: LayoutDashboard, labelKey: 'crmDashboard' },
+      { href: '/crm', icon: ContactRound, labelKey: 'crmKanban', exact: true },
+      { href: '/crm/dashboard', icon: BarChart3, labelKey: 'crmDashboard' },
+      { href: '/crm/payments', icon: CalendarDays, labelKey: 'crmPayments' },
+      { href: '/crm/download', icon: Download, labelKey: 'crmDownload' },
+      { href: '/crm/archive', icon: Archive, labelKey: 'crmArchive' },
+      { href: '/crm/settings', icon: Settings, labelKey: 'crmSettings' },
     ],
   },
   {
     key: 'events',
     icon: Calendar,
     items: [
-      { href: '/events', icon: Calendar, labelKey: 'events' },
+      { href: '/events', icon: Calendar, labelKey: 'events', exact: true },
       { href: '/events/event-closures', icon: CheckCircle2, labelKey: 'eventClosures' },
     ],
   },
@@ -60,7 +66,9 @@ export const NAV_GROUPS: NavGroup[] = [
     key: 'finance',
     icon: Banknote,
     items: [
-      { href: '/finance', icon: Banknote, labelKey: 'finance' },
+      { href: '/finance', icon: Banknote, labelKey: 'finance', exact: true },
+      { href: '/finance/new', icon: FileText, labelKey: 'financeNew' },
+      { href: '/finance/settings', icon: Settings, labelKey: 'financeSettings' },
     ],
   },
   {

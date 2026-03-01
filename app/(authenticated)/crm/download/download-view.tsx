@@ -377,13 +377,7 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
 
             {/* Full-width data table */}
             <div
-                className="relative"
-                style={{
-                    width: '100vw',
-                    marginLeft: 'calc(-50vw + 50%)',
-                    paddingLeft: '1rem',
-                    paddingRight: '1rem',
-                }}
+                className="relative -mx-4 md:-mx-6 px-4"
             >
                 <Card className="shadow-sm border-zinc-200/80 dark:border-zinc-800/80">
                     {/* Table Header with pagination controls */}
