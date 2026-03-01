@@ -29,7 +29,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/crm/payments', icon: CalendarDays, labelKey: 'crmPayments' },
       { href: '/crm/download', icon: Download, labelKey: 'crmDownload' },
       { href: '/crm/archive', icon: Archive, labelKey: 'crmArchive' },
-      { href: '/crm/settings', icon: Settings, labelKey: 'crmSettings' },
     ],
   },
   {
