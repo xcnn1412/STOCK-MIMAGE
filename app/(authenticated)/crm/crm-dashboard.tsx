@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import {
-  Plus, Search, Filter, LayoutGrid, List, ChevronDown, AlertCircle
+  Plus, Search, Filter, LayoutGrid, List, ChevronDown, AlertCircle, Tag
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { getActiveStaff } from '@/database/staff-members'
 import { AddLeadDialog } from './components/add-lead-dialog'
 import { KanbanBoard } from './components/kanban-board'
@@ -136,6 +140,7 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [sourceFilter, setSourceFilter] = useState<string>('all')
   const [saleFilter, setSaleFilter] = useState<string>('all')
+  const [tagFilter, setTagFilter] = useState<string[]>([])
   const [addDialogOpen, setAddDialogOpen] = useState(false)
 
   // Helper: get setting label by locale
@@ -174,12 +179,37 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
     return users.filter(u => salesIds.has(u.id))
   }, [leads, users])
 
+  // Available tags — depends on status filter
+  const availableTags = useMemo(() => {
+    const generalTags = settings.filter(s => s.category === 'tag' && s.is_active)
+    if (statusFilter !== 'all') {
+      const statusTags = settings.filter(s => s.category === `tag_${statusFilter}` && s.is_active)
+      return [
+        ...generalTags.map(s => ({ ...s, group: 'general' as const })),
+        ...statusTags.map(s => ({ ...s, group: 'status' as const })),
+      ]
+    }
+    return generalTags.map(s => ({ ...s, group: 'general' as const }))
+  }, [settings, statusFilter])
+
+  const toggleTag = useCallback((tagValue: string) => {
+    setTagFilter(prev =>
+      prev.includes(tagValue)
+        ? prev.filter(t => t !== tagValue)
+        : [...prev, tagValue]
+    )
+  }, [])
+
   // Filter leads
   const filteredLeads = useMemo(() => {
     return leads.filter(lead => {
       if (statusFilter !== 'all' && lead.status !== statusFilter) return false
       if (sourceFilter !== 'all' && lead.lead_source !== sourceFilter) return false
       if (saleFilter !== 'all' && !(lead.assigned_sales || []).includes(saleFilter)) return false
+      if (tagFilter.length > 0) {
+        const leadTags = lead.tags || []
+        if (!tagFilter.every(t => leadTags.includes(t))) return false
+      }
       if (search) {
         const q = search.toLowerCase()
         if (!lead.customer_name.toLowerCase().includes(q) &&
@@ -188,7 +218,7 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
       }
       return true
     })
-  }, [leads, statusFilter, sourceFilter, saleFilter, search])
+  }, [leads, statusFilter, sourceFilter, saleFilter, tagFilter, search])
 
   // Summary stats — per-status breakdown
   const stats = useMemo(() => {
@@ -324,19 +354,107 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
               ))}
             </SelectContent>
           </Select>
+
+          {/* Tag Filter */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className={`h-9 gap-1.5 text-sm font-normal ${tagFilter.length > 0
+                  ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-300'
+                  : ''
+                  }`}
+              >
+                <Tag className="h-3.5 w-3.5" />
+                {tagFilter.length > 0
+                  ? `${locale === 'th' ? 'แท็ก' : 'Tags'} (${tagFilter.length})`
+                  : (locale === 'th' ? 'แท็ก' : 'Tags')
+                }
+                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end">
+              {tagFilter.length > 0 && (
+                <>
+                  <DropdownMenuLabel
+                    className="text-xs text-blue-600 cursor-pointer hover:text-blue-800"
+                    onClick={() => setTagFilter([])}
+                  >
+                    {locale === 'th' ? '✕ ล้างตัวกรองแท็ก' : '✕ Clear tag filters'}
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              {availableTags.length === 0 ? (
+                <DropdownMenuLabel className="text-xs text-zinc-400">
+                  {locale === 'th' ? 'ไม่มีแท็ก' : 'No tags available'}
+                </DropdownMenuLabel>
+              ) : (
+                <>
+                  {/* General tags */}
+                  {availableTags.filter(t => t.group === 'general').length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-zinc-400">
+                        {locale === 'th' ? 'แท็กทั่วไป' : 'General Tags'}
+                      </DropdownMenuLabel>
+                      {availableTags.filter(t => t.group === 'general').map(tag => (
+                        <DropdownMenuCheckboxItem
+                          key={tag.value}
+                          checked={tagFilter.includes(tag.value)}
+                          onCheckedChange={() => toggleTag(tag.value)}
+                          onSelect={e => e.preventDefault()}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="h-2 w-2 rounded-full shrink-0"
+                              style={{ backgroundColor: tag.color || '#3b82f6' }}
+                            />
+                            {getSettingLabel(tag)}
+                          </span>
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </>
+                  )}
+                  {/* Status-specific tags */}
+                  {availableTags.filter(t => t.group === 'status').length > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-zinc-400">
+                        {locale === 'th'
+                          ? `แท็ก: ${getStatusLabel(statusFilter)}`
+                          : `Tags: ${getStatusLabel(statusFilter)}`
+                        }
+                      </DropdownMenuLabel>
+                      {availableTags.filter(t => t.group === 'status').map(tag => (
+                        <DropdownMenuCheckboxItem
+                          key={tag.value}
+                          checked={tagFilter.includes(tag.value)}
+                          onCheckedChange={() => toggleTag(tag.value)}
+                          onSelect={e => e.preventDefault()}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="h-2 w-2 rounded-full shrink-0"
+                              style={{ backgroundColor: tag.color || '#8b5cf6' }}
+                            />
+                            {getSettingLabel(tag)}
+                          </span>
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
       {/* Content Area */}
       {viewMode === 'kanban' ? (
         <div
-          className="relative"
-          style={{
-            width: '100vw',
-            marginLeft: 'calc(-50vw + 50%)',
-            paddingLeft: '0.5rem',
-            paddingRight: '0.5rem',
-          }}
+          className="relative -mx-4 md:-mx-6 px-2"
         >
           <KanbanBoard leads={filteredLeads} settings={settings} users={users} />
         </div>

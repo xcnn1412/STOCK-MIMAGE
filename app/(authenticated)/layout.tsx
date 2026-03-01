@@ -1,4 +1,4 @@
-import Navbar from '@/components/navbar'
+import Sidebar from '@/components/sidebar'
 import KpiLocaleWrapper from '@/components/kpi-locale-wrapper'
 import SessionTimeout from '@/components/session-timeout'
 import { getSessionLight } from '@/lib/auth'
@@ -36,14 +36,16 @@ export default async function AuthenticatedLayout({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full" suppressHydrationWarning>
-      <Navbar role={role} allowedModules={allowedModules} />
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full flex" suppressHydrationWarning>
+      <Sidebar role={role} allowedModules={allowedModules} />
       <SessionTimeout />
-      <main className="p-4 md:p-6 max-w-7xl mx-auto w-full">
-        <KpiLocaleWrapper>
-          {children}
-        </KpiLocaleWrapper>
-      </main>
+      <div className="flex-1 flex flex-col min-h-screen min-w-0">
+        <main className="flex-1 p-4 md:p-6 w-full">
+          <KpiLocaleWrapper>
+            {children}
+          </KpiLocaleWrapper>
+        </main>
+      </div>
     </div>
   )
 }
