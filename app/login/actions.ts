@@ -2,156 +2,167 @@
 
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase-server'
 import bcrypt from 'bcryptjs'
 import { logActivity } from '@/lib/logger'
 import { checkRateLimit } from '@/lib/rate-limit'
-import type { ActionState, Database } from '@/types'
+import { createSessionToken } from '@/lib/session'
+import { checkIpBlocked } from '@/lib/ip-check'
+import type { ActionState } from '@/types'
 
-function getSupabase() {
-    return createClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            auth: {
-                persistSession: false,
-                autoRefreshToken: false,
-                detectSessionInUrl: false
-            }
-        }
-    )
+const MAX_FAILED_ATTEMPTS = 10
+const LOCKOUT_DURATION_MS = 30 * 60 * 1000 // 30 minutes
+
+// Phone validation: Thai mobile format (0X-XXXX-XXXX) or international
+const PHONE_REGEX = /^(\+?66|0)[0-9]{8,9}$/
+
+function validatePhone(phone: string): boolean {
+    const cleaned = phone.replace(/[\s\-()]/g, '')
+    return PHONE_REGEX.test(cleaned)
 }
 
-function dataURItoBlob(dataURI: string) {
-    const split = dataURI.split(',');
-    const byteString = atob(split[1]);
-    const mimeString = split[0].split(':')[1].split(';')[0];
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-    }
-    return new Blob([ab], { type: mimeString });
+function cleanPhone(phone: string): string {
+    return phone.replace(/[\s\-()]/g, '')
 }
 
 export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: FormData) {
-  const phone = formData.get('phone') as string
-  const pin = formData.get('pin') as string
-  const latitude = formData.get('latitude') as string
-  const longitude = formData.get('longitude') as string
-  const selfieDataUrl = formData.get('selfie_image') as string
+    const phone = formData.get('phone') as string
+    const pin = formData.get('pin') as string
 
-  if (!phone || !pin) {
-    return { error: 'Phone number and PIN are required' }
-  }
-
-  if (!selfieDataUrl) {
-      return { error: 'Selfie is required for verification' }
-  }
-
-  // Rate limiting: 5 attempts per 15 minutes per IP+phone
-  const headersList = await headers()
-  const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
-  const rateLimitResult = checkRateLimit(`${ip}:${phone}`)
-  if (!rateLimitResult.allowed) {
-      return { error: `พยายามเข้าสู่ระบบมากเกินไป กรุณารอ ${rateLimitResult.retryAfterMinutes} นาที` }
-  }
-
-  const supabase = getSupabase()
-
-  try {
-    // 1. Verify Credentials
-    const { data: user, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('phone', phone)
-      .single()
-
-    if (error || !user) {
-       return { error: 'Phone number not found' }
+    if (!phone || !pin) {
+        return { error: 'Phone number and PIN are required' }
     }
 
-    const pinValid = await bcrypt.compare(pin, user.pin || '')
-    if (!pinValid) {
-        return { error: 'Invalid PIN' }
+    // Server-side phone validation
+    const cleanedPhone = cleanPhone(phone)
+    if (!validatePhone(cleanedPhone)) {
+        return { error: 'Invalid phone number format' }
     }
 
-    if (!user.is_approved) {
-        return { error: 'Your account is pending approval by an admin.' }
+    // PIN format validation
+    if (pin.length !== 6 || !/^\d+$/.test(pin)) {
+        return { error: 'PIN must be exactly 6 digits' }
     }
 
-    // 2. Upload Selfie
-    let selfiePath = ''
+    // Rate limiting: 5 attempts per 15 minutes per IP+phone
+    const headersList = await headers()
+    const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+    const rateLimitResult = checkRateLimit(`${ip}:${cleanedPhone}`)
+    if (!rateLimitResult.allowed) {
+        return { error: `พยายามเข้าสู่ระบบมากเกินไป กรุณารอ ${rateLimitResult.retryAfterMinutes} นาที` }
+    }
+
+    // Use service role client for secure server-side operations
+    const supabase = createServiceClient()
+
+    // IP Blocklist check
+    const ipBlocked = await checkIpBlocked(ip, supabase)
+    if (ipBlocked) {
+        await logActivity('LOGIN_BLOCKED_IP', { ip, phone: cleanedPhone }, undefined)
+        return { error: 'การเข้าถึงจาก IP นี้ถูกบล็อค กรุณาติดต่อผู้ดูแลระบบ' }
+    }
+
     try {
-        const selfieBlob = dataURItoBlob(selfieDataUrl)
-        const fileName = `${user.id}_${Date.now()}.jpg`
-        const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('login_selfies')
-            .upload(fileName, selfieBlob, {
-                contentType: 'image/jpeg'
-            })
-        
-        if (uploadError) {
-            console.error('Selfie upload failed:', uploadError)
-            // Proceed even if upload fails? Or block?
-            // "System busy" implies block. Let's block for security/requirements.
-            // But if bucket doesn't exist it will fail. Let's assume bucket exists.
-            // For resilience in this demo, maybe just log it. 
-            // The requirement says "clear data" later, so it implies it MUST be stored.
-            // I'll return error to force them to fix bucket if missing.
-            return { error: 'Failed to verify identity (Storage Error). check bucket.' }
+        // 1. Verify Credentials
+        const { data: user, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('phone', cleanedPhone)
+            .single()
+
+        if (error || !user) {
+            return { error: 'Phone number not found' }
         }
-        selfiePath = uploadData.path
-    } catch (e) {
-        console.error("Selfie processing error", e)
-        return { error: 'Failed to process selfie image' }
+
+        // 2. Account Lockout Check
+        const lockedUntil = (user as any).locked_until ? new Date((user as any).locked_until) : null
+        if (lockedUntil && lockedUntil > new Date()) {
+            const minutesLeft = Math.ceil((lockedUntil.getTime() - Date.now()) / 60000)
+            return { error: `บัญชีถูกล็อคชั่วคราว กรุณารอ ${minutesLeft} นาที หรือติดต่อผู้ดูแลระบบ` }
+        }
+
+        // 3. Verify PIN
+        const pinValid = await bcrypt.compare(pin, user.pin || '')
+        if (!pinValid) {
+            // Increment failed attempts
+            const currentAttempts = ((user as any).failed_login_attempts || 0) + 1
+            const updateData: Record<string, any> = { failed_login_attempts: currentAttempts }
+
+            if (currentAttempts >= MAX_FAILED_ATTEMPTS) {
+                updateData.locked_until = new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString()
+                await logActivity('ACCOUNT_LOCKED', {
+                    phone: cleanedPhone,
+                    attempts: currentAttempts,
+                    ip
+                }, undefined, user.id)
+            }
+
+            await supabase.from('profiles').update(updateData).eq('id', user.id)
+
+            const remaining = MAX_FAILED_ATTEMPTS - currentAttempts
+            if (remaining > 0 && remaining <= 3) {
+                return { error: `รหัส PIN ไม่ถูกต้อง (เหลืออีก ${remaining} ครั้งก่อนบัญชีถูกล็อค)` }
+            }
+            if (currentAttempts >= MAX_FAILED_ATTEMPTS) {
+                return { error: 'บัญชีถูกล็อค 30 นาที เนื่องจากใส่รหัสผิดเกินจำนวนครั้งที่กำหนด' }
+            }
+            return { error: 'รหัส PIN ไม่ถูกต้อง' }
+        }
+
+        if (!user.is_approved) {
+            return { error: 'Your account is pending approval by an admin.' }
+        }
+
+        // Reset failed attempts on successful login
+        if ((user as any).failed_login_attempts > 0 || (user as any).locked_until) {
+            await supabase.from('profiles')
+                .update({ failed_login_attempts: 0, locked_until: null })
+                .eq('id', user.id)
+        }
+
+        // Log Login
+        const sessionId = crypto.randomUUID()
+
+        await supabase.from('login_logs').insert({
+            user_id: user.id,
+        })
+
+        // UPDATE Single Session ID
+        await supabase.from('profiles')
+            .update({ active_session_id: sessionId })
+            .eq('id', user.id)
+
+        // Activity Log
+        await logActivity('LOGIN', {
+            method: 'phone_pin'
+        }, undefined, user.id)
+
+        // Set Signed Session Cookies
+        const cookieStore = await cookies()
+        const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+        const cookieOptions = {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax' as const,
+            expires,
+            path: '/'
+        }
+
+        // HMAC-signed session token instead of raw UUID
+        const sessionToken = createSessionToken(user.id)
+        await cookieStore.set('session_token', sessionToken, cookieOptions)
+
+        // Keep legacy cookie for backward compatibility during migration
+        await cookieStore.set('session_user_id', user.id, cookieOptions)
+        await cookieStore.set('session_role', user.role, cookieOptions)
+        await cookieStore.set('session_id', sessionId, cookieOptions)
+
+    } catch (err: unknown) {
+        console.error('Unexpected error:', err)
+        return { error: 'System busy, please try again.' }
     }
 
-    // 3. Log Location & Login
-    const sessionId = crypto.randomUUID() // Generate unique session ID
-
-    await supabase.from('login_logs').insert({
-        user_id: user.id,
-        latitude: latitude ? parseFloat(latitude) : null,
-        longitude: longitude ? parseFloat(longitude) : null,
-        selfie_url: selfiePath
-    })
-
-    // UPDATE Single Session ID
-    await supabase.from('profiles')
-        .update({ active_session_id: sessionId })
-        .eq('id', user.id)
-
-    // NEW: Comprehensive Activity Log
-    await logActivity('LOGIN', { 
-        latitude: latitude || null, 
-        longitude: longitude || null,
-        method: 'phone_pin_selfie'
-    }, undefined, user.id)
-
-    // 4. Set Session
-    const cookieStore = await cookies()
-    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax' as const,
-      expires,
-      path: '/'
-    }
-    
-    await cookieStore.set('session_user_id', user.id, cookieOptions)
-    await cookieStore.set('session_role', user.role, cookieOptions)
-    await cookieStore.set('session_id', sessionId, cookieOptions)
-    // Store selfie path to delete on logout
-    await cookieStore.set('session_selfie_path', selfiePath, cookieOptions)
-
-  } catch (err: unknown) {
-    console.error('Unexpected error:', err)
-     return { error: 'System busy, please try again.' }
-  }
-
-  redirect('/dashboard')
+    redirect('/dashboard')
 }
 
 export async function registerUser(prevState: ActionState, formData: FormData) {
@@ -163,14 +174,26 @@ export async function registerUser(prevState: ActionState, formData: FormData) {
         return { error: 'All fields are required' }
     }
 
+    // Server-side phone validation
+    const cleanedPhone = cleanPhone(phone)
+    if (!validatePhone(cleanedPhone)) {
+        return { error: 'Invalid phone number format (e.g. 0812345678)' }
+    }
+
     if (pin.length !== 6 || !/^\d+$/.test(pin)) {
         return { error: 'PIN must be exactly 6 digits' }
     }
 
-    const supabase = getSupabase()
+    // Name validation
+    if (name.trim().length < 2) {
+        return { error: 'Name must be at least 2 characters' }
+    }
+
+    // Use service role client
+    const supabase = createServiceClient()
 
     // Check if exists
-    const { data: existing } = await supabase.from('profiles').select('id').eq('phone', phone).single()
+    const { data: existing } = await supabase.from('profiles').select('id').eq('phone', cleanedPhone).single()
     if (existing) {
         return { error: 'Phone number already registered' }
     }
@@ -178,10 +201,10 @@ export async function registerUser(prevState: ActionState, formData: FormData) {
     const hashedPin = await bcrypt.hash(pin, 12)
 
     const { data: newUser, error } = await supabase.from('profiles').insert({
-        full_name: name,
-        phone,
+        full_name: name.trim(),
+        phone: cleanedPhone,
         pin: hashedPin,
-        role: 'staff', // Default role
+        role: 'staff',
         is_approved: false
     }).select().single()
 
@@ -191,39 +214,26 @@ export async function registerUser(prevState: ActionState, formData: FormData) {
     }
 
     if (newUser) {
-        await logActivity('REGISTER', { name, phone }, undefined, newUser.id)
+        await logActivity('REGISTER', { name: name.trim(), phone: cleanedPhone }, undefined, newUser.id)
     }
 
     return { error: '', success: true, message: 'Registration successful! Please wait for admin approval before logging in.' }
 }
 
 export async function logout() {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
 
-  if (userId) {
-      await logActivity('LOGOUT', {}, undefined, userId)
-  }
-
-  const selfiePath = cookieStore.get('session_selfie_path')?.value
-
-  // Delete selfie if exists
-  if (selfiePath) {
-      const supabase = getSupabase()
-      await supabase.storage.from('login_selfies').remove([selfiePath])
-      
-      if (userId) {
-        // Clear active_session_id on server too? 
-        // Optional: It forces a logout everywhere, but we are just logging out here.
-        // It helps keep state clean.
+    if (userId) {
+        await logActivity('LOGOUT', {}, undefined, userId)
+        const supabase = createServiceClient()
         await supabase.from('profiles').update({ active_session_id: null }).eq('id', userId)
-      }
-  }
+    }
 
-  cookieStore.delete('session_user_id')
-  cookieStore.delete('session_role')
-  cookieStore.delete('session_selfie_path')
-  cookieStore.delete('session_id')
-  
-  redirect('/login')
+    cookieStore.delete('session_token')
+    cookieStore.delete('session_user_id')
+    cookieStore.delete('session_role')
+    cookieStore.delete('session_id')
+
+    redirect('/login')
 }

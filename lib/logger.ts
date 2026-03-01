@@ -1,20 +1,6 @@
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from './supabase-server'
 import { headers, cookies } from 'next/headers'
-// import geoip from 'geoip-lite' // Removed to fix serverless deployment issues
-
-// Use a separate client for logging that uses the service role or at least has insert permissions
-// Since we don't have SERVICE_KEY in the env vars checked previously (only ANON), 
-// we assume ANON key + proper RLS or public table helper.
-// However, seeing `files` list, I didn't see SERVICE_ROLE_KEY.
-// Let's stick to the pattern in `app/login/actions.ts`: createClient with ANON key.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-function getSupabase() {
-    return createClient(supabaseUrl, supabaseKey, {
-        auth: { persistSession: false }
-    })
-}
+import { verifySessionToken } from './session'
 
 export type ActionType =
     | 'LOGIN'
@@ -81,6 +67,13 @@ export type ActionType =
     | 'APPROVE_EXPENSE_CLAIM'
     | 'REJECT_EXPENSE_CLAIM'
     | 'DELETE_EXPENSE_CLAIM'
+    // Security Module
+    | 'ACCOUNT_LOCKED'
+    | 'ACCOUNT_UNLOCKED'
+    | 'LOGIN_BLOCKED_IP'
+    | 'IP_RULE_CREATED'
+    | 'IP_RULE_DELETED'
+    | 'SESSION_TIMEOUT'
 
 export async function logActivity(
     action: ActionType,
@@ -89,7 +82,7 @@ export async function logActivity(
     overrideUserId?: string // For login/register (when cookie isn't set/ready yet)
 ) {
     try {
-        const supabase = getSupabase()
+        const supabase = createServiceClient()
         const headersList = await headers()
         let ip = headersList.get('x-forwarded-for') || 'unknown'
 
@@ -128,11 +121,19 @@ export async function logActivity(
             location = 'Localhost'
         }
 
-        // Determine Actor
+        // Determine Actor — use signed token first, fallback to legacy cookie
         let userId = overrideUserId
         if (!userId) {
             const cookieStore = await cookies()
-            userId = cookieStore.get('session_user_id')?.value
+            const token = cookieStore.get('session_token')?.value
+            if (token) {
+                const verified = verifySessionToken(token)
+                if (verified) userId = verified.userId
+            }
+            // Fallback to legacy cookie
+            if (!userId) {
+                userId = cookieStore.get('session_user_id')?.value
+            }
         }
 
         if (!userId) {

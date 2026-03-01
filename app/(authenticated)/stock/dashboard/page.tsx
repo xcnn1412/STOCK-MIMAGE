@@ -7,7 +7,6 @@ export const revalidate = 0
 export default async function StockDashboardPage() {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value || ''
-  const selfiePath = cookieStore.get('session_selfie_path')?.value
 
   // Fetch data in parallel
   const [
@@ -30,21 +29,16 @@ export default async function StockDashboardPage() {
     supabase.from('kit_templates').select('*, kit_template_contents(count)').order('created_at', { ascending: false }).limit(10)
   ])
 
-  const selfieUrl = selfiePath 
-    ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/login_selfies/${selfiePath}`
-    : null
-
   return (
-    <DashboardView 
-        profile={profile}
-        latestLog={latestLog as any}
-        itemsCount={itemsCount}
-        items={(items || []) as any}
-        kitsCount={kitsCount}
-        activeKitsWithDetails={(activeKitsWithDetails || []) as any}
-        usersCount={usersCount}
-        selfieUrl={selfieUrl}
-        templates={(templates || []) as any}
+    <DashboardView
+      profile={profile}
+      latestLog={latestLog as any}
+      itemsCount={itemsCount}
+      items={(items || []) as any}
+      kitsCount={kitsCount}
+      activeKitsWithDetails={(activeKitsWithDetails || []) as any}
+      usersCount={usersCount}
+      templates={(templates || []) as any}
     />
   )
 }
