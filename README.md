@@ -1,90 +1,71 @@
-# 📸 STOCK-MIMAGE
+<div align="center">
 
-> **The Ultimate Event & Inventory Management for Image Automat**
->
-> ระบบจัดการคลังสินค้าและอุปกรณ์ออกงานอีเวนต์ที่ทันสมัย ใช้งานง่าย และแม่นยำ
+# ⚡ STOCK · MIMAGE
 
-![Next.js](https://img.shields.io/badge/Next.js-14-black) ![Supabase](https://img.shields.io/badge/Supabase-Database-green) ![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue) ![TailwindCSS](https://img.shields.io/badge/Tailwind-CSS-38B2AC)
+### _One platform. Every event. Zero chaos._
 
----
+**ระบบจัดการธุรกิจอีเวนต์แบบครบวงจร — คลังสินค้า · CRM · การเงิน · รายงาน**
 
-## 🚀 Overview
+<br/>
 
-**STOCK-MIMAGE** is a purpose-built application designed to streamline the chaotic workflow of event logistics. It bridges the gap between warehouse inventory and on-site event management, ensuring every piece of equipment—from cameras to cables—is tracked, assigned, and returned correctly.
+![Next.js](https://img.shields.io/badge/Next.js_16-black?style=for-the-badge&logo=next.js)
+![Supabase](https://img.shields.io/badge/Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![Tailwind](https://img.shields.io/badge/Tailwind_v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)
 
-## ✨ Key Features
-
-### 📦 Smart Inventory & Kits
-
-- **Kit Management**: Group loose items into "Kits" (e.g., "Photo Booth Set A") for bulk assignment.
-- **Item Tracking**: Detailed item profiles with serial numbers, status (Available, In Use, Maintenance, Lost), and image records.
-- **QR Code Integration**: Generate and print QR codes for each Kit for instant mobile check-in/out scanning.
-
-### 📅 Event Logistics Flow
-
-- **Event Dashboard**: Create events, assign staff, and schedule dates.
-- **Kit Assignment**: Assign multiple kits to an event with a single click.
-- **Closure Workflow**: A structured "Return Checklist" process that forces staff to verify every item upon return.
-- **Historical Snapshots**: When an event closes, the system takes a "Snapshot" of the inventory state, creating an immutable record of what was returned and its condition.
-
-### 👥 Staff & Security
-
-- **Role-Based Access**: Admins verify and approve staff registrations.
-- **Activity Logging**: Tracks _who_ did _what_ and _where_ (includes GPS location tagging for sensitive actions).
-- **Selfie Verification**: Optional selfie requirement for adding an extra layer of security during login.
-
-### 🎨 Modern UI/UX
-
-- **Responsive Design**: Mobile-first approach for staff working on-site.
-- **Dark Mode Support**: Comfortable usage in low-light event environments.
-- **Performance**: Built on Next.js 14 and Supabase for real-time speed.
+</div>
 
 ---
 
-## 🛠️ Tech Stack
+## 🎯 What is this?
 
-- **Framework**: [Next.js 14](https://nextjs.org/) (App Router)
-- **Language**: [TypeScript](https://www.typescriptlang.org/) (Strict typing for reliability)
-- **Database & Auth**: [Supabase](https://supabase.com/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/) & [Shadcn/UI](https://ui.shadcn.com/)
-- **Icons**: Lucide React
+**STOCK-MIMAGE** คือ Office Hub สำหรับธุรกิจ Photo Booth & Event —
+ออกแบบมาเพื่อให้ทุกคนในทีมทำงานได้อย่างราบรื่น ตั้งแต่จัดการลูกค้า เตรียมอุปกรณ์ ไปจนถึงปิดงานและเบิกค่าใช้จ่าย
 
----
-
-## 🏁 Getting Started
-
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/xcnn1412/STOCK-MIMAGE.git
-   cd STOCK-MIMAGE
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   npm install
-   ```
-
-3. **Environment Setup**
-   Create a `.env.local` file with your Supabase credentials:
-
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=your_project_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-   ```
-
-4. **Run the development server**
-
-   ```bash
-   npm run dev
-   ```
-
-5. **Open the app**
-   Visit [http://localhost:3000](http://localhost:3000)
+> 🚀 Built for speed · 🌙 Dark mode ready · 📱 Mobile-first · 🇹🇭 Thai-localized
 
 ---
 
-## 🔒 License
+## ✨ Features
 
-Private Property of Image Automat. All rights reserved.
+| Module                  | Highlights                                                  |
+| :---------------------- | :---------------------------------------------------------- |
+| 📦 **Inventory & Kits** | จัดกลุ่มอุปกรณ์เป็น Kit · QR Code scan · สถานะ real-time    |
+| 📅 **Events**           | สร้างอีเวนต์ · มอบหมาย Kit & Staff · ปิดงาน + Checklist     |
+| 💼 **CRM**              | Kanban pipeline · ติดตามลูกค้า · แหล่งที่มา · Dashboard     |
+| 💰 **Finance**          | เบิกค่าใช้จ่าย · อนุมัติ · ส่งออก PDF ใบสำคัญจ่าย + QR Code |
+| 📊 **KPI**              | ประเมินผลพนักงาน · Template · รายงาน                        |
+| 🎰 **Lucky Draw**       | จับรางวัลแบบ slot-reel animation · Atomic draw safeguard    |
+| 🔐 **Security**         | Role-based access · Activity logs · GPS tagging             |
+
+---
+
+## 🛠 Tech Stack
+
+```
+Next.js 16  ·  React 19  ·  TypeScript (strict)
+Supabase    ·  PostgreSQL ·  Row-Level Security
+Tailwind v4 ·  shadcn/ui  ·  Lucide Icons
+```
+
+---
+
+## 🏁 Quick Start
+
+```bash
+git clone https://github.com/xcnn1412/STOCK-MIMAGE.git
+cd STOCK-MIMAGE
+npm install
+cp .env.example .env.local   # add your Supabase keys
+npm run dev                   # → http://localhost:3000
+```
+
+---
+
+<div align="center">
+
+**Built with ❤️ by Image Automat**
+
+_Private property · All rights reserved_
+
+</div>
