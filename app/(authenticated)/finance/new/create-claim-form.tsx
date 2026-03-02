@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useActionState } from 'react'
+import { useState, useEffect, useRef, useActionState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck } from 'lucide-react'
+import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon } from 'lucide-react'
 import { createClaim } from '../actions'
 import { CLAIM_TYPES } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
@@ -44,6 +44,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const [claimType, setClaimType] = useState<'event' | 'other'>('event')
   const [selectedCategory, setSelectedCategory] = useState(categories[0]?.value || 'staff')
   const [receiptFiles, setReceiptFiles] = useState<File[]>([])
+  const [previewUrls, setPreviewUrls] = useState<string[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [unitPrice, setUnitPrice] = useState('0')
   const [quantity, setQuantity] = useState('1')
   const [vatMode, setVatMode] = useState('none')
@@ -78,14 +80,35 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   )
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setReceiptFiles(prev => [...prev, ...Array.from(e.target.files!)])
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files)
+      setReceiptFiles(prev => [...prev, ...newFiles])
+      // Generate preview URLs for image files
+      const newUrls = newFiles.map(file =>
+        file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
+      )
+      setPreviewUrls(prev => [...prev, ...newUrls])
     }
+    // Reset the input value so the same file can be re-selected after removal
+    e.target.value = ''
   }
 
   const removeFile = (index: number) => {
+    // Revoke the object URL to free memory
+    if (previewUrls[index]) {
+      URL.revokeObjectURL(previewUrls[index])
+    }
     setReceiptFiles(prev => prev.filter((_, i) => i !== index))
+    setPreviewUrls(prev => prev.filter((_, i) => i !== index))
   }
+
+  // Cleanup all object URLs on unmount
+  useEffect(() => {
+    return () => {
+      previewUrls.forEach(url => { if (url) URL.revokeObjectURL(url) })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -528,32 +551,74 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             <Upload className="inline h-3.5 w-3.5 mr-1" />
             {isEn ? 'Attach Receipts (Optional)' : 'แนบใบเสร็จ (ไม่บังคับ)'}
           </label>
-          <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-4 text-center hover:border-emerald-400 transition-colors">
+          <div
+            className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-4 text-center hover:border-emerald-400 transition-colors cursor-pointer"
+            onClick={() => fileInputRef.current?.click()}
+          >
             <input
+              ref={fileInputRef}
               type="file"
               accept="image/*,application/pdf"
               multiple
               onChange={handleFileChange}
               className="hidden"
-              id="receipt-upload"
             />
-            <label htmlFor="receipt-upload" className="cursor-pointer">
-              <Upload className="h-8 w-8 mx-auto text-zinc-400 mb-2" />
-              <p className="text-sm text-zinc-500">
-                {isEn ? 'Click to upload receipt images' : 'คลิกเพื่ออัปโหลดรูปใบเสร็จ'}
-              </p>
-            </label>
+            <Upload className="h-8 w-8 mx-auto text-zinc-400 mb-2" />
+            <p className="text-sm text-zinc-500">
+              {isEn ? 'Click to upload receipt images' : 'คลิกเพื่ออัปโหลดรูปใบเสร็จ'}
+            </p>
+            <p className="text-xs text-zinc-400 mt-1">
+              {isEn ? 'Supports images and PDF' : 'รองรับไฟล์รูปภาพและ PDF'}
+            </p>
           </div>
           {receiptFiles.length > 0 && (
             <div className="mt-3 space-y-2">
-              {receiptFiles.map((file, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2 bg-zinc-50 dark:bg-zinc-800 rounded-lg text-sm">
-                  <span className="truncate text-zinc-600 dark:text-zinc-400">{file.name}</span>
-                  <button type="button" onClick={() => removeFile(i)} className="text-zinc-400 hover:text-red-500 ml-2">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
+              <p className="text-xs text-zinc-500">
+                {receiptFiles.length} {isEn ? 'file(s) selected' : 'ไฟล์ที่เลือก'}
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {receiptFiles.map((file, i) => (
+                  <div
+                    key={`${file.name}-${file.size}-${i}`}
+                    className="relative group border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden bg-zinc-50 dark:bg-zinc-800"
+                  >
+                    {/* Preview */}
+                    {file.type.startsWith('image/') && previewUrls[i] ? (
+                      <div className="aspect-square">
+                        <img
+                          src={previewUrls[i]}
+                          alt={file.name}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="aspect-square flex flex-col items-center justify-center bg-zinc-100 dark:bg-zinc-800">
+                        <FileText className="h-10 w-10 text-red-400" />
+                        <span className="text-[10px] text-zinc-400 mt-1 uppercase font-medium">
+                          {file.name.split('.').pop()}
+                        </span>
+                      </div>
+                    )}
+                    {/* File info overlay */}
+                    <div className="px-2 py-1.5 border-t border-zinc-200 dark:border-zinc-700">
+                      <p className="text-[11px] text-zinc-600 dark:text-zinc-400 truncate" title={file.name}>
+                        {file.name}
+                      </p>
+                      <p className="text-[10px] text-zinc-400">
+                        {(file.size / 1024).toFixed(0)} KB
+                      </p>
+                    </div>
+                    {/* Remove button */}
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
