@@ -145,32 +145,32 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 bg-white dark:bg-zinc-900">
           <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold">{isEn ? 'Awaiting Payment' : 'รอชำระเงิน'}</p>
-          <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">{stats.count}</p>
+          <p className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">{stats.count}</p>
           <p className="text-xs text-zinc-400">{stats.people} {isEn ? 'people' : 'คน'}</p>
         </div>
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 bg-white dark:bg-zinc-900">
-          <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold">{isEn ? 'Total Amount' : 'ยอดรวมทั้งหมด'}</p>
-          <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">฿{stats.totalAmount.toLocaleString()}</p>
+          <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold">{isEn ? 'Total Amount' : 'ยอดรวม'}</p>
+          <p className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">฿{stats.totalAmount.toLocaleString()}</p>
         </div>
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 bg-white dark:bg-zinc-900">
           <p className="text-[10px] uppercase tracking-wider text-purple-400 font-semibold">{isEn ? 'WHT Deducted' : 'หัก ณ ที่จ่ายรวม'}</p>
-          <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">−฿{fmtDec(stats.totalWht)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400 mt-1">−฿{fmtDec(stats.totalWht)}</p>
         </div>
-        <div className="rounded-xl border-2 border-emerald-200 dark:border-emerald-800 p-4 bg-emerald-50/50 dark:bg-emerald-950/20">
+        <div className="rounded-xl border-2 border-emerald-200 dark:border-emerald-800 p-3 sm:p-4 bg-emerald-50/50 dark:bg-emerald-950/20">
           <p className="text-[10px] uppercase tracking-wider text-emerald-500 font-semibold">{isEn ? 'Net to Transfer' : '💰 ยอดโอนจริงรวม'}</p>
-          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">฿{fmtDec(stats.totalNetPayable)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">฿{fmtDec(stats.totalNetPayable)}</p>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-        <Filter className="h-4 w-4 text-zinc-400" />
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+        <Filter className="h-4 w-4 text-zinc-400 hidden sm:block" />
 
         {/* Search */}
-        <div className="relative flex-1 min-w-[180px]">
+        <div className="relative w-full sm:flex-1 sm:min-w-[180px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
           <input
             type="text"
@@ -182,7 +182,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
         </div>
 
         {/* Time */}
-        <select value={timeFilter} onChange={e => setTimeFilter(e.target.value as TimeFilter)} className={selectCls}>
+        <select value={timeFilter} onChange={e => setTimeFilter(e.target.value as TimeFilter)} className={`${selectCls} flex-1 sm:flex-none`}>
           <option value="all">{isEn ? 'All Time' : 'ทุกช่วงเวลา'}</option>
           <option value="today">{isEn ? 'Today' : 'วันนี้'}</option>
           <option value="week">{isEn ? 'This Week' : 'สัปดาห์นี้'}</option>
@@ -190,7 +190,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
         </select>
 
         {/* Person */}
-        <select value={personFilter} onChange={e => setPersonFilter(e.target.value)} className={selectCls}>
+        <select value={personFilter} onChange={e => setPersonFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
           <option value="all">{isEn ? 'All People' : 'ทุกคน'}</option>
           {submitters.map(([id, name]) => (
             <option key={id} value={id}>{name}</option>
@@ -198,7 +198,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
         </select>
 
         {/* Event */}
-        <select value={eventFilter} onChange={e => setEventFilter(e.target.value)} className={selectCls}>
+        <select value={eventFilter} onChange={e => setEventFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
           <option value="all">{isEn ? 'All Events' : 'ทุกอีเวนต์'}</option>
           {events.map(([id, name]) => (
             <option key={id} value={id}>{name}</option>
@@ -217,19 +217,28 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
             let groupTotal = 0
             let groupWht = 0
             let groupNet = 0
-            // Get bank info from latest claim
-            let bankName = ''
-            let bankAccount = ''
-            let accountHolder = ''
             group.claims.forEach(c => {
               const tax = getNetPayable(c)
               groupTotal += (c.total_amount || c.amount || 0)
               groupWht += tax.whtAmount
               groupNet += tax.netPayable
-              if (c.bank_name && !bankName) bankName = c.bank_name
-              if (c.bank_account_number && !bankAccount) bankAccount = c.bank_account_number
-              if (c.account_holder_name && !accountHolder) accountHolder = c.account_holder_name
             })
+
+            // Detect unique bank accounts
+            const uniqueBanks = new Map<string, { bank: string; account: string; holder: string }>()
+            group.claims.forEach(c => {
+              const key = c.bank_account_number || ''
+              if (key && !uniqueBanks.has(key)) {
+                uniqueBanks.set(key, {
+                  bank: c.bank_name || '',
+                  account: c.bank_account_number || '',
+                  holder: c.account_holder_name || '',
+                })
+              }
+            })
+            const hasMultipleBanks = uniqueBanks.size > 1
+            const hasAnyBank = uniqueBanks.size > 0
+            const singleBank = uniqueBanks.size === 1 ? Array.from(uniqueBanks.values())[0] : null
 
             return (
               <div key={group.name} className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
@@ -249,56 +258,76 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                       {groupWht > 0 && (
                         <p className="text-xs text-zinc-400 line-through">฿{groupTotal.toLocaleString()}</p>
                       )}
-                      <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">฿{fmtDec(groupNet)}</p>
+                      <p className="text-lg sm:text-xl font-bold text-emerald-600 dark:text-emerald-400">฿{fmtDec(groupNet)}</p>
                       <p className="text-[10px] text-emerald-500 font-medium">{isEn ? 'Net to Transfer' : 'ยอดโอนจริง'}</p>
                     </div>
                   </div>
 
-                  {/* Bank Details — always show */}
-                  <div className={`mt-3 flex items-center gap-4 p-2.5 rounded-lg border ${
-                    bankName || bankAccount
-                      ? 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700'
-                      : 'bg-amber-50/50 dark:bg-amber-950/10 border-amber-200 dark:border-amber-800/50'
-                  }`}>
-                    <span className="text-base">💳</span>
-                    <div className="flex items-center gap-6 text-sm flex-1">
-                      <div>
-                        <span className="text-[10px] text-zinc-400 block">{isEn ? 'Bank' : 'ธนาคาร'}</span>
-                        <span className={`font-medium ${bankName ? 'text-zinc-900 dark:text-zinc-100' : 'text-amber-500'}`}>
-                          {bankName || '—'}
-                        </span>
+                  {/* Bank Summary in Header */}
+                  {singleBank ? (
+                    // ทุกใบใช้บัญชีเดียวกัน — แสดงปกติ
+                    <div className="mt-3 flex items-center gap-3 sm:gap-4 p-2.5 rounded-lg border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700">
+                      <span className="text-base">💳</span>
+                      <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-sm flex-1">
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block">{isEn ? 'Bank' : 'ธนาคาร'}</span>
+                          <span className="font-medium text-zinc-900 dark:text-zinc-100">{singleBank.bank || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block">{isEn ? 'Account No.' : 'เลขบัญชี'}</span>
+                          <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">{singleBank.account}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block">{isEn ? 'Account Holder' : 'ชื่อเจ้าของบัญชี'}</span>
+                          <span className="font-medium text-zinc-900 dark:text-zinc-100">{singleBank.holder || '—'}</span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-[10px] text-zinc-400 block">{isEn ? 'Account No.' : 'เลขบัญชี'}</span>
-                        <span className={`font-mono font-medium ${bankAccount ? 'text-zinc-900 dark:text-zinc-100' : 'text-amber-500'}`}>
-                          {bankAccount || '—'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-zinc-400 block">{isEn ? 'Account Holder' : 'ชื่อเจ้าของบัญชี'}</span>
-                        <span className={`font-medium ${accountHolder ? 'text-zinc-900 dark:text-zinc-100' : 'text-amber-500'}`}>
-                          {accountHolder || '—'}
+                    </div>
+                  ) : hasMultipleBanks ? (
+                    // หลายบัญชี — แสดงเตือน
+                    <div className="mt-3 p-2.5 rounded-lg border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/10">
+                      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                        <span className="text-sm">⚠</span>
+                        <span className="text-xs font-semibold">
+                          {isEn ? `${uniqueBanks.size} different bank accounts — check per row` : `มี ${uniqueBanks.size} บัญชีธนาคาร — ดูรายละเอียดแต่ละแถว`}
                         </span>
                       </div>
                     </div>
-                    {!bankName && !bankAccount && (
+                  ) : (
+                    // ไม่มีข้อมูลธนาคารเลย
+                    <div className="mt-3 flex items-center gap-4 p-2.5 rounded-lg border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/10">
+                      <span className="text-base">💳</span>
+                      <div className="flex items-center gap-6 text-sm flex-1">
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block">{isEn ? 'Bank' : 'ธนาคาร'}</span>
+                          <span className="font-medium text-amber-500">—</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block">{isEn ? 'Account No.' : 'เลขบัญชี'}</span>
+                          <span className="font-mono font-medium text-amber-500">—</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block">{isEn ? 'Account Holder' : 'ชื่อเจ้าของบัญชี'}</span>
+                          <span className="font-medium text-amber-500">—</span>
+                        </div>
+                      </div>
                       <span className="text-[10px] text-amber-500 font-medium shrink-0">
                         {isEn ? '⚠ No bank info' : '⚠ ยังไม่มีข้อมูลธนาคาร'}
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* Claims Table */}
-                <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {/* Claims — Desktop Table */}
+                <div className="hidden md:block divide-y divide-zinc-100 dark:divide-zinc-800">
                   <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold bg-zinc-50/50 dark:bg-zinc-800/20">
                     <div className="col-span-2">{isEn ? 'Claim No.' : 'เลขที่'}</div>
-                    <div className="col-span-3">{isEn ? 'Title' : 'หัวข้อ'}</div>
-                    <div className="col-span-2">{isEn ? 'Category' : 'หมวด'}</div>
+                    <div className="col-span-2">{isEn ? 'Title' : 'หัวข้อ'}</div>
+                    <div className="col-span-2">{isEn ? 'Bank / Acct.' : 'ธนาคาร / บัญชี'}</div>
                     <div className="col-span-1 text-right">{isEn ? 'Amount' : 'ยอดเงิน'}</div>
                     <div className="col-span-1 text-right">{isEn ? 'WHT' : 'หัก'}</div>
                     <div className="col-span-2 text-right">{isEn ? 'Net Pay' : 'จ่ายจริง'}</div>
-                    <div className="col-span-1"></div>
+                    <div className="col-span-2"></div>
                   </div>
                   {group.claims.map(c => {
                     const tax = getNetPayable(c)
@@ -306,9 +335,18 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                     return (
                       <div key={c.id} className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
                         <div className="col-span-2 text-xs font-mono text-zinc-500">{c.claim_number}</div>
-                        <div className="col-span-3 truncate font-medium text-zinc-900 dark:text-zinc-100">{c.title}</div>
-                        <div className="col-span-2 text-xs text-zinc-500">
-                          {getCategoryLabel(c.category, locale, categories)}
+                        <div className="col-span-2 truncate font-medium text-zinc-900 dark:text-zinc-100">{c.title}</div>
+                        <div className="col-span-2 text-xs">
+                          {c.bank_name ? (
+                            <div>
+                              <span className="text-zinc-700 dark:text-zinc-300 font-medium">{c.bank_name}</span>
+                              {c.bank_account_number && (
+                                <span className="block font-mono text-zinc-400 text-[10px]">{c.bank_account_number}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-amber-500 text-[10px]">{isEn ? 'No bank' : 'ไม่มีข้อมูล'}</span>
+                          )}
                         </div>
                         <div className="col-span-1 text-right font-mono text-zinc-600 dark:text-zinc-400">
                           {amt.toLocaleString()}
@@ -319,7 +357,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                         <div className="col-span-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                           ฿{fmtDec(tax.netPayable)}
                         </div>
-                        <div className="col-span-1 text-right flex items-center justify-end gap-1">
+                        <div className="col-span-2 text-right flex items-center justify-end gap-1">
                           <button
                             onClick={() => handleMarkPaid(c.id)}
                             disabled={payingId === c.id}
@@ -334,7 +372,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                       </div>
                     )
                   })}
-                  {/* Group subtotal */}
+                  {/* Group subtotal — desktop */}
                   <div className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm bg-emerald-50/50 dark:bg-emerald-950/10 font-semibold">
                     <div className="col-span-5 text-zinc-500">{isEn ? 'Subtotal' : 'รวม'} — {group.name}</div>
                     <div className="col-span-2"></div>
@@ -348,6 +386,61 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                     <div className="col-span-1"></div>
                   </div>
                 </div>
+
+                {/* Claims — Mobile Cards */}
+                <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {group.claims.map(c => {
+                    const tax = getNetPayable(c)
+                    const amt = c.total_amount || c.amount || 0
+                    return (
+                      <div key={c.id} className="p-3 space-y-2">
+                        {/* Row 1: claim number + title */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-mono text-zinc-400">{c.claim_number}</p>
+                            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{c.title}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">฿{fmtDec(tax.netPayable)}</p>
+                            {tax.whtAmount > 0 && (
+                              <p className="text-[10px] text-purple-500">WHT −{fmtDec(tax.whtAmount)}</p>
+                            )}
+                          </div>
+                        </div>
+                        {/* Row 2: bank info */}
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-zinc-400">💳</span>
+                          {c.bank_name ? (
+                            <span className="text-zinc-600 dark:text-zinc-400">
+                              {c.bank_name}
+                              {c.bank_account_number && ` • ${c.bank_account_number}`}
+                            </span>
+                          ) : (
+                            <span className="text-amber-500">{isEn ? 'No bank info' : 'ไม่มีข้อมูลธนาคาร'}</span>
+                          )}
+                        </div>
+                        {/* Row 3: actions */}
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleMarkPaid(c.id)}
+                            disabled={payingId === c.id}
+                            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-teal-50 text-teal-600 hover:bg-teal-100 dark:bg-teal-950/30 dark:text-teal-400 transition-colors disabled:opacity-50"
+                          >
+                            {payingId === c.id ? '...' : (isEn ? 'Mark Paid' : 'ชำระแล้ว')}
+                          </button>
+                          <Link href={`/finance/${c.id}`} className="px-2 py-1.5 text-zinc-400 hover:text-emerald-500 transition-colors">
+                            <ExternalLink className="h-4 w-4" />
+                          </Link>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {/* Group subtotal — mobile */}
+                  <div className="p-3 bg-emerald-50/50 dark:bg-emerald-950/10 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-zinc-500">{isEn ? 'Subtotal' : 'รวม'}</span>
+                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">฿{fmtDec(groupNet)}</span>
+                  </div>
+                </div>
               </div>
             )
           })}
@@ -356,10 +449,10 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
 
       {/* Grand Total Bar */}
       {groupedByPerson.length > 0 && (
-        <div className="rounded-xl border-2 border-emerald-300 dark:border-emerald-700 p-5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30">
-          <div className="flex items-center justify-between">
+        <div className="rounded-xl border-2 border-emerald-300 dark:border-emerald-700 p-4 sm:p-5 bg-linear-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
-              <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+              <p className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-300">
                 {isEn ? '💰 Grand Total — Net to Transfer' : '💰 ยอดรวมทั้งหมดที่ต้องโอน'}
               </p>
               <p className="text-xs text-emerald-600/70 mt-0.5">
@@ -371,7 +464,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
               {stats.totalWht > 0 && (
                 <p className="text-sm text-zinc-400 line-through">฿{stats.totalAmount.toLocaleString()}</p>
               )}
-              <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">
+              <p className="text-2xl sm:text-3xl font-bold text-emerald-600 dark:text-emerald-400">
                 ฿{fmtDec(stats.totalNetPayable)}
               </p>
             </div>
