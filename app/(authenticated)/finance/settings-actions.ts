@@ -38,7 +38,11 @@ export interface CategoryItem {
 export interface StaffProfile {
   id: string
   full_name: string
+  nickname: string | null
   role: string | null
+  bank_name: string | null
+  bank_account_number: string | null
+  account_holder_name: string | null
 }
 
 // ============================================================================
@@ -217,7 +221,7 @@ export async function getStaffProfiles(): Promise<StaffProfile[]> {
   const supabase = createServiceClient()
   const { data } = await supabase
     .from('profiles')
-    .select('id, full_name, role')
+    .select('id, full_name, nickname, role, bank_name, bank_account_number, account_holder_name')
     .order('full_name', { ascending: true })
 
   return (data || []) as StaffProfile[]

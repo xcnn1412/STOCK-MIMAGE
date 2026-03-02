@@ -65,7 +65,7 @@ export async function createCrmSetting(formData: FormData) {
   const sort_order = formData.get('sort_order') ? Number(formData.get('sort_order')) : 0
 
   const { error } = await supabase.from('crm_settings').insert({
-    category, value, label_th, label_en, color, price, description, sort_order
+    category, value, label_th, label_en, color, price, description, sort_order, is_active: true
   })
 
   if (error) return { error: error.message }
@@ -140,7 +140,7 @@ export async function getLeads(filters?: {
   const supabase = createServiceClient()
   let query = supabase
     .from('crm_leads')
-    .select('*')
+    .select('*, crm_lead_installments(amount, is_paid)')
     .order('created_at', { ascending: false })
 
   // By default, exclude archived leads
@@ -168,7 +168,18 @@ export async function getLeads(filters?: {
 
   const { data, error } = await query
   if (error) return { error: error.message, data: [] }
-  return { data: data || [] }
+
+  // Compute total_installments_paid for each lead
+  const enriched = (data || []).map((lead: any) => {
+    const installments = lead.crm_lead_installments || []
+    const total_installments_paid = installments
+      .filter((i: any) => i.is_paid)
+      .reduce((sum: number, i: any) => sum + (Number(i.amount) || 0), 0)
+    const { crm_lead_installments, ...rest } = lead
+    return { ...rest, total_installments_paid }
+  })
+
+  return { data: enriched }
 }
 
 export async function getArchivedLeads() {

@@ -26,6 +26,7 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
   const [addMode, setAddMode] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [optimisticToggles, setOptimisticToggles] = useState<Record<string, boolean>>({})
 
   const TABS: { key: TabKey; label: string; icon: typeof Package }[] = [
     { key: 'kanban_status', label: locale === 'th' ? 'สถานะ Kanban' : 'Kanban Status', icon: Columns3 },
@@ -67,10 +68,15 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
     router.refresh()
   }
 
-  // Handle toggle
+  // Handle toggle (optimistic)
   const handleToggle = async (id: string, is_active: boolean) => {
+    setOptimisticToggles(prev => ({ ...prev, [id]: is_active }))
     await toggleCrmSetting(id, is_active)
     router.refresh()
+  }
+
+  const getIsActive = (setting: CrmSetting) => {
+    return optimisticToggles[setting.id] ?? setting.is_active
   }
 
   // Handle delete
@@ -244,7 +250,7 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                         style={{ backgroundColor: setting.color || '#3b82f6' }}
                       />
                     )}
-                    <span className={`text-sm font-medium ${setting.is_active ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-400 line-through'}`}>
+                    <span className={`text-sm font-medium ${getIsActive(setting) ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-400 line-through'}`}>
                       {setting.label_en}
                     </span>
                     <span className="text-xs text-zinc-400">{setting.label_th}</span>
@@ -255,28 +261,30 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                     )}
                     <span className="text-[10px] text-zinc-300 dark:text-zinc-600">#{setting.sort_order}</span>
                   </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-2">
                     <Switch
-                      checked={setting.is_active}
+                      checked={getIsActive(setting)}
                       onCheckedChange={v => handleToggle(setting.id, v)}
                       className="h-4 w-7"
                     />
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7"
-                      onClick={() => setEditId(setting.id)}
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 text-red-500 hover:text-red-700"
-                      onClick={() => handleDelete(setting.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        onClick={() => setEditId(setting.id)}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-red-500 hover:text-red-700"
+                        onClick={() => handleDelete(setting.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}

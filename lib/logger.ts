@@ -77,6 +77,9 @@ export type ActionType =
     | 'IP_RULE_CREATED'
     | 'IP_RULE_DELETED'
     | 'SESSION_TIMEOUT'
+    // User Profile
+    | 'UPDATE_USER_PROFILE'
+    | 'UPDATE_MY_PROFILE'
 
 export async function logActivity(
     action: ActionType,

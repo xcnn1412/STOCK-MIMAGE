@@ -106,3 +106,36 @@ export async function updateUserModules(userId: string, modules: string[]) {
   
     revalidatePath('/users')
 }
+
+export async function updateUserProfile(userId: string, data: {
+  full_name?: string
+  nickname?: string
+  national_id?: string
+  address?: string
+  bank_name?: string
+  bank_account_number?: string
+  account_holder_name?: string
+}) {
+    const cookieStore = await cookies()
+    const sessionUserId = cookieStore.get('session_user_id')?.value
+    if (!sessionUserId) {
+        return { error: 'Unauthorized: No active session' }
+    }
+
+    const supabase = createServiceClient()
+    
+    const { error } = await supabase
+      .from('profiles')
+      .update(data as Record<string, unknown>)
+      .eq('id', userId)
+  
+    if (error) {
+      console.error(error)
+      return { error: 'Failed to update profile' }
+    }
+
+    await logActivity('UPDATE_USER_PROFILE', data, userId)
+  
+    revalidatePath('/users')
+    return { success: true }
+}

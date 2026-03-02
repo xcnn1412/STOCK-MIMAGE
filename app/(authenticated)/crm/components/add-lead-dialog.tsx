@@ -217,7 +217,7 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
                   </SelectTrigger>
                   <SelectContent>
                     {customerTypes.map(ct => (
-                      <SelectItem key={ct.value} value={ct.value}>{getSettingLabel(ct)}</SelectItem>
+                      <SelectItem key={ct.id} value={ct.value}>{getSettingLabel(ct)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -234,7 +234,7 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
                   </SelectTrigger>
                   <SelectContent>
                     {leadSources.map(ls => (
-                      <SelectItem key={ls.value} value={ls.value}>{getSettingLabel(ls)}</SelectItem>
+                      <SelectItem key={ls.id} value={ls.value}>{getSettingLabel(ls)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

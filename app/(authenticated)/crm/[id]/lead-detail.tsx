@@ -102,13 +102,18 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     }))
   )
 
-  // ---------- Editable form state ----------
+  // Validate single-select: if stored value doesn't match any valid option, reset to ''
+  const validTypeValues = new Set(settings.filter(s => s.category === 'customer_type' && s.is_active).map(s => s.value))
+  const validSourceValues = new Set(settings.filter(s => s.category === 'lead_source' && s.is_active).map(s => s.value))
+  const sanitizeType = (v: string | null) => v && validTypeValues.has(v) ? v : ''
+  const sanitizeSource = (v: string | null) => v && validSourceValues.has(v) ? v : ''
+
   const [form, setForm] = useState({
     customer_name: lead.customer_name || '',
     customer_line: lead.customer_line || '',
     customer_phone: lead.customer_phone || '',
-    customer_type: lead.customer_type || '',
-    lead_source: lead.lead_source || '',
+    customer_type: sanitizeType(lead.customer_type),
+    lead_source: sanitizeSource(lead.lead_source),
     is_returning: lead.is_returning || false,
     event_date: lead.event_date || '',
     event_end_date: lead.event_end_date || '',
@@ -142,6 +147,15 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     lead.event_date &&
     !['accepted', 'rejected'].includes(lead.status) &&
     new Date(lead.event_date) < new Date()
+
+  // Compute outstanding balance for header badge
+  const headerBasePrice = lead.confirmed_price || lead.quoted_price || 0
+  let headerTotalPaid = lead.deposit || 0
+  for (const inst of initialInstallments) {
+    if (inst.is_paid && inst.amount) headerTotalPaid += inst.amount
+  }
+  const headerOutstanding = headerBasePrice - headerTotalPaid
+  const isFullyPaid = headerBasePrice > 0 && headerOutstanding <= 0
 
   // ---------- Handlers ----------
   const handleStatusChange = async (newStatus: string) => {
@@ -205,8 +219,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
       customer_name: lead.customer_name || '',
       customer_line: lead.customer_line || '',
       customer_phone: lead.customer_phone || '',
-      customer_type: lead.customer_type || '',
-      lead_source: lead.lead_source || '',
+      customer_type: sanitizeType(lead.customer_type),
+      lead_source: sanitizeSource(lead.lead_source),
       is_returning: lead.is_returning || false,
       event_date: lead.event_date || '',
       event_end_date: lead.event_end_date || '',
@@ -472,9 +486,15 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                 <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-600">{t.crm.kanban.returning}</Badge>
               )}
               {isOverdue && (
-                <Badge className="text-[10px] bg-red-100 text-red-700 border-0">
-                  <AlertCircle className="h-3 w-3 mr-0.5" /> {t.crm.kanban.overdue}
-                </Badge>
+                isFullyPaid ? (
+                  <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-0">
+                    <AlertCircle className="h-3 w-3 mr-0.5" /> {locale === 'th' ? 'ชำระครบ' : 'Fully Paid'}
+                  </Badge>
+                ) : (
+                  <Badge className="text-[10px] bg-red-100 text-red-700 border-0">
+                    <AlertCircle className="h-3 w-3 mr-0.5" /> {t.crm.kanban.overdue}
+                  </Badge>
+                )
               )}
               {lead.archived_at && (
                 <Badge className="text-[10px] bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 border-0 gap-1">
@@ -810,15 +830,22 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                       label={tc.type}
                       value={form.customer_type}
                       onChange={v => updateForm('customer_type', v)}
-                      options={customerTypes.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
+                      options={customerTypes.map(s => ({ id: s.id, value: s.value, label: getSettingLabel(s) }))}
                       placeholder={tc.selectType}
                     />
                     <EditSelect
                       label={tc.channel}
                       value={form.lead_source}
                       onChange={v => updateForm('lead_source', v)}
-                      options={sources.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
+                      options={sources.map(s => ({ id: s.id, value: s.value, label: getSettingLabel(s) }))}
                       placeholder={tc.selectSource}
+                    />
+                    <EditSelect
+                      label={tc.package}
+                      value={form.package_name}
+                      onChange={handlePackageChange}
+                      options={packages.map(s => ({ id: s.id, value: s.value, label: getSettingLabel(s) }))}
+                      placeholder={tc.selectPackage}
                     />
                     <div className="flex items-center justify-between">
                       <Label className="text-xs text-zinc-500">{tc.returningCustomer}</Label>
@@ -836,6 +863,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                     <InfoRow label={tc.phone} value={lead.customer_phone} />
                     <InfoRow label={tc.type} value={typeSetting ? getSettingLabel(typeSetting) : lead.customer_type} />
                     <InfoRow label={tc.channel} value={sourceSetting ? getSettingLabel(sourceSetting) : lead.lead_source} />
+                    <InfoRow label={tc.package} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
                   </>
                 )}
               </CardContent>
@@ -934,13 +962,6 @@ export default function LeadDetail({ lead, activities, settings, users, installm
 
                 return (
                   <div className="space-y-4">
-                    <EditSelect
-                      label={tc.package}
-                      value={form.package_name}
-                      onChange={handlePackageChange}
-                      options={packages.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
-                      placeholder={tc.selectPackage}
-                    />
                     <EditField label={`${tc.quotedPrice} (฿)`} value={String(form.quoted_price)} onChange={v => updateForm('quoted_price', Number(v) || 0)} type="number" />
                     <EditField label={`${tc.confirmedPrice} (฿)`} value={String(form.confirmed_price)} onChange={v => updateForm('confirmed_price', Number(v) || 0)} type="number" />
                     <EditField label={`${tc.depositLabel} (฿)`} value={String(form.deposit)} onChange={v => updateForm('deposit', Number(v) || 0)} type="number" />
@@ -1208,10 +1229,10 @@ export default function LeadDetail({ lead, activities, settings, users, installm
 
                     {/* Outstanding Balance */}
                     {netTotal > 0 && (
-                      <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30">
+                      <div className={`p-3 rounded-lg ${outstanding <= 0 ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/30' : 'bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30'}`}>
                         <div className="flex justify-between items-center">
-                          <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                            {locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding'}
+                          <span className={`text-xs font-semibold ${outstanding <= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                            {outstanding <= 0 ? (locale === 'th' ? '✅ ชำระครบ' : '✅ Fully Paid') : (locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding')}
                           </span>
                           <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
                             ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -1255,7 +1276,6 @@ export default function LeadDetail({ lead, activities, settings, users, installm
 
                 return (
                   <>
-                    <InfoRow label={tc.package} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
                     <InfoRow label={tc.quotedPrice} value={lead.quoted_price ? `฿${lead.quoted_price.toLocaleString()}` : null} />
                     <InfoRow label={tc.confirmedPrice} value={lead.confirmed_price ? `฿${lead.confirmed_price.toLocaleString()}` : null} />
                     <InfoRow label={tc.depositLabel} value={lead.deposit ? `฿${lead.deposit.toLocaleString()}` : null} />
@@ -1451,10 +1471,10 @@ export default function LeadDetail({ lead, activities, settings, users, installm
 
                     {/* Outstanding Balance (View) */}
                     {basePrice > 0 && (
-                      <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30">
+                      <div className={`p-3 rounded-lg ${outstanding <= 0 ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/30' : 'bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30'}`}>
                         <div className="flex justify-between items-center">
-                          <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                            {locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding'}
+                          <span className={`text-xs font-semibold ${outstanding <= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                            {outstanding <= 0 ? (locale === 'th' ? '✅ ชำระครบ' : '✅ Fully Paid') : (locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding')}
                           </span>
                           <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
                             ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -1630,19 +1650,29 @@ function EditSelect({
   label: string
   value: string
   onChange: (v: string) => void
-  options: { value: string; label: string }[]
+  options: { id?: string; value: string; label: string }[]
   placeholder?: string
 }) {
+  // Deduplicate by value for display (Radix shows checkmark for ALL items with matching value)
+  const seen = new Set<string>()
+  const displayOptions = options.filter(o => {
+    if (seen.has(o.value)) return false
+    seen.add(o.value)
+    return true
+  })
+  // Only pass value if it matches a valid option; otherwise omit for "no selection"
+  const isValid = value && displayOptions.some(o => o.value === value)
+  const selectProps = isValid ? { value, onValueChange: onChange } : { onValueChange: onChange }
   return (
     <div>
       <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
+      <Select {...selectProps}>
         <SelectTrigger className="h-9 text-sm">
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
-        <SelectContent>
-          {options.map(opt => (
-            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+        <SelectContent position="popper" className="max-h-[300px] overflow-y-auto">
+          {displayOptions.map(opt => (
+            <SelectItem key={opt.id || opt.value} value={opt.value}>{opt.label}</SelectItem>
           ))}
         </SelectContent>
       </Select>

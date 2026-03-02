@@ -6,6 +6,7 @@ import { useLocale } from '@/lib/i18n/context'
 import { getCategoryLabel } from '../../costs/types'
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
+import { parseAddress, formatAddress } from '@/lib/thai-address'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -28,7 +29,11 @@ const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits:
 
 type ExportType = 'all_claims' | 'wht_summary'
 
-export default function FinanceDownloadView({ claims, categories }: { claims: ExpenseClaim[]; categories: FinanceCategory[] }) {
+export default function FinanceDownloadView({ claims, categories, profileMap = {} }: {
+  claims: ExpenseClaim[]
+  categories: FinanceCategory[]
+  profileMap?: Record<string, { nickname: string | null; national_id: string | null; address: string | null }>
+}) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
   const [exportType, setExportType] = useState<ExportType>('all_claims')
@@ -64,6 +69,9 @@ export default function FinanceDownloadView({ claims, categories }: { claims: Ex
     const whtClaims = filtered.filter(c => (c.withholding_tax_rate || 0) > 0)
     const map = new Map<string, {
       name: string
+      nickname: string
+      nationalId: string
+      address: string
       bankName: string
       bankAccount: string
       accountHolder: string
@@ -78,8 +86,12 @@ export default function FinanceDownloadView({ claims, categories }: { claims: Ex
       const amt = c.total_amount || c.amount || 0
       const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
       if (!map.has(key)) {
+        const profile = profileMap[key]
         map.set(key, {
           name,
+          nickname: profile?.nickname || '',
+          nationalId: profile?.national_id || '',
+          address: formatAddress(parseAddress(profile?.address || null)),
           bankName: c.bank_name || '',
           bankAccount: c.bank_account_number || '',
           accountHolder: c.account_holder_name || '',
@@ -111,13 +123,18 @@ export default function FinanceDownloadView({ claims, categories }: { claims: Ex
       const rows = filtered.map(c => {
         const amt = c.total_amount || c.amount || 0
         const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
+        const profile = c.submitted_by ? profileMap[c.submitted_by] : null
+        const paidAtFormatted = c.paid_at ? new Date(c.paid_at).toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
         return {
           'เลขที่': c.claim_number,
-          'ผู้เบิก': c.submitter?.full_name || '',
+          'ชื่อ-สกุล': c.submitter?.full_name || '',
+          'ชื่อเล่น': profile?.nickname || '',
+          'เลขบัตรประชาชน': profile?.national_id || '',
+          'ที่อยู่': formatAddress(parseAddress(profile?.address || null)),
           'หัวข้อ': c.title,
           'หมวด': getCategoryLabel(c.category, 'th', categories),
           'อีเวนต์': (c.job_event as any)?.name || '',
-          'วันที่': c.expense_date || '',
+          'วันที่ค่าใช้จ่าย': c.expense_date || '',
           'ยอดเงิน': amt,
           'VAT': c.vat_mode || 'none',
           'หัก ณ ที่จ่าย (%)': c.withholding_tax_rate || 0,
@@ -127,20 +144,25 @@ export default function FinanceDownloadView({ claims, categories }: { claims: Ex
           'ธนาคาร': c.bank_name || '',
           'เลขบัญชี': c.bank_account_number || '',
           'ชื่อบัญชี': c.account_holder_name || '',
+          'วันเวลาที่ชำระ': paidAtFormatted,
           'รายละเอียด': c.notes || '',
         }
       })
       const ws = XLSX.utils.json_to_sheet(rows)
       ws['!cols'] = [
-        { wch: 18 }, { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 20 },
-        { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 12 },
-        { wch: 12 }, { wch: 14 }, { wch: 18 }, { wch: 15 }, { wch: 20 }, { wch: 30 },
+        { wch: 18 }, { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 40 },
+        { wch: 25 }, { wch: 15 }, { wch: 20 }, { wch: 14 }, { wch: 12 },
+        { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
+        { wch: 18 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 30 },
       ]
       XLSX.utils.book_append_sheet(wb, ws, 'ใบเบิกทั้งหมด')
     } else {
       // WHT Summary
       const rows = whtSummary.map(p => ({
         'ชื่อ-สกุล': p.name,
+        'ชื่อเล่น': p.nickname,
+        'เลขบัตรประชาชน': p.nationalId,
+        'ที่อยู่': p.address,
         'ธนาคาร': p.bankName,
         'เลขบัญชี': p.bankAccount,
         'ชื่อบัญชี': p.accountHolder,
@@ -152,6 +174,9 @@ export default function FinanceDownloadView({ claims, categories }: { claims: Ex
       // Add total row
       rows.push({
         'ชื่อ-สกุล': '— รวมทั้งหมด —',
+        'ชื่อเล่น': '',
+        'เลขบัตรประชาชน': '',
+        'ที่อยู่': '',
         'ธนาคาร': '',
         'เลขบัญชี': '',
         'ชื่อบัญชี': '',
@@ -162,7 +187,7 @@ export default function FinanceDownloadView({ claims, categories }: { claims: Ex
       })
       const ws = XLSX.utils.json_to_sheet(rows)
       ws['!cols'] = [
-        { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 25 },
+        { wch: 25 }, { wch: 12 }, { wch: 18 }, { wch: 40 }, { wch: 20 }, { wch: 15 }, { wch: 25 },
         { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
       ]
       XLSX.utils.book_append_sheet(wb, ws, 'สรุปหัก ณ ที่จ่าย')
@@ -196,30 +221,32 @@ export default function FinanceDownloadView({ claims, categories }: { claims: Ex
       html += `<h1>สรุปหัก ณ ที่จ่าย 3%</h1>`
       html += `<h2>วันที่ออกรายงาน: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })} | ${whtSummary.length} คน | รวมหัก ฿${fmtDec(totalWhtAll)}</h2>`
       html += `<table>
-        <tr><th>#</th><th>ชื่อ-สกุล</th><th>ธนาคาร</th><th>เลขบัญชี</th><th>ชื่อบัญชี</th><th class="num">จำนวน</th><th class="num">ยอดรวม</th><th class="num">หัก 3%</th><th class="num">จ่ายจริง</th></tr>`
+        <tr><th>#</th><th>ชื่อ-สกุล</th><th>ชื่อเล่น</th><th>เลขบัตรประชาชน</th><th>ที่อยู่</th><th>ธนาคาร</th><th>เลขบัญชี</th><th class="num">จำนวน</th><th class="num">ยอดรวม</th><th class="num">หัก 3%</th><th class="num">จ่ายจริง</th></tr>`
       whtSummary.forEach((p, i) => {
         html += `<tr>
-          <td>${i + 1}</td><td>${p.name}</td><td>${p.bankName}</td><td>${p.bankAccount}</td><td>${p.accountHolder}</td>
+          <td>${i + 1}</td><td>${p.name}</td><td>${p.nickname}</td><td>${p.nationalId}</td><td style="font-size:9px">${p.address}</td><td>${p.bankName}</td><td>${p.bankAccount}</td>
           <td class="num">${p.count}</td><td class="num">${fmtDec(p.totalGross)}</td><td class="num">${fmtDec(p.totalWht)}</td><td class="num">${fmtDec(p.totalNet)}</td>
         </tr>`
       })
       const totalGross = whtSummary.reduce((s, p) => s + p.totalGross, 0)
       const totalNet = whtSummary.reduce((s, p) => s + p.totalNet, 0)
-      html += `<tr class="total-row"><td colspan="5">รวมทั้งหมด</td><td class="num">${whtSummary.reduce((s, p) => s + p.count, 0)}</td><td class="num">${fmtDec(totalGross)}</td><td class="num">${fmtDec(totalWhtAll)}</td><td class="num">${fmtDec(totalNet)}</td></tr>`
+      html += `<tr class="total-row"><td colspan="7">รวมทั้งหมด</td><td class="num">${whtSummary.reduce((s, p) => s + p.count, 0)}</td><td class="num">${fmtDec(totalGross)}</td><td class="num">${fmtDec(totalWhtAll)}</td><td class="num">${fmtDec(totalNet)}</td></tr>`
       html += `</table>`
     } else {
       html += `<h1>รายงานใบเบิกค่าใช้จ่าย</h1>`
       html += `<h2>วันที่: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })} | ${filtered.length} รายการ</h2>`
       html += `<table>
-        <tr><th>เลขที่</th><th>ผู้เบิก</th><th>หัวข้อ</th><th>หมวด</th><th class="num">ยอดเงิน</th><th class="num">หัก</th><th class="num">จ่ายจริง</th><th>สถานะ</th></tr>`
+        <tr><th>เลขที่</th><th>ชื่อ-สกุล</th><th>ชื่อเล่น</th><th>หัวข้อ</th><th>หมวด</th><th class="num">ยอดเงิน</th><th class="num">หัก</th><th class="num">จ่ายจริง</th><th>สถานะ</th><th>วันชำระ</th></tr>`
       filtered.forEach(c => {
         const amt = c.total_amount || c.amount || 0
         const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
+        const profile = c.submitted_by ? profileMap[c.submitted_by] : null
+        const paidAt = c.paid_at ? new Date(c.paid_at).toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
         html += `<tr>
-          <td>${c.claim_number}</td><td>${c.submitter?.full_name || ''}</td><td>${c.title}</td>
+          <td>${c.claim_number}</td><td>${c.submitter?.full_name || ''}</td><td>${profile?.nickname || ''}</td><td>${c.title}</td>
           <td>${getCategoryLabel(c.category, 'th', categories)}</td>
           <td class="num">${fmtDec(amt)}</td><td class="num">${fmtDec(tax.whtAmount)}</td><td class="num">${fmtDec(tax.netPayable)}</td>
-          <td>${c.status}</td>
+          <td>${c.status}</td><td>${paidAt}</td>
         </tr>`
       })
       html += `</table>`

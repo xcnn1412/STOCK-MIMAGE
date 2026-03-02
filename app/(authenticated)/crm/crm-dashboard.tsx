@@ -106,6 +106,7 @@ export interface CrmLead {
   assigned_sales: string[]
   assigned_graphics: string[]
   assigned_staff: string[]
+  total_installments_paid: number
 }
 
 export interface CrmSetting {
@@ -633,12 +634,22 @@ function TableView({ leads, settings }: { leads: CrmLead[]; settings: CrmSetting
                             {tc.kanban.returning}
                           </Badge>
                         )}
-                        {overdue && (
-                          <Badge className="text-[10px] px-1.5 py-0 bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400 border-0">
-                            <AlertCircle className="h-3 w-3 mr-0.5" />
-                            {tc.kanban.overdue}
-                          </Badge>
-                        )}
+                        {overdue && (() => {
+                          const bp = lead.confirmed_price || lead.quoted_price || 0
+                          const tp = (lead.deposit || 0) + (lead.total_installments_paid || 0)
+                          const fullyPaid = bp > 0 && tp >= bp
+                          return fullyPaid ? (
+                            <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border-0">
+                              <AlertCircle className="h-3 w-3 mr-0.5" />
+                              {locale === 'th' ? 'ชำระครบ' : 'Fully Paid'}
+                            </Badge>
+                          ) : (
+                            <Badge className="text-[10px] px-1.5 py-0 bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400 border-0">
+                              <AlertCircle className="h-3 w-3 mr-0.5" />
+                              {tc.kanban.overdue}
+                            </Badge>
+                          )
+                        })()}
                       </div>
                       {lead.event_details && (
                         <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 truncate max-w-[200px]">

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import {
     LogOut, Menu, X,
     PanelLeftClose, PanelLeftOpen,
-    ChevronDown, ChevronRight,
+    ChevronDown, ChevronRight, User,
 } from "lucide-react"
 import { logout } from '@/app/login/actions'
 import { useLanguage } from '@/contexts/language-context'
@@ -225,6 +225,24 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                         <LanguageSwitcher />
                     </div>
                 )}
+
+                {/* My Profile */}
+                <Link
+                    href="/profile"
+                    onClick={isMobile ? closeMobile : undefined}
+                    className={`
+                      w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
+                      transition-colors duration-200
+                      ${collapsed && !isMobile ? 'justify-center' : ''}
+                      ${isActive('/profile', true)
+                        ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-semibold'
+                        : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-300 dark:hover:bg-zinc-800'
+                      }
+                    `}
+                >
+                    <User className="h-4 w-4 shrink-0" />
+                    {(!collapsed || isMobile) && <span>โปรไฟล์ของฉัน</span>}
+                </Link>
 
                 {/* Collapse Toggle (desktop only) */}
                 {!isMobile && (

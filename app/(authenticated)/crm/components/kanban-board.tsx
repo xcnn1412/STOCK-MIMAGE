@@ -329,6 +329,12 @@ function KanbanCard({
 
   const price = lead.confirmed_price || lead.quoted_price || 0
 
+  // Compute outstanding balance using server-computed total_installments_paid
+  const basePrice = lead.confirmed_price || lead.quoted_price || 0
+  const totalPaid = (lead.deposit || 0) + (lead.total_installments_paid || 0)
+  const outstanding = basePrice - totalPaid
+  const isFullyPaid = basePrice > 0 && outstanding <= 0
+
   // Collect all tags for display
   const generalTags = (lead.tags || [])
     .map(tag => {
@@ -455,10 +461,17 @@ function KanbanCard({
                     </Badge>
                   )}
                   {isOverdue && (
-                    <Badge className="text-[12px] px-2 py-0.5 bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200/60 dark:border-red-800/40 gap-1 font-semibold">
-                      <AlertCircle className="h-3 w-3" />
-                      {tc.kanban.overdue}
-                    </Badge>
+                    isFullyPaid ? (
+                      <Badge className="text-[12px] px-2 py-0.5 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40 gap-1 font-semibold">
+                        <AlertCircle className="h-3 w-3" />
+                        {locale === 'th' ? 'ชำระครบ' : 'Fully Paid'}
+                      </Badge>
+                    ) : (
+                      <Badge className="text-[12px] px-2 py-0.5 bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200/60 dark:border-red-800/40 gap-1 font-semibold">
+                        <AlertCircle className="h-3 w-3" />
+                        {tc.kanban.overdue}
+                      </Badge>
+                    )
                   )}
                   {lead.is_returning && (
                     <Badge className="text-[12px] px-2 py-0.5 bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/40 gap-1 font-semibold">

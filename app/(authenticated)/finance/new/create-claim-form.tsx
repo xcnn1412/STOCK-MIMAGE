@@ -2,7 +2,7 @@
 
 import { useState, useActionState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users } from 'lucide-react'
+import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck } from 'lucide-react'
 import { createClaim } from '../actions'
 import { CLAIM_TYPES } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
@@ -52,6 +52,10 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
     initialCategory === 'staff' || initialCategory === 'service_fee' ? '3' : '0'
   )
   const [selectedBank, setSelectedBank] = useState('')
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
+  const [bankAccountNumber, setBankAccountNumber] = useState('')
+  const [accountHolderName, setAccountHolderName] = useState('')
+  const [staffAutoFilled, setStaffAutoFilled] = useState(false)
 
   const computedAmount = (Number(unitPrice) || 0) * (Number(quantity) || 1)
   const whtRateNum = Number(whtRate) || 0
@@ -179,6 +183,11 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               } else {
                 setWhtRate('0')
               }
+              // Reset staff auto-fill when category changes
+              if (val !== 'staff') {
+                setSelectedStaffId(null)
+                setStaffAutoFilled(false)
+              }
             }}
             className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
           >
@@ -201,12 +210,39 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 {isEn ? 'Description' : 'รายละเอียด'}
               </label>
               {source === 'staff' ? (
-                <select name="description" className={selectCls}>
-                  <option value="">{isEn ? '— Select staff —' : '— เลือกชื่อพนักงาน —'}</option>
-                  {staffProfiles.map(s => (
-                    <option key={s.id} value={s.full_name}>{s.full_name} {s.role ? `· ${s.role}` : ''}</option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    name="description"
+                    className={selectCls}
+                    value={selectedStaffId ? staffProfiles.find(s => s.id === selectedStaffId)?.full_name || '' : ''}
+                    onChange={e => {
+                      const staffName = e.target.value
+                      const staff = staffProfiles.find(s => s.full_name === staffName)
+                      if (staff) {
+                        setSelectedStaffId(staff.id)
+                        // Auto-fill bank info from profile
+                        setSelectedBank(staff.bank_name || '')
+                        setBankAccountNumber(staff.bank_account_number || '')
+                        setAccountHolderName(staff.account_holder_name || '')
+                        setStaffAutoFilled(true)
+                      } else {
+                        setSelectedStaffId(null)
+                        setSelectedBank('')
+                        setBankAccountNumber('')
+                        setAccountHolderName('')
+                        setStaffAutoFilled(false)
+                      }
+                    }}
+                  >
+                    <option value="">{isEn ? '— Select staff —' : '— เลือกชื่อพนักงาน —'}</option>
+                    {staffProfiles.map(s => (
+                      <option key={s.id} value={s.full_name}>
+                        {s.full_name} {s.nickname ? `(${s.nickname})` : ''} · {s.role || 'staff'}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedStaffId && <input type="hidden" name="staff_profile_id" value={selectedStaffId} />}
+                </>
               ) : source === 'custom' ? (
                 (() => {
                   const items = categoryItems.filter(i => i.category_id === activeCat?.id)
@@ -409,9 +445,29 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
 
         {/* Payment Details (ผู้เบิก) */}
         <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl p-4 space-y-3 bg-zinc-50/50 dark:bg-zinc-800/30">
-          <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-            💳 {isEn ? 'Payment Details (Claimant)' : 'รายละเอียดการชำระเงิน (ผู้เบิก)'}
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+              💳 {isEn ? 'Payment Details (Claimant)' : 'รายละเอียดการชำระเงิน (ผู้เบิก)'}
+            </p>
+            {staffAutoFilled && selectedStaffId && (
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full">
+                <UserCheck className="h-3 w-3" />
+                ดึงจากโปรไฟล์อัตโนมัติ
+              </span>
+            )}
+          </div>
+
+          {/* Warning: missing bank data */}
+          {staffAutoFilled && selectedStaffId && (!selectedBank || !bankAccountNumber || !accountHolderName) && (
+            <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-700 dark:text-amber-300">
+                <p className="font-medium">ข้อมูลธนาคารไม่ครบ</p>
+                <p className="text-amber-600 dark:text-amber-400">กรุณาให้ {staffProfiles.find(s => s.id === selectedStaffId)?.full_name} กรอกข้อมูลธนาคารในหน้าโปรไฟล์ หรือกรอกด้านล่างด้วยตนเอง</p>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-medium text-zinc-500 mb-1">
@@ -419,7 +475,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               </label>
               <BankSelect
                 value={selectedBank}
-                onChange={setSelectedBank}
+                onChange={v => { setSelectedBank(v); if (staffAutoFilled) setStaffAutoFilled(false) }}
                 name="bank_name"
                 placeholder={isEn ? 'Select bank' : 'เลือกธนาคาร'}
               />
@@ -431,6 +487,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               <input
                 type="text"
                 name="bank_account_number"
+                value={bankAccountNumber}
+                onChange={e => { setBankAccountNumber(e.target.value); if (staffAutoFilled) setStaffAutoFilled(false) }}
                 placeholder={isEn ? 'e.g. 123-4-56789-0' : 'เช่น 123-4-56789-0'}
                 className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
               />
@@ -442,6 +500,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               <input
                 type="text"
                 name="account_holder_name"
+                value={accountHolderName}
+                onChange={e => { setAccountHolderName(e.target.value); if (staffAutoFilled) setStaffAutoFilled(false) }}
                 placeholder={isEn ? 'Account holder name' : 'ชื่อ-นามสกุล'}
                 className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
               />
