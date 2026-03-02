@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { getJob, getJobActivities, getJobSettings, getSystemUsers, getCrmLeadForJob, getChecklistTemplates, getJobChecklists, getJobTypes } from '../actions'
+import { getJob, getJobActivities, getJobSettings, getSystemUsers, getCrmLeadForJob, getChecklistTemplates, getJobChecklists, getJobTypes, getJobsByLeadId } from '../actions'
 import JobDetail from './job-detail'
 
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -16,10 +16,14 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
     if (!jobResult.data) return notFound()
 
-    // Fetch CRM lead data if job is linked to a CRM lead
+    // Fetch CRM lead data + sibling jobs if job is linked to a CRM lead
     const crmData = jobResult.data.crm_lead_id
         ? await getCrmLeadForJob(jobResult.data.crm_lead_id)
         : null
+
+    const siblingJobs = jobResult.data.crm_lead_id
+        ? await getJobsByLeadId(jobResult.data.crm_lead_id)
+        : []
 
     return (
         <JobDetail
@@ -31,6 +35,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             checklistTemplates={templatesResult.data || []}
             checklistItems={checklistItemsResult.data || []}
             jobTypes={jobTypesResult.data || []}
+            siblingJobs={siblingJobs}
         />
     )
 }

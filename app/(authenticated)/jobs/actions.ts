@@ -204,6 +204,8 @@ export interface Job {
     title: string
     description: string | null
     assigned_to: string[]
+    assigned_graphics: string[]
+    assigned_staff: string[]
     tags: string[]
     priority: string
     due_date: string | null
@@ -321,6 +323,18 @@ export async function updateJob(id: string, formData: FormData) {
         updates.assigned_to = str.split(',').filter(Boolean)
     }
 
+    // Assigned graphics (separate from staff)
+    if (formData.has('assigned_graphics')) {
+        const str = formData.get('assigned_graphics') as string || ''
+        updates.assigned_graphics = str.split(',').filter(Boolean)
+    }
+
+    // Assigned staff (separate from graphics)
+    if (formData.has('assigned_staff')) {
+        const str = formData.get('assigned_staff') as string || ''
+        updates.assigned_staff = str.split(',').filter(Boolean)
+    }
+
     const { error } = await supabase.from('jobs').update(updates).eq('id', id)
     if (error) return { error: error.message }
 
@@ -358,6 +372,24 @@ export async function updateJobStatus(id: string, newStatus: string) {
     })
 
     await logActivity('UPDATE_JOB_STATUS', { id, oldStatus, newStatus })
+    revalidatePath('/jobs')
+    revalidatePath(`/jobs/${id}`)
+    return { success: true }
+}
+
+export async function updateJobTags(id: string, tags: string[]) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('jobs')
+        .update({ tags, updated_at: new Date().toISOString() })
+        .eq('id', id)
+
+    if (error) return { error: error.message }
+
+    await logActivity('UPDATE_JOB_TAGS', { id, tags })
     revalidatePath('/jobs')
     revalidatePath(`/jobs/${id}`)
     return { success: true }
@@ -513,6 +545,8 @@ export async function createJobsFromLead(leadId: string) {
         created_by: userId,
         priority: 'medium' as const,
         assigned_to: [] as string[],
+        assigned_graphics: [] as string[],
+        assigned_staff: [] as string[],
         tags: [] as string[],
     }
 
@@ -522,6 +556,7 @@ export async function createJobsFromLead(leadId: string) {
         job_type: 'graphic',
         status: graphicStatus,
         assigned_to: lead.assigned_graphics || [],
+        assigned_graphics: lead.assigned_graphics || [],
     }
 
     // Create onsite job with assigned_staff from lead
@@ -530,6 +565,7 @@ export async function createJobsFromLead(leadId: string) {
         job_type: 'onsite',
         status: onsiteStatus,
         assigned_to: lead.assigned_staff || [],
+        assigned_staff: lead.assigned_staff || [],
     }
 
     const { data: jobs, error: insertErr } = await supabase
@@ -559,7 +595,7 @@ export async function getJobsByLeadId(leadId: string) {
     const supabase = createServiceClient()
     const { data, error } = await supabase
         .from('jobs')
-        .select('id, job_type, status, title, created_at')
+        .select('id, job_type, status, title, tags, created_at')
         .eq('crm_lead_id', leadId)
         .order('created_at', { ascending: false })
 

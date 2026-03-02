@@ -186,6 +186,15 @@ function CrmEditSelect({ label, value, onChange, options, placeholder }: {
 // Job Detail Component
 // ============================================================================
 
+interface SiblingJob {
+    id: string
+    job_type: string
+    status: string
+    title: string
+    tags: string[]
+    created_at: string
+}
+
 interface JobDetailProps {
     job: Job
     activities: Activity[]
@@ -195,9 +204,10 @@ interface JobDetailProps {
     checklistTemplates: ChecklistTemplate[]
     checklistItems: ChecklistItem[]
     jobTypes: JobSetting[]
+    siblingJobs: SiblingJob[]
 }
 
-export default function JobDetail({ job, activities, settings, users, crmData, checklistTemplates, checklistItems, jobTypes }: JobDetailProps) {
+export default function JobDetail({ job, activities, settings, users, crmData, checklistTemplates, checklistItems, jobTypes, siblingJobs }: JobDetailProps) {
     const { locale } = useLocale()
     const router = useRouter()
     const [isPending, startTransition] = useTransition()
@@ -218,8 +228,9 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
     // Tags state
     const [localTags, setLocalTags] = useState<string[]>(job.tags || [])
 
-    // Assigned to state (editable for graphic/onsite)
-    const [localAssignedTo, setLocalAssignedTo] = useState<string[]>(job.assigned_to || [])
+    // Assigned states — separate for graphic and staff
+    const [localAssignedGraphics, setLocalAssignedGraphics] = useState<string[]>(job.assigned_graphics || [])
+    const [localAssignedStaff, setLocalAssignedStaff] = useState<string[]>(job.assigned_staff || [])
 
     // Checklist optimistic state — instant UI updates
     const [localChecklistItems, setLocalChecklistItems] = useState<ChecklistItem[]>(checklistItems)
@@ -332,11 +343,11 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
     const statuses = getStatusesFromSettings(settings, job.job_type as JobType)
     const currentStatusCfg = getStatusConfig(settings, job.job_type as JobType, job.status)
 
-    // Per-status tags from settings
-    const statusTagCategory = `tag_${job.job_type}_${job.status}`
+    // Per-job-type tags from settings (shared across all statuses)
+    const tagCategory = `tag_${job.job_type}`
     const availableStatusTags = useMemo(() =>
-        settings.filter(s => s.category === statusTagCategory && s.is_active),
-        [settings, statusTagCategory]
+        settings.filter(s => s.category === tagCategory && s.is_active),
+        [settings, tagCategory]
     )
 
     const priorityConfig: Record<string, { label: string; color: string }> = {
@@ -393,17 +404,7 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
         })
     }
 
-    const handleToggleAssigned = (userId: string) => {
-        const newAssigned = localAssignedTo.includes(userId)
-            ? localAssignedTo.filter(id => id !== userId)
-            : [...localAssignedTo, userId]
-        setLocalAssignedTo(newAssigned)
-        startTransition(async () => {
-            const fd = new FormData()
-            fd.set('assigned_to', newAssigned.join(','))
-            await updateJob(job.id, fd)
-        })
-    }
+
 
     const handleAddActivity = () => {
         if (!activityNote.trim()) return
@@ -520,7 +521,7 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                 </CardContent>
             </Card>
 
-            {/* Per-Status Tags */}
+            {/* Tags — Grouped by Job Type */}
             <Card>
                 <CardContent className="py-4 space-y-3">
                     <div className="flex items-center gap-2">
@@ -528,47 +529,111 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                         <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
                             {locale === 'th' ? 'แท็ก' : 'Tags'}
                         </span>
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0" style={{ borderColor: currentStatusCfg.color, color: currentStatusCfg.color }}>
-                            {locale === 'th' ? currentStatusCfg.labelTh : currentStatusCfg.label}
-                        </Badge>
                     </div>
 
-                    {localTags.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                            {localTags.map(tagValue => {
-                                const tagSetting = settings.find(s => s.value === tagValue && s.category.startsWith('tag_'))
-                                const tagColor = tagSetting?.color || '#8b5cf6'
-                                return (
-                                    <Badge key={tagValue} className="text-[10px] px-2 py-0.5 border" style={{ backgroundColor: `${tagColor}18`, color: tagColor, borderColor: `${tagColor}40` }}>
-                                        {tagSetting ? getSettingLabel(tagSetting) : tagValue}
-                                    </Badge>
-                                )
-                            })}
+                    {/* Current job type — editable */}
+                    {(() => {
+                        const currentJt = jobTypes.find(jt => jt.value === job.job_type)
+                        const jtLabel = currentJt ? (locale === 'th' ? currentJt.label_th : currentJt.label_en) : job.job_type
+                        const jtColor = currentJt?.color || '#8b5cf6'
+                        return (
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: jtColor }} />
+                                    <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">{jtLabel}</span>
+                                </div>
+                                {/* Selected tag badges */}
+                                {localTags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 ml-4">
+                                        {localTags.map(tagValue => {
+                                            const tagSetting = settings.find(s => s.value === tagValue && s.category === `tag_${job.job_type}`)
+                                            const tagColor = tagSetting?.color || '#8b5cf6'
+                                            return (
+                                                <Badge key={tagValue} className="text-[10px] px-2 py-0.5 border" style={{ backgroundColor: `${tagColor}18`, color: tagColor, borderColor: `${tagColor}40` }}>
+                                                    {tagSetting ? getSettingLabel(tagSetting) : tagValue}
+                                                </Badge>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                                {/* Toggle buttons */}
+                                <div className="flex flex-wrap gap-2 ml-4">
+                                    {availableStatusTags.map(tagSetting => {
+                                        const isSelected = localTags.includes(tagSetting.value)
+                                        const tagColor = tagSetting.color || '#8b5cf6'
+                                        return (
+                                            <Button key={tagSetting.id} variant="outline" size="sm"
+                                                onClick={() => handleToggleTag(tagSetting.value)}
+                                                disabled={isPending}
+                                                className="text-xs transition-all"
+                                                style={isSelected ? { backgroundColor: `${tagColor}20`, color: tagColor, borderColor: `${tagColor}60` } : {}}
+                                            >
+                                                <span className="h-2.5 w-2.5 rounded-full mr-1.5 shrink-0" style={{ backgroundColor: tagColor }} />
+                                                {getSettingLabel(tagSetting)}
+                                            </Button>
+                                        )
+                                    })}
+                                    {availableStatusTags.length === 0 && (
+                                        <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                                            {locale === 'th' ? 'ยังไม่มีแท็ก — ไปตั้งค่าในหน้า Settings' : 'No tags yet — set up in Settings'}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )
+                    })()}
+
+                    {/* Sibling jobs — read-only */}
+                    {siblingJobs
+                        .filter(sj => sj.id !== job.id && (sj.tags || []).length > 0)
+                        .map(sj => {
+                            const sjJt = jobTypes.find(jt => jt.value === sj.job_type)
+                            const sjLabel = sjJt ? (locale === 'th' ? sjJt.label_th : sjJt.label_en) : sj.job_type
+                            const sjColor = sjJt?.color || '#9ca3af'
+                            return (
+                                <div key={sj.id} className="space-y-1.5">
+                                    <div className="flex items-center gap-2">
+                                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: sjColor }} />
+                                        <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{sjLabel}</span>
+                                        <span className="text-[9px] text-zinc-400">(read-only)</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1 ml-4">
+                                        {(sj.tags || []).map(tagValue => {
+                                            const tagSetting = settings.find(s => s.value === tagValue && s.category === `tag_${sj.job_type}`)
+                                            const tagColor = tagSetting?.color || '#9ca3af'
+                                            return (
+                                                <Badge key={tagValue} className="text-[10px] px-2 py-0.5 border opacity-70" style={{ backgroundColor: `${tagColor}12`, color: tagColor, borderColor: `${tagColor}30` }}>
+                                                    {tagSetting ? getSettingLabel(tagSetting) : tagValue}
+                                                </Badge>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )
+                        })
+                    }
+
+                    {/* CRM tags — read-only */}
+                    {isFromCrm && lead && (lead.tags || []).length > 0 && (
+                        <div className="space-y-1.5 pt-1 border-t border-zinc-100 dark:border-zinc-800">
+                            <div className="flex items-center gap-2">
+                                <ExternalLink className="h-3 w-3 text-blue-500 shrink-0" />
+                                <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">CRM</span>
+                                <span className="text-[9px] text-zinc-400">(read-only)</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1 ml-4">
+                                {(lead.tags || []).map((tagValue: string) => {
+                                    const tagSetting = crmSettings.find(s => (s.category === 'tag' || s.category?.startsWith('tag_')) && s.value === tagValue)
+                                    const tagColor = tagSetting?.color || '#3b82f6'
+                                    return (
+                                        <Badge key={tagValue} className="text-[10px] px-2 py-0.5 border opacity-70" style={{ backgroundColor: `${tagColor}12`, color: tagColor, borderColor: `${tagColor}30` }}>
+                                            {tagSetting ? getSettingLabel(tagSetting) : tagValue}
+                                        </Badge>
+                                    )
+                                })}
+                            </div>
                         </div>
                     )}
-
-                    <div className="flex flex-wrap gap-2">
-                        {availableStatusTags.map(tagSetting => {
-                            const isSelected = localTags.includes(tagSetting.value)
-                            const tagColor = tagSetting.color || '#8b5cf6'
-                            return (
-                                <Button key={tagSetting.id} variant="outline" size="sm"
-                                    onClick={() => handleToggleTag(tagSetting.value)}
-                                    disabled={isPending}
-                                    className="text-xs transition-all"
-                                    style={isSelected ? { backgroundColor: `${tagColor}20`, color: tagColor, borderColor: `${tagColor}60` } : {}}
-                                >
-                                    <span className="h-2.5 w-2.5 rounded-full mr-1.5 shrink-0" style={{ backgroundColor: tagColor }} />
-                                    {getSettingLabel(tagSetting)}
-                                </Button>
-                            )
-                        })}
-                        {availableStatusTags.length === 0 && (
-                            <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                                {locale === 'th' ? 'ยังไม่มีแท็กสำหรับสถานะนี้ — ไปตั้งค่าในหน้า Settings' : 'No tags for this status — set up in Settings'}
-                            </span>
-                        )}
-                    </div>
                 </CardContent>
             </Card>
 
@@ -578,72 +643,12 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
 
                     {/* ============================================ */}
                     {/* CRM Cards — CRM-style UI with edit support */}
-                    {/* Order: Tags → Staff → Customer → Event → Financial */}
+                    {/* Order: Staff → Customer → Event → Financial */}
+                    {/* (Tags moved to unified tag card above) */}
                     {/* ============================================ */}
                     {isFromCrm && lead && (
                         <>
-                            {/* 1. CRM Tags */}
-                            {(lead.tags || []).length > 0 && (
-                                <CrmCard
-                                    title={locale === 'th' ? 'แท็ก' : 'Tags'}
-                                    icon={<Tag className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />}
-                                    iconBg="bg-blue-50 dark:bg-blue-950/40"
-                                >
-                                    <div className="space-y-3">
-                                        {(() => {
-                                            const generalTags = (lead.tags || []).filter((t: string) =>
-                                                crmSettings.find(s => s.category === 'tag' && s.value === t)
-                                            )
-                                            if (generalTags.length === 0) return null
-                                            return (
-                                                <div>
-                                                    <div className="flex items-center gap-1.5 mb-1.5">
-                                                        <span className="text-xs text-zinc-500 font-medium">{locale === 'th' ? 'แท็กทั่วไป' : 'General Tags'}</span>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {generalTags.map((tagValue: string) => {
-                                                            const tagSetting = crmSettings.find(s => s.category === 'tag' && s.value === tagValue)
-                                                            const tagColor = tagSetting?.color || '#3b82f6'
-                                                            return (
-                                                                <Badge key={tagValue} className="text-[10px] px-2 py-0.5 border" style={{ backgroundColor: `${tagColor}18`, color: tagColor, borderColor: `${tagColor}40` }}>
-                                                                    {tagSetting ? getSettingLabel(tagSetting) : tagValue}
-                                                                </Badge>
-                                                            )
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )
-                                        })()}
-
-                                        {(() => {
-                                            const statusTags = (lead.tags || []).filter((t: string) =>
-                                                crmSettings.find(s => s.category?.startsWith('tag_') && s.category !== 'tag' && s.value === t)
-                                            )
-                                            if (statusTags.length === 0) return null
-                                            return (
-                                                <div>
-                                                    <div className="flex items-center gap-1.5 mb-1.5">
-                                                        <span className="text-xs text-zinc-500 font-medium">{locale === 'th' ? 'แท็กตามสถานะ' : 'Status Tags'}</span>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {statusTags.map((tagValue: string) => {
-                                                            const tagSetting = crmSettings.find(s => s.category?.startsWith('tag_') && s.value === tagValue)
-                                                            const tagColor = tagSetting?.color || '#8b5cf6'
-                                                            return (
-                                                                <Badge key={tagValue} className="text-[10px] px-2 py-0.5 border" style={{ backgroundColor: `${tagColor}18`, color: tagColor, borderColor: `${tagColor}40` }}>
-                                                                    {tagSetting ? getSettingLabel(tagSetting) : tagValue}
-                                                                </Badge>
-                                                            )
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )
-                                        })()}
-                                    </div>
-                                </CrmCard>
-                            )}
-
-                            {/* 2. Staff Assignments */}
+                            {/* 1. Staff Assignments (was #2, CRM Tags removed) */}
                             <CrmCard
                                 title={locale === 'th' ? 'ผู้ดูแล' : 'Staff Assignments'}
                                 icon={<UsersIcon className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />}
@@ -677,11 +682,11 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                                             if (!open) {
                                                 startTransition(async () => {
                                                     const fd = new FormData()
-                                                    fd.set('assigned_to', localAssignedTo.join(','))
+                                                    fd.set('assigned_graphics', localAssignedGraphics.join(','))
                                                     await updateJob(job.id, fd)
                                                     if (job.crm_lead_id) {
                                                         const crmFd = new FormData()
-                                                        crmFd.set('assigned_graphics', localAssignedTo.join(','))
+                                                        crmFd.set('assigned_graphics', localAssignedGraphics.join(','))
                                                         await updateLead(job.crm_lead_id, crmFd)
                                                     }
                                                 })
@@ -690,8 +695,8 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                                             <DropdownMenuTrigger asChild>
                                                 <Button variant="outline" size="sm" className="w-full justify-between text-sm font-normal h-9" disabled={isPending}>
                                                     <span className="truncate text-left">
-                                                        {localAssignedTo.length > 0
-                                                            ? localAssignedTo.map(id => getUserName(id)).join(', ')
+                                                        {localAssignedGraphics.length > 0
+                                                            ? localAssignedGraphics.map(id => getUserName(id)).join(', ')
                                                             : (locale === 'th' ? 'เลือกกราฟิก...' : 'Select graphic...')
                                                         }
                                                     </span>
@@ -704,9 +709,9 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                                                 {users.map(user => (
                                                     <DropdownMenuCheckboxItem
                                                         key={user.id}
-                                                        checked={localAssignedTo.includes(user.id)}
+                                                        checked={localAssignedGraphics.includes(user.id)}
                                                         onCheckedChange={() => {
-                                                            setLocalAssignedTo(prev =>
+                                                            setLocalAssignedGraphics(prev =>
                                                                 prev.includes(user.id)
                                                                     ? prev.filter(id => id !== user.id)
                                                                     : [...prev, user.id]
@@ -731,11 +736,11 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                                             if (!open) {
                                                 startTransition(async () => {
                                                     const fd = new FormData()
-                                                    fd.set('assigned_to', localAssignedTo.join(','))
+                                                    fd.set('assigned_staff', localAssignedStaff.join(','))
                                                     await updateJob(job.id, fd)
                                                     if (job.crm_lead_id) {
                                                         const crmFd = new FormData()
-                                                        crmFd.set('assigned_staff', localAssignedTo.join(','))
+                                                        crmFd.set('assigned_staff', localAssignedStaff.join(','))
                                                         await updateLead(job.crm_lead_id, crmFd)
                                                     }
                                                 })
@@ -744,8 +749,8 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                                             <DropdownMenuTrigger asChild>
                                                 <Button variant="outline" size="sm" className="w-full justify-between text-sm font-normal h-9" disabled={isPending}>
                                                     <span className="truncate text-left">
-                                                        {localAssignedTo.length > 0
-                                                            ? localAssignedTo.map(id => getUserName(id)).join(', ')
+                                                        {localAssignedStaff.length > 0
+                                                            ? localAssignedStaff.map(id => getUserName(id)).join(', ')
                                                             : (locale === 'th' ? 'เลือกพนักงาน...' : 'Select staff...')
                                                         }
                                                     </span>
@@ -758,9 +763,9 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                                                 {users.map(user => (
                                                     <DropdownMenuCheckboxItem
                                                         key={user.id}
-                                                        checked={localAssignedTo.includes(user.id)}
+                                                        checked={localAssignedStaff.includes(user.id)}
                                                         onCheckedChange={() => {
-                                                            setLocalAssignedTo(prev =>
+                                                            setLocalAssignedStaff(prev =>
                                                                 prev.includes(user.id)
                                                                     ? prev.filter(id => id !== user.id)
                                                                     : [...prev, user.id]

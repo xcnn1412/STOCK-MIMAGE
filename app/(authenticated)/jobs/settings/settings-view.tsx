@@ -387,7 +387,10 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
 
     // ---- Render tag tab ----
     const renderTagTab = () => {
-        const statuses = currentTagStatuses
+        const tagCategory = `tag_${tagSubTab}`
+        const tagItems = settings
+            .filter(s => s.category === tagCategory)
+            .sort((a, b) => a.sort_order - b.sort_order)
 
         return (
             <div className="space-y-4">
@@ -406,31 +409,49 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                             <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: jt.color || '#9ca3af' }} />
                             {locale === 'th' ? jt.label_th : jt.label_en}
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                                {settings.filter(s => s.category.startsWith(`tag_${jt.value}_`)).length}
+                                {settings.filter(s => s.category === `tag_${jt.value}`).length}
                             </Badge>
                         </button>
                     ))}
                 </div>
 
-                {/* Status sections */}
-                {statuses.length === 0 ? (
-                    <div className="text-center py-8 text-sm text-zinc-400 dark:text-zinc-500">
-                        {locale === 'th'
-                            ? `ยังไม่มีสถานะ — ไปตั้งค่าสถานะก่อน`
-                            : `No statuses configured — set up statuses first`
-                        }
+                {/* Add form */}
+                {addMode && addCategory === tagCategory && (
+                    <AddForm category={tagCategory} />
+                )}
+
+                {/* Add button */}
+                {!(addMode && addCategory === tagCategory) && (
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs text-violet-600 border-violet-200 hover:bg-violet-50 dark:text-violet-400 dark:border-violet-800 dark:hover:bg-violet-950/30"
+                        onClick={() => { setAddMode(true); setAddCategory(tagCategory) }}
+                    >
+                        <Plus className="h-3 w-3 mr-1" />
+                        {locale === 'th' ? 'เพิ่มแท็ก' : 'Add Tag'}
+                    </Button>
+                )}
+
+                {/* Tag list */}
+                {tagItems.length === 0 ? (
+                    <div className="text-center py-6 text-sm text-zinc-400 dark:text-zinc-500">
+                        {locale === 'th' ? 'ยังไม่มีแท็ก — กดเพิ่มด้านบน' : 'No tags yet — click add above'}
                     </div>
                 ) : (
-                    <div className="space-y-2">
-                        {statuses.map((status: JobSetting) => (
-                            <TagStatusSection
-                                key={status.id}
-                                statusSetting={status}
-                                jobType={tagSubTab}
-                            />
+                    <div className="space-y-1.5">
+                        {tagItems.map(tag => (
+                            <SettingRow key={tag.id} setting={tag} />
                         ))}
                     </div>
                 )}
+
+                <p className="text-xs text-zinc-400 dark:text-zinc-500">
+                    {locale === 'th'
+                        ? 'แท็กจะใช้ร่วมกันในทุกสถานะของประเภทงานนี้'
+                        : 'Tags are shared across all statuses of this job type'
+                    }
+                </p>
             </div>
         )
     }
@@ -482,9 +503,12 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                             return (
                                 <div key={status.id} className="border border-zinc-200/60 dark:border-zinc-800/60 rounded-lg overflow-hidden">
                                     {/* Status header */}
-                                    <button
+                                    <div
                                         onClick={() => toggleSection(sectionKey)}
-                                        className="w-full flex items-center gap-2 px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left"
+                                        className="w-full flex items-center gap-2 px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left cursor-pointer select-none"
+                                        role="button"
+                                        tabIndex={0}
+                                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') toggleSection(sectionKey) }}
                                     >
                                         {isCollapsed
                                             ? <ChevronRight className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
@@ -508,7 +532,7 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                                         >
                                             <Plus className="h-3 w-3 mr-0.5" /> {locale === 'th' ? 'เพิ่มกลุ่ม' : 'Add Group'}
                                         </Button>
-                                    </button>
+                                    </div>
 
                                     {/* Section content */}
                                     {!isCollapsed && (

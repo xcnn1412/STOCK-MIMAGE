@@ -191,11 +191,10 @@ function JobCard({
         })
         .slice(0, 2)
 
-    // Tag badges — resolve from per-status tag categories
-    const statusTagCategory = `tag_${jobType}_${job.status}`
+    // Tag badges — resolve from per-job-type tag category
+    const tagCategory = `tag_${jobType}`
     const tagBadges = (job.tags || []).slice(0, 3).map(tagValue => {
-        const tagSetting = settings.find(s => s.category === statusTagCategory && s.value === tagValue)
-            || settings.find(s => s.category === 'tag' && s.value === tagValue)
+        const tagSetting = settings.find(s => s.category === tagCategory && s.value === tagValue)
         return {
             value: tagValue,
             label: tagSetting ? (locale === 'th' ? tagSetting.label_th : tagSetting.label_en) : tagValue,

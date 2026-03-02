@@ -89,6 +89,7 @@ export type ActionType =
     | 'UPDATE_JOB_SETTING'
     | 'DELETE_JOB_SETTING'
     | 'CREATE_JOBS_FROM_LEAD'
+    | 'UPDATE_JOB_TAGS'
     // User Profile
     | 'UPDATE_USER_PROFILE'
     | 'UPDATE_MY_PROFILE'
