@@ -54,6 +54,10 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
 
   const [state, formAction, isPending] = useActionState(
     async (_prev: any, formData: FormData) => {
+      // Append receipt files to FormData
+      for (const file of receiptFiles) {
+        formData.append('receipt_files', file)
+      }
       const result = await createClaim(formData)
       if (result.success) {
         router.push('/finance')
@@ -103,11 +107,10 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 key={type.value}
                 type="button"
                 onClick={() => setClaimType(type.value as 'event' | 'other')}
-                className={`p-4 rounded-xl border-2 text-left transition-all ${
-                  claimType === type.value
+                className={`p-4 rounded-xl border-2 text-left transition-all ${claimType === type.value
                     ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20'
                     : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300'
-                }`}
+                  }`}
               >
                 <p className="font-medium text-zinc-900 dark:text-zinc-100">
                   {isEn ? type.label : type.labelTh}
@@ -412,7 +415,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-4 text-center hover:border-emerald-400 transition-colors">
             <input
               type="file"
-              accept="image/*"
+              accept="image/*,application/pdf"
               multiple
               onChange={handleFileChange}
               className="hidden"

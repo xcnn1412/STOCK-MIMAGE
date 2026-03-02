@@ -81,6 +81,41 @@ export async function getClaim(id: string) {
 }
 
 // ============================================================================
+// Upload receipt files to Supabase Storage
+// ============================================================================
+
+async function uploadReceiptFiles(supabase: any, files: File[], claimNumber: string): Promise<string[]> {
+  const urls: string[] = []
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    const ext = file.name.split('.').pop() || 'jpg'
+    const safeName = claimNumber.replace(/[^a-zA-Z0-9-]/g, '_')
+    const filePath = `claims/${safeName}/${Date.now()}_${i}.${ext}`
+
+    const { data, error } = await supabase.storage
+      .from('receipts')
+      .upload(filePath, file, {
+        contentType: file.type,
+        upsert: false,
+      })
+
+    if (error) {
+      console.error('Upload receipt error:', error)
+      continue
+    }
+
+    const { data: publicUrl } = supabase.storage
+      .from('receipts')
+      .getPublicUrl(data.path)
+
+    if (publicUrl?.publicUrl) {
+      urls.push(publicUrl.publicUrl)
+    }
+  }
+  return urls
+}
+
+// ============================================================================
 // Create Claim
 // ============================================================================
 
@@ -106,9 +141,24 @@ export async function createClaim(formData: FormData) {
   const notes = formData.get('notes') as string || null
   const job_event_id = formData.get('job_event_id') as string || null
 
+  // Collect receipt files from FormData
+  const receiptFiles: File[] = []
+  const allEntries = formData.getAll('receipt_files')
+  for (const entry of allEntries) {
+    if (entry instanceof File && entry.size > 0) {
+      receiptFiles.push(entry)
+    }
+  }
+
   if (!title) return { error: 'กรุณากรอกหัวข้อการเบิก' }
   if (amount <= 0 && unit_price <= 0) return { error: 'กรุณากรอกจำนวนเงินที่ถูกต้อง (ราคาต่อหน่วยต้องมากกว่า 0)' }
   if (claim_type === 'event' && !job_event_id) return { error: 'กรุณาเลือกอีเวนต์' }
+
+  // Upload receipt files first
+  let receipt_urls: string[] = []
+  if (receiptFiles.length > 0) {
+    receipt_urls = await uploadReceiptFiles(supabase, receiptFiles, claimNumber)
+  }
 
   const { data, error } = await supabase
     .from('expense_claims')
@@ -128,6 +178,7 @@ export async function createClaim(formData: FormData) {
       include_vat,
       withholding_tax_rate,
       notes,
+      receipt_urls,
       submitted_by: userId,
       status: 'pending',
     })
@@ -153,10 +204,10 @@ export async function createClaim(formData: FormData) {
 }
 
 // ============================================================================
-// Update Claim (only if pending)
+// Update Claim (admin or owner if pending) + upload receipts + log changes
 // ============================================================================
 
-export async function updateClaim(id: string, data: {
+export async function updateClaim(id: string, updateData: {
   title?: string
   description?: string | null
   category?: string
@@ -169,32 +220,104 @@ export async function updateClaim(id: string, data: {
   include_vat?: boolean
   withholding_tax_rate?: number
   notes?: string | null
-}) {
+}, receiptFormData?: FormData) {
   const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
-  if (role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถแก้ไขใบเบิกได้' }
 
   const supabase = createServiceClient()
 
   const { data: claim } = await supabase
     .from('expense_claims')
-    .select('status, submitted_by')
+    .select('*')
     .eq('id', id)
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
   if (claim.status !== 'pending') return { error: 'แก้ไขได้เฉพาะใบเบิกที่รออนุมัติเท่านั้น' }
 
+  const isAdmin = role === 'admin'
+  const isOwner = claim.submitted_by === userId
+  if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
+
+  // Track what changed for the log
+  const changes: Record<string, { from: any; to: any }> = {}
+  const fieldsToCheck = ['title', 'description', 'category', 'amount', 'unit_price', 'unit', 'quantity', 'expense_date', 'vat_mode', 'withholding_tax_rate', 'notes'] as const
+  for (const key of fieldsToCheck) {
+    if (key in updateData && updateData[key as keyof typeof updateData] !== (claim as any)[key]) {
+      changes[key] = { from: (claim as any)[key], to: updateData[key as keyof typeof updateData] }
+    }
+  }
+
+  // Handle receipt file uploads
+  let newReceiptUrls: string[] = []
+  if (receiptFormData) {
+    const files: File[] = []
+    const entries = receiptFormData.getAll('receipt_files')
+    for (const entry of entries) {
+      if (entry instanceof File && entry.size > 0) files.push(entry)
+    }
+    if (files.length > 0) {
+      newReceiptUrls = await uploadReceiptFiles(supabase, files, claim.claim_number)
+    }
+  }
+
+  const finalData: any = { ...updateData }
+  if (newReceiptUrls.length > 0) {
+    const existing = claim.receipt_urls || []
+    finalData.receipt_urls = [...existing, ...newReceiptUrls]
+    changes['receipt_urls'] = { from: existing.length, to: finalData.receipt_urls.length }
+  }
+
   const { error } = await supabase
     .from('expense_claims')
-    .update(data)
+    .update(finalData)
     .eq('id', id)
 
   if (error) return { error: 'เกิดข้อผิดพลาดในการแก้ไข' }
 
+  // Log changes
+  if (Object.keys(changes).length > 0) {
+    await supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'update',
+      changed_by: userId,
+      changes,
+      note: newReceiptUrls.length > 0
+        ? `แก้ไขข้อมูล + อัพโหลดเอกสาร ${newReceiptUrls.length} ไฟล์`
+        : 'แก้ไขข้อมูล',
+    })
+  } else if (newReceiptUrls.length > 0) {
+    await supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'upload_receipt',
+      changed_by: userId,
+      changes: { receipt_urls: { from: (claim.receipt_urls || []).length, to: (claim.receipt_urls || []).length + newReceiptUrls.length } },
+      note: `อัพโหลดเอกสาร ${newReceiptUrls.length} ไฟล์`,
+    })
+  }
+
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
   return { success: true }
+}
+
+// ============================================================================
+// Get Claim Edit Logs
+// ============================================================================
+
+export async function getClaimLogs(claimId: string) {
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('expense_claim_logs')
+    .select(`
+      *,
+      editor:profiles!expense_claim_logs_changed_by_fkey(id, full_name)
+    `)
+    .eq('claim_id', claimId)
+    .order('created_at', { ascending: false })
+
+  if (error) return []
+  return data || []
 }
 
 // ============================================================================

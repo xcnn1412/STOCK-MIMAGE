@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
   Banknote, User, Calendar, Tag, MessageSquare, Printer, Edit3, Save, X,
-  Receipt, Percent
+  Receipt, Percent, Upload, History
 } from 'lucide-react'
 import { approveClaim, rejectClaim, deleteClaim, updateClaim } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../../costs/types'
@@ -32,7 +32,17 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-export default function ClaimDetailView({ claim, role, categories = [] }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[] }) {
+interface ClaimLog {
+  id: string
+  action: string
+  changed_by: string | null
+  changes: Record<string, { from: any; to: any }>
+  note: string | null
+  created_at: string
+  editor?: { id: string; full_name: string } | null
+}
+
+export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '' }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string }) {
   const router = useRouter()
   const { locale } = useLocale()
   const [loading, setLoading] = useState(false)
@@ -40,6 +50,7 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
   const [rejectReason, setRejectReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [editReceiptFiles, setEditReceiptFiles] = useState<File[]>([])
 
   // Edit form state
   const [editTitle, setEditTitle] = useState(claim.title)
@@ -54,7 +65,9 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
   const [editNotes, setEditNotes] = useState(claim.notes || '')
 
   const isAdmin = role === 'admin'
+  const isOwner = claim.submitted_by === userId
   const isPending = claim.status === 'pending'
+  const canEdit = isPending && (isAdmin || isOwner)
   const statusColor = getClaimStatusColor(claim.status)
   const isEn = locale === 'en'
 
@@ -96,6 +109,13 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
   const handleSaveEdit = async () => {
     setLoading(true)
     setError(null)
+    let receiptFormData: FormData | undefined
+    if (editReceiptFiles.length > 0) {
+      receiptFormData = new FormData()
+      for (const f of editReceiptFiles) {
+        receiptFormData.append('receipt_files', f)
+      }
+    }
     const result = await updateClaim(claim.id, {
       title: editTitle,
       description: editDescription || null,
@@ -109,9 +129,9 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
       include_vat: editVatMode !== 'none',
       withholding_tax_rate: editWhtRateNum,
       notes: editNotes || null,
-    })
+    }, receiptFormData)
     if (result.error) { setError(result.error); setLoading(false) }
-    else { setEditing(false); router.refresh(); setLoading(false) }
+    else { setEditing(false); setEditReceiptFiles([]); router.refresh(); setLoading(false) }
   }
 
   const handleCancelEdit = () => {
@@ -126,6 +146,7 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
     setEditVatMode(claim.vat_mode || 'none')
     setEditWhtRate(String(claim.withholding_tax_rate || 0))
     setEditNotes(claim.notes || '')
+    setEditReceiptFiles([])
   }
 
   const handlePrint = () => window.print()
@@ -141,7 +162,7 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
           {isEn ? 'Back' : 'กลับ'}
         </button>
         <div className="flex items-center gap-2">
-          {isPending && !editing && (
+          {canEdit && !editing && (
             <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg transition-colors">
               <Edit3 className="h-4 w-4" />
               {isEn ? 'Edit' : 'แก้ไข'}
@@ -299,6 +320,47 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
                 <input value={editNotes} onChange={e => setEditNotes(e.target.value)} className={inputCls} />
               </div>
 
+              {/* Receipt Upload in Edit Mode */}
+              <div>
+                <label className="text-xs font-medium text-zinc-500 mb-1.5 flex items-center gap-1.5 block">
+                  <Upload className="h-3.5 w-3.5" />
+                  {isEn ? 'Upload Receipts' : 'อัพโหลดเอกสารเพิ่มเติม'}
+                </label>
+                {claim.receipt_urls && claim.receipt_urls.length > 0 && (
+                  <p className="text-xs text-zinc-400 mb-2">
+                    {isEn ? `${claim.receipt_urls.length} existing file(s)` : `มีเอกสารเดิม ${claim.receipt_urls.length} ไฟล์`}
+                  </p>
+                )}
+                <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-3 text-center hover:border-emerald-400 transition-colors">
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    multiple
+                    onChange={(e) => { if (e.target.files) setEditReceiptFiles(prev => [...prev, ...Array.from(e.target.files!)]) }}
+                    className="hidden"
+                    id="edit-receipt-upload"
+                  />
+                  <label htmlFor="edit-receipt-upload" className="cursor-pointer">
+                    <Upload className="h-6 w-6 mx-auto text-zinc-400 mb-1" />
+                    <p className="text-xs text-zinc-500">
+                      {isEn ? 'Click to upload' : 'คลิกเพื่ออัพโหลด'}
+                    </p>
+                  </label>
+                </div>
+                {editReceiptFiles.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {editReceiptFiles.map((file, i) => (
+                      <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-zinc-50 dark:bg-zinc-800 rounded text-xs">
+                        <span className="truncate text-zinc-600 dark:text-zinc-400">{file.name}</span>
+                        <button type="button" onClick={() => setEditReceiptFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-zinc-400 hover:text-red-500 ml-2">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center gap-2 pt-2">
                 <button onClick={handleSaveEdit} disabled={loading || !editTitle} className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
                   <Save className="h-4 w-4" />
@@ -422,6 +484,44 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
                   <span className="font-medium">{isEn ? 'Notes:' : 'หมายเหตุ:'}</span> {claim.notes}
                 </div>
               )}
+
+              {/* Receipt Documents */}
+              {claim.receipt_urls && claim.receipt_urls.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5 mb-3">
+                    <FileText className="h-3.5 w-3.5" />
+                    {isEn ? 'Attached Receipts' : 'เอกสารแนบ'} ({claim.receipt_urls.length})
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {claim.receipt_urls.map((url, i) => {
+                      const isPdf = url.toLowerCase().endsWith('.pdf')
+                      return (
+                        <a
+                          key={i}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group relative block rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden hover:border-emerald-400 hover:shadow-md transition-all aspect-[4/3] bg-zinc-50 dark:bg-zinc-800"
+                        >
+                          {isPdf ? (
+                            <div className="flex flex-col items-center justify-center h-full gap-2 text-zinc-400">
+                              <FileText className="h-10 w-10" />
+                              <span className="text-xs">PDF</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={url}
+                              alt={`${isEn ? 'Receipt' : 'ใบเสร็จ'} ${i + 1}`}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            />
+                          )}
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                        </a>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -456,6 +556,55 @@ export default function ClaimDetailView({ claim, role, categories = [] }: { clai
           </div>
         )}
       </div>
+
+      {/* Edit History Log */}
+      {logs.length > 0 && (
+        <div className="mt-6 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden print:hidden">
+          <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800">
+            <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-2">
+              <History className="h-4 w-4" />
+              {isEn ? 'Edit History' : 'ประวัติการแก้ไข'}
+            </h3>
+          </div>
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {logs.map((log) => (
+              <div key={log.id} className="px-6 py-3">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${log.action === 'update' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
+                      : log.action === 'upload_receipt' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                      }`}>
+                      {log.action === 'update' ? (isEn ? 'Edit' : 'แก้ไข')
+                        : log.action === 'upload_receipt' ? (isEn ? 'Upload' : 'อัพโหลด')
+                          : log.action}
+                    </span>
+                    <span className="text-xs text-zinc-500">
+                      {log.editor?.full_name || (isEn ? 'Unknown' : 'ไม่ทราบ')}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-zinc-400">
+                    {new Date(log.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                  </span>
+                </div>
+                {log.note && <p className="text-xs text-zinc-500 mb-1">{log.note}</p>}
+                {log.changes && Object.keys(log.changes).length > 0 && (
+                  <div className="space-y-0.5">
+                    {Object.entries(log.changes).map(([field, change]) => (
+                      <div key={field} className="text-[11px] text-zinc-400">
+                        <span className="font-medium text-zinc-500">{field}:</span>{' '}
+                        <span className="line-through text-red-400/70">{String(change.from ?? '—')}</span>
+                        {' → '}
+                        <span className="text-emerald-600">{String(change.to ?? '—')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
