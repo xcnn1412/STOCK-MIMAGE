@@ -1,0 +1,541 @@
+'use server'
+
+import { createServiceClient } from '@/lib/supabase-server'
+import { revalidatePath } from 'next/cache'
+import { logActivity } from '@/lib/logger'
+import { cookies } from 'next/headers'
+
+
+async function getSession() {
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
+    const role = cookieStore.get('session_role')?.value
+    return { userId, role }
+}
+
+// ============================================================================
+// System Users — fetch from profiles
+// ============================================================================
+
+export async function getSystemUsers() {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, department')
+        .order('full_name', { ascending: true })
+
+    if (error) return []
+    return data || []
+}
+
+// ============================================================================
+// Job Settings — CRUD
+// ============================================================================
+
+export interface JobSetting {
+    id: string
+    category: string
+    value: string
+    label_th: string
+    label_en: string
+    color: string | null
+    sort_order: number
+    is_active: boolean
+    created_at: string
+}
+
+export async function getJobSettings(category?: string) {
+    const supabase = createServiceClient()
+    let query = supabase
+        .from('job_settings')
+        .select('*')
+        .order('sort_order', { ascending: true })
+
+    if (category) {
+        query = query.eq('category', category)
+    }
+
+    const { data, error } = await query
+    if (error) return { error: error.message, data: [] }
+    return { data: data || [] }
+}
+
+export async function createJobSetting(formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const category = formData.get('category') as string
+    const value = formData.get('value') as string
+    const label_th = formData.get('label_th') as string
+    const label_en = formData.get('label_en') as string
+    const color = formData.get('color') as string || null
+    const sort_order = formData.get('sort_order') ? Number(formData.get('sort_order')) : 0
+
+    const { error } = await supabase.from('job_settings').insert({
+        category, value, label_th, label_en, color, sort_order, is_active: true
+    })
+
+    if (error) return { error: error.message }
+
+    await logActivity('CREATE_JOB_SETTING', { category, value, label_th })
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+export async function updateJobSetting(id: string, formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const updates: Record<string, unknown> = {}
+
+    const fields = ['value', 'label_th', 'label_en', 'color', 'category']
+    fields.forEach(f => {
+        const v = formData.get(f)
+        if (v !== null) updates[f] = v as string
+    })
+    if (formData.get('sort_order') !== null) updates.sort_order = Number(formData.get('sort_order') || 0)
+    if (formData.has('is_active')) updates.is_active = formData.get('is_active') === 'true'
+
+    const { error } = await supabase.from('job_settings').update(updates).eq('id', id)
+    if (error) return { error: error.message }
+
+    await logActivity('UPDATE_JOB_SETTING', { id, changes: Object.keys(updates).join(', ') })
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+export async function deleteJobSetting(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('job_settings').delete().eq('id', id)
+    if (error) return { error: error.message }
+
+    await logActivity('DELETE_JOB_SETTING', { id })
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+export async function toggleJobSetting(id: string, is_active: boolean) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('job_settings').update({ is_active }).eq('id', id)
+    if (error) return { error: error.message }
+
+    await logActivity('UPDATE_JOB_SETTING', { id, is_active })
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+// ============================================================================
+// Jobs — CRUD
+// ============================================================================
+
+export type JobType = 'graphic' | 'onsite'
+
+export interface Job {
+    id: string
+    crm_lead_id: string | null
+    job_type: JobType
+    status: string
+    title: string
+    description: string | null
+    assigned_to: string[]
+    tags: string[]
+    priority: string
+    due_date: string | null
+    event_date: string | null
+    event_location: string | null
+    customer_name: string | null
+    notes: string | null
+    created_by: string | null
+    created_at: string
+    updated_at: string
+    archived_at: string | null
+}
+
+export async function getJobs(filters?: {
+    job_type?: JobType
+    status?: string
+    search?: string
+    includeArchived?: boolean
+}) {
+    const supabase = createServiceClient()
+    let query = supabase
+        .from('jobs')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+    if (!filters?.includeArchived) {
+        query = query.is('archived_at', null)
+    }
+
+    if (filters?.job_type) query = query.eq('job_type', filters.job_type)
+    if (filters?.status) query = query.eq('status', filters.status)
+    if (filters?.search) {
+        const sanitized = filters.search.replace(/[.,()]/g, '').trim()
+        if (sanitized) {
+            query = query.or(`title.ilike.%${sanitized}%,customer_name.ilike.%${sanitized}%`)
+        }
+    }
+
+    const { data, error } = await query
+    if (error) return { error: error.message, data: [] }
+    return { data: data || [] }
+}
+
+export async function getJob(id: string) {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('id', id)
+        .single()
+
+    if (error) return { error: error.message, data: null }
+    return { data }
+}
+
+export async function createJob(formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    const job = {
+        crm_lead_id: formData.get('crm_lead_id') as string || null,
+        job_type: formData.get('job_type') as string,
+        status: formData.get('status') as string || 'pending',
+        title: formData.get('title') as string,
+        description: formData.get('description') as string || null,
+        assigned_to: (formData.get('assigned_to') as string || '').split(',').filter(Boolean),
+        tags: (formData.get('tags') as string || '').split(',').map(t => t.trim()).filter(Boolean),
+        priority: formData.get('priority') as string || 'medium',
+        due_date: formData.get('due_date') as string || null,
+        event_date: formData.get('event_date') as string || null,
+        event_location: formData.get('event_location') as string || null,
+        customer_name: formData.get('customer_name') as string || null,
+        notes: formData.get('notes') as string || null,
+        created_by: userId,
+    }
+
+    const { data, error } = await supabase.from('jobs').insert(job).select().single()
+    if (error) return { error: error.message }
+
+    await logActivity('CREATE_JOB', { id: data.id, job_type: job.job_type, title: job.title })
+    revalidatePath('/jobs')
+    return { success: true, id: data.id }
+}
+
+export async function updateJob(id: string, formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+
+    const textFields = ['title', 'description', 'event_location', 'customer_name', 'notes', 'priority']
+    textFields.forEach(f => {
+        const v = formData.get(f)
+        if (v !== null) updates[f] = v as string || null
+    })
+
+    const dateFields = ['due_date', 'event_date']
+    dateFields.forEach(f => {
+        const v = formData.get(f)
+        if (v !== null) updates[f] = (v as string) || null
+    })
+
+    // Tags
+    if (formData.has('tags')) {
+        const tagsStr = formData.get('tags') as string || ''
+        updates.tags = tagsStr.split(',').map(t => t.trim()).filter(Boolean)
+    }
+
+    // Assigned to
+    if (formData.has('assigned_to')) {
+        const str = formData.get('assigned_to') as string || ''
+        updates.assigned_to = str.split(',').filter(Boolean)
+    }
+
+    const { error } = await supabase.from('jobs').update(updates).eq('id', id)
+    if (error) return { error: error.message }
+
+    await logActivity('UPDATE_JOB', { id, changes: Object.keys(updates).join(', ') })
+    revalidatePath('/jobs')
+    revalidatePath(`/jobs/${id}`)
+    return { success: true }
+}
+
+export async function updateJobStatus(id: string, newStatus: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    // Get current status
+    const { data: job } = await supabase.from('jobs').select('status').eq('id', id).single()
+    const oldStatus = job?.status || 'unknown'
+
+    // Update status
+    const { error } = await supabase
+        .from('jobs')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', id)
+    if (error) return { error: error.message }
+
+    // Log activity
+    await supabase.from('job_activities').insert({
+        job_id: id,
+        created_by: userId,
+        activity_type: 'status_change',
+        description: `สถานะเปลี่ยน: ${oldStatus} → ${newStatus}`,
+        old_status: oldStatus,
+        new_status: newStatus,
+    })
+
+    await logActivity('UPDATE_JOB_STATUS', { id, oldStatus, newStatus })
+    revalidatePath('/jobs')
+    revalidatePath(`/jobs/${id}`)
+    return { success: true }
+}
+
+export async function deleteJob(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('jobs').delete().eq('id', id)
+    if (error) return { error: error.message }
+
+    await logActivity('DELETE_JOB', { id })
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+export async function archiveJob(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('jobs')
+        .update({ archived_at: new Date().toISOString() })
+        .eq('id', id)
+    if (error) return { error: error.message }
+
+    await supabase.from('job_activities').insert({
+        job_id: id,
+        created_by: userId,
+        activity_type: 'note',
+        description: 'ย้ายไปที่ Archive',
+    })
+
+    await logActivity('ARCHIVE_JOB', { id })
+    revalidatePath('/jobs')
+    revalidatePath(`/jobs/${id}`)
+    return { success: true }
+}
+
+export async function unarchiveJob(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('jobs')
+        .update({ archived_at: null })
+        .eq('id', id)
+    if (error) return { error: error.message }
+
+    await supabase.from('job_activities').insert({
+        job_id: id,
+        created_by: userId,
+        activity_type: 'note',
+        description: 'นำออกจาก Archive แล้ว',
+    })
+
+    await logActivity('UNARCHIVE_JOB', { id })
+    revalidatePath('/jobs')
+    revalidatePath(`/jobs/${id}`)
+    return { success: true }
+}
+
+// ============================================================================
+// Job Activities — บันทึกการติดตาม
+// ============================================================================
+
+export async function getJobActivities(jobId: string) {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('job_activities')
+        .select('*, profiles:created_by(full_name)')
+        .eq('job_id', jobId)
+        .order('created_at', { ascending: false })
+
+    if (error) return { error: error.message, data: [] }
+    return { data: data || [] }
+}
+
+export async function createJobActivity(jobId: string, formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const activity_type = formData.get('activity_type') as string
+    const description = formData.get('description') as string
+
+    const { error } = await supabase.from('job_activities').insert({
+        job_id: jobId,
+        created_by: userId,
+        activity_type,
+        description,
+    })
+
+    if (error) return { error: error.message }
+
+    await supabase.from('jobs').update({ updated_at: new Date().toISOString() }).eq('id', jobId)
+
+    await logActivity('CREATE_JOB_ACTIVITY', { jobId, activity_type, description })
+    revalidatePath(`/jobs/${jobId}`)
+    return { success: true }
+}
+
+// ============================================================================
+// Create Jobs from CRM Lead — ส่งต่องานจาก CRM
+// ============================================================================
+
+export async function createJobsFromLead(leadId: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    // Get lead data
+    const { data: lead, error: leadErr } = await supabase
+        .from('crm_leads')
+        .select('*')
+        .eq('id', leadId)
+        .single()
+
+    if (leadErr || !lead) return { error: 'ไม่พบข้อมูล Lead' }
+
+    // Get default first status for each pipeline
+    const { data: graphicStatuses } = await supabase
+        .from('job_settings')
+        .select('value')
+        .eq('category', 'graphic_status')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .limit(1)
+
+    const { data: onsiteStatuses } = await supabase
+        .from('job_settings')
+        .select('value')
+        .eq('category', 'onsite_status')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .limit(1)
+
+    const graphicStatus = graphicStatuses?.[0]?.value || 'pending'
+    const onsiteStatus = onsiteStatuses?.[0]?.value || 'preparing'
+
+    const baseJob = {
+        crm_lead_id: leadId,
+        title: `${lead.customer_name} — ${lead.event_details || lead.package_name || 'งาน'}`,
+        customer_name: lead.customer_name,
+        event_date: lead.event_date,
+        event_location: lead.event_location,
+        notes: lead.notes,
+        created_by: userId,
+        priority: 'medium' as const,
+        assigned_to: [] as string[],
+        tags: [] as string[],
+    }
+
+    // Create graphic job with assigned_graphics from lead
+    const graphicJob = {
+        ...baseJob,
+        job_type: 'graphic',
+        status: graphicStatus,
+        assigned_to: lead.assigned_graphics || [],
+    }
+
+    // Create onsite job with assigned_staff from lead
+    const onsiteJob = {
+        ...baseJob,
+        job_type: 'onsite',
+        status: onsiteStatus,
+        assigned_to: lead.assigned_staff || [],
+    }
+
+    const { data: jobs, error: insertErr } = await supabase
+        .from('jobs')
+        .insert([graphicJob, onsiteJob])
+        .select()
+
+    if (insertErr) return { error: insertErr.message }
+
+    // Log activity in CRM
+    await supabase.from('crm_activities').insert({
+        lead_id: leadId,
+        created_by: userId,
+        activity_type: 'note',
+        description: `ส่งต่องานแล้ว: กราฟฟิก + ออกหน้างาน`,
+    })
+
+    await logActivity('CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs?.map(j => j.id) })
+    revalidatePath('/jobs')
+    revalidatePath('/crm')
+    revalidatePath(`/crm/${leadId}`)
+    return { success: true, jobs: jobs || [] }
+}
+
+// Get jobs linked to a CRM lead
+export async function getJobsByLeadId(leadId: string) {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('jobs')
+        .select('id, job_type, status, title, created_at')
+        .eq('crm_lead_id', leadId)
+        .order('created_at', { ascending: false })
+
+    if (error) return []
+    return data || []
+}
+
+// Get full CRM lead data for job detail page
+export async function getCrmLeadForJob(leadId: string) {
+    const supabase = createServiceClient()
+    const { data: lead, error } = await supabase
+        .from('crm_leads')
+        .select('*')
+        .eq('id', leadId)
+        .single()
+
+    if (error || !lead) return null
+
+    // Get installments
+    const { data: installments } = await supabase
+        .from('crm_lead_installments')
+        .select('*')
+        .eq('lead_id', leadId)
+        .order('installment_number', { ascending: true })
+
+    // Get CRM settings for display labels
+    const { data: crmSettings } = await supabase
+        .from('crm_settings')
+        .select('*')
+        .order('sort_order', { ascending: true })
+
+    return {
+        lead,
+        installments: installments || [],
+        crmSettings: crmSettings || [],
+    }
+}

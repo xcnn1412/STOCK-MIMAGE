@@ -22,6 +22,7 @@ const moduleAccents: Record<string, { color: string; bg: string; activeBg: strin
     costs: { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/30', activeBg: 'bg-emerald-50 dark:bg-emerald-950/30' },
     finance: { color: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-50 dark:bg-teal-950/30', activeBg: 'bg-teal-50 dark:bg-teal-950/30' },
     crm: { color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/30', activeBg: 'bg-blue-50 dark:bg-blue-950/30' },
+    jobs: { color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-950/30', activeBg: 'bg-violet-50 dark:bg-violet-950/30' },
     admin: { color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950/30', activeBg: 'bg-purple-50 dark:bg-purple-950/30' },
 }
 
@@ -235,9 +236,9 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                       transition-colors duration-200
                       ${collapsed && !isMobile ? 'justify-center' : ''}
                       ${isActive('/profile', true)
-                        ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-semibold'
-                        : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-300 dark:hover:bg-zinc-800'
-                      }
+                            ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-semibold'
+                            : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-300 dark:hover:bg-zinc-800'
+                        }
                     `}
                 >
                     <User className="h-4 w-4 shrink-0" />

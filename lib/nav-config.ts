@@ -1,8 +1,8 @@
-import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield } from 'lucide-react'
+import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase } from 'lucide-react'
 
-export type ModuleKey = 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'admin'
+export type ModuleKey = 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'jobs' | 'admin'
 
-export const ALL_MODULES: ModuleKey[] = ['crm', 'events', 'stock', 'costs', 'finance', 'kpi']
+export const ALL_MODULES: ModuleKey[] = ['crm', 'jobs', 'events', 'stock', 'costs', 'finance', 'kpi']
 
 export interface NavItem {
   href: string
@@ -32,6 +32,14 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    key: 'jobs',
+    icon: Briefcase,
+    items: [
+      { href: '/jobs', icon: Briefcase, labelKey: 'jobsKanban', exact: true },
+      { href: '/jobs/settings', icon: Settings, labelKey: 'jobsSettings' },
+    ],
+  },
+  {
     key: 'events',
     icon: Calendar,
     items: [
@@ -49,7 +57,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/example-kits', icon: FileText, labelKey: 'examples' },
     ],
   },
-
   {
     key: 'costs',
     icon: DollarSign,
