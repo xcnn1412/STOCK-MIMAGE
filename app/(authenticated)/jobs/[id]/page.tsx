@@ -1,14 +1,17 @@
 import { notFound } from 'next/navigation'
-import { getJob, getJobActivities, getJobSettings, getSystemUsers, getCrmLeadForJob } from '../actions'
+import { getJob, getJobActivities, getJobSettings, getSystemUsers, getCrmLeadForJob, getChecklistTemplates, getJobChecklists, getJobTypes } from '../actions'
 import JobDetail from './job-detail'
 
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
-    const [jobResult, activitiesResult, settingsResult, users] = await Promise.all([
+    const [jobResult, activitiesResult, settingsResult, users, templatesResult, checklistItemsResult, jobTypesResult] = await Promise.all([
         getJob(id),
         getJobActivities(id),
         getJobSettings(),
         getSystemUsers(),
+        getChecklistTemplates(),
+        getJobChecklists(id),
+        getJobTypes(),
     ])
 
     if (!jobResult.data) return notFound()
@@ -25,6 +28,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             settings={settingsResult.data || []}
             users={users}
             crmData={crmData}
+            checklistTemplates={templatesResult.data || []}
+            checklistItems={checklistItemsResult.data || []}
+            jobTypes={jobTypesResult.data || []}
         />
     )
 }

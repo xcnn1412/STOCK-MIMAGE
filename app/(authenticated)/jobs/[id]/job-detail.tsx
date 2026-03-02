@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation'
 import {
     ArrowLeft, Calendar, MapPin, User, Tag, Clock, Palette, Wrench, Pencil,
     Save, X, Trash2, Edit2, Plus, Phone, MessageCircle, Mail, Users as UsersIcon,
-    ExternalLink, Lock, ChevronDown, ChevronUp, DollarSign, Package, Briefcase
+    ExternalLink, Lock, ChevronDown, ChevronUp, DollarSign, Package, Briefcase,
+    ListChecks, CheckSquare, Square
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -23,9 +24,10 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
     updateJob, updateJobStatus, deleteJob, createJobActivity,
+    toggleChecklistItem,
 } from '../actions'
 import { updateLead } from '../../crm/actions'
-import type { Job, JobSetting, JobType } from '../actions'
+import type { Job, JobSetting, JobType, ChecklistTemplate, ChecklistItem } from '../actions'
 import { getStatusesFromSettings, getStatusConfig } from '../jobs-dashboard'
 import { useLocale } from '@/lib/i18n/context'
 
@@ -190,9 +192,12 @@ interface JobDetailProps {
     settings: JobSetting[]
     users: SystemUser[]
     crmData: CrmDataProp | null
+    checklistTemplates: ChecklistTemplate[]
+    checklistItems: ChecklistItem[]
+    jobTypes: JobSetting[]
 }
 
-export default function JobDetail({ job, activities, settings, users, crmData }: JobDetailProps) {
+export default function JobDetail({ job, activities, settings, users, crmData, checklistTemplates, checklistItems, jobTypes }: JobDetailProps) {
     const { locale } = useLocale()
     const router = useRouter()
     const [isPending, startTransition] = useTransition()
@@ -215,6 +220,10 @@ export default function JobDetail({ job, activities, settings, users, crmData }:
 
     // Assigned to state (editable for graphic/onsite)
     const [localAssignedTo, setLocalAssignedTo] = useState<string[]>(job.assigned_to || [])
+
+    // Checklist optimistic state — instant UI updates
+    const [localChecklistItems, setLocalChecklistItems] = useState<ChecklistItem[]>(checklistItems)
+    const [collapsedChecklistStatuses, setCollapsedChecklistStatuses] = useState<Set<string>>(new Set())
 
     // CRM card editing state
     type CrmCardSection = 'customer' | 'event' | 'financial'
@@ -445,16 +454,17 @@ export default function JobDetail({ job, activities, settings, users, crmData }:
                 </Button>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        {job.job_type === 'graphic'
-                            ? <Palette className="h-5 w-5 text-violet-500" />
-                            : <Wrench className="h-5 w-5 text-emerald-500" />
-                        }
-                        <Badge variant="secondary" className="text-xs">
-                            {job.job_type === 'graphic'
-                                ? (locale === 'th' ? 'กราฟฟิก' : 'Graphic')
-                                : (locale === 'th' ? 'ออกหน้างาน' : 'On-site')
-                            }
-                        </Badge>
+                        {(() => {
+                            const jt = jobTypes.find(t => t.value === job.job_type)
+                            return (
+                                <>
+                                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: jt?.color || '#9ca3af' }} />
+                                    <Badge variant="secondary" className="text-xs">
+                                        {jt ? (locale === 'th' ? jt.label_th : jt.label_en) : job.job_type}
+                                    </Badge>
+                                </>
+                            )
+                        })()}
                         <span className={`text-sm font-medium ${priority.color}`}>{priority.label}</span>
                         {isFromCrm && (
                             <Badge className="text-[10px] bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 border-0 gap-1">
@@ -1132,34 +1142,184 @@ export default function JobDetail({ job, activities, settings, users, crmData }:
                         </CardContent>
                     </Card>
 
-                    {/* Due Date */}
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between py-4">
-                            <CardTitle className="text-base">{locale === 'th' ? 'กำหนดส่ง' : 'Due Date'}</CardTitle>
-                            {editing !== 'event' ? (
-                                <Button variant="ghost" size="sm" onClick={() => startEdit('event')}>
-                                    <Edit2 className="h-3.5 w-3.5 mr-1" />{locale === 'th' ? 'แก้ไข' : 'Edit'}
-                                </Button>
-                            ) : (
-                                <div className="flex gap-1">
-                                    <Button variant="ghost" size="sm" onClick={() => setEditing(null)}><X className="h-3.5 w-3.5" /></Button>
-                                    <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white" onClick={() => saveEdit('event')} disabled={isPending}>
-                                        <Save className="h-3.5 w-3.5 mr-1" />{locale === 'th' ? 'บันทึก' : 'Save'}
-                                    </Button>
-                                </div>
-                            )}
-                        </CardHeader>
-                        <CardContent className="pt-0">
-                            {editing === 'event' ? (
-                                <Input type="date" value={editForm.due_date} onChange={e => setEditForm(p => ({ ...p, due_date: e.target.value }))} />
-                            ) : (
-                                <div className="flex items-center gap-2 text-sm">
-                                    <Clock className="h-4 w-4 text-zinc-400 shrink-0" />
-                                    <span className="font-medium text-zinc-900 dark:text-zinc-100">{job.due_date || (locale === 'th' ? 'ยังไม่กำหนด' : 'Not set')}</span>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
+                    {/* Checklists — all statuses up to current, previous collapsed */}
+                    {(() => {
+                        // Get all statuses in pipeline order
+                        const allStatuses = getStatusesFromSettings(settings, job.job_type as JobType)
+                        const currentIdx = allStatuses.indexOf(job.status)
+
+                        // Statuses to show: current + all previous (that have templates)
+                        const visibleStatuses = allStatuses.slice(0, currentIdx + 1)
+                        const statusesWithTemplates = visibleStatuses.filter(s =>
+                            checklistTemplates.some(t => t.job_type === job.job_type && t.status === s && t.is_active)
+                        )
+
+                        if (statusesWithTemplates.length === 0) return null
+
+                        // Get all templates for visible statuses
+                        const allVisibleTemplates = checklistTemplates
+                            .filter(t => t.job_type === job.job_type && statusesWithTemplates.includes(t.status) && t.is_active)
+
+                        // Overall progress across ALL visible
+                        const totalItems = allVisibleTemplates.reduce((sum, t) => sum + t.items.length, 0)
+                        const checkedItems = allVisibleTemplates.reduce((sum, t) => {
+                            return sum + t.items.filter((_, idx) =>
+                                localChecklistItems.some(ci => ci.template_id === t.id && ci.item_index === idx && ci.is_checked)
+                            ).length
+                        }, 0)
+                        const overallPercent = totalItems > 0 ? Math.round((checkedItems / totalItems) * 100) : 0
+
+                        return (
+                            <>
+                                {/* Overall progress header */}
+                                <Card>
+                                    <CardHeader className="py-3">
+                                        <div className="flex items-center justify-between">
+                                            <CardTitle className="text-base flex items-center gap-2">
+                                                <ListChecks className="h-4 w-4 text-violet-500" />
+                                                {locale === 'th' ? 'เช็คลิสต์' : 'Checklist'}
+                                            </CardTitle>
+                                            <span className="text-sm font-semibold text-violet-600 dark:text-violet-400">{overallPercent}%</span>
+                                        </div>
+                                        <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2 mt-2">
+                                            <div
+                                                className="h-2 rounded-full transition-all duration-500 bg-violet-500"
+                                                style={{ width: `${overallPercent}%` }}
+                                            />
+                                        </div>
+                                    </CardHeader>
+                                </Card>
+
+                                {/* Per-status sections (reversed so current is on top) */}
+                                {[...statusesWithTemplates].reverse().map(statusValue => {
+                                    const isCurrent = statusValue === job.status
+                                    const statusConfig = getStatusConfig(settings, job.job_type as JobType, statusValue)
+                                    const templates = checklistTemplates
+                                        .filter(t => t.job_type === job.job_type && t.status === statusValue && t.is_active)
+                                        .sort((a, b) => a.sort_order - b.sort_order)
+
+                                    // Previous statuses start collapsed
+                                    const isCollapsed = !isCurrent && !collapsedChecklistStatuses.has(statusValue)
+                                    const isExpanded = isCurrent || collapsedChecklistStatuses.has(statusValue)
+
+                                    return (
+                                        <Card key={statusValue}>
+                                            {/* Status section header — clickable for non-current */}
+                                            <CardHeader
+                                                className={`py-3 ${!isCurrent ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors' : ''}`}
+                                                onClick={!isCurrent ? () => {
+                                                    setCollapsedChecklistStatuses(prev => {
+                                                        const next = new Set(prev)
+                                                        if (next.has(statusValue)) next.delete(statusValue)
+                                                        else next.add(statusValue)
+                                                        return next
+                                                    })
+                                                } : undefined}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    {!isCurrent && (
+                                                        isExpanded
+                                                            ? <ChevronUp className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                                                            : <ChevronDown className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                                                    )}
+                                                    <span
+                                                        className="h-2.5 w-2.5 rounded-full shrink-0"
+                                                        style={{ backgroundColor: statusConfig.color || '#9ca3af' }}
+                                                    />
+                                                    <CardTitle className="text-sm font-medium flex-1">
+                                                        {locale === 'th' ? statusConfig.labelTh : statusConfig.label}
+                                                    </CardTitle>
+                                                    {(() => {
+                                                        const sCnt = templates.reduce((s, t) => s + t.items.length, 0)
+                                                        const sChk = templates.reduce((s, t) => s + t.items.filter((_, idx) =>
+                                                            localChecklistItems.some(ci => ci.template_id === t.id && ci.item_index === idx && ci.is_checked)
+                                                        ).length, 0)
+                                                        const sPct = sCnt > 0 ? Math.round((sChk / sCnt) * 100) : 0
+                                                        return (
+                                                            <span className={`text-xs font-medium ${sPct === 100 ? 'text-emerald-600' : 'text-blue-600 dark:text-blue-400'}`}>
+                                                                {sPct}%
+                                                            </span>
+                                                        )
+                                                    })()}
+                                                </div>
+                                            </CardHeader>
+
+                                            {/* Expanded content */}
+                                            {isExpanded && (
+                                                <CardContent className="pt-0 space-y-4 pb-4">
+                                                    {templates.map(tmpl => {
+                                                        const groupChecked = tmpl.items.filter((_, idx) =>
+                                                            localChecklistItems.some(ci => ci.template_id === tmpl.id && ci.item_index === idx && ci.is_checked)
+                                                        ).length
+                                                        const groupPercent = tmpl.items.length > 0 ? Math.round((groupChecked / tmpl.items.length) * 100) : 0
+
+                                                        return (
+                                                            <div key={tmpl.id}>
+                                                                <div className="flex items-center justify-between mb-1">
+                                                                    <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                                                                        {locale === 'th' ? tmpl.group_name_th : tmpl.group_name_en}
+                                                                    </span>
+                                                                    <span className="text-[10px] font-medium text-zinc-400">{groupPercent}%</span>
+                                                                </div>
+                                                                <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-1 mb-2">
+                                                                    <div
+                                                                        className="h-1 rounded-full transition-all duration-500 bg-blue-500"
+                                                                        style={{ width: `${groupPercent}%` }}
+                                                                    />
+                                                                </div>
+                                                                <div className="space-y-0.5">
+                                                                    {tmpl.items.map((item, idx) => {
+                                                                        const isChecked = localChecklistItems.some(
+                                                                            ci => ci.template_id === tmpl.id && ci.item_index === idx && ci.is_checked
+                                                                        )
+                                                                        return (
+                                                                            <button
+                                                                                key={idx}
+                                                                                className="w-full flex items-center gap-3 py-1.5 px-1 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors text-left group"
+                                                                                onClick={() => {
+                                                                                    const newChecked = !isChecked
+                                                                                    setLocalChecklistItems(prev => {
+                                                                                        if (newChecked) {
+                                                                                            const exists = prev.find(ci => ci.template_id === tmpl.id && ci.item_index === idx)
+                                                                                            if (exists) {
+                                                                                                return prev.map(ci => ci.template_id === tmpl.id && ci.item_index === idx ? { ...ci, is_checked: true } : ci)
+                                                                                            }
+                                                                                            return [...prev, { id: `temp-${Date.now()}`, job_id: job.id, template_id: tmpl.id, item_index: idx, is_checked: true, checked_by: null, checked_at: new Date().toISOString() }]
+                                                                                        } else {
+                                                                                            return prev.map(ci => ci.template_id === tmpl.id && ci.item_index === idx ? { ...ci, is_checked: false } : ci)
+                                                                                        }
+                                                                                    })
+                                                                                    startTransition(() => {
+                                                                                        toggleChecklistItem(job.id, tmpl.id, idx, newChecked)
+                                                                                    })
+                                                                                }}
+                                                                            >
+                                                                                {isChecked ? (
+                                                                                    <CheckSquare className="h-5 w-5 text-blue-500 shrink-0" />
+                                                                                ) : (
+                                                                                    <Square className="h-5 w-5 text-zinc-300 dark:text-zinc-600 shrink-0 group-hover:text-zinc-400" />
+                                                                                )}
+                                                                                <span className={`text-sm ${isChecked
+                                                                                    ? 'line-through text-zinc-400 dark:text-zinc-500'
+                                                                                    : 'text-zinc-700 dark:text-zinc-300'
+                                                                                    }`}>
+                                                                                    {locale === 'th' ? item.label_th : item.label_en}
+                                                                                </span>
+                                                                            </button>
+                                                                        )
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </CardContent>
+                                            )}
+                                        </Card>
+                                    )
+                                })}
+                            </>
+                        )
+                    })()}
 
                     {/* Notes */}
                     <Card>
@@ -1195,14 +1355,18 @@ export default function JobDetail({ job, activities, settings, users, crmData }:
                     <Card>
                         <CardHeader className="py-4">
                             <CardTitle className="text-base flex items-center gap-2">
-                                {job.job_type === 'graphic'
-                                    ? <Palette className="h-4 w-4 text-violet-500" />
-                                    : <Wrench className="h-4 w-4 text-emerald-500" />
-                                }
-                                {locale === 'th'
-                                    ? `ไทม์ไลน์ — ${job.job_type === 'graphic' ? 'กราฟฟิก' : 'ออกหน้างาน'}`
-                                    : `Timeline — ${job.job_type === 'graphic' ? 'Graphic' : 'On-site'}`
-                                }
+                                {(() => {
+                                    const jt = jobTypes.find(t => t.value === job.job_type)
+                                    return (
+                                        <>
+                                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: jt?.color || '#9ca3af' }} />
+                                            {locale === 'th'
+                                                ? `ไทม์ไลน์ — ${jt?.label_th || job.job_type}`
+                                                : `Timeline — ${jt?.label_en || job.job_type}`
+                                            }
+                                        </>
+                                    )
+                                })()}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-0 space-y-4">

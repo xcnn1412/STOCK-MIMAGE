@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useMemo } from 'react'
 import {
-    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight
+    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight, ListChecks
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,8 +10,9 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
     createJobSetting, updateJobSetting, deleteJobSetting, toggleJobSetting,
+    createChecklistTemplate, updateChecklistTemplate, deleteChecklistTemplate,
 } from '../actions'
-import type { JobSetting } from '../actions'
+import type { JobSetting, ChecklistTemplate } from '../actions'
 import { useLocale } from '@/lib/i18n/context'
 
 // ============================================================================
@@ -20,21 +21,36 @@ import { useLocale } from '@/lib/i18n/context'
 
 interface SettingsViewProps {
     settings: JobSetting[]
+    checklistTemplates: ChecklistTemplate[]
+    jobTypes: JobSetting[]
 }
 
-type TopTab = 'graphic_status' | 'onsite_status' | 'tag'
+type TopTab = string // dynamic: 'status_{jobType}', 'tag', 'checklist', 'job_type'
 
-const TOP_TABS: { key: TopTab; icon: React.ReactNode; labelTh: string; labelEn: string }[] = [
-    { key: 'graphic_status', icon: <Palette className="h-4 w-4" />, labelTh: 'สถานะ กราฟฟิก', labelEn: 'Graphic Status' },
-    { key: 'onsite_status', icon: <Wrench className="h-4 w-4" />, labelTh: 'สถานะ ออกหน้างาน', labelEn: 'On-site Status' },
+// Static tabs (tag + checklist + job type management)
+const STATIC_TABS: { key: string; icon: React.ReactNode; labelTh: string; labelEn: string }[] = [
     { key: 'tag', icon: <Tag className="h-4 w-4" />, labelTh: 'แท็ก', labelEn: 'Tags' },
+    { key: 'checklist', icon: <ListChecks className="h-4 w-4" />, labelTh: 'เช็คลิสต์', labelEn: 'Checklist' },
+    { key: 'job_type', icon: <Settings className="h-4 w-4" />, labelTh: 'ประเภทงาน', labelEn: 'Job Types' },
 ]
 
-type TagSubTab = 'graphic' | 'onsite'
 
-export default function SettingsView({ settings }: SettingsViewProps) {
+
+export default function SettingsView({ settings, checklistTemplates, jobTypes }: SettingsViewProps) {
     const { locale } = useLocale()
-    const [activeTab, setActiveTab] = useState<TopTab>('graphic_status')
+
+    // Build dynamic tabs: one status tab per job type + static tabs
+    const TOP_TABS = useMemo(() => {
+        const statusTabs = jobTypes.map(jt => ({
+            key: `status_${jt.value}`,
+            icon: <span className="h-3 w-3 rounded-full" style={{ backgroundColor: jt.color || '#9ca3af' }} />,
+            labelTh: `สถานะ ${jt.label_th}`,
+            labelEn: `${jt.label_en} Status`,
+        }))
+        return [...statusTabs, ...STATIC_TABS]
+    }, [jobTypes])
+
+    const [activeTab, setActiveTab] = useState<TopTab>(TOP_TABS[0]?.key || 'tag')
     const [isPending, startTransition] = useTransition()
 
     // Add form
@@ -49,26 +65,20 @@ export default function SettingsView({ settings }: SettingsViewProps) {
     const [editId, setEditId] = useState<string | null>(null)
     const [editForm, setEditForm] = useState<Record<string, string>>({})
 
-    // Tag sub-tab: graphic vs onsite
-    const [tagSubTab, setTagSubTab] = useState<TagSubTab>('graphic')
+    // Tag sub-tab: dynamic from job types
+    const [tagSubTab, setTagSubTab] = useState<string>(jobTypes[0]?.value || 'graphic')
 
     // Collapsed sections for tag view
     const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
 
-    // Get statuses from settings for building tag sections
-    const graphicStatuses = useMemo(() =>
+    // Get statuses per job type dynamically
+    const getStatusesForType = (jobTypeValue: string) =>
         settings
-            .filter(s => s.category === 'graphic_status' && s.is_active)
-            .sort((a, b) => a.sort_order - b.sort_order),
-        [settings]
-    )
+            .filter(s => s.category === `status_${jobTypeValue}` && s.is_active)
+            .sort((a, b) => a.sort_order - b.sort_order)
 
-    const onsiteStatuses = useMemo(() =>
-        settings
-            .filter(s => s.category === 'onsite_status' && s.is_active)
-            .sort((a, b) => a.sort_order - b.sort_order),
-        [settings]
-    )
+    // For backwards compat, these are used in tag tab
+    const currentTagStatuses = useMemo(() => getStatusesForType(tagSubTab), [settings, tagSubTab])
 
     // Count tags for badge
     const tagCount = useMemo(() =>
@@ -76,11 +86,65 @@ export default function SettingsView({ settings }: SettingsViewProps) {
         [settings]
     )
 
-    const currentSettings = activeTab === 'tag'
-        ? [] // tag tab uses its own rendering
+    const currentSettings = (activeTab === 'tag' || activeTab === 'checklist' || activeTab === 'job_type')
+        ? [] // these tabs use their own rendering
         : settings
             .filter(s => s.category === activeTab)
             .sort((a, b) => a.sort_order - b.sort_order)
+
+    // Checklist state
+    const [checklistSubTab, setChecklistSubTab] = useState<string>(jobTypes[0]?.value || 'graphic')
+    const [addingChecklistFor, setAddingChecklistFor] = useState<string | null>(null) // status value
+    const [clGroupNameTh, setClGroupNameTh] = useState('')
+    const [clGroupNameEn, setClGroupNameEn] = useState('')
+    const [clItems, setClItems] = useState<{ label_th: string; label_en: string }[]>([{ label_th: '', label_en: '' }])
+    const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
+    const [editTemplateName, setEditTemplateName] = useState({ th: '', en: '' })
+    const [editTemplateItems, setEditTemplateItems] = useState<{ label_th: string; label_en: string }[]>([])
+
+    const resetChecklistForm = () => {
+        setAddingChecklistFor(null)
+        setClGroupNameTh(''); setClGroupNameEn('')
+        setClItems([{ label_th: '', label_en: '' }])
+    }
+
+    const handleAddChecklistGroup = (statusValue: string) => {
+        if (!clGroupNameTh.trim() || !clGroupNameEn.trim()) return
+        const validItems = clItems.filter(i => i.label_th.trim() || i.label_en.trim())
+        if (validItems.length === 0) return
+
+        startTransition(async () => {
+            const fd = new FormData()
+            fd.set('job_type', checklistSubTab)
+            fd.set('status', statusValue)
+            fd.set('group_name_th', clGroupNameTh.trim())
+            fd.set('group_name_en', clGroupNameEn.trim())
+            fd.set('items', JSON.stringify(validItems))
+            fd.set('sort_order', String(checklistTemplates.filter(t => t.job_type === checklistSubTab && t.status === statusValue).length))
+            await createChecklistTemplate(fd)
+            resetChecklistForm()
+        })
+    }
+
+    const handleSaveEditTemplate = (templateId: string) => {
+        const validItems = editTemplateItems.filter(i => i.label_th.trim() || i.label_en.trim())
+        if (!editTemplateName.th.trim() || !editTemplateName.en.trim() || validItems.length === 0) return
+
+        startTransition(async () => {
+            const fd = new FormData()
+            fd.set('group_name_th', editTemplateName.th.trim())
+            fd.set('group_name_en', editTemplateName.en.trim())
+            fd.set('items', JSON.stringify(validItems))
+            await updateChecklistTemplate(templateId, fd)
+            setEditingTemplateId(null)
+        })
+    }
+
+    const handleDeleteTemplate = (templateId: string) => {
+        startTransition(async () => {
+            await deleteChecklistTemplate(templateId)
+        })
+    }
 
     const toggleSection = (key: string) => {
         setCollapsedSections(prev => {
@@ -252,7 +316,7 @@ export default function SettingsView({ settings }: SettingsViewProps) {
     )
 
     // ---- Tag section for a specific status ----
-    const TagStatusSection = ({ statusSetting, jobType }: { statusSetting: JobSetting; jobType: 'graphic' | 'onsite' }) => {
+    const TagStatusSection = ({ statusSetting, jobType }: { statusSetting: JobSetting; jobType: string }) => {
         const category = `tag_${jobType}_${statusSetting.value}`
         const sectionKey = category
         const isCollapsed = collapsedSections.has(sectionKey)
@@ -263,9 +327,12 @@ export default function SettingsView({ settings }: SettingsViewProps) {
         return (
             <div className="border border-zinc-200/60 dark:border-zinc-800/60 rounded-lg overflow-hidden">
                 {/* Section header */}
-                <button
+                <div
                     onClick={() => toggleSection(sectionKey)}
-                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left"
+                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left cursor-pointer select-none"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') toggleSection(sectionKey) }}
                 >
                     {isCollapsed
                         ? <ChevronRight className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
@@ -294,7 +361,7 @@ export default function SettingsView({ settings }: SettingsViewProps) {
                         <Plus className="h-3 w-3 mr-0.5" />
                         {locale === 'th' ? 'เพิ่ม' : 'Add'}
                     </Button>
-                </button>
+                </div>
 
                 {/* Section content */}
                 {!isCollapsed && (
@@ -320,51 +387,42 @@ export default function SettingsView({ settings }: SettingsViewProps) {
 
     // ---- Render tag tab ----
     const renderTagTab = () => {
-        const statuses = tagSubTab === 'graphic' ? graphicStatuses : onsiteStatuses
+        const statuses = currentTagStatuses
 
         return (
             <div className="space-y-4">
-                {/* Sub-tabs: Graphic / Onsite */}
-                <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1">
-                    <button
-                        onClick={() => setTagSubTab('graphic')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all flex-1 justify-center ${tagSubTab === 'graphic'
-                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
-                            : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
-                            }`}
-                    >
-                        <Palette className="h-3.5 w-3.5" />
-                        {locale === 'th' ? 'แท็กกราฟฟิก' : 'Graphic Tags'}
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                            {settings.filter(s => s.category.startsWith('tag_graphic_')).length}
-                        </Badge>
-                    </button>
-                    <button
-                        onClick={() => setTagSubTab('onsite')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all flex-1 justify-center ${tagSubTab === 'onsite'
-                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
-                            : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
-                            }`}
-                    >
-                        <Wrench className="h-3.5 w-3.5" />
-                        {locale === 'th' ? 'แท็กออกหน้างาน' : 'On-site Tags'}
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                            {settings.filter(s => s.category.startsWith('tag_onsite_')).length}
-                        </Badge>
-                    </button>
+                {/* Sub-tabs: Dynamic from job types */}
+                <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1 overflow-x-auto"
+                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                    {jobTypes.map(jt => (
+                        <button
+                            key={jt.value}
+                            onClick={() => setTagSubTab(jt.value)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all flex-1 justify-center whitespace-nowrap ${tagSubTab === jt.value
+                                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
+                                }`}
+                        >
+                            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: jt.color || '#9ca3af' }} />
+                            {locale === 'th' ? jt.label_th : jt.label_en}
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
+                                {settings.filter(s => s.category.startsWith(`tag_${jt.value}_`)).length}
+                            </Badge>
+                        </button>
+                    ))}
                 </div>
 
                 {/* Status sections */}
                 {statuses.length === 0 ? (
                     <div className="text-center py-8 text-sm text-zinc-400 dark:text-zinc-500">
                         {locale === 'th'
-                            ? `ยังไม่มีสถานะ${tagSubTab === 'graphic' ? 'กราฟฟิก' : 'ออกหน้างาน'} — ไปตั้งค่าสถานะก่อน`
-                            : `No ${tagSubTab === 'graphic' ? 'graphic' : 'on-site'} statuses configured — set up statuses first`
+                            ? `ยังไม่มีสถานะ — ไปตั้งค่าสถานะก่อน`
+                            : `No statuses configured — set up statuses first`
                         }
                     </div>
                 ) : (
                     <div className="space-y-2">
-                        {statuses.map(status => (
+                        {statuses.map((status: JobSetting) => (
                             <TagStatusSection
                                 key={status.id}
                                 statusSetting={status}
@@ -373,6 +431,273 @@ export default function SettingsView({ settings }: SettingsViewProps) {
                         ))}
                     </div>
                 )}
+            </div>
+        )
+    }
+
+    // ---- Render checklist tab ----
+    const renderChecklistTab = () => {
+        const statuses = getStatusesForType(checklistSubTab)
+
+        return (
+            <div className="space-y-4">
+                {/* Sub-tabs: Dynamic from job types */}
+                <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1 overflow-x-auto"
+                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                    {jobTypes.map(jt => (
+                        <button
+                            key={jt.value}
+                            onClick={() => setChecklistSubTab(jt.value)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all flex-1 justify-center whitespace-nowrap ${checklistSubTab === jt.value
+                                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
+                                }`}
+                        >
+                            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: jt.color || '#9ca3af' }} />
+                            {locale === 'th' ? jt.label_th : jt.label_en}
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
+                                {checklistTemplates.filter(t => t.job_type === jt.value).length}
+                            </Badge>
+                        </button>
+                    ))}
+                </div>
+
+                {/* Status sections */}
+                {statuses.length === 0 ? (
+                    <div className="text-center py-8 text-sm text-zinc-400 dark:text-zinc-500">
+                        {locale === 'th'
+                            ? `ยังไม่มีสถานะ — ไปตั้งค่าสถานะก่อน`
+                            : `No statuses configured — set up statuses first`
+                        }
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {statuses.map((status: JobSetting) => {
+                            const sectionKey = `cl_${checklistSubTab}_${status.value}`
+                            const isCollapsed = collapsedSections.has(sectionKey)
+                            const templates = checklistTemplates
+                                .filter(t => t.job_type === checklistSubTab && t.status === status.value)
+                                .sort((a, b) => a.sort_order - b.sort_order)
+
+                            return (
+                                <div key={status.id} className="border border-zinc-200/60 dark:border-zinc-800/60 rounded-lg overflow-hidden">
+                                    {/* Status header */}
+                                    <button
+                                        onClick={() => toggleSection(sectionKey)}
+                                        className="w-full flex items-center gap-2 px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left"
+                                    >
+                                        {isCollapsed
+                                            ? <ChevronRight className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                                            : <ChevronDown className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                                        }
+                                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: status.color || '#9ca3af' }} />
+                                        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex-1">
+                                            {locale === 'th' ? status.label_th : status.label_en}
+                                        </span>
+                                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                            {templates.length} {locale === 'th' ? 'กลุ่ม' : 'groups'}
+                                        </Badge>
+                                        <Button
+                                            size="sm" variant="ghost"
+                                            className="h-7 px-2 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-50 dark:text-violet-400"
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                setAddingChecklistFor(status.value)
+                                                if (isCollapsed) toggleSection(sectionKey)
+                                            }}
+                                        >
+                                            <Plus className="h-3 w-3 mr-0.5" /> {locale === 'th' ? 'เพิ่มกลุ่ม' : 'Add Group'}
+                                        </Button>
+                                    </button>
+
+                                    {/* Section content */}
+                                    {!isCollapsed && (
+                                        <div className="p-3 space-y-3">
+                                            {/* Add form */}
+                                            {addingChecklistFor === status.value && (
+                                                <div className="border border-violet-200 dark:border-violet-800 rounded-lg p-3 bg-violet-50/30 dark:bg-violet-950/20 space-y-3">
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <Input placeholder={locale === 'th' ? 'ชื่อกลุ่ม (TH)' : 'Group name (TH)'} value={clGroupNameTh} onChange={e => setClGroupNameTh(e.target.value)} className="text-sm" />
+                                                        <Input placeholder={locale === 'th' ? 'ชื่อกลุ่ม (EN)' : 'Group name (EN)'} value={clGroupNameEn} onChange={e => setClGroupNameEn(e.target.value)} className="text-sm" />
+                                                    </div>
+                                                    <p className="text-xs font-medium text-zinc-500">{locale === 'th' ? 'รายการ Checklist:' : 'Checklist Items:'}</p>
+                                                    {clItems.map((item, idx) => (
+                                                        <div key={idx} className="flex gap-2 items-center">
+                                                            <Input placeholder="TH" value={item.label_th} onChange={e => setClItems(prev => prev.map((it, i) => i === idx ? { ...it, label_th: e.target.value } : it))} className="text-sm flex-1" />
+                                                            <Input placeholder="EN" value={item.label_en} onChange={e => setClItems(prev => prev.map((it, i) => i === idx ? { ...it, label_en: e.target.value } : it))} className="text-sm flex-1" />
+                                                            {clItems.length > 1 && (
+                                                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-400 hover:text-red-600" onClick={() => setClItems(prev => prev.filter((_, i) => i !== idx))}>
+                                                                    <X className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                    <Button size="sm" variant="outline" className="text-xs" onClick={() => setClItems(prev => [...prev, { label_th: '', label_en: '' }])}>
+                                                        <Plus className="h-3 w-3 mr-1" /> {locale === 'th' ? 'เพิ่มรายการ' : 'Add Item'}
+                                                    </Button>
+                                                    <div className="flex gap-2 justify-end">
+                                                        <Button size="sm" variant="ghost" className="text-xs" onClick={resetChecklistForm}>{locale === 'th' ? 'ยกเลิก' : 'Cancel'}</Button>
+                                                        <Button size="sm" className="text-xs bg-violet-600 hover:bg-violet-700 text-white" disabled={isPending} onClick={() => handleAddChecklistGroup(status.value)}>
+                                                            <Save className="h-3 w-3 mr-1" /> {locale === 'th' ? 'บันทึก' : 'Save'}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Existing template groups */}
+                                            {templates.map(tmpl => (
+                                                <div key={tmpl.id} className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
+                                                    {editingTemplateId === tmpl.id ? (
+                                                        <div className="space-y-3">
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <Input value={editTemplateName.th} onChange={e => setEditTemplateName(p => ({ ...p, th: e.target.value }))} className="text-sm" placeholder="TH" />
+                                                                <Input value={editTemplateName.en} onChange={e => setEditTemplateName(p => ({ ...p, en: e.target.value }))} className="text-sm" placeholder="EN" />
+                                                            </div>
+                                                            <p className="text-xs font-medium text-zinc-500">{locale === 'th' ? 'รายการ:' : 'Items:'}</p>
+                                                            {editTemplateItems.map((item, idx) => (
+                                                                <div key={idx} className="flex gap-2 items-center">
+                                                                    <Input value={item.label_th} onChange={e => setEditTemplateItems(prev => prev.map((it, i) => i === idx ? { ...it, label_th: e.target.value } : it))} className="text-sm flex-1" placeholder="TH" />
+                                                                    <Input value={item.label_en} onChange={e => setEditTemplateItems(prev => prev.map((it, i) => i === idx ? { ...it, label_en: e.target.value } : it))} className="text-sm flex-1" placeholder="EN" />
+                                                                    {editTemplateItems.length > 1 && (
+                                                                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-400" onClick={() => setEditTemplateItems(prev => prev.filter((_, i) => i !== idx))}>
+                                                                            <X className="h-3.5 w-3.5" />
+                                                                        </Button>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                            <Button size="sm" variant="outline" className="text-xs" onClick={() => setEditTemplateItems(prev => [...prev, { label_th: '', label_en: '' }])}>
+                                                                <Plus className="h-3 w-3 mr-1" /> {locale === 'th' ? 'เพิ่มรายการ' : 'Add Item'}
+                                                            </Button>
+                                                            <div className="flex gap-2 justify-end">
+                                                                <Button size="sm" variant="ghost" className="text-xs" onClick={() => setEditingTemplateId(null)}>{locale === 'th' ? 'ยกเลิก' : 'Cancel'}</Button>
+                                                                <Button size="sm" className="text-xs bg-blue-600 hover:bg-blue-700 text-white" disabled={isPending} onClick={() => handleSaveEditTemplate(tmpl.id)}>
+                                                                    <Save className="h-3 w-3 mr-1" /> {locale === 'th' ? 'บันทึก' : 'Save'}
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <div className="flex items-center justify-between mb-2">
+                                                                <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                                                    {locale === 'th' ? tmpl.group_name_th : tmpl.group_name_en}
+                                                                </span>
+                                                                <div className="flex gap-1">
+                                                                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => {
+                                                                        setEditingTemplateId(tmpl.id)
+                                                                        setEditTemplateName({ th: tmpl.group_name_th, en: tmpl.group_name_en })
+                                                                        setEditTemplateItems([...tmpl.items])
+                                                                    }}>
+                                                                        <Edit2 className="h-3 w-3 text-zinc-400" />
+                                                                    </Button>
+                                                                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" disabled={isPending} onClick={() => handleDeleteTemplate(tmpl.id)}>
+                                                                        <Trash2 className="h-3 w-3" />
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                {tmpl.items.map((item, idx) => (
+                                                                    <div key={idx} className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                                                                        <div className="h-3.5 w-3.5 rounded border border-zinc-300 dark:border-zinc-600 shrink-0" />
+                                                                        {locale === 'th' ? item.label_th : item.label_en}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+
+                                            {templates.length === 0 && addingChecklistFor !== status.value && (
+                                                <div className="text-center py-4 text-xs text-zinc-400">
+                                                    {locale === 'th' ? 'ยังไม่มีเช็คลิสต์' : 'No checklists yet'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+        )
+    }
+
+    // ---- Render job type management tab ----
+    const renderJobTypeTab = () => {
+        return (
+            <div className="space-y-3">
+                {/* Inline Add Form */}
+                {addMode && addCategory === 'job_type' && (
+                    <div className="border border-violet-200 dark:border-violet-800 rounded-lg p-3 space-y-2 bg-violet-50/50 dark:bg-violet-950/20">
+                        <div className="grid grid-cols-2 gap-2">
+                            <Input
+                                placeholder={locale === 'th' ? 'Key (เช่น printing)' : 'Key (e.g. printing)'}
+                                value={newValue}
+                                onChange={e => setNewValue(e.target.value)}
+                                className="text-sm h-8"
+                            />
+                            <div className="flex gap-1">
+                                <input
+                                    type="color"
+                                    value={newColor}
+                                    onChange={e => setNewColor(e.target.value)}
+                                    className="h-8 w-8 rounded border cursor-pointer"
+                                />
+                                <Input
+                                    placeholder={locale === 'th' ? 'ชื่อ (TH)' : 'Label (TH)'}
+                                    value={newLabelTh}
+                                    onChange={e => setNewLabelTh(e.target.value)}
+                                    className="text-sm h-8 flex-1"
+                                />
+                            </div>
+                        </div>
+                        <Input
+                            placeholder={locale === 'th' ? 'ชื่อ (EN)' : 'Label (EN)'}
+                            value={newLabelEn}
+                            onChange={e => setNewLabelEn(e.target.value)}
+                            className="text-sm h-8"
+                        />
+                        <div className="flex gap-1 justify-end">
+                            <Button size="sm" variant="ghost" onClick={() => { setAddMode(false); setAddCategory(null) }}>
+                                <X className="h-3 w-3 mr-1" />{locale === 'th' ? 'ยกเลิก' : 'Cancel'}
+                            </Button>
+                            <Button
+                                size="sm"
+                                className="bg-violet-600 hover:bg-violet-700 text-white"
+                                disabled={isPending || !newValue.trim() || !newLabelTh.trim() || !newLabelEn.trim()}
+                                onClick={() => handleAdd('job_type')}
+                            >
+                                <Save className="h-3 w-3 mr-1" />{locale === 'th' ? 'บันทึก' : 'Save'}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Existing types */}
+                {jobTypes.length === 0 && !(addMode && addCategory === 'job_type') ? (
+                    <div className="text-center py-8 text-sm text-zinc-400 dark:text-zinc-500">
+                        {locale === 'th' ? 'ยังไม่มีประเภทงาน — กดปุ่ม "เพิ่ม" ด้านบน' : 'No job types — click "Add" above'}
+                    </div>
+                ) : (
+                    jobTypes.map(jt => (
+                        <div key={jt.id} className="flex items-center gap-3 p-3 border border-zinc-200 dark:border-zinc-800 rounded-lg">
+                            <span className="h-4 w-4 rounded-full shrink-0" style={{ backgroundColor: jt.color || '#9ca3af' }} />
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                    {locale === 'th' ? jt.label_th : jt.label_en}
+                                </p>
+                                <p className="text-xs text-zinc-500">value: {jt.value}</p>
+                            </div>
+                        </div>
+                    ))
+                )}
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2">
+                    {locale === 'th'
+                        ? 'เพิ่มประเภทงานใหม่แล้วไปตั้งค่าสถานะให้กับประเภทนั้น'
+                        : 'Add a job type, then configure its statuses'
+                    }
+                </p>
             </div>
         )
     }
@@ -403,18 +728,45 @@ export default function SettingsView({ settings }: SettingsViewProps) {
                     >
                         {tab.icon}
                         {locale === 'th' ? tab.labelTh : tab.labelEn}
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                            {tab.key === 'tag'
-                                ? tagCount
-                                : settings.filter(s => s.category === tab.key).length
-                            }
-                        </Badge>
+                        {tab.key !== 'job_type' && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
+                                {tab.key === 'tag'
+                                    ? tagCount
+                                    : tab.key === 'checklist'
+                                        ? checklistTemplates.length
+                                        : settings.filter(s => s.category === tab.key).length
+                                }
+                            </Badge>
+                        )}
+                        {tab.key === 'job_type' && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
+                                {jobTypes.length}
+                            </Badge>
+                        )}
                     </button>
                 ))}
             </div>
 
             {/* Content */}
-            {activeTab === 'tag' ? (
+            {activeTab === 'checklist' ? (
+                <Card>
+                    <CardHeader className="py-4">
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <ListChecks className="h-4 w-4" />
+                            {locale === 'th' ? 'เช็คลิสต์แยกตามสถานะ' : 'Checklists by Status'}
+                        </CardTitle>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                            {locale === 'th'
+                                ? 'ตั้งค่ากลุ่มเช็คลิสต์สำหรับแต่ละสถานะ ซึ่งจะแสดงในหน้ารายละเอียดของแต่ละงาน'
+                                : 'Configure checklist groups per status, shown on each job detail page'
+                            }
+                        </p>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                        {renderChecklistTab()}
+                    </CardContent>
+                </Card>
+            ) : activeTab === 'tag' ? (
                 <Card>
                     <CardHeader className="py-4">
                         <CardTitle className="text-base flex items-center gap-2">
@@ -423,13 +775,41 @@ export default function SettingsView({ settings }: SettingsViewProps) {
                         </CardTitle>
                         <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
                             {locale === 'th'
-                                ? 'ตั้งค่าแท็กสำหรับแต่ละสถานะ แยกตามประเภทงาน (กราฟฟิก / ออกหน้างาน)'
-                                : 'Configure tags for each status, separated by job type (Graphic / On-site)'
+                                ? 'ตั้งค่าแท็กสำหรับแต่ละสถานะ แยกตามประเภทงาน'
+                                : 'Configure tags for each status, separated by job type'
                             }
                         </p>
                     </CardHeader>
                     <CardContent className="pt-0">
                         {renderTagTab()}
+                    </CardContent>
+                </Card>
+            ) : activeTab === 'job_type' ? (
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between py-4">
+                        <div>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <Settings className="h-4 w-4" />
+                                {locale === 'th' ? 'ประเภทงาน' : 'Job Types'}
+                            </CardTitle>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                                {locale === 'th'
+                                    ? 'จัดการประเภทงาน (เช่น กราฟฟิก, ออกหน้างาน, ภาพถ่าย)'
+                                    : 'Manage job types (e.g. Graphic, On-site, Photography)'
+                                }
+                            </p>
+                        </div>
+                        <Button
+                            size="sm"
+                            className="bg-violet-600 hover:bg-violet-700 text-white"
+                            onClick={() => { setAddMode(true); setAddCategory('job_type') }}
+                        >
+                            <Plus className="h-3.5 w-3.5 mr-1" />
+                            {locale === 'th' ? 'เพิ่ม' : 'Add'}
+                        </Button>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                        {renderJobTypeTab()}
                     </CardContent>
                 </Card>
             ) : (

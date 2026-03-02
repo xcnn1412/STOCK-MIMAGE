@@ -28,7 +28,7 @@ import type { Job, JobSetting, JobType } from './actions'
 const FALLBACK_STATUS = { label: 'Unknown', labelTh: 'ไม่ทราบ', color: '#9ca3af' }
 
 export function getStatusesFromSettings(settings: JobSetting[], jobType: JobType): string[] {
-    const category = jobType === 'graphic' ? 'graphic_status' : 'onsite_status'
+    const category = `status_${jobType}`
     return settings
         .filter(s => s.category === category && s.is_active)
         .sort((a, b) => a.sort_order - b.sort_order)
@@ -36,7 +36,7 @@ export function getStatusesFromSettings(settings: JobSetting[], jobType: JobType
 }
 
 export function getStatusConfig(settings: JobSetting[], jobType: JobType, status: string) {
-    const category = jobType === 'graphic' ? 'graphic_status' : 'onsite_status'
+    const category = `status_${jobType}`
     const s = settings.find(st => st.category === category && st.value === status)
     if (!s) return FALLBACK_STATUS
     return {
@@ -60,12 +60,13 @@ interface JobsDashboardProps {
     jobs: Job[]
     settings: JobSetting[]
     users: SystemUser[]
+    jobTypes: JobSetting[]
 }
 
-export default function JobsDashboard({ jobs, settings, users }: JobsDashboardProps) {
+export default function JobsDashboard({ jobs, settings, users, jobTypes }: JobsDashboardProps) {
     const { locale } = useLocale()
     const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban')
-    const [pipelineTab, setPipelineTab] = useState<'graphic' | 'onsite'>('graphic')
+    const [pipelineTab, setPipelineTab] = useState<string>(jobTypes[0]?.value || 'graphic')
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState<string>('all')
     const [assigneeFilter, setAssigneeFilter] = useState<string>('all')
@@ -140,9 +141,7 @@ export default function JobsDashboard({ jobs, settings, users }: JobsDashboardPr
         return { statusCounts, total: pipelineJobs.length }
     }, [pipelineJobs, kanbanStatuses])
 
-    const pipelineIcon = pipelineTab === 'graphic'
-        ? <Palette className="h-4 w-4" />
-        : <Wrench className="h-4 w-4" />
+    const currentJobType = jobTypes.find(jt => jt.value === pipelineTab)
 
     return (
         <div className="space-y-6">
@@ -153,7 +152,7 @@ export default function JobsDashboard({ jobs, settings, users }: JobsDashboardPr
                         {locale === 'th' ? 'งาน (Jobs)' : 'Jobs'}
                     </h1>
                     <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                        {locale === 'th' ? 'จัดการงานกราฟฟิกและออกหน้างาน' : 'Manage graphic and on-site jobs'}
+                        {locale === 'th' ? 'จัดการงานทุกประเภท' : 'Manage all job types'}
                     </p>
                 </div>
                 <Button
@@ -165,34 +164,27 @@ export default function JobsDashboard({ jobs, settings, users }: JobsDashboardPr
                 </Button>
             </div>
 
-            {/* Pipeline Tabs */}
-            <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1 max-w-md">
-                <button
-                    onClick={() => { setPipelineTab('graphic'); setStatusFilter('all') }}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all flex-1 justify-center ${pipelineTab === 'graphic'
-                        ? 'bg-white dark:bg-zinc-700 text-violet-700 dark:text-violet-300 shadow-sm'
-                        : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
-                        }`}
-                >
-                    <Palette className="h-4 w-4" />
-                    {locale === 'th' ? 'กราฟฟิก' : 'Graphic'}
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                        {jobs.filter(j => j.job_type === 'graphic').length}
-                    </Badge>
-                </button>
-                <button
-                    onClick={() => { setPipelineTab('onsite'); setStatusFilter('all') }}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all flex-1 justify-center ${pipelineTab === 'onsite'
-                        ? 'bg-white dark:bg-zinc-700 text-emerald-700 dark:text-emerald-300 shadow-sm'
-                        : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
-                        }`}
-                >
-                    <Wrench className="h-4 w-4" />
-                    {locale === 'th' ? 'ออกหน้างาน' : 'On-site'}
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                        {jobs.filter(j => j.job_type === 'onsite').length}
-                    </Badge>
-                </button>
+            {/* Pipeline Tabs — Dynamic */}
+            <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1 max-w-full overflow-x-auto"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+                {jobTypes.map(jt => (
+                    <button
+                        key={jt.value}
+                        onClick={() => { setPipelineTab(jt.value); setStatusFilter('all') }}
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all flex-1 justify-center whitespace-nowrap ${pipelineTab === jt.value
+                            ? 'bg-white dark:bg-zinc-700 shadow-sm'
+                            : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
+                            }`}
+                        style={pipelineTab === jt.value ? { color: jt.color || '#8b5cf6' } : undefined}
+                    >
+                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: jt.color || '#9ca3af' }} />
+                        {locale === 'th' ? jt.label_th : jt.label_en}
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
+                            {jobs.filter(j => j.job_type === jt.value).length}
+                        </Badge>
+                    </button>
+                ))}
             </div>
 
             {/* Summary Cards */}
@@ -312,6 +304,7 @@ export default function JobsDashboard({ jobs, settings, users }: JobsDashboardPr
                 settings={settings}
                 users={users}
                 defaultJobType={pipelineTab}
+                jobTypes={jobTypes}
             />
 
             {/* Mobile FAB */}

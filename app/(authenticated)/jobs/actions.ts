@@ -133,10 +133,68 @@ export async function toggleJobSetting(id: string, is_active: boolean) {
 }
 
 // ============================================================================
+// Job Types — Dynamic job type management
+// ============================================================================
+
+export async function getJobTypes() {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('job_settings')
+        .select('*')
+        .eq('category', 'job_type')
+        .order('sort_order', { ascending: true })
+
+    if (error) return { data: [], error: error.message }
+    return { data: data || [] }
+}
+
+export async function createJobType(formData: FormData) {
+    const supabase = createServiceClient()
+    const value = (formData.get('value') as string)?.trim().toLowerCase().replace(/\s+/g, '_')
+    const label_th = formData.get('label_th') as string
+    const label_en = formData.get('label_en') as string
+    const color = formData.get('color') as string || '#6b7280'
+    const sort_order = parseInt(formData.get('sort_order') as string) || 0
+
+    if (!value || !label_th || !label_en) return { error: 'Missing required fields' }
+
+    const { error } = await supabase.from('job_settings').insert({
+        category: 'job_type', value, label_th, label_en, color, sort_order,
+    })
+    if (error) return { error: error.message }
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+export async function updateJobType(id: string, formData: FormData) {
+    const supabase = createServiceClient()
+    const updates: Record<string, unknown> = {}
+    const label_th = formData.get('label_th') as string
+    const label_en = formData.get('label_en') as string
+    const color = formData.get('color') as string
+    if (label_th) updates.label_th = label_th
+    if (label_en) updates.label_en = label_en
+    if (color) updates.color = color
+
+    const { error } = await supabase.from('job_settings').update(updates).eq('id', id)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+export async function deleteJobType(id: string) {
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('job_settings').delete().eq('id', id)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+// ============================================================================
 // Jobs — CRUD
 // ============================================================================
 
-export type JobType = 'graphic' | 'onsite'
+export type JobType = string
 
 export interface Job {
     id: string
@@ -160,7 +218,7 @@ export interface Job {
 }
 
 export async function getJobs(filters?: {
-    job_type?: JobType
+    job_type?: string
     status?: string
     search?: string
     includeArchived?: boolean
@@ -429,7 +487,7 @@ export async function createJobsFromLead(leadId: string) {
     const { data: graphicStatuses } = await supabase
         .from('job_settings')
         .select('value')
-        .eq('category', 'graphic_status')
+        .eq('category', 'status_graphic')
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
         .limit(1)
@@ -437,7 +495,7 @@ export async function createJobsFromLead(leadId: string) {
     const { data: onsiteStatuses } = await supabase
         .from('job_settings')
         .select('value')
-        .eq('category', 'onsite_status')
+        .eq('category', 'status_onsite')
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
         .limit(1)
@@ -538,4 +596,166 @@ export async function getCrmLeadForJob(leadId: string) {
         installments: installments || [],
         crmSettings: crmSettings || [],
     }
+}
+
+// ============================================================================
+// Job Checklist Templates — CRUD (Settings)
+// ============================================================================
+
+export interface ChecklistTemplate {
+    id: string
+    job_type: JobType
+    status: string
+    group_name_th: string
+    group_name_en: string
+    items: { label_th: string; label_en: string }[]
+    sort_order: number
+    is_active: boolean
+    created_at: string
+}
+
+export interface ChecklistItem {
+    id: string
+    job_id: string
+    template_id: string
+    item_index: number
+    is_checked: boolean
+    checked_by: string | null
+    checked_at: string | null
+}
+
+export async function getChecklistTemplates(jobType?: JobType, status?: string) {
+    const supabase = createServiceClient()
+    let query = supabase
+        .from('job_checklist_templates')
+        .select('*')
+        .order('sort_order', { ascending: true })
+
+    if (jobType) query = query.eq('job_type', jobType)
+    if (status) query = query.eq('status', status)
+
+    const { data, error } = await query
+    if (error) return { error: error.message, data: [] }
+    return { data: (data || []) as ChecklistTemplate[] }
+}
+
+export async function createChecklistTemplate(formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const items = JSON.parse(formData.get('items') as string || '[]')
+
+    const { error } = await supabase.from('job_checklist_templates').insert({
+        job_type: formData.get('job_type') as string,
+        status: formData.get('status') as string,
+        group_name_th: formData.get('group_name_th') as string,
+        group_name_en: formData.get('group_name_en') as string,
+        items,
+        sort_order: Number(formData.get('sort_order') || 0),
+    })
+
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/settings')
+    return { success: true }
+}
+
+export async function updateChecklistTemplate(id: string, formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const updates: Record<string, unknown> = {}
+
+    const fields = ['group_name_th', 'group_name_en', 'status']
+    fields.forEach(f => {
+        const v = formData.get(f)
+        if (v !== null) updates[f] = v as string
+    })
+
+    if (formData.has('items')) {
+        updates.items = JSON.parse(formData.get('items') as string || '[]')
+    }
+    if (formData.has('sort_order')) {
+        updates.sort_order = Number(formData.get('sort_order') || 0)
+    }
+    if (formData.has('is_active')) {
+        updates.is_active = formData.get('is_active') === 'true'
+    }
+
+    const { error } = await supabase.from('job_checklist_templates').update(updates).eq('id', id)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/settings')
+    return { success: true }
+}
+
+export async function deleteChecklistTemplate(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('job_checklist_templates').delete().eq('id', id)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/settings')
+    return { success: true }
+}
+
+// ============================================================================
+// Job Checklist Items — per-job checkbox state
+// ============================================================================
+
+export async function getJobChecklists(jobId: string) {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('job_checklist_items')
+        .select('*')
+        .eq('job_id', jobId)
+
+    if (error) return { error: error.message, data: [] }
+    return { data: (data || []) as ChecklistItem[] }
+}
+
+export async function toggleChecklistItem(
+    jobId: string,
+    templateId: string,
+    itemIndex: number,
+    checked: boolean
+) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    if (checked) {
+        // Upsert — mark as checked
+        const { error } = await supabase
+            .from('job_checklist_items')
+            .upsert({
+                job_id: jobId,
+                template_id: templateId,
+                item_index: itemIndex,
+                is_checked: true,
+                checked_by: userId,
+                checked_at: new Date().toISOString(),
+            }, { onConflict: 'job_id,template_id,item_index' })
+
+        if (error) return { error: error.message }
+    } else {
+        // Uncheck — update existing row
+        const { error } = await supabase
+            .from('job_checklist_items')
+            .update({
+                is_checked: false,
+                checked_by: null,
+                checked_at: null,
+            })
+            .eq('job_id', jobId)
+            .eq('template_id', templateId)
+            .eq('item_index', itemIndex)
+
+        if (error) return { error: error.message }
+    }
+
+    revalidatePath(`/jobs/${jobId}`)
+    return { success: true }
 }

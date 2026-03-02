@@ -28,9 +28,10 @@ interface AddJobDialogProps {
     settings: JobSetting[]
     users: SystemUser[]
     defaultJobType: JobType
+    jobTypes: JobSetting[]
 }
 
-export function AddJobDialog({ open, onOpenChange, settings, users, defaultJobType }: AddJobDialogProps) {
+export function AddJobDialog({ open, onOpenChange, settings, users, defaultJobType, jobTypes }: AddJobDialogProps) {
     const { locale } = useLocale()
     const [isPending, startTransition] = useTransition()
 
@@ -109,8 +110,14 @@ export function AddJobDialog({ open, onOpenChange, settings, users, defaultJobTy
                         <Select value={jobType} onValueChange={(v: string) => { setJobType(v as JobType); setStatus('') }}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="graphic">{locale === 'th' ? 'กราฟฟิก' : 'Graphic'}</SelectItem>
-                                <SelectItem value="onsite">{locale === 'th' ? 'ออกหน้างาน' : 'On-site'}</SelectItem>
+                                {jobTypes.map(jt => (
+                                    <SelectItem key={jt.value} value={jt.value}>
+                                        <span className="flex items-center gap-2">
+                                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: jt.color || '#9ca3af' }} />
+                                            {locale === 'th' ? jt.label_th : jt.label_en}
+                                        </span>
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     </div>
