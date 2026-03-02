@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useMemo } from 'react'
 import {
-    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight, ListChecks
+    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight, ListChecks, Ticket
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
     createJobSetting, updateJobSetting, deleteJobSetting, toggleJobSetting,
     createChecklistTemplate, updateChecklistTemplate, deleteChecklistTemplate,
+    updateJobType, deleteJobType,
 } from '../actions'
 import type { JobSetting, ChecklistTemplate } from '../actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -32,6 +33,9 @@ const STATIC_TABS: { key: string; icon: React.ReactNode; labelTh: string; labelE
     { key: 'tag', icon: <Tag className="h-4 w-4" />, labelTh: 'แท็ก', labelEn: 'Tags' },
     { key: 'checklist', icon: <ListChecks className="h-4 w-4" />, labelTh: 'เช็คลิสต์', labelEn: 'Checklist' },
     { key: 'job_type', icon: <Settings className="h-4 w-4" />, labelTh: 'ประเภทงาน', labelEn: 'Job Types' },
+    { key: 'ticket_category', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Categories', labelEn: 'Ticket Categories' },
+    { key: 'status_ticket', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Statuses', labelEn: 'Ticket Statuses' },
+    { key: 'ticket_outcome', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Outcomes', labelEn: 'Ticket Outcomes' },
 ]
 
 
@@ -705,14 +709,77 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                     </div>
                 ) : (
                     jobTypes.map(jt => (
-                        <div key={jt.id} className="flex items-center gap-3 p-3 border border-zinc-200 dark:border-zinc-800 rounded-lg">
-                            <span className="h-4 w-4 rounded-full shrink-0" style={{ backgroundColor: jt.color || '#9ca3af' }} />
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                                    {locale === 'th' ? jt.label_th : jt.label_en}
-                                </p>
-                                <p className="text-xs text-zinc-500">value: {jt.value}</p>
-                            </div>
+                        <div key={jt.id} className="flex items-center gap-3 p-3 border border-zinc-200/60 dark:border-zinc-800/60 rounded-lg bg-white dark:bg-zinc-900 hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors">
+                            {editId === jt.id ? (
+                                <>
+                                    <input
+                                        type="color"
+                                        value={editForm.color}
+                                        onChange={e => setEditForm(p => ({ ...p, color: e.target.value }))}
+                                        className="h-8 w-8 rounded border-0 cursor-pointer shrink-0"
+                                    />
+                                    <Input
+                                        value={editForm.label_th}
+                                        onChange={e => setEditForm(p => ({ ...p, label_th: e.target.value }))}
+                                        placeholder="ชื่อ TH"
+                                        className="h-8 text-xs flex-1"
+                                    />
+                                    <Input
+                                        value={editForm.label_en}
+                                        onChange={e => setEditForm(p => ({ ...p, label_en: e.target.value }))}
+                                        placeholder="Label EN"
+                                        className="h-8 text-xs flex-1"
+                                    />
+                                    <Button size="sm" className="h-8 bg-violet-600 hover:bg-violet-700 text-white" disabled={isPending}
+                                        onClick={() => {
+                                            startTransition(async () => {
+                                                const fd = new FormData()
+                                                fd.set('label_th', editForm.label_th)
+                                                fd.set('label_en', editForm.label_en)
+                                                fd.set('color', editForm.color)
+                                                await updateJobType(jt.id, fd)
+                                                setEditId(null)
+                                            })
+                                        }}
+                                    >
+                                        <Save className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditId(null)}>
+                                        <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="h-4 w-4 rounded-full shrink-0" style={{ backgroundColor: jt.color || '#9ca3af' }} />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                            {locale === 'th' ? jt.label_th : jt.label_en}
+                                        </p>
+                                        <p className="text-xs text-zinc-500">value: {jt.value}</p>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => {
+                                            setEditId(jt.id)
+                                            setEditForm({
+                                                value: jt.value,
+                                                label_th: jt.label_th,
+                                                label_en: jt.label_en,
+                                                color: jt.color || '#3b82f6',
+                                            })
+                                        }}>
+                                            <Edit2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-600" onClick={() => {
+                                            if (!confirm(locale === 'th' ? 'ลบประเภทงานนี้?' : 'Delete this job type?')) return
+                                            startTransition(async () => {
+                                                await deleteJobType(jt.id)
+                                            })
+                                        }}>
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     ))
                 )}
@@ -739,36 +806,65 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                 </p>
             </div>
 
-            {/* Tabs */}
-            <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1 max-w-xl flex-wrap">
-                {TOP_TABS.map(tab => (
-                    <button
-                        key={tab.key}
-                        onClick={() => { setActiveTab(tab.key); setAddMode(false); setAddCategory(null); setEditId(null) }}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all ${activeTab === tab.key
-                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
-                            : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
-                            }`}
-                    >
-                        {tab.icon}
-                        {locale === 'th' ? tab.labelTh : tab.labelEn}
-                        {tab.key !== 'job_type' && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                                {tab.key === 'tag'
-                                    ? tagCount
-                                    : tab.key === 'checklist'
-                                        ? checklistTemplates.length
+            {/* Tabs — Full-width grouped layout */}
+            <div className="bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 p-3 space-y-3">
+                {/* Group 1: Jobs */}
+                <div>
+                    <p className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1.5 px-1">
+                        {locale === 'th' ? 'งาน (Jobs)' : 'Jobs'}
+                    </p>
+                    <div className="flex gap-1 flex-wrap">
+                        {TOP_TABS.filter(t => !t.key.startsWith('ticket_') && t.key !== 'status_ticket').map(tab => {
+                            const count = tab.key === 'tag' ? tagCount
+                                : tab.key === 'checklist' ? checklistTemplates.length
+                                    : tab.key === 'job_type' ? jobTypes.length
                                         : settings.filter(s => s.category === tab.key).length
-                                }
-                            </Badge>
-                        )}
-                        {tab.key === 'job_type' && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                                {jobTypes.length}
-                            </Badge>
-                        )}
-                    </button>
-                ))}
+                            return (
+                                <button
+                                    key={tab.key}
+                                    onClick={() => { setActiveTab(tab.key); setAddMode(false); setAddCategory(null); setEditId(null) }}
+                                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.key
+                                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm ring-1 ring-zinc-200/80 dark:ring-zinc-600/50'
+                                        : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                        }`}
+                                >
+                                    {tab.icon}
+                                    <span className="hidden sm:inline">{locale === 'th' ? tab.labelTh : tab.labelEn}</span>
+                                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-0.5">{count}</Badge>
+                                </button>
+                            )
+                        })}
+                    </div>
+                </div>
+
+                {/* Divider */}
+                <div className="h-px bg-zinc-200/80 dark:bg-zinc-700/60" />
+
+                {/* Group 2: Tickets */}
+                <div>
+                    <p className="text-[10px] font-bold text-violet-500 dark:text-violet-400 uppercase tracking-wider mb-1.5 px-1">
+                        {locale === 'th' ? 'ตั้งค่า Ticket' : 'Ticket Settings'}
+                    </p>
+                    <div className="flex gap-1 flex-wrap">
+                        {TOP_TABS.filter(t => t.key.startsWith('ticket_') || t.key === 'status_ticket').map(tab => {
+                            const count = settings.filter(s => s.category === tab.key).length
+                            return (
+                                <button
+                                    key={tab.key}
+                                    onClick={() => { setActiveTab(tab.key); setAddMode(false); setAddCategory(null); setEditId(null) }}
+                                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.key
+                                        ? 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 shadow-sm ring-1 ring-violet-200/80 dark:ring-violet-700/50'
+                                        : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                        }`}
+                                >
+                                    {tab.icon}
+                                    <span className="hidden sm:inline">{locale === 'th' ? tab.labelTh : tab.labelEn}</span>
+                                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-0.5">{count}</Badge>
+                                </button>
+                            )
+                        })}
+                    </div>
+                </div>
             </div>
 
             {/* Content */}

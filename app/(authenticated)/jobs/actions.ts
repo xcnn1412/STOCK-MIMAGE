@@ -795,3 +795,224 @@ export async function toggleChecklistItem(
     revalidatePath(`/jobs/${jobId}`)
     return { success: true }
 }
+
+// ============================================================================
+// Tickets — Types
+// ============================================================================
+
+export interface Ticket {
+    id: string
+    ticket_number: string
+    subject: string
+    category: string
+    description: string | null
+    priority: string
+    desired_outcome: string | null
+    attachments: string[]
+    status: string
+    created_by: string | null
+    assigned_to: string[]
+    closed_at: string | null
+    created_at: string
+    updated_at: string
+    profiles?: { full_name: string | null } | null
+}
+
+export interface TicketReply {
+    id: string
+    ticket_id: string
+    reply_type: string
+    content: string | null
+    attachments: string[]
+    created_by: string | null
+    created_at: string
+    profiles?: { full_name: string | null } | null
+}
+
+// ============================================================================
+// Tickets — CRUD
+// ============================================================================
+
+export async function getTickets(filters?: {
+    category?: string
+    status?: string
+    search?: string
+}) {
+    const supabase = createServiceClient()
+    let query = supabase
+        .from('tickets')
+        .select('*, profiles:created_by(full_name)')
+        .order('created_at', { ascending: false })
+
+    if (filters?.category) query = query.eq('category', filters.category)
+    if (filters?.status) query = query.eq('status', filters.status)
+    if (filters?.search) {
+        const sanitized = filters.search.replace(/[.,()]/g, '').trim()
+        if (sanitized) {
+            query = query.or(`subject.ilike.%${sanitized}%,description.ilike.%${sanitized}%`)
+        }
+    }
+
+    const { data, error } = await query
+    if (error) return { error: error.message, data: [] }
+    return { data: (data || []) as Ticket[] }
+}
+
+export async function getTicket(id: string) {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('tickets')
+        .select('*, profiles:created_by(full_name)')
+        .eq('id', id)
+        .single()
+
+    if (error) return { error: error.message, data: null }
+    return { data: data as Ticket }
+}
+
+export async function createTicket(formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    // Auto-generate ticket number
+    const { count } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact', head: true })
+    const ticketNum = `TK-${String((count || 0) + 1).padStart(3, '0')}`
+
+    const ticket = {
+        ticket_number: ticketNum,
+        subject: formData.get('subject') as string,
+        category: formData.get('category') as string,
+        description: formData.get('description') as string || null,
+        priority: formData.get('priority') as string || 'normal',
+        desired_outcome: formData.get('desired_outcome') as string || null,
+        attachments: JSON.parse(formData.get('attachments') as string || '[]'),
+        status: 'open',
+        created_by: userId,
+    }
+
+    const { data, error } = await supabase.from('tickets').insert(ticket).select().single()
+    if (error) return { error: error.message }
+
+    await logActivity('CREATE_TICKET', { id: data.id, subject: ticket.subject, category: ticket.category })
+    revalidatePath('/jobs')
+    return { success: true, id: data.id }
+}
+
+export async function updateTicketStatus(id: string, newStatus: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    const updates: Record<string, unknown> = {
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+    }
+    if (newStatus === 'closed') {
+        updates.closed_at = new Date().toISOString()
+    }
+
+    const { error } = await supabase.from('tickets').update(updates).eq('id', id)
+    if (error) return { error: error.message }
+
+    // Add status change reply
+    await supabase.from('ticket_replies').insert({
+        ticket_id: id,
+        reply_type: 'status_change',
+        content: `สถานะเปลี่ยนเป็น: ${newStatus}`,
+        created_by: userId,
+    })
+
+    await logActivity('UPDATE_TICKET_STATUS', { id, newStatus })
+    revalidatePath('/jobs')
+    revalidatePath(`/jobs/tickets/${id}`)
+    return { success: true }
+}
+
+export async function getTicketReplies(ticketId: string) {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('ticket_replies')
+        .select('*, profiles:created_by(full_name)')
+        .eq('ticket_id', ticketId)
+        .order('created_at', { ascending: true })
+
+    if (error) return { error: error.message, data: [] }
+    return { data: (data || []) as TicketReply[] }
+}
+
+export async function createTicketReply(ticketId: string, formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const reply = {
+        ticket_id: ticketId,
+        reply_type: formData.get('reply_type') as string || 'comment',
+        content: formData.get('content') as string || null,
+        attachments: JSON.parse(formData.get('attachments') as string || '[]'),
+        created_by: userId,
+    }
+
+    const { error } = await supabase.from('ticket_replies').insert(reply)
+    if (error) return { error: error.message }
+
+    // Auto-update ticket status to in_progress if it's currently open
+    const { data: ticket } = await supabase.from('tickets').select('status, created_by').eq('id', ticketId).single()
+    if (ticket && ticket.status === 'open' && ticket.created_by !== userId) {
+        await supabase.from('tickets').update({
+            status: 'answered',
+            updated_at: new Date().toISOString(),
+        }).eq('id', ticketId)
+    }
+
+    await supabase.from('tickets').update({ updated_at: new Date().toISOString() }).eq('id', ticketId)
+
+    await logActivity('CREATE_TICKET_REPLY', { ticketId, reply_type: reply.reply_type })
+    revalidatePath('/jobs')
+    revalidatePath(`/jobs/tickets/${ticketId}`)
+    return { success: true }
+}
+
+export async function deleteTicket(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('tickets').delete().eq('id', id)
+    if (error) return { error: error.message }
+
+    await logActivity('DELETE_TICKET', { id })
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+export async function getTicketCategories() {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('job_settings')
+        .select('*')
+        .eq('category', 'ticket_category')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+
+    if (error) return { data: [], error: error.message }
+    return { data: data || [] }
+}
+
+export async function getTicketOutcomes() {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('job_settings')
+        .select('*')
+        .eq('category', 'ticket_outcome')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+
+    if (error) return { data: [], error: error.message }
+    return { data: data || [] }
+}
