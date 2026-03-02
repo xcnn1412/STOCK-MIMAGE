@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
-  Banknote, User, Calendar, Tag, MessageSquare, Printer, Edit3, Save, X,
-  Receipt, Percent, Upload, History
+  Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
+  Receipt, Percent, Upload, History, FileDown
 } from 'lucide-react'
 import { approveClaim, rejectClaim, deleteClaim, updateClaim } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../../costs/types'
@@ -159,7 +159,6 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     setEditReceiptFiles([])
   }
 
-  const handlePrint = () => window.print()
 
   const inputCls = "w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
 
@@ -178,9 +177,12 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               {isEn ? 'Edit' : 'แก้ไข'}
             </button>
           )}
-          <button onClick={handlePrint} className="flex items-center gap-1.5 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 rounded-lg transition-colors">
-            <Printer className="h-4 w-4" />
-            {isEn ? 'Print' : 'พิมพ์'}
+          <button
+            onClick={() => window.open(`/api/pdf/payment-voucher?id=${claim.id}`, '_blank')}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/20 rounded-lg transition-colors"
+          >
+            <FileDown className="h-4 w-4" />
+            {isEn ? 'Export PDF' : 'ส่งออก PDF'}
           </button>
           {(isAdmin || isPending) && (
             <button onClick={handleDelete} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors">
