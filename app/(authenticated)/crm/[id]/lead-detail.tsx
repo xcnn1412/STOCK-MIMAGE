@@ -28,6 +28,7 @@ import {
   archiveLead, unarchiveLead, getLead, saveAllInstallments,
   uploadPaymentProof, deletePaymentProof
 } from '../actions'
+import { createJobsFromLead, getJobsByLeadId } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
 import { STATUS_CONFIG, ALL_STATUSES, getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
@@ -342,6 +343,18 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     router.push(`/events/new?from_crm=${lead.id}`)
   }
 
+  // Forward to Jobs
+  const handleForwardToJobs = async () => {
+    setLoading(true)
+    const result = await createJobsFromLead(lead.id)
+    setLoading(false)
+    if (result.error) {
+      alert(result.error)
+    } else {
+      router.refresh()
+    }
+  }
+
   const handleDelete = async () => {
     if (!confirm(tc.deleteConfirm)) return
     setLoading(true)
@@ -521,6 +534,12 @@ export default function LeadDetail({ lead, activities, settings, users, installm
               {tc.openEvent}
             </Button>
           ) : null}
+          {lead.status === 'accepted' && (
+            <Button onClick={handleForwardToJobs} disabled={loading} size="sm" className="bg-violet-600 hover:bg-violet-700 text-white">
+              <Briefcase className="h-4 w-4 mr-1.5" />
+              {locale === 'th' ? 'ส่งต่องาน' : 'Forward to Jobs'}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -573,15 +592,18 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         </CardContent>
       </Card>
 
-      {/* Tags Bar — same level as Status */}
+      {/* Tags Bar — Jobs-style UI */}
       <Card>
-        <CardContent className="p-4 space-y-4">
+        <CardContent className="py-4 space-y-4">
           {/* General Tags */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-zinc-500 flex items-center gap-1.5">
-                🌐 {tc.generalTags}
-              </span>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-zinc-400" />
+              <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">{tc.generalTags}</span>
+            </div>
+
+            {/* Selected general tags */}
+            {(form.tags as string[]).filter(t => settings.find(st => st.value === t && st.category === 'tag')).length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {(form.tags as string[]).filter(t => settings.find(st => st.value === t && st.category === 'tag')).map(tag => {
                   const tagSetting = settings.find(s => s.category === 'tag' && s.value === tag)
@@ -593,7 +615,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                   )
                 })}
               </div>
-            </div>
+            )}
+
+            {/* Toggle buttons */}
             <div className="flex flex-wrap gap-2">
               {settings.filter(s => s.category === 'tag' && s.is_active).map(tagSetting => {
                 const tagValue = tagSetting.value
@@ -629,14 +653,17 @@ export default function LeadDetail({ lead, activities, settings, users, installm
           <div className="border-t border-zinc-100 dark:border-zinc-800" />
 
           {/* Status-specific Tags */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-zinc-500 flex items-center gap-1.5">
-                🏷️ {tc.statusTags}
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0" style={{ borderColor: statusConfig.color, color: statusConfig.color }}>
-                  {getStatusLabel(lead.status)}
-                </Badge>
-              </span>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-zinc-400" />
+              <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">{tc.statusTags}</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0" style={{ borderColor: statusConfig.color, color: statusConfig.color }}>
+                {getStatusLabel(lead.status)}
+              </Badge>
+            </div>
+
+            {/* Selected status tags */}
+            {(form.tags as string[]).filter(t => settings.find(st => st.value === t && st.category === `tag_${lead.status}`)).length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {(form.tags as string[]).filter(t => settings.find(st => st.value === t && st.category === `tag_${lead.status}`)).map(tag => {
                   const tagSetting = settings.find(s => s.category === `tag_${lead.status}` && s.value === tag)
@@ -648,7 +675,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                   )
                 })}
               </div>
-            </div>
+            )}
+
+            {/* Toggle buttons */}
             <div className="flex flex-wrap gap-2">
               {settings.filter(s => s.category === `tag_${lead.status}` && s.is_active).map(tagSetting => {
                 const tagValue = tagSetting.value

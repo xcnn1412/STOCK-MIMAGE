@@ -31,6 +31,9 @@ export const dictionary = {
       finance: 'Finance',
       financeNew: 'New Request',
       financeSettings: 'Settings',
+
+      jobsKanban: 'Jobs',
+      jobsSettings: 'Settings',
     },
     navGroups: {
       crm: 'CRM',
@@ -40,6 +43,7 @@ export const dictionary = {
       costs: 'Costs',
       kpi: 'KPI',
       finance: 'Finance',
+      jobs: 'Jobs',
       admin: 'Admin',
     },
     common: {
@@ -279,6 +283,9 @@ export const dictionary = {
       finance: 'เบิกเงิน',
       financeNew: 'สร้างใบเบิก',
       financeSettings: 'ตั้งค่า',
+
+      jobsKanban: 'งาน',
+      jobsSettings: 'ตั้งค่า',
     },
     navGroups: {
       crm: 'CRM',
@@ -288,6 +295,7 @@ export const dictionary = {
       costs: 'ต้นทุน',
       kpi: 'ประเมิน KPI',
       finance: 'เบิกเงิน',
+      jobs: 'งาน',
       admin: 'ผู้ดูแล',
     },
     common: {
