@@ -90,6 +90,11 @@ export type ActionType =
     | 'DELETE_JOB_SETTING'
     | 'CREATE_JOBS_FROM_LEAD'
     | 'UPDATE_JOB_TAGS'
+    // Ticket Module
+    | 'CREATE_TICKET'
+    | 'UPDATE_TICKET_STATUS'
+    | 'CREATE_TICKET_REPLY'
+    | 'DELETE_TICKET'
     // User Profile
     | 'UPDATE_USER_PROFILE'
     | 'UPDATE_MY_PROFILE'
