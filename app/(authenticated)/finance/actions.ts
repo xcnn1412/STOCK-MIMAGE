@@ -128,7 +128,9 @@ export async function createClaim(formData: FormData) {
 
   const claim_type = formData.get('claim_type') as string
   const title = formData.get('title') as string
-  const description = formData.get('description') as string || null
+  const descriptionPart = (formData.get('description') as string || '').trim()
+  const additionalDetails = (formData.get('additional_details') as string || '').trim()
+  const description = [descriptionPart, additionalDetails].filter(Boolean).join(' — ') || null
   const category = formData.get('category') as string || 'other'
   const amount = Number(formData.get('amount')) || 0
   const unit_price = Number(formData.get('unit_price')) || 0
@@ -140,6 +142,9 @@ export async function createClaim(formData: FormData) {
   const withholding_tax_rate = Number(formData.get('withholding_tax_rate')) || 0
   const notes = formData.get('notes') as string || null
   const job_event_id = formData.get('job_event_id') as string || null
+  const bank_name = (formData.get('bank_name') as string || '').trim() || null
+  const bank_account_number = (formData.get('bank_account_number') as string || '').trim() || null
+  const account_holder_name = (formData.get('account_holder_name') as string || '').trim() || null
 
   // Collect receipt files from FormData
   const receiptFiles: File[] = []
@@ -178,6 +183,9 @@ export async function createClaim(formData: FormData) {
       include_vat,
       withholding_tax_rate,
       notes,
+      bank_name,
+      bank_account_number,
+      account_holder_name,
       receipt_urls,
       submitted_by: userId,
       status: 'pending',
@@ -220,6 +228,9 @@ export async function updateClaim(id: string, updateData: {
   include_vat?: boolean
   withholding_tax_rate?: number
   notes?: string | null
+  bank_name?: string | null
+  bank_account_number?: string | null
+  account_holder_name?: string | null
 }, receiptFormData?: FormData) {
   const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
@@ -241,7 +252,7 @@ export async function updateClaim(id: string, updateData: {
 
   // Track what changed for the log
   const changes: Record<string, { from: any; to: any }> = {}
-  const fieldsToCheck = ['title', 'description', 'category', 'amount', 'unit_price', 'unit', 'quantity', 'expense_date', 'vat_mode', 'withholding_tax_rate', 'notes'] as const
+  const fieldsToCheck = ['title', 'description', 'category', 'amount', 'unit_price', 'unit', 'quantity', 'expense_date', 'vat_mode', 'withholding_tax_rate', 'notes', 'bank_name', 'bank_account_number', 'account_holder_name'] as const
   for (const key of fieldsToCheck) {
     if (key in updateData && updateData[key as keyof typeof updateData] !== (claim as any)[key]) {
       changes[key] = { from: (claim as any)[key], to: updateData[key as keyof typeof updateData] }
@@ -344,7 +355,7 @@ export async function approveClaim(id: string) {
   const { error } = await supabase
     .from('expense_claims')
     .update({
-      status: 'approved',
+      status: 'awaiting_payment',
       approved_by: userId,
       approved_at: new Date().toISOString(),
     })
@@ -424,6 +435,48 @@ export async function rejectClaim(id: string, reason: string) {
   })
 
   revalidatePath('/finance')
+  return { success: true }
+}
+
+// ============================================================================
+// Mark as Paid (admin only) — awaiting_payment → paid
+// ============================================================================
+
+export async function markAsPaid(id: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.status !== 'awaiting_payment') return { error: 'ใบเบิกนี้ยังไม่อนุมัติหรือชำระแล้ว' }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({
+      status: 'paid',
+      paid_at: new Date().toISOString(),
+      paid_by: userId,
+    })
+    .eq('id', id)
+
+  if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  await logActivity('MARK_CLAIM_PAID', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+    totalAmount: claim.total_amount,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath('/finance/payouts')
+  revalidatePath('/finance/archive')
   return { success: true }
 }
 

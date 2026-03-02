@@ -7,6 +7,7 @@ import { createClaim } from '../actions'
 import { CLAIM_TYPES } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
+import BankSelect from '@/components/bank-select'
 
 interface Props {
   jobEvents: { id: string; event_name: string; event_date: string | null }[]
@@ -46,7 +47,11 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const [unitPrice, setUnitPrice] = useState('0')
   const [quantity, setQuantity] = useState('1')
   const [vatMode, setVatMode] = useState('none')
-  const [whtRate, setWhtRate] = useState('0')
+  const initialCategory = categories[0]?.value || 'staff'
+  const [whtRate, setWhtRate] = useState(
+    initialCategory === 'staff' || initialCategory === 'service_fee' ? '3' : '0'
+  )
+  const [selectedBank, setSelectedBank] = useState('')
 
   const computedAmount = (Number(unitPrice) || 0) * (Number(quantity) || 1)
   const whtRateNum = Number(whtRate) || 0
@@ -165,7 +170,16 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           <select
             name="category"
             value={selectedCategory}
-            onChange={e => setSelectedCategory(e.target.value)}
+            onChange={e => {
+              const val = e.target.value
+              setSelectedCategory(val)
+              // ค่าสตาฟ & ค่าจ้าง → default หัก ณ ที่จ่าย 3%
+              if (val === 'staff' || val === 'service_fee') {
+                setWhtRate('3')
+              } else {
+                setWhtRate('0')
+              }
+            }}
             className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
           >
             {categories.map(cat => (
@@ -393,15 +407,57 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           )}
         </div>
 
-        {/* Description */}
+        {/* Payment Details (ผู้เบิก) */}
+        <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl p-4 space-y-3 bg-zinc-50/50 dark:bg-zinc-800/30">
+          <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+            💳 {isEn ? 'Payment Details (Claimant)' : 'รายละเอียดการชำระเงิน (ผู้เบิก)'}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-500 mb-1">
+                {isEn ? 'Bank Name' : 'ชื่อธนาคาร'}
+              </label>
+              <BankSelect
+                value={selectedBank}
+                onChange={setSelectedBank}
+                name="bank_name"
+                placeholder={isEn ? 'Select bank' : 'เลือกธนาคาร'}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-500 mb-1">
+                {isEn ? 'Account Number' : 'เลขบัญชีธนาคาร'}
+              </label>
+              <input
+                type="text"
+                name="bank_account_number"
+                placeholder={isEn ? 'e.g. 123-4-56789-0' : 'เช่น 123-4-56789-0'}
+                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-500 mb-1">
+                {isEn ? 'Account Holder' : 'ชื่อ-สกุลเจ้าของบัญชี'}
+              </label>
+              <input
+                type="text"
+                name="account_holder_name"
+                placeholder={isEn ? 'Account holder name' : 'ชื่อ-นามสกุล'}
+                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Additional Details */}
         <div>
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-            {isEn ? 'Description' : 'รายละเอียด'}
+            {isEn ? 'Additional Details (Other)' : 'รายละเอียดเพิ่มเติม (อื่นๆ)'}
           </label>
           <textarea
-            name="description"
+            name="additional_details"
             rows={2}
-            placeholder={isEn ? 'Additional details (optional)' : 'อธิบายรายละเอียดค่าใช้จ่ายเพิ่มเติม (ไม่บังคับ)'}
+            placeholder={isEn ? 'Additional notes or details (optional)' : 'รายละเอียดเพิ่มเติม (ไม่บังคับ)'}
             className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none resize-none"
           />
         </div>

@@ -11,6 +11,8 @@ import type { FinanceCategory } from './settings-actions'
 const statusIcons: Record<string, typeof Clock> = {
   pending: Clock,
   approved: CheckCircle2,
+  awaiting_payment: Clock,
+  paid: CheckCircle2,
   rejected: XCircle,
 }
 
@@ -18,11 +20,14 @@ export default function ClaimsListView({ claims, error, categories = [] }: { cla
   const { locale } = useLocale()
   const [filterStatus, setFilterStatus] = useState<string>('all')
 
-  const filtered = filterStatus === 'all' ? claims : claims.filter(c => c.status === filterStatus)
+  // Hide 'paid' claims — those go to archive
+  const activeClaims = claims.filter(c => c.status !== 'paid')
+
+  const filtered = filterStatus === 'all' ? activeClaims : activeClaims.filter(c => c.status === filterStatus)
 
   // Stats
-  const totalPending = claims.filter(c => c.status === 'pending').length
-  const totalApproved = claims.filter(c => c.status === 'approved').reduce((sum, c) => sum + (c.total_amount || 0), 0)
+  const totalPending = activeClaims.filter(c => c.status === 'pending').length
+  const totalAwaiting = activeClaims.filter(c => c.status === 'awaiting_payment').length
 
   return (
     <div className="space-y-6">
@@ -33,7 +38,7 @@ export default function ClaimsListView({ claims, error, categories = [] }: { cla
             {locale === 'th' ? 'ใบเบิกเงิน' : 'Expense Claims'}
           </h1>
           <p className="text-sm text-zinc-500 mt-1">
-            {locale === 'th' ? `${claims.length} รายการ` : `${claims.length} claims`}
+            {locale === 'th' ? `${activeClaims.length} รายการ` : `${activeClaims.length} claims`}
             {totalPending > 0 && (
               <span className="ml-2 text-amber-600 font-medium">
                 • {totalPending} {locale === 'th' ? 'รออนุมัติ' : 'pending'}
@@ -54,22 +59,20 @@ export default function ClaimsListView({ claims, error, categories = [] }: { cla
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
           <p className="text-xs text-zinc-500 mb-1">{locale === 'th' ? 'ทั้งหมด' : 'Total'}</p>
-          <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{claims.length}</p>
+          <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{activeClaims.length}</p>
         </div>
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
           <p className="text-xs text-amber-600 mb-1">{locale === 'th' ? 'รออนุมัติ' : 'Pending'}</p>
           <p className="text-2xl font-bold text-amber-600">{totalPending}</p>
         </div>
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-          <p className="text-xs text-emerald-600 mb-1">{locale === 'th' ? 'อนุมัติแล้ว' : 'Approved'}</p>
-          <p className="text-2xl font-bold text-emerald-600">
-            {claims.filter(c => c.status === 'approved').length}
-          </p>
+          <p className="text-xs text-blue-600 mb-1">{locale === 'th' ? 'รอชำระเงิน' : 'Awaiting Payment'}</p>
+          <p className="text-2xl font-bold text-blue-600">{totalAwaiting}</p>
         </div>
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-          <p className="text-xs text-zinc-500 mb-1">{locale === 'th' ? 'ยอดอนุมัติ' : 'Approved Total'}</p>
-          <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-            ฿{totalApproved.toLocaleString()}
+          <p className="text-xs text-red-500 mb-1">{locale === 'th' ? 'ปฏิเสธ' : 'Rejected'}</p>
+          <p className="text-2xl font-bold text-red-500">
+            {activeClaims.filter(c => c.status === 'rejected').length}
           </p>
         </div>
       </div>
@@ -88,7 +91,7 @@ export default function ClaimsListView({ claims, error, categories = [] }: { cla
           >
             {locale === 'th' ? 'ทั้งหมด' : 'All'}
           </button>
-          {CLAIM_STATUSES.map(s => (
+          {CLAIM_STATUSES.filter(s => s.value !== 'paid').map(s => (
             <button
               key={s.value}
               onClick={() => setFilterStatus(s.value)}

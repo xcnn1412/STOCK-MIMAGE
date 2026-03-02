@@ -12,6 +12,7 @@ import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../.
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../../costs/types'
+import BankSelect from '@/components/bank-select'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -63,6 +64,9 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [editVatMode, setEditVatMode] = useState(claim.vat_mode || 'none')
   const [editWhtRate, setEditWhtRate] = useState(String(claim.withholding_tax_rate || 0))
   const [editNotes, setEditNotes] = useState(claim.notes || '')
+  const [editBankName, setEditBankName] = useState(claim.bank_name || '')
+  const [editBankAccount, setEditBankAccount] = useState(claim.bank_account_number || '')
+  const [editAccountHolder, setEditAccountHolder] = useState(claim.account_holder_name || '')
 
   const isAdmin = role === 'admin'
   const isOwner = claim.submitted_by === userId
@@ -129,6 +133,9 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       include_vat: editVatMode !== 'none',
       withholding_tax_rate: editWhtRateNum,
       notes: editNotes || null,
+      bank_name: editBankName || null,
+      bank_account_number: editBankAccount || null,
+      account_holder_name: editAccountHolder || null,
     }, receiptFormData)
     if (result.error) { setError(result.error); setLoading(false) }
     else { setEditing(false); setEditReceiptFiles([]); router.refresh(); setLoading(false) }
@@ -146,6 +153,9 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     setEditVatMode(claim.vat_mode || 'none')
     setEditWhtRate(String(claim.withholding_tax_rate || 0))
     setEditNotes(claim.notes || '')
+    setEditBankName(claim.bank_name || '')
+    setEditBankAccount(claim.bank_account_number || '')
+    setEditAccountHolder(claim.account_holder_name || '')
     setEditReceiptFiles([])
   }
 
@@ -320,6 +330,27 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 <input value={editNotes} onChange={e => setEditNotes(e.target.value)} className={inputCls} />
               </div>
 
+              {/* Payment Details Edit */}
+              <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-3 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5">
+                  💳 {isEn ? 'Payment Details (Claimant)' : 'รายละเอียดการชำระเงิน (ผู้เบิก)'}
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-[10px] text-zinc-400 mb-0.5 block">{isEn ? 'Bank Name' : 'ชื่อธนาคาร'}</label>
+                    <BankSelect value={editBankName} onChange={setEditBankName} placeholder={isEn ? 'Select bank' : 'เลือกธนาคาร'} />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-zinc-400 mb-0.5 block">{isEn ? 'Account No.' : 'เลขบัญชี'}</label>
+                    <input value={editBankAccount} onChange={e => setEditBankAccount(e.target.value)} placeholder="123-4-56789-0" className={`${inputCls} font-mono`} />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-zinc-400 mb-0.5 block">{isEn ? 'Account Holder' : 'ชื่อเจ้าของบัญชี'}</label>
+                    <input value={editAccountHolder} onChange={e => setEditAccountHolder(e.target.value)} placeholder={isEn ? 'Name' : 'ชื่อ-นามสกุล'} className={inputCls} />
+                  </div>
+                </div>
+              </div>
+
               {/* Receipt Upload in Edit Mode */}
               <div>
                 <label className="text-xs font-medium text-zinc-500 mb-1.5 flex items-center gap-1.5 block">
@@ -379,83 +410,59 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               <div className="flex items-start justify-between">
                 <div>
                   <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{claim.title}</h2>
-                  {claim.description && <p className="text-sm text-zinc-500 mt-1">{claim.description}</p>}
                 </div>
                 <div className="text-right shrink-0 ml-4">
-                  <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                    ฿{(claim.total_amount || claim.amount || 0).toLocaleString()}
-                  </p>
-                  {(claim.unit_price > 0 && claim.quantity > 1) && (
-                    <p className="text-xs text-zinc-400">
-                      ฿{claim.unit_price?.toLocaleString()} × {claim.quantity} {claim.unit || ''}
+                  {(viewVatMode !== 'none' || viewWhtRate > 0) && viewAmount > 0 ? (
+                    <>
+                      <p className="text-base text-zinc-400 line-through">
+                        ฿{(claim.total_amount || claim.amount || 0).toLocaleString()}
+                      </p>
+                      <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                        ฿{fmtDec(viewTax.netPayable)}
+                      </p>
+                      <p className="text-[10px] text-emerald-500 font-medium">
+                        {isEn ? 'Net Payable' : 'ยอดจ่ายจริง'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                      ฿{(claim.total_amount || claim.amount || 0).toLocaleString()}
                     </p>
                   )}
                 </div>
               </div>
 
-              {/* Info Grid */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Info Grid — ข้อมูลทั่วไป */}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                 <div className="flex items-center gap-2 text-sm">
-                  <Tag className="h-4 w-4 text-zinc-400" />
-                  <span className="text-zinc-500">{isEn ? 'Category:' : 'หมวด:'}</span>
-                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                    {getCategoryLabel(claim.category, locale, categories)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <FileText className="h-4 w-4 text-zinc-400" />
+                  <FileText className="h-4 w-4 text-zinc-400 shrink-0" />
                   <span className="text-zinc-500">{isEn ? 'Type:' : 'ประเภท:'}</span>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">
                     {claim.claim_type === 'event' ? (isEn ? 'Event' : 'เบิกงานอีเวนต์') : (isEn ? 'Other' : 'ค่าอื่นๆ')}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
-                  <User className="h-4 w-4 text-zinc-400" />
+                  <Tag className="h-4 w-4 text-zinc-400 shrink-0" />
+                  <span className="text-zinc-500">{isEn ? 'Category:' : 'หมวด:'}</span>
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                    {getCategoryLabel(claim.category, locale, categories)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <User className="h-4 w-4 text-zinc-400 shrink-0" />
                   <span className="text-zinc-500">{isEn ? 'Submitted by:' : 'ผู้เบิก:'}</span>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">
                     {claim.submitter?.full_name || '—'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
-                  <Calendar className="h-4 w-4 text-zinc-400" />
+                  <Calendar className="h-4 w-4 text-zinc-400 shrink-0" />
                   <span className="text-zinc-500">{isEn ? 'Date:' : 'วันที่:'}</span>
                   <span className="font-medium text-zinc-900 dark:text-zinc-100">
                     {new Date(claim.expense_date).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
                   </span>
                 </div>
               </div>
-
-              {/* Tax Info */}
-              {(viewVatMode !== 'none' || viewWhtRate > 0) && viewAmount > 0 && (
-                <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-1.5 bg-zinc-50/50 dark:bg-zinc-800/30">
-                  <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5 mb-2">
-                    <Receipt className="h-3.5 w-3.5" />
-                    {isEn ? 'Tax Details' : 'รายละเอียดภาษี'}
-                  </p>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-zinc-500">{isEn ? 'Base Amount' : 'ยอดฐาน'}</span>
-                    <span className="font-mono">฿{fmtDec(viewTax.baseAmount)}</span>
-                  </div>
-                  {viewVatMode !== 'none' && (
-                    <div className="flex justify-between text-xs">
-                      <span className="text-blue-600">
-                        VAT 7% ({viewVatMode === 'included' ? (isEn ? 'included' : 'รวมแล้ว') : (isEn ? 'added' : 'เพิ่ม')})
-                      </span>
-                      <span className="font-mono text-blue-600">฿{fmtDec(viewTax.vatAmount)}</span>
-                    </div>
-                  )}
-                  {viewWhtRate > 0 && (
-                    <div className="flex justify-between text-xs">
-                      <span className="text-purple-600">{isEn ? 'Withholding Tax' : 'หัก ณ ที่จ่าย'} {viewWhtRate}%</span>
-                      <span className="font-mono text-purple-600">−฿{fmtDec(viewTax.whtAmount)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-sm font-semibold border-t pt-1.5 mt-1">
-                    <span>{isEn ? 'Net Payable' : 'ยอดจ่ายจริง'}</span>
-                    <span className="font-mono">฿{fmtDec(viewTax.netPayable)}</span>
-                  </div>
-                </div>
-              )}
 
               {/* Event Link */}
               {claim.job_event && (
@@ -466,6 +473,114 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   </span>
                 </div>
               )}
+
+              {/* Description — รายละเอียด */}
+              <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5 mb-1.5">
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  {isEn ? 'Description' : 'รายละเอียด'}
+                </p>
+                <p className="text-sm text-zinc-800 dark:text-zinc-200">{claim.description || '—'}</p>
+              </div>
+
+              {/* Price Breakdown — รายละเอียดราคา */}
+              <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5 mb-1.5">
+                  <Banknote className="h-3.5 w-3.5" />
+                  {isEn ? 'Price Breakdown' : 'รายละเอียดราคา'}
+                </p>
+                <div className="grid grid-cols-4 gap-3">
+                  <div>
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Unit Price' : 'ราคาต่อหน่วย'}</p>
+                    <p className="text-sm font-mono font-medium text-zinc-800 dark:text-zinc-200">฿{(claim.unit_price || 0).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Unit' : 'หน่วย'}</p>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{claim.unit || 'บาท'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Quantity' : 'จำนวน'}</p>
+                    <p className="text-sm font-mono font-medium text-zinc-800 dark:text-zinc-200">{claim.quantity || 1}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Total' : 'ยอดรวม'}</p>
+                    <p className="text-sm font-mono font-bold text-zinc-800 dark:text-zinc-200">฿{(claim.amount || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tax Info — ภาษี */}
+              <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-1.5 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5 mb-2">
+                  <Receipt className="h-3.5 w-3.5" />
+                  {isEn ? 'Tax Details' : 'รายละเอียดภาษี'}
+                </p>
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-500">VAT</span>
+                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                    {viewVatMode === 'none'
+                      ? (isEn ? 'None' : 'ไม่มี VAT')
+                      : viewVatMode === 'included'
+                        ? (isEn ? 'Included 7%' : 'รวม VAT 7%')
+                        : (isEn ? 'Excluded 7%' : 'ไม่รวม VAT 7%')
+                    }
+                  </span>
+                </div>
+                {viewVatMode !== 'none' && viewAmount > 0 && (
+                  <>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-zinc-500">{isEn ? 'Base Amount' : 'ยอดฐาน'}</span>
+                      <span className="font-mono">฿{fmtDec(viewTax.baseAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-blue-600">VAT 7%</span>
+                      <span className="font-mono text-blue-600">฿{fmtDec(viewTax.vatAmount)}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-500">
+                    <Percent className="inline h-3 w-3 mr-0.5 text-purple-500" />
+                    {isEn ? 'Withholding Tax' : 'หัก ณ ที่จ่าย'}
+                  </span>
+                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                    {viewWhtRate > 0 ? `${viewWhtRate}%` : (isEn ? 'None' : 'ไม่หัก')}
+                  </span>
+                </div>
+                {viewWhtRate > 0 && viewAmount > 0 && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-purple-600">{isEn ? 'WHT Amount' : 'จำนวนที่หัก'}</span>
+                    <span className="font-mono text-purple-600">−฿{fmtDec(viewTax.whtAmount)}</span>
+                  </div>
+                )}
+                {(viewVatMode !== 'none' || viewWhtRate > 0) && viewAmount > 0 && (
+                  <div className="flex justify-between text-sm font-semibold border-t pt-1.5 mt-1">
+                    <span>{isEn ? 'Net Payable' : 'ยอดจ่ายจริง'}</span>
+                    <span className="font-mono">฿{fmtDec(viewTax.netPayable)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Payment Details — รายละเอียดการชำระเงิน */}
+              <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5 mb-2">
+                  💳 {isEn ? 'Payment Details (Claimant)' : 'รายละเอียดการชำระเงิน (ผู้เบิก)'}
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Bank' : 'ธนาคาร'}</p>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{claim.bank_name || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Account No.' : 'เลขบัญชี'}</p>
+                    <p className="text-sm font-mono font-medium text-zinc-800 dark:text-zinc-200">{claim.bank_account_number || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Account Holder' : 'ชื่อเจ้าของบัญชี'}</p>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{claim.account_holder_name || '—'}</p>
+                  </div>
+                </div>
+              </div>
 
               {/* Reject Reason */}
               {claim.status === 'rejected' && claim.reject_reason && (
@@ -478,12 +593,11 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 </div>
               )}
 
-              {/* Notes */}
-              {claim.notes && (
-                <div className="text-sm text-zinc-500">
-                  <span className="font-medium">{isEn ? 'Notes:' : 'หมายเหตุ:'}</span> {claim.notes}
-                </div>
-              )}
+              {/* Notes — หมายเหตุ */}
+              <div className="text-sm">
+                <span className="font-medium text-zinc-500">{isEn ? 'Notes:' : 'หมายเหตุ:'}</span>{' '}
+                <span className="text-zinc-700 dark:text-zinc-300">{claim.notes || '—'}</span>
+              </div>
 
               {/* Receipt Documents */}
               {claim.receipt_urls && claim.receipt_urls.length > 0 && (

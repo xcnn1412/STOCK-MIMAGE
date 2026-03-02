@@ -49,6 +49,8 @@ export function getCategoryColor(category: string, dbCategories?: FinanceCategor
 export const CLAIM_STATUSES = [
   { value: 'pending', label: 'Pending', labelTh: 'รออนุมัติ', color: '#f59e0b' },
   { value: 'approved', label: 'Approved', labelTh: 'อนุมัติแล้ว', color: '#22c55e' },
+  { value: 'awaiting_payment', label: 'Awaiting Payment', labelTh: 'รอชำระเงิน', color: '#3b82f6' },
+  { value: 'paid', label: 'Paid', labelTh: 'ชำระเงินแล้ว', color: '#14b8a6' },
   { value: 'rejected', label: 'Rejected', labelTh: 'ปฏิเสธ', color: '#ef4444' },
 ] as const
 
@@ -87,10 +89,16 @@ export interface ExpenseClaim {
   reject_reason: string | null
   expense_date: string
   notes: string | null
+  bank_name: string | null
+  bank_account_number: string | null
+  account_holder_name: string | null
+  paid_at: string | null
+  paid_by: string | null
   created_at: string
   // Joined
   submitter?: { id: string; full_name: string } | null
   approver?: { id: string; full_name: string } | null
+  payer?: { id: string; full_name: string } | null
   job_event?: { id: string; event_name: string } | null
 }
 

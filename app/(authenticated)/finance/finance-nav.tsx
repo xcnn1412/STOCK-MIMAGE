@@ -2,18 +2,20 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Banknote, LayoutDashboard, PlusCircle, Globe } from 'lucide-react'
+import { Banknote, LayoutDashboard, PlusCircle, Globe, Wallet, Archive } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { Locale } from '@/lib/i18n'
 
 const tabMeta = [
   { href: '/finance', key: 'claims' as const, icon: LayoutDashboard, exact: true },
+  { href: '/finance/payouts', key: 'payouts' as const, icon: Wallet, exact: false },
+  { href: '/finance/archive', key: 'archive' as const, icon: Archive, exact: false },
   { href: '/finance/new', key: 'newClaim' as const, icon: PlusCircle, exact: false },
 ]
 
 const labels = {
-  en: { claims: 'All Claims', newClaim: 'New Claim' },
-  th: { claims: 'ใบเบิกทั้งหมด', newClaim: 'สร้างใบเบิก' },
+  en: { claims: 'All Claims', payouts: 'Payouts', archive: 'Archive', newClaim: 'New Claim' },
+  th: { claims: 'ใบเบิกทั้งหมด', payouts: 'สรุปยอดจ่าย', archive: 'คลังเก็บ', newClaim: 'สร้างใบเบิก' },
 }
 
 export default function FinanceNav({ role }: { role: string }) {
