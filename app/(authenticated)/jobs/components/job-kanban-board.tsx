@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useCallback, useTransition, useOptimistic, memo } from 'react'
+import { useState, useCallback, useTransition, useOptimistic } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import {
-    AlertCircle, User, Calendar, GripVertical, Palette, Wrench, MapPin,
-    ExternalLink, ChevronDown, ChevronUp, Phone, Package, Pencil, Flag
+    AlertCircle, User, Calendar, MapPin,
+    ExternalLink, Pencil, Flag
 } from 'lucide-react'
 import { updateJobStatus } from '../actions'
 import type { Job, JobSetting, JobType } from '../actions'
@@ -147,8 +147,15 @@ export function JobKanbanBoard({ jobs, settings, users, jobType }: KanbanBoardPr
 }
 
 // ============================================================================
-// Kanban Card
+// Kanban Card — Premium CRM-style Design
 // ============================================================================
+
+const PRIORITY_CONFIG: Record<string, { label: string; labelTh: string; color: string; bgClass: string; borderClass: string; icon: string }> = {
+    low: { label: 'Low', labelTh: 'ต่ำ', color: '#71717a', bgClass: 'bg-zinc-50 dark:bg-zinc-800/60', borderClass: 'border-zinc-200/60 dark:border-zinc-700/40', icon: '⚪' },
+    medium: { label: 'Medium', labelTh: 'ปานกลาง', color: '#3b82f6', bgClass: 'bg-blue-50 dark:bg-blue-950/30', borderClass: 'border-blue-200/60 dark:border-blue-800/40', icon: '🔵' },
+    high: { label: 'High', labelTh: 'สูง', color: '#f59e0b', bgClass: 'bg-amber-50 dark:bg-amber-950/30', borderClass: 'border-amber-200/60 dark:border-amber-800/40', icon: '🟠' },
+    urgent: { label: 'Urgent', labelTh: 'เร่งด่วน', color: '#ef4444', bgClass: 'bg-red-50 dark:bg-red-950/30', borderClass: 'border-red-200/60 dark:border-red-800/40', icon: '🔴' },
+}
 
 function JobCard({
     job,
@@ -175,14 +182,8 @@ function JobCard({
     const isOverdue = job.due_date && new Date(job.due_date) < new Date() && job.status !== 'done'
     const isFromCrm = !!job.crm_lead_id
 
-    const priorityConfig: Record<string, { label: string; color: string; bg: string }> = {
-        low: { label: locale === 'th' ? 'ต่ำ' : 'Low', color: 'text-zinc-500', bg: 'bg-zinc-100 dark:bg-zinc-800' },
-        medium: { label: locale === 'th' ? 'ปานกลาง' : 'Medium', color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-950/30' },
-        high: { label: locale === 'th' ? 'สูง' : 'High', color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950/30' },
-        urgent: { label: locale === 'th' ? 'เร่งด่วน' : 'Urgent', color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950/30' },
-    }
-
-    const priority = priorityConfig[job.priority] || priorityConfig.medium
+    const priority = PRIORITY_CONFIG[job.priority] || PRIORITY_CONFIG.medium
+    const priorityLabel = locale === 'th' ? priority.labelTh : priority.label
 
     const assignedNames = (job.assigned_to || [])
         .map(id => {
@@ -202,159 +203,186 @@ function JobCard({
         }
     })
 
+    const toggleExpand = (e: React.MouseEvent) => {
+        e.stopPropagation()
+        setExpanded(prev => !prev)
+    }
+
     return (
-        <div
-            draggable
-            onDragStart={e => onDragStart(e, job.id)}
-            onDragEnd={onDragEnd}
-            className={`group relative bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200/60 dark:border-zinc-800/60 p-3 cursor-grab active:cursor-grabbing transition-all duration-200 hover:shadow-md ${isDragging ? 'opacity-50 scale-95 shadow-xl ring-2 ring-violet-400' : ''
-                }`}
-        >
-            {/* Top color accent */}
-            <div className="absolute top-0 left-3 right-3 h-0.5 rounded-b" style={{ backgroundColor: statusColor }} />
+        <div className="group">
+            <div
+                draggable
+                onDragStart={e => onDragStart(e, job.id)}
+                onDragEnd={onDragEnd}
+                onClick={toggleExpand}
+                className={`
+                    relative bg-white dark:bg-zinc-800/90 rounded-xl overflow-hidden
+                    border border-zinc-200/70 dark:border-zinc-700/50
+                    cursor-pointer active:cursor-grabbing
+                    transition-all duration-200 ease-out
+                    hover:shadow-lg hover:shadow-zinc-200/50 dark:hover:shadow-zinc-900/50
+                    hover:-translate-y-0.5 hover:border-zinc-300 dark:hover:border-zinc-600
+                    ${isDragging ? 'opacity-40 rotate-2 scale-95 shadow-2xl' : 'shadow-sm shadow-zinc-100 dark:shadow-zinc-900/30'}
+                `}
+            >
+                {/* Top color accent bar */}
+                <div
+                    className="h-1.5 w-full"
+                    style={{ background: `linear-gradient(90deg, ${statusColor}, ${statusColor}90)` }}
+                />
 
-            {/* Header */}
-            <div className="flex items-start gap-2 mb-2">
-                <GripVertical className="h-4 w-4 text-zinc-300 dark:text-zinc-600 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                <Link href={`/jobs/${job.id}`} className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm text-zinc-900 dark:text-zinc-100 truncate hover:text-violet-600 dark:hover:text-violet-400 transition-colors">
-                        {job.title}
-                    </div>
-                </Link>
-                {isFromCrm && (
-                    <Badge className="text-[8px] px-1 py-0 bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400 border-0 shrink-0">
-                        CRM
-                    </Badge>
-                )}
-            </div>
-
-            {/* Priority + Dates (always visible) */}
-            <div className="flex items-center gap-2 flex-wrap mb-2">
-                <Badge className={`text-[10px] px-1.5 py-0 border-0 ${priority.bg} ${priority.color}`}>
-                    {priority.label}
-                </Badge>
-
-                {job.event_date && (
-                    <span className="flex items-center gap-1 text-[10px] text-zinc-400">
-                        <Calendar className="h-2.5 w-2.5" />
-                        {job.event_date}
-                    </span>
-                )}
-
-                {isOverdue && (
-                    <Badge className="text-[10px] px-1.5 py-0 bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400 border-0">
-                        <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
-                        {locale === 'th' ? 'เลยกำหนด' : 'Overdue'}
-                    </Badge>
-                )}
-            </div>
-
-            {/* Tags (always visible) */}
-            {tagBadges.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                    {tagBadges.map(tag => (
-                        <Badge
-                            key={tag.value}
-                            className="text-[9px] px-1.5 py-0 border"
-                            style={{ backgroundColor: `${tag.color}15`, color: tag.color, borderColor: `${tag.color}30` }}
-                        >
-                            {tag.label}
-                        </Badge>
-                    ))}
-                </div>
-            )}
-
-            {/* CRM Expandable Section */}
-            {isFromCrm && (
-                <div className="border-t border-zinc-100 dark:border-zinc-800 mt-1 pt-1.5">
-                    <button
-                        onClick={e => { e.stopPropagation(); setExpanded(!expanded) }}
-                        className="flex items-center gap-1 w-full text-left text-[10px] text-blue-500 hover:text-blue-600 font-medium transition-colors py-0.5"
-                    >
-                        <ExternalLink className="h-2.5 w-2.5" />
-                        <span>{locale === 'th' ? 'ข้อมูล CRM' : 'CRM Data'}</span>
-                        {expanded
-                            ? <ChevronUp className="h-2.5 w-2.5 ml-auto" />
-                            : <ChevronDown className="h-2.5 w-2.5 ml-auto" />
-                        }
-                    </button>
-
-                    {expanded && (
-                        <div className="mt-1.5 space-y-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 bg-blue-50/40 dark:bg-blue-950/10 rounded-md p-2">
-                            {/* Customer (CRM) */}
-                            {job.customer_name && (
-                                <div className="flex items-center gap-1.5">
-                                    <User className="h-3 w-3 text-blue-400 shrink-0" />
-                                    <span className="text-zinc-400 text-[9px]">(CRM)</span>
-                                    <span className="truncate font-medium text-zinc-700 dark:text-zinc-300">{job.customer_name}</span>
-                                </div>
-                            )}
-
-                            {/* Location (CRM) */}
-                            {job.event_location && (
-                                <div className="flex items-center gap-1.5">
-                                    <MapPin className="h-3 w-3 text-blue-400 shrink-0" />
-                                    <span className="text-zinc-400 text-[9px]">(CRM)</span>
-                                    <span className="truncate font-medium text-zinc-700 dark:text-zinc-300">{job.event_location}</span>
-                                </div>
-                            )}
-
-                            {/* Event Date (CRM) */}
-                            {job.event_date && (
-                                <div className="flex items-center gap-1.5">
-                                    <Calendar className="h-3 w-3 text-blue-400 shrink-0" />
-                                    <span className="text-zinc-400 text-[9px]">(CRM)</span>
-                                    <span className="font-medium text-zinc-700 dark:text-zinc-300">{job.event_date}</span>
-                                </div>
-                            )}
-
-                            {/* Assigned (CRM) */}
-                            {assignedNames.length > 0 && (
-                                <div className="flex items-start gap-1.5">
-                                    <User className="h-3 w-3 text-blue-400 shrink-0 mt-0.5" />
-                                    <span className="text-zinc-400 text-[9px]">(CRM)</span>
-                                    <span className="truncate font-medium text-zinc-700 dark:text-zinc-300">{assignedNames.join(', ')}</span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* Non-CRM: show customer & assigned inline */}
-            {!isFromCrm && (
-                <>
-                    {job.customer_name && (
-                        <div className="flex items-center gap-1.5 mb-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                            <User className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{job.customer_name}</span>
-                        </div>
-                    )}
-                    {job.event_location && (
-                        <div className="flex items-center gap-1.5 mb-1.5 text-xs text-zinc-400 dark:text-zinc-500">
-                            <MapPin className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{job.event_location}</span>
-                        </div>
-                    )}
-                    {assignedNames.length > 0 && (
-                        <div className="flex items-center gap-1 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                            <div className="flex -space-x-1.5">
-                                {assignedNames.map((name, i) => (
-                                    <div
-                                        key={i}
-                                        className="h-5 w-5 rounded-full bg-violet-100 dark:bg-violet-950/50 border-2 border-white dark:border-zinc-900 flex items-center justify-center text-[8px] font-bold text-violet-600 dark:text-violet-400"
-                                    >
-                                        {name.charAt(0)}
-                                    </div>
-                                ))}
+                <div className="p-2.5 sm:p-3.5 space-y-2.5">
+                    {/* Header: Title + CRM Badge + Edit */}
+                    <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-[14px] text-zinc-900 dark:text-zinc-100 leading-snug truncate">
+                                {job.title}
                             </div>
-                            <span className="text-[10px] text-zinc-400 ml-1 truncate">
-                                {assignedNames.join(', ')}
-                            </span>
+                            {/* Compact summary: customer + date */}
+                            <div className="flex items-center gap-2 mt-0.5">
+                                {job.customer_name && (
+                                    <span className="text-[12px] text-zinc-500 dark:text-zinc-400 truncate max-w-[120px]">
+                                        {job.customer_name}
+                                    </span>
+                                )}
+                                {job.event_date && (
+                                    <span className={`text-[12px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-zinc-400'}`}>
+                                        {job.event_date}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                            {isFromCrm && (
+                                <Badge className="text-[9px] px-1.5 py-0 bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/40 font-bold">
+                                    CRM
+                                </Badge>
+                            )}
+                            <Link
+                                href={`/jobs/${job.id}`}
+                                onClick={e => e.stopPropagation()}
+                                className="p-1.5 rounded-md hover:bg-violet-50 dark:hover:bg-violet-950/40 transition-colors"
+                            >
+                                <Pencil className="h-3.5 w-3.5 text-zinc-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors" />
+                            </Link>
+                        </div>
+                    </div>
+
+                    {/* Priority Badge — Prominent */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <Badge
+                            className={`text-[12px] px-2 py-0.5 border font-bold gap-1 ${priority.bgClass} ${priority.borderClass}`}
+                            style={{ color: priority.color }}
+                        >
+                            <Flag className="h-3 w-3" />
+                            {priorityLabel}
+                        </Badge>
+
+                        {isOverdue && (
+                            <Badge className="text-[12px] px-2 py-0.5 bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-200/60 dark:border-red-800/40 gap-1 font-semibold animate-pulse">
+                                <AlertCircle className="h-3 w-3" />
+                                {locale === 'th' ? 'เลยกำหนด' : 'Overdue'}
+                            </Badge>
+                        )}
+                    </div>
+
+                    {/* Tags — bigger, bolder, more vibrant */}
+                    {tagBadges.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                            {tagBadges.map(tag => (
+                                <span
+                                    key={tag.value}
+                                    className="inline-flex items-center gap-1.5 text-[12px] font-bold px-2 py-0.5 rounded-full"
+                                    style={{
+                                        backgroundColor: `${tag.color}15`,
+                                        color: tag.color,
+                                        boxShadow: `inset 0 0 0 1.5px ${tag.color}30`,
+                                    }}
+                                >
+                                    <span className="h-2 w-2 rounded-full shadow-sm" style={{ backgroundColor: tag.color }} />
+                                    {tag.label}
+                                </span>
+                            ))}
                         </div>
                     )}
-                </>
-            )}
+
+                    {/* Expanded Detail Section */}
+                    {expanded && (
+                        <div className="space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
+
+                            {/* Info rows */}
+                            {(job.event_date || job.event_location) && (
+                                <div className="space-y-1.5 bg-zinc-50/80 dark:bg-zinc-900/40 rounded-lg px-3 py-2.5">
+                                    {job.event_date && (
+                                        <div className="flex items-center gap-2 text-[13px]">
+                                            <Calendar className="h-3.5 w-3.5 shrink-0" style={{ color: isOverdue ? '#ef4444' : '#a1a1aa' }} />
+                                            <span className={`${isOverdue ? 'text-red-500 dark:text-red-400 font-semibold' : 'text-zinc-600 dark:text-zinc-400'}`}>
+                                                {job.event_date}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {job.event_location && (
+                                        <div className="flex items-center gap-2 text-[13px] text-zinc-500 dark:text-zinc-400">
+                                            <MapPin className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                                            <span className="truncate">{job.event_location}</span>
+                                        </div>
+                                    )}
+                                    {job.due_date && (
+                                        <div className="flex items-center gap-2 text-[13px]">
+                                            <AlertCircle className="h-3.5 w-3.5 shrink-0" style={{ color: isOverdue ? '#ef4444' : '#a1a1aa' }} />
+                                            <span className={`${isOverdue ? 'text-red-500 dark:text-red-400 font-semibold' : 'text-zinc-500 dark:text-zinc-400'}`}>
+                                                {locale === 'th' ? 'กำหนดส่ง: ' : 'Due: '}{job.due_date}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* CRM Data Section */}
+                            {isFromCrm && (
+                                <div className="space-y-1.5 bg-blue-50/50 dark:bg-blue-950/10 rounded-lg px-3 py-2.5 border border-blue-100/60 dark:border-blue-900/30">
+                                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-blue-500 uppercase tracking-wide">
+                                        <ExternalLink className="h-3 w-3" />
+                                        {locale === 'th' ? 'ข้อมูล CRM' : 'CRM Data'}
+                                    </div>
+                                    {job.customer_name && (
+                                        <div className="flex items-center gap-2 text-[13px]">
+                                            <User className="h-3 w-3 text-blue-400 shrink-0" />
+                                            <span className="truncate font-medium text-zinc-700 dark:text-zinc-300">{job.customer_name}</span>
+                                        </div>
+                                    )}
+                                    {job.event_location && (
+                                        <div className="flex items-center gap-2 text-[13px]">
+                                            <MapPin className="h-3 w-3 text-blue-400 shrink-0" />
+                                            <span className="truncate text-zinc-600 dark:text-zinc-400">{job.event_location}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Assigned Staff */}
+                            {assignedNames.length > 0 && (
+                                <div className="flex items-center gap-2 pt-2.5 border-t border-zinc-100 dark:border-zinc-700/40">
+                                    <div className="flex -space-x-1.5">
+                                        {assignedNames.map((name, i) => (
+                                            <div
+                                                key={i}
+                                                className="h-6 w-6 rounded-full bg-violet-100 dark:bg-violet-950/50 border-2 border-white dark:border-zinc-800 flex items-center justify-center text-[9px] font-bold text-violet-600 dark:text-violet-400"
+                                            >
+                                                {name.charAt(0)}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <span className="text-[12px] text-zinc-500 dark:text-zinc-400 truncate font-medium">
+                                        {assignedNames.join(', ')}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     )
 }
+
