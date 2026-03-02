@@ -226,9 +226,10 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
         setNewColor('#3b82f6')
     }
 
-    // ---- Shared row component ----
-    const SettingRow = ({ setting }: { setting: JobSetting }) => (
+    // ---- Shared row render function (NOT a component — avoids remount on re-render) ----
+    const renderSettingRow = (setting: JobSetting) => (
         <div
+            key={setting.id}
             className={`flex items-center gap-2 p-3 rounded-lg border transition-colors ${!setting.is_active ? 'opacity-50 bg-zinc-50 dark:bg-zinc-900' : 'bg-white dark:bg-zinc-900 border-zinc-200/60 dark:border-zinc-800/60'
                 }`}
         >
@@ -283,8 +284,8 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
         </div>
     )
 
-    // ---- Add form component ----
-    const AddForm = ({ category }: { category: string }) => (
+    // ---- Add form render function (NOT a component — avoids remount on re-render) ----
+    const renderAddForm = (category: string) => (
         <div className="flex items-center gap-2 p-3 bg-violet-50 dark:bg-violet-950/20 rounded-lg border border-violet-200 dark:border-violet-800">
             <input
                 type="color"
@@ -370,13 +371,9 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                 {/* Section content */}
                 {!isCollapsed && (
                     <div className="p-3 space-y-2">
-                        {addMode && addCategory === category && (
-                            <AddForm category={category} />
-                        )}
+                        {addMode && addCategory === category && renderAddForm(category)}
 
-                        {sectionTags.map(tag => (
-                            <SettingRow key={tag.id} setting={tag} />
-                        ))}
+                        {sectionTags.map(tag => renderSettingRow(tag))}
 
                         {sectionTags.length === 0 && !(addMode && addCategory === category) && (
                             <div className="text-center py-4 text-xs text-zinc-400 dark:text-zinc-500">
@@ -420,9 +417,7 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                 </div>
 
                 {/* Add form */}
-                {addMode && addCategory === tagCategory && (
-                    <AddForm category={tagCategory} />
-                )}
+                {addMode && addCategory === tagCategory && renderAddForm(tagCategory)}
 
                 {/* Add button */}
                 {!(addMode && addCategory === tagCategory) && (
@@ -444,9 +439,7 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                     </div>
                 ) : (
                     <div className="space-y-1.5">
-                        {tagItems.map(tag => (
-                            <SettingRow key={tag.id} setting={tag} />
-                        ))}
+                        {tagItems.map(tag => renderSettingRow(tag))}
                     </div>
                 )}
 
@@ -949,14 +942,10 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                     </CardHeader>
                     <CardContent className="space-y-2 pt-0">
                         {/* Add Row */}
-                        {addMode && addCategory === activeTab && (
-                            <AddForm category={activeTab} />
-                        )}
+                        {addMode && addCategory === activeTab && renderAddForm(activeTab)}
 
                         {/* Settings List */}
-                        {currentSettings.map(setting => (
-                            <SettingRow key={setting.id} setting={setting} />
-                        ))}
+                        {currentSettings.map(setting => renderSettingRow(setting))}
 
                         {currentSettings.length === 0 && !(addMode && addCategory === activeTab) && (
                             <div className="text-center py-8 text-sm text-zinc-400 dark:text-zinc-500">

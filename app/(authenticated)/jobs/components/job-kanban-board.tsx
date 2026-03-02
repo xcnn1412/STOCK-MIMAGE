@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import {
     AlertCircle, User, Calendar, GripVertical, Palette, Wrench, MapPin,
-    ExternalLink, ChevronDown, ChevronUp, Phone, Package
+    ExternalLink, ChevronDown, ChevronUp, Phone, Package, Pencil, Flag
 } from 'lucide-react'
 import { updateJobStatus } from '../actions'
 import type { Job, JobSetting, JobType } from '../actions'
@@ -96,9 +96,9 @@ export function JobKanbanBoard({ jobs, settings, users, jobType }: KanbanBoardPr
                 return (
                     <div
                         key={status}
-                        className={`flex-shrink-0 w-[300px] flex flex-col rounded-xl transition-all duration-200 ${isDragOver
-                            ? 'bg-violet-50/50 dark:bg-violet-950/20 ring-2 ring-violet-300 dark:ring-violet-700'
-                            : 'bg-zinc-50/50 dark:bg-zinc-900/30'
+                        className={`flex-shrink-0 w-[300px] flex flex-col rounded-xl border transition-all duration-200 ${isDragOver
+                            ? 'bg-violet-50/60 dark:bg-violet-950/20 ring-2 ring-violet-300 dark:ring-violet-700 shadow-md border-violet-200 dark:border-violet-800'
+                            : 'bg-zinc-50/80 dark:bg-zinc-900/40 shadow-sm border-zinc-200/60 dark:border-zinc-800/60'
                             }`}
                         onDragOver={e => handleDragOver(e, status)}
                         onDragLeave={handleDragLeave}
