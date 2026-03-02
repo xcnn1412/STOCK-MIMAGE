@@ -563,6 +563,7 @@ export interface LeadInstallment {
   due_date: string | null
   is_paid: boolean
   paid_date: string | null
+  receipt_url: string | null
   created_at: string
 }
 
@@ -659,11 +660,39 @@ export async function saveAllInstallments(leadId: string, installments: Array<{
 
   const supabase = createServiceClient()
 
-  // Delete existing
-  await supabase.from('crm_lead_installments').delete().eq('lead_id', leadId)
+  // Fetch existing installments to preserve receipt_url
+  const { data: existingRows } = await supabase
+    .from('crm_lead_installments')
+    .select('id, installment_number, receipt_url')
+    .eq('lead_id', leadId)
 
-  // Insert new
+  const existingMap = new Map(
+    (existingRows || []).map(r => [r.installment_number, r])
+  )
+
+  // Delete installments that are no longer in the list
+  const keepNumbers = new Set(installments.map(i => i.installment_number))
+  const toDelete = (existingRows || []).filter(r => !keepNumbers.has(r.installment_number))
+  if (toDelete.length > 0) {
+    await supabase
+      .from('crm_lead_installments')
+      .delete()
+      .in('id', toDelete.map(r => r.id))
+  }
+
+  // Upsert (update existing / insert new) — preserving receipt_url
   if (installments.length > 0) {
+    // Delete all remaining and re-insert with receipt_url preserved
+    const remainingIds = (existingRows || [])
+      .filter(r => keepNumbers.has(r.installment_number))
+      .map(r => r.id)
+    if (remainingIds.length > 0) {
+      await supabase
+        .from('crm_lead_installments')
+        .delete()
+        .in('id', remainingIds)
+    }
+
     const rows = installments.map(inst => ({
       lead_id: leadId,
       installment_number: inst.installment_number,
@@ -671,6 +700,7 @@ export async function saveAllInstallments(leadId: string, installments: Array<{
       due_date: inst.due_date || null,
       is_paid: inst.is_paid,
       paid_date: inst.paid_date || null,
+      receipt_url: existingMap.get(inst.installment_number)?.receipt_url || null,
     }))
     const { error } = await supabase.from('crm_lead_installments').insert(rows)
     if (error) return { error: error.message }
@@ -680,5 +710,114 @@ export async function saveAllInstallments(leadId: string, installments: Array<{
 
   revalidatePath(`/crm/${leadId}`)
   revalidatePath('/crm/payments')
+  return { success: true }
+}
+
+// ============================================================================
+// CRM Payment Proof Upload — สลิป/หลักฐานการชำระเงิน
+// ============================================================================
+
+export async function uploadPaymentProof(leadId: string, installmentId: string, formData: FormData) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const file = formData.get('file') as File
+  if (!file || file.size === 0) return { error: 'No file provided' }
+
+  // Validate file type
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
+  if (!allowedTypes.includes(file.type)) {
+    return { error: 'ไฟล์ต้องเป็น JPEG, PNG, WebP, GIF หรือ PDF เท่านั้น' }
+  }
+
+  // Validate file size (max 10MB)
+  if (file.size > 10 * 1024 * 1024) {
+    return { error: 'ไฟล์มีขนาดใหญ่เกินไป (สูงสุด 10MB)' }
+  }
+
+  const supabase = createServiceClient()
+
+  // Generate unique file path
+  const ext = file.name.split('.').pop() || 'jpg'
+  const filePath = `${leadId}/${installmentId}_${Date.now()}.${ext}`
+
+  // Delete old file if exists
+  const { data: existingInstallment } = await supabase
+    .from('crm_lead_installments')
+    .select('receipt_url')
+    .eq('id', installmentId)
+    .single()
+
+  if (existingInstallment?.receipt_url) {
+    const oldPath = existingInstallment.receipt_url.split('/crm-payment-proofs/')[1]
+    if (oldPath) {
+      await supabase.storage.from('crm-payment-proofs').remove([oldPath])
+    }
+  }
+
+  // Convert File to ArrayBuffer then to Buffer for server-side upload
+  const arrayBuffer = await file.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+
+  // Upload to storage
+  const { error: uploadError } = await supabase.storage
+    .from('crm-payment-proofs')
+    .upload(filePath, buffer, {
+      contentType: file.type,
+      upsert: true,
+    })
+
+  if (uploadError) return { error: `อัพโหลดไม่สำเร็จ: ${uploadError.message}` }
+
+  // Get public URL
+  const { data: urlData } = supabase.storage
+    .from('crm-payment-proofs')
+    .getPublicUrl(filePath)
+
+  const receiptUrl = urlData.publicUrl
+
+  // Update installment with receipt_url
+  const { error: updateError } = await supabase
+    .from('crm_lead_installments')
+    .update({ receipt_url: receiptUrl })
+    .eq('id', installmentId)
+
+  if (updateError) return { error: updateError.message }
+
+  await logActivity('UPLOAD_PAYMENT_PROOF', { leadId, installmentId, filePath })
+  revalidatePath(`/crm/${leadId}`)
+  return { success: true, url: receiptUrl }
+}
+
+export async function deletePaymentProof(leadId: string, installmentId: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  // Get current receipt_url
+  const { data: installment } = await supabase
+    .from('crm_lead_installments')
+    .select('receipt_url')
+    .eq('id', installmentId)
+    .single()
+
+  if (installment?.receipt_url) {
+    const filePath = installment.receipt_url.split('/crm-payment-proofs/')[1]
+    if (filePath) {
+      await supabase.storage.from('crm-payment-proofs').remove([filePath])
+    }
+  }
+
+  // Clear receipt_url
+  const { error } = await supabase
+    .from('crm_lead_installments')
+    .update({ receipt_url: null })
+    .eq('id', installmentId)
+
+  if (error) return { error: error.message }
+
+  await logActivity('DELETE_PAYMENT_PROOF', { leadId, installmentId })
+  revalidatePath(`/crm/${leadId}`)
   return { success: true }
 }

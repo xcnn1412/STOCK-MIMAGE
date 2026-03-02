@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -20,11 +20,13 @@ import {
   ArrowLeft, Phone, MessageSquare, Mail, Pencil, Save, X,
   FileText, ExternalLink, Clock, User, Calendar, MapPin,
   DollarSign, Package, AlertCircle, Trash2, Tag, Archive, ArchiveRestore,
-  Users, Briefcase, Palette, Wrench, ChevronDown, ChevronUp
+  Users, Briefcase, Palette, Wrench, ChevronDown, ChevronUp,
+  Upload, Image as ImageIcon, Eye
 } from 'lucide-react'
 import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
-  archiveLead, unarchiveLead, getLead, saveAllInstallments
+  archiveLead, unarchiveLead, getLead, saveAllInstallments,
+  uploadPaymentProof, deletePaymentProof
 } from '../actions'
 import type { LeadInstallment } from '../actions'
 import { STATUS_CONFIG, ALL_STATUSES, getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
@@ -74,6 +76,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   const [localSales, setLocalSales] = useState<string[]>(lead.assigned_sales || [])
   const [localGraphics, setLocalGraphics] = useState<string[]>(lead.assigned_graphics || [])
   const [localStaff, setLocalStaff] = useState<string[]>(lead.assigned_staff || [])
+  const [uploadingInstallment, setUploadingInstallment] = useState<string | null>(null)
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const [localReceiptUrls, setLocalReceiptUrls] = useState<Record<string, string>>(
+    Object.fromEntries(initialInstallments.filter(i => i.receipt_url).map(i => [i.id, i.receipt_url!]))
+  )
 
   const getStatusLabel = (status: string) => {
     const cfg = getStatusConfig(settings, status)
@@ -390,6 +397,42 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     const pkg = packages.find(p => p.value === val)
     if (pkg?.price) {
       updateForm('quoted_price', pkg.price)
+    }
+  }
+
+  // ---------- Payment Proof Upload ----------
+  const handleUploadProof = async (installmentId: string, file: File) => {
+    setUploadingInstallment(installmentId)
+    const formData = new FormData()
+    formData.append('file', file)
+    const result = await uploadPaymentProof(lead.id, installmentId, formData)
+    setUploadingInstallment(null)
+    if (result.error) {
+      alert(result.error)
+    } else {
+      // Save uploaded URL to local state immediately for preview
+      if (result.url) {
+        setLocalReceiptUrls(prev => ({ ...prev, [installmentId]: result.url! }))
+      }
+      router.refresh()
+    }
+  }
+
+  const handleDeleteProof = async (installmentId: string) => {
+    if (!confirm(locale === 'th' ? 'ต้องการลบหลักฐานการชำระเงินนี้?' : 'Delete this payment proof?')) return
+    setUploadingInstallment(installmentId)
+    const result = await deletePaymentProof(lead.id, installmentId)
+    setUploadingInstallment(null)
+    if (result.error) {
+      alert(result.error)
+    } else {
+      // Remove from local state
+      setLocalReceiptUrls(prev => {
+        const next = { ...prev }
+        delete next[installmentId]
+        return next
+      })
+      router.refresh()
     }
   }
 
@@ -1048,6 +1091,114 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                               </div>
                             )}
                           </div>
+                          {/* Payment Proof Upload - Edit Mode */}
+                          {(() => {
+                            const existingInstallment = initialInstallments[idx]
+                            if (!existingInstallment) return null
+                            const proofUrl = localReceiptUrls[existingInstallment.id] || existingInstallment.receipt_url
+                            const isUploading = uploadingInstallment === existingInstallment.id
+                            return (
+                              <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-700">
+                                <Label className="text-xs font-medium text-zinc-500 mb-1.5 flex items-center gap-1.5">
+                                  <Upload className="h-3 w-3" />
+                                  {locale === 'th' ? 'หลักฐานการชำระเงิน' : 'Payment Proof'}
+                                </Label>
+                                {proofUrl ? (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <div className="relative group w-16 h-16 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 shrink-0">
+                                      {proofUrl.endsWith('.pdf') ? (
+                                        <div className="w-full h-full flex items-center justify-center bg-red-50 dark:bg-red-950/30">
+                                          <FileText className="h-6 w-6 text-red-500" />
+                                        </div>
+                                      ) : (
+                                        <img src={proofUrl} alt="receipt" className="w-full h-full object-cover" />
+                                      )}
+                                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                                        <a href={proofUrl} target="_blank" rel="noopener noreferrer" className="p-1 rounded bg-white/20 hover:bg-white/40">
+                                          <Eye className="h-3 w-3 text-white" />
+                                        </a>
+                                      </div>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">✓ {locale === 'th' ? 'อัพโหลดแล้ว' : 'Uploaded'}</span>
+                                      <div className="flex gap-1">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-6 text-[10px] px-2 gap-1"
+                                          disabled={isUploading}
+                                          onClick={() => fileInputRefs.current[existingInstallment.id]?.click()}
+                                        >
+                                          <Upload className="h-2.5 w-2.5" />
+                                          {locale === 'th' ? 'เปลี่ยน' : 'Change'}
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 text-[10px] px-2 gap-1 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                          disabled={isUploading}
+                                          onClick={() => handleDeleteProof(existingInstallment.id)}
+                                        >
+                                          <Trash2 className="h-2.5 w-2.5" />
+                                          {locale === 'th' ? 'ลบ' : 'Delete'}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                    <input
+                                      type="file"
+                                      accept="image/*,.pdf"
+                                      className="hidden"
+                                      ref={el => { fileInputRefs.current[existingInstallment.id] = el }}
+                                      onChange={e => {
+                                        const f = e.target.files?.[0]
+                                        if (f) handleUploadProof(existingInstallment.id, f)
+                                        e.target.value = ''
+                                      }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div
+                                    className={`mt-1 border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors ${isUploading ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20' : 'border-zinc-200 dark:border-zinc-700 hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-950/10'}`}
+                                    onClick={() => !isUploading && fileInputRefs.current[existingInstallment.id]?.click()}
+                                    onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
+                                    onDrop={e => {
+                                      e.preventDefault(); e.stopPropagation()
+                                      const f = e.dataTransfer.files[0]
+                                      if (f) handleUploadProof(existingInstallment.id, f)
+                                    }}
+                                  >
+                                    {isUploading ? (
+                                      <div className="flex items-center justify-center gap-2">
+                                        <div className="h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                        <span className="text-xs text-blue-600 dark:text-blue-400">{locale === 'th' ? 'กำลังอัพโหลด...' : 'Uploading...'}</span>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <Upload className="h-5 w-5 text-zinc-400 mx-auto mb-1" />
+                                        <p className="text-xs text-zinc-500">
+                                          {locale === 'th' ? 'คลิกหรือลากไฟล์มาวาง' : 'Click or drag file here'}
+                                        </p>
+                                        <p className="text-[10px] text-zinc-400 mt-0.5">JPEG, PNG, WebP, PDF (สูงสุด 10MB)</p>
+                                      </>
+                                    )}
+                                    <input
+                                      type="file"
+                                      accept="image/*,.pdf"
+                                      className="hidden"
+                                      ref={el => { fileInputRefs.current[existingInstallment.id] = el }}
+                                      onChange={e => {
+                                        const f = e.target.files?.[0]
+                                        if (f) handleUploadProof(existingInstallment.id, f)
+                                        e.target.value = ''
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </div>
                       ))}
                       {formInstallments.length === 0 && (
@@ -1181,6 +1332,119 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                               {(tc as any).paidDate || 'วันที่ชำระจริง'}: {inst.paid_date}
                             </div>
                           )}
+                          {/* Payment Proof - View Mode (with upload capability) */}
+                          {(() => {
+                            const proofUrl = localReceiptUrls[inst.id] || inst.receipt_url
+                            const isUploading = uploadingInstallment === inst.id
+                            return (
+                              <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-700/50">
+                                <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 flex items-center gap-1 mb-1.5">
+                                  <Upload className="h-3 w-3" />
+                                  {locale === 'th' ? 'หลักฐานการชำระเงิน' : 'Payment Proof'}
+                                </span>
+                                {proofUrl ? (
+                                  <div className="flex items-center gap-2">
+                                    <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 shrink-0 cursor-pointer">
+                                      {proofUrl.endsWith('.pdf') ? (
+                                        <a href={proofUrl} target="_blank" rel="noopener noreferrer" className="w-full h-full flex items-center justify-center bg-red-50 dark:bg-red-950/30">
+                                          <FileText className="h-5 w-5 text-red-500" />
+                                        </a>
+                                      ) : (
+                                        <a href={proofUrl} target="_blank" rel="noopener noreferrer">
+                                          <img src={proofUrl} alt="receipt" className="w-full h-full object-cover" />
+                                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <Eye className="h-4 w-4 text-white" />
+                                          </div>
+                                        </a>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">✓ {locale === 'th' ? 'อัพโหลดแล้ว' : 'Uploaded'}</span>
+                                      <div className="flex gap-1">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-6 text-[10px] px-2 gap-1"
+                                          disabled={isUploading}
+                                          onClick={() => fileInputRefs.current[`view_${inst.id}`]?.click()}
+                                        >
+                                          <Upload className="h-2.5 w-2.5" />
+                                          {locale === 'th' ? 'เปลี่ยน' : 'Change'}
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 text-[10px] px-2 gap-1 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                          disabled={isUploading}
+                                          onClick={() => handleDeleteProof(inst.id)}
+                                        >
+                                          <Trash2 className="h-2.5 w-2.5" />
+                                          {locale === 'th' ? 'ลบ' : 'Delete'}
+                                        </Button>
+                                      </div>
+                                      <a
+                                        href={proofUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+                                      >
+                                        {locale === 'th' ? 'ดูขนาดเต็ม' : 'View full size'}
+                                      </a>
+                                    </div>
+                                    <input
+                                      type="file"
+                                      accept="image/*,.pdf"
+                                      className="hidden"
+                                      ref={el => { fileInputRefs.current[`view_${inst.id}`] = el }}
+                                      onChange={e => {
+                                        const f = e.target.files?.[0]
+                                        if (f) handleUploadProof(inst.id, f)
+                                        e.target.value = ''
+                                      }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div
+                                    className={`border-2 border-dashed rounded-lg p-2.5 text-center cursor-pointer transition-colors ${isUploading ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20' : 'border-zinc-200 dark:border-zinc-700 hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-950/10'}`}
+                                    onClick={() => !isUploading && fileInputRefs.current[`view_${inst.id}`]?.click()}
+                                    onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
+                                    onDrop={e => {
+                                      e.preventDefault(); e.stopPropagation()
+                                      const f = e.dataTransfer.files[0]
+                                      if (f) handleUploadProof(inst.id, f)
+                                    }}
+                                  >
+                                    {isUploading ? (
+                                      <div className="flex items-center justify-center gap-2">
+                                        <div className="h-3.5 w-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                        <span className="text-xs text-blue-600 dark:text-blue-400">{locale === 'th' ? 'กำลังอัพโหลด...' : 'Uploading...'}</span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-center gap-2">
+                                        <Upload className="h-3.5 w-3.5 text-zinc-400" />
+                                        <span className="text-xs text-zinc-500">
+                                          {locale === 'th' ? 'อัพโหลดสลิป' : 'Upload slip'}
+                                        </span>
+                                      </div>
+                                    )}
+                                    <input
+                                      type="file"
+                                      accept="image/*,.pdf"
+                                      className="hidden"
+                                      ref={el => { fileInputRefs.current[`view_${inst.id}`] = el }}
+                                      onChange={e => {
+                                        const f = e.target.files?.[0]
+                                        if (f) handleUploadProof(inst.id, f)
+                                        e.target.value = ''
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </div>
                       )
                     })}

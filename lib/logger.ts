@@ -62,6 +62,8 @@ export type ActionType =
     | 'DELETE_CRM_SETTING'
     | 'ARCHIVE_CRM_LEAD'
     | 'UNARCHIVE_CRM_LEAD'
+    | 'UPLOAD_PAYMENT_PROOF'
+    | 'DELETE_PAYMENT_PROOF'
     // Finance Module (เบิกเงิน)
     | 'CREATE_EXPENSE_CLAIM'
     | 'APPROVE_EXPENSE_CLAIM'
