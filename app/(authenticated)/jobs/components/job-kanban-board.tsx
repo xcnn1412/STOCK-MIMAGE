@@ -5,9 +5,10 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import {
     AlertCircle, User, Calendar, MapPin,
-    ExternalLink, Pencil, Flag
+    ExternalLink, Pencil, Flag, Archive
 } from 'lucide-react'
-import { updateJobStatus } from '../actions'
+import { updateJobStatus, archiveJob } from '../actions'
+import { useRouter } from 'next/navigation'
 import type { Job, JobSetting, JobType } from '../actions'
 import { getStatusesFromSettings, getStatusConfig } from '../jobs-dashboard'
 import { useLocale } from '@/lib/i18n/context'
@@ -178,6 +179,17 @@ function JobCard({
 }) {
     const { locale } = useLocale()
     const [expanded, setExpanded] = useState(false)
+    const [archiving, setArchiving] = useState(false)
+    const router = useRouter()
+
+    const handleArchive = async (e: React.MouseEvent) => {
+        e.stopPropagation()
+        if (!confirm(locale === 'th' ? 'ย้ายงานนี้ไปคลังเก็บ?' : 'Archive this job?')) return
+        setArchiving(true)
+        await archiveJob(job.id)
+        setArchiving(false)
+        router.refresh()
+    }
 
     const isOverdue = job.due_date && new Date(job.due_date) < new Date() && job.status !== 'done'
     const isFromCrm = !!job.crm_lead_id
@@ -258,6 +270,14 @@ function JobCard({
                                     CRM
                                 </Badge>
                             )}
+                            <button
+                                onClick={handleArchive}
+                                disabled={archiving}
+                                className="p-1.5 rounded-md hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
+                                title={locale === 'th' ? 'เก็บเข้าคลัง' : 'Archive'}
+                            >
+                                <Archive className={`h-3.5 w-3.5 transition-colors ${archiving ? 'text-amber-400 animate-pulse' : 'text-zinc-400 hover:text-amber-600 dark:hover:text-amber-400'}`} />
+                            </button>
                             <Link
                                 href={`/jobs/${job.id}`}
                                 onClick={e => e.stopPropagation()}

@@ -141,7 +141,7 @@ export async function createClaim(formData: FormData) {
   const include_vat = vat_mode !== 'none'
   const withholding_tax_rate = Number(formData.get('withholding_tax_rate')) || 0
   const notes = formData.get('notes') as string || null
-  const job_event_id = formData.get('job_event_id') as string || null
+  let job_event_id = formData.get('job_event_id') as string || null
   const bank_name = (formData.get('bank_name') as string || '').trim() || null
   const bank_account_number = (formData.get('bank_account_number') as string || '').trim() || null
   const account_holder_name = (formData.get('account_holder_name') as string || '').trim() || null
@@ -158,6 +158,20 @@ export async function createClaim(formData: FormData) {
   if (!title) return { error: 'กรุณากรอกหัวข้อการเบิก' }
   if (amount <= 0 && unit_price <= 0) return { error: 'กรุณากรอกจำนวนเงินที่ถูกต้อง (ราคาต่อหน่วยต้องมากกว่า 0)' }
   if (claim_type === 'event' && !job_event_id) return { error: 'กรุณาเลือกอีเวนต์' }
+
+  // Auto-import closure event → job_cost_events ถ้าเลือกจากประวัติปิดงาน
+  if (job_event_id && job_event_id.startsWith('closure:')) {
+    const closureId = job_event_id.replace('closure:', '')
+    const { importEventFromClosure } = await import('../costs/actions')
+    const importResult = await importEventFromClosure(closureId)
+    if (importResult.error) {
+      // ถ้า import แล้ว อาจเป็น duplicate → ใช้ existingId ถ้ามี
+      job_event_id = (importResult as any).existingId || null
+      if (!job_event_id) return { error: `ไม่สามารถนำเข้าอีเวนต์ได้: ${importResult.error}` }
+    } else {
+      job_event_id = importResult.id || null
+    }
+  }
 
   // Upload receipt files first
   let receipt_urls: string[] = []
@@ -537,19 +551,46 @@ export async function deleteClaim(id: string) {
 export async function getJobEventsForSelect() {
   const supabase = createServiceClient()
 
-  // ดึงจากตาราง events หลัก (ไม่ใช่ job_cost_events)
-  const { data } = await supabase
-    .from('events')
-    .select('id, name, event_date')
+  // 1. ดึงจาก job_cost_events (อีเวนต์ที่ import เข้าระบบ costs แล้ว)
+  const { data: jobEvents } = await supabase
+    .from('job_cost_events')
+    .select('id, event_name, event_date, event_location, status')
     .order('event_date', { ascending: false })
-    .limit(100)
+    .limit(200)
 
-  // Map to consistent shape
-  return (data || []).map(e => ({
+  // 2. ดึงจาก event_closures (ประวัติปิดงาน)
+  const { data: closures } = await supabase
+    .from('event_closures')
+    .select('id, event_name, event_date, event_location')
+    .order('event_date', { ascending: false })
+    .limit(200)
+
+  // Map job_cost_events (active + completed)
+  const events = (jobEvents || []).map(e => ({
     id: e.id,
-    event_name: e.name,
+    event_name: e.event_name,
     event_date: e.event_date,
+    event_location: e.event_location || null,
+    status: e.status || 'draft',
   }))
+
+  // Map closures — prefix ID กับ "closure:" เพื่อแยก source
+  // และเช็ค dedup ด้วย event_name + event_date
+  const existingKeys = new Set(
+    events.map(e => `${e.event_name}::${e.event_date || ''}`)
+  )
+
+  const closureEvents = (closures || [])
+    .filter(c => !existingKeys.has(`${c.event_name}::${c.event_date || ''}`))
+    .map(c => ({
+      id: `closure:${c.id}`,
+      event_name: c.event_name,
+      event_date: c.event_date,
+      event_location: c.event_location || null,
+      status: 'closed',
+    }))
+
+  return [...events, ...closureEvents]
 }
 
 // ============================================================================

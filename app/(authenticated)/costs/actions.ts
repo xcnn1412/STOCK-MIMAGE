@@ -86,6 +86,16 @@ export async function importEventFromClosure(closureId: string) {
 
   if (closureErr || !closure) return { error: 'ไม่พบข้อมูลปิดอีเวนต์' }
 
+  // ตรวจว่า import ซ้ำหรือเปล่า (เช็ค event_name + event_date)
+  const { data: existing } = await supabase
+    .from('job_cost_events')
+    .select('id')
+    .eq('event_name', closure.event_name)
+    .eq('event_date', closure.event_date)
+    .maybeSingle()
+
+  if (existing) return { error: 'อีเวนต์นี้ถูกนำเข้าแล้ว', existingId: existing.id }
+
   // สร้าง job_cost_event
   const { data: created, error: insertErr } = await supabase
     .from('job_cost_events')

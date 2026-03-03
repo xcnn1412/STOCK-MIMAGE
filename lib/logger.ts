@@ -95,6 +95,8 @@ export type ActionType =
     | 'UPDATE_TICKET_STATUS'
     | 'CREATE_TICKET_REPLY'
     | 'DELETE_TICKET'
+    | 'ARCHIVE_TICKET'
+    | 'UNARCHIVE_TICKET'
     // User Profile
     | 'UPDATE_USER_PROFILE'
     | 'UPDATE_MY_PROFILE'

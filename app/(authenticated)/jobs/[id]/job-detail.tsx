@@ -7,7 +7,7 @@ import {
     ArrowLeft, Calendar, MapPin, User, Tag, Clock, Palette, Wrench, Pencil,
     Save, X, Trash2, Edit2, Plus, Phone, MessageCircle, Mail, Users as UsersIcon,
     ExternalLink, Lock, ChevronDown, ChevronUp, DollarSign, Package, Briefcase,
-    ListChecks, CheckSquare, Square
+    ListChecks, CheckSquare, Square, Archive
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -24,7 +24,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
     updateJob, updateJobStatus, deleteJob, createJobActivity,
-    toggleChecklistItem,
+    toggleChecklistItem, archiveJob,
 } from '../actions'
 import { updateLead } from '../../crm/actions'
 import type { Job, JobSetting, JobType, ChecklistTemplate, ChecklistItem } from '../actions'
@@ -368,6 +368,11 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
         startTransition(async () => { await deleteJob(job.id); router.push('/jobs') })
     }
 
+    const handleArchive = () => {
+        if (!confirm(locale === 'th' ? 'ย้ายงานนี้ไปคลังเก็บ?' : 'Archive this job?')) return
+        startTransition(async () => { await archiveJob(job.id); router.push('/jobs') })
+    }
+
     const startEdit = (section: string) => {
         const values: Record<string, string> = {}
         if (section === 'info') {
@@ -485,9 +490,19 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                         </Link>
                     )}
                 </div>
-                <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={handleDelete}>
-                    <Trash2 className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                    <Button
+                        variant="ghost" size="icon"
+                        className="text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                        onClick={handleArchive}
+                        title={locale === 'th' ? 'เก็บเข้าคลัง' : 'Archive'}
+                    >
+                        <Archive className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={handleDelete}>
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                </div>
             </div>
 
             {/* Status Changer */}

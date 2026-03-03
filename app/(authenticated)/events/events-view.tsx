@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from 'next/link'
-import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal } from "lucide-react"
+import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
 import EventStatusBadge from './event-status-badge'
 import type { Event } from '@/types'
@@ -34,13 +34,21 @@ export default function EventsView({ events }: { events: Event[] }) {
                 : 'Manage events and track status'}
             </p>
           </div>
-          {/* Desktop Create Button */}
-          <Link href="/events/new" className="hidden md:block">
-            <Button size="sm" className="bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900">
-              <Plus className="mr-2 h-4 w-4" />
-              {t.events.createEvent}
-            </Button>
-          </Link>
+          {/* Desktop Action Buttons */}
+          <div className="hidden md:flex items-center gap-2">
+            <Link href="/events/calendar">
+              <Button variant="outline" size="sm" className="border-zinc-200 dark:border-zinc-700">
+                <Calendar className="mr-2 h-4 w-4" />
+                {lang === 'th' ? 'ปฏิทิน' : 'Calendar'}
+              </Button>
+            </Link>
+            <Link href="/events/new">
+              <Button size="sm" className="bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900">
+                <Plus className="mr-2 h-4 w-4" />
+                {t.events.createEvent}
+              </Button>
+            </Link>
+          </div>
         </div>
         
         {/* Sort Button - Compact on mobile */}

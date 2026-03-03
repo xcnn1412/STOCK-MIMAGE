@@ -813,6 +813,7 @@ export interface Ticket {
     created_by: string | null
     assigned_to: string[]
     closed_at: string | null
+    archived_at: string | null
     created_at: string
     updated_at: string
     profiles?: { full_name: string | null } | null
@@ -837,12 +838,17 @@ export async function getTickets(filters?: {
     category?: string
     status?: string
     search?: string
+    includeArchived?: boolean
 }) {
     const supabase = createServiceClient()
     let query = supabase
         .from('tickets')
         .select('*, profiles:created_by(full_name)')
         .order('created_at', { ascending: false })
+
+    if (!filters?.includeArchived) {
+        query = query.is('archived_at', null)
+    }
 
     if (filters?.category) query = query.eq('category', filters.category)
     if (filters?.status) query = query.eq('status', filters.status)
@@ -1015,4 +1021,66 @@ export async function getTicketOutcomes() {
 
     if (error) return { data: [], error: error.message }
     return { data: data || [] }
+}
+
+// ============================================================================
+// Archive — Jobs & Tickets
+// ============================================================================
+
+export async function getArchivedJobs() {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('jobs')
+        .select('*')
+        .not('archived_at', 'is', null)
+        .order('archived_at', { ascending: false })
+
+    if (error) return { error: error.message, data: [] }
+    return { data: (data || []) as Job[] }
+}
+
+export async function getArchivedTickets() {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('tickets')
+        .select('*, profiles:created_by(full_name)')
+        .not('archived_at', 'is', null)
+        .order('archived_at', { ascending: false })
+
+    if (error) return { error: error.message, data: [] }
+    return { data: (data || []) as Ticket[] }
+}
+
+export async function archiveTicket(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('tickets')
+        .update({ archived_at: new Date().toISOString() })
+        .eq('id', id)
+    if (error) return { error: error.message }
+
+    await logActivity('ARCHIVE_TICKET', { id })
+    revalidatePath('/jobs')
+    revalidatePath('/jobs/archive')
+    return { success: true }
+}
+
+export async function unarchiveTicket(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('tickets')
+        .update({ archived_at: null })
+        .eq('id', id)
+    if (error) return { error: error.message }
+
+    await logActivity('UNARCHIVE_TICKET', { id })
+    revalidatePath('/jobs')
+    revalidatePath('/jobs/archive')
+    return { success: true }
 }

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
     ArrowLeft, Clock, User, Flag, Target, Paperclip, Send,
     MessageCircle, CheckCircle, HelpCircle, XCircle, Info,
-    Trash2
+    Trash2, Archive
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { createTicketReply, updateTicketStatus, deleteTicket } from '../../actions'
+import { createTicketReply, updateTicketStatus, deleteTicket, archiveTicket } from '../../actions'
 import type { Ticket, TicketReply, JobSetting } from '../../actions'
 import { getTicketStatusConfig } from '../../components/ticket-kanban-board'
 import { useLocale } from '@/lib/i18n/context'
@@ -114,6 +114,14 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
         })
     }
 
+    const handleArchive = () => {
+        if (!confirm(locale === 'th' ? 'ย้าย ticket นี้ไปคลังเก็บ?' : 'Archive this ticket?')) return
+        startTransition(async () => {
+            await archiveTicket(ticket.id)
+            router.push('/jobs')
+        })
+    }
+
     const formatDate = (dateStr: string) => {
         const d = new Date(dateStr)
         return d.toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-US', {
@@ -173,6 +181,14 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <Button
+                                variant="ghost" size="sm"
+                                onClick={handleArchive}
+                                className="h-8 w-8 p-0 text-zinc-400 hover:text-amber-500"
+                                title={locale === 'th' ? 'เก็บเข้าคลัง' : 'Archive'}
+                            >
+                                <Archive className="h-4 w-4" />
+                            </Button>
                             <Button
                                 variant="ghost" size="sm"
                                 onClick={handleDelete}

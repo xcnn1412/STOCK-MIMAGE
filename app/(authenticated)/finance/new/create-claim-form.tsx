@@ -8,9 +8,17 @@ import { CLAIM_TYPES } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
 import BankSelect from '@/components/bank-select'
+import EventSelectCombobox from './event-select-combobox'
+import EventCalendar, { type CalendarEvent } from '@/components/event-calendar'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface Props {
-  jobEvents: { id: string; event_name: string; event_date: string | null }[]
+  jobEvents: { id: string; event_name: string; event_date: string | null; event_location: string | null; status: string }[]
   categories: FinanceCategory[]
   categoryItems: CategoryItem[]
   staffProfiles: StaffProfile[]
@@ -58,6 +66,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const [bankAccountNumber, setBankAccountNumber] = useState('')
   const [accountHolderName, setAccountHolderName] = useState('')
   const [staffAutoFilled, setStaffAutoFilled] = useState(false)
+  const [selectedEventId, setSelectedEventId] = useState('')
+  const [calendarOpen, setCalendarOpen] = useState(false)
 
   const computedAmount = (Number(unitPrice) || 0) * (Number(quantity) || 1)
   const whtRateNum = Number(whtRate) || 0
@@ -159,18 +169,47 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
               {isEn ? 'Select Event' : 'เลือกอีเวนต์'} *
             </label>
-            <select
-              name="job_event_id"
-              required={claimType === 'event'}
-              className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
-            >
-              <option value="">{isEn ? '— Select Event —' : '— เลือกอีเวนต์ —'}</option>
-              {jobEvents.map(evt => (
-                <option key={evt.id} value={evt.id}>
-                  {evt.event_name} {evt.event_date ? `(${new Date(evt.event_date).toLocaleDateString('th-TH')})` : ''}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <EventSelectCombobox
+                  events={jobEvents}
+                  value={selectedEventId}
+                  onChange={setSelectedEventId}
+                  locale={locale}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setCalendarOpen(true)}
+                className="shrink-0 px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-zinc-600 dark:text-zinc-400 flex items-center gap-1.5"
+                title={isEn ? 'View Calendar' : 'ดูปฏิทิน'}
+              >
+                <Calendar className="h-4 w-4" />
+                <span className="text-xs hidden sm:inline">{isEn ? 'Calendar' : 'ปฏิทิน'}</span>
+              </button>
+            </div>
+
+            {/* Calendar Dialog */}
+            <Dialog open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-emerald-500" />
+                    {isEn ? 'Select Event from Calendar' : 'เลือกอีเวนต์จากปฏิทิน'}
+                  </DialogTitle>
+                </DialogHeader>
+                <EventCalendar
+                  events={jobEvents}
+                  selectedId={selectedEventId}
+                  onSelect={(event) => {
+                    setSelectedEventId(event.id)
+                    setCalendarOpen(false)
+                  }}
+                  locale={locale}
+                  mode="picker"
+                />
+              </DialogContent>
+            </Dialog>
           </div>
         )}
 

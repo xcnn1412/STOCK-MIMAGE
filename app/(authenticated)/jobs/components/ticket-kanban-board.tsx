@@ -5,9 +5,10 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import {
     AlertCircle, User, Clock, Paperclip, MessageSquare,
-    GripVertical, ChevronDown, ChevronRight, Target, Flag
+    GripVertical, ChevronDown, ChevronRight, Target, Flag, Archive
 } from 'lucide-react'
-import { updateTicketStatus } from '../actions'
+import { updateTicketStatus, archiveTicket } from '../actions'
+import { useRouter } from 'next/navigation'
 import type { Ticket, JobSetting } from '../actions'
 import { useLocale } from '@/lib/i18n/context'
 
@@ -300,7 +301,19 @@ function TicketCard({
     onDragEnd: () => void
 }) {
     const { locale } = useLocale()
+    const [archiving, setArchiving] = useState(false)
+    const router = useRouter()
     const priority = PRIORITY_CONFIG[ticket.priority] || PRIORITY_CONFIG.normal
+
+    const handleArchive = async (e: React.MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!confirm(locale === 'th' ? 'ย้าย ticket นี้ไปคลังเก็บ?' : 'Archive this ticket?')) return
+        setArchiving(true)
+        await archiveTicket(ticket.id)
+        setArchiving(false)
+        router.refresh()
+    }
 
     const outcomeSetting = settings.find(s => s.category === 'ticket_outcome' && s.value === ticket.desired_outcome)
     const outcomeLabel = outcomeSetting
@@ -337,18 +350,28 @@ function TicketCard({
                     />
 
                     <div className="p-3 sm:p-3.5 space-y-2.5">
-                        {/* Header: Ticket Number + Priority */}
+                        {/* Header: Ticket Number + Priority + Archive */}
                         <div className="flex items-center justify-between">
                             <span className="text-[11px] font-bold text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
                                 {ticket.ticket_number}
                             </span>
-                            <Badge
-                                className="text-[10px] px-1.5 py-0 border-0 font-bold"
-                                style={{ backgroundColor: `${priority.color}15`, color: priority.color }}
-                            >
-                                <Flag className="h-2.5 w-2.5 mr-0.5" />
-                                {locale === 'th' ? priority.labelTh : priority.label}
-                            </Badge>
+                            <div className="flex items-center gap-1.5">
+                                <Badge
+                                    className="text-[10px] px-1.5 py-0 border-0 font-bold"
+                                    style={{ backgroundColor: `${priority.color}15`, color: priority.color }}
+                                >
+                                    <Flag className="h-2.5 w-2.5 mr-0.5" />
+                                    {locale === 'th' ? priority.labelTh : priority.label}
+                                </Badge>
+                                <button
+                                    onClick={handleArchive}
+                                    disabled={archiving}
+                                    className="p-1 rounded-md hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors opacity-0 group-hover:opacity-100"
+                                    title={locale === 'th' ? 'เก็บเข้าคลัง' : 'Archive'}
+                                >
+                                    <Archive className={`h-3 w-3 transition-colors ${archiving ? 'text-amber-400 animate-pulse' : 'text-zinc-400 hover:text-amber-600 dark:hover:text-amber-400'}`} />
+                                </button>
+                            </div>
                         </div>
 
                         {/* Subject */}
