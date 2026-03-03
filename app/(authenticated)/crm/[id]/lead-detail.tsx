@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -26,7 +27,7 @@ import {
 import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
   archiveLead, unarchiveLead, getLead, saveAllInstallments,
-  uploadPaymentProof, deletePaymentProof
+  uploadPaymentProof, deletePaymentProof, checkEventDateConflicts
 } from '../actions'
 import { createJobsFromLead, getJobsByLeadId } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
@@ -339,6 +340,43 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         return
       }
     }
+    // Tiered duplicate check for same-date events
+    if (lead.event_date) {
+      const conflicts = await checkEventDateConflicts(lead.event_date)
+      if (conflicts.length > 0) {
+        const customerName = lead.customer_name?.toLowerCase() || ''
+        // Level 1: Same customer name → likely duplicate
+        const duplicates = conflicts.filter(e =>
+          e.event_name?.toLowerCase().includes(customerName) && customerName.length > 0
+        )
+        // Level 2: Other events on the same day → informational
+        const sameDay = conflicts.filter(e =>
+          !e.event_name?.toLowerCase().includes(customerName) || customerName.length === 0
+        )
+
+        if (duplicates.length > 0) {
+          // 🔴 Strong warning — likely duplicate
+          const dupNames = duplicates.map(e => e.event_name).join('\n• ')
+          const proceed = confirm(
+            `🔴 อีเวนต์ซ้ำ!\n\nลูกค้า "${lead.customer_name}" มีอีเวนต์ในวันเดียวกันอยู่แล้ว:\n• ${dupNames}\n\n⚠️ อาจเป็นอีเวนต์ที่สร้างไปแล้ว — ต้องการสร้างเพิ่มหรือไม่?`
+          )
+          if (!proceed) {
+            setLoading(false)
+            return
+          }
+        } else if (sameDay.length > 0) {
+          // 🟡 Informational — other events on same day
+          const dayNames = sameDay.map(e => `${e.event_name}${e.event_location ? ` (${e.event_location})` : ''}`).join('\n• ')
+          const proceed = confirm(
+            `📋 วันที่ ${lead.event_date} มีอีเวนต์อื่นอยู่แล้ว ${sameDay.length} งาน:\n• ${dayNames}\n\nตรวจสอบทีมหน้างานก่อนสร้างอีเวนต์ใหม่ — ดำเนินการต่อหรือไม่?`
+          )
+          if (!proceed) {
+            setLoading(false)
+            return
+          }
+        }
+      }
+    }
     setLoading(false)
     router.push(`/events/new?from_crm=${lead.id}`)
   }
@@ -346,12 +384,34 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   // Forward to Jobs
   const handleForwardToJobs = async () => {
     setLoading(true)
+    // Check for existing jobs from this lead
+    const existingJobs = await getJobsByLeadId(lead.id)
+    if (existingJobs.length > 0) {
+      const jobLabels = existingJobs.map(j =>
+        j.job_type === 'graphic' ? 'กราฟิก' : j.job_type === 'onsite' ? 'ออกหน้างาน' : j.job_type
+      ).join(', ')
+      const proceed = confirm(
+        `Lead นี้ส่งต่องานไปแล้ว ${existingJobs.length} งาน (${jobLabels})\nต้องการสร้างเพิ่มหรือไม่?`
+      )
+      if (!proceed) {
+        setLoading(false)
+        return
+      }
+    }
     const result = await createJobsFromLead(lead.id)
     setLoading(false)
     if (result.error) {
       alert(result.error)
     } else {
       router.refresh()
+      toast.success('ระบบเปิดงานเรียบร้อย', {
+        description: 'สร้างงาน กราฟิก + ออกหน้างาน แล้ว',
+        duration: 8000,
+        action: {
+          label: 'ไปหน้างาน',
+          onClick: () => router.push('/jobs'),
+        },
+      })
     }
   }
 

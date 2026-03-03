@@ -563,6 +563,21 @@ export async function createEventFromLead(leadId: string) {
 }
 
 // ============================================================================
+// ตรวจสอบวันที่ซ้ำกับอีเวนต์อื่น
+// ============================================================================
+
+export async function checkEventDateConflicts(eventDate: string) {
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('job_cost_events')
+    .select('id, event_name, event_date, event_location')
+    .eq('event_date', eventDate)
+
+  if (error) return []
+  return data || []
+}
+
+// ============================================================================
 // CRM Lead Installments — CRUD (Normalized)
 // ============================================================================
 
