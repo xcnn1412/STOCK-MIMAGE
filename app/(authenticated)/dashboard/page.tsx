@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Package, Target, DollarSign, Users, ContactRound, Calendar, Banknote, Shield } from 'lucide-react'
+import { Package, Target, DollarSign, Users, ContactRound, Calendar, Banknote, Shield, Briefcase } from 'lucide-react'
 
 const modules = [
   {
@@ -11,6 +11,14 @@ const modules = [
     sublabel: '',
     href: '/crm',
     color: 'from-blue-600 to-blue-800',
+  },
+  {
+    key: 'jobs',
+    icon: Briefcase,
+    label: 'JOBS',
+    sublabel: '',
+    href: '/jobs',
+    color: 'from-indigo-500 to-indigo-700',
   },
   {
     key: 'events',
