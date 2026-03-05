@@ -105,7 +105,7 @@ export default function OverviewDashboard({ claims, categories }: { claims: Expe
     const map = new Map<string, { name: string; total: number; count: number }>()
     allActiveClaims.forEach(c => {
       if (!c.job_event_id) return
-      const name = (c.job_event as any)?.name || 'ไม่ระบุ'
+      const name = (c.job_event as any)?.event_name || 'ไม่ระบุ'
       if (!map.has(c.job_event_id)) map.set(c.job_event_id, { name, total: 0, count: 0 })
       const e = map.get(c.job_event_id)!
       e.total += c.total_amount || c.amount || 0

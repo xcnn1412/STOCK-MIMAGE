@@ -154,7 +154,7 @@ export default function ClaimsListView({ claims, error, categories = [] }: { cla
                     </p>
                     <p className="text-xs text-zinc-500 mt-0.5">
                       {claim.submitter?.full_name || '—'} • {new Date(claim.expense_date).toLocaleDateString('th-TH')}
-                      {(claim.job_event as any)?.name && ` • ${(claim.job_event as any).name}`}
+                      {(claim.job_event as any)?.event_name && ` • ${(claim.job_event as any).event_name}`}
                     </p>
                   </div>
                 </div>

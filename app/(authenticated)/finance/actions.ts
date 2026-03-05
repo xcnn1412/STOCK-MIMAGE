@@ -49,7 +49,7 @@ export async function getClaims(filters?: {
       *,
       submitter:profiles!expense_claims_submitted_by_fkey(id, full_name),
       approver:profiles!expense_claims_approved_by_fkey(id, full_name),
-      job_event:events!expense_claims_job_event_id_fkey(id, name)
+      job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name)
     `)
     .order('created_at', { ascending: false })
 
@@ -72,7 +72,7 @@ export async function getClaim(id: string) {
       *,
       submitter:profiles!expense_claims_submitted_by_fkey(id, full_name),
       approver:profiles!expense_claims_approved_by_fkey(id, full_name),
-      job_event:events!expense_claims_job_event_id_fkey(id, name)
+      job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name)
     `)
     .eq('id', id)
     .single()
@@ -377,31 +377,19 @@ export async function approveClaim(id: string) {
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
 
-  // If linked to event, find the corresponding job_cost_events and create cost item
+  // If linked to event → job_event_id ชี้ไป job_cost_events.id ตรงๆ แล้ว
   if (claim.job_event_id) {
-    // Lookup job_cost_events by source_event_id (events.id → job_cost_events.source_event_id)
-    const { data: jobEvent } = await supabase
-      .from('job_cost_events')
-      .select('id')
-      .eq('source_event_id', claim.job_event_id)
-      .maybeSingle()
-
-    if (jobEvent) {
-      // Event already imported to Costs → create cost item
-      await supabase.from('job_cost_items').insert({
-        job_event_id: jobEvent.id,
-        category: claim.category,
-        description: `[เบิกเงิน] ${claim.title}`,
-        amount: claim.total_amount || (claim.amount * claim.quantity),
-        unit_price: claim.amount,
-        quantity: claim.quantity,
-        unit: 'รายการ',
-        recorded_by: userId,
-        notes: `${claim.claim_number}::${id}`,
-      })
-    }
-    // ถ้ายังไม่ import เข้า Costs → อนุมัติแล้วแต่ยังไม่สร้าง cost item
-    // เมื่อ import event เข้า Costs ทีหลัง สามารถดูใบเบิกที่อนุมัติแล้วได้
+    await supabase.from('job_cost_items').insert({
+      job_event_id: claim.job_event_id,
+      category: claim.category,
+      description: `[เบิกเงิน] ${claim.title}`,
+      amount: claim.total_amount || (claim.amount * claim.quantity),
+      unit_price: claim.amount,
+      quantity: claim.quantity,
+      unit: 'รายการ',
+      recorded_by: userId,
+      notes: `${claim.claim_number}::${id}`,
+    })
   }
 
   await logActivity('APPROVE_EXPENSE_CLAIM', {
@@ -514,21 +502,13 @@ export async function deleteClaim(id: string) {
   if (!claim) return { error: 'ไม่พบใบเบิก' }
 
   // ถ้าเคย approved → ลบ cost item ที่สร้างจากใบเบิกนี้ด้วย
+  // job_event_id ชี้ไป job_cost_events.id ตรงๆ
   if (claim.status === 'approved' && claim.job_event_id) {
-    // หา job_cost_events ที่ source_event_id ตรงกัน
-    const { data: jobEvent } = await supabase
-      .from('job_cost_events')
-      .select('id')
-      .eq('source_event_id', claim.job_event_id)
-      .maybeSingle()
-
-    if (jobEvent) {
-      await supabase
-        .from('job_cost_items')
-        .delete()
-        .eq('job_event_id', jobEvent.id)
-        .like('notes', `%${claim.claim_number}%`)
-    }
+    await supabase
+      .from('job_cost_items')
+      .delete()
+      .eq('job_event_id', claim.job_event_id)
+      .like('notes', `%${claim.claim_number}%`)
   }
 
   const { error } = await supabase.from('expense_claims').delete().eq('id', id)

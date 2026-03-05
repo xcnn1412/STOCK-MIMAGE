@@ -133,7 +133,7 @@ export default function FinanceDownloadView({ claims, categories, profileMap = {
           'ที่อยู่': formatAddress(parseAddress(profile?.address || null)),
           'หัวข้อ': c.title,
           'หมวด': getCategoryLabel(c.category, 'th', categories),
-          'อีเวนต์': (c.job_event as any)?.name || '',
+          'อีเวนต์': (c.job_event as any)?.event_name || '',
           'วันที่ค่าใช้จ่าย': c.expense_date || '',
           'ยอดเงิน': amt,
           'VAT': c.vat_mode || 'none',
