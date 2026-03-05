@@ -3,6 +3,7 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
+import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
 
 async function getSession() {
@@ -398,6 +399,19 @@ export async function approveClaim(id: string) {
     totalAmount: claim.total_amount,
   })
 
+  // Notify the claim submitter
+  if (claim.submitted_by) {
+    await createNotifications({
+      userIds: [claim.submitted_by],
+      type: 'expense_approved',
+      title: `ใบเบิก ${claim.claim_number} ได้รับการอนุมัติแล้ว`,
+      body: claim.title,
+      referenceType: 'expense_claim',
+      referenceId: id,
+      actorId: userId,
+    })
+  }
+
   revalidatePath('/finance')
   revalidatePath('/costs')
   return { success: true }
@@ -411,7 +425,7 @@ export async function rejectClaim(id: string, reason: string) {
 
   const { data: claim } = await supabase
     .from('expense_claims')
-    .select('claim_number, status')
+    .select('claim_number, status, submitted_by, title')
     .eq('id', id)
     .single()
 
@@ -435,6 +449,19 @@ export async function rejectClaim(id: string, reason: string) {
     claimNumber: claim.claim_number,
     reason,
   })
+
+  // Notify the claim submitter
+  if (claim.submitted_by) {
+    await createNotifications({
+      userIds: [claim.submitted_by],
+      type: 'expense_rejected',
+      title: `ใบเบิก ${claim.claim_number} ถูกปฏิเสธ`,
+      body: reason || 'ไม่ระบุเหตุผล',
+      referenceType: 'expense_claim',
+      referenceId: id,
+      actorId: userId,
+    })
+  }
 
   revalidatePath('/finance')
   return { success: true }

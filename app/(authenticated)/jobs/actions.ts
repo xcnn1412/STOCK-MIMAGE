@@ -3,6 +3,7 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
+import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
 
 
@@ -288,6 +289,19 @@ export async function createJob(formData: FormData) {
     if (error) return { error: error.message }
 
     await logActivity('CREATE_JOB', { id: data.id, job_type: job.job_type, title: job.title })
+
+    // Notify assigned users
+    if (job.assigned_to.length > 0) {
+        await createNotifications({
+            userIds: job.assigned_to,
+            type: 'job_assigned',
+            title: `คุณได้รับมอบหมายงาน: ${job.title}`,
+            referenceType: 'job',
+            referenceId: data.id,
+            actorId: userId,
+        })
+    }
+
     revalidatePath('/jobs')
     return { success: true, id: data.id }
 }
@@ -297,6 +311,11 @@ export async function updateJob(id: string, formData: FormData) {
     if (!userId) return { error: 'Unauthorized' }
 
     const supabase = createServiceClient()
+
+    // Fetch current job for comparing assignees
+    const { data: currentJob } = await supabase.from('jobs').select('title, assigned_to, assigned_graphics, assigned_staff').eq('id', id).single()
+    const oldAssigned = currentJob?.assigned_to || []
+
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
 
     const textFields = ['title', 'description', 'event_location', 'customer_name', 'notes', 'priority']
@@ -339,6 +358,23 @@ export async function updateJob(id: string, formData: FormData) {
     if (error) return { error: error.message }
 
     await logActivity('UPDATE_JOB', { id, changes: Object.keys(updates).join(', ') })
+
+    // Notify newly assigned users
+    const jobTitle = (updates.title as string) || currentJob?.title || 'งาน'
+    if (updates.assigned_to) {
+        const newAssigned = (updates.assigned_to as string[]).filter(uid => !oldAssigned.includes(uid))
+        if (newAssigned.length > 0) {
+            await createNotifications({
+                userIds: newAssigned,
+                type: 'job_assigned',
+                title: `คุณได้รับมอบหมายงาน: ${jobTitle}`,
+                referenceType: 'job',
+                referenceId: id,
+                actorId: userId,
+            })
+        }
+    }
+
     revalidatePath('/jobs')
     revalidatePath(`/jobs/${id}`)
     return { success: true }
@@ -350,8 +386,8 @@ export async function updateJobStatus(id: string, newStatus: string) {
 
     const supabase = createServiceClient()
 
-    // Get current status
-    const { data: job } = await supabase.from('jobs').select('status').eq('id', id).single()
+    // Get current job data
+    const { data: job } = await supabase.from('jobs').select('status, title, assigned_to, created_by').eq('id', id).single()
     const oldStatus = job?.status || 'unknown'
 
     // Update status
@@ -372,6 +408,20 @@ export async function updateJobStatus(id: string, newStatus: string) {
     })
 
     await logActivity('UPDATE_JOB_STATUS', { id, oldStatus, newStatus })
+
+    // Notify assigned + creator
+    const recipients = [...(job?.assigned_to || []), job?.created_by].filter(Boolean) as string[]
+    if (recipients.length > 0) {
+        await createNotifications({
+            userIds: recipients,
+            type: 'job_status_changed',
+            title: `งาน "${job?.title || 'งาน'}" เปลี่ยนสถานะ: ${oldStatus} → ${newStatus}`,
+            referenceType: 'job',
+            referenceId: id,
+            actorId: userId,
+        })
+    }
+
     revalidatePath('/jobs')
     revalidatePath(`/jobs/${id}`)
     return { success: true }
@@ -492,6 +542,26 @@ export async function createJobActivity(jobId: string, formData: FormData) {
     await supabase.from('jobs').update({ updated_at: new Date().toISOString() }).eq('id', jobId)
 
     await logActivity('CREATE_JOB_ACTIVITY', { jobId, activity_type, description })
+
+    // Notify assigned + creator about new comment
+    const { data: job } = await supabase.from('jobs').select('title, assigned_to, created_by').eq('id', jobId).single()
+    if (job) {
+        const recipients = [...(job.assigned_to || []), job.created_by].filter(Boolean) as string[]
+        // Also notify mentioned users from formData
+        const mentionedUsers = (formData.get('notify_users') as string || '').split(',').filter(Boolean)
+        const allRecipients = [...recipients, ...mentionedUsers]
+
+        await createNotifications({
+            userIds: allRecipients,
+            type: mentionedUsers.length > 0 ? 'job_mentioned' : 'job_comment',
+            title: `มีความคิดเห็นใหม่ในงาน: ${job.title}`,
+            body: description?.substring(0, 200),
+            referenceType: 'job',
+            referenceId: jobId,
+            actorId: userId,
+        })
+    }
+
     revalidatePath(`/jobs/${jobId}`)
     return { success: true }
 }
@@ -968,7 +1038,7 @@ export async function createTicketReply(ticketId: string, formData: FormData) {
     if (error) return { error: error.message }
 
     // Auto-update ticket status to in_progress if it's currently open
-    const { data: ticket } = await supabase.from('tickets').select('status, created_by').eq('id', ticketId).single()
+    const { data: ticket } = await supabase.from('tickets').select('status, subject, assigned_to, created_by').eq('id', ticketId).single()
     if (ticket && ticket.status === 'open' && ticket.created_by !== userId) {
         await supabase.from('tickets').update({
             status: 'answered',
@@ -979,6 +1049,21 @@ export async function createTicketReply(ticketId: string, formData: FormData) {
     await supabase.from('tickets').update({ updated_at: new Date().toISOString() }).eq('id', ticketId)
 
     await logActivity('CREATE_TICKET_REPLY', { ticketId, reply_type: reply.reply_type })
+
+    // Notify ticket participants
+    if (ticket) {
+        const recipients = [...(ticket.assigned_to || []), ticket.created_by].filter(Boolean) as string[]
+        await createNotifications({
+            userIds: recipients,
+            type: 'ticket_reply',
+            title: `มีตอบกลับใหม่ใน Ticket: ${ticket.subject || 'ไม่ระบุ'}`,
+            body: (reply.content || '').substring(0, 200),
+            referenceType: 'ticket',
+            referenceId: ticketId,
+            actorId: userId,
+        })
+    }
+
     revalidatePath('/jobs')
     revalidatePath(`/jobs/tickets/${ticketId}`)
     return { success: true }

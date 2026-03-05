@@ -12,6 +12,7 @@ import {
 import { logout } from '@/app/login/actions'
 import { useLanguage } from '@/contexts/language-context'
 import { LanguageSwitcher } from '@/components/language-switcher'
+import NotificationBell from '@/components/notification-bell'
 import { NAV_GROUPS, type NavGroup } from '@/lib/nav-config'
 
 // Module accent colors
@@ -319,6 +320,7 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                     </span>
                 </Link>
                 <div className="flex items-center gap-1">
+                    <NotificationBell />
                     <LanguageSwitcher />
                     <Button
                         variant="ghost"
