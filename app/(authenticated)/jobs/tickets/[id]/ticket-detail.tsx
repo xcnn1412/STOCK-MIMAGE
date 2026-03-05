@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Textarea } from '@/components/ui/textarea'
+import MentionTextarea from '@/components/mention-textarea'
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -61,6 +61,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
     const [isPending, startTransition] = useTransition()
     const [replyContent, setReplyContent] = useState('')
     const [replyType, setReplyType] = useState('comment')
+    const [mentionedUsers, setMentionedUsers] = useState<string[]>([])
 
     const priority = PRIORITY_CONFIG[ticket.priority] || PRIORITY_CONFIG.normal
     const statusConfig = getTicketStatusConfig(settings, ticket.status)
@@ -92,11 +93,16 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
         formData.set('reply_type', replyType)
         formData.set('content', replyContent.trim())
         formData.set('attachments', '[]')
+        // Pass mentioned user IDs for notification
+        if (mentionedUsers.length > 0) {
+            formData.set('notify_users', mentionedUsers.join(','))
+        }
 
         startTransition(async () => {
             await createTicketReply(ticket.id, formData)
             setReplyContent('')
             setReplyType('comment')
+            setMentionedUsers([])
         })
     }
 
@@ -385,12 +391,14 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
 
                     {/* Text area + Send */}
                     <div className="flex gap-2">
-                        <Textarea
+                        <MentionTextarea
                             value={replyContent}
-                            onChange={e => setReplyContent(e.target.value)}
-                            placeholder={locale === 'th' ? 'พิมพ์คำตอบ...' : 'Type your reply...'}
+                            onChange={setReplyContent}
+                            users={users}
+                            placeholder={locale === 'th' ? 'พิมพ์คำตอบ... (พิมพ์ @ เพื่อแท็ก)' : 'Type your reply... (type @ to mention)'}
                             rows={2}
-                            className="resize-none flex-1"
+                            className="resize-none"
+                            onMentionedUsersChange={setMentionedUsers}
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                                     e.preventDefault()
@@ -407,7 +415,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                         </Button>
                     </div>
                     <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
-                        {locale === 'th' ? 'กด Ctrl+Enter เพื่อส่ง' : 'Press Ctrl+Enter to send'}
+                        {locale === 'th' ? 'กด Ctrl+Enter เพื่อส่ง • พิมพ์ @ เพื่อแท็กเพื่อนร่วมงาน' : 'Press Ctrl+Enter to send • Type @ to mention colleagues'}
                     </p>
                 </div>
             </div>

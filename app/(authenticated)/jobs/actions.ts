@@ -1050,11 +1050,13 @@ export async function createTicketReply(ticketId: string, formData: FormData) {
 
     await logActivity('CREATE_TICKET_REPLY', { ticketId, reply_type: reply.reply_type })
 
-    // Notify ticket participants
+    // Notify ticket participants + mentioned users
     if (ticket) {
         const recipients = [...(ticket.assigned_to || []), ticket.created_by].filter(Boolean) as string[]
+        const mentionedUsers = (formData.get('notify_users') as string || '').split(',').filter(Boolean)
+        const allRecipients = [...recipients, ...mentionedUsers]
         await createNotifications({
-            userIds: recipients,
+            userIds: allRecipients,
             type: 'ticket_reply',
             title: `มีตอบกลับใหม่ใน Ticket: ${ticket.subject || 'ไม่ระบุ'}`,
             body: (reply.content || '').substring(0, 200),
