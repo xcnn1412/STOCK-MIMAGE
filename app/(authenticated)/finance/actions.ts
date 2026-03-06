@@ -160,6 +160,20 @@ export async function createClaim(formData: FormData) {
   if (amount <= 0 && unit_price <= 0) return { error: 'กรุณากรอกจำนวนเงินที่ถูกต้อง (ราคาต่อหน่วยต้องมากกว่า 0)' }
   if (claim_type === 'event' && !job_event_id) return { error: 'กรุณาเลือกอีเวนต์' }
 
+  // Auto-import stock event → job_cost_events ถ้าเลือกจาก events table
+  if (job_event_id && job_event_id.startsWith('stock:')) {
+    const stockEventId = job_event_id.replace('stock:', '')
+    const { importEventFromStock } = await import('../costs/actions')
+    const importResult = await importEventFromStock(stockEventId)
+    if (importResult.error) {
+      // ถ้า import แล้ว อาจเป็น duplicate → ใช้ existingId ถ้ามี
+      job_event_id = (importResult as any).existingId || null
+      if (!job_event_id) return { error: `ไม่สามารถนำเข้าอีเวนต์ได้: ${importResult.error}` }
+    } else {
+      job_event_id = importResult.id || null
+    }
+  }
+
   // Auto-import closure event → job_cost_events ถ้าเลือกจากประวัติปิดงาน
   if (job_event_id && job_event_id.startsWith('closure:')) {
     const closureId = job_event_id.replace('closure:', '')
@@ -561,7 +575,7 @@ export async function getJobEventsForSelect() {
   // 1. ดึงจาก job_cost_events (อีเวนต์ที่ import เข้าระบบ costs แล้ว)
   const { data: jobEvents } = await supabase
     .from('job_cost_events')
-    .select('id, event_name, event_date, event_location, status')
+    .select('id, event_name, event_date, event_location, status, source_event_id')
     .order('event_date', { ascending: false })
     .limit(200)
 
@@ -569,6 +583,13 @@ export async function getJobEventsForSelect() {
   const { data: closures } = await supabase
     .from('event_closures')
     .select('id, event_name, event_date, event_location')
+    .order('event_date', { ascending: false })
+    .limit(200)
+
+  // 3. ดึงจาก events (อีเวนต์ที่สร้างจากหน้า /events — ยังเปิดอยู่)
+  const { data: stockEvents } = await supabase
+    .from('events')
+    .select('id, name, event_date, location, status')
     .order('event_date', { ascending: false })
     .limit(200)
 
@@ -580,6 +601,11 @@ export async function getJobEventsForSelect() {
     event_location: e.event_location || null,
     status: e.status || 'draft',
   }))
+
+  // สร้าง Set ของ source_event_id ที่ import ไปแล้ว เพื่อ dedup กับ events table
+  const importedSourceIds = new Set(
+    (jobEvents || []).filter(e => e.source_event_id).map(e => e.source_event_id)
+  )
 
   // Map closures — prefix ID กับ "closure:" เพื่อแยก source
   // และเช็ค dedup ด้วย event_name + event_date
@@ -597,7 +623,19 @@ export async function getJobEventsForSelect() {
       status: 'closed',
     }))
 
-  return [...events, ...closureEvents]
+  // Map stock events — prefix ID กับ "stock:" เพื่อแยก source
+  // dedup: ตัดอีเวนต์ที่ import เข้า job_cost_events แล้ว
+  const stockEventsMapped = (stockEvents || [])
+    .filter(e => !importedSourceIds.has(e.id))
+    .map(e => ({
+      id: `stock:${e.id}`,
+      event_name: e.name,
+      event_date: e.event_date,
+      event_location: e.location || null,
+      status: e.status || 'upcoming',
+    }))
+
+  return [...events, ...closureEvents, ...stockEventsMapped]
 }
 
 // ============================================================================
