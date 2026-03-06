@@ -110,8 +110,8 @@ export default function MentionTextarea({
     const after = value.slice(cursorPos)
     const displayName = user.nickname || user.full_name || user.id.slice(0, 8)
 
-    // Insert mention in format: @[Name](userId) 
-    const mention = `@${displayName} `
+    // Insert mention in format: @[Name](userId)
+    const mention = `@[${displayName}](${user.id}) `
     const newValue = before + mention + after
 
     onChange(newValue)

@@ -66,6 +66,22 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
     const priority = PRIORITY_CONFIG[ticket.priority] || PRIORITY_CONFIG.normal
     const statusConfig = getTicketStatusConfig(settings, ticket.status)
 
+    // Render mention text: @[Name](userId) → styled badge
+    const renderMentionContent = (text: string) => {
+        const parts = text.split(/(@\[[^\]]+\]\([^)]+\))/g)
+        return parts.map((part, i) => {
+            const match = part.match(/@\[([^\]]+)\]\(([^)]+)\)/)
+            if (match) {
+                return (
+                    <span key={i} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs font-semibold mx-0.5">
+                        @{match[1]}
+                    </span>
+                )
+            }
+            return <span key={i}>{part}</span>
+        })
+    }
+
     const categorySetting = categories.find(c => c.value === ticket.category)
     const categoryLabel = categorySetting
         ? (locale === 'th' ? categorySetting.label_th : categorySetting.label_en)
@@ -324,7 +340,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                                 {/* Reply content */}
                                 {reply.content && (
                                     <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                                        {reply.content}
+                                        {renderMentionContent(reply.content)}
                                     </p>
                                 )}
 
