@@ -9,19 +9,19 @@ import { getNotifications, markAsRead, type NotificationItem } from '@/app/(auth
 // Notification Type → Config
 // ============================================================================
 
-const TYPE_CONFIG: Record<string, { icon: string; accent: string; glow: string }> = {
-    job_assigned:         { icon: '⭐', accent: 'from-amber-500/20 to-orange-500/10', glow: 'shadow-amber-500/10' },
-    job_status_changed:   { icon: '🔄', accent: 'from-blue-500/20 to-cyan-500/10', glow: 'shadow-blue-500/10' },
-    job_mentioned:        { icon: '📣', accent: 'from-purple-500/20 to-violet-500/10', glow: 'shadow-purple-500/10' },
-    job_comment:          { icon: '💬', accent: 'from-sky-500/20 to-blue-500/10', glow: 'shadow-sky-500/10' },
-    ticket_assigned:      { icon: '🎫', accent: 'from-indigo-500/20 to-blue-500/10', glow: 'shadow-indigo-500/10' },
-    ticket_reply:         { icon: '📝', accent: 'from-teal-500/20 to-emerald-500/10', glow: 'shadow-teal-500/10' },
-    ticket_status_changed: { icon: '🔔', accent: 'from-cyan-500/20 to-teal-500/10', glow: 'shadow-cyan-500/10' },
-    expense_approved:     { icon: '✅', accent: 'from-emerald-500/20 to-green-500/10', glow: 'shadow-emerald-500/10' },
-    expense_rejected:     { icon: '❌', accent: 'from-red-500/20 to-rose-500/10', glow: 'shadow-red-500/10' },
+const TYPE_CONFIG: Record<string, { icon: string; accent: string; glow: string; border: string; iconBg: string; progressBar: string }> = {
+    job_assigned:         { icon: '⭐', accent: 'from-amber-400 to-orange-400', glow: 'shadow-amber-400/25', border: '#f59e0b', iconBg: 'bg-amber-100 dark:bg-amber-900/50', progressBar: 'from-amber-400 to-orange-400' },
+    job_status_changed:   { icon: '🔄', accent: 'from-blue-400 to-cyan-400', glow: 'shadow-blue-400/25', border: '#3b82f6', iconBg: 'bg-blue-100 dark:bg-blue-900/50', progressBar: 'from-blue-400 to-cyan-400' },
+    job_mentioned:        { icon: '📣', accent: 'from-purple-400 to-violet-400', glow: 'shadow-purple-400/25', border: '#a855f7', iconBg: 'bg-purple-100 dark:bg-purple-900/50', progressBar: 'from-purple-400 to-violet-400' },
+    job_comment:          { icon: '💬', accent: 'from-sky-400 to-blue-500', glow: 'shadow-sky-400/25', border: '#0ea5e9', iconBg: 'bg-sky-100 dark:bg-sky-900/50', progressBar: 'from-sky-400 to-blue-500' },
+    ticket_assigned:      { icon: '🎫', accent: 'from-indigo-400 to-blue-500', glow: 'shadow-indigo-400/25', border: '#6366f1', iconBg: 'bg-indigo-100 dark:bg-indigo-900/50', progressBar: 'from-indigo-400 to-blue-500' },
+    ticket_reply:         { icon: '📝', accent: 'from-teal-400 to-emerald-400', glow: 'shadow-teal-400/25', border: '#14b8a6', iconBg: 'bg-teal-100 dark:bg-teal-900/50', progressBar: 'from-teal-400 to-emerald-400' },
+    ticket_status_changed: { icon: '🔔', accent: 'from-cyan-400 to-teal-400', glow: 'shadow-cyan-400/25', border: '#06b6d4', iconBg: 'bg-cyan-100 dark:bg-cyan-900/50', progressBar: 'from-cyan-400 to-teal-400' },
+    expense_approved:     { icon: '✅', accent: 'from-emerald-400 to-green-400', glow: 'shadow-emerald-400/25', border: '#10b981', iconBg: 'bg-emerald-100 dark:bg-emerald-900/50', progressBar: 'from-emerald-400 to-green-400' },
+    expense_rejected:     { icon: '❌', accent: 'from-red-400 to-rose-400', glow: 'shadow-red-400/25', border: '#ef4444', iconBg: 'bg-red-100 dark:bg-red-900/50', progressBar: 'from-red-400 to-rose-400' },
 }
 
-const DEFAULT_CONFIG = { icon: '🔔', accent: 'from-zinc-500/20 to-zinc-400/10', glow: 'shadow-zinc-500/10' }
+const DEFAULT_CONFIG = { icon: '🔔', accent: 'from-violet-400 to-purple-400', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-purple-400' }
 
 // ============================================================================
 // Reference type → URL builder
@@ -99,12 +99,12 @@ function ToastCard({ item, onDismiss, onNavigate, index }: ToastCardProps) {
     return (
         <div
             className={`
-                group relative w-[380px] overflow-hidden rounded-2xl
-                bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl
-                border border-zinc-200/60 dark:border-zinc-700/60
+                group relative w-[400px] overflow-hidden rounded-2xl
+                bg-white dark:bg-zinc-900 backdrop-blur-xl
+                border border-zinc-200/80 dark:border-zinc-700/60
                 shadow-2xl ${config.glow}
                 transition-all duration-300 ease-out cursor-pointer
-                hover:shadow-3xl hover:scale-[1.01] hover:border-zinc-300/80 dark:hover:border-zinc-600/80
+                hover:shadow-3xl hover:scale-[1.02]
                 ${exiting
                     ? 'animate-toast-exit opacity-0 translate-x-[120%]'
                     : 'animate-toast-enter'
@@ -113,35 +113,38 @@ function ToastCard({ item, onDismiss, onNavigate, index }: ToastCardProps) {
             style={{
                 animationDelay: `${index * 80}ms`,
                 animationFillMode: 'both',
+                borderLeftWidth: '4px',
+                borderLeftColor: config.border,
             }}
             onClick={handleClick}
             role="alert"
             aria-live="polite"
         >
-            {/* Accent gradient strip */}
-            <div className={`absolute inset-x-0 top-0 h-[3px] bg-linear-to-r ${config.accent} opacity-80`} />
+            {/* Top accent gradient strip */}
+            <div className={`absolute inset-x-0 top-0 h-1 bg-linear-to-r ${config.accent}`} />
 
             {/* Progress bar — auto-dismiss timer */}
-            <div className="absolute inset-x-0 bottom-0 h-[2px] bg-zinc-100 dark:bg-zinc-800">
+            <div className="absolute inset-x-0 bottom-0 h-[3px] bg-zinc-100 dark:bg-zinc-800">
                 <div
-                    className="h-full bg-linear-to-r from-zinc-400/60 to-zinc-300/40 dark:from-zinc-500/60 dark:to-zinc-600/40 animate-toast-progress"
+                    className={`h-full bg-linear-to-r ${config.progressBar} animate-toast-progress`}
                     style={{ animationDuration: '8s' }}
                 />
             </div>
 
             <div className="flex items-start gap-3.5 p-4 pr-10">
-                {/* Icon */}
+                {/* Icon — vivid colored background */}
                 <div className={`
-                    flex items-center justify-center h-10 w-10 rounded-xl shrink-0
-                    bg-linear-to-br ${config.accent}
-                    ring-1 ring-black/5 dark:ring-white/5
+                    flex items-center justify-center h-11 w-11 rounded-xl shrink-0
+                    ${config.iconBg}
+                    ring-1 ring-black/5 dark:ring-white/10
+                    shadow-sm
                 `}>
-                    <span className="text-lg" role="img">{config.icon}</span>
+                    <span className="text-xl" role="img">{config.icon}</span>
                 </div>
 
                 {/* Content */}
                 <div className="flex-1 min-w-0 pt-0.5">
-                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 leading-snug line-clamp-2">
+                    <p className="text-[13px] font-bold text-zinc-900 dark:text-zinc-100 leading-snug line-clamp-2">
                         {item.title}
                     </p>
                     {item.body && (
@@ -149,26 +152,26 @@ function ToastCard({ item, onDismiss, onNavigate, index }: ToastCardProps) {
                             {item.body}
                         </p>
                     )}
-                    <div className="flex items-center gap-2 mt-1.5">
-                        <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium">
+                    <div className="flex items-center gap-2 mt-2">
+                        <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
                             {timeAgo(item.created_at)}
                         </span>
                         {item.actor && (
-                            <>
-                                <span className="text-[11px] text-zinc-300 dark:text-zinc-600">•</span>
-                                <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                                    {item.actor.nickname || item.actor.full_name || 'ไม่ระบุ'}
-                                </span>
-                            </>
+                            <span
+                                className="text-[11px] font-medium px-1.5 py-0.5 rounded-full text-white"
+                                style={{ backgroundColor: config.border }}
+                            >
+                                {item.actor.nickname || item.actor.full_name || 'ไม่ระบุ'}
+                            </span>
                         )}
                     </div>
 
                     {/* Action hint — appears on hover */}
                     <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                        <span className="text-[11px] font-medium text-blue-500 dark:text-blue-400">
+                        <span className="text-[11px] font-semibold" style={{ color: config.border }}>
                             คลิกเพื่อดูรายละเอียด
                         </span>
-                        <ArrowRight className="h-3 w-3 text-blue-500 dark:text-blue-400" />
+                        <ArrowRight className="h-3 w-3" style={{ color: config.border }} />
                     </div>
                 </div>
             </div>
@@ -181,10 +184,9 @@ function ToastCard({ item, onDismiss, onNavigate, index }: ToastCardProps) {
                 }}
                 className="
                     absolute top-3 right-3 flex items-center justify-center
-                    h-6 w-6 rounded-lg
-                    text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300
-                    hover:bg-zinc-100 dark:hover:bg-zinc-800
-                    opacity-0 group-hover:opacity-100
+                    h-7 w-7 rounded-full
+                    text-zinc-400 hover:text-white
+                    hover:bg-red-500
                     transition-all duration-200
                 "
                 aria-label="ปิด"
