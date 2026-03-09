@@ -122,3 +122,54 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ============================================================================
+   Notification Toast Animations
+   ============================================================================ */
+
+@keyframes toast-enter {
+  0% {
+    opacity: 0;
+    transform: translateX(100%) scale(0.95);
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(-4px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes toast-exit {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(120%) scale(0.95);
+  }
+}
+
+@keyframes toast-progress {
+  0% {
+    width: 100%;
+  }
+  100% {
+    width: 0%;
+  }
+}
+
+.animate-toast-enter {
+  animation: toast-enter 0.5s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+}
+
+.animate-toast-exit {
+  animation: toast-exit 0.3s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+}
+
+.animate-toast-progress {
+  animation: toast-progress linear forwards;
+}
