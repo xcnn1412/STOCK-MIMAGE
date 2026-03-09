@@ -984,6 +984,10 @@ export async function updateTicketStatus(id: string, newStatus: string) {
 
     const supabase = createServiceClient()
 
+    // Fetch ticket for notification
+    const { data: ticket } = await supabase.from('tickets').select('status, subject, assigned_to, created_by').eq('id', id).single()
+    const oldStatus = ticket?.status || 'unknown'
+
     const updates: Record<string, unknown> = {
         status: newStatus,
         updated_at: new Date().toISOString(),
@@ -1004,6 +1008,20 @@ export async function updateTicketStatus(id: string, newStatus: string) {
     })
 
     await logActivity('UPDATE_TICKET_STATUS', { id, newStatus })
+
+    // Notify ticket creator + assigned users about status change
+    if (ticket) {
+        const recipients = [...(ticket.assigned_to || []), ticket.created_by].filter(Boolean) as string[]
+        await createNotifications({
+            userIds: recipients,
+            type: 'ticket_status_changed',
+            title: `Ticket "${ticket.subject || 'ไม่ระบุ'}" เปลี่ยนสถานะ: ${oldStatus} → ${newStatus}`,
+            referenceType: 'ticket',
+            referenceId: id,
+            actorId: userId,
+        })
+    }
+
     revalidatePath('/jobs')
     revalidatePath(`/jobs/tickets/${id}`)
     return { success: true }
@@ -1169,5 +1187,92 @@ export async function unarchiveTicket(id: string) {
     await logActivity('UNARCHIVE_TICKET', { id })
     revalidatePath('/jobs')
     revalidatePath('/jobs/archive')
+    return { success: true }
+}
+
+// ============================================================================
+// Ticket Attachments — File Upload/Delete
+// ============================================================================
+
+const ALLOWED_MIME_TYPES = [
+    // Images
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    // Documents
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+    // Archives
+    'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
+]
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+
+export async function uploadTicketAttachments(formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized', urls: [] }
+
+    const supabase = createServiceClient()
+    const files = formData.getAll('files') as File[]
+    const folder = (formData.get('folder') as string) || 'general'
+
+    if (!files.length) return { error: 'No files provided', urls: [] }
+
+    const urls: string[] = []
+    const errors: string[] = []
+
+    for (const file of files) {
+        // Validate type
+        if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+            errors.push(`${file.name}: ไม่รองรับประเภทไฟล์นี้`)
+            continue
+        }
+        // Validate size
+        if (file.size > MAX_FILE_SIZE) {
+            errors.push(`${file.name}: ไฟล์เกิน 10MB`)
+            continue
+        }
+
+        const ext = file.name.split('.').pop() || 'bin'
+        const uniqueName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+        const path = `${folder}/${uniqueName}`
+
+        const buffer = Buffer.from(await file.arrayBuffer())
+        const { error: uploadError } = await supabase.storage
+            .from('ticket-attachments')
+            .upload(path, buffer, { contentType: file.type, upsert: false })
+
+        if (uploadError) {
+            errors.push(`${file.name}: ${uploadError.message}`)
+            continue
+        }
+
+        const { data: publicUrlData } = supabase.storage
+            .from('ticket-attachments')
+            .getPublicUrl(path)
+
+        urls.push(publicUrlData.publicUrl)
+    }
+
+    if (errors.length && !urls.length) return { error: errors.join(', '), urls: [] }
+    return { success: true, urls, errors: errors.length ? errors : undefined }
+}
+
+export async function deleteTicketAttachment(url: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    // Extract path from public URL
+    const bucketSegment = '/ticket-attachments/'
+    const idx = url.indexOf(bucketSegment)
+    if (idx === -1) return { error: 'Invalid URL' }
+    const path = url.slice(idx + bucketSegment.length)
+
+    const { error } = await supabase.storage
+        .from('ticket-attachments')
+        .remove([path])
+
+    if (error) return { error: error.message }
     return { success: true }
 }

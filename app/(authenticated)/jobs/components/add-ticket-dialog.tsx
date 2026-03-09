@@ -15,6 +15,7 @@ import { Loader2, Paperclip, X, Flag, Target } from 'lucide-react'
 import { createTicket } from '../actions'
 import type { JobSetting } from '../actions'
 import { useLocale } from '@/lib/i18n/context'
+import FileUploadZone from '@/components/file-upload-zone'
 
 // ============================================================================
 // Add Ticket Dialog
@@ -42,6 +43,7 @@ export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory 
     const [description, setDescription] = useState('')
     const [priority, setPriority] = useState('normal')
     const [desiredOutcome, setDesiredOutcome] = useState('')
+    const [attachments, setAttachments] = useState<string[]>([])
 
     const categories = settings.filter(s => s.category === 'ticket_category' && s.is_active)
     const outcomes = settings.filter(s => s.category === 'ticket_outcome' && s.is_active)
@@ -52,6 +54,7 @@ export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory 
         setDescription('')
         setPriority('normal')
         setDesiredOutcome('')
+        setAttachments([])
     }
 
     const handleSubmit = () => {
@@ -63,7 +66,7 @@ export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory 
         formData.set('description', description.trim())
         formData.set('priority', priority)
         formData.set('desired_outcome', desiredOutcome)
-        formData.set('attachments', '[]')
+        formData.set('attachments', JSON.stringify(attachments))
 
         startTransition(async () => {
             const result = await createTicket(formData)
@@ -192,6 +195,18 @@ export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory 
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* File Attachments */}
+                    <div>
+                        <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 block">
+                            {locale === 'th' ? 'ไฟล์แนบ' : 'Attachments'}
+                        </label>
+                        <FileUploadZone
+                            uploadedUrls={attachments}
+                            onUrlsChange={setAttachments}
+                            folder="tickets"
+                        />
                     </div>
                 </div>
 

@@ -13,6 +13,7 @@ export type NotificationType =
   | 'job_comment'
   | 'ticket_assigned'
   | 'ticket_reply'
+  | 'ticket_status_changed'
   | 'expense_approved'
   | 'expense_rejected'
 

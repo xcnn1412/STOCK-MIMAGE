@@ -6,11 +6,13 @@ import { useRouter } from 'next/navigation'
 import {
     ArrowLeft, Clock, User, Flag, Target, Paperclip, Send,
     MessageCircle, CheckCircle, HelpCircle, XCircle, Info,
-    Trash2, Archive
+    Trash2, Archive, FileText, Download
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import MentionTextarea from '@/components/mention-textarea'
+import FileUploadZone from '@/components/file-upload-zone'
+import ImageLightbox from '@/components/image-lightbox'
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -27,6 +29,117 @@ interface SystemUser {
     id: string
     full_name: string | null
     department: string | null
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+
+function isImageUrl(url: string) {
+    const ext = (url.split('.').pop() || '').toLowerCase().split('?')[0]
+    return IMAGE_EXTENSIONS.includes(ext)
+}
+
+function getFileName(url: string) {
+    const parts = url.split('/')
+    const last = parts[parts.length - 1] || 'file'
+    const match = last.match(/^\d+_[a-z0-9]+\.(.+)$/)
+    if (match) return `file.${match[1]}`
+    return decodeURIComponent(last.split('?')[0])
+}
+
+// ============================================================================
+// Attachment Display Components
+// ============================================================================
+
+function AttachmentGrid({
+    attachments,
+    onImageClick,
+}: {
+    attachments: string[]
+    onImageClick: (images: string[], index: number) => void
+}) {
+    if (!attachments || attachments.length === 0) return null
+
+    const images = attachments.filter(isImageUrl)
+    const files = attachments.filter(a => !isImageUrl(a))
+
+    return (
+        <div className="space-y-2">
+            {/* Image Thumbnails */}
+            {images.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                    {images.map((url, i) => (
+                        <button
+                            key={url}
+                            onClick={() => onImageClick(images, i)}
+                            className="relative h-20 w-20 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 hover:ring-2 hover:ring-violet-400 transition-all group cursor-pointer"
+                        >
+                            <img src={url} alt="" className="h-full w-full object-cover" />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {/* Document/Archive files */}
+            {files.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                    {files.map((url) => (
+                        <a
+                            key={url}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+                        >
+                            <FileText className="h-3.5 w-3.5" />
+                            <span className="max-w-[120px] truncate">{getFileName(url)}</span>
+                            <Download className="h-3 w-3 text-zinc-400" />
+                        </a>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
+// Render inline images from content text
+function renderContentWithInlineImages(
+    text: string,
+    renderMentions: (t: string) => React.ReactNode[],
+    onImageClick: (images: string[], index: number) => void,
+) {
+    // Find image URLs in text
+    const urlRegex = /(https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s]*)?)/gi
+    const parts = text.split(urlRegex)
+    const imageUrls: string[] = text.match(urlRegex) || []
+
+    if (imageUrls.length === 0) {
+        return <>{renderMentions(text)}</>
+    }
+
+    return (
+        <>
+            {parts.map((part, i) => {
+                if (imageUrls.includes(part)) {
+                    const imgIndex = imageUrls.indexOf(part)
+                    return (
+                        <button
+                            key={`img-${i}`}
+                            onClick={() => onImageClick(imageUrls, imgIndex)}
+                            className="block my-2 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 hover:ring-2 hover:ring-violet-400 transition-all cursor-pointer max-w-sm"
+                        >
+                            <img src={part} alt="" className="max-h-48 w-auto rounded-lg" />
+                        </button>
+                    )
+                }
+                return <span key={`text-${i}`}>{renderMentions(part)}</span>
+            })}
+        </>
+    )
 }
 
 // ============================================================================
@@ -62,6 +175,9 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
     const [replyContent, setReplyContent] = useState('')
     const [replyType, setReplyType] = useState('comment')
     const [mentionedUsers, setMentionedUsers] = useState<string[]>([])
+    const [replyAttachments, setReplyAttachments] = useState<string[]>([])
+    const [lightboxImages, setLightboxImages] = useState<string[] | null>(null)
+    const [lightboxIndex, setLightboxIndex] = useState(0)
 
     const priority = PRIORITY_CONFIG[ticket.priority] || PRIORITY_CONFIG.normal
     const statusConfig = getTicketStatusConfig(settings, ticket.status)
@@ -80,6 +196,11 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
             }
             return <span key={i}>{part}</span>
         })
+    }
+
+    const openLightbox = (images: string[], index: number) => {
+        setLightboxImages(images)
+        setLightboxIndex(index)
     }
 
     const categorySetting = categories.find(c => c.value === ticket.category)
@@ -104,11 +225,11 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
     }
 
     const handleSendReply = () => {
-        if (!replyContent.trim()) return
+        if (!replyContent.trim() && replyAttachments.length === 0) return
         const formData = new FormData()
         formData.set('reply_type', replyType)
         formData.set('content', replyContent.trim())
-        formData.set('attachments', '[]')
+        formData.set('attachments', JSON.stringify(replyAttachments))
         // Pass mentioned user IDs for notification
         if (mentionedUsers.length > 0) {
             formData.set('notify_users', mentionedUsers.join(','))
@@ -119,6 +240,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
             setReplyContent('')
             setReplyType('comment')
             setMentionedUsers([])
+            setReplyAttachments([])
         })
     }
 
@@ -154,6 +276,15 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
 
     return (
         <div className="space-y-6 max-w-4xl mx-auto">
+            {/* Lightbox */}
+            {lightboxImages && (
+                <ImageLightbox
+                    images={lightboxImages}
+                    initialIndex={lightboxIndex}
+                    onClose={() => setLightboxImages(null)}
+                />
+            )}
+
             {/* Back Button */}
             <Link
                 href="/jobs"
@@ -255,29 +386,17 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                     {/* Description */}
                     {ticket.description && (
                         <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-xl px-4 py-3">
-                            <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                                {ticket.description}
-                            </p>
+                            <div className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
+                                {renderContentWithInlineImages(ticket.description, renderMentionContent, openLightbox)}
+                            </div>
                         </div>
                     )}
 
                     {/* Attachments */}
-                    {ticket.attachments && ticket.attachments.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                            {ticket.attachments.map((url, i) => (
-                                <a
-                                    key={i}
-                                    href={url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors"
-                                >
-                                    <Paperclip className="h-3 w-3" />
-                                    {locale === 'th' ? `ไฟล์แนบ ${i + 1}` : `Attachment ${i + 1}`}
-                                </a>
-                            ))}
-                        </div>
-                    )}
+                    <AttachmentGrid
+                        attachments={ticket.attachments || []}
+                        onImageClick={openLightbox}
+                    />
                 </div>
             </div>
 
@@ -337,30 +456,18 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                                     </span>
                                 </div>
 
-                                {/* Reply content */}
+                                {/* Reply content with inline images */}
                                 {reply.content && (
-                                    <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                                        {renderMentionContent(reply.content)}
-                                    </p>
+                                    <div className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
+                                        {renderContentWithInlineImages(reply.content, renderMentionContent, openLightbox)}
+                                    </div>
                                 )}
 
                                 {/* Reply attachments */}
-                                {reply.attachments && reply.attachments.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 pt-1">
-                                        {reply.attachments.map((url, i) => (
-                                            <a
-                                                key={i}
-                                                href={url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-500 hover:text-blue-600 transition-colors"
-                                            >
-                                                <Paperclip className="h-3 w-3" />
-                                                {locale === 'th' ? `ไฟล์ ${i + 1}` : `File ${i + 1}`}
-                                            </a>
-                                        ))}
-                                    </div>
-                                )}
+                                <AttachmentGrid
+                                    attachments={reply.attachments || []}
+                                    onImageClick={openLightbox}
+                                />
                             </div>
                         </div>
                     )
@@ -424,14 +531,23 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                         />
                         <Button
                             onClick={handleSendReply}
-                            disabled={isPending || !replyContent.trim()}
+                            disabled={isPending || (!replyContent.trim() && replyAttachments.length === 0)}
                             className="bg-violet-600 hover:bg-violet-700 text-white self-end h-10 px-4"
                         >
                             <Send className="h-4 w-4" />
                         </Button>
                     </div>
+
+                    {/* File Upload Zone (compact) */}
+                    <FileUploadZone
+                        uploadedUrls={replyAttachments}
+                        onUrlsChange={setReplyAttachments}
+                        folder={ticket.id}
+                        compact
+                    />
+
                     <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
-                        {locale === 'th' ? 'กด Ctrl+Enter เพื่อส่ง • พิมพ์ @ เพื่อแท็กเพื่อนร่วมงาน' : 'Press Ctrl+Enter to send • Type @ to mention colleagues'}
+                        {locale === 'th' ? 'กด Ctrl+Enter เพื่อส่ง • พิมพ์ @ เพื่อแท็กเพื่อนร่วมงาน • ลากไฟล์มาวางเพื่อแนบ' : 'Press Ctrl+Enter to send • Type @ to mention • Drag files to attach'}
                     </p>
                 </div>
             </div>
