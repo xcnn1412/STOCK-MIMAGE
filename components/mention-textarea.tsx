@@ -45,7 +45,7 @@ function rawToDisplay(raw: string, map: Map<string, string>): string {
 /**
  * Convert display format → raw format using the name→id map
  * @Name → @[Name](uuid)
- * Replaces longest names first to avoid partial matches
+ * Uses simple string replacement (no regex) for reliable Unicode support
  */
 function displayToRaw(display: string, map: Map<string, string>): string {
   if (map.size === 0) return display
@@ -55,9 +55,19 @@ function displayToRaw(display: string, map: Map<string, string>): string {
 
   let result = display
   for (const [name, id] of entries) {
-    // Only replace @Name patterns (not @[Name] which would be raw format)
-    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    result = result.replace(new RegExp(`@${escapedName}(?![\\]\\(])`, 'g'), `@[${name}](${id})`)
+    const displayMention = `@${name}`
+    const rawMention = `@[${name}](${id})`
+
+    // Only replace if not already in raw format
+    // Use replaceAll for Unicode safety (no regex escaping needed)
+    while (result.includes(displayMention)) {
+      const idx = result.indexOf(displayMention)
+      // Check that the character before @ isn't '[' (would mean it's already raw)
+      const charAfterMention = result[idx + displayMention.length] || ''
+      if (charAfterMention === ']' || charAfterMention === '(') break // already raw
+
+      result = result.slice(0, idx) + rawMention + result.slice(idx + displayMention.length)
+    }
   }
   return result
 }
@@ -136,12 +146,12 @@ export default function MentionTextarea({
       const charBefore = atIndex > 0 ? textBeforeCursor[atIndex - 1] : ' '
       if (charBefore === ' ' || charBefore === '\n' || atIndex === 0) {
         const query = textBeforeCursor.slice(atIndex + 1)
-        // Only show dropdown if typing fresh (no space/newline in query, not inside raw format)
-        if (!query.includes(' ') && !query.includes('\n') && !query.includes('[')) {
-          // Don't trigger for already-completed mentions (@Name followed by space)
-          const charAfterQuery = newDisplayValue[cursorPos] || ''
-          const isExistingMention = mentionsMapRef.current.has(query)
-          if (!isExistingMention || charAfterQuery !== ' ') {
+        // Allow query with spaces (Thai names like กฤษณะ สิงห์ทอง)
+        // Only close if newline or bracket detected
+        if (!query.includes('\n') && !query.includes('[')) {
+          // Don't trigger for already-completed mentions
+          const isExistingMention = mentionsMapRef.current.has(query.trim())
+          if (!isExistingMention) {
             setSearch(query)
             setMentionStart(atIndex)
             setShowDropdown(true)
