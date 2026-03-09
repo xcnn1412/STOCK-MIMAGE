@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 
 // ============================================================================
 // Types
@@ -25,15 +25,47 @@ interface MentionTextareaProps {
 }
 
 // ============================================================================
-// Mention regex & helpers
+// Mention regex & conversion helpers
 // ============================================================================
 
-const MENTION_REGEX = /@\[([^\]]+)\]\(([^)]+)\)/g
+const MENTION_RAW_REGEX = /@\[([^\]]+)\]\(([^)]+)\)/g
+
+/**
+ * Convert raw format → display format
+ * @[Name](uuid) → @Name
+ * Also builds a name→id map for reverse conversion
+ */
+function rawToDisplay(raw: string, map: Map<string, string>): string {
+  return raw.replace(new RegExp(MENTION_RAW_REGEX.source, 'g'), (_match, name, id) => {
+    map.set(name, id)
+    return `@${name}`
+  })
+}
+
+/**
+ * Convert display format → raw format using the name→id map
+ * @Name → @[Name](uuid)
+ * Replaces longest names first to avoid partial matches
+ */
+function displayToRaw(display: string, map: Map<string, string>): string {
+  if (map.size === 0) return display
+
+  // Sort by name length descending to prevent partial matches
+  const entries = [...map.entries()].sort((a, b) => b[0].length - a[0].length)
+
+  let result = display
+  for (const [name, id] of entries) {
+    // Only replace @Name patterns (not @[Name] which would be raw format)
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    result = result.replace(new RegExp(`@${escapedName}(?![\\]\\(])`, 'g'), `@[${name}](${id})`)
+  }
+  return result
+}
 
 function extractMentionIds(text: string): string[] {
   const ids: string[] = []
   let match
-  const regex = new RegExp(MENTION_REGEX.source, 'g')
+  const regex = new RegExp(MENTION_RAW_REGEX.source, 'g')
   while ((match = regex.exec(text)) !== null) {
     ids.push(match[2])
   }
@@ -43,8 +75,8 @@ function extractMentionIds(text: string): string[] {
 // ============================================================================
 // MentionTextarea Component
 //
-// Uses an overlay technique: a transparent textarea handles editing/cursor,
-// while a styled div behind it renders mention badges in-place.
+// Shows @Name in the textarea (clean display), but stores @[Name](uuid) in
+// the parent value for backend processing. No overlay needed.
 // ============================================================================
 
 export default function MentionTextarea({
@@ -62,8 +94,15 @@ export default function MentionTextarea({
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [mentionStart, setMentionStart] = useState<number | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const highlightRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Persistent map of displayName → userId for converting display↔raw
+  const mentionsMapRef = useRef<Map<string, string>>(new Map())
+
+  // Convert raw parent value to display value
+  const displayValue = useMemo(() => {
+    return rawToDisplay(value, mentionsMapRef.current)
+  }, [value])
 
   // Filter users based on search
   const filteredUsers = users.filter(u => {
@@ -74,43 +113,41 @@ export default function MentionTextarea({
     return name.includes(q) || nick.includes(q)
   }).slice(0, 8)
 
-  // Extract mentioned user IDs from value
+  // Extract mentioned user IDs from raw value
   useEffect(() => {
     if (!onMentionedUsersChange) return
     onMentionedUsersChange(extractMentionIds(value))
   }, [value, onMentionedUsersChange])
 
-  // Sync scroll between textarea and highlight overlay
-  const syncScroll = useCallback(() => {
-    if (textareaRef.current && highlightRef.current) {
-      highlightRef.current.scrollTop = textareaRef.current.scrollTop
-      highlightRef.current.scrollLeft = textareaRef.current.scrollLeft
-    }
-  }, [])
-
-  // Handle textarea input to detect @
+  // Handle textarea input
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = e.target.value
+    const newDisplayValue = e.target.value
     const cursorPos = e.target.selectionStart || 0
 
-    onChange(newValue)
+    // Convert display text back to raw format for parent
+    const rawValue = displayToRaw(newDisplayValue, mentionsMapRef.current)
+    onChange(rawValue)
 
-    // Detect @ trigger
-    const textBeforeCursor = newValue.slice(0, cursorPos)
+    // Detect @ trigger for mention dropdown
+    const textBeforeCursor = newDisplayValue.slice(0, cursorPos)
     const atIndex = textBeforeCursor.lastIndexOf('@')
 
     if (atIndex >= 0) {
-      // Check if @ is at start or preceded by space/newline
       const charBefore = atIndex > 0 ? textBeforeCursor[atIndex - 1] : ' '
       if (charBefore === ' ' || charBefore === '\n' || atIndex === 0) {
         const query = textBeforeCursor.slice(atIndex + 1)
-        // Only show if typing a fresh mention (not mid-word, not inside an existing mention)
+        // Only show dropdown if typing fresh (no space/newline in query, not inside raw format)
         if (!query.includes(' ') && !query.includes('\n') && !query.includes('[')) {
-          setSearch(query)
-          setMentionStart(atIndex)
-          setShowDropdown(true)
-          setSelectedIndex(0)
-          return
+          // Don't trigger for already-completed mentions (@Name followed by space)
+          const charAfterQuery = newDisplayValue[cursorPos] || ''
+          const isExistingMention = mentionsMapRef.current.has(query)
+          if (!isExistingMention || charAfterQuery !== ' ') {
+            setSearch(query)
+            setMentionStart(atIndex)
+            setShowDropdown(true)
+            setSelectedIndex(0)
+            return
+          }
         }
       }
     }
@@ -127,30 +164,30 @@ export default function MentionTextarea({
     if (!textarea) return
 
     const cursorPos = textarea.selectionStart || 0
-    const before = value.slice(0, mentionStart)
-    const after = value.slice(cursorPos)
     const displayName = user.nickname || user.full_name || user.id.slice(0, 8)
 
-    // Insert mention in format: @[Name](userId)
-    const mention = `@[${displayName}](${user.id}) `
-    const newValue = before + mention + after
+    // Store the mapping for raw conversion
+    mentionsMapRef.current.set(displayName, user.id)
 
-    onChange(newValue)
+    // Insert clean display text: @Name (no UUID visible)
+    const before = displayValue.slice(0, mentionStart)
+    const after = displayValue.slice(cursorPos)
+    const mentionDisplay = `@${displayName} `
+    const newDisplayValue = before + mentionDisplay + after
+
+    // Convert to raw for parent
+    const rawValue = displayToRaw(newDisplayValue, mentionsMapRef.current)
+    onChange(rawValue)
     setShowDropdown(false)
     setMentionStart(null)
-
-    // Track mentioned user
-    if (onMentionedUsersChange) {
-      onMentionedUsersChange([...new Set([...extractMentionIds(newValue)])])
-    }
 
     // Refocus after state update
     setTimeout(() => {
       textarea.focus()
-      const newPos = before.length + mention.length
+      const newPos = before.length + mentionDisplay.length
       textarea.setSelectionRange(newPos, newPos)
     }, 0)
-  }, [mentionStart, value, onChange, onMentionedUsersChange])
+  }, [mentionStart, displayValue, onChange])
 
   // Keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -176,7 +213,6 @@ export default function MentionTextarea({
         return
       }
     }
-    // Forward other key events
     onKeyDown?.(e)
   }, [showDropdown, filteredUsers, selectedIndex, selectUser, onKeyDown])
 
@@ -191,96 +227,24 @@ export default function MentionTextarea({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // Build highlighted content — replace @[Name](userId) with styled span
-  // The highlight div mirrors the textarea content but shows styled mentions
-  const buildHighlightedContent = () => {
-    if (!value) return null
-
-    const regex = new RegExp(MENTION_REGEX.source, 'g')
-    const parts: React.ReactNode[] = []
-    let lastIndex = 0
-    let match
-
-    while ((match = regex.exec(value)) !== null) {
-      // Text before mention
-      if (match.index > lastIndex) {
-        parts.push(
-          <span key={`t-${lastIndex}`} className="invisible">
-            {value.slice(lastIndex, match.index)}
-          </span>
-        )
-      }
-
-      const displayName = match[1]
-      // The mention badge — visible, positioned exactly where the raw text was
-      // We need the badge to take the SAME width as the raw text, so we use an inline approach
-      const rawLength = match[0].length
-      parts.push(
-        <span key={`m-${match.index}`} className="relative">
-          {/* Invisible spacer matching raw text length */}
-          <span className="invisible whitespace-pre">{match[0]}</span>
-          {/* Visible badge overlay */}
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 text-xs font-semibold whitespace-nowrap pointer-events-none max-w-full">
-            <span className="truncate">@{displayName}</span>
-          </span>
-          {/* Padding to cover the remaining raw text width with invisible text */}
-          <span className="invisible">{' '.repeat(Math.max(0, rawLength - displayName.length - 4))}</span>
-        </span>
-      )
-
-      lastIndex = match.index + match[0].length
-    }
-
-    // Remaining text after last mention  
-    if (lastIndex < value.length) {
-      parts.push(
-        <span key={`t-${lastIndex}`} className="invisible">
-          {value.slice(lastIndex)}
-        </span>
-      )
-    }
-
-    return parts
-  }
-
   return (
     <div className="relative flex-1">
-      {/* Highlight overlay — styled mentions rendered here */}
-      <div
-        ref={highlightRef}
-        className={`absolute inset-0 pointer-events-none overflow-hidden whitespace-pre-wrap break-words text-sm p-2 leading-[1.5] ${className || ''}`}
-        aria-hidden="true"
-        style={{
-          // Match textarea styling exactly
-          fontFamily: 'inherit',
-          fontSize: 'inherit',
-          lineHeight: 'inherit',
-          letterSpacing: 'inherit',
-          wordSpacing: 'inherit',
-        }}
-      >
-        {buildHighlightedContent()}
-      </div>
-
-      {/* Actual textarea — transparent text, handles all user interaction */}
+      {/* Clean textarea — shows @Name directly, no overlay needed */}
       <textarea
         ref={textareaRef}
-        value={value}
+        value={displayValue}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        onScroll={syncScroll}
         placeholder={placeholder}
         rows={rows}
         className={`
           w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900
-          px-2 py-2 text-sm leading-[1.5]
+          px-2 py-2 text-sm leading-normal text-zinc-900 dark:text-zinc-100
           focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-400
           dark:focus:ring-violet-500/20 dark:focus:border-violet-500
           transition-colors duration-200
-          ${value && extractMentionIds(value).length > 0 ? 'text-transparent caret-zinc-900 dark:caret-zinc-100 selection:bg-violet-200/50 dark:selection:bg-violet-800/50' : 'text-zinc-900 dark:text-zinc-100'}
           ${className || ''}
         `}
-        style={{ WebkitTextFillColor: value && extractMentionIds(value).length > 0 ? 'transparent' : undefined }}
       />
 
       {/* Mention Dropdown */}
@@ -297,7 +261,7 @@ export default function MentionTextarea({
               <button
                 key={user.id}
                 onMouseDown={(e) => {
-                  e.preventDefault() // prevent textarea blur
+                  e.preventDefault()
                   selectUser(user)
                 }}
                 className={`
@@ -305,7 +269,6 @@ export default function MentionTextarea({
                   ${i === selectedIndex ? 'bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300' : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'}
                 `}
               >
-                {/* Avatar circle */}
                 <div className={`
                   flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold shrink-0
                   ${i === selectedIndex ? 'bg-violet-200 dark:bg-violet-800 text-violet-700 dark:text-violet-200' : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300'}
