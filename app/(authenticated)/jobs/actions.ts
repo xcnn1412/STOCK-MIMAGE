@@ -1205,7 +1205,7 @@ const ALLOWED_MIME_TYPES = [
     'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
 ]
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 
 export async function uploadTicketAttachments(formData: FormData) {
     const { userId } = await getSession()
@@ -1228,7 +1228,7 @@ export async function uploadTicketAttachments(formData: FormData) {
         }
         // Validate size
         if (file.size > MAX_FILE_SIZE) {
-            errors.push(`${file.name}: ไฟล์เกิน 10MB`)
+            errors.push(`${file.name}: ไฟล์เกิน 50MB`)
             continue
         }
 
