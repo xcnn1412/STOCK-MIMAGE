@@ -22,15 +22,17 @@ interface ArchiveViewProps {
     tickets: Ticket[]
     settings: JobSetting[]
     jobTypes: JobSetting[]
+    ticketCategories: JobSetting[]
 }
 
-export default function ArchiveView({ jobs, tickets, settings, jobTypes }: ArchiveViewProps) {
+export default function ArchiveView({ jobs, tickets, settings, jobTypes, ticketCategories }: ArchiveViewProps) {
     const { locale } = useLocale()
     const router = useRouter()
     const [mode, setMode] = useState<'jobs' | 'tickets'>('jobs')
     const [search, setSearch] = useState('')
     const [restoring, setRestoring] = useState<string | null>(null)
     const [jobTypeFilter, setJobTypeFilter] = useState<string>('all')
+    const [ticketCategoryFilter, setTicketCategoryFilter] = useState<string>('all')
 
     // ---- Filtered data ----
     const filteredJobs = useMemo(() => {
@@ -49,13 +51,19 @@ export default function ArchiveView({ jobs, tickets, settings, jobTypes }: Archi
     }, [jobs, search, jobTypeFilter])
 
     const filteredTickets = useMemo(() => {
-        if (!search) return tickets
-        const q = search.toLowerCase()
-        return tickets.filter(ticket =>
-            ticket.subject.toLowerCase().includes(q) ||
-            ticket.description?.toLowerCase().includes(q)
-        )
-    }, [tickets, search])
+        let result = tickets
+        if (ticketCategoryFilter !== 'all') {
+            result = result.filter(t => t.category === ticketCategoryFilter)
+        }
+        if (search) {
+            const q = search.toLowerCase()
+            result = result.filter(ticket =>
+                ticket.subject.toLowerCase().includes(q) ||
+                ticket.description?.toLowerCase().includes(q)
+            )
+        }
+        return result
+    }, [tickets, search, ticketCategoryFilter])
 
     const handleRestoreJob = async (id: string) => {
         setRestoring(id)
@@ -124,7 +132,7 @@ export default function ArchiveView({ jobs, tickets, settings, jobTypes }: Archi
                         )}
                     </button>
                     <button
-                        onClick={() => { setMode('tickets'); setSearch('') }}
+                        onClick={() => { setMode('tickets'); setSearch(''); setTicketCategoryFilter('all') }}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${mode === 'tickets'
                             ? 'bg-white dark:bg-zinc-700 text-violet-600 dark:text-violet-400 shadow-sm'
                             : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
@@ -166,6 +174,64 @@ export default function ArchiveView({ jobs, tickets, settings, jobTypes }: Archi
                                 {locale === 'th' ? jt.label_th : jt.label_en}
                             </button>
                         ))}
+                    </div>
+                )}
+
+                {/* Ticket Category Filter (only in tickets mode) */}
+                {mode === 'tickets' && ticketCategories.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                        <button
+                            onClick={() => setTicketCategoryFilter('all')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 whitespace-nowrap
+                                ${ticketCategoryFilter === 'all'
+                                    ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 shadow-sm'
+                                    : 'bg-zinc-100 dark:bg-zinc-800/70 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                                }
+                            `}
+                        >
+                            {locale === 'th' ? 'ทั้งหมด' : 'All'}
+                            <span className={`ml-0.5 flex items-center justify-center h-[18px] min-w-[18px] px-1 rounded-full text-[10px] font-bold leading-none
+                                ${ticketCategoryFilter === 'all'
+                                    ? 'bg-white/20 text-white dark:bg-zinc-900/20 dark:text-zinc-900'
+                                    : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400'
+                                }
+                            `}>
+                                {tickets.length}
+                            </span>
+                        </button>
+                        {ticketCategories.map(cat => {
+                            const isActive = ticketCategoryFilter === cat.value
+                            const catColor = cat.color || '#8b5cf6'
+                            const count = tickets.filter(t => t.category === cat.value).length
+                            return (
+                                <button
+                                    key={cat.value}
+                                    onClick={() => setTicketCategoryFilter(cat.value)}
+                                    className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 whitespace-nowrap
+                                        ${isActive
+                                            ? 'shadow-sm'
+                                            : 'bg-zinc-100 dark:bg-zinc-800/70 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                                        }
+                                    `}
+                                    style={isActive ? {
+                                        backgroundColor: `${catColor}14`,
+                                        color: catColor,
+                                        boxShadow: `inset 0 0 0 1.5px ${catColor}40, 0 1px 3px ${catColor}15`,
+                                    } : undefined}
+                                >
+                                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: catColor }} />
+                                    {locale === 'th' ? cat.label_th : cat.label_en}
+                                    <span
+                                        className={`ml-0.5 flex items-center justify-center h-[18px] min-w-[18px] px-1 rounded-full text-[10px] font-bold leading-none
+                                            ${isActive ? 'text-white' : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400'}
+                                        `}
+                                        style={isActive ? { backgroundColor: `${catColor}90` } : undefined}
+                                    >
+                                        {count}
+                                    </span>
+                                </button>
+                            )
+                        })}
                     </div>
                 )}
 

@@ -254,7 +254,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
         if (!confirm(locale === 'th' ? 'ต้องการลบ ticket นี้?' : 'Delete this ticket?')) return
         startTransition(async () => {
             await deleteTicket(ticket.id)
-            router.push('/jobs')
+            router.push(`/jobs?tab=tickets&cat=${ticket.category}`)
         })
     }
 
@@ -262,7 +262,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
         if (!confirm(locale === 'th' ? 'ย้าย ticket นี้ไปคลังเก็บ?' : 'Archive this ticket?')) return
         startTransition(async () => {
             await archiveTicket(ticket.id)
-            router.push('/jobs')
+            router.push(`/jobs?tab=tickets&cat=${ticket.category}`)
         })
     }
 
@@ -287,7 +287,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
 
             {/* Back Button */}
             <Link
-                href="/jobs"
+                href={`/jobs?tab=tickets&cat=${ticket.category}`}
                 className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 transition-colors"
             >
                 <ArrowLeft className="h-4 w-4" />

@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Briefcase, LayoutDashboard, Archive, Settings } from 'lucide-react'
+import { Briefcase, LayoutDashboard, Archive, Settings, BarChart3 } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 
 const tabMeta = [
   { href: '/jobs', key: 'board' as const, icon: LayoutDashboard, exact: true },
   { href: '/jobs/archive', key: 'archive' as const, icon: Archive, exact: false },
+  { href: '/jobs/report', key: 'report' as const, icon: BarChart3, exact: false },
   { href: '/jobs/settings', key: 'settings' as const, icon: Settings, exact: false },
 ]
 
@@ -15,11 +16,13 @@ const labels = {
   en: {
     board: 'Board',
     archive: 'Archive',
+    report: 'Report',
     settings: 'Settings',
   },
   th: {
     board: 'Board',
     archive: 'คลังเก็บ',
+    report: 'รายงาน',
     settings: 'ตั้งค่า',
   },
 }
@@ -32,8 +35,8 @@ export default function JobsNav() {
 
   const isActive = (href: string, exact: boolean) => {
     if (exact) {
-      // Active for /jobs, /jobs/[id], and /jobs/tickets — but NOT /jobs/settings or /jobs/archive
-      return pathname === href || (pathname.startsWith('/jobs/') && !pathname.startsWith('/jobs/settings') && !pathname.startsWith('/jobs/archive'))
+      // Active for /jobs, /jobs/[id], and /jobs/tickets — but NOT /jobs/settings, /jobs/archive, or /jobs/report
+      return pathname === href || (pathname.startsWith('/jobs/') && !pathname.startsWith('/jobs/settings') && !pathname.startsWith('/jobs/archive') && !pathname.startsWith('/jobs/report'))
     }
     return pathname.startsWith(href)
   }

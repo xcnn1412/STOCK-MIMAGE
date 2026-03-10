@@ -1191,6 +1191,140 @@ export async function unarchiveTicket(id: string) {
 }
 
 // ============================================================================
+// Ticket Report — Aggregated Data
+// ============================================================================
+
+export interface TicketReportData {
+    totalTickets: number
+    openCount: number
+    closedCount: number
+    archivedCount: number
+    avgResolutionHours: number | null
+    byCategory: { category: string; count: number }[]
+    closedByCategory: { category: string; total: number; closed: number }[]
+    byStatus: { status: string; count: number }[]
+    byPriority: { priority: string; count: number }[]
+    monthlyTrend: { month: string; count: number }[]
+    recentClosed: Ticket[]
+    topCreators: { name: string; userId: string; total: number; categories: { category: string; count: number }[] }[]
+}
+
+export async function getTicketReportData(): Promise<TicketReportData> {
+    const supabase = createServiceClient()
+
+    // Fetch ALL tickets (including archived)
+    const { data: allTickets } = await supabase
+        .from('tickets')
+        .select('*, profiles:created_by(full_name)')
+        .order('created_at', { ascending: false })
+
+    const tickets = (allTickets || []) as Ticket[]
+
+    const totalTickets = tickets.length
+    const openCount = tickets.filter(t => t.status === 'open' && !t.archived_at).length
+    const closedCount = tickets.filter(t => t.status === 'closed' || t.closed_at).length
+    const archivedCount = tickets.filter(t => t.archived_at).length
+
+    // Average resolution time (for closed tickets with both created_at and closed_at)
+    const closedWithTime = tickets.filter(t => t.closed_at && t.created_at)
+    let avgResolutionHours: number | null = null
+    if (closedWithTime.length > 0) {
+        const totalHours = closedWithTime.reduce((sum, t) => {
+            const created = new Date(t.created_at).getTime()
+            const closed = new Date(t.closed_at!).getTime()
+            return sum + (closed - created) / (1000 * 60 * 60)
+        }, 0)
+        avgResolutionHours = Math.round((totalHours / closedWithTime.length) * 10) / 10
+    }
+
+    // By Category
+    const categoryMap = new Map<string, number>()
+    tickets.forEach(t => {
+        categoryMap.set(t.category, (categoryMap.get(t.category) || 0) + 1)
+    })
+    const byCategory = Array.from(categoryMap.entries()).map(([category, count]) => ({ category, count }))
+        .sort((a, b) => b.count - a.count)
+
+    // By Status
+    const statusMap = new Map<string, number>()
+    tickets.forEach(t => {
+        statusMap.set(t.status, (statusMap.get(t.status) || 0) + 1)
+    })
+    const byStatus = Array.from(statusMap.entries()).map(([status, count]) => ({ status, count }))
+
+    // By Priority
+    const priorityMap = new Map<string, number>()
+    tickets.forEach(t => {
+        priorityMap.set(t.priority, (priorityMap.get(t.priority) || 0) + 1)
+    })
+    const byPriority = Array.from(priorityMap.entries()).map(([priority, count]) => ({ priority, count }))
+
+    // Monthly Trend (last 6 months)
+    const now = new Date()
+    const monthlyTrend: { month: string; count: number }[] = []
+    for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        const monthLabel = d.toLocaleDateString('th-TH', { month: 'short', year: '2-digit' })
+        const count = tickets.filter(t => {
+            const created = new Date(t.created_at)
+            return created.getFullYear() === d.getFullYear() && created.getMonth() === d.getMonth()
+        }).length
+        monthlyTrend.push({ month: monthLabel, count })
+    }
+
+    // Closed by Category
+    const closedByCategory = byCategory.map(bc => {
+        const closed = tickets.filter(t => t.category === bc.category && (t.status === 'closed' || t.closed_at)).length
+        return { category: bc.category, total: bc.count, closed }
+    })
+
+    // Top Creators — who opened the most tickets + by which category
+    const creatorMap = new Map<string, { name: string; userId: string; total: number; catMap: Map<string, number> }>()
+    tickets.forEach(t => {
+        const uid = t.created_by || 'unknown'
+        const name = t.profiles?.full_name || 'ไม่ระบุ'
+        if (!creatorMap.has(uid)) {
+            creatorMap.set(uid, { name, userId: uid, total: 0, catMap: new Map() })
+        }
+        const entry = creatorMap.get(uid)!
+        entry.total++
+        entry.catMap.set(t.category, (entry.catMap.get(t.category) || 0) + 1)
+    })
+    const topCreators = Array.from(creatorMap.values())
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10)
+        .map(c => ({
+            name: c.name,
+            userId: c.userId,
+            total: c.total,
+            categories: Array.from(c.catMap.entries())
+                .map(([category, count]) => ({ category, count }))
+                .sort((a, b) => b.count - a.count),
+        }))
+
+    // Recent Closed
+    const recentClosed = tickets
+        .filter(t => t.status === 'closed' || t.closed_at)
+        .slice(0, 10)
+
+    return {
+        totalTickets,
+        openCount,
+        closedCount,
+        archivedCount,
+        avgResolutionHours,
+        byCategory,
+        closedByCategory,
+        byStatus,
+        byPriority,
+        monthlyTrend,
+        recentClosed,
+        topCreators,
+    }
+}
+
+// ============================================================================
 // Ticket Attachments — File Upload/Delete
 // ============================================================================
 

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
+import { useSearchParams, useRouter } from 'next/navigation'
 import {
     Plus, Search, LayoutGrid, List, Tag, ChevronDown, AlertCircle,
     Calendar, Palette, Wrench, Ticket as TicketIcon, Briefcase
@@ -69,10 +70,14 @@ interface JobsDashboardProps {
 
 export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets, ticketCategories }: JobsDashboardProps) {
     const { locale } = useLocale()
-    const [boardMode, setBoardMode] = useState<'jobs' | 'tickets'>('jobs')
+    const searchParams = useSearchParams()
+    const router = useRouter()
+    const initialTab = searchParams.get('tab') === 'tickets' ? 'tickets' : 'jobs'
+    const initialCat = searchParams.get('cat') || ticketCategories[0]?.value || ''
+    const [boardMode, setBoardMode] = useState<'jobs' | 'tickets'>(initialTab)
     const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban')
     const [pipelineTab, setPipelineTab] = useState<string>(jobTypes[0]?.value || 'graphic')
-    const [ticketCategoryTab, setTicketCategoryTab] = useState<string>(ticketCategories[0]?.value || '')
+    const [ticketCategoryTab, setTicketCategoryTab] = useState<string>(initialCat)
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState<string>('all')
     const [assigneeFilter, setAssigneeFilter] = useState<string>('all')
@@ -189,7 +194,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                     {/* Mode Switcher */}
                     <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1">
                         <button
-                            onClick={() => { setBoardMode('jobs'); setStatusFilter('all'); setSearch('') }}
+                            onClick={() => { setBoardMode('jobs'); setStatusFilter('all'); setSearch(''); router.replace('/jobs', { scroll: false }) }}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${boardMode === 'jobs'
                                 ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
@@ -199,7 +204,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                             <span className="hidden sm:inline">Jobs</span>
                         </button>
                         <button
-                            onClick={() => { setBoardMode('tickets'); setStatusFilter('all'); setSearch('') }}
+                            onClick={() => { setBoardMode('tickets'); setStatusFilter('all'); setSearch(''); router.replace(`/jobs?tab=tickets&cat=${ticketCategoryTab}`, { scroll: false }) }}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${boardMode === 'tickets'
                                 ? 'bg-white dark:bg-zinc-700 text-violet-600 dark:text-violet-400 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
@@ -391,27 +396,51 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
             {/* ============================================================ */}
             {boardMode === 'tickets' && (
                 <>
-                    {/* Ticket Category Tabs */}
-                    <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1 max-w-full overflow-x-auto"
-                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                    >
-                        {ticketCategories.map(cat => (
-                            <button
-                                key={cat.value}
-                                onClick={() => { setTicketCategoryTab(cat.value); setStatusFilter('all') }}
-                                className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all flex-1 justify-center whitespace-nowrap ${ticketCategoryTab === cat.value
-                                    ? 'bg-white dark:bg-zinc-700 shadow-sm'
-                                    : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
-                                    }`}
-                                style={ticketCategoryTab === cat.value ? { color: cat.color || '#8b5cf6' } : undefined}
-                            >
-                                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color || '#9ca3af' }} />
-                                {locale === 'th' ? cat.label_th : cat.label_en}
-                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                                    {tickets.filter(t => t.category === cat.value && t.status !== 'closed').length}
-                                </Badge>
-                            </button>
-                        ))}
+                    {/* Ticket Category Filter Chips */}
+                    <div className="flex flex-wrap gap-1.5">
+                        {ticketCategories.map(cat => {
+                            const isActive = ticketCategoryTab === cat.value
+                            const catColor = cat.color || '#8b5cf6'
+                            const count = tickets.filter(t => t.category === cat.value && t.status !== 'closed').length
+                            return (
+                                <button
+                                    key={cat.value}
+                                    onClick={() => { setTicketCategoryTab(cat.value); setStatusFilter('all'); router.replace(`/jobs?tab=tickets&cat=${cat.value}`, { scroll: false }) }}
+                                    className={`
+                                        group flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-semibold
+                                        transition-all duration-200 whitespace-nowrap
+                                        ${isActive
+                                            ? 'shadow-sm scale-[1.02]'
+                                            : 'bg-zinc-100 dark:bg-zinc-800/70 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 hover:scale-[1.01]'
+                                        }
+                                    `}
+                                    style={isActive ? {
+                                        backgroundColor: `${catColor}14`,
+                                        color: catColor,
+                                        boxShadow: `inset 0 0 0 1.5px ${catColor}40, 0 1px 3px ${catColor}15`,
+                                    } : undefined}
+                                >
+                                    <span
+                                        className={`h-2 w-2 rounded-full shrink-0 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`}
+                                        style={{ backgroundColor: catColor }}
+                                    />
+                                    {locale === 'th' ? cat.label_th : cat.label_en}
+                                    <span
+                                        className={`
+                                            ml-0.5 flex items-center justify-center h-[18px] min-w-[18px] px-1 rounded-full
+                                            text-[10px] font-bold leading-none
+                                            ${isActive
+                                                ? 'text-white'
+                                                : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400'
+                                            }
+                                        `}
+                                        style={isActive ? { backgroundColor: `${catColor}90` } : undefined}
+                                    >
+                                        {count}
+                                    </span>
+                                </button>
+                            )
+                        })}
                     </div>
 
                     {/* Ticket Summary Cards */}

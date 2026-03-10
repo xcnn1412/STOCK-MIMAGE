@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { getJobs, getJobSettings, getSystemUsers, getJobTypes, getTickets, getTicketCategories } from './actions'
 import JobsDashboard from './jobs-dashboard'
 
@@ -12,14 +13,16 @@ export default async function JobsPage() {
     ])
 
     return (
-        <JobsDashboard
-            jobs={jobsResult.data || []}
-            settings={settingsResult.data || []}
-            users={users}
-            jobTypes={jobTypesResult.data || []}
-            tickets={ticketsResult.data || []}
-            ticketCategories={ticketCategoriesResult.data || []}
-        />
+        <Suspense>
+            <JobsDashboard
+                jobs={jobsResult.data || []}
+                settings={settingsResult.data || []}
+                users={users}
+                jobTypes={jobTypesResult.data || []}
+                tickets={ticketsResult.data || []}
+                ticketCategories={ticketCategoriesResult.data || []}
+            />
+        </Suspense>
     )
 }
 

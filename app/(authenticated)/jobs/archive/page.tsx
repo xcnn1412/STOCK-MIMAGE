@@ -1,4 +1,4 @@
-import { getArchivedJobs, getArchivedTickets, getJobSettings, getJobTypes } from '../actions'
+import { getArchivedJobs, getArchivedTickets, getJobSettings, getJobTypes, getTicketCategories } from '../actions'
 import ArchiveView from './archive-view'
 
 export const metadata = {
@@ -7,11 +7,12 @@ export const metadata = {
 }
 
 export default async function ArchivePage() {
-    const [jobsResult, ticketsResult, settingsResult, jobTypesResult] = await Promise.all([
+    const [jobsResult, ticketsResult, settingsResult, jobTypesResult, ticketCategoriesResult] = await Promise.all([
         getArchivedJobs(),
         getArchivedTickets(),
         getJobSettings(),
         getJobTypes(),
+        getTicketCategories(),
     ])
 
     return (
@@ -20,6 +21,7 @@ export default async function ArchivePage() {
             tickets={ticketsResult.data || []}
             settings={settingsResult.data || []}
             jobTypes={jobTypesResult.data || []}
+            ticketCategories={ticketCategoriesResult.data || []}
         />
     )
 }
