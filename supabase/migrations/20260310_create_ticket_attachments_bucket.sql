@@ -9,7 +9,7 @@ VALUES (
     'ticket-attachments',
     'ticket-attachments',
     true,
-    10485760, -- 10MB
+    52428800, -- 50MB
     ARRAY[
         'image/jpeg',
         'image/png',
