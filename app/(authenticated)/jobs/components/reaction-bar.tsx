@@ -5,9 +5,10 @@ import { SmilePlus } from 'lucide-react'
 import { toggleTicketReaction } from '../actions'
 import type { TicketReaction, JobSetting } from '../actions'
 import { useLocale } from '@/lib/i18n/context'
+import { EmojiPicker } from './emoji-picker'
 
 // ============================================================================
-// Reaction Bar — Discord-style emoji reactions with optimistic updates
+// Reaction Bar — Discord-style emoji reactions with full emoji picker
 // ============================================================================
 
 interface ReactionBarProps {
@@ -85,7 +86,7 @@ export function ReactionBar({ ticketId, replyId, reactions, availableEmojis, cur
     const { locale } = useLocale()
     const [isPending, startTransition] = useTransition()
     const [showPicker, setShowPicker] = useState(false)
-    const pickerRef = useRef<HTMLDivElement>(null)
+    const pickerContainerRef = useRef<HTMLDivElement>(null)
 
     // Compute server-side groups
     const serverGroups = groupReactions(reactions, replyId)
@@ -96,19 +97,6 @@ export function ReactionBar({ ticketId, replyId, reactions, availableEmojis, cur
         (currentGroups: ReactionGroup[], emoji: string) =>
             applyOptimisticToggle(currentGroups, emoji, currentUserId)
     )
-
-    // Close picker on outside click
-    useEffect(() => {
-        const handler = (e: MouseEvent) => {
-            if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-                setShowPicker(false)
-            }
-        }
-        if (showPicker) {
-            document.addEventListener('mousedown', handler)
-            return () => document.removeEventListener('mousedown', handler)
-        }
-    }, [showPicker])
 
     const handleToggle = useCallback((emoji: string) => {
         setShowPicker(false)
@@ -156,54 +144,34 @@ export function ReactionBar({ ticketId, replyId, reactions, availableEmojis, cur
             })}
 
             {/* Add Reaction Button */}
-            {availableEmojis.length > 0 && (
-                <div className="relative" ref={pickerRef}>
-                    <button
-                        onClick={() => setShowPicker(!showPicker)}
-                        disabled={isPending}
-                        className={`
-                            inline-flex items-center justify-center h-8 w-8 rounded-full border
-                            transition-all duration-200
-                            ${showPicker
-                                ? 'bg-violet-50 dark:bg-violet-900/30 border-violet-300 dark:border-violet-600 text-violet-500'
-                                : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-400 dark:text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300'
-                            }
-                            ${isPending ? 'opacity-60' : 'cursor-pointer hover:scale-105'}
-                        `}
-                        title={locale === 'th' ? 'เพิ่ม Reaction' : 'Add Reaction'}
-                    >
-                        <SmilePlus className="h-4 w-4" />
-                    </button>
+            <div className="relative" ref={pickerContainerRef}>
+                <button
+                    onClick={() => setShowPicker(!showPicker)}
+                    disabled={isPending}
+                    className={`
+                        inline-flex items-center justify-center h-8 w-8 rounded-full border
+                        transition-all duration-200
+                        ${showPicker
+                            ? 'bg-violet-50 dark:bg-violet-900/30 border-violet-300 dark:border-violet-600 text-violet-500'
+                            : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-400 dark:text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-700 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300'
+                        }
+                        ${isPending ? 'opacity-60' : 'cursor-pointer hover:scale-105'}
+                    `}
+                    title={locale === 'th' ? 'เพิ่ม Reaction' : 'Add Reaction'}
+                >
+                    <SmilePlus className="h-4 w-4" />
+                </button>
 
-                    {/* Emoji Picker Popover */}
-                    {showPicker && (
-                        <div className="absolute bottom-full left-0 mb-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                            <div className="flex items-center gap-1 p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-2xl shadow-zinc-200/50 dark:shadow-black/30">
-                                {availableEmojis.map(e => {
-                                    const alreadyReacted = optimisticGroups.some(
-                                        g => g.emoji === e.value && g.users.some(u => u.id === currentUserId)
-                                    )
-                                    return (
-                                        <button
-                                            key={e.id}
-                                            onClick={() => handleToggle(e.value)}
-                                            title={`${e.value} ${locale === 'th' ? e.label_th : e.label_en}`}
-                                            className={`
-                                                flex items-center justify-center h-9 w-9 rounded-xl text-xl
-                                                transition-all duration-150
-                                                hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:scale-125 active:scale-95
-                                                ${alreadyReacted ? 'bg-violet-50 dark:bg-violet-900/20 ring-2 ring-violet-400 dark:ring-violet-500 scale-110' : ''}
-                                            `}
-                                        >
-                                            {e.value}
-                                        </button>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
+                {/* Full Emoji Picker */}
+                {showPicker && (
+                    <div className="absolute bottom-full left-0 mb-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                        <EmojiPicker
+                            onSelect={handleToggle}
+                            onClose={() => setShowPicker(false)}
+                        />
+                    </div>
+                )}
+            </div>
 
             {/* Total Reaction Count */}
             {totalCount > 0 && (
