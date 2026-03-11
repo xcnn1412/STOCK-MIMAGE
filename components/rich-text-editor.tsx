@@ -91,6 +91,9 @@ function createMentionSuggestion(users: MentionUser[]) {
                 onStart: (props: MentionCallbackProps) => {
                     popup = document.createElement('div')
                     popup.className = 'mention-suggestion-popup'
+                    // Prevent Radix Dialog's pointer-down-outside from intercepting
+                    popup.addEventListener('pointerdown', (e) => e.stopPropagation())
+                    popup.addEventListener('mousedown', (e) => e.stopPropagation())
                     document.body.appendChild(popup)
 
                     component = new MentionListController(popup, props)
@@ -226,13 +229,17 @@ class MentionListController {
             </div>
         `
 
-        // Bind click handlers
+        // Bind click handlers — use both mousedown and pointerdown
+        // to prevent Radix Dialog's focus trap from intercepting the event
         this.container.querySelectorAll('.rte-mention-item').forEach(btn => {
-            btn.addEventListener('mousedown', (e) => {
+            const handler = (e: Event) => {
                 e.preventDefault()
+                e.stopPropagation()
                 const idx = parseInt((btn as HTMLElement).dataset.index || '0')
                 this.selectItem(idx)
-            })
+            }
+            btn.addEventListener('mousedown', handler)
+            btn.addEventListener('pointerdown', handler)
         })
     }
 }
