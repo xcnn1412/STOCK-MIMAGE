@@ -231,6 +231,22 @@
   color: #c4b5fd;
 }
 
+.rte-content blockquote {
+  border-left: 3px solid #ec4899;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+  background-color: #fdf2f8;
+  border-radius: 0 0.5rem 0.5rem 0;
+  font-style: italic;
+  color: #6b7280;
+}
+
+.dark .rte-content blockquote {
+  background-color: rgba(236, 72, 153, 0.1);
+  border-left-color: #be185d;
+  color: #9ca3af;
+}
+
 /* Mention Suggestion Dropdown (appended to body) */
 .rte-mention-dropdown {
   width: 280px;

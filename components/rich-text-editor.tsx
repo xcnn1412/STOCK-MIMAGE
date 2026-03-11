@@ -41,6 +41,7 @@ export interface RichTextEditorProps {
 export interface RichTextEditorRef {
     clearContent: () => void
     focus: () => void
+    setContent: (html: string) => void
 }
 
 // ============================================================================
@@ -410,7 +411,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(({
             StarterKit.configure({
                 heading: false,
                 codeBlock: false,
-                blockquote: false,
                 horizontalRule: false,
                 bulletList: false,
                 orderedList: false,
@@ -477,7 +477,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(({
         focus: () => {
             editor?.commands.focus()
         },
-    }), [editor])
+        setContent: (html: string) => {
+            if (editor) {
+                editor.commands.setContent(html)
+                onChange(html)
+            }
+        },
+    }), [editor, onChange])
 
     const showToolbar = compact ? isFocused : true
 

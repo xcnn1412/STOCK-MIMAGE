@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
     ArrowLeft, Clock, User, Flag, Target, Paperclip, Send,
     MessageCircle, CheckCircle, HelpCircle, XCircle, Info,
-    Trash2, Archive, FileText, Download
+    Trash2, Archive, FileText, Download, CircleHelp, Plus, X, MessageSquareQuote
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -170,6 +170,7 @@ const REPLY_TYPE_CONFIG: Record<string, { icon: React.ReactNode; label: string; 
     approval: { icon: <CheckCircle className="h-4 w-4" />, label: 'Approved', labelTh: 'อนุมัติ', color: '#10b981' },
     advice: { icon: <HelpCircle className="h-4 w-4" />, label: 'Advice', labelTh: 'คำแนะนำ', color: '#f59e0b' },
     rejection: { icon: <XCircle className="h-4 w-4" />, label: 'Rejected', labelTh: 'ปฏิเสธ', color: '#ef4444' },
+    question: { icon: <CircleHelp className="h-4 w-4" />, label: 'Question', labelTh: 'คำถาม', color: '#ec4899' },
     status_change: { icon: <Info className="h-4 w-4" />, label: 'Status Changed', labelTh: 'เปลี่ยนสถานะ', color: '#8b5cf6' },
 }
 
@@ -184,6 +185,8 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
     const [replyAttachments, setReplyAttachments] = useState<string[]>([])
     const [lightboxImages, setLightboxImages] = useState<string[] | null>(null)
     const [lightboxIndex, setLightboxIndex] = useState(0)
+    const [questions, setQuestions] = useState<string[]>([''])
+    const composerRef = useRef<HTMLDivElement>(null)
 
     const priority = PRIORITY_CONFIG[ticket.priority] || PRIORITY_CONFIG.normal
     const statusConfig = getTicketStatusConfig(settings, ticket.status)
@@ -249,6 +252,35 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
             setReplyAttachments([])
             editorRef.current?.clearContent()
         })
+    }
+
+    // Question mode: send multiple questions as JSON
+    const handleSendQuestions = () => {
+        const validQuestions = questions.filter(q => q.trim())
+        if (validQuestions.length === 0) return
+        const formData = new FormData()
+        formData.set('reply_type', 'question')
+        formData.set('content', JSON.stringify(validQuestions))
+        formData.set('attachments', '[]')
+
+        startTransition(async () => {
+            await createTicketReply(ticket.id, formData)
+            setQuestions([''])
+            setReplyType('comment')
+        })
+    }
+
+    // Pre-fill editor with question text for answering
+    const handleAnswerQuestion = (questionText: string) => {
+        const answerHtml = `<blockquote><strong>คำถาม:</strong> ${questionText}</blockquote><p><strong>คำตอบ:</strong> </p>`
+        setReplyType('comment')
+        setReplyContent(answerHtml)
+        // Use ref to set content directly and focus
+        setTimeout(() => {
+            editorRef.current?.setContent(answerHtml)
+            editorRef.current?.focus()
+            composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 100)
     }
 
     const handleStatusChange = (newStatus: string) => {
@@ -426,6 +458,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                 {replies.map(reply => {
                     const config = REPLY_TYPE_CONFIG[reply.reply_type] || REPLY_TYPE_CONFIG.comment
                     const isStatusChange = reply.reply_type === 'status_change'
+                    const isQuestion = reply.reply_type === 'question'
 
                     if (isStatusChange) {
                         return (
@@ -440,6 +473,68 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                                     {formatDate(reply.created_at)}
                                 </span>
                                 <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+                            </div>
+                        )
+                    }
+
+                    // Question type — render as pink question cards
+                    if (isQuestion && reply.content) {
+                        let questionList: string[] = []
+                        try { questionList = JSON.parse(reply.content) } catch { questionList = [reply.content] }
+
+                        return (
+                            <div key={reply.id} className="space-y-2">
+                                {/* Question header */}
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span
+                                            className="flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full"
+                                            style={{ backgroundColor: `${config.color}12`, color: config.color }}
+                                        >
+                                            {config.icon}
+                                            {locale === 'th' ? config.labelTh : config.label}
+                                        </span>
+                                        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                            {getUserName(reply.created_by)}
+                                        </span>
+                                    </div>
+                                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                                        {formatDate(reply.created_at)}
+                                    </span>
+                                </div>
+
+                                {/* Question cards */}
+                                {questionList.map((q, idx) => (
+                                    <div
+                                        key={idx}
+                                        className="flex items-center gap-3 bg-pink-50 dark:bg-pink-950/20 border border-pink-200 dark:border-pink-800/40 rounded-xl p-3 transition-all hover:shadow-sm"
+                                    >
+                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                            <span className="flex items-center justify-center h-6 w-6 rounded-full bg-pink-100 dark:bg-pink-900/30 text-pink-500 text-xs font-bold shrink-0">
+                                                {idx + 1}
+                                            </span>
+                                            <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
+                                                {q}
+                                            </span>
+                                        </div>
+                                        <button
+                                            onClick={() => handleAnswerQuestion(q)}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-zinc-800 dark:bg-zinc-200 dark:text-zinc-800 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-all shrink-0 shadow-sm hover:shadow-md active:scale-95"
+                                        >
+                                            <MessageSquareQuote className="h-3.5 w-3.5" />
+                                            {locale === 'th' ? 'ตอบคำถาม' : 'Answer'}
+                                        </button>
+                                    </div>
+                                ))}
+
+                                {/* Reactions on question */}
+                                <ReactionBar
+                                    ticketId={ticket.id}
+                                    replyId={reply.id}
+                                    reactions={reactions}
+                                    availableEmojis={availableEmojis}
+                                    currentUserId={currentUserId}
+                                />
                             </div>
                         )
                     }
@@ -510,7 +605,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
             </div>
 
             {/* Reply Composer */}
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-4 shadow-sm sticky bottom-4">
+            <div ref={composerRef} className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-4 shadow-sm sticky bottom-4">
                 <div className="space-y-3">
                     {/* Reply Type Selector */}
                     <div className="flex gap-1.5 flex-wrap">
@@ -543,44 +638,109 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                             })}
                     </div>
 
-                    {/* Rich Text Editor + Send */}
-                    <div className="relative">
-                        <RichTextEditor
-                            ref={editorRef}
-                            value={replyContent}
-                            onChange={setReplyContent}
-                            users={users}
-                            placeholder={locale === 'th' ? 'พิมพ์คำตอบ... (พิมพ์ @ เพื่อแท็ก)' : 'Type your reply... (type @ to mention)'}
-                            minHeight="100px"
-                            compact
-                            onMentionedUsersChange={setMentionedUsers}
-                            onKeyDown={e => {
-                                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                                    e.preventDefault()
-                                    handleSendReply()
-                                }
-                            }}
-                        />
-                        <Button
-                            onClick={handleSendReply}
-                            disabled={isPending || (!htmlToPlainText(replyContent).trim() && replyAttachments.length === 0)}
-                            size="icon"
-                            className="absolute bottom-2 right-2 bg-violet-600 hover:bg-violet-700 text-white h-9 w-9 rounded-lg shadow-md z-10"
-                        >
-                            <Send className="h-4 w-4" />
-                        </Button>
-                    </div>
+                    {/* Question Builder — shown when question mode is selected */}
+                    {replyType === 'question' ? (
+                        <div className="space-y-2">
+                            <p className="text-xs font-semibold text-pink-500">
+                                {locale === 'th' ? '✏️ พิมพ์คำถามที่ต้องการถาม (เพิ่มได้หลายข้อ)' : '✏️ Type your questions (you can add multiple)'}
+                            </p>
+                            {questions.map((q, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                    <span className="flex items-center justify-center h-7 w-7 rounded-full bg-pink-100 dark:bg-pink-900/30 text-pink-500 text-xs font-bold shrink-0">
+                                        {idx + 1}
+                                    </span>
+                                    <input
+                                        type="text"
+                                        value={q}
+                                        onChange={e => {
+                                            const updated = [...questions]
+                                            updated[idx] = e.target.value
+                                            setQuestions(updated)
+                                        }}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                setQuestions([...questions, ''])
+                                            }
+                                        }}
+                                        placeholder={locale === 'th' ? `คำถามข้อ ${idx + 1}...` : `Question ${idx + 1}...`}
+                                        className="flex-1 px-3 py-2 text-sm rounded-lg border border-pink-200 dark:border-pink-800/40 bg-pink-50/50 dark:bg-pink-950/10 focus:outline-none focus:ring-2 focus:ring-pink-400/50 placeholder:text-pink-300 dark:placeholder:text-pink-700"
+                                        autoFocus={idx === questions.length - 1}
+                                    />
+                                    {questions.length > 1 && (
+                                        <button
+                                            onClick={() => setQuestions(questions.filter((_, i) => i !== idx))}
+                                            className="h-7 w-7 flex items-center justify-center rounded-full text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                        >
+                                            <X className="h-3.5 w-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                            <div className="flex items-center gap-2 pt-1">
+                                <button
+                                    onClick={() => setQuestions([...questions, ''])}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-pink-500 bg-pink-50 dark:bg-pink-950/20 hover:bg-pink-100 dark:hover:bg-pink-900/30 border border-pink-200 dark:border-pink-800/40 transition-colors"
+                                >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    {locale === 'th' ? 'เพิ่มคำถาม' : 'Add Question'}
+                                </button>
+                                <div className="flex-1" />
+                                <Button
+                                    onClick={handleSendQuestions}
+                                    disabled={isPending || questions.every(q => !q.trim())}
+                                    className="bg-pink-500 hover:bg-pink-600 text-white text-xs font-bold px-4 shadow-md"
+                                >
+                                    <Send className="h-3.5 w-3.5 mr-1.5" />
+                                    {locale === 'th' ? 'ส่งคำถาม' : 'Send Questions'}
+                                </Button>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            {/* Rich Text Editor + Send */}
+                            <div className="relative">
+                                <RichTextEditor
+                                    ref={editorRef}
+                                    value={replyContent}
+                                    onChange={setReplyContent}
+                                    users={users}
+                                    placeholder={locale === 'th' ? 'พิมพ์คำตอบ... (พิมพ์ @ เพื่อแท็ก)' : 'Type your reply... (type @ to mention)'}
+                                    minHeight="100px"
+                                    compact
+                                    onMentionedUsersChange={setMentionedUsers}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                            e.preventDefault()
+                                            handleSendReply()
+                                        }
+                                    }}
+                                />
+                                <Button
+                                    onClick={handleSendReply}
+                                    disabled={isPending || (!htmlToPlainText(replyContent).trim() && replyAttachments.length === 0)}
+                                    size="icon"
+                                    className="absolute bottom-2 right-2 bg-violet-600 hover:bg-violet-700 text-white h-9 w-9 rounded-lg shadow-md z-10"
+                                >
+                                    <Send className="h-4 w-4" />
+                                </Button>
+                            </div>
 
-                    {/* File Upload Zone (compact) */}
-                    <FileUploadZone
-                        uploadedUrls={replyAttachments}
-                        onUrlsChange={setReplyAttachments}
-                        folder={ticket.id}
-                        compact
-                    />
+                            {/* File Upload Zone (compact) */}
+                            <FileUploadZone
+                                uploadedUrls={replyAttachments}
+                                onUrlsChange={setReplyAttachments}
+                                folder={ticket.id}
+                                compact
+                            />
+                        </>
+                    )}
 
                     <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
-                        {locale === 'th' ? 'กด Ctrl+Enter เพื่อส่ง • พิมพ์ @ เพื่อแท็กเพื่อนร่วมงาน • ลากไฟล์มาวางเพื่อแนบ' : 'Press Ctrl+Enter to send • Type @ to mention • Drag files to attach'}
+                        {replyType === 'question'
+                            ? (locale === 'th' ? 'กด Enter เพื่อเพิ่มคำถามใหม่ • กดปุ่มส่งเพื่อโพสต์คำถาม' : 'Press Enter to add a new question • Click send to post questions')
+                            : (locale === 'th' ? 'กด Ctrl+Enter เพื่อส่ง • พิมพ์ @ เพื่อแท็กเพื่อนร่วมงาน • ลากไฟล์มาวางเพื่อแนบ' : 'Press Ctrl+Enter to send • Type @ to mention • Drag files to attach')
+                        }
                     </p>
                 </div>
             </div>
