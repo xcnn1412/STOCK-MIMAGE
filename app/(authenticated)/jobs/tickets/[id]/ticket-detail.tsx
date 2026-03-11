@@ -166,9 +166,9 @@ const PRIORITY_CONFIG: Record<string, { label: string; labelTh: string; color: s
 }
 
 const REPLY_TYPE_CONFIG: Record<string, { icon: React.ReactNode; label: string; labelTh: string; color: string }> = {
-    comment: { icon: <MessageCircle className="h-4 w-4" />, label: 'Comment', labelTh: 'ความคิดเห็น', color: '#6b7280' },
+    comment: { icon: <MessageCircle className="h-4 w-4" />, label: 'Comment', labelTh: 'ความคิดเห็น', color: '#6366f1' },
     approval: { icon: <CheckCircle className="h-4 w-4" />, label: 'Approved', labelTh: 'อนุมัติ', color: '#10b981' },
-    advice: { icon: <HelpCircle className="h-4 w-4" />, label: 'Advice', labelTh: 'คำแนะนำ', color: '#3b82f6' },
+    advice: { icon: <HelpCircle className="h-4 w-4" />, label: 'Advice', labelTh: 'คำแนะนำ', color: '#f59e0b' },
     rejection: { icon: <XCircle className="h-4 w-4" />, label: 'Rejected', labelTh: 'ปฏิเสธ', color: '#ef4444' },
     status_change: { icon: <Info className="h-4 w-4" />, label: 'Status Changed', labelTh: 'เปลี่ยนสถานะ', color: '#8b5cf6' },
 }
@@ -516,26 +516,31 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                     <div className="flex gap-1.5 flex-wrap">
                         {Object.entries(REPLY_TYPE_CONFIG)
                             .filter(([key]) => key !== 'status_change')
-                            .map(([key, config]) => (
-                                <button
-                                    key={key}
-                                    onClick={() => setReplyType(key)}
-                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all
-                                        ${replyType === key
-                                            ? 'shadow-sm'
-                                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200'
-                                        }
-                                    `}
-                                    style={replyType === key ? {
-                                        backgroundColor: `${config.color}12`,
-                                        color: config.color,
-                                        boxShadow: `inset 0 0 0 1.5px ${config.color}25`,
-                                    } : undefined}
-                                >
-                                    {config.icon}
-                                    {locale === 'th' ? config.labelTh : config.label}
-                                </button>
-                            ))}
+                            .map(([key, config]) => {
+                                const isActive = replyType === key
+                                return (
+                                    <button
+                                        key={key}
+                                        onClick={() => setReplyType(key)}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-150
+                                            ${isActive
+                                                ? 'shadow-md scale-[1.02]'
+                                                : 'hover:scale-[1.02] hover:shadow-sm'
+                                            }
+                                        `}
+                                        style={{
+                                            backgroundColor: isActive ? `${config.color}20` : `${config.color}0a`,
+                                            color: config.color,
+                                            boxShadow: isActive
+                                                ? `inset 0 0 0 2px ${config.color}40, 0 2px 8px ${config.color}15`
+                                                : `inset 0 0 0 1px ${config.color}20`,
+                                        }}
+                                    >
+                                        {config.icon}
+                                        {locale === 'th' ? config.labelTh : config.label}
+                                    </button>
+                                )
+                            })}
                     </div>
 
                     {/* Rich Text Editor + Send */}
