@@ -6,7 +6,6 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -16,6 +15,7 @@ import { createTicket } from '../actions'
 import type { JobSetting } from '../actions'
 import { useLocale } from '@/lib/i18n/context'
 import FileUploadZone from '@/components/file-upload-zone'
+import RichTextEditor from '@/components/rich-text-editor'
 
 // ============================================================================
 // Add Ticket Dialog
@@ -26,6 +26,7 @@ interface AddTicketDialogProps {
     onOpenChange: (open: boolean) => void
     settings: JobSetting[]
     defaultCategory?: string
+    users?: { id: string; full_name: string | null; department?: string | null; nickname?: string | null }[]
 }
 
 const PRIORITIES = [
@@ -34,7 +35,7 @@ const PRIORITIES = [
     { value: 'normal', labelTh: 'ปกติ', labelEn: 'Normal', color: '#3b82f6' },
 ]
 
-export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory }: AddTicketDialogProps) {
+export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory, users = [] }: AddTicketDialogProps) {
     const { locale } = useLocale()
     const [isPending, startTransition] = useTransition()
 
@@ -44,6 +45,7 @@ export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory 
     const [priority, setPriority] = useState('normal')
     const [desiredOutcome, setDesiredOutcome] = useState('')
     const [attachments, setAttachments] = useState<string[]>([])
+    const [mentionedUsers, setMentionedUsers] = useState<string[]>([])
 
     const categories = settings.filter(s => s.category === 'ticket_category' && s.is_active)
     const outcomes = settings.filter(s => s.category === 'ticket_outcome' && s.is_active)
@@ -55,6 +57,7 @@ export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory 
         setPriority('normal')
         setDesiredOutcome('')
         setAttachments([])
+        setMentionedUsers([])
     }
 
     const handleSubmit = () => {
@@ -67,6 +70,9 @@ export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory 
         formData.set('priority', priority)
         formData.set('desired_outcome', desiredOutcome)
         formData.set('attachments', JSON.stringify(attachments))
+        if (mentionedUsers.length > 0) {
+            formData.set('notify_users', mentionedUsers.join(','))
+        }
 
         startTransition(async () => {
             const result = await createTicket(formData)
@@ -125,17 +131,18 @@ export function AddTicketDialog({ open, onOpenChange, settings, defaultCategory 
                         </Select>
                     </div>
 
-                    {/* Description */}
+                    {/* Description — Rich Text Editor with @mention */}
                     <div>
                         <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 block">
                             {locale === 'th' ? 'รายละเอียด' : 'Description'}
                         </label>
-                        <Textarea
+                        <RichTextEditor
                             value={description}
-                            onChange={e => setDescription(e.target.value)}
-                            placeholder={locale === 'th' ? 'อธิบายที่มาที่ไปและเหตุผล...' : 'Explain the context and reasoning...'}
-                            rows={4}
-                            className="resize-none"
+                            onChange={setDescription}
+                            users={users}
+                            placeholder={locale === 'th' ? 'อธิบายที่มาที่ไปและเหตุผล... (พิมพ์ @ เพื่อแท็ก)' : 'Explain the context and reasoning... (type @ to mention)'}
+                            minHeight="80px"
+                            onMentionedUsersChange={setMentionedUsers}
                         />
                     </div>
 

@@ -83,6 +83,33 @@ function extractMentionIds(text: string): string[] {
 }
 
 // ============================================================================
+// Caret position helper — measures cursor Y offset inside a textarea
+// using a mirror div that replicates the textarea's text layout.
+// ============================================================================
+
+function getCaretOffset(textarea: HTMLTextAreaElement, position: number): number {
+  const cs = getComputedStyle(textarea)
+  const mirror = document.createElement('div')
+  mirror.style.cssText = `
+    position:absolute;visibility:hidden;overflow:hidden;
+    white-space:pre-wrap;word-wrap:break-word;
+    width:${cs.width};font:${cs.font};
+    letter-spacing:${cs.letterSpacing};line-height:${cs.lineHeight};
+    padding:${cs.padding};border:${cs.border};box-sizing:${cs.boxSizing};
+  `
+  mirror.textContent = textarea.value.substring(0, position)
+
+  const marker = document.createElement('span')
+  marker.textContent = '\u200b'
+  mirror.appendChild(marker)
+
+  document.body.appendChild(mirror)
+  const top = marker.offsetTop - textarea.scrollTop
+  document.body.removeChild(mirror)
+  return top
+}
+
+// ============================================================================
 // MentionTextarea Component
 //
 // Shows @Name in the textarea (clean display), but stores @[Name](uuid) in
@@ -103,6 +130,7 @@ export default function MentionTextarea({
   const [search, setSearch] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [mentionStart, setMentionStart] = useState<number | null>(null)
+  const [caretTop, setCaretTop] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -152,6 +180,11 @@ export default function MentionTextarea({
           // Don't trigger for already-completed mentions
           const isExistingMention = mentionsMapRef.current.has(query.trim())
           if (!isExistingMention) {
+            // Calculate caret Y position for dropdown placement
+            const textarea = textareaRef.current
+            if (textarea) {
+              setCaretTop(getCaretOffset(textarea, cursorPos))
+            }
             setSearch(query)
             setMentionStart(atIndex)
             setShowDropdown(true)
@@ -261,7 +294,8 @@ export default function MentionTextarea({
       {showDropdown && filteredUsers.length > 0 && (
         <div
           ref={dropdownRef}
-          className="absolute bottom-full mb-1 left-0 w-full max-w-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150"
+          className="absolute left-0 w-full max-w-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150 -translate-y-full"
+          style={{ top: `${caretTop - 4}px` }}
         >
           <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-100 dark:border-zinc-800">
             แท็กเพื่อแจ้งเตือน

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -10,7 +10,8 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import MentionTextarea from '@/components/mention-textarea'
+import RichTextEditor, { type RichTextEditorRef } from '@/components/rich-text-editor'
+import { prepareContentForRender, htmlToPlainText } from '@/lib/rich-text-utils'
 import FileUploadZone from '@/components/file-upload-zone'
 import ImageLightbox from '@/components/image-lightbox'
 import {
@@ -175,6 +176,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
     const [replyContent, setReplyContent] = useState('')
     const [replyType, setReplyType] = useState('comment')
     const [mentionedUsers, setMentionedUsers] = useState<string[]>([])
+    const editorRef = useRef<RichTextEditorRef>(null)
     const [replyAttachments, setReplyAttachments] = useState<string[]>([])
     const [lightboxImages, setLightboxImages] = useState<string[] | null>(null)
     const [lightboxIndex, setLightboxIndex] = useState(0)
@@ -241,6 +243,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
             setReplyType('comment')
             setMentionedUsers([])
             setReplyAttachments([])
+            editorRef.current?.clearContent()
         })
     }
 
@@ -386,9 +389,10 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                     {/* Description */}
                     {ticket.description && (
                         <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-xl px-4 py-3">
-                            <div className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                                {renderContentWithInlineImages(ticket.description, renderMentionContent, openLightbox)}
-                            </div>
+                            <div
+                                className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed rte-content"
+                                dangerouslySetInnerHTML={{ __html: prepareContentForRender(ticket.description) }}
+                            />
                         </div>
                     )}
 
@@ -456,11 +460,12 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                                     </span>
                                 </div>
 
-                                {/* Reply content with inline images */}
+                                {/* Reply content — supports HTML (Tiptap) and plain text (legacy) */}
                                 {reply.content && (
-                                    <div className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                                        {renderContentWithInlineImages(reply.content, renderMentionContent, openLightbox)}
-                                    </div>
+                                    <div
+                                        className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed rte-content"
+                                        dangerouslySetInnerHTML={{ __html: prepareContentForRender(reply.content) }}
+                                    />
                                 )}
 
                                 {/* Reply attachments */}
@@ -512,15 +517,16 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                             ))}
                     </div>
 
-                    {/* Text area + Send */}
-                    <div className="flex gap-2">
-                        <MentionTextarea
+                    {/* Rich Text Editor + Send */}
+                    <div className="relative">
+                        <RichTextEditor
+                            ref={editorRef}
                             value={replyContent}
                             onChange={setReplyContent}
                             users={users}
                             placeholder={locale === 'th' ? 'พิมพ์คำตอบ... (พิมพ์ @ เพื่อแท็ก)' : 'Type your reply... (type @ to mention)'}
-                            rows={2}
-                            className="resize-none"
+                            minHeight="100px"
+                            compact
                             onMentionedUsersChange={setMentionedUsers}
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -531,8 +537,9 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                         />
                         <Button
                             onClick={handleSendReply}
-                            disabled={isPending || (!replyContent.trim() && replyAttachments.length === 0)}
-                            className="bg-violet-600 hover:bg-violet-700 text-white self-end h-10 px-4"
+                            disabled={isPending || (!htmlToPlainText(replyContent).trim() && replyAttachments.length === 0)}
+                            size="icon"
+                            className="absolute bottom-2 right-2 bg-violet-600 hover:bg-violet-700 text-white h-9 w-9 rounded-lg shadow-md z-10"
                         >
                             <Send className="h-4 w-4" />
                         </Button>

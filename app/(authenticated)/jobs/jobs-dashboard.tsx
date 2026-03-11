@@ -518,6 +518,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                         onOpenChange={setAddTicketDialogOpen}
                         settings={settings}
                         defaultCategory={ticketCategoryTab}
+                        users={users}
                     />
                 </>
             )}
