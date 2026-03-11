@@ -186,6 +186,8 @@
   color: var(--foreground);
   outline: none;
   overflow-y: auto;
+  resize: vertical;
+  max-height: 400px;
 }
 
 .rte-content p {

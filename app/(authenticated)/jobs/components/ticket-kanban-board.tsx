@@ -11,6 +11,7 @@ import { updateTicketStatus, archiveTicket } from '../actions'
 import { useRouter } from 'next/navigation'
 import type { Ticket, JobSetting } from '../actions'
 import { useLocale } from '@/lib/i18n/context'
+import { htmlToPlainText } from '@/lib/rich-text-utils'
 
 // ============================================================================
 // Ticket Kanban Board — CRM-style with soft shadows
@@ -382,7 +383,7 @@ function TicketCard({
                         {/* Description snippet */}
                         {ticket.description && (
                             <p className="text-[12px] text-zinc-500 dark:text-zinc-400 line-clamp-2 leading-relaxed">
-                                {ticket.description}
+                                {htmlToPlainText(ticket.description)}
                             </p>
                         )}
 
