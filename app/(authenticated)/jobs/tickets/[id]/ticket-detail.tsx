@@ -18,7 +18,8 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { createTicketReply, updateTicketStatus, deleteTicket, archiveTicket } from '../../actions'
-import type { Ticket, TicketReply, JobSetting } from '../../actions'
+import type { Ticket, TicketReply, JobSetting, TicketReaction } from '../../actions'
+import { ReactionBar } from '../../components/reaction-bar'
 import { getTicketStatusConfig } from '../../components/ticket-kanban-board'
 import { useLocale } from '@/lib/i18n/context'
 
@@ -153,6 +154,9 @@ interface TicketDetailProps {
     settings: JobSetting[]
     users: SystemUser[]
     categories: JobSetting[]
+    reactions: TicketReaction[]
+    availableEmojis: JobSetting[]
+    currentUserId: string
 }
 
 const PRIORITY_CONFIG: Record<string, { label: string; labelTh: string; color: string }> = {
@@ -169,7 +173,7 @@ const REPLY_TYPE_CONFIG: Record<string, { icon: React.ReactNode; label: string; 
     status_change: { icon: <Info className="h-4 w-4" />, label: 'Status Changed', labelTh: 'เปลี่ยนสถานะ', color: '#8b5cf6' },
 }
 
-export default function TicketDetail({ ticket, replies, settings, users, categories }: TicketDetailProps) {
+export default function TicketDetail({ ticket, replies, settings, users, categories, reactions, availableEmojis, currentUserId }: TicketDetailProps) {
     const { locale } = useLocale()
     const router = useRouter()
     const [isPending, startTransition] = useTransition()
@@ -401,6 +405,14 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                         attachments={ticket.attachments || []}
                         onImageClick={openLightbox}
                     />
+
+                    {/* Reactions on ticket description */}
+                    <ReactionBar
+                        ticketId={ticket.id}
+                        reactions={reactions}
+                        availableEmojis={availableEmojis}
+                        currentUserId={currentUserId}
+                    />
                 </div>
             </div>
 
@@ -472,6 +484,15 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                                 <AttachmentGrid
                                     attachments={reply.attachments || []}
                                     onImageClick={openLightbox}
+                                />
+
+                                {/* Reactions on reply */}
+                                <ReactionBar
+                                    ticketId={ticket.id}
+                                    replyId={reply.id}
+                                    reactions={reactions}
+                                    availableEmojis={availableEmojis}
+                                    currentUserId={currentUserId}
                                 />
                             </div>
                         </div>

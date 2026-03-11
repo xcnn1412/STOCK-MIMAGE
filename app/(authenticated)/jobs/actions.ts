@@ -1410,3 +1410,92 @@ export async function deleteTicketAttachment(url: string) {
     if (error) return { error: error.message }
     return { success: true }
 }
+
+// ============================================================================
+// Ticket Reactions — Emoji Reactions (Discord-style)
+// ============================================================================
+
+export interface TicketReaction {
+    id: string
+    ticket_id: string
+    reply_id: string | null
+    user_id: string
+    emoji: string
+    created_at: string
+    profiles?: { full_name: string | null } | null
+}
+
+export async function getTicketReactions(ticketId: string) {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('ticket_reactions')
+        .select('*, profiles:user_id(full_name)')
+        .eq('ticket_id', ticketId)
+        .order('created_at', { ascending: true })
+
+    if (error) return { error: error.message, data: [] }
+    return { data: (data || []) as TicketReaction[] }
+}
+
+export async function toggleTicketReaction(
+    ticketId: string,
+    emoji: string,
+    replyId?: string | null,
+) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    // Check if reaction already exists
+    let query = supabase
+        .from('ticket_reactions')
+        .select('id')
+        .eq('ticket_id', ticketId)
+        .eq('user_id', userId)
+        .eq('emoji', emoji)
+
+    if (replyId) {
+        query = query.eq('reply_id', replyId)
+    } else {
+        query = query.is('reply_id', null)
+    }
+
+    const { data: existing } = await query.maybeSingle()
+
+    if (existing) {
+        // Remove reaction
+        const { error } = await supabase
+            .from('ticket_reactions')
+            .delete()
+            .eq('id', existing.id)
+        if (error) return { error: error.message }
+    } else {
+        // Add reaction
+        const { error } = await supabase
+            .from('ticket_reactions')
+            .insert({
+                ticket_id: ticketId,
+                reply_id: replyId || null,
+                user_id: userId,
+                emoji,
+            })
+        if (error) return { error: error.message }
+    }
+
+    revalidatePath(`/jobs/tickets/${ticketId}`)
+    return { success: true, action: existing ? 'removed' : 'added' }
+}
+
+export async function getTicketEmojis() {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('job_settings')
+        .select('*')
+        .eq('category', 'ticket_emoji')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+
+    if (error) return { data: [], error: error.message }
+    return { data: data || [] }
+}

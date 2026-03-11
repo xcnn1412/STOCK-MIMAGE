@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useMemo } from 'react'
 import {
-    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight, ListChecks, Ticket
+    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight, ListChecks, Ticket, SmilePlus
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -36,6 +36,7 @@ const STATIC_TABS: { key: string; icon: React.ReactNode; labelTh: string; labelE
     { key: 'ticket_category', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Categories', labelEn: 'Ticket Categories' },
     { key: 'status_ticket', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Statuses', labelEn: 'Ticket Statuses' },
     { key: 'ticket_outcome', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Outcomes', labelEn: 'Ticket Outcomes' },
+    { key: 'ticket_emoji', icon: <SmilePlus className="h-4 w-4" />, labelTh: 'Ticket Emoji', labelEn: 'Ticket Emoji' },
 ]
 
 
@@ -165,7 +166,10 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
         startTransition(async () => {
             const formData = new FormData()
             formData.set('category', category)
-            formData.set('value', newValue.trim().toLowerCase().replace(/\s+/g, '_'))
+            const processedValue = category === 'ticket_emoji'
+                ? newValue.trim()  // emoji — keep as-is
+                : newValue.trim().toLowerCase().replace(/\s+/g, '_')
+            formData.set('value', processedValue)
             formData.set('label_th', newLabelTh.trim())
             formData.set('label_en', newLabelEn.trim())
             formData.set('color', newColor)
