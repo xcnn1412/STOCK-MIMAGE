@@ -91,9 +91,7 @@ function createMentionSuggestion(users: MentionUser[]) {
                 onStart: (props: MentionCallbackProps) => {
                     popup = document.createElement('div')
                     popup.className = 'mention-suggestion-popup'
-                    // Prevent Radix Dialog's pointer-down-outside from intercepting
-                    popup.addEventListener('pointerdown', (e) => e.stopPropagation())
-                    popup.addEventListener('mousedown', (e) => e.stopPropagation())
+                    popup.setAttribute('data-mention-popup', 'true')
                     document.body.appendChild(popup)
 
                     component = new MentionListController(popup, props)
@@ -140,7 +138,7 @@ function updatePopupPosition(popup: HTMLDivElement, props: MentionCallbackProps)
     if (!rect) return
 
     popup.style.position = 'absolute'
-    popup.style.zIndex = '9999'
+    popup.style.zIndex = '99999'
     popup.style.left = `${rect.left + window.scrollX}px`
     popup.style.top = `${rect.top + window.scrollY - 4}px`
     popup.style.transform = 'translateY(-100%)'
@@ -171,12 +169,12 @@ class MentionListController {
 
         if (event.key === 'ArrowDown') {
             this.selectedIndex = (this.selectedIndex + 1) % items.length
-            this.render()
+            this.updateSelection()
             return true
         }
         if (event.key === 'ArrowUp') {
             this.selectedIndex = (this.selectedIndex - 1 + items.length) % items.length
-            this.render()
+            this.updateSelection()
             return true
         }
         if (event.key === 'Enter') {
@@ -199,6 +197,24 @@ class MentionListController {
         }
     }
 
+    /** Lightweight update — only toggle selected class, no DOM rebuild */
+    updateSelection() {
+        const items = this.container.querySelectorAll('.rte-mention-item')
+        const avatars = this.container.querySelectorAll('.rte-mention-avatar')
+        items.forEach((el, i) => {
+            if (i === this.selectedIndex) {
+                el.classList.add('selected')
+                avatars[i]?.classList.add('selected')
+                // Scroll into view if needed
+                el.scrollIntoView?.({ block: 'nearest' })
+            } else {
+                el.classList.remove('selected')
+                avatars[i]?.classList.remove('selected')
+            }
+        })
+    }
+
+    /** Full render — rebuilds entire DOM (only on item list change) */
     render() {
         const { items } = this.props
 

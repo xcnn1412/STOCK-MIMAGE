@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { Search, X } from 'lucide-react'
+import { TwemojiImg } from '@/components/twemoji'
 
 // ============================================================================
 // Full Emoji Picker — Categorized like native emoji keyboards
@@ -240,7 +241,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
                                 }
                             `}
                         >
-                            {cat.icon}
+                            <TwemojiImg emoji={cat.icon} size={18} />
                         </button>
                     ))}
                 </div>
@@ -269,7 +270,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
                                 transition-all duration-100
                                 hover:bg-violet-100 dark:hover:bg-violet-900/30 hover:scale-125 active:scale-95"
                         >
-                            {emoji}
+                            <TwemojiImg emoji={emoji} size={24} />
                         </button>
                     ))}
                 </div>

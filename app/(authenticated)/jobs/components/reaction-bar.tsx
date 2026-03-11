@@ -6,6 +6,7 @@ import { toggleTicketReaction } from '../actions'
 import type { TicketReaction, JobSetting } from '../actions'
 import { useLocale } from '@/lib/i18n/context'
 import { EmojiPicker } from './emoji-picker'
+import { TwemojiImg } from '@/components/twemoji'
 
 // ============================================================================
 // Reaction Bar — Discord-style emoji reactions with full emoji picker
@@ -87,6 +88,7 @@ export function ReactionBar({ ticketId, replyId, reactions, availableEmojis, cur
     const [isPending, startTransition] = useTransition()
     const [showPicker, setShowPicker] = useState(false)
     const pickerContainerRef = useRef<HTMLDivElement>(null)
+    const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(null)
 
     // Compute server-side groups
     const serverGroups = groupReactions(reactions, replyId)
@@ -105,6 +107,24 @@ export function ReactionBar({ ticketId, replyId, reactions, availableEmojis, cur
             await toggleTicketReaction(ticketId, emoji, replyId || null)
         })
     }, [ticketId, replyId, startTransition, setOptimisticGroups])
+
+    const handleOpenPicker = useCallback(() => {
+        if (!showPicker && pickerContainerRef.current) {
+            const rect = pickerContainerRef.current.getBoundingClientRect()
+            const pickerWidth = 340
+            // Position above the button — and ensure it doesn't overflow viewport edges
+            let left = rect.left
+            if (left + pickerWidth > window.innerWidth - 16) {
+                left = window.innerWidth - pickerWidth - 16
+            }
+            if (left < 8) left = 8
+            setPickerPos({
+                top: rect.top - 8, // 8px gap above the button
+                left,
+            })
+        }
+        setShowPicker(!showPicker)
+    }, [showPicker])
 
     // Total reaction count
     const totalCount = optimisticGroups.reduce((sum, g) => sum + g.count, 0)
@@ -131,7 +151,7 @@ export function ReactionBar({ ticketId, replyId, reactions, availableEmojis, cur
                             ${isPending ? 'opacity-70 pointer-events-none' : 'cursor-pointer hover:scale-105 active:scale-95'}
                         `}
                     >
-                        <span className="text-base leading-none">{g.emoji}</span>
+                        <TwemojiImg emoji={g.emoji} size={18} />
                         <span className={`text-xs font-extrabold tabular-nums min-w-[1ch] text-center ${
                             userReacted
                                 ? 'text-violet-600 dark:text-violet-400'
@@ -146,7 +166,7 @@ export function ReactionBar({ ticketId, replyId, reactions, availableEmojis, cur
             {/* Add Reaction Button */}
             <div className="relative" ref={pickerContainerRef}>
                 <button
-                    onClick={() => setShowPicker(!showPicker)}
+                    onClick={handleOpenPicker}
                     disabled={isPending}
                     className={`
                         inline-flex items-center justify-center h-8 w-8 rounded-full border
@@ -162,9 +182,17 @@ export function ReactionBar({ ticketId, replyId, reactions, availableEmojis, cur
                     <SmilePlus className="h-4 w-4" />
                 </button>
 
-                {/* Full Emoji Picker */}
-                {showPicker && (
-                    <div className="absolute bottom-full left-0 mb-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                {/* Full Emoji Picker — fixed position to avoid container overflow */}
+                {showPicker && pickerPos && (
+                    <div
+                        className="fixed animate-in fade-in slide-in-from-bottom-2 duration-200"
+                        style={{
+                            top: pickerPos.top,
+                            left: pickerPos.left,
+                            transform: 'translateY(-100%)',
+                            zIndex: 9999,
+                        }}
+                    >
                         <EmojiPicker
                             onSelect={handleToggle}
                             onClose={() => setShowPicker(false)}
