@@ -8,11 +8,14 @@ import Color from '@tiptap/extension-color'
 import { TextStyle } from '@tiptap/extension-text-style'
 import Highlight from '@tiptap/extension-highlight'
 import {
-    useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle,
+    useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, useMemo,
 } from 'react'
 import {
-    Bold, Italic, Highlighter, Palette, Type,
+    Bold, Italic, Highlighter, Palette, Type, SmilePlus,
 } from 'lucide-react'
+import { EmojiPicker } from '@/app/(authenticated)/jobs/components/emoji-picker'
+import type { CustomEmoji } from '@/app/(authenticated)/jobs/actions'
+import { isCustomShortcode } from '@/components/twemoji'
 
 // ============================================================================
 // Types
@@ -36,6 +39,8 @@ export interface RichTextEditorProps {
     onKeyDown?: (e: KeyboardEvent) => void
     /** Compact mode hides the toolbar by default, shown on focus */
     compact?: boolean
+    /** Custom emojis for the emoji picker */
+    customEmojis?: CustomEmoji[]
 }
 
 export interface RichTextEditorRef {
@@ -265,7 +270,7 @@ class MentionListController {
 // Toolbar Component
 // ============================================================================
 
-function Toolbar({ editor, compact }: { editor: Editor | null; compact?: boolean }) {
+function Toolbar({ editor, compact, onToggleEmojiPicker, showEmojiPicker }: { editor: Editor | null; compact?: boolean; onToggleEmojiPicker?: () => void; showEmojiPicker?: boolean }) {
     const [showColorPicker, setShowColorPicker] = useState(false)
     const [showHighlightPicker, setShowHighlightPicker] = useState(false)
     const colorRef = useRef<HTMLDivElement>(null)
@@ -392,6 +397,24 @@ function Toolbar({ editor, compact }: { editor: Editor | null; compact?: boolean
                     </div>
                 )}
             </div>
+
+            {/* Divider */}
+            <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-600 mx-0.5" />
+
+            {/* Emoji */}
+            <button
+                onMouseDown={e => {
+                    e.preventDefault()
+                    onToggleEmojiPicker?.()
+                }}
+                className={`p-1.5 rounded-md transition-colors ${showEmojiPicker
+                    ? 'bg-violet-100 dark:bg-violet-900/40 text-violet-600'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                    }`}
+                title="Emoji"
+            >
+                <SmilePlus className="h-3.5 w-3.5" />
+            </button>
         </div>
     )
 }
@@ -424,6 +447,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(({
     onMentionedUsersChange,
     onKeyDown,
     compact,
+    customEmojis = [],
 }, ref) => {
     const [isFocused, setIsFocused] = useState(false)
     const isInternalUpdate = useRef(false)
@@ -508,28 +532,107 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(({
         },
     }), [editor, onChange])
 
-    const showToolbar = compact ? isFocused : true
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+    const emojiBtnRef = useRef<HTMLDivElement>(null)
+    const emojiPickerRef = useRef<HTMLDivElement>(null)
+
+    // Build custom emoji map for picker
+    const customEmojiMap = useMemo(() => {
+        const map = new Map<string, string>()
+        customEmojis.forEach(e => map.set(e.shortcode, e.image_url))
+        return map
+    }, [customEmojis])
+
+    // Insert emoji into editor
+    const handleEmojiSelect = useCallback((emoji: string) => {
+        if (!editor) return
+        editor.chain().focus().insertContent(emoji + ' ').run()
+        setShowEmojiPicker(false)
+    }, [editor])
+
+    // Close emoji picker on outside click
+    useEffect(() => {
+        if (!showEmojiPicker) return
+        const handler = (e: MouseEvent) => {
+            const target = e.target as Node
+            if (
+                emojiPickerRef.current && !emojiPickerRef.current.contains(target) &&
+                emojiBtnRef.current && !emojiBtnRef.current.contains(target)
+            ) {
+                setShowEmojiPicker(false)
+            }
+        }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [showEmojiPicker])
+
+    const showToolbar = compact ? (isFocused || showEmojiPicker) : true
+
+    // Calculate emoji picker position
+    const getPickerPos = () => {
+        if (!emojiBtnRef.current) return { top: 0, left: 0 }
+        const rect = emojiBtnRef.current.getBoundingClientRect()
+        const pickerWidth = 340
+        let left = rect.left
+        if (left + pickerWidth > window.innerWidth - 16) {
+            left = window.innerWidth - pickerWidth - 16
+        }
+        if (left < 8) left = 8
+        return { top: rect.top - 8, left }
+    }
 
     return (
-        <div
-            className={`
-                rounded-lg border transition-colors duration-200 overflow-hidden
-                ${isFocused
-                    ? 'border-violet-400 dark:border-violet-500 ring-2 ring-violet-500/20 dark:ring-violet-500/10'
-                    : 'border-zinc-200 dark:border-zinc-700'
-                }
-                bg-white dark:bg-zinc-900
-                ${className || ''}
-            `}
-        >
-            {/* Toolbar */}
-            <div className={`transition-all duration-200 ${showToolbar ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'}`}>
-                <Toolbar editor={editor} compact={compact} />
+        <>
+            <div
+                ref={emojiBtnRef}
+                className={`
+                    rounded-lg border transition-colors duration-200 overflow-hidden
+                    ${isFocused || showEmojiPicker
+                        ? 'border-violet-400 dark:border-violet-500 ring-2 ring-violet-500/20 dark:ring-violet-500/10'
+                        : 'border-zinc-200 dark:border-zinc-700'
+                    }
+                    bg-white dark:bg-zinc-900
+                    ${className || ''}
+                `}
+            >
+                {/* Toolbar */}
+                <div className={`transition-all duration-200 ${showToolbar ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'}`}>
+                    <Toolbar
+                        editor={editor}
+                        compact={compact}
+                        onToggleEmojiPicker={() => setShowEmojiPicker(v => !v)}
+                        showEmojiPicker={showEmojiPicker}
+                    />
+                </div>
+
+                {/* Editor Content */}
+                <EditorContent editor={editor} />
             </div>
 
-            {/* Editor Content */}
-            <EditorContent editor={editor} />
-        </div>
+            {/* Emoji Picker — rendered OUTSIDE overflow-hidden */}
+            {showEmojiPicker && (() => {
+                const pos = getPickerPos()
+                return (
+                    <div
+                        ref={emojiPickerRef}
+                        className="fixed animate-in fade-in slide-in-from-bottom-2 duration-200"
+                        style={{
+                            top: pos.top,
+                            left: pos.left,
+                            transform: 'translateY(-100%)',
+                            zIndex: 9999,
+                        }}
+                    >
+                        <EmojiPicker
+                            onSelect={handleEmojiSelect}
+                            onClose={() => setShowEmojiPicker(false)}
+                            customEmojis={customEmojis}
+                            customEmojiMap={customEmojiMap}
+                        />
+                    </div>
+                )
+            })()}
+        </>
     )
 })
 

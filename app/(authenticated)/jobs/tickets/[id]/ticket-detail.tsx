@@ -18,7 +18,7 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { createTicketReply, updateTicketStatus, deleteTicket, archiveTicket } from '../../actions'
-import type { Ticket, TicketReply, JobSetting, TicketReaction } from '../../actions'
+import type { Ticket, TicketReply, JobSetting, TicketReaction, CustomEmoji } from '../../actions'
 import { ReactionBar } from '../../components/reaction-bar'
 import { getTicketStatusConfig } from '../../components/ticket-kanban-board'
 import { useLocale } from '@/lib/i18n/context'
@@ -157,6 +157,7 @@ interface TicketDetailProps {
     reactions: TicketReaction[]
     availableEmojis: JobSetting[]
     currentUserId: string
+    customEmojis?: CustomEmoji[]
 }
 
 const PRIORITY_CONFIG: Record<string, { label: string; labelTh: string; color: string }> = {
@@ -174,7 +175,7 @@ const REPLY_TYPE_CONFIG: Record<string, { icon: React.ReactNode; label: string; 
     status_change: { icon: <Info className="h-4 w-4" />, label: 'Status Changed', labelTh: 'เปลี่ยนสถานะ', color: '#8b5cf6' },
 }
 
-export default function TicketDetail({ ticket, replies, settings, users, categories, reactions, availableEmojis, currentUserId }: TicketDetailProps) {
+export default function TicketDetail({ ticket, replies, settings, users, categories, reactions, availableEmojis, currentUserId, customEmojis = [] }: TicketDetailProps) {
     const { locale } = useLocale()
     const router = useRouter()
     const [isPending, startTransition] = useTransition()
@@ -444,6 +445,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                         reactions={reactions}
                         availableEmojis={availableEmojis}
                         currentUserId={currentUserId}
+                        customEmojis={customEmojis}
                     />
                 </div>
             </div>
@@ -534,6 +536,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                                     reactions={reactions}
                                     availableEmojis={availableEmojis}
                                     currentUserId={currentUserId}
+                                    customEmojis={customEmojis}
                                 />
                             </div>
                         )
@@ -588,6 +591,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                                     reactions={reactions}
                                     availableEmojis={availableEmojis}
                                     currentUserId={currentUserId}
+                                    customEmojis={customEmojis}
                                 />
                             </div>
                         </div>
@@ -709,6 +713,7 @@ export default function TicketDetail({ ticket, replies, settings, users, categor
                                     minHeight="100px"
                                     compact
                                     onMentionedUsersChange={setMentionedUsers}
+                                    customEmojis={customEmojis}
                                     onKeyDown={e => {
                                         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                                             e.preventDefault()

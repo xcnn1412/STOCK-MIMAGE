@@ -1499,3 +1499,164 @@ export async function getTicketEmojis() {
     if (error) return { data: [], error: error.message }
     return { data: data || [] }
 }
+
+// ============================================================================
+// Custom Emojis — User-uploaded custom emoji images (Discord/Slack style)
+// ============================================================================
+
+export interface CustomEmoji {
+    id: string
+    name: string
+    shortcode: string
+    image_url: string
+    created_by: string | null
+    is_active: boolean
+    sort_order: number
+    created_at: string
+}
+
+export async function getCustomEmojis() {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('custom_emojis')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+
+    if (error) return { data: [] as CustomEmoji[], error: error.message }
+    return { data: (data || []) as CustomEmoji[] }
+}
+
+export async function getAllCustomEmojis() {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('custom_emojis')
+        .select('*')
+        .order('sort_order', { ascending: true })
+
+    if (error) return { data: [] as CustomEmoji[], error: error.message }
+    return { data: (data || []) as CustomEmoji[] }
+}
+
+export async function uploadCustomEmoji(formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const file = formData.get('file') as File
+    const name = (formData.get('name') as string || '').trim()
+
+    if (!file || !name) return { error: 'กรุณาระบุชื่อและไฟล์รูป' }
+
+    // Validate file type
+    const allowedTypes = ['image/png', 'image/gif', 'image/webp', 'image/svg+xml']
+    if (!allowedTypes.includes(file.type)) {
+        return { error: 'รองรับเฉพาะไฟล์ PNG, GIF, WebP, SVG' }
+    }
+
+    // Validate file size (512KB max)
+    if (file.size > 512 * 1024) {
+        return { error: 'ไฟล์ต้องไม่เกิน 512KB' }
+    }
+
+    // Generate shortcode from name
+    const shortcode = `:${name.toLowerCase().replace(/[^a-z0-9_]/g, '_')}:`
+
+    // Check duplicate shortcode
+    const { data: existing } = await supabase
+        .from('custom_emojis')
+        .select('id')
+        .eq('shortcode', shortcode)
+        .maybeSingle()
+
+    if (existing) {
+        return { error: `Shortcode ${shortcode} มีอยู่แล้ว` }
+    }
+
+    // Upload to storage
+    const ext = file.name.split('.').pop() || 'png'
+    const filePath = `${Date.now()}_${name.toLowerCase().replace(/[^a-z0-9_]/g, '_')}.${ext}`
+    const buffer = Buffer.from(await file.arrayBuffer())
+
+    const { error: uploadError } = await supabase.storage
+        .from('custom-emojis')
+        .upload(filePath, buffer, { contentType: file.type, upsert: false })
+
+    if (uploadError) return { error: `Upload failed: ${uploadError.message}` }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+        .from('custom-emojis')
+        .getPublicUrl(filePath)
+
+    // Get current count for sort_order
+    const { count } = await supabase
+        .from('custom_emojis')
+        .select('*', { count: 'exact', head: true })
+
+    // Insert into DB
+    const { error: dbError } = await supabase.from('custom_emojis').insert({
+        name,
+        shortcode,
+        image_url: urlData.publicUrl,
+        created_by: userId,
+        sort_order: (count || 0) + 1,
+    })
+
+    if (dbError) {
+        // Cleanup uploaded file on DB error
+        await supabase.storage.from('custom-emojis').remove([filePath])
+        return { error: `DB error: ${dbError.message}` }
+    }
+
+    revalidatePath('/jobs/settings')
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+export async function deleteCustomEmoji(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    // Get the emoji to find storage path
+    const { data: emoji } = await supabase
+        .from('custom_emojis')
+        .select('image_url')
+        .eq('id', id)
+        .single()
+
+    if (emoji?.image_url) {
+        // Extract path from public URL
+        const bucketSegment = '/custom-emojis/'
+        const idx = emoji.image_url.indexOf(bucketSegment)
+        if (idx !== -1) {
+            const path = emoji.image_url.slice(idx + bucketSegment.length)
+            await supabase.storage.from('custom-emojis').remove([path])
+        }
+    }
+
+    const { error } = await supabase.from('custom_emojis').delete().eq('id', id)
+    if (error) return { error: error.message }
+
+    revalidatePath('/jobs/settings')
+    revalidatePath('/jobs')
+    return { success: true }
+}
+
+export async function toggleCustomEmoji(id: string, isActive: boolean) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('custom_emojis')
+        .update({ is_active: isActive })
+        .eq('id', id)
+
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/settings')
+    revalidatePath('/jobs')
+    return { success: true }
+}

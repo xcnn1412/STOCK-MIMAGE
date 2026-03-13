@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useState, useTransition, useMemo, useRef } from 'react'
 import {
-    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight, ListChecks, Ticket, SmilePlus
+    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight, ListChecks, Ticket, SmilePlus, Upload, Image as ImageIcon
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,8 +12,9 @@ import {
     createJobSetting, updateJobSetting, deleteJobSetting, toggleJobSetting,
     createChecklistTemplate, updateChecklistTemplate, deleteChecklistTemplate,
     updateJobType, deleteJobType,
+    uploadCustomEmoji, deleteCustomEmoji, toggleCustomEmoji,
 } from '../actions'
-import type { JobSetting, ChecklistTemplate } from '../actions'
+import type { JobSetting, ChecklistTemplate, CustomEmoji } from '../actions'
 import { useLocale } from '@/lib/i18n/context'
 
 // ============================================================================
@@ -24,6 +25,7 @@ interface SettingsViewProps {
     settings: JobSetting[]
     checklistTemplates: ChecklistTemplate[]
     jobTypes: JobSetting[]
+    customEmojis: CustomEmoji[]
 }
 
 type TopTab = string // dynamic: 'status_{jobType}', 'tag', 'checklist', 'job_type'
@@ -36,12 +38,12 @@ const STATIC_TABS: { key: string; icon: React.ReactNode; labelTh: string; labelE
     { key: 'ticket_category', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Categories', labelEn: 'Ticket Categories' },
     { key: 'status_ticket', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Statuses', labelEn: 'Ticket Statuses' },
     { key: 'ticket_outcome', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Outcomes', labelEn: 'Ticket Outcomes' },
-    { key: 'ticket_emoji', icon: <SmilePlus className="h-4 w-4" />, labelTh: 'Ticket Emoji', labelEn: 'Ticket Emoji' },
+    { key: 'custom_emoji', icon: <SmilePlus className="h-4 w-4" />, labelTh: 'Custom Emoji', labelEn: 'Custom Emoji' },
 ]
 
 
 
-export default function SettingsView({ settings, checklistTemplates, jobTypes }: SettingsViewProps) {
+export default function SettingsView({ settings, checklistTemplates, jobTypes, customEmojis }: SettingsViewProps) {
     const { locale } = useLocale()
 
     // Build dynamic tabs: one status tab per job type + static tabs
@@ -91,11 +93,66 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
         [settings]
     )
 
-    const currentSettings = (activeTab === 'tag' || activeTab === 'checklist' || activeTab === 'job_type')
+    const currentSettings = (activeTab === 'tag' || activeTab === 'checklist' || activeTab === 'job_type' || activeTab === 'custom_emoji')
         ? [] // these tabs use their own rendering
         : settings
             .filter(s => s.category === activeTab)
             .sort((a, b) => a.sort_order - b.sort_order)
+
+    // Custom emoji state
+    const fileInputRef = useRef<HTMLInputElement>(null)
+    const [emojiName, setEmojiName] = useState('')
+    const [emojiFile, setEmojiFile] = useState<File | null>(null)
+    const [emojiPreview, setEmojiPreview] = useState<string | null>(null)
+    const [emojiError, setEmojiError] = useState('')
+    const [showEmojiForm, setShowEmojiForm] = useState(false)
+
+    const handleEmojiFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        setEmojiFile(file)
+        setEmojiError('')
+        // Generate preview
+        const reader = new FileReader()
+        reader.onload = () => setEmojiPreview(reader.result as string)
+        reader.readAsDataURL(file)
+    }
+
+    const handleUploadEmoji = () => {
+        if (!emojiName.trim() || !emojiFile) {
+            setEmojiError('กรุณาระบุชื่อและเลือกไฟล์รูป')
+            return
+        }
+        setEmojiError('')
+        startTransition(async () => {
+            const fd = new FormData()
+            fd.set('name', emojiName.trim())
+            fd.set('file', emojiFile)
+            const result = await uploadCustomEmoji(fd)
+            if (result.error) {
+                setEmojiError(result.error)
+            } else {
+                setEmojiName('')
+                setEmojiFile(null)
+                setEmojiPreview(null)
+                setShowEmojiForm(false)
+                if (fileInputRef.current) fileInputRef.current.value = ''
+            }
+        })
+    }
+
+    const handleDeleteEmoji = (id: string, name: string) => {
+        if (!confirm(locale === 'th' ? `ลบ Emoji "${name}"?` : `Delete Emoji "${name}"?`)) return
+        startTransition(async () => {
+            await deleteCustomEmoji(id)
+        })
+    }
+
+    const handleToggleEmoji = (id: string, currentActive: boolean) => {
+        startTransition(async () => {
+            await toggleCustomEmoji(id, !currentActive)
+        })
+    }
 
     // Checklist state
     const [checklistSubTab, setChecklistSubTab] = useState<string>(jobTypes[0]?.value || 'graphic')
@@ -166,9 +223,7 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
         startTransition(async () => {
             const formData = new FormData()
             formData.set('category', category)
-            const processedValue = category === 'ticket_emoji'
-                ? newValue.trim()  // emoji — keep as-is
-                : newValue.trim().toLowerCase().replace(/\s+/g, '_')
+            const processedValue = newValue.trim().toLowerCase().replace(/\s+/g, '_')
             formData.set('value', processedValue)
             formData.set('label_th', newLabelTh.trim())
             formData.set('label_en', newLabelEn.trim())
@@ -811,7 +866,7 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                         {locale === 'th' ? 'งาน (Jobs)' : 'Jobs'}
                     </p>
                     <div className="flex gap-1 flex-wrap">
-                        {TOP_TABS.filter(t => !t.key.startsWith('ticket_') && t.key !== 'status_ticket').map(tab => {
+                        {TOP_TABS.filter(t => !t.key.startsWith('ticket_') && t.key !== 'status_ticket' && t.key !== 'custom_emoji').map(tab => {
                             const count = tab.key === 'tag' ? tagCount
                                 : tab.key === 'checklist' ? checklistTemplates.length
                                     : tab.key === 'job_type' ? jobTypes.length
@@ -843,8 +898,10 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                         {locale === 'th' ? 'ตั้งค่า Ticket' : 'Ticket Settings'}
                     </p>
                     <div className="flex gap-1 flex-wrap">
-                        {TOP_TABS.filter(t => t.key.startsWith('ticket_') || t.key === 'status_ticket').map(tab => {
-                            const count = settings.filter(s => s.category === tab.key).length
+                        {TOP_TABS.filter(t => t.key.startsWith('ticket_') || t.key === 'status_ticket' || t.key === 'custom_emoji').map(tab => {
+                            const count = tab.key === 'custom_emoji'
+                                ? customEmojis.length
+                                : settings.filter(s => s.category === tab.key).length
                             return (
                                 <button
                                     key={tab.key}
@@ -927,6 +984,180 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes }:
                     </CardHeader>
                     <CardContent className="pt-0">
                         {renderJobTypeTab()}
+                    </CardContent>
+                </Card>
+            ) : activeTab === 'custom_emoji' ? (
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between py-4">
+                        <div>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <SmilePlus className="h-4 w-4" />
+                                {locale === 'th' ? 'Custom Emoji' : 'Custom Emoji'}
+                            </CardTitle>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                                {locale === 'th'
+                                    ? 'อัพโหลดรูปภาพ Emoji ของคุณเอง (PNG, GIF, WebP, SVG — สูงสุด 512KB)'
+                                    : 'Upload your own custom emoji images (PNG, GIF, WebP, SVG — max 512KB)'
+                                }
+                            </p>
+                        </div>
+                        <Button
+                            size="sm"
+                            className="bg-violet-600 hover:bg-violet-700 text-white"
+                            onClick={() => { setShowEmojiForm(true); setEmojiError('') }}
+                        >
+                            <Plus className="h-3.5 w-3.5 mr-1" />
+                            {locale === 'th' ? 'เพิ่ม Emoji' : 'Add Emoji'}
+                        </Button>
+                    </CardHeader>
+                    <CardContent className="pt-0 space-y-4">
+                        {/* Upload Form */}
+                        {showEmojiForm && (
+                            <div className="border border-violet-200 dark:border-violet-800 rounded-xl p-4 bg-violet-50/30 dark:bg-violet-950/20 space-y-3">
+                                <div className="flex items-start gap-4">
+                                    {/* File Drop Area */}
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="shrink-0 w-20 h-20 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-600 hover:border-violet-400 dark:hover:border-violet-500 transition-colors flex flex-col items-center justify-center gap-1 cursor-pointer bg-white dark:bg-zinc-800 overflow-hidden"
+                                    >
+                                        {emojiPreview ? (
+                                            <img src={emojiPreview} alt="Preview" className="w-full h-full object-contain p-1" />
+                                        ) : (
+                                            <>
+                                                <Upload className="h-5 w-5 text-zinc-400" />
+                                                <span className="text-[9px] text-zinc-400 font-medium">เลือกรูป</span>
+                                            </>
+                                        )}
+                                    </button>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept=".png,.gif,.webp,.svg"
+                                        className="hidden"
+                                        onChange={handleEmojiFileChange}
+                                    />
+
+                                    <div className="flex-1 space-y-2">
+                                        <Input
+                                            value={emojiName}
+                                            onChange={e => setEmojiName(e.target.value)}
+                                            placeholder={locale === 'th' ? 'ชื่อ Emoji (เช่น ia_logo)' : 'Emoji name (e.g. ia_logo)'}
+                                            className="text-sm"
+                                        />
+                                        {emojiName && (
+                                            <p className="text-xs text-zinc-400">
+                                                Shortcode: <code className="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-violet-600 dark:text-violet-400">
+                                                    :{emojiName.toLowerCase().replace(/[^a-z0-9_]/g, '_')}:
+                                                </code>
+                                            </p>
+                                        )}
+                                        <p className="text-[10px] text-zinc-400">
+                                            แนะนำขนาด 128×128px • รองรับ PNG, GIF, WebP, SVG • ไม่เกิน 512KB
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {emojiError && (
+                                    <p className="text-xs text-red-500 font-medium">{emojiError}</p>
+                                )}
+
+                                <div className="flex gap-2 justify-end">
+                                    <Button
+                                        size="sm" variant="ghost"
+                                        onClick={() => {
+                                            setShowEmojiForm(false)
+                                            setEmojiName(''); setEmojiFile(null); setEmojiPreview(null); setEmojiError('')
+                                            if (fileInputRef.current) fileInputRef.current.value = ''
+                                        }}
+                                    >
+                                        {locale === 'th' ? 'ยกเลิก' : 'Cancel'}
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="bg-violet-600 hover:bg-violet-700 text-white"
+                                        disabled={isPending || !emojiName.trim() || !emojiFile}
+                                        onClick={handleUploadEmoji}
+                                    >
+                                        <Upload className="h-3.5 w-3.5 mr-1" />
+                                        {isPending ? 'กำลังอัพโหลด...' : locale === 'th' ? 'อัพโหลด' : 'Upload'}
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Emoji Grid */}
+                        {customEmojis.length === 0 && !showEmojiForm ? (
+                            <div className="text-center py-12 space-y-3">
+                                <div className="w-16 h-16 mx-auto rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                                    <ImageIcon className="h-8 w-8 text-zinc-300 dark:text-zinc-600" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                                        {locale === 'th' ? 'ยังไม่มี Custom Emoji' : 'No custom emojis yet'}
+                                    </p>
+                                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                                        {locale === 'th' ? 'กดปุ่ม "เพิ่ม Emoji" เพื่ออัพโหลดรูปภาพ' : 'Click "Add Emoji" to upload images'}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                                {customEmojis.map(emoji => (
+                                    <div
+                                        key={emoji.id}
+                                        className={`group relative flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-200 hover:shadow-md ${
+                                            emoji.is_active
+                                                ? 'bg-white dark:bg-zinc-900 border-zinc-200/60 dark:border-zinc-800/60 hover:border-violet-300 dark:hover:border-violet-600'
+                                                : 'bg-zinc-50 dark:bg-zinc-900/50 border-zinc-200/40 dark:border-zinc-800/40 opacity-50'
+                                        }`}
+                                    >
+                                        {/* Emoji Image */}
+                                        <div className="w-12 h-12 flex items-center justify-center">
+                                            <img
+                                                src={emoji.image_url}
+                                                alt={emoji.name}
+                                                className="max-w-full max-h-full object-contain"
+                                                draggable={false}
+                                            />
+                                        </div>
+
+                                        {/* Name + Shortcode */}
+                                        <div className="text-center min-w-0 w-full">
+                                            <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 truncate">
+                                                {emoji.name}
+                                            </p>
+                                            <p className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 truncate">
+                                                {emoji.shortcode}
+                                            </p>
+                                        </div>
+
+                                        {/* Action Buttons — shown on hover */}
+                                        <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button
+                                                onClick={() => handleToggleEmoji(emoji.id, emoji.is_active)}
+                                                className="h-6 w-6 rounded-md flex items-center justify-center bg-white/80 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                                                title={emoji.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
+                                                disabled={isPending}
+                                            >
+                                                {emoji.is_active
+                                                    ? <Eye className="h-3 w-3 text-emerald-500" />
+                                                    : <EyeOff className="h-3 w-3 text-zinc-400" />
+                                                }
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteEmoji(emoji.id, emoji.name)}
+                                                className="h-6 w-6 rounded-md flex items-center justify-center bg-white/80 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                                title="ลบ"
+                                                disabled={isPending}
+                                            >
+                                                <Trash2 className="h-3 w-3 text-red-400 hover:text-red-600" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             ) : (

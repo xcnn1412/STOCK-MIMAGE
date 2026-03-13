@@ -1,13 +1,13 @@
 import { notFound } from 'next/navigation'
 import { cookies } from 'next/headers'
-import { getTicket, getTicketReplies, getJobSettings, getSystemUsers, getTicketCategories, getTicketReactions, getTicketEmojis } from '../../actions'
+import { getTicket, getTicketReplies, getJobSettings, getSystemUsers, getTicketCategories, getTicketReactions, getTicketEmojis, getCustomEmojis } from '../../actions'
 import TicketDetail from './ticket-detail'
 
 export default async function TicketDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
     const cookieStore = await cookies()
     const currentUserId = cookieStore.get('session_user_id')?.value || ''
-    const [ticketResult, repliesResult, settingsResult, users, categoriesResult, reactionsResult, emojisResult] = await Promise.all([
+    const [ticketResult, repliesResult, settingsResult, users, categoriesResult, reactionsResult, emojisResult, customEmojisResult] = await Promise.all([
         getTicket(id),
         getTicketReplies(id),
         getJobSettings(),
@@ -15,6 +15,7 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ i
         getTicketCategories(),
         getTicketReactions(id),
         getTicketEmojis(),
+        getCustomEmojis(),
     ])
 
     if (!ticketResult.data) return notFound()
@@ -29,6 +30,7 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ i
             reactions={reactionsResult.data || []}
             availableEmojis={emojisResult.data || []}
             currentUserId={currentUserId}
+            customEmojis={customEmojisResult.data || []}
         />
     )
 }

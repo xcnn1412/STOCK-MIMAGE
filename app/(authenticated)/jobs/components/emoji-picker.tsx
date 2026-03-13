@@ -2,19 +2,24 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { Search, X } from 'lucide-react'
-import { TwemojiImg } from '@/components/twemoji'
+import { TwemojiImg, isCustomShortcode } from '@/components/twemoji'
+import type { CustomEmoji } from '../actions'
 
 // ============================================================================
 // Full Emoji Picker — Categorized like native emoji keyboards
+// Now supports custom uploaded emojis
 // ============================================================================
 
 interface EmojiPickerProps {
     onSelect: (emoji: string) => void
     onClose: () => void
+    customEmojis?: CustomEmoji[]
+    customEmojiMap?: Map<string, string>
 }
 
 // Category definitions
 const CATEGORIES = [
+    { key: 'custom', icon: '⭐', label: 'Custom', labelEn: 'Custom Emoji' },
     { key: 'frequent', icon: '🕐', label: 'ใช้บ่อย', labelEn: 'Frequently Used' },
     { key: 'smileys', icon: '😀', label: 'หน้ายิ้ม', labelEn: 'Smileys & People' },
     { key: 'gestures', icon: '👋', label: 'มือ & ท่าทาง', labelEn: 'Hands & Gestures' },
@@ -147,8 +152,9 @@ const EMOJI_DATA: Record<string, string[]> = {
     ],
 }
 
-export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
-    const [activeCategory, setActiveCategory] = useState('frequent')
+export function EmojiPicker({ onSelect, onClose, customEmojis = [], customEmojiMap }: EmojiPickerProps) {
+    // Default to 'custom' if custom emojis exist, otherwise 'frequent'
+    const [activeCategory, setActiveCategory] = useState(customEmojis.length > 0 ? 'custom' : 'frequent')
     const [search, setSearch] = useState('')
     const pickerRef = useRef<HTMLDivElement>(null)
     const searchRef = useRef<HTMLInputElement>(null)
@@ -178,16 +184,29 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
         return () => document.removeEventListener('keydown', handler)
     }, [onClose])
 
+    // Categories to show — hide custom tab if no custom emojis
+    const visibleCategories = useMemo(() => {
+        if (customEmojis.length === 0) {
+            return CATEGORIES.filter(c => c.key !== 'custom')
+        }
+        return CATEGORIES
+    }, [customEmojis])
+
     // Filter emojis if searching
     const displayEmojis = useMemo(() => {
         if (!search.trim()) {
+            if (activeCategory === 'custom') {
+                return customEmojis.map(e => e.shortcode)
+            }
             return EMOJI_DATA[activeCategory] || []
         }
-        // When searching, show all emojis that match
+        // When searching, include both standard and custom emojis
         const all = Object.values(EMOJI_DATA).flat()
-        // Remove duplicates
-        return [...new Set(all)]
-    }, [activeCategory, search])
+        const customMatches = customEmojis
+            .filter(e => e.name.toLowerCase().includes(search.toLowerCase()) || e.shortcode.includes(search.toLowerCase()))
+            .map(e => e.shortcode)
+        return [...customMatches, ...new Set(all)]
+    }, [activeCategory, search, customEmojis])
 
     const handleSelect = (emoji: string) => {
         onSelect(emoji)
@@ -227,7 +246,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
                 <div className="flex gap-0.5 px-1.5 py-1 border-b border-zinc-100 dark:border-zinc-800 overflow-x-auto"
                     style={{ scrollbarWidth: 'none' }}
                 >
-                    {CATEGORIES.map(cat => (
+                    {visibleCategories.map(cat => (
                         <button
                             key={cat.key}
                             onClick={() => setActiveCategory(cat.key)}
@@ -241,7 +260,11 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
                                 }
                             `}
                         >
-                            <TwemojiImg emoji={cat.icon} size={18} />
+                            {cat.key === 'custom' ? (
+                                <span className="text-xs font-bold">✦</span>
+                            ) : (
+                                <TwemojiImg emoji={cat.icon} size={18} />
+                            )}
                         </button>
                     ))}
                 </div>
@@ -252,7 +275,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
                 <p className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
                     {search
                         ? `ผลลัพธ์ทั้งหมด`
-                        : CATEGORIES.find(c => c.key === activeCategory)?.label
+                        : visibleCategories.find(c => c.key === activeCategory)?.label
                     }
                 </p>
             </div>
@@ -261,23 +284,80 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
             <div className="px-2 pb-2 h-[260px] overflow-y-auto"
                 style={{ scrollbarWidth: 'thin', scrollbarColor: '#d1d5db transparent' }}
             >
-                <div className="grid grid-cols-8 gap-0.5">
-                    {displayEmojis.map((emoji, idx) => (
-                        <button
-                            key={`${emoji}-${idx}`}
-                            onClick={() => handleSelect(emoji)}
-                            className="flex items-center justify-center h-9 w-9 rounded-lg text-xl
-                                transition-all duration-100
-                                hover:bg-violet-100 dark:hover:bg-violet-900/30 hover:scale-125 active:scale-95"
-                        >
-                            <TwemojiImg emoji={emoji} size={24} />
-                        </button>
-                    ))}
-                </div>
+                {/* Custom emoji: larger grid with labels */}
+                {(activeCategory === 'custom' && !search.trim()) ? (
+                    <div className="grid grid-cols-4 gap-2">
+                        {displayEmojis.map((emoji, idx) => {
+                            const customEmoji = customEmojis.find(e => e.shortcode === emoji)
+                            return (
+                                <button
+                                    key={`${emoji}-${idx}`}
+                                    onClick={() => handleSelect(emoji)}
+                                    title={emoji}
+                                    className="flex flex-col items-center gap-1 p-2 rounded-xl
+                                        transition-all duration-150
+                                        hover:bg-violet-100 dark:hover:bg-violet-900/30 hover:scale-105 active:scale-95"
+                                >
+                                    <img
+                                        src={customEmojiMap?.get(emoji) || ''}
+                                        alt={emoji}
+                                        width={40}
+                                        height={40}
+                                        className="object-contain rounded"
+                                        draggable={false}
+                                    />
+                                    <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 truncate max-w-full">
+                                        {customEmoji?.name || emoji}
+                                    </span>
+                                </button>
+                            )
+                        })}
+                    </div>
+                ) : (
+                    /* Standard emoji: compact 8-column grid */
+                    <div className="grid grid-cols-8 gap-0.5">
+                        {displayEmojis.map((emoji, idx) => {
+                            const isCustom = isCustomShortcode(emoji)
+
+                            return (
+                                <button
+                                    key={`${emoji}-${idx}`}
+                                    onClick={() => handleSelect(emoji)}
+                                    title={isCustom ? emoji : undefined}
+                                    className={`flex items-center justify-center rounded-lg text-xl
+                                        transition-all duration-100
+                                        hover:bg-violet-100 dark:hover:bg-violet-900/30 active:scale-95
+                                        ${isCustom ? 'h-11 w-11 hover:scale-110' : 'h-9 w-9 hover:scale-125'}`}
+                                >
+                                    {isCustom ? (
+                                        <img
+                                            src={customEmojiMap?.get(emoji) || ''}
+                                            alt={emoji}
+                                            width={32}
+                                            height={32}
+                                            className="object-contain rounded"
+                                            draggable={false}
+                                        />
+                                    ) : (
+                                        <TwemojiImg emoji={emoji} size={24} />
+                                    )}
+                                </button>
+                            )
+                        })}
+                    </div>
+                )}
 
                 {displayEmojis.length === 0 && (
-                    <div className="flex items-center justify-center h-32 text-sm text-zinc-400">
-                        ไม่พบ emoji
+                    <div className="flex flex-col items-center justify-center h-32 text-sm text-zinc-400">
+                        {activeCategory === 'custom' ? (
+                            <>
+                                <span className="text-2xl mb-2">✦</span>
+                                <span>ยังไม่มี Custom Emoji</span>
+                                <span className="text-xs mt-1">ไปเพิ่มได้ที่ Settings → Ticket Emoji</span>
+                            </>
+                        ) : (
+                            'ไม่พบ emoji'
+                        )}
                     </div>
                 )}
             </div>
