@@ -320,10 +320,12 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
 
                 {/* Claims — Desktop Table */}
                 <div className="hidden md:block divide-y divide-zinc-100 dark:divide-zinc-800">
-                  <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold bg-zinc-50/50 dark:bg-zinc-800/20">
+                  <div className="grid grid-cols-16 gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold bg-zinc-50/50 dark:bg-zinc-800/20">
                     <div className="col-span-2">{isEn ? 'Claim No.' : 'เลขที่'}</div>
                     <div className="col-span-2">{isEn ? 'Title' : 'หัวข้อ'}</div>
-                    <div className="col-span-2">{isEn ? 'Bank / Acct.' : 'ธนาคาร / บัญชี'}</div>
+                    <div className="col-span-2">{isEn ? 'Bank' : 'ธนาคาร'}</div>
+                    <div className="col-span-2">{isEn ? 'Account No.' : 'เลขที่บัญชี'}</div>
+                    <div className="col-span-2">{isEn ? 'Holder' : 'ชื่อบัญชี'}</div>
                     <div className="col-span-1 text-right">{isEn ? 'Amount' : 'ยอดเงิน'}</div>
                     <div className="col-span-1 text-right">{isEn ? 'WHT' : 'หัก'}</div>
                     <div className="col-span-2 text-right">{isEn ? 'Net Pay' : 'จ่ายจริง'}</div>
@@ -333,20 +335,21 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                     const tax = getNetPayable(c)
                     const amt = c.amount || 0
                     return (
-                      <div key={c.id} className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                      <div key={c.id} className="grid grid-cols-16 gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
                         <div className="col-span-2 text-xs font-mono text-zinc-500">{c.claim_number}</div>
                         <div className="col-span-2 truncate font-medium text-zinc-900 dark:text-zinc-100">{c.title}</div>
-                        <div className="col-span-2 text-xs">
+                        <div className="col-span-2 text-xs truncate">
                           {c.bank_name ? (
-                            <div>
-                              <span className="text-zinc-700 dark:text-zinc-300 font-medium">{c.bank_name}</span>
-                              {c.bank_account_number && (
-                                <span className="block font-mono text-zinc-400 text-[10px]">{c.bank_account_number}</span>
-                              )}
-                            </div>
+                            <span className="text-zinc-700 dark:text-zinc-300 font-medium">{c.bank_name}</span>
                           ) : (
-                            <span className="text-amber-500 text-[10px]">{isEn ? 'No bank' : 'ไม่มีข้อมูล'}</span>
+                            <span className="text-amber-500 text-[10px]">{isEn ? 'No bank' : '—'}</span>
                           )}
+                        </div>
+                        <div className="col-span-2 text-xs font-mono text-zinc-600 dark:text-zinc-400 truncate">
+                          {c.bank_account_number || <span className="text-amber-500 text-[10px]">—</span>}
+                        </div>
+                        <div className="col-span-2 text-xs text-zinc-600 dark:text-zinc-400 truncate">
+                          {c.account_holder_name || <span className="text-amber-500 text-[10px]">—</span>}
                         </div>
                         <div className="col-span-1 text-right font-mono text-zinc-600 dark:text-zinc-400">
                           {amt.toLocaleString()}
@@ -373,9 +376,8 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                     )
                   })}
                   {/* Group subtotal — desktop */}
-                  <div className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm bg-emerald-50/50 dark:bg-emerald-950/10 font-semibold">
-                    <div className="col-span-5 text-zinc-500">{isEn ? 'Subtotal' : 'รวม'} — {group.name}</div>
-                    <div className="col-span-2"></div>
+                  <div className="grid grid-cols-16 gap-2 px-4 py-2.5 items-center text-sm bg-emerald-50/50 dark:bg-emerald-950/10 font-semibold">
+                    <div className="col-span-10 text-zinc-500">{isEn ? 'Subtotal' : 'รวม'} — {group.name}</div>
                     <div className="col-span-1 text-right font-mono text-zinc-600">฿{groupTotal.toLocaleString()}</div>
                     <div className="col-span-1 text-right font-mono text-purple-500 text-xs">
                       {groupWht > 0 ? `−${fmtDec(groupWht)}` : '—'}
@@ -383,7 +385,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                     <div className="col-span-2 text-right font-mono text-emerald-600 dark:text-emerald-400">
                       ฿{fmtDec(groupNet)}
                     </div>
-                    <div className="col-span-1"></div>
+                    <div className="col-span-2"></div>
                   </div>
                 </div>
 
