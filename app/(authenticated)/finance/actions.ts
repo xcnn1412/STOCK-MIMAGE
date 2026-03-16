@@ -273,10 +273,12 @@ export async function updateClaim(id: string, updateData: {
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
-  if (claim.status !== 'pending') return { error: 'แก้ไขได้เฉพาะใบเบิกที่รออนุมัติเท่านั้น' }
 
   const isAdmin = role === 'admin'
   const isOwner = claim.submitted_by === userId
+
+  // Admin แก้ไขได้ทุกสถานะ, เจ้าของแก้ไขได้เฉพาะตอน pending เท่านั้น
+  if (!isAdmin && claim.status !== 'pending') return { error: 'แก้ไขได้เฉพาะใบเบิกที่รออนุมัติเท่านั้น' }
   if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
 
   // Track what changed for the log

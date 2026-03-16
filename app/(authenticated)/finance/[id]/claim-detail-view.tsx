@@ -71,7 +71,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const isAdmin = role === 'admin'
   const isOwner = claim.submitted_by === userId
   const isPending = claim.status === 'pending'
-  const canEdit = isPending && (isAdmin || isOwner)
+  const canEdit = isAdmin || (isPending && isOwner)
   const statusColor = getClaimStatusColor(claim.status)
   const isEn = locale === 'en'
 
