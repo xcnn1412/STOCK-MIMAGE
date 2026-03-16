@@ -60,7 +60,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
         map.set(c.submitted_by, c.submitter.full_name)
       }
     })
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
+    return Array.from(map.entries()).sort((a, b) => a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)
   }, [claims])
 
   // Get unique events
@@ -72,7 +72,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
         if (name) map.set(c.job_event_id, name)
       }
     })
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
+    return Array.from(map.entries()).sort((a, b) => a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)
   }, [claims])
 
   // Filter claims
