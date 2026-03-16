@@ -24,6 +24,7 @@ const moduleAccents: Record<string, { color: string; bg: string; activeBg: strin
     finance: { color: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-50 dark:bg-teal-950/30', activeBg: 'bg-teal-50 dark:bg-teal-950/30' },
     crm: { color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/30', activeBg: 'bg-blue-50 dark:bg-blue-950/30' },
     jobs: { color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-950/30', activeBg: 'bg-violet-50 dark:bg-violet-950/30' },
+    checkin: { color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-950/30', activeBg: 'bg-rose-50 dark:bg-rose-950/30' },
     admin: { color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950/30', activeBg: 'bg-purple-50 dark:bg-purple-950/30' },
 }
 

@@ -1,8 +1,8 @@
-import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase } from 'lucide-react'
+import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History } from 'lucide-react'
 
-export type ModuleKey = 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'jobs' | 'admin'
+export type ModuleKey = 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'jobs' | 'checkin' | 'admin'
 
-export const ALL_MODULES: ModuleKey[] = ['crm', 'jobs', 'events', 'stock', 'costs', 'finance', 'kpi']
+export const ALL_MODULES: ModuleKey[] = ['crm', 'jobs', 'events', 'stock', 'costs', 'finance', 'kpi', 'checkin']
 
 export interface NavItem {
   href: string
@@ -86,6 +86,14 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/kpi/assignments', icon: UserCheck, labelKey: 'kpiAssignments' },
       { href: '/kpi/evaluate', icon: ClipboardCheck, labelKey: 'kpiEvaluate' },
       { href: '/kpi/reports', icon: BarChart3, labelKey: 'kpiReports' },
+    ],
+  },
+  {
+    key: 'checkin',
+    icon: MapPinCheckInside,
+    items: [
+      { href: '/check-in', icon: MapPinCheckInside, labelKey: 'checkinQuick', exact: true },
+      { href: '/check-in/history', icon: History, labelKey: 'checkinHistory' },
     ],
   },
   {

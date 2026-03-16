@@ -34,6 +34,9 @@ export const dictionary = {
 
       jobsKanban: 'Jobs',
       jobsSettings: 'Settings',
+
+      checkinQuick: 'Quick Check-in',
+      checkinHistory: 'History',
     },
     navGroups: {
       crm: 'CRM',
@@ -44,6 +47,7 @@ export const dictionary = {
       kpi: 'KPI',
       finance: 'Finance',
       jobs: 'Jobs',
+      checkin: 'Check-in',
       admin: 'Admin',
     },
     common: {
@@ -286,6 +290,9 @@ export const dictionary = {
 
       jobsKanban: 'งาน',
       jobsSettings: 'ตั้งค่า',
+
+      checkinQuick: 'เช็คอินด่วน',
+      checkinHistory: 'ประวัติ',
     },
     navGroups: {
       crm: 'CRM',
@@ -296,6 +303,7 @@ export const dictionary = {
       kpi: 'ประเมิน KPI',
       finance: 'เบิกเงิน',
       jobs: 'งาน',
+      checkin: 'เช็คอิน',
       admin: 'ผู้ดูแล',
     },
     common: {

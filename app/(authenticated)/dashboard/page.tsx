@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Package, Target, DollarSign, Users, ContactRound, Calendar, Banknote, Shield, Briefcase } from 'lucide-react'
+import { Package, Target, DollarSign, Users, ContactRound, Calendar, Banknote, Shield, Briefcase, MapPinCheck } from 'lucide-react'
 
 // Shine positions — each card gets a unique spotlight glow position
 const shineVariants = [
@@ -14,6 +14,7 @@ const shineVariants = [
   { bg: 'radial-gradient(circle at 90% 60%, rgba(255,255,255,0.06) 0%, transparent 55%)', shadow: '0 0 42px rgba(255,255,255,0.04)' },
   { bg: 'radial-gradient(circle at 40% 90%, rgba(255,255,255,0.07) 0%, transparent 50%)', shadow: '0 0 36px rgba(255,255,255,0.05)' },
   { bg: 'radial-gradient(circle at 60% 40%, rgba(255,255,255,0.08) 0%, transparent 65%)', shadow: '0 0 44px rgba(255,255,255,0.03)' },
+  { bg: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.07) 0%, transparent 55%)', shadow: '0 0 40px rgba(255,255,255,0.04)' },
 ]
 
 const modules = [
@@ -24,6 +25,7 @@ const modules = [
   { key: 'costs', icon: DollarSign, label: 'COSTS', sublabel: '', href: '/costs/dashboard' },
   { key: 'finance', icon: Banknote, label: 'FINANCE', sublabel: '', href: '/finance' },
   { key: 'kpi', icon: Target, label: 'KPI', sublabel: '', href: '/kpi/dashboard' },
+  { key: 'checkin', icon: MapPinCheck, label: 'CHECK-IN', sublabel: '', href: '/check-in' },
   { key: 'security', icon: Shield, label: 'SECURITY', sublabel: '', href: '/security', adminOnly: true },
   { key: 'admin', icon: Users, label: 'USER', sublabel: 'MANAGEMENT', href: '/users', adminOnly: true },
 ]
