@@ -49,9 +49,14 @@ export default async function AuthenticatedLayout({
     }
   }
 
-  // Admin always gets admin module access
-  if (role === 'admin' && !allowedModules.includes('admin')) {
-    allowedModules = [...allowedModules, 'admin']
+  // Admin always gets admin + overview module access
+  if (role === 'admin') {
+    if (!allowedModules.includes('admin')) {
+      allowedModules = [...allowedModules, 'admin']
+    }
+    if (!allowedModules.includes('overview')) {
+      allowedModules = [...allowedModules, 'overview']
+    }
   }
 
   return (
