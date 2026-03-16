@@ -176,8 +176,9 @@ export async function POST(request: NextRequest) {
     },
   }
 
-  // Try models in order
-  const models = ['gemini-2.5-flash-preview-04-17', 'gemini-2.5-flash', 'gemini-1.5-flash']
+  // Use model from env, or fallback list
+  const envModel = process.env.GEMINI_MODEL
+  const models = envModel ? [envModel] : ['gemini-2.5-flash-preview-04-17', 'gemini-2.5-flash', 'gemini-1.5-flash']
 
   for (const modelName of models) {
     try {
