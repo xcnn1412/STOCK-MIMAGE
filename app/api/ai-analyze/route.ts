@@ -1,12 +1,5 @@
-'use server'
-
 import { cookies } from 'next/headers'
-
-async function getSession() {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
-  return { role }
-}
+import { NextRequest } from 'next/server'
 
 const COST_LABELS: Record<string, string> = {
   staff: 'ค่าแรง', travel: 'ค่าเดินทาง', electrical_equipment: 'อุปกรณ์ไฟฟ้า',
@@ -30,93 +23,60 @@ const SYSTEM_PROMPT = `คุณคือนักวิเคราะห์ธ
 7. ถ้าพบปัญหา ให้ระบุชื่ออีเวนต์และตัวเลขที่ชัดเจน
 8. สรุปท้ายด้วยคำแนะนำเร่งด่วน 3 ข้อ`
 
-export interface AiAnalysisRequest {
-  events: Array<{
-    name: string
-    date: string | null
-    location: string | null
-    seller: string
-    customerName: string
-    packageName: string
-    revenue: number
-    totalCost: number
-    costByCategory: Record<string, number>
-    profit: number
-    margin: number
-    expenseTotal: number
-    expenseCount: number
-    expensePaid: number
-    checkinCount: number
-    checkinUniqueStaff: number
-    checkinHours: number
-    graphicsNames: string[]
-    staff: string
-    status: string | null
-  }>
-  includeSections: string[]
-  customPrompt: string
-}
-
 function fmt(n: number): string {
   return n.toLocaleString('th-TH', { maximumFractionDigits: 0 })
 }
 
-function buildDataPayload(req: AiAnalysisRequest): string {
-  const events = req.events
-  const sections = new Set(req.includeSections)
+function buildDataPayload(events: any[], sections: string[]): string {
+  const sectionSet = new Set(sections)
   let payload = ''
 
-  // ── Financial Summary ──
-  if (sections.has('financial')) {
-    const totalRevenue = events.reduce((s, e) => s + e.revenue, 0)
-    const totalCost = events.reduce((s, e) => s + e.totalCost, 0)
+  if (sectionSet.has('financial')) {
+    const totalRevenue = events.reduce((s: number, e: any) => s + e.revenue, 0)
+    const totalCost = events.reduce((s: number, e: any) => s + e.totalCost, 0)
     const totalProfit = totalRevenue - totalCost
     const margin = totalRevenue > 0 ? (totalProfit / totalRevenue * 100) : 0
     payload += `\n## ภาพรวมการเงิน\n`
     payload += `- จำนวนอีเวนต์: ${events.length}\n`
     payload += `- รายรับรวม: ฿${fmt(totalRevenue)}\n`
-    payload += `- ต้นทุนรวม: ฿${fmt(totalCost)} (${(totalCost / totalRevenue * 100).toFixed(1)}% ของรายรับ)\n`
+    payload += `- ต้นทุนรวม: ฿${fmt(totalCost)} (${totalRevenue > 0 ? (totalCost / totalRevenue * 100).toFixed(1) : 0}% ของรายรับ)\n`
     payload += `- กำไรรวม: ฿${fmt(totalProfit)}\n`
     payload += `- Gross Margin: ${margin.toFixed(1)}%\n`
     payload += `- กำไรเฉลี่ย/อีเวนต์: ฿${fmt(totalProfit / (events.length || 1))}\n`
   }
 
-  // ── Cost Breakdown ──
-  if (sections.has('cost_breakdown')) {
+  if (sectionSet.has('cost_breakdown')) {
     const costAgg: Record<string, number> = {}
-    events.forEach(e => {
-      Object.entries(e.costByCategory).forEach(([k, v]) => { costAgg[k] = (costAgg[k] || 0) + v })
+    events.forEach((e: any) => {
+      Object.entries(e.costByCategory || {}).forEach(([k, v]) => { costAgg[k] = (costAgg[k] || 0) + (v as number) })
     })
     const totalCost = Object.values(costAgg).reduce((s, v) => s + v, 0)
     payload += `\n## ต้นทุนแยกหมวด\n`
     Object.entries(costAgg).sort(([, a], [, b]) => b - a).forEach(([cat, val]) => {
-      payload += `- ${COST_LABELS[cat] || cat}: ฿${fmt(val)} (${(val / totalCost * 100).toFixed(1)}%)\n`
+      payload += `- ${COST_LABELS[cat] || cat}: ฿${fmt(val)} (${totalCost > 0 ? (val / totalCost * 100).toFixed(1) : 0}%)\n`
     })
   }
 
-  // ── Per-Event Details ──
-  if (sections.has('per_event')) {
+  if (sectionSet.has('per_event')) {
     payload += `\n## รายละเอียดรายอีเวนต์\n`
     payload += `| อีเวนต์ | วันที่ | เซล | ราคาขาย | ต้นทุน | กำไร | Margin | เบิกจ่าย | เช็คอิน |\n`
     payload += `|---|---|---|---|---|---|---|---|---|\n`
-    events.forEach(e => {
+    events.forEach((e: any) => {
       payload += `| ${e.name} | ${e.date || '—'} | ${e.seller || '—'} | ฿${fmt(e.revenue)} | ฿${fmt(e.totalCost)} | ฿${fmt(e.profit)} | ${e.margin.toFixed(0)}% | ฿${fmt(e.expenseTotal)} (${e.expenseCount}ครั้ง) | ${e.checkinCount}คน |\n`
     })
-    // Per-event cost detail
     payload += `\n### ต้นทุนแต่ละอีเวนต์\n`
-    events.forEach(e => {
-      if (Object.keys(e.costByCategory).length > 0) {
+    events.forEach((e: any) => {
+      if (Object.keys(e.costByCategory || {}).length > 0) {
         payload += `**${e.name}**: `
-        payload += Object.entries(e.costByCategory).map(([cat, val]) => `${COST_LABELS[cat] || cat} ฿${fmt(val)}`).join(', ')
+        payload += Object.entries(e.costByCategory).map(([cat, val]) => `${COST_LABELS[cat] || cat} ฿${fmt(val as number)}`).join(', ')
         payload += `\n`
       }
     })
   }
 
-  // ── Sellers ──
-  if (sections.has('sellers')) {
+  if (sectionSet.has('sellers')) {
     const sellerMap = new Map<string, { revenue: number; cost: number; count: number }>()
-    events.forEach(e => {
+    events.forEach((e: any) => {
       if (e.seller) {
         const prev = sellerMap.get(e.seller) || { revenue: 0, cost: 0, count: 0 }
         prev.revenue += e.revenue; prev.cost += e.totalCost; prev.count++
@@ -133,33 +93,29 @@ function buildDataPayload(req: AiAnalysisRequest): string {
     })
   }
 
-  // ── Expenses ──
-  if (sections.has('expenses')) {
-    const totalExp = events.reduce((s, e) => s + e.expenseTotal, 0)
-    const totalPaid = events.reduce((s, e) => s + e.expensePaid, 0)
-    const totalCount = events.reduce((s, e) => s + e.expenseCount, 0)
+  if (sectionSet.has('expenses')) {
+    const totalExp = events.reduce((s: number, e: any) => s + e.expenseTotal, 0)
+    const totalPaid = events.reduce((s: number, e: any) => s + e.expensePaid, 0)
+    const totalCount = events.reduce((s: number, e: any) => s + e.expenseCount, 0)
     payload += `\n## ข้อมูลเบิกจ่าย\n`
     payload += `- เบิกจ่ายรวม: ฿${fmt(totalExp)} (${totalCount} ครั้ง)\n`
     payload += `- จ่ายแล้ว: ฿${fmt(totalPaid)} (${totalExp > 0 ? (totalPaid / totalExp * 100).toFixed(0) : 0}%)\n`
     payload += `- ค้างจ่าย: ฿${fmt(totalExp - totalPaid)}\n`
-    // Per event
-    events.filter(e => e.expenseCount > 0).forEach(e => {
+    events.filter((e: any) => e.expenseCount > 0).forEach((e: any) => {
       payload += `- ${e.name}: ฿${fmt(e.expenseTotal)} (${e.expenseCount}ครั้ง, จ่ายแล้ว ฿${fmt(e.expensePaid)})\n`
     })
   }
 
-  // ── Checkins ──
-  if (sections.has('checkins')) {
+  if (sectionSet.has('checkins')) {
     payload += `\n## ข้อมูลเช็คอิน\n`
-    events.filter(e => e.checkinCount > 0).forEach(e => {
+    events.filter((e: any) => e.checkinCount > 0).forEach((e: any) => {
       payload += `- ${e.name}: ${e.checkinCount} เช็คอิน, ${e.checkinUniqueStaff} คนไม่ซ้ำ, ${e.checkinHours.toFixed(1)} ชม.\n`
     })
   }
 
-  // ── Graphics ──
-  if (sections.has('graphics')) {
+  if (sectionSet.has('graphics')) {
     const gfxMap = new Map<string, number>()
-    events.forEach(e => e.graphicsNames.forEach(g => gfxMap.set(g, (gfxMap.get(g) || 0) + 1)))
+    events.forEach((e: any) => (e.graphicsNames || []).forEach((g: string) => gfxMap.set(g, (gfxMap.get(g) || 0) + 1)))
     if (gfxMap.size > 0) {
       payload += `\n## Graphic Designers\n`
       Array.from(gfxMap.entries()).sort(([, a], [, b]) => b - a).forEach(([name, count]) => {
@@ -171,23 +127,27 @@ function buildDataPayload(req: AiAnalysisRequest): string {
   return payload
 }
 
-export async function analyzeOverview(req: AiAnalysisRequest): Promise<{ success: boolean; result?: string; error?: string }> {
-  const { role } = await getSession()
-  if (role !== 'admin') return { success: false, error: 'Unauthorized' }
+export async function POST(request: NextRequest) {
+  const cookieStore = await cookies()
+  const role = cookieStore.get('session_role')?.value || 'staff'
+  if (role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+  }
 
   const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) return { success: false, error: 'GEMINI_API_KEY not configured' }
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'GEMINI_API_KEY not configured' }), { status: 500 })
+  }
 
-  try {
-    const dataPayload = buildDataPayload(req)
+  const { events, includeSections, customPrompt } = await request.json()
+  const dataPayload = buildDataPayload(events, includeSections)
 
-    let userPrompt = `จากข้อมูลอีเวนต์ต่อไปนี้ (${req.events.length} อีเวนต์):\n${dataPayload}\n\n`
+  let userPrompt = `จากข้อมูลอีเวนต์ต่อไปนี้ (${events.length} อีเวนต์):\n${dataPayload}\n\n`
+  if (customPrompt?.trim()) {
+    userPrompt += `คำถามเพิ่มเติม: ${customPrompt}\n\n`
+  }
 
-    if (req.customPrompt.trim()) {
-      userPrompt += `คำถามเพิ่มเติม: ${req.customPrompt}\n\n`
-    }
-
-    userPrompt += `กรุณาวิเคราะห์ข้อมูลข้างต้นอย่างละเอียด ตามหัวข้อต่อไปนี้:
+  userPrompt += `กรุณาวิเคราะห์ข้อมูลข้างต้นอย่างละเอียด ตามหัวข้อต่อไปนี้:
 
 1. 📊 **สรุปภาพรวม** — สุขภาพทางการเงินเป็นอย่างไร ดี/ไม่ดี เพราะอะไร
 2. 📈 **แนวโน้ม** — จากข้อมูลที่มี รายรับ/กำไร มีแนวโน้มเป็นอย่างไร
@@ -206,69 +166,87 @@ export async function analyzeOverview(req: AiAnalysisRequest): Promise<{ success
    - ระยะยาว (ภายใน 3 เดือน) — 1-2 ข้อ
    - แต่ละข้อให้ระบุ: สิ่งที่ต้องทำ, ผู้รับผิดชอบ (ถ้าระบุได้), KPI ที่ใช้วัดผล`
 
-    const body = {
-      contents: [
-        { role: 'user', parts: [{ text: SYSTEM_PROMPT + '\n\n' + userPrompt }] }
-      ],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 8192,
-      },
-    }
-
-    // Try models in order: 2.5 flash → 1.5 flash (fallback)
-    const models = ['gemini-2.5-flash-preview-04-17', 'gemini-2.5-flash', 'gemini-1.5-flash']
-    
-    let lastError: any = null
-    for (const modelName of models) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          })
-
-          if (res.status === 404) {
-            // Model not found, try next model
-            break
-          }
-
-          if (res.status === 429) {
-            // Rate limited, wait and retry
-            if (attempt < 1) {
-              await new Promise(resolve => setTimeout(resolve, 3000))
-              continue
-            }
-            break // Try next model
-          }
-
-          if (!res.ok) {
-            const errData = await res.text()
-            throw new Error(`API error ${res.status}: ${errData}`)
-          }
-
-          const data = await res.json()
-          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
-          if (text) {
-            return { success: true, result: text }
-          }
-          throw new Error('No response from model')
-        } catch (err: any) {
-          lastError = err
-          if (err.message?.includes('404')) break // Try next model
-        }
-      }
-    }
-
-    throw lastError || new Error('All models failed')
-  } catch (err: any) {
-    console.error('Gemini API error:', err)
-    const msg = err.message || 'AI analysis failed'
-    if (msg.includes('429')) {
-      return { success: false, error: 'เกิน rate limit ของ Gemini กรุณารอ 10-15 วินาทีแล้วลองใหม่' }
-    }
-    return { success: false, error: msg }
+  const body = {
+    contents: [
+      { role: 'user', parts: [{ text: SYSTEM_PROMPT + '\n\n' + userPrompt }] }
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 65536,
+    },
   }
+
+  // Try models in order
+  const models = ['gemini-2.5-flash-preview-04-17', 'gemini-2.5-flash', 'gemini-1.5-flash']
+
+  for (const modelName of models) {
+    try {
+      // Use streaming endpoint
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+      if (res.status === 404) continue
+      if (res.status === 429) continue
+      if (!res.ok) continue
+      if (!res.body) continue
+
+      // Stream back to client
+      const encoder = new TextEncoder()
+      const readable = new ReadableStream({
+        async start(controller) {
+          const reader = res.body!.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split('\n')
+              buffer = lines.pop() || ''
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const jsonStr = line.slice(6).trim()
+                  if (!jsonStr || jsonStr === '[DONE]') continue
+                  try {
+                    const parsed = JSON.parse(jsonStr)
+                    const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text
+                    if (text) {
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
+                    }
+                  } catch {
+                    // Skip unparseable chunks
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Stream error:', err)
+          } finally {
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+          }
+        }
+      })
+
+      return new Response(readable, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      })
+    } catch {
+      continue
+    }
+  }
+
+  return new Response(JSON.stringify({ error: 'ไม่สามารถเชื่อมต่อ Gemini ได้ กรุณาลองใหม่' }), { status: 500 })
 }

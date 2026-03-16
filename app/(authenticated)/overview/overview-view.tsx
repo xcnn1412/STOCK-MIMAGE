@@ -8,7 +8,6 @@ import {
   ArrowDownRight, Target, Banknote, PieChart, Activity, Hash,
   Bot, Loader2, Sparkles, Send, CheckSquare, Square
 } from 'lucide-react'
-import { analyzeOverview, type AiAnalysisRequest } from './ai-actions'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -260,9 +259,9 @@ export default function OverviewView({ data }: { data: OverviewData }) {
     if (aiFiltered.length === 0) return
     setAiLoading(true)
     setAiError(null)
-    setAiResult(null)
+    setAiResult('')
     try {
-      const req: AiAnalysisRequest = {
+      const payload = {
         events: aiFiltered.map(e => ({
           name: e.name,
           date: e.date,
@@ -288,14 +287,55 @@ export default function OverviewView({ data }: { data: OverviewData }) {
         includeSections: Array.from(aiSections),
         customPrompt: aiPrompt,
       }
-      const res = await analyzeOverview(req)
-      if (res.success && res.result) {
-        setAiResult(res.result)
-      } else {
-        setAiError(res.error || 'เกิดข้อผิดพลาด')
+
+      const res = await fetch('/api/ai-analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'เกิดข้อผิดพลาด' }))
+        throw new Error(errData.error || `HTTP ${res.status}`)
+      }
+
+      const reader = res.body?.getReader()
+      if (!reader) throw new Error('No stream')
+
+      const decoder = new TextDecoder()
+      let fullText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value, { stream: true })
+        const lines = chunk.split('\n')
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim()
+            if (data === '[DONE]') continue
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.text) {
+                fullText += parsed.text
+                setAiResult(fullText)
+              }
+            } catch {
+              // skip
+            }
+          }
+        }
+      }
+
+      if (!fullText) {
+        setAiError('ไม่ได้รับข้อมูลจาก AI')
+        setAiResult(null)
       }
     } catch (err: any) {
       setAiError(err.message || 'เกิดข้อผิดพลาด')
+      setAiResult(null)
     } finally {
       setAiLoading(false)
     }
@@ -908,7 +948,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-zinc-400" /> ผลการวิเคราะห์
                   </h3>
-                  <span className="text-[10px] text-zinc-400">Powered by Gemini 2.0 Flash</span>
+                  <span className="text-[10px] text-zinc-400">Powered by Gemini 2.5 Flash</span>
                 </div>
                 <div className="prose prose-sm dark:prose-invert max-w-none
                   prose-headings:text-zinc-900 dark:prose-headings:text-zinc-100
@@ -978,23 +1018,31 @@ function AiMarkdown({ content }: { content: string }) {
   const lines = content.split('\n')
   const elements: React.ReactNode[] = []
   let inTable = false
-  let tableRows: string[][] = []
+  let headerRow: string[] = []
+  let dataRows: string[][] = []
+
+  const isSeparatorRow = (cells: string[]) => {
+    return cells.every(c => /^[\s:|-]*$/.test(c.trim()))
+  }
 
   const flushTable = () => {
-    if (tableRows.length > 0) {
+    if (headerRow.length > 0 || dataRows.length > 0) {
       elements.push(
         <table key={`t-${elements.length}`}>
-          <thead>
-            <tr>{tableRows[0].map((c, i) => <th key={i}>{c.trim()}</th>)}</tr>
-          </thead>
+          {headerRow.length > 0 && (
+            <thead>
+              <tr>{headerRow.map((c, i) => <th key={i}>{formatInline(c.trim())}</th>)}</tr>
+            </thead>
+          )}
           <tbody>
-            {tableRows.slice(2).map((row, ri) => (
+            {dataRows.map((row, ri) => (
               <tr key={ri}>{row.map((c, ci) => <td key={ci}>{formatInline(c.trim())}</td>)}</tr>
             ))}
           </tbody>
         </table>
       )
-      tableRows = []
+      headerRow = []
+      dataRows = []
     }
     inTable = false
   }
@@ -1012,8 +1060,21 @@ function AiMarkdown({ content }: { content: string }) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
-      if (!inTable) inTable = true
-      tableRows.push(line.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1))
+      const cells = line.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1)
+      
+      // Skip separator rows (|---|---|---|)
+      if (isSeparatorRow(cells)) {
+        if (!inTable) inTable = true
+        continue
+      }
+
+      if (!inTable) {
+        // First row = header
+        inTable = true
+        headerRow = cells
+      } else {
+        dataRows.push(cells)
+      }
       continue
     }
     if (inTable) flushTable()
