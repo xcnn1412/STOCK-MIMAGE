@@ -1,0 +1,231 @@
+'use server'
+
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import { cookies } from 'next/headers'
+
+async function getSession() {
+  const cookieStore = await cookies()
+  const role = cookieStore.get('session_role')?.value || 'staff'
+  return { role }
+}
+
+const COST_LABELS: Record<string, string> = {
+  staff: 'ค่าแรง', travel: 'ค่าเดินทาง', electrical_equipment: 'อุปกรณ์ไฟฟ้า',
+  struture: 'โครงสร้าง', service_fee: 'ค่าบริการ', other: 'อื่นๆ',
+}
+
+const SYSTEM_PROMPT = `คุณคือนักวิเคราะห์ธุรกิจอีเวนต์อาวุโส (Senior Event Business Analyst) ที่มีประสบการณ์ 15 ปี
+มีความเชี่ยวชาญด้าน:
+- การวิเคราะห์ต้นทุน กำไร และอัตรากำไรขั้นต้น (Gross Margin)
+- การประเมินประสิทธิภาพทีมขาย (Sales Performance) 
+- การวิเคราะห์โครงสร้างต้นทุน (Cost Structure Analysis)
+- การวางแผนกลยุทธ์เพิ่มกำไร
+
+กฎ:
+1. ตอบเป็นภาษาไทยเท่านั้น
+2. ใช้ตัวเลขจากข้อมูลจริงเท่านั้น ห้ามเดาหรือสมมุติตัวเลข
+3. จัดรูปแบบด้วย markdown (หัวข้อ, bullet, bold, ตาราง)
+4. ใส่ emoji เพื่อให้อ่านง่าย
+5. ให้คำแนะนำที่ actionable ทำได้ทันที
+6. เปรียบเทียบอีเวนต์ที่ดีที่สุดกับแย่ที่สุด
+7. ถ้าพบปัญหา ให้ระบุชื่ออีเวนต์และตัวเลขที่ชัดเจน
+8. สรุปท้ายด้วยคำแนะนำเร่งด่วน 3 ข้อ`
+
+export interface AiAnalysisRequest {
+  events: Array<{
+    name: string
+    date: string | null
+    location: string | null
+    seller: string
+    customerName: string
+    packageName: string
+    revenue: number
+    totalCost: number
+    costByCategory: Record<string, number>
+    profit: number
+    margin: number
+    expenseTotal: number
+    expenseCount: number
+    expensePaid: number
+    checkinCount: number
+    checkinUniqueStaff: number
+    checkinHours: number
+    graphicsNames: string[]
+    staff: string
+    status: string | null
+  }>
+  includeSections: string[]
+  customPrompt: string
+}
+
+function fmt(n: number): string {
+  return n.toLocaleString('th-TH', { maximumFractionDigits: 0 })
+}
+
+function buildDataPayload(req: AiAnalysisRequest): string {
+  const events = req.events
+  const sections = new Set(req.includeSections)
+  let payload = ''
+
+  // ── Financial Summary ──
+  if (sections.has('financial')) {
+    const totalRevenue = events.reduce((s, e) => s + e.revenue, 0)
+    const totalCost = events.reduce((s, e) => s + e.totalCost, 0)
+    const totalProfit = totalRevenue - totalCost
+    const margin = totalRevenue > 0 ? (totalProfit / totalRevenue * 100) : 0
+    payload += `\n## ภาพรวมการเงิน\n`
+    payload += `- จำนวนอีเวนต์: ${events.length}\n`
+    payload += `- รายรับรวม: ฿${fmt(totalRevenue)}\n`
+    payload += `- ต้นทุนรวม: ฿${fmt(totalCost)} (${(totalCost / totalRevenue * 100).toFixed(1)}% ของรายรับ)\n`
+    payload += `- กำไรรวม: ฿${fmt(totalProfit)}\n`
+    payload += `- Gross Margin: ${margin.toFixed(1)}%\n`
+    payload += `- กำไรเฉลี่ย/อีเวนต์: ฿${fmt(totalProfit / (events.length || 1))}\n`
+  }
+
+  // ── Cost Breakdown ──
+  if (sections.has('cost_breakdown')) {
+    const costAgg: Record<string, number> = {}
+    events.forEach(e => {
+      Object.entries(e.costByCategory).forEach(([k, v]) => { costAgg[k] = (costAgg[k] || 0) + v })
+    })
+    const totalCost = Object.values(costAgg).reduce((s, v) => s + v, 0)
+    payload += `\n## ต้นทุนแยกหมวด\n`
+    Object.entries(costAgg).sort(([, a], [, b]) => b - a).forEach(([cat, val]) => {
+      payload += `- ${COST_LABELS[cat] || cat}: ฿${fmt(val)} (${(val / totalCost * 100).toFixed(1)}%)\n`
+    })
+  }
+
+  // ── Per-Event Details ──
+  if (sections.has('per_event')) {
+    payload += `\n## รายละเอียดรายอีเวนต์\n`
+    payload += `| อีเวนต์ | วันที่ | เซล | ราคาขาย | ต้นทุน | กำไร | Margin | เบิกจ่าย | เช็คอิน |\n`
+    payload += `|---|---|---|---|---|---|---|---|---|\n`
+    events.forEach(e => {
+      payload += `| ${e.name} | ${e.date || '—'} | ${e.seller || '—'} | ฿${fmt(e.revenue)} | ฿${fmt(e.totalCost)} | ฿${fmt(e.profit)} | ${e.margin.toFixed(0)}% | ฿${fmt(e.expenseTotal)} (${e.expenseCount}ครั้ง) | ${e.checkinCount}คน |\n`
+    })
+    // Per-event cost detail
+    payload += `\n### ต้นทุนแต่ละอีเวนต์\n`
+    events.forEach(e => {
+      if (Object.keys(e.costByCategory).length > 0) {
+        payload += `**${e.name}**: `
+        payload += Object.entries(e.costByCategory).map(([cat, val]) => `${COST_LABELS[cat] || cat} ฿${fmt(val)}`).join(', ')
+        payload += `\n`
+      }
+    })
+  }
+
+  // ── Sellers ──
+  if (sections.has('sellers')) {
+    const sellerMap = new Map<string, { revenue: number; cost: number; count: number }>()
+    events.forEach(e => {
+      if (e.seller) {
+        const prev = sellerMap.get(e.seller) || { revenue: 0, cost: 0, count: 0 }
+        prev.revenue += e.revenue; prev.cost += e.totalCost; prev.count++
+        sellerMap.set(e.seller, prev)
+      }
+    })
+    payload += `\n## ประสิทธิภาพเซล\n`
+    payload += `| เซล | อีเวนต์ | รายรับ | ต้นทุน | กำไร | Margin |\n`
+    payload += `|---|---|---|---|---|---|\n`
+    Array.from(sellerMap.entries()).sort(([, a], [, b]) => b.revenue - a.revenue).forEach(([name, v]) => {
+      const profit = v.revenue - v.cost
+      const margin = v.revenue > 0 ? (profit / v.revenue * 100) : 0
+      payload += `| ${name} | ${v.count} | ฿${fmt(v.revenue)} | ฿${fmt(v.cost)} | ฿${fmt(profit)} | ${margin.toFixed(0)}% |\n`
+    })
+  }
+
+  // ── Expenses ──
+  if (sections.has('expenses')) {
+    const totalExp = events.reduce((s, e) => s + e.expenseTotal, 0)
+    const totalPaid = events.reduce((s, e) => s + e.expensePaid, 0)
+    const totalCount = events.reduce((s, e) => s + e.expenseCount, 0)
+    payload += `\n## ข้อมูลเบิกจ่าย\n`
+    payload += `- เบิกจ่ายรวม: ฿${fmt(totalExp)} (${totalCount} ครั้ง)\n`
+    payload += `- จ่ายแล้ว: ฿${fmt(totalPaid)} (${totalExp > 0 ? (totalPaid / totalExp * 100).toFixed(0) : 0}%)\n`
+    payload += `- ค้างจ่าย: ฿${fmt(totalExp - totalPaid)}\n`
+    // Per event
+    events.filter(e => e.expenseCount > 0).forEach(e => {
+      payload += `- ${e.name}: ฿${fmt(e.expenseTotal)} (${e.expenseCount}ครั้ง, จ่ายแล้ว ฿${fmt(e.expensePaid)})\n`
+    })
+  }
+
+  // ── Checkins ──
+  if (sections.has('checkins')) {
+    payload += `\n## ข้อมูลเช็คอิน\n`
+    events.filter(e => e.checkinCount > 0).forEach(e => {
+      payload += `- ${e.name}: ${e.checkinCount} เช็คอิน, ${e.checkinUniqueStaff} คนไม่ซ้ำ, ${e.checkinHours.toFixed(1)} ชม.\n`
+    })
+  }
+
+  // ── Graphics ──
+  if (sections.has('graphics')) {
+    const gfxMap = new Map<string, number>()
+    events.forEach(e => e.graphicsNames.forEach(g => gfxMap.set(g, (gfxMap.get(g) || 0) + 1)))
+    if (gfxMap.size > 0) {
+      payload += `\n## Graphic Designers\n`
+      Array.from(gfxMap.entries()).sort(([, a], [, b]) => b - a).forEach(([name, count]) => {
+        payload += `- ${name}: ${count} อีเวนต์\n`
+      })
+    }
+  }
+
+  return payload
+}
+
+export async function analyzeOverview(req: AiAnalysisRequest): Promise<{ success: boolean; result?: string; error?: string }> {
+  const { role } = await getSession()
+  if (role !== 'admin') return { success: false, error: 'Unauthorized' }
+
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) return { success: false, error: 'GEMINI_API_KEY not configured' }
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+
+    const dataPayload = buildDataPayload(req)
+
+    let userPrompt = `จากข้อมูลอีเวนต์ต่อไปนี้ (${req.events.length} อีเวนต์):\n${dataPayload}\n\n`
+
+    if (req.customPrompt.trim()) {
+      userPrompt += `คำถามเพิ่มเติม: ${req.customPrompt}\n\n`
+    }
+
+    userPrompt += `กรุณาวิเคราะห์ข้อมูลข้างต้นอย่างละเอียด ตามหัวข้อต่อไปนี้:
+
+1. 📊 **สรุปภาพรวม** — สุขภาพทางการเงินเป็นอย่างไร ดี/ไม่ดี เพราะอะไร
+2. 📈 **แนวโน้ม** — จากข้อมูลที่มี รายรับ/กำไร มีแนวโน้มเป็นอย่างไร
+3. ⚠️ **จุดเสี่ยง** — อีเวนต์ไหนที่ margin ต่ำหรือขาดทุน ระบุชื่อและสาเหตุ
+4. 💰 **โครงสร้างต้นทุน** — หมวดไหนสูงผิดปกติ ควรปรับลดอย่างไร
+5. 🏆 **ประสิทธิภาพทีม** — เซล/กราฟฟิกใครทำผลงานดี/ไม่ดี
+6. 📋 **การเบิกจ่าย** — มีปัญหาอะไรที่ต้องติดตาม
+7. 🔍 **วินิจฉัยปัญหาและแนวทางแก้ไข** — สำหรับแต่ละปัญหาที่พบ ให้ระบุ:
+   - สาเหตุรากของปัญหา (Root Cause) คืออะไร
+   - แนวทางแก้ไขเฉพาะเจาะจง พร้อมขั้นตอนปฏิบัติที่ชัดเจน
+   - ผลลัพธ์ที่คาดหวังหลังแก้ไข (เช่น ลดต้นทุนได้กี่ % หรือเพิ่มกำไรได้เท่าไหร่)
+   - ระยะเวลาที่ควรเห็นผล
+8. 📌 **แผนปฏิบัติการ (Action Plan)** — สรุปเป็นตาราง:
+   - ระยะเร่งด่วน (ทำทันที ภายใน 1 สัปดาห์) — 3 ข้อ
+   - ระยะกลาง (ภายใน 1 เดือน) — 2-3 ข้อ
+   - ระยะยาว (ภายใน 3 เดือน) — 1-2 ข้อ
+   - แต่ละข้อให้ระบุ: สิ่งที่ต้องทำ, ผู้รับผิดชอบ (ถ้าระบุได้), KPI ที่ใช้วัดผล`
+
+    const result = await model.generateContent({
+      contents: [
+        { role: 'user', parts: [{ text: SYSTEM_PROMPT + '\n\n' + userPrompt }] }
+      ],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 4096,
+      },
+    })
+
+    const response = result.response
+    const text = response.text()
+
+    return { success: true, result: text }
+  } catch (err: any) {
+    console.error('Gemini API error:', err)
+    return { success: false, error: err.message || 'AI analysis failed' }
+  }
+}

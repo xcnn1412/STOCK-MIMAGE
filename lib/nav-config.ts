@@ -1,8 +1,8 @@
-import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History } from 'lucide-react'
+import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History, Eye } from 'lucide-react'
 
-export type ModuleKey = 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'jobs' | 'checkin' | 'admin'
+export type ModuleKey = 'overview' | 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'jobs' | 'checkin' | 'admin'
 
-export const ALL_MODULES: ModuleKey[] = ['crm', 'jobs', 'events', 'stock', 'costs', 'finance', 'kpi', 'checkin']
+export const ALL_MODULES: ModuleKey[] = ['overview', 'crm', 'jobs', 'events', 'stock', 'costs', 'finance', 'kpi', 'checkin']
 
 export interface NavItem {
   href: string
@@ -20,6 +20,14 @@ export interface NavGroup {
 }
 
 export const NAV_GROUPS: NavGroup[] = [
+  {
+    key: 'overview',
+    icon: Eye,
+    adminOnly: true,
+    items: [
+      { href: '/overview', icon: Eye, labelKey: 'overview', exact: true },
+    ],
+  },
   {
     key: 'crm',
     icon: ContactRound,

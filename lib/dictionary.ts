@@ -38,6 +38,8 @@ export const dictionary = {
       checkinQuick: 'Quick Check-in',
       checkinHistory: 'History',
       checkinReport: 'Report',
+
+      overview: 'Overview',
     },
     navGroups: {
       crm: 'CRM',
@@ -49,6 +51,7 @@ export const dictionary = {
       finance: 'Finance',
       jobs: 'Jobs',
       checkin: 'Check-in',
+      overview: 'Overview',
       admin: 'Admin',
     },
     common: {
@@ -295,6 +298,8 @@ export const dictionary = {
       checkinQuick: 'เช็คอินด่วน',
       checkinHistory: 'ประวัติ',
       checkinReport: 'รายงาน',
+
+      overview: 'ภาพรวม',
     },
     navGroups: {
       crm: 'CRM',
@@ -306,6 +311,7 @@ export const dictionary = {
       finance: 'เบิกเงิน',
       jobs: 'งาน',
       checkin: 'เช็คอิน',
+      overview: 'ภาพรวม',
       admin: 'ผู้ดูแล',
     },
     common: {
