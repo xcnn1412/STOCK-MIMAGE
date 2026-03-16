@@ -379,3 +379,68 @@ export async function getStaffList() {
 
   return data || []
 }
+
+// ─── Report Data (Admin Only) ─────────────────────────────
+
+export async function getCheckinReportData(startDate: string, endDate: string) {
+  const { role } = await getSession()
+  if (role !== 'admin') return { records: [], staff: [] }
+
+  const supabase = createServiceClient()
+
+  const startISO = new Date(`${startDate}T00:00:00+07:00`).toISOString()
+  const endISO = new Date(`${endDate}T23:59:59+07:00`).toISOString()
+
+  const [recordsResult, staffResult] = await Promise.all([
+    supabase
+      .from('staff_checkins')
+      .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, event_id, events:event_id(id, name), profiles:user_id(id, full_name, nickname)')
+      .gte('checked_in_at', startISO)
+      .lte('checked_in_at', endISO)
+      .order('checked_in_at', { ascending: true }),
+    supabase
+      .from('profiles')
+      .select('id, full_name, nickname, standard_hours, late_hour, late_minute, ot_threshold')
+      .order('full_name'),
+  ])
+
+  return {
+    records: recordsResult.data || [],
+    staff: staffResult.data || [],
+  }
+}
+
+// ─── Update Staff Work Settings (Admin Only) ──────────────
+
+export async function updateStaffWorkSettings(
+  staffId: string,
+  settings: {
+    standard_hours: number | null
+    late_hour: number | null
+    late_minute: number | null
+    ot_threshold: number | null
+  }
+) {
+  const { role } = await getSession()
+  if (role !== 'admin') return { error: 'ไม่มีสิทธิ์' }
+
+  const supabase = createServiceClient()
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({
+      standard_hours: settings.standard_hours,
+      late_hour: settings.late_hour,
+      late_minute: settings.late_minute,
+      ot_threshold: settings.ot_threshold,
+    })
+    .eq('id', staffId)
+
+  if (error) {
+    console.error('Update staff work settings error:', error)
+    return { error: 'เกิดข้อผิดพลาด' }
+  }
+
+  revalidatePath('/check-in/report')
+  return { success: true }
+}

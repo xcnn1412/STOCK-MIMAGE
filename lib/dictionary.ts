@@ -37,6 +37,7 @@ export const dictionary = {
 
       checkinQuick: 'Quick Check-in',
       checkinHistory: 'History',
+      checkinReport: 'Report',
     },
     navGroups: {
       crm: 'CRM',
@@ -293,6 +294,7 @@ export const dictionary = {
 
       checkinQuick: 'เช็คอินด่วน',
       checkinHistory: 'ประวัติ',
+      checkinReport: 'รายงาน',
     },
     navGroups: {
       crm: 'CRM',

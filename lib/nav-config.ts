@@ -94,6 +94,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/check-in', icon: MapPinCheckInside, labelKey: 'checkinQuick', exact: true },
       { href: '/check-in/history', icon: History, labelKey: 'checkinHistory' },
+      { href: '/check-in/report', icon: BarChart3, labelKey: 'checkinReport' },
     ],
   },
   {
