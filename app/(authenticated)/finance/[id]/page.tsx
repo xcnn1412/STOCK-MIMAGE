@@ -1,4 +1,4 @@
-import { getClaim, getClaimLogs } from '../actions'
+import { getClaim, getClaimLogs, getJobEventsForSelect } from '../actions'
 import { getFinanceCategories } from '../settings-actions'
 import { notFound } from 'next/navigation'
 import ClaimDetailView from './claim-detail-view'
@@ -13,12 +13,13 @@ export default async function ClaimDetailPage({ params }: { params: Promise<{ id
   const role = cookieStore.get('session_role')?.value || 'staff'
   const userId = cookieStore.get('session_user_id')?.value || ''
 
-  const [{ data, error }, categories, logs] = await Promise.all([
+  const [{ data, error }, categories, logs, jobEvents] = await Promise.all([
     getClaim(id),
     getFinanceCategories(),
     getClaimLogs(id),
+    getJobEventsForSelect(),
   ])
   if (!data || error) notFound()
 
-  return <ClaimDetailView claim={data as unknown as ExpenseClaim} role={role} categories={categories} logs={logs} userId={userId} />
+  return <ClaimDetailView claim={data as unknown as ExpenseClaim} role={role} categories={categories} logs={logs} userId={userId} jobEvents={jobEvents} />
 }

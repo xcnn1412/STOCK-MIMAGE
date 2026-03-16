@@ -14,6 +14,7 @@ import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../../costs/types'
 import BankSelect from '@/components/bank-select'
 import { compressImage } from '@/lib/utils'
+import EventSelectCombobox from '../new/event-select-combobox'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -44,7 +45,15 @@ interface ClaimLog {
   editor?: { id: string; full_name: string } | null
 }
 
-export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '' }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string }) {
+interface JobEventOption {
+  id: string
+  event_name: string
+  event_date: string | null
+  event_location: string | null
+  status: string
+}
+
+export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', jobEvents = [] }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; jobEvents?: JobEventOption[] }) {
   const router = useRouter()
   const { locale } = useLocale()
   const [loading, setLoading] = useState(false)
@@ -68,6 +77,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [editBankName, setEditBankName] = useState(claim.bank_name || '')
   const [editBankAccount, setEditBankAccount] = useState(claim.bank_account_number || '')
   const [editAccountHolder, setEditAccountHolder] = useState(claim.account_holder_name || '')
+  const [editClaimType, setEditClaimType] = useState<'event' | 'other'>(claim.claim_type as 'event' | 'other' || 'other')
+  const [editEventId, setEditEventId] = useState(claim.job_event_id || '')
 
   const isAdmin = role === 'admin'
   const isOwner = claim.submitted_by === userId
@@ -139,6 +150,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       bank_name: editBankName || null,
       bank_account_number: editBankAccount || null,
       account_holder_name: editAccountHolder || null,
+      claim_type: editClaimType,
+      job_event_id: editClaimType === 'event' ? editEventId || null : null,
     }, receiptFormData)
     if (result.error) { setError(result.error); setLoading(false) }
     else { setEditing(false); setEditReceiptFiles([]); router.refresh(); setLoading(false) }
@@ -160,6 +173,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     setEditBankAccount(claim.bank_account_number || '')
     setEditAccountHolder(claim.account_holder_name || '')
     setEditReceiptFiles([])
+    setEditClaimType(claim.claim_type as 'event' | 'other' || 'other')
+    setEditEventId(claim.job_event_id || '')
   }
 
 
@@ -236,6 +251,33 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               <div>
                 <label className="text-xs font-medium text-zinc-500 mb-1 block">{isEn ? 'Description' : 'รายละเอียด'}</label>
                 <textarea value={editDescription} onChange={e => setEditDescription(e.target.value)} rows={2} className={`${inputCls} resize-none`} />
+              </div>
+
+              {/* Claim Type + Event Selector */}
+              <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-3 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5">
+                  <Banknote className="h-3.5 w-3.5" />
+                  {isEn ? 'Claim Type & Event' : 'ประเภทเบิก & อีเวนต์'}
+                </p>
+                <div className="flex items-center gap-3">
+                  {([{ value: 'event', label: isEn ? 'Event Expense' : 'เบิกงานอีเวนต์' }, { value: 'other', label: isEn ? 'Other Expense' : 'ค่าอื่นๆ' }] as const).map(t => (
+                    <label key={t.value} className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" checked={editClaimType === t.value} onChange={() => { setEditClaimType(t.value); if (t.value === 'other') setEditEventId('') }} className="accent-emerald-600" />
+                      <span className="text-sm">{t.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {editClaimType === 'event' && jobEvents.length > 0 && (
+                  <div>
+                    <label className="text-[10px] text-zinc-400 mb-0.5 block">{isEn ? 'Select Event' : 'เลือกอีเวนต์'}</label>
+                    <EventSelectCombobox
+                      events={jobEvents}
+                      value={editEventId}
+                      onChange={setEditEventId}
+                      locale={locale}
+                    />
+                  </div>
+                )}
               </div>
 
               <div>

@@ -260,6 +260,8 @@ export async function updateClaim(id: string, updateData: {
   bank_name?: string | null
   bank_account_number?: string | null
   account_holder_name?: string | null
+  claim_type?: string
+  job_event_id?: string | null
 }, receiptFormData?: FormData) {
   const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
@@ -281,9 +283,35 @@ export async function updateClaim(id: string, updateData: {
   if (!isAdmin && claim.status !== 'pending') return { error: 'แก้ไขได้เฉพาะใบเบิกที่รออนุมัติเท่านั้น' }
   if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
 
+  // Auto-import stock event → job_cost_events
+  if (updateData.job_event_id && updateData.job_event_id.startsWith('stock:')) {
+    const stockEventId = updateData.job_event_id.replace('stock:', '')
+    const { importEventFromStock } = await import('../costs/actions')
+    const importResult = await importEventFromStock(stockEventId)
+    if (importResult.error) {
+      updateData.job_event_id = (importResult as any).existingId || null
+      if (!updateData.job_event_id) return { error: `ไม่สามารถนำเข้าอีเวนต์ได้: ${importResult.error}` }
+    } else {
+      updateData.job_event_id = importResult.id || null
+    }
+  }
+
+  // Auto-import closure event → job_cost_events
+  if (updateData.job_event_id && updateData.job_event_id.startsWith('closure:')) {
+    const closureId = updateData.job_event_id.replace('closure:', '')
+    const { importEventFromClosure } = await import('../costs/actions')
+    const importResult = await importEventFromClosure(closureId)
+    if (importResult.error) {
+      updateData.job_event_id = (importResult as any).existingId || null
+      if (!updateData.job_event_id) return { error: `ไม่สามารถนำเข้าอีเวนต์ได้: ${importResult.error}` }
+    } else {
+      updateData.job_event_id = importResult.id || null
+    }
+  }
+
   // Track what changed for the log
   const changes: Record<string, { from: any; to: any }> = {}
-  const fieldsToCheck = ['title', 'description', 'category', 'amount', 'unit_price', 'unit', 'quantity', 'expense_date', 'vat_mode', 'withholding_tax_rate', 'notes', 'bank_name', 'bank_account_number', 'account_holder_name'] as const
+  const fieldsToCheck = ['title', 'description', 'category', 'amount', 'unit_price', 'unit', 'quantity', 'expense_date', 'vat_mode', 'withholding_tax_rate', 'notes', 'bank_name', 'bank_account_number', 'account_holder_name', 'claim_type', 'job_event_id'] as const
   for (const key of fieldsToCheck) {
     if (key in updateData && updateData[key as keyof typeof updateData] !== (claim as any)[key]) {
       changes[key] = { from: (claim as any)[key], to: updateData[key as keyof typeof updateData] }
@@ -340,6 +368,7 @@ export async function updateClaim(id: string, updateData: {
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
+  revalidatePath('/costs')
   return { success: true }
 }
 
