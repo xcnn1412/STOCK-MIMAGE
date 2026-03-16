@@ -1,6 +1,7 @@
 'use client'
 
-import { Building2, MapPin, Home, ArrowLeft, Clock, CalendarDays } from 'lucide-react'
+import { useState } from 'react'
+import { Building2, MapPin, Home, ArrowLeft, Clock, CalendarDays, X } from 'lucide-react'
 import Link from 'next/link'
 
 interface CheckinRecord {
@@ -11,6 +12,7 @@ interface CheckinRecord {
   note: string | null
   latitude: number | null
   longitude: number | null
+  photo_url: string | null
   events?: { id: string; name: string } | null
 }
 
@@ -18,6 +20,8 @@ const TYPE_ICONS = { office: Building2, onsite: MapPin, remote: Home } as const
 const TYPE_LABELS = { office: 'เข้าออฟฟิศ', onsite: 'ไปหน้างาน', remote: 'WFH / นอกสถานที่' } as const
 
 export default function HistoryView({ history }: { history: CheckinRecord[] }) {
+  const [showPhotoLightbox, setShowPhotoLightbox] = useState<string | null>(null)
+
   const formatTime = (dateStr: string) =>
     new Date(dateStr).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
 
@@ -99,6 +103,12 @@ export default function HistoryView({ history }: { history: CheckinRecord[] }) {
                         {c.latitude && c.longitude && (
                           <p className="text-[10px] text-zinc-400 mt-0.5">📍 {c.latitude.toFixed(4)}, {c.longitude.toFixed(4)}</p>
                         )}
+                        {c.photo_url && (
+                          <button onClick={() => setShowPhotoLightbox(c.photo_url)}
+                            className="mt-1.5 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 inline-block hover:shadow-md transition-shadow">
+                            <img src={c.photo_url} alt="Check-in photo" className="w-16 h-16 object-cover" />
+                          </button>
+                        )}
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-sm font-mono text-zinc-700 dark:text-zinc-300">{formatTime(c.checked_in_at)}</p>
@@ -114,6 +124,21 @@ export default function HistoryView({ history }: { history: CheckinRecord[] }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Photo Lightbox */}
+      {showPhotoLightbox && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowPhotoLightbox(null)}>
+          <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
+            <img src={showPhotoLightbox} alt="Check-in photo"
+              className="w-full h-auto rounded-2xl shadow-2xl" />
+            <button onClick={() => setShowPhotoLightbox(null)}
+              className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>

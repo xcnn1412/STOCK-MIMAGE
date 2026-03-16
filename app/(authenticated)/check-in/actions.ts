@@ -11,6 +11,44 @@ async function getSession() {
   return { userId, role }
 }
 
+// ─── Upload Check-in Photo ────────────────────────────────
+
+async function uploadCheckinPhoto(
+  supabase: ReturnType<typeof createServiceClient>,
+  userId: string,
+  checkinId: string,
+  photoBase64: string
+): Promise<string | null> {
+  try {
+    // Strip data URL prefix if present
+    const base64Data = photoBase64.replace(/^data:image\/\w+;base64,/, '')
+    const buffer = Buffer.from(base64Data, 'base64')
+
+    const filePath = `${userId}/${checkinId}.webp`
+
+    const { error: uploadError } = await supabase.storage
+      .from('checkin-photos')
+      .upload(filePath, buffer, {
+        contentType: 'image/webp',
+        upsert: true,
+      })
+
+    if (uploadError) {
+      console.error('Photo upload error:', uploadError)
+      return null
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('checkin-photos')
+      .getPublicUrl(filePath)
+
+    return urlData.publicUrl
+  } catch (err) {
+    console.error('Photo upload exception:', err)
+    return null
+  }
+}
+
 // ─── Quick Check-in (ตัวเอง วันนี้) ───────────────────────
 
 export async function checkIn(formData: FormData) {
@@ -23,7 +61,11 @@ export async function checkIn(formData: FormData) {
   const longitude = formData.get('longitude') ? Number(formData.get('longitude')) : null
   const accuracy = formData.get('accuracy') ? Number(formData.get('accuracy')) : null
   const note = formData.get('note') as string || null
+  const photoBase64 = formData.get('photo') as string || null
 
+  if (!photoBase64) {
+    return { error: 'กรุณาถ่ายรูป Check-in' }
+  }
   if (checkType === 'remote' && !note) {
     return { error: 'กรุณาระบุหมายเหตุสำหรับการทำงานนอกสถานที่' }
   }
@@ -33,7 +75,7 @@ export async function checkIn(formData: FormData) {
 
   const supabase = createServiceClient()
 
-  const { error } = await supabase
+  const { data: inserted, error } = await supabase
     .from('staff_checkins')
     .insert({
       user_id: userId,
@@ -44,6 +86,8 @@ export async function checkIn(formData: FormData) {
       accuracy,
       note,
     })
+    .select('id')
+    .single()
 
   if (error) {
     if (error.code === '23505') {
@@ -51,6 +95,17 @@ export async function checkIn(formData: FormData) {
     }
     console.error('Check-in error:', error)
     return { error: 'เกิดข้อผิดพลาดในการ Check-in' }
+  }
+
+  // Upload photo if provided
+  if (photoBase64 && inserted?.id) {
+    const photoUrl = await uploadCheckinPhoto(supabase, userId, inserted.id, photoBase64)
+    if (photoUrl) {
+      await supabase
+        .from('staff_checkins')
+        .update({ photo_url: photoUrl })
+        .eq('id', inserted.id)
+    }
   }
 
   revalidatePath('/check-in')
@@ -257,7 +312,7 @@ export async function getTodayCheckins() {
 
   const { data, error } = await supabase
     .from('staff_checkins')
-    .select('*, profiles:user_id(id, full_name, nickname), events:event_id(id, name)')
+    .select('*, profiles:user_id(id, full_name, nickname), events:event_id(id, name), photo_url')
     .gte('checked_in_at', startOfDay)
     .lte('checked_in_at', endOfDay)
     .order('checked_in_at', { ascending: true })
@@ -278,7 +333,7 @@ export async function getMyCheckinHistory(limit = 30) {
 
   const { data, error } = await supabase
     .from('staff_checkins')
-    .select('*, events:event_id(id, name)')
+    .select('*, events:event_id(id, name), photo_url')
     .eq('user_id', userId)
     .order('checked_in_at', { ascending: false })
     .limit(limit)

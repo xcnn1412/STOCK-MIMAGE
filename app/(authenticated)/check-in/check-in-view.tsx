@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Building2, MapPin, Home, MapPinCheck, LogOut,
   Navigation, AlertCircle, CheckCircle2, CalendarDays, Users, History,
-  ShieldCheck, UserPlus, Clock, Fingerprint, Sparkles, Undo2, Trash2, RotateCcw
+  ShieldCheck, UserPlus, Clock, Fingerprint, Sparkles, Undo2, Trash2, RotateCcw,
+  Camera, X, ImageIcon
 } from 'lucide-react'
 import { checkIn, checkOut, adminCheckIn, undoCheckout, adminDeleteCheckin, adminEditCheckin } from './actions'
 import EventSelectCombobox from '../finance/new/event-select-combobox'
@@ -21,6 +22,7 @@ interface CheckinRecord {
   longitude: number | null
   accuracy: number | null
   note: string | null
+  photo_url: string | null
   profiles?: { id: string; full_name: string; nickname: string | null } | null
   events?: { id: string; name: string } | null
 }
@@ -84,6 +86,12 @@ export default function CheckInView({
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  // Photo capture
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showPhotoLightbox, setShowPhotoLightbox] = useState<string | null>(null)
+
   // Admin retroactive
   const [showRetroactive, setShowRetroactive] = useState(false)
   const [adminTargetUser, setAdminTargetUser] = useState('')
@@ -115,6 +123,24 @@ export default function CheckInView({
     )
   }
 
+  function handlePhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const result = reader.result as string
+      setPhotoPreview(result)
+      setPhotoBase64(result)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function clearPhoto() {
+    setPhotoPreview(null)
+    setPhotoBase64(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   async function handleCheckIn() {
     if (!confirm('ยืนยัน Check-in เข้างาน?')) return
     setLoading(true); setError(''); setSuccess('')
@@ -123,9 +149,10 @@ export default function CheckInView({
     if (checkType === 'onsite' && eventId) fd.set('event_id', eventId)
     if (gps) { fd.set('latitude', String(gps.lat)); fd.set('longitude', String(gps.lng)); fd.set('accuracy', String(gps.accuracy)) }
     if (note) fd.set('note', note)
+    if (photoBase64) fd.set('photo', photoBase64)
     const result = await checkIn(fd)
     if (result.error) setError(result.error)
-    else { setSuccess('Check-in สำเร็จ!'); router.refresh() }
+    else { setSuccess('Check-in สำเร็จ!'); setPhotoPreview(null); setPhotoBase64(null); router.refresh() }
     setLoading(false)
   }
 
@@ -272,6 +299,13 @@ export default function CheckInView({
               💬 {myCheckin.note}
             </div>
           )}
+          {myCheckin.photo_url && (
+            <button onClick={() => setShowPhotoLightbox(myCheckin.photo_url)}
+              className="block rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800/50 hover:shadow-md transition-shadow">
+              <img src={myCheckin.photo_url} alt="Check-in photo"
+                className="w-full max-w-[160px] h-auto object-cover" />
+            </button>
+          )}
 
           {!myCheckin.checked_out_at ? (
             <button onClick={handleCheckOut} disabled={loading}
@@ -344,6 +378,46 @@ export default function CheckInView({
               </div>
             )}
 
+            {/* Photo Capture */}
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                <Camera className="h-3.5 w-3.5 text-zinc-400" /> ถ่ายรูป Check-in <span className="text-red-500 text-xs">(จำเป็น)</span>
+              </label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="user"
+                onChange={handlePhotoCapture}
+                className="hidden"
+              />
+              {photoPreview ? (
+                <div className="relative inline-block">
+                  <img
+                    src={photoPreview}
+                    alt="Check-in photo preview"
+                    className="w-full max-w-[200px] h-auto rounded-xl border border-zinc-200 dark:border-zinc-700 object-cover shadow-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={clearPhoto}
+                    className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-2.5 py-4 px-4 rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-700 text-zinc-400 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition-all duration-200 bg-zinc-50/50 dark:bg-zinc-800/30"
+                >
+                  <Camera className="h-5 w-5" />
+                  <span className="text-sm font-medium">ถ่ายรูป</span>
+                </button>
+              )}
+            </div>
+
             {/* Note */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
@@ -368,7 +442,7 @@ export default function CheckInView({
 
             {/* Check-in Button */}
             <button onClick={handleCheckIn}
-              disabled={loading || (checkType === 'onsite' && !eventId) || (checkType === 'remote' && !note)}
+              disabled={loading || !photoBase64 || (checkType === 'onsite' && !eventId) || (checkType === 'remote' && !note)}
               className="w-full flex items-center justify-center gap-2.5 py-4 px-4 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-bold text-base hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-zinc-900/20 dark:shadow-white/10 hover:shadow-xl hover:scale-[1.01] active:scale-[0.99]">
               <Fingerprint className="h-5 w-5" /> {loading ? 'กำลังบันทึก...' : 'เช็คอินเข้างาน'}
             </button>
@@ -478,7 +552,14 @@ export default function CheckInView({
               const staffName = (c.profiles as any)?.nickname || (c.profiles as any)?.full_name || '—'
               return (
                 <div key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors group">
-                  <span className="text-lg shrink-0">{type?.emoji || '🏢'}</span>
+                  {c.photo_url ? (
+                    <button onClick={() => setShowPhotoLightbox(c.photo_url)}
+                      className="h-8 w-8 rounded-full overflow-hidden shrink-0 border border-zinc-200 dark:border-zinc-700 hover:ring-2 hover:ring-zinc-300 transition-all">
+                      <img src={c.photo_url} alt="" className="h-full w-full object-cover" />
+                    </button>
+                  ) : (
+                    <span className="text-lg shrink-0">{type?.emoji || '🏢'}</span>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">{staffName}</p>
                     <p className="text-xs text-zinc-400 truncate">
@@ -541,6 +622,20 @@ export default function CheckInView({
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+      {/* ══════════════ PHOTO LIGHTBOX ══════════════ */}
+      {showPhotoLightbox && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowPhotoLightbox(null)}>
+          <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
+            <img src={showPhotoLightbox} alt="Check-in photo"
+              className="w-full h-auto rounded-2xl shadow-2xl" />
+            <button onClick={() => setShowPhotoLightbox(null)}
+              className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform">
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}
