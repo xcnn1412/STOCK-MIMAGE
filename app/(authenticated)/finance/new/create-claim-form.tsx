@@ -8,6 +8,7 @@ import { CLAIM_TYPES } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
 import BankSelect from '@/components/bank-select'
+import { compressImage } from '@/lib/utils'
 import EventSelectCombobox from './event-select-combobox'
 import EventCalendar, { type CalendarEvent } from '@/components/event-calendar'
 import {
@@ -89,9 +90,15 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
     null
   )
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const newFiles = Array.from(e.target.files)
+      const rawFiles = Array.from(e.target.files)
+      // Compress images before storing to avoid body size limit on mobile
+      const newFiles = await Promise.all(
+        rawFiles.map(file =>
+          file.type.startsWith('image/') ? compressImage(file) : file
+        )
+      )
       setReceiptFiles(prev => [...prev, ...newFiles])
       // Generate preview URLs for image files
       const newUrls = newFiles.map(file =>

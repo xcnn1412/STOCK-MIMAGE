@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { Upload, X, FileText, Archive, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { uploadTicketAttachments, deleteTicketAttachment } from '@/app/(authenticated)/jobs/actions'
+import { compressImage } from '@/lib/utils'
 
 // ============================================================================
 // Types
@@ -95,7 +96,15 @@ export default function FileUploadZone({
         if (available <= 0) return
 
         const toAdd = files.slice(0, available)
-        const newPending: PendingFile[] = toAdd.map(file => ({
+
+        // Compress images before uploading to reduce size (especially from mobile)
+        const compressedFiles = await Promise.all(
+            toAdd.map(file =>
+                file.type.startsWith('image/') ? compressImage(file) : file
+            )
+        )
+
+        const newPending: PendingFile[] = compressedFiles.map(file => ({
             file,
             preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
             uploading: true,
@@ -106,7 +115,7 @@ export default function FileUploadZone({
 
         // Upload immediately
         const formData = new FormData()
-        toAdd.forEach(f => formData.append('files', f))
+        compressedFiles.forEach(f => formData.append('files', f))
         formData.set('folder', folder)
 
         const result = await uploadTicketAttachments(formData)

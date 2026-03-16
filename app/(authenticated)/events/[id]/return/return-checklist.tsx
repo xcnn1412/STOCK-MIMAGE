@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Loader2, CheckCircle2, ImagePlus, X, UploadCloud } from "lucide-react"
 import { supabaseServer as supabase } from '@/lib/supabase-server'
+import { compressImage } from '@/lib/utils'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/contexts/language-context'
@@ -46,14 +47,20 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
         setStatuses(prev => ({ ...prev, [itemId]: status }))
     }
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
-            const files = Array.from(e.target.files)
-            if (selectedFiles.length + files.length > 15) {
+            const rawFiles = Array.from(e.target.files)
+            if (selectedFiles.length + rawFiles.length > 15) {
                 alert('อัพโหลดได้สูงสุด 15 รูป') // Max 15 images
                 return
             }
             
+            // Compress images before storing
+            const files = await Promise.all(
+                rawFiles.map(file =>
+                    file.type.startsWith('image/') ? compressImage(file) : file
+                )
+            )
             setSelectedFiles(prev => [...prev, ...files])
             const newPreviews = files.map(file => URL.createObjectURL(file))
             setPreviewUrls(prev => [...prev, ...newPreviews])

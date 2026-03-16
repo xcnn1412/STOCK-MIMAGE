@@ -13,6 +13,7 @@ import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../../costs/types'
 import BankSelect from '@/components/bank-select'
+import { compressImage } from '@/lib/utils'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -116,8 +117,10 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     let receiptFormData: FormData | undefined
     if (editReceiptFiles.length > 0) {
       receiptFormData = new FormData()
+      // Compress images before uploading to avoid body size limit on mobile
       for (const f of editReceiptFiles) {
-        receiptFormData.append('receipt_files', f)
+        const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+        receiptFormData.append('receipt_files', compressed)
       }
     }
     const result = await updateClaim(claim.id, {

@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
   // typescript: { ignoreBuildErrors: true }, // REMOVED for security (MED-1)
   experimental: {
     serverActions: {
-      bodySizeLimit: '5mb',
+      bodySizeLimit: '10mb',
     },
   },
 

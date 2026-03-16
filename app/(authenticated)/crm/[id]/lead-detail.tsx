@@ -33,6 +33,7 @@ import { createJobsFromLead, getJobsByLeadId } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
 import { STATUS_CONFIG, ALL_STATUSES, getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
+import { compressImage } from '@/lib/utils'
 
 interface SystemUser {
   id: string
@@ -490,8 +491,10 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   // ---------- Payment Proof Upload ----------
   const handleUploadProof = async (installmentId: string, file: File) => {
     setUploadingInstallment(installmentId)
+    // Compress image before uploading to reduce size (especially from mobile)
+    const compressedFile = file.type.startsWith('image/') ? await compressImage(file) : file
     const formData = new FormData()
-    formData.append('file', file)
+    formData.append('file', compressedFile)
     const result = await uploadPaymentProof(lead.id, installmentId, formData)
     setUploadingInstallment(null)
     if (result.error) {
