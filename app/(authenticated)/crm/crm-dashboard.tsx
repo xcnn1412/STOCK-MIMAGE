@@ -136,6 +136,7 @@ interface CrmDashboardProps {
 export default function CrmDashboard({ leads, settings, users }: CrmDashboardProps) {
   const { locale, t } = useLocale()
   const tc = t.crm
+  const [mounted, setMounted] = useState(false)
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -143,6 +144,9 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
   const [saleFilter, setSaleFilter] = useState<string>('all')
   const [tagFilter, setTagFilter] = useState<string[]>([])
   const [addDialogOpen, setAddDialogOpen] = useState(false)
+
+  // Flag to prevent SSR/client hydration mismatch on date-sensitive renders
+  useEffect(() => { setMounted(true) }, [])
 
   // Helper: get setting label by locale
   const getSettingLabel = useCallback((setting: CrmSetting) => {

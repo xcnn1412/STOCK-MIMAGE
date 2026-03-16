@@ -55,10 +55,10 @@ function SidebarGroup({
     onNavigate?: () => void
 }) {
     const hasActiveRoute = group.items.some(item => isActive(item.href, item.exact))
-    const [open, setOpen] = useState(hasActiveRoute)
+    const [open, setOpen] = useState(false) // Start closed for SSR safety
     const accent = moduleAccents[group.key] || moduleAccents.stock
 
-    // Auto-expand when a route becomes active
+    // Auto-expand when a route is active (runs after hydration)
     useEffect(() => {
         if (hasActiveRoute) setOpen(true)
     }, [hasActiveRoute])
