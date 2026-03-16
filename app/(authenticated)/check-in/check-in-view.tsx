@@ -12,6 +12,39 @@ import { checkIn, checkOut, adminCheckIn, undoCheckout, adminDeleteCheckin, admi
 import EventSelectCombobox from '../finance/new/event-select-combobox'
 import Link from 'next/link'
 
+// ─── Image compression for smartphone photos ──────────────────────
+function compressImage(file: File, maxSize: number, quality: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      let { width, height } = img
+
+      // Scale down to maxSize while preserving aspect ratio
+      if (width > height) {
+        if (width > maxSize) { height = Math.round((height * maxSize) / width); width = maxSize }
+      } else {
+        if (height > maxSize) { width = Math.round((width * maxSize) / height); height = maxSize }
+      }
+
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { reject(new Error('Canvas not supported')); return }
+      ctx.drawImage(img, 0, 0, width, height)
+
+      // Try WebP first, then JPEG fallback
+      let dataUrl = canvas.toDataURL('image/webp', quality)
+      if (!dataUrl.startsWith('data:image/webp')) {
+        dataUrl = canvas.toDataURL('image/jpeg', quality)
+      }
+      resolve(dataUrl)
+    }
+    img.onerror = () => reject(new Error('Failed to load image'))
+    img.src = URL.createObjectURL(file)
+  })
+}
+
 interface CheckinRecord {
   id: string
   user_id: string
@@ -91,6 +124,9 @@ export default function CheckInView({
   const [photoBase64, setPhotoBase64] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showPhotoLightbox, setShowPhotoLightbox] = useState<string | null>(null)
+  const [compressing, setCompressing] = useState(false)
+  const [photoSize, setPhotoSize] = useState<string | null>(null)
+  const [cameraMode, setCameraMode] = useState<'user' | 'environment'>('user')
 
   // Admin retroactive
   const [showRetroactive, setShowRetroactive] = useState(false)
@@ -123,22 +159,43 @@ export default function CheckInView({
     )
   }
 
-  function handlePhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handlePhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const result = reader.result as string
-      setPhotoPreview(result)
-      setPhotoBase64(result)
+    setCompressing(true)
+    try {
+      const compressed = await compressImage(file, 800, 0.7)
+      setPhotoPreview(compressed)
+      setPhotoBase64(compressed)
+      // Calculate size in KB
+      const sizeKB = Math.round((compressed.length * 3) / 4 / 1024)
+      setPhotoSize(sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${sizeKB} KB`)
+    } catch {
+      // Fallback: use raw file
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const result = reader.result as string
+        setPhotoPreview(result)
+        setPhotoBase64(result)
+        setPhotoSize(null)
+      }
+      reader.readAsDataURL(file)
     }
-    reader.readAsDataURL(file)
+    setCompressing(false)
   }
 
   function clearPhoto() {
     setPhotoPreview(null)
     setPhotoBase64(null)
+    setPhotoSize(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function switchCamera() {
+    const next = cameraMode === 'user' ? 'environment' : 'user'
+    setCameraMode(next)
+    // Auto-trigger camera after switching
+    setTimeout(() => fileInputRef.current?.click(), 100)
   }
 
   async function handleCheckIn() {
@@ -387,34 +444,65 @@ export default function CheckInView({
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="user"
+                capture={cameraMode}
                 onChange={handlePhotoCapture}
                 className="hidden"
               />
-              {photoPreview ? (
-                <div className="relative inline-block">
-                  <img
-                    src={photoPreview}
-                    alt="Check-in photo preview"
-                    className="w-full max-w-[200px] h-auto rounded-xl border border-zinc-200 dark:border-zinc-700 object-cover shadow-sm"
-                  />
+              {compressing ? (
+                <div className="w-full flex flex-col items-center justify-center gap-2 py-8 px-4 rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30">
+                  <div className="h-6 w-6 border-2 border-zinc-300 border-t-zinc-600 dark:border-zinc-600 dark:border-t-zinc-300 rounded-full animate-spin" />
+                  <span className="text-xs text-zinc-400">กำลังบีบอัดรูป...</span>
+                </div>
+              ) : photoPreview ? (
+                <div className="space-y-2">
+                  <div className="relative inline-block">
+                    <img
+                      src={photoPreview}
+                      alt="Check-in photo preview"
+                      className="w-full max-w-[240px] h-auto rounded-xl border border-zinc-200 dark:border-zinc-700 object-cover shadow-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={clearPhoto}
+                      className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 transition-colors active:scale-90"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                    {photoSize && (
+                      <span className="absolute bottom-2 left-2 text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-black/50 text-white backdrop-blur-sm">
+                        {photoSize}
+                      </span>
+                    )}
+                  </div>
                   <button
                     type="button"
-                    onClick={clearPhoto}
-                    className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 transition-colors"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors py-1"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <Camera className="h-3.5 w-3.5" /> ถ่ายใหม่
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full flex items-center justify-center gap-2.5 py-4 px-4 rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-700 text-zinc-400 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition-all duration-200 bg-zinc-50/50 dark:bg-zinc-800/30"
-                >
-                  <Camera className="h-5 w-5" />
-                  <span className="text-sm font-medium">ถ่ายรูป</span>
-                </button>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2.5 py-5 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-500 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-all duration-200 bg-zinc-50/50 dark:bg-zinc-800/30 active:scale-[0.98]"
+                  >
+                    <Camera className="h-6 w-6" />
+                    <span className="text-sm font-semibold">แตะเพื่อถ่ายรูป</span>
+                  </button>
+                  <div className="flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={switchCamera}
+                      className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors py-1"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" />
+                      {cameraMode === 'user' ? 'กล้องหน้า' : 'กล้องหลัง'} — แตะเพื่อสลับ
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 
