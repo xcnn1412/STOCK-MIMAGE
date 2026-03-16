@@ -160,7 +160,7 @@ export default function ClaimsListView({ claims, error, categories = [] }: { cla
                 </div>
                 <div className="text-right shrink-0 ml-4">
                   <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                    ฿{(claim.total_amount || 0).toLocaleString()}
+                    ฿{(claim.amount || 0).toLocaleString()}
                   </p>
                   <p className="text-xs text-zinc-400">
                     {getCategoryLabel(claim.category, locale, categories)}

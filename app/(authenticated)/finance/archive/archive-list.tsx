@@ -47,7 +47,7 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
   const totalNet = useMemo(() => {
     let total = 0
     filtered.forEach(c => {
-      const amt = c.total_amount || c.amount || 0
+      const amt = c.amount || 0
       const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
       total += tax.netPayable
     })
@@ -108,7 +108,7 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
             </div>
             <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {filtered.map(c => {
-                const amt = c.total_amount || c.amount || 0
+                const amt = c.amount || 0
                 const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
                 return (
                   <div key={c.id} className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
@@ -149,7 +149,7 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
           {/* Mobile Cards */}
           <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
             {filtered.map(c => {
-              const amt = c.total_amount || c.amount || 0
+              const amt = c.amount || 0
               const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
               return (
                 <Link key={c.id} href={`/finance/${c.id}`} className="block p-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">

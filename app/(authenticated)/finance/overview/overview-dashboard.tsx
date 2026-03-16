@@ -50,7 +50,7 @@ export default function OverviewDashboard({ claims, categories }: { claims: Expe
   const stats = useMemo(() => {
     let totalGross = 0, totalWht = 0, totalNet = 0
     paidClaims.forEach(c => {
-      const amt = c.total_amount || c.amount || 0
+      const amt = c.amount || 0
       const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
       totalGross += amt
       totalWht += tax.whtAmount
@@ -71,7 +71,7 @@ export default function OverviewDashboard({ claims, categories }: { claims: Expe
   const byCategory = useMemo(() => {
     const map = new Map<string, number>()
     allActiveClaims.forEach(c => {
-      const amt = c.total_amount || c.amount || 0
+      const amt = c.amount || 0
       map.set(c.category, (map.get(c.category) || 0) + amt)
     })
     return Array.from(map.entries())
@@ -87,7 +87,7 @@ export default function OverviewDashboard({ claims, categories }: { claims: Expe
     allActiveClaims.forEach(c => {
       const key = c.submitted_by || 'unknown'
       const name = c.submitter?.full_name || 'ไม่ระบุ'
-      const amt = c.total_amount || c.amount || 0
+      const amt = c.amount || 0
       const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
       if (!map.has(key)) map.set(key, { name, total: 0, count: 0, wht: 0 })
       const p = map.get(key)!
@@ -108,7 +108,7 @@ export default function OverviewDashboard({ claims, categories }: { claims: Expe
       const name = (c.job_event as any)?.event_name || 'ไม่ระบุ'
       if (!map.has(c.job_event_id)) map.set(c.job_event_id, { name, total: 0, count: 0 })
       const e = map.get(c.job_event_id)!
-      e.total += c.total_amount || c.amount || 0
+      e.total += c.amount || 0
       e.count += 1
     })
     return Array.from(map.values()).sort((a, b) => b.total - a.total)
@@ -122,7 +122,7 @@ export default function OverviewDashboard({ claims, categories }: { claims: Expe
     allActiveClaims.forEach(c => {
       const d = new Date(c.expense_date || c.created_at)
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      map.set(key, (map.get(key) || 0) + (c.total_amount || c.amount || 0))
+      map.set(key, (map.get(key) || 0) + (c.amount || 0))
     })
     return Array.from(map.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))

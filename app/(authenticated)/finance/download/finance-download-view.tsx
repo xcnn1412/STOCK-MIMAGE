@@ -83,7 +83,7 @@ export default function FinanceDownloadView({ claims, categories, profileMap = {
     whtClaims.forEach(c => {
       const key = c.submitted_by || 'unknown'
       const name = c.submitter?.full_name || 'ไม่ระบุ'
-      const amt = c.total_amount || c.amount || 0
+      const amt = c.amount || 0
       const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
       if (!map.has(key)) {
         const profile = profileMap[key]
@@ -121,7 +121,7 @@ export default function FinanceDownloadView({ claims, categories, profileMap = {
     if (exportType === 'all_claims') {
       // Sheet 1: All claims
       const rows = filtered.map(c => {
-        const amt = c.total_amount || c.amount || 0
+        const amt = c.amount || 0
         const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
         const profile = c.submitted_by ? profileMap[c.submitted_by] : null
         const paidAtFormatted = c.paid_at ? new Date(c.paid_at).toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
@@ -238,7 +238,7 @@ export default function FinanceDownloadView({ claims, categories, profileMap = {
       html += `<table>
         <tr><th>เลขที่</th><th>ชื่อ-สกุล</th><th>ชื่อเล่น</th><th>หัวข้อ</th><th>หมวด</th><th class="num">ยอดเงิน</th><th class="num">หัก</th><th class="num">จ่ายจริง</th><th>สถานะ</th><th>วันชำระ</th></tr>`
       filtered.forEach(c => {
-        const amt = c.total_amount || c.amount || 0
+        const amt = c.amount || 0
         const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
         const profile = c.submitted_by ? profileMap[c.submitted_by] : null
         const paidAt = c.paid_at ? new Date(c.paid_at).toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
@@ -441,7 +441,7 @@ export default function FinanceDownloadView({ claims, categories, profileMap = {
               <div className="col-span-1">{isEn ? 'Status' : 'สถานะ'}</div>
             </div>
             {filtered.slice(0, 10).map(c => {
-              const amt = c.total_amount || c.amount || 0
+              const amt = c.amount || 0
               const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
               return (
                 <div key={c.id} className="grid grid-cols-12 gap-2 px-4 py-2 items-center text-sm">
@@ -460,7 +460,7 @@ export default function FinanceDownloadView({ claims, categories, profileMap = {
           {/* Mobile */}
           <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
             {filtered.slice(0, 10).map(c => {
-              const amt = c.total_amount || c.amount || 0
+              const amt = c.amount || 0
               const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
               return (
                 <div key={c.id} className="p-3">

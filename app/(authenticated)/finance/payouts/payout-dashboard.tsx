@@ -126,7 +126,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
     let totalWht = 0
     let totalNetPayable = 0
     filtered.forEach(c => {
-      const amt = c.total_amount || c.amount || 0
+      const amt = c.amount || 0
       const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
       totalAmount += amt
       totalWht += tax.whtAmount
@@ -136,7 +136,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
   }, [filtered, groupedByPerson])
 
   const getNetPayable = (c: ExpenseClaim) => {
-    const amt = c.total_amount || c.amount || 0
+    const amt = c.amount || 0
     return calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
   }
 
@@ -219,7 +219,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
             let groupNet = 0
             group.claims.forEach(c => {
               const tax = getNetPayable(c)
-              groupTotal += (c.total_amount || c.amount || 0)
+              groupTotal += (c.amount || 0)
               groupWht += tax.whtAmount
               groupNet += tax.netPayable
             })
@@ -331,7 +331,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                   </div>
                   {group.claims.map(c => {
                     const tax = getNetPayable(c)
-                    const amt = c.total_amount || c.amount || 0
+                    const amt = c.amount || 0
                     return (
                       <div key={c.id} className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
                         <div className="col-span-2 text-xs font-mono text-zinc-500">{c.claim_number}</div>
@@ -391,7 +391,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                 <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
                   {group.claims.map(c => {
                     const tax = getNetPayable(c)
-                    const amt = c.total_amount || c.amount || 0
+                    const amt = c.amount || 0
                     return (
                       <div key={c.id} className="p-3 space-y-2">
                         {/* Row 1: claim number + title */}

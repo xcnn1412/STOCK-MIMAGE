@@ -417,7 +417,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   {(viewVatMode !== 'none' || viewWhtRate > 0) && viewAmount > 0 ? (
                     <>
                       <p className="text-base text-zinc-400 line-through">
-                        ฿{(claim.total_amount || claim.amount || 0).toLocaleString()}
+                        ฿{(claim.amount || 0).toLocaleString()}
                       </p>
                       <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
                         ฿{fmtDec(viewTax.netPayable)}
@@ -428,7 +428,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     </>
                   ) : (
                     <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                      ฿{(claim.total_amount || claim.amount || 0).toLocaleString()}
+                      ฿{(claim.amount || 0).toLocaleString()}
                     </p>
                   )}
                 </div>
