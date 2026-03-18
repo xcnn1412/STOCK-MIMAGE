@@ -43,6 +43,51 @@ export async function importEventFromStock(eventId: string) {
 
   if (eventErr || !event) return { error: 'ไม่พบอีเวนต์' }
 
+  // ─── ดึงราคาขายจาก CRM Lead ───────────────────────────
+  let revenue = 0
+  let revenueSource = ''
+
+  // 1. หา CRM lead ที่ link ด้วย event_id
+  const { data: leadByEventId } = await supabase
+    .from('crm_leads')
+    .select('id, confirmed_price, quoted_price')
+    .eq('event_id', eventId)
+    .maybeSingle()
+
+  if (leadByEventId) {
+    revenue = Number(leadByEventId.confirmed_price || leadByEventId.quoted_price || 0)
+    revenueSource = 'crm_lead_event_id'
+  }
+
+  // 2. ถ้ายัง 0 → ลอง match ด้วย event_date
+  if (revenue === 0 && event.event_date) {
+    const { data: leadByDate } = await supabase
+      .from('crm_leads')
+      .select('id, confirmed_price, quoted_price, customer_name')
+      .eq('event_date', event.event_date)
+      .not('confirmed_price', 'is', null)
+      .gt('confirmed_price', 0)
+      .limit(5)
+
+    if (leadByDate && leadByDate.length > 0) {
+      // ลอง match ด้วยชื่อ event กับ customer_name
+      const eventNameClean = event.name.replace(/[🔴🟡🟢⚪📍·\-–—]/g, '').trim().toLowerCase()
+      const matched = leadByDate.find(l => {
+        const customerClean = (l.customer_name || '').trim().toLowerCase()
+        return eventNameClean.includes(customerClean) || customerClean.includes(eventNameClean.split(' ')[0])
+      })
+
+      if (matched) {
+        revenue = Number(matched.confirmed_price || matched.quoted_price || 0)
+        revenueSource = 'crm_lead_date_match'
+      } else if (leadByDate.length === 1) {
+        // ถ้ามี lead เดียวในวันนั้น ใช้เลย
+        revenue = Number(leadByDate[0].confirmed_price || leadByDate[0].quoted_price || 0)
+        revenueSource = 'crm_lead_date_single'
+      }
+    }
+  }
+
   // สร้าง job_cost_event
   const { data: created, error: insertErr } = await supabase
     .from('job_cost_events')
@@ -53,6 +98,7 @@ export async function importEventFromStock(eventId: string) {
       event_location: event.location,
       staff: event.staff,
       seller: (event as any).seller,
+      revenue,
       imported_by: userId,
     })
     .select('id')
@@ -64,6 +110,8 @@ export async function importEventFromStock(eventId: string) {
     eventId,
     jobEventId: created?.id,
     eventName: event.name,
+    revenue,
+    revenueSource: revenueSource || 'none',
   }, undefined)
 
   revalidatePath('/costs')
@@ -118,6 +166,161 @@ export async function importEventFromClosure(closureId: string) {
 
   revalidatePath('/costs')
   return { success: true, id: created?.id }
+}
+
+/** Sync revenue จาก CRM Lead สำหรับ cost event ที่ยังไม่มีราคาขาย */
+export async function syncRevenueFromCRM(jobEventId: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  // ดึงข้อมูล cost event
+  const { data: jobEvent, error: fetchErr } = await supabase
+    .from('job_cost_events')
+    .select('id, source_event_id, event_name, event_date')
+    .eq('id', jobEventId)
+    .single()
+
+  if (fetchErr || !jobEvent) return { error: 'ไม่พบข้อมูล' }
+
+  let revenue = 0
+  let matchedLeadName = ''
+
+  // 1. Match ด้วย event_id
+  if (jobEvent.source_event_id) {
+    const { data: lead } = await supabase
+      .from('crm_leads')
+      .select('id, confirmed_price, quoted_price, customer_name')
+      .eq('event_id', jobEvent.source_event_id)
+      .maybeSingle()
+
+    if (lead && (Number(lead.confirmed_price) > 0 || Number(lead.quoted_price) > 0)) {
+      revenue = Number(lead.confirmed_price || lead.quoted_price || 0)
+      matchedLeadName = lead.customer_name || ''
+    }
+  }
+
+  // 2. Match ด้วย event_date + customer_name
+  if (revenue === 0 && jobEvent.event_date) {
+    const { data: leads } = await supabase
+      .from('crm_leads')
+      .select('id, confirmed_price, quoted_price, customer_name')
+      .eq('event_date', jobEvent.event_date)
+      .not('confirmed_price', 'is', null)
+      .gt('confirmed_price', 0)
+      .limit(10)
+
+    if (leads && leads.length > 0) {
+      // ลอง match ชื่อ
+      const matched = leads.find(l => {
+        const cn = (l.customer_name || '').trim().toLowerCase()
+        const en = jobEvent.event_name.toLowerCase()
+        return cn.length > 3 && en.includes(cn)
+      })
+
+      if (matched) {
+        revenue = Number(matched.confirmed_price || matched.quoted_price || 0)
+        matchedLeadName = matched.customer_name || ''
+      } else if (leads.length === 1) {
+        revenue = Number(leads[0].confirmed_price || leads[0].quoted_price || 0)
+        matchedLeadName = leads[0].customer_name || ''
+      }
+    }
+  }
+
+  if (revenue === 0) {
+    return { error: 'ไม่พบข้อมูลราคาขายจาก CRM ที่ตรงกัน' }
+  }
+
+  // อัปเดต revenue
+  const { error: updateErr } = await supabase
+    .from('job_cost_events')
+    .update({ revenue })
+    .eq('id', jobEventId)
+
+  if (updateErr) return { error: 'เกิดข้อผิดพลาดในการอัปเดต' }
+
+  revalidatePath('/costs')
+  return { success: true, revenue, matchedLeadName }
+}
+
+/** Bulk sync revenue จาก CRM สำหรับ cost events ทั้งหมดที่ยังไม่มีราคาขาย */
+export async function bulkSyncRevenueFromCRM() {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  // ดึง cost events ที่ revenue = 0
+  const { data: events, error: fetchErr } = await supabase
+    .from('job_cost_events')
+    .select('id, source_event_id, event_name, event_date')
+    .or('revenue.is.null,revenue.eq.0')
+
+  if (fetchErr || !events) return { error: 'ดึงข้อมูลไม่ได้' }
+  if (events.length === 0) return { success: true, syncedCount: 0, skippedCount: 0 }
+
+  // ดึง CRM leads ทั้งหมดที่มี confirmed_price > 0
+  const { data: leads } = await supabase
+    .from('crm_leads')
+    .select('id, event_id, event_date, confirmed_price, quoted_price, customer_name')
+    .not('confirmed_price', 'is', null)
+    .gt('confirmed_price', 0)
+
+  if (!leads || leads.length === 0) {
+    return { success: true, syncedCount: 0, skippedCount: events.length }
+  }
+
+  let syncedCount = 0
+  const syncedNames: string[] = []
+
+  for (const event of events) {
+    let revenue = 0
+
+    // 1. Match by event_id
+    if (event.source_event_id) {
+      const lead = leads.find(l => l.event_id === event.source_event_id)
+      if (lead) {
+        revenue = Number(lead.confirmed_price || lead.quoted_price || 0)
+      }
+    }
+
+    // 2. Match by event_date + customer_name
+    if (revenue === 0 && event.event_date) {
+      const dateLeads = leads.filter(l => l.event_date === event.event_date)
+      if (dateLeads.length > 0) {
+        const matched = dateLeads.find(l => {
+          const cn = (l.customer_name || '').trim().toLowerCase()
+          const en = event.event_name.toLowerCase()
+          return cn.length > 3 && en.includes(cn)
+        })
+        if (matched) {
+          revenue = Number(matched.confirmed_price || matched.quoted_price || 0)
+        } else if (dateLeads.length === 1) {
+          revenue = Number(dateLeads[0].confirmed_price || dateLeads[0].quoted_price || 0)
+        }
+      }
+    }
+
+    if (revenue > 0) {
+      await supabase
+        .from('job_cost_events')
+        .update({ revenue })
+        .eq('id', event.id)
+      syncedCount++
+      syncedNames.push(event.event_name)
+    }
+  }
+
+  revalidatePath('/costs')
+  return {
+    success: true,
+    syncedCount,
+    skippedCount: events.length - syncedCount,
+    totalMissing: events.length,
+    syncedNames,
+  }
 }
 
 // ============================================================================

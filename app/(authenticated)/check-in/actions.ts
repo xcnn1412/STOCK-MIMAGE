@@ -90,9 +90,6 @@ export async function checkIn(formData: FormData) {
     .single()
 
   if (error) {
-    if (error.code === '23505') {
-      return { error: 'คุณ Check-in ไปแล้ววันนี้' }
-    }
     console.error('Check-in error:', error)
     return { error: 'เกิดข้อผิดพลาดในการ Check-in' }
   }
@@ -163,9 +160,6 @@ export async function adminCheckIn(formData: FormData) {
     })
 
   if (error) {
-    if (error.code === '23505') {
-      return { error: 'พนักงานคนนี้ Check-in ไปแล้วในวันที่เลือก' }
-    }
     console.error('Admin check-in error:', error)
     return { error: 'เกิดข้อผิดพลาดในการ Check-in' }
   }
@@ -176,15 +170,30 @@ export async function adminCheckIn(formData: FormData) {
 
 // ─── Check-out ────────────────────────────────────────────
 
-export async function checkOut(checkinId: string) {
+export async function checkOut(formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
+  const checkinId = formData.get('checkin_id') as string
+  const photoBase64 = formData.get('photo') as string || null
+
+  if (!checkinId) return { error: 'ไม่พบ record' }
+  if (!photoBase64) return { error: 'กรุณาถ่ายรูป Check-out' }
+
   const supabase = createServiceClient()
+
+  // Upload checkout photo
+  let checkoutPhotoUrl: string | null = null
+  if (photoBase64) {
+    checkoutPhotoUrl = await uploadCheckinPhoto(supabase, userId, `${checkinId}_out`, photoBase64)
+  }
 
   const { error } = await supabase
     .from('staff_checkins')
-    .update({ checked_out_at: new Date().toISOString() })
+    .update({
+      checked_out_at: new Date().toISOString(),
+      checkout_photo_url: checkoutPhotoUrl,
+    })
     .eq('id', checkinId)
     .eq('user_id', userId)
 
@@ -312,7 +321,7 @@ export async function getTodayCheckins() {
 
   const { data, error } = await supabase
     .from('staff_checkins')
-    .select('*, profiles:user_id(id, full_name, nickname), events:event_id(id, name), photo_url')
+    .select('*, profiles:user_id(id, full_name, nickname), events:event_id(id, name), photo_url, checkout_photo_url')
     .gte('checked_in_at', startOfDay)
     .lte('checked_in_at', endOfDay)
     .order('checked_in_at', { ascending: true })
@@ -333,7 +342,7 @@ export async function getMyCheckinHistory(limit = 30) {
 
   const { data, error } = await supabase
     .from('staff_checkins')
-    .select('*, events:event_id(id, name), photo_url')
+    .select('*, events:event_id(id, name), photo_url, checkout_photo_url')
     .eq('user_id', userId)
     .order('checked_in_at', { ascending: false })
     .limit(limit)
@@ -394,7 +403,7 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
   const [recordsResult, staffResult] = await Promise.all([
     supabase
       .from('staff_checkins')
-      .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, event_id, events:event_id(id, name), profiles:user_id(id, full_name, nickname)')
+      .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, checkout_photo_url, event_id, events:event_id(id, name), profiles:user_id(id, full_name, nickname)')
       .gte('checked_in_at', startISO)
       .lte('checked_in_at', endISO)
       .order('checked_in_at', { ascending: true }),

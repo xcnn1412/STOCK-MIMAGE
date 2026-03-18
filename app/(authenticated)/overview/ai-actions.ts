@@ -216,8 +216,12 @@ export async function analyzeOverview(req: AiAnalysisRequest): Promise<{ success
       },
     }
 
-    // Try models in order: 2.5 flash → 1.5 flash (fallback)
-    const models = ['gemini-2.5-flash-preview-04-17', 'gemini-2.5-flash', 'gemini-1.5-flash']
+    // Try models in order: env model → stable fallbacks
+    const envModel = process.env.GEMINI_MODEL
+    const fallbackModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    const models = envModel
+      ? [envModel, ...fallbackModels.filter(m => m !== envModel)]
+      : fallbackModels
     
     let lastError: any = null
     for (const modelName of models) {

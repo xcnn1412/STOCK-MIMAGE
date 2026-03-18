@@ -100,6 +100,7 @@ export type ActionType =
     // User Profile
     | 'UPDATE_USER_PROFILE'
     | 'UPDATE_MY_PROFILE'
+    | 'CHANGE_PIN'
 
 export async function logActivity(
     action: ActionType,

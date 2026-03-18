@@ -6,12 +6,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   CalendarDays, MapPin, TrendingUp, TrendingDown, Trash2, Eye,
-  Users, UserCheck
+  Users, UserCheck, RefreshCw, AlertTriangle, DollarSign
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLocale } from '@/lib/i18n/context'
-import { deleteJobEvent } from '../actions'
+import { deleteJobEvent, bulkSyncRevenueFromCRM } from '../actions'
 import CostSummaryDashboard from '../components/cost-summary-dashboard'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 
@@ -58,6 +58,29 @@ export default function EventsListView({ jobEvents }: { jobEvents: JobEventWithI
     })
   }
 
+  // Count events missing revenue
+  const missingRevenueCount = jobEvents.filter(e => !e.revenue || e.revenue === 0).length
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<{ syncedCount: number; skippedCount: number } | null>(null)
+
+  const handleBulkSync = async () => {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const result = await bulkSyncRevenueFromCRM()
+      if (result.error) {
+        alert(result.error)
+      } else {
+        setSyncResult({ syncedCount: result.syncedCount || 0, skippedCount: result.skippedCount || 0 })
+        router.refresh()
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาด')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   // ── Aggregate data for dashboard ──
   const aggregated = jobEvents.map(event => {
     const items = event.job_cost_items || []
@@ -99,6 +122,57 @@ export default function EventsListView({ jobEvents }: { jobEvents: JobEventWithI
           {isEn ? 'All imported events with cost breakdown' : 'รายการอีเวนต์ที่นำเข้าพร้อมสรุปต้นทุน'}
         </p>
       </div>
+
+      {/* ── CRM Sync Banner ── */}
+      {missingRevenueCount > 0 && (
+        <Card className="border border-amber-200 dark:border-amber-800/50 bg-gradient-to-r from-amber-50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/10 shadow-sm">
+          <CardContent className="py-3.5 px-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-9 w-9 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                    {isEn
+                      ? `${missingRevenueCount} event${missingRevenueCount > 1 ? 's' : ''} missing revenue`
+                      : `${missingRevenueCount} รายการยังไม่มีราคาขาย`}
+                  </p>
+                  <p className="text-xs text-amber-600/80 dark:text-amber-400/80">
+                    {isEn ? 'Sync selling prices from CRM leads to calculate profit accurately' : 'ดึงราคาขายจาก CRM เพื่อคำนวณกำไรให้ถูกต้อง'}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30 shrink-0"
+                disabled={syncing}
+                onClick={handleBulkSync}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing
+                  ? (isEn ? 'Syncing...' : 'กำลัง Sync...')
+                  : (isEn ? `Sync All from CRM` : `Sync ทั้งหมดจาก CRM`)}
+              </Button>
+            </div>
+            {syncResult && (
+              <div className="mt-2.5 flex items-center gap-3 text-xs">
+                {syncResult.syncedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-medium">
+                    <DollarSign className="h-3 w-3" /> Sync สำเร็จ {syncResult.syncedCount} รายการ
+                  </span>
+                )}
+                {syncResult.skippedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-medium">
+                    ไม่พบข้อมูลใน CRM {syncResult.skippedCount} รายการ
+                  </span>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Shared Summary Dashboard ── */}
       {jobEvents.length > 0 && (

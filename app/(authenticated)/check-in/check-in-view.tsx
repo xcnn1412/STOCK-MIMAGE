@@ -56,6 +56,7 @@ interface CheckinRecord {
   accuracy: number | null
   note: string | null
   photo_url: string | null
+  checkout_photo_url: string | null
   profiles?: { id: string; full_name: string; nickname: string | null } | null
   events?: { id: string; name: string } | null
 }
@@ -107,7 +108,10 @@ export default function CheckInView({
 }) {
   const router = useRouter()
   const isAdmin = role === 'admin'
-  const myCheckin = todayCheckins.find(c => c.user_id === userId)
+  // Find active (not checked-out) check-in for current user
+  const myActiveCheckin = todayCheckins.find(c => c.user_id === userId && !c.checked_out_at)
+  // All of today's check-ins by current user (for display)
+  const myTodayCheckins = todayCheckins.filter(c => c.user_id === userId)
 
   const [checkType, setCheckType] = useState<'office' | 'onsite' | 'remote'>('office')
   const [eventId, setEventId] = useState('')
@@ -119,7 +123,7 @@ export default function CheckInView({
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  // Photo capture
+  // Photo capture (check-in)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [photoBase64, setPhotoBase64] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -127,6 +131,13 @@ export default function CheckInView({
   const [compressing, setCompressing] = useState(false)
   const [photoSize, setPhotoSize] = useState<string | null>(null)
   const [cameraMode, setCameraMode] = useState<'user' | 'environment'>('user')
+
+  // Photo capture (check-out)
+  const [checkoutPhotoPreview, setCheckoutPhotoPreview] = useState<string | null>(null)
+  const [checkoutPhotoBase64, setCheckoutPhotoBase64] = useState<string | null>(null)
+  const checkoutFileInputRef = useRef<HTMLInputElement>(null)
+  const [checkoutCompressing, setCheckoutCompressing] = useState(false)
+  const [checkoutPhotoSize, setCheckoutPhotoSize] = useState<string | null>(null)
 
   // Admin retroactive
   const [showRetroactive, setShowRetroactive] = useState(false)
@@ -199,6 +210,10 @@ export default function CheckInView({
   }
 
   async function handleCheckIn() {
+    if (myActiveCheckin) {
+      setError('คุณยังไม่ได้ Check-out จากรอบก่อน กรุณา Check-out ก่อนเริ่มรอบใหม่')
+      return
+    }
     if (!confirm('ยืนยัน Check-in เข้างาน?')) return
     setLoading(true); setError(''); setSuccess('')
     const fd = new FormData()
@@ -213,21 +228,64 @@ export default function CheckInView({
     setLoading(false)
   }
 
+  async function handleCheckoutPhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCheckoutCompressing(true)
+    try {
+      const compressed = await compressImage(file, 800, 0.7)
+      setCheckoutPhotoPreview(compressed)
+      setCheckoutPhotoBase64(compressed)
+      const sizeKB = Math.round((compressed.length * 3) / 4 / 1024)
+      setCheckoutPhotoSize(sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${sizeKB} KB`)
+    } catch {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const result = reader.result as string
+        setCheckoutPhotoPreview(result)
+        setCheckoutPhotoBase64(result)
+        setCheckoutPhotoSize(null)
+      }
+      reader.readAsDataURL(file)
+    }
+    setCheckoutCompressing(false)
+  }
+
+  function clearCheckoutPhoto() {
+    setCheckoutPhotoPreview(null)
+    setCheckoutPhotoBase64(null)
+    setCheckoutPhotoSize(null)
+    if (checkoutFileInputRef.current) checkoutFileInputRef.current.value = ''
+  }
+
   async function handleCheckOut() {
-    if (!myCheckin) return
+    if (!myActiveCheckin) return
+    if (!checkoutPhotoBase64) {
+      setError('กรุณาถ่ายรูป Check-out ก่อน')
+      return
+    }
     if (!confirm('ยืนยัน Check-out เลิกงาน?')) return
     setLoading(true); setError('')
-    const result = await checkOut(myCheckin.id)
+    const fd = new FormData()
+    fd.set('checkin_id', myActiveCheckin.id)
+    fd.set('photo', checkoutPhotoBase64)
+    const result = await checkOut(fd)
     if (result.error) setError(result.error)
-    else { setSuccess('Check-out สำเร็จ!'); router.refresh() }
+    else {
+      setSuccess('Check-out สำเร็จ! สามารถ Check-in รอบใหม่ได้')
+      clearCheckoutPhoto()
+      router.refresh()
+    }
     setLoading(false)
   }
 
   async function handleUndoCheckout() {
-    if (!myCheckin) return
+    // Find the most recent checked-out record for undo
+    const lastCheckedOut = myTodayCheckins.find(c => c.checked_out_at)
+    if (!lastCheckedOut) return
     if (!confirm('ยกเลิก Check-out?')) return
     setLoading(true); setError('')
-    const result = await undoCheckout(myCheckin.id)
+    const result = await undoCheckout(lastCheckedOut.id)
     if (result.error) setError(result.error)
     else { setSuccess('ยกเลิก Check-out สำเร็จ!'); router.refresh() }
     setLoading(false)
@@ -327,7 +385,7 @@ export default function CheckInView({
       </div>
 
       {/* ══════════════ ALREADY CHECKED IN ══════════════ */}
-      {myCheckin ? (
+      {myActiveCheckin ? (
         <div className="relative overflow-hidden rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/20 dark:to-zinc-900 p-6 space-y-4">
           <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-emerald-100/50 dark:from-emerald-900/20 to-transparent rounded-bl-full" />
 
@@ -336,62 +394,133 @@ export default function CheckInView({
               <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
-              <p className="font-bold text-lg text-zinc-900 dark:text-zinc-100">เช็คอินแล้ววันนี้ ✓</p>
+              <p className="font-bold text-lg text-zinc-900 dark:text-zinc-100">กำลังทำงาน (รอบที่ {myTodayCheckins.length}) ✓</p>
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                {CHECK_TYPES.find(t => t.key === myCheckin.check_type)?.emoji}{' '}
-                {CHECK_TYPES.find(t => t.key === myCheckin.check_type)?.label}
-                {' · '}เวลา {formatTime(myCheckin.checked_in_at)}
+                {CHECK_TYPES.find(t => t.key === myActiveCheckin.check_type)?.emoji}{' '}
+                {CHECK_TYPES.find(t => t.key === myActiveCheckin.check_type)?.label}
+                {' · '}เวลา {formatTime(myActiveCheckin.checked_in_at)}
               </p>
             </div>
           </div>
 
-          {myCheckin.events && (
+          {myActiveCheckin.events && (
             <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300 bg-white/60 dark:bg-zinc-800/40 rounded-xl px-4 py-2.5 backdrop-blur-sm">
               <CalendarDays className="h-4 w-4 text-emerald-500 shrink-0" />
-              <span>{(myCheckin.events as any).name}</span>
+              <span>{(myActiveCheckin.events as any).name}</span>
             </div>
           )}
-          {myCheckin.note && (
+          {myActiveCheckin.note && (
             <div className="text-sm text-zinc-600 dark:text-zinc-300 bg-white/60 dark:bg-zinc-800/40 rounded-xl px-4 py-2.5">
-              💬 {myCheckin.note}
+              💬 {myActiveCheckin.note}
             </div>
           )}
-          {myCheckin.photo_url && (
-            <button onClick={() => setShowPhotoLightbox(myCheckin.photo_url)}
+          {myActiveCheckin.photo_url && (
+            <button onClick={() => setShowPhotoLightbox(myActiveCheckin.photo_url)}
               className="block rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800/50 hover:shadow-md transition-shadow">
-              <img src={myCheckin.photo_url} alt="Check-in photo"
+              <img src={myActiveCheckin.photo_url} alt="Check-in photo"
                 className="w-full max-w-[160px] h-auto object-cover" />
             </button>
           )}
 
-          {!myCheckin.checked_out_at ? (
-            <button onClick={handleCheckOut} disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-all duration-200 disabled:opacity-50 shadow-sm hover:shadow-md">
-              <LogOut className="h-5 w-5" /> {loading ? 'กำลัง Check-out...' : 'Check-out เลิกงาน'}
-            </button>
-          ) : (() => {
-            const checkoutMs = new Date(myCheckin.checked_out_at!).getTime()
-            const canUndo = Date.now() - checkoutMs < 5 * 60 * 1000
-            const minutesLeft = Math.max(0, Math.ceil((5 * 60 * 1000 - (Date.now() - checkoutMs)) / 60000))
-            return (
-              <div className="space-y-2">
-                <div className="text-center py-2 text-sm text-emerald-600 dark:text-emerald-400 font-medium">
-                  ✅ Check-out เวลา {formatTime(myCheckin.checked_out_at)}
-                </div>
-                {canUndo && (
-                  <button onClick={handleUndoCheckout} disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 text-sm font-medium hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-all disabled:opacity-50">
-                    <Undo2 className="h-4 w-4" /> ยกเลิก Check-out
-                    <span className="text-[10px] text-amber-400">({minutesLeft} นาทีที่เหลือ)</span>
-                  </button>
-                )}
+          {/* ── Checkout Photo Capture ── */}
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+              <Camera className="h-3.5 w-3.5 text-zinc-400" /> ถ่ายรูป Check-out <span className="text-red-500 text-xs">(จำเป็น)</span>
+            </label>
+            <input
+              ref={checkoutFileInputRef}
+              type="file"
+              accept="image/*"
+              capture={cameraMode}
+              onChange={handleCheckoutPhotoCapture}
+              className="hidden"
+            />
+            {checkoutCompressing ? (
+              <div className="w-full flex flex-col items-center justify-center gap-2 py-6 px-4 rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <div className="h-6 w-6 border-2 border-zinc-300 border-t-zinc-600 dark:border-zinc-600 dark:border-t-zinc-300 rounded-full animate-spin" />
+                <span className="text-xs text-zinc-400">กำลังบีบอัดรูป...</span>
               </div>
-            )
-          })()}
+            ) : checkoutPhotoPreview ? (
+              <div className="space-y-2">
+                <div className="relative inline-block">
+                  <img
+                    src={checkoutPhotoPreview}
+                    alt="Check-out photo preview"
+                    className="w-full max-w-[200px] h-auto rounded-xl border border-zinc-200 dark:border-zinc-700 object-cover shadow-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={clearCheckoutPhoto}
+                    className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 transition-colors active:scale-90"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                  {checkoutPhotoSize && (
+                    <span className="absolute bottom-2 left-2 text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-black/50 text-white backdrop-blur-sm">
+                      {checkoutPhotoSize}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => checkoutFileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors py-1"
+                >
+                  <Camera className="h-3.5 w-3.5" /> ถ่ายใหม่
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => checkoutFileInputRef.current?.click()}
+                className="w-full flex items-center justify-center gap-2.5 py-4 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-500 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-all duration-200 bg-zinc-50/50 dark:bg-zinc-800/30 active:scale-[0.98]"
+              >
+                <Camera className="h-5 w-5" />
+                <span className="text-sm font-semibold">แตะเพื่อถ่ายรูป Check-out</span>
+              </button>
+            )}
+          </div>
+
+          {/* Messages */}
+          {error && (
+            <div className="flex items-center gap-2.5 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 rounded-xl px-4 py-3 border border-red-100 dark:border-red-900/30">
+              <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+            </div>
+          )}
+
+          <button onClick={handleCheckOut} disabled={loading || !checkoutPhotoBase64}
+            className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm hover:shadow-md">
+            <LogOut className="h-5 w-5" /> {loading ? 'กำลัง Check-out...' : 'Check-out เลิกงาน'}
+          </button>
+
+          {/* Show today's completed sessions */}
+          {myTodayCheckins.filter(c => c.checked_out_at).length > 0 && (
+            <div className="border-t border-emerald-100 dark:border-emerald-900/30 pt-3 mt-2">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">รอบก่อนหน้าวันนี้</p>
+              {myTodayCheckins.filter(c => c.checked_out_at).map(c => (
+                <div key={c.id} className="flex items-center justify-between text-xs text-zinc-500 py-1">
+                  <span>{CHECK_TYPES.find(t => t.key === c.check_type)?.emoji} {CHECK_TYPES.find(t => t.key === c.check_type)?.label}</span>
+                  <span className="font-mono tabular-nums">{formatTime(c.checked_in_at)} — {formatTime(c.checked_out_at!)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         /* ══════════════ CHECK-IN FORM ══════════════ */
         <div className="space-y-4">
+          {/* Show previous completed sessions */}
+          {myTodayCheckins.length > 0 && (
+            <div className="flex items-center gap-2.5 text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 rounded-xl px-4 py-3 border border-blue-100 dark:border-blue-900/30">
+              <Clock className="h-4 w-4 shrink-0" />
+              <div>
+                <span className="font-medium">Check-in รอบที่ {myTodayCheckins.length + 1}</span>
+                <span className="text-blue-400 dark:text-blue-500 ml-1.5 text-xs">
+                  (วันนี้ {myTodayCheckins.length} รอบเสร็จแล้ว: {myTodayCheckins.map(c => `${formatTime(c.checked_in_at)}–${c.checked_out_at ? formatTime(c.checked_out_at) : '?'}`).join(', ')})
+                </span>
+              </div>
+            </div>
+          )}
           {/* Type Cards */}
           <div className="grid grid-cols-3 gap-3">
             {CHECK_TYPES.map(type => {
@@ -657,7 +786,15 @@ export default function CheckInView({
                   <div className="text-right shrink-0">
                     <p className="text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300 tabular-nums">{formatTime(c.checked_in_at)}</p>
                     {c.checked_out_at
-                      ? <p className="text-[10px] text-emerald-500 font-medium">ออก {formatTime(c.checked_out_at)}</p>
+                      ? <div className="flex items-center justify-end gap-1.5">
+                          {c.checkout_photo_url && (
+                            <button onClick={() => setShowPhotoLightbox(c.checkout_photo_url)}
+                              className="h-4 w-4 rounded-sm overflow-hidden border border-emerald-300 dark:border-emerald-700 hover:ring-1 hover:ring-emerald-400 transition-all shrink-0">
+                              <img src={c.checkout_photo_url} alt="" className="h-full w-full object-cover" />
+                            </button>
+                          )}
+                          <p className="text-[10px] text-emerald-500 font-medium">ออก {formatTime(c.checked_out_at)}</p>
+                        </div>
                       : <p className="text-[10px] text-zinc-400">กำลังทำงาน</p>
                     }
                   </div>

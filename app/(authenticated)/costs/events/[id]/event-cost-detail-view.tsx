@@ -18,7 +18,7 @@ import {
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLocale } from '@/lib/i18n/context'
-import { createCostItem, updateCostItem, deleteCostItem, updateJobEvent } from '../../actions'
+import { createCostItem, updateCostItem, deleteCostItem, updateJobEvent, syncRevenueFromCRM } from '../../actions'
 import { recreateCostItemFromClaim } from '@/app/(authenticated)/finance/actions'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
 import CostSummaryDashboard from '../../components/cost-summary-dashboard'
@@ -369,6 +369,59 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
         </Card>
       )}
 
+      {/* CRM Revenue Sync Banner (shown when revenue = 0) */}
+      {(jobEvent.revenue === 0 || !jobEvent.revenue) && !editingRevenue && (
+        <Card className="border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/20 shadow-sm">
+          <CardContent className="py-4 px-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-9 w-9 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+                  <DollarSign className="h-4.5 w-4.5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                    {isEn ? 'No revenue set' : 'ยังไม่มีราคาขาย'}
+                  </p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    {isEn ? 'Try syncing from CRM to auto-fill the selling price' : 'ลองดึงราคาขายจาก CRM อัตโนมัติ'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                  disabled={isPending}
+                  onClick={() => {
+                    startTransition(async () => {
+                      const result = await syncRevenueFromCRM(jobEvent.id)
+                      if (result.error) {
+                        alert(result.error)
+                      } else {
+                        setRevenue(String(result.revenue || 0))
+                        router.refresh()
+                      }
+                    })
+                  }}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isPending ? 'animate-spin' : ''}`} />
+                  {isPending ? (isEn ? 'Syncing...' : 'กำลังดึง...') : (isEn ? 'Sync from CRM' : 'ดึงจาก CRM')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-amber-600 dark:text-amber-400"
+                  onClick={() => setEditingRevenue(true)}
+                >
+                  <Edit3 className="h-3.5 w-3.5 mr-1" />
+                  {isEn ? 'Manual' : 'กรอกเอง'}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       {/* Revenue & Cost Summary Dashboard (shared component) */}
       <CostSummaryDashboard
         revenue={jobEvent.revenue || 0}

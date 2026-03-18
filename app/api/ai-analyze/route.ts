@@ -176,25 +176,38 @@ export async function POST(request: NextRequest) {
     },
   }
 
-  // Use model from env, or fallback list
+  // Use model from env as first choice, then fallback to stable models
   const envModel = process.env.GEMINI_MODEL
-  const models = envModel ? [envModel] : ['gemini-2.5-flash-preview-04-17', 'gemini-2.5-flash', 'gemini-1.5-flash']
+  const fallbackModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+  const models = envModel
+    ? [envModel, ...fallbackModels.filter(m => m !== envModel)]
+    : fallbackModels
 
+  const errors: string[] = []
   for (const modelName of models) {
     try {
       // Use streaming endpoint
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`
+      console.log(`[AI] Trying model: ${modelName}`)
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
 
-      if (res.status === 404) continue
-      if (res.status === 429) continue
-      if (!res.ok) continue
-      if (!res.body) continue
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '')
+        const msg = `[AI] Model ${modelName} failed: HTTP ${res.status} - ${errBody.slice(0, 200)}`
+        console.error(msg)
+        errors.push(msg)
+        continue
+      }
+      if (!res.body) {
+        console.error(`[AI] Model ${modelName}: no response body`)
+        continue
+      }
 
+      console.log(`[AI] Model ${modelName} connected successfully, streaming...`)
       // Stream back to client
       const encoder = new TextEncoder()
       const readable = new ReadableStream({
@@ -244,10 +257,21 @@ export async function POST(request: NextRequest) {
           'Connection': 'keep-alive',
         },
       })
-    } catch {
+    } catch (err) {
+      const msg = `[AI] Model ${modelName} exception: ${err instanceof Error ? err.message : String(err)}`
+      console.error(msg)
+      errors.push(msg)
       continue
     }
   }
 
-  return new Response(JSON.stringify({ error: 'ไม่สามารถเชื่อมต่อ Gemini ได้ กรุณาลองใหม่' }), { status: 500 })
+  console.error('[AI] All models failed:', errors)
+  
+  // Check if all errors were quota/rate-limit related
+  const isQuotaError = errors.some(e => e.includes('429') || e.includes('RESOURCE_EXHAUSTED'))
+  const errorMessage = isQuotaError
+    ? 'API quota เต็มแล้ว กรุณาสร้าง API Key ใหม่ที่ Google AI Studio หรือรอ quota reset'
+    : 'ไม่สามารถเชื่อมต่อ Gemini ได้ กรุณาลองใหม่'
+  
+  return new Response(JSON.stringify({ error: errorMessage, details: errors }), { status: isQuotaError ? 429 : 500 })
 }

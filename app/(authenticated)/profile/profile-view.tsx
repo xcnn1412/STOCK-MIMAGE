@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { User, Phone, CreditCard, MapPin, Save, CheckCircle2, AlertTriangle, Building2, Hash, IdCard } from 'lucide-react'
+import { User, Phone, CreditCard, MapPin, Save, CheckCircle2, AlertTriangle, Building2, Hash, IdCard, Lock, Eye, EyeOff, KeyRound } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import BankSelect from '@/components/bank-select'
 import ThaiAddressInput from '@/components/thai-address-input'
 import { parseAddress, serializeAddress, type AddressData } from '@/lib/thai-address'
-import { updateMyProfile } from './actions'
+import { updateMyProfile, changePin } from './actions'
 import { toast } from 'sonner'
 
 interface ProfileData {
@@ -49,6 +49,17 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
   })
   const [saving, setSaving] = useState(false)
 
+  // Change PIN state
+  const [showPinSection, setShowPinSection] = useState(false)
+  const [currentPin, setCurrentPin] = useState('')
+  const [newPin, setNewPin] = useState('')
+  const [confirmPin, setConfirmPin] = useState('')
+  const [pinLoading, setPinLoading] = useState(false)
+  const [pinError, setPinError] = useState('')
+  const [pinSuccess, setPinSuccess] = useState('')
+  const [showCurrentPin, setShowCurrentPin] = useState(false)
+  const [showNewPin, setShowNewPin] = useState(false)
+
   const completionItems = getCompletionItems({
     ...profile,
     full_name: form.full_name,
@@ -85,6 +96,34 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
       toast.error('เกิดข้อผิดพลาด')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleChangePin = async () => {
+    setPinLoading(true)
+    setPinError('')
+    setPinSuccess('')
+    try {
+      const result = await changePin({
+        currentPin,
+        newPin,
+        confirmPin,
+      })
+      if (result?.error) {
+        setPinError(result.error)
+      } else {
+        setPinSuccess('เปลี่ยน PIN สำเร็จ!')
+        setCurrentPin('')
+        setNewPin('')
+        setConfirmPin('')
+        setShowCurrentPin(false)
+        setShowNewPin(false)
+        setTimeout(() => setPinSuccess(''), 5000)
+      }
+    } catch {
+      setPinError('เกิดข้อผิดพลาด')
+    } finally {
+      setPinLoading(false)
     }
   }
 
@@ -263,6 +302,145 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
             </div>
           </div>
         </CardContent>
+      </Card>
+
+      {/* เปลี่ยน PIN */}
+      <Card>
+        <CardHeader className="pb-4 cursor-pointer" onClick={() => setShowPinSection(!showPinSection)}>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Lock className="h-4 w-4 text-zinc-500" />
+            เปลี่ยน PIN เข้าสู่ระบบ
+            <span className="ml-auto text-xs text-zinc-400 font-normal">
+              {showPinSection ? '▼' : '▶'}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        {showPinSection && (
+          <CardContent className="space-y-4">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              PIN ใช้สำหรับเข้าสู่ระบบคู่กับเบอร์โทรศัพท์ (ตัวเลข 6 หลัก)
+            </p>
+
+            {/* Current PIN */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5">
+                <KeyRound className="h-3.5 w-3.5 text-zinc-400" />
+                PIN ปัจจุบัน <span className="text-red-500">*</span>
+              </Label>
+              <div className="relative">
+                <Input
+                  type={showCurrentPin ? 'text' : 'password'}
+                  value={currentPin}
+                  onChange={e => {
+                    const v = e.target.value.replace(/\D/g, '').slice(0, 6)
+                    setCurrentPin(v)
+                  }}
+                  placeholder="●●●●●●"
+                  maxLength={6}
+                  className="font-mono tracking-[0.3em] text-center pr-10"
+                  inputMode="numeric"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPin(!showCurrentPin)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                >
+                  {showCurrentPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* New PIN */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5">
+                <Lock className="h-3.5 w-3.5 text-zinc-400" />
+                PIN ใหม่ <span className="text-red-500">*</span>
+              </Label>
+              <div className="relative">
+                <Input
+                  type={showNewPin ? 'text' : 'password'}
+                  value={newPin}
+                  onChange={e => {
+                    const v = e.target.value.replace(/\D/g, '').slice(0, 6)
+                    setNewPin(v)
+                  }}
+                  placeholder="●●●●●●"
+                  maxLength={6}
+                  className="font-mono tracking-[0.3em] text-center pr-10"
+                  inputMode="numeric"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPin(!showNewPin)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                >
+                  {showNewPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {newPin && newPin.length !== 6 && (
+                <p className="text-[10px] text-amber-500">กรุณากรอกให้ครบ 6 หลัก ({newPin.length}/6)</p>
+              )}
+            </div>
+
+            {/* Confirm New PIN */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5">
+                <Lock className="h-3.5 w-3.5 text-zinc-400" />
+                ยืนยัน PIN ใหม่ <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                type={showNewPin ? 'text' : 'password'}
+                value={confirmPin}
+                onChange={e => {
+                  const v = e.target.value.replace(/\D/g, '').slice(0, 6)
+                  setConfirmPin(v)
+                }}
+                placeholder="●●●●●●"
+                maxLength={6}
+                className="font-mono tracking-[0.3em] text-center"
+                inputMode="numeric"
+              />
+              {confirmPin && newPin && confirmPin !== newPin && (
+                <p className="text-[10px] text-red-500">PIN ไม่ตรงกัน</p>
+              )}
+              {confirmPin && newPin && confirmPin === newPin && confirmPin.length === 6 && (
+                <p className="text-[10px] text-emerald-500">PIN ตรงกัน ✓</p>
+              )}
+            </div>
+
+            {/* Error / Success */}
+            {pinError && (
+              <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 rounded-xl px-4 py-3 border border-red-100 dark:border-red-900/30">
+                <AlertTriangle className="h-4 w-4 shrink-0" /> {pinError}
+              </div>
+            )}
+            {pinSuccess && (
+              <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl px-4 py-3 border border-emerald-100 dark:border-emerald-900/30">
+                <CheckCircle2 className="h-4 w-4 shrink-0" /> {pinSuccess}
+              </div>
+            )}
+
+            {/* Change PIN Button */}
+            <Button
+              onClick={handleChangePin}
+              disabled={pinLoading || !currentPin || newPin.length !== 6 || newPin !== confirmPin}
+              variant="outline"
+              className="w-full border-zinc-300 dark:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+            >
+              {pinLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 border-2 border-zinc-300 border-t-zinc-600 rounded-full animate-spin" />
+                  กำลังเปลี่ยน PIN...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Lock className="h-4 w-4" />
+                  เปลี่ยน PIN
+                </span>
+              )}
+            </Button>
+          </CardContent>
+        )}
       </Card>
 
       {/* Save Button */}

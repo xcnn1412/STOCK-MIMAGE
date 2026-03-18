@@ -1,11 +1,15 @@
 'use client'
 
+import { useState, useTransition } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { DollarSign, TrendingUp, TrendingDown, BarChart3, CalendarDays } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { DollarSign, TrendingUp, TrendingDown, BarChart3, CalendarDays, RefreshCw, AlertTriangle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useLocale } from '@/lib/i18n/context'
 import { getCategoryColor } from '../types'
 import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
+import { bulkSyncRevenueFromCRM } from '../actions'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
 
@@ -14,6 +18,31 @@ const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 0,
 export default function DashboardView({ jobEvents, categories }: { jobEvents: JobEventWithItems[]; categories: FinanceCategory[] }) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
+  // CRM Sync state
+  const missingRevenueCount = jobEvents.filter(e => !e.revenue || e.revenue === 0).length
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<{ syncedCount: number; skippedCount: number } | null>(null)
+
+  const handleBulkSync = async () => {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const result = await bulkSyncRevenueFromCRM()
+      if (result.error) {
+        alert(result.error)
+      } else {
+        setSyncResult({ syncedCount: result.syncedCount || 0, skippedCount: result.skippedCount || 0 })
+        router.refresh()
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาด')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   // สรุปตัวเลข
   const totalRevenue = jobEvents.reduce((sum, e) => sum + (e.revenue || 0), 0)
@@ -40,6 +69,60 @@ export default function DashboardView({ jobEvents, categories }: { jobEvents: Jo
         <h2 className="text-2xl font-bold tracking-tight">{isEn ? 'Costs Dashboard' : 'แดชบอร์ดต้นทุน'}</h2>
         <p className="text-muted-foreground">{isEn ? 'Overview of all event costs and profits' : 'ภาพรวมต้นทุนและกำไรทุกงาน'}</p>
       </div>
+
+      {/* CRM Sync Warning Banner */}
+      {missingRevenueCount > 0 && (
+        <Card className="border border-amber-200 dark:border-amber-800/50 bg-gradient-to-r from-amber-50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/10 shadow-sm">
+          <CardContent className="py-3.5 px-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-9 w-9 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                    {isEn ? `${missingRevenueCount} event${missingRevenueCount > 1 ? 's' : ''} without selling price` : `มี ${missingRevenueCount} รายการยังไม่มีราคาขาย`}
+                  </p>
+                  <p className="text-xs text-amber-600/80 dark:text-amber-400/80">
+                    {isEn ? 'Revenue data may be inaccurate — sync from CRM or enter manually' : 'ข้อมูลกำไรอาจไม่ถูกต้อง — ดึงจาก CRM หรือกรอกเอง'}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30 shrink-0"
+                disabled={syncing}
+                onClick={handleBulkSync}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing
+                  ? (isEn ? 'Syncing...' : 'กำลัง Sync...')
+                  : (isEn ? 'Sync All from CRM' : 'Sync ทั้งหมดจาก CRM')}
+              </Button>
+            </div>
+            {syncResult && (
+              <div className="mt-2.5 flex items-center gap-3 text-xs">
+                {syncResult.syncedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-medium">
+                    <DollarSign className="h-3 w-3" /> Sync สำเร็จ {syncResult.syncedCount} รายการ
+                  </span>
+                )}
+                {syncResult.skippedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-medium">
+                    ไม่พบข้อมูลใน CRM {syncResult.skippedCount} รายการ
+                  </span>
+                )}
+                {syncResult.syncedCount === 0 && syncResult.skippedCount === 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-medium">
+                    ✓ ราคาขายครบถ้วนแล้ว!
+                  </span>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stat Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
