@@ -16,6 +16,7 @@ interface JobEvent {
   event_date: string | null; event_location: string | null
   staff: string | null; revenue: number | null; seller: string | null
   status: string | null
+  revenue_vat_mode: string | null; revenue_wht_rate: number | null
 }
 interface CostItem {
   id: string; job_event_id: string; category: string
@@ -66,6 +67,22 @@ function fmtDate(d: string | null): string {
   return new Date(d).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 function pct(a: number, b: number) { return b > 0 ? (a / b) * 100 : 0 }
+
+/** คำนวณ VAT/WHT จากราคาและ mode */
+function calcRevenueTax(revenue: number, vatMode: string, whtRate: number) {
+  let baseAmount = revenue
+  let vatAmount = 0
+  if (vatMode === 'included') {
+    baseAmount = revenue / 1.07
+    vatAmount = revenue - baseAmount
+  } else if (vatMode === 'excluded') {
+    baseAmount = revenue
+    vatAmount = revenue * 0.07
+  }
+  const whtAmount = baseAmount * (whtRate / 100)
+  const netReceivable = baseAmount + vatAmount - whtAmount
+  return { baseAmount, vatAmount, whtAmount, netReceivable }
+}
 
 // Margin band color
 function marginBand(m: number): string {
@@ -173,10 +190,16 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       const expData = expenseMap.get(je.id) || { total: 0, count: 0, byStatus: {}, paid: 0 }
       const lead = leadMap.get(je.id)
       const ci = checkinByJobEvent.get(je.id) || { count: 0, uniqueStaff: 0, totalHours: 0 }
-      const profit = revenue - costData.total
-      const margin = revenue > 0 ? (profit / revenue) * 100 : 0
       const confirmedPrice = Number(lead?.confirmed_price || 0)
       const quotedPrice = Number(lead?.quoted_price || 0)
+
+      // คำนวณ VAT/WHT จาก revenue
+      const revVatMode = je.revenue_vat_mode || 'none'
+      const revWhtRate = Number(je.revenue_wht_rate || 0)
+      const revTax = calcRevenueTax(revenue, revVatMode, revWhtRate)
+
+      const profit = revenue - costData.total
+      const margin = revenue > 0 ? (profit / revenue) * 100 : 0
 
       return {
         id: je.id,
@@ -187,6 +210,11 @@ export default function OverviewView({ data }: { data: OverviewData }) {
         seller: je.seller || '',
         staff: je.staff || '',
         revenue,
+        revVatMode,
+        revWhtRate,
+        revVatAmount: revTax.vatAmount,
+        revWhtAmount: revTax.whtAmount,
+        revNetReceivable: revTax.netReceivable,
         totalCost: costData.total,
         costByCategory: costData.byCategory,
         profit,
@@ -706,8 +734,10 @@ export default function OverviewView({ data }: { data: OverviewData }) {
                   <th className="px-2 py-3 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ลูกค้า</th>
                   <TH k="revenue" label="ราคาขาย" right sortKey={sortKey} onClick={toggleSort} />
                   <TH k="cost" label="ต้นทุน" right sortKey={sortKey} onClick={toggleSort} />
+                  <th className="px-2 py-3 text-right text-[10px] font-bold text-zinc-400 uppercase tracking-wider whitespace-nowrap">หัก ณ ที่จ่าย</th>
+                  <th className="px-2 py-3 text-right text-[10px] font-bold text-zinc-400 uppercase tracking-wider">VAT</th>
                   <TH k="profit" label="กำไร" right sortKey={sortKey} onClick={toggleSort} />
-                  <TH k="margin" label="Margin" right sortKey={sortKey} onClick={toggleSort} />
+                  <TH k="margin" label="MARGIN" right sortKey={sortKey} onClick={toggleSort} />
                   <TH k="expense" label="เบิกจ่าย" right sortKey={sortKey} onClick={toggleSort} />
                   <TH k="checkin" label="เช็คอิน" sortKey={sortKey} onClick={toggleSort} />
                   <th className="px-2 py-3 text-center text-[10px] font-bold text-zinc-400 uppercase tracking-wider">สถานะ</th>
@@ -729,6 +759,16 @@ export default function OverviewView({ data }: { data: OverviewData }) {
                       <td className="px-2 py-2.5 text-[11px] text-zinc-600 dark:text-zinc-400 truncate max-w-[120px]">{e.customerName || '—'}</td>
                       <td className="px-2 py-2.5 text-right font-mono text-xs font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">฿{fmt(e.revenue)}</td>
                       <td className="px-2 py-2.5 text-right font-mono text-xs text-zinc-500 whitespace-nowrap">฿{fmt(e.totalCost)}</td>
+                      <td className="px-2 py-2.5 text-right font-mono text-xs whitespace-nowrap">
+                        {e.revWhtRate > 0 ? (
+                          <span className="text-amber-600 dark:text-amber-400">-฿{fmt(e.revWhtAmount)}</span>
+                        ) : <span className="text-zinc-300 dark:text-zinc-600">—</span>}
+                      </td>
+                      <td className="px-2 py-2.5 text-right font-mono text-xs whitespace-nowrap">
+                        {e.revVatMode !== 'none' ? (
+                          <span className="text-blue-600 dark:text-blue-400">+฿{fmt(e.revVatAmount)}</span>
+                        ) : <span className="text-zinc-300 dark:text-zinc-600">—</span>}
+                      </td>
                       <td className={`px-2 py-2.5 text-right font-mono text-xs font-bold whitespace-nowrap ${marginBand(e.margin)}`}>
                         {e.profit >= 0 ? '+' : ''}{fmt(e.profit)}
                       </td>
@@ -762,7 +802,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
                     {/* ── Expanded Detail ── */}
                     {isExp && (
                       <tr key={`${e.id}-d`} className="bg-zinc-50/50 dark:bg-zinc-800/20">
-                        <td colSpan={12} className="px-4 py-4">
+                        <td colSpan={14} className="px-4 py-4">
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-3">
                             <div><div className="text-[10px] font-bold text-zinc-400 uppercase mb-0.5">แพ็คเกจ</div><div className="text-zinc-900 dark:text-zinc-100 font-medium">{e.packageName || '—'}</div></div>
                             <div><div className="text-[10px] font-bold text-zinc-400 uppercase mb-0.5">CRM Status</div><div className="text-zinc-900 dark:text-zinc-100 font-medium">{e.leadStatus || '—'}</div></div>

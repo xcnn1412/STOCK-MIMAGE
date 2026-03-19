@@ -46,16 +46,20 @@ export async function importEventFromStock(eventId: string) {
   // ─── ดึงราคาขายจาก CRM Lead ───────────────────────────
   let revenue = 0
   let revenueSource = ''
+  let revenueVatMode = 'none'
+  let revenueWhtRate = 0
 
   // 1. หา CRM lead ที่ link ด้วย event_id
   const { data: leadByEventId } = await supabase
     .from('crm_leads')
-    .select('id, confirmed_price, quoted_price')
+    .select('id, confirmed_price, quoted_price, vat_mode, wht_rate')
     .eq('event_id', eventId)
     .maybeSingle()
 
   if (leadByEventId) {
     revenue = Number(leadByEventId.confirmed_price || leadByEventId.quoted_price || 0)
+    revenueVatMode = leadByEventId.vat_mode || 'none'
+    revenueWhtRate = Number(leadByEventId.wht_rate || 0)
     revenueSource = 'crm_lead_event_id'
   }
 
@@ -63,7 +67,7 @@ export async function importEventFromStock(eventId: string) {
   if (revenue === 0 && event.event_date) {
     const { data: leadByDate } = await supabase
       .from('crm_leads')
-      .select('id, confirmed_price, quoted_price, customer_name')
+      .select('id, confirmed_price, quoted_price, customer_name, vat_mode, wht_rate')
       .eq('event_date', event.event_date)
       .not('confirmed_price', 'is', null)
       .gt('confirmed_price', 0)
@@ -79,10 +83,14 @@ export async function importEventFromStock(eventId: string) {
 
       if (matched) {
         revenue = Number(matched.confirmed_price || matched.quoted_price || 0)
+        revenueVatMode = matched.vat_mode || 'none'
+        revenueWhtRate = Number(matched.wht_rate || 0)
         revenueSource = 'crm_lead_date_match'
       } else if (leadByDate.length === 1) {
         // ถ้ามี lead เดียวในวันนั้น ใช้เลย
         revenue = Number(leadByDate[0].confirmed_price || leadByDate[0].quoted_price || 0)
+        revenueVatMode = leadByDate[0].vat_mode || 'none'
+        revenueWhtRate = Number(leadByDate[0].wht_rate || 0)
         revenueSource = 'crm_lead_date_single'
       }
     }
@@ -99,6 +107,8 @@ export async function importEventFromStock(eventId: string) {
       staff: event.staff,
       seller: (event as any).seller,
       revenue,
+      revenue_vat_mode: revenueVatMode,
+      revenue_wht_rate: revenueWhtRate,
       imported_by: userId,
     })
     .select('id')
@@ -186,18 +196,22 @@ export async function syncRevenueFromCRM(jobEventId: string) {
 
   let revenue = 0
   let matchedLeadName = ''
+  let vatMode = 'none'
+  let whtRate = 0
 
   // 1. Match ด้วย event_id
   if (jobEvent.source_event_id) {
     const { data: lead } = await supabase
       .from('crm_leads')
-      .select('id, confirmed_price, quoted_price, customer_name')
+      .select('id, confirmed_price, quoted_price, customer_name, vat_mode, wht_rate')
       .eq('event_id', jobEvent.source_event_id)
       .maybeSingle()
 
     if (lead && (Number(lead.confirmed_price) > 0 || Number(lead.quoted_price) > 0)) {
       revenue = Number(lead.confirmed_price || lead.quoted_price || 0)
       matchedLeadName = lead.customer_name || ''
+      vatMode = lead.vat_mode || 'none'
+      whtRate = Number(lead.wht_rate || 0)
     }
   }
 
@@ -205,7 +219,7 @@ export async function syncRevenueFromCRM(jobEventId: string) {
   if (revenue === 0 && jobEvent.event_date) {
     const { data: leads } = await supabase
       .from('crm_leads')
-      .select('id, confirmed_price, quoted_price, customer_name')
+      .select('id, confirmed_price, quoted_price, customer_name, vat_mode, wht_rate')
       .eq('event_date', jobEvent.event_date)
       .not('confirmed_price', 'is', null)
       .gt('confirmed_price', 0)
@@ -222,9 +236,13 @@ export async function syncRevenueFromCRM(jobEventId: string) {
       if (matched) {
         revenue = Number(matched.confirmed_price || matched.quoted_price || 0)
         matchedLeadName = matched.customer_name || ''
+        vatMode = matched.vat_mode || 'none'
+        whtRate = Number(matched.wht_rate || 0)
       } else if (leads.length === 1) {
         revenue = Number(leads[0].confirmed_price || leads[0].quoted_price || 0)
         matchedLeadName = leads[0].customer_name || ''
+        vatMode = leads[0].vat_mode || 'none'
+        whtRate = Number(leads[0].wht_rate || 0)
       }
     }
   }
@@ -233,10 +251,10 @@ export async function syncRevenueFromCRM(jobEventId: string) {
     return { error: 'ไม่พบข้อมูลราคาขายจาก CRM ที่ตรงกัน' }
   }
 
-  // อัปเดต revenue
+  // อัปเดต revenue + VAT/WHT
   const { error: updateErr } = await supabase
     .from('job_cost_events')
-    .update({ revenue })
+    .update({ revenue, revenue_vat_mode: vatMode, revenue_wht_rate: whtRate })
     .eq('id', jobEventId)
 
   if (updateErr) return { error: 'เกิดข้อผิดพลาดในการอัปเดต' }
@@ -264,7 +282,7 @@ export async function bulkSyncRevenueFromCRM() {
   // ดึง CRM leads ทั้งหมดที่มี confirmed_price > 0
   const { data: leads } = await supabase
     .from('crm_leads')
-    .select('id, event_id, event_date, confirmed_price, quoted_price, customer_name')
+    .select('id, event_id, event_date, confirmed_price, quoted_price, customer_name, vat_mode, wht_rate')
     .not('confirmed_price', 'is', null)
     .gt('confirmed_price', 0)
 
@@ -277,12 +295,16 @@ export async function bulkSyncRevenueFromCRM() {
 
   for (const event of events) {
     let revenue = 0
+    let vatMode = 'none'
+    let whtRate = 0
 
     // 1. Match by event_id
     if (event.source_event_id) {
       const lead = leads.find(l => l.event_id === event.source_event_id)
       if (lead) {
         revenue = Number(lead.confirmed_price || lead.quoted_price || 0)
+        vatMode = lead.vat_mode || 'none'
+        whtRate = Number(lead.wht_rate || 0)
       }
     }
 
@@ -297,8 +319,12 @@ export async function bulkSyncRevenueFromCRM() {
         })
         if (matched) {
           revenue = Number(matched.confirmed_price || matched.quoted_price || 0)
+          vatMode = matched.vat_mode || 'none'
+          whtRate = Number(matched.wht_rate || 0)
         } else if (dateLeads.length === 1) {
           revenue = Number(dateLeads[0].confirmed_price || dateLeads[0].quoted_price || 0)
+          vatMode = dateLeads[0].vat_mode || 'none'
+          whtRate = Number(dateLeads[0].wht_rate || 0)
         }
       }
     }
@@ -306,7 +332,7 @@ export async function bulkSyncRevenueFromCRM() {
     if (revenue > 0) {
       await supabase
         .from('job_cost_events')
-        .update({ revenue })
+        .update({ revenue, revenue_vat_mode: vatMode, revenue_wht_rate: whtRate })
         .eq('id', event.id)
       syncedCount++
       syncedNames.push(event.event_name)
