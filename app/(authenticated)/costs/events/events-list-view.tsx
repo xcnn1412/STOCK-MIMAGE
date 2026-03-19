@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   CalendarDays, MapPin, TrendingUp, TrendingDown, Trash2, Eye,
-  Users, UserCheck, RefreshCw, AlertTriangle, DollarSign
+  Users, UserCheck, RefreshCw, AlertTriangle, DollarSign, Search, X
 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLocale } from '@/lib/i18n/context'
@@ -62,6 +63,7 @@ export default function EventsListView({ jobEvents }: { jobEvents: JobEventWithI
   const missingRevenueCount = jobEvents.filter(e => !e.revenue || e.revenue === 0).length
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<{ syncedCount: number; skippedCount: number } | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const handleBulkSync = async () => {
     setSyncing(true)
@@ -116,11 +118,31 @@ export default function EventsListView({ jobEvents }: { jobEvents: JobEventWithI
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">{isEn ? 'Event Costs' : 'รายการงาน'}</h2>
-        <p className="text-sm text-muted-foreground">
-          {isEn ? 'All imported events with cost breakdown' : 'รายการอีเวนต์ที่นำเข้าพร้อมสรุปต้นทุน'}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">{isEn ? 'Event Costs' : 'รายการงาน'}</h2>
+          <p className="text-sm text-muted-foreground">
+            {isEn ? 'All imported events with cost breakdown' : 'รายการอีเวนต์ที่นำเข้าพร้อมสรุปต้นทุน'}
+          </p>
+        </div>
+        <div className="relative w-full sm:w-[260px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder={isEn ? 'Search event, location, seller...' : 'ค้นหาชื่องาน, สถานที่, ผู้ขาย...'}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="pl-8 pr-8 h-9 text-sm"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors"
+            >
+              <X className="h-3 w-3 text-zinc-500 dark:text-zinc-400" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── CRM Sync Banner ── */}
@@ -203,7 +225,31 @@ export default function EventsListView({ jobEvents }: { jobEvents: JobEventWithI
         </Card>
       ) : (
         <div className="space-y-3">
-          {aggregated.map((event) => {
+          {(() => {
+            const q = searchQuery.toLowerCase()
+            const displayEvents = q
+              ? aggregated.filter(e =>
+                  (e.event_name || '').toLowerCase().includes(q) ||
+                  (e.event_location || '').toLowerCase().includes(q) ||
+                  (e.seller || '').toLowerCase().includes(q) ||
+                  (e.staff || '').toLowerCase().includes(q)
+                )
+              : aggregated
+
+            if (displayEvents.length === 0 && searchQuery) {
+              return (
+                <Card className="border-0 shadow-sm">
+                  <CardContent className="py-12 text-center text-muted-foreground">
+                    <p>{isEn ? 'No matching events' : 'ไม่พบงานที่ตรงกัน'}</p>
+                    <button onClick={() => setSearchQuery('')} className="mt-2 text-xs text-muted-foreground hover:text-foreground underline transition-colors">
+                      {isEn ? 'Clear search' : 'ล้างการค้นหา'}
+                    </button>
+                  </CardContent>
+                </Card>
+              )
+            }
+
+            return displayEvents.map((event) => {
             const isProfitable = event.profit >= 0
             const costItemCount = event.job_cost_items?.length || 0
 
@@ -284,7 +330,8 @@ export default function EventsListView({ jobEvents }: { jobEvents: JobEventWithI
                 </CardContent>
               </Card>
             )
-          })}
+          })
+          })()}
         </div>
       )}
     </div>

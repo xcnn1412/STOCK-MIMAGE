@@ -1,13 +1,18 @@
 'use client'
 
-import { useState, useMemo, Fragment, useCallback } from 'react'
+import { useState, useMemo, Fragment, useCallback, useEffect } from 'react'
 import {
   LayoutDashboard, Table2, TrendingUp, DollarSign, Users, Calendar,
   MapPin, Download, Search, ChevronDown, ChevronRight, X,
   BarChart3, Zap, UserCheck, Receipt, Percent, ArrowUpRight,
   ArrowDownRight, Target, Banknote, PieChart, Activity, Hash,
-  Bot, Loader2, Sparkles, Send, CheckSquare, Square
+  Bot, Loader2, Sparkles, Send, CheckSquare, Square,
+  History, Trash2, Eye, Clock, Database, ChevronLeft
 } from 'lucide-react'
+import {
+  saveAiAnalysis, getAiAnalysisHistory, getAiAnalysisDetail, deleteAiAnalysis,
+  type AiHistoryRecord
+} from './ai-actions'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -116,6 +121,39 @@ export default function OverviewView({ data }: { data: OverviewData }) {
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiDateFrom, setAiDateFrom] = useState('')
   const [aiDateTo, setAiDateTo] = useState('')
+
+  // AI History state
+  const [showHistory, setShowHistory] = useState(false)
+  const [historyList, setHistoryList] = useState<Omit<AiHistoryRecord, 'ai_result' | 'data_snapshot'>[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [selectedHistory, setSelectedHistory] = useState<AiHistoryRecord | null>(null)
+  const [historyDetailLoading, setHistoryDetailLoading] = useState(false)
+  const [currentDataSnapshot, setCurrentDataSnapshot] = useState<Record<string, unknown> | null>(null)
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true)
+    const res = await getAiAnalysisHistory()
+    setHistoryList(res.data)
+    setHistoryLoading(false)
+  }, [])
+
+  const viewHistoryDetail = useCallback(async (id: string) => {
+    setHistoryDetailLoading(true)
+    const res = await getAiAnalysisDetail(id)
+    if (res.data) setSelectedHistory(res.data)
+    setHistoryDetailLoading(false)
+  }, [])
+
+  const handleDeleteHistory = useCallback(async (id: string) => {
+    if (!confirm('ลบประวัติการวิเคราะห์นี้?')) return
+    await deleteAiAnalysis(id)
+    setHistoryList(prev => prev.filter(h => h.id !== id))
+    if (selectedHistory?.id === id) setSelectedHistory(null)
+  }, [selectedHistory])
+
+  useEffect(() => {
+    if (showHistory && historyList.length === 0) loadHistory()
+  }, [showHistory, historyList.length, loadHistory])
 
   const toggleAiSection = (s: string) => {
     setAiSections(prev => {
@@ -288,33 +326,51 @@ export default function OverviewView({ data }: { data: OverviewData }) {
     setAiLoading(true)
     setAiError(null)
     setAiResult('')
+    setSelectedHistory(null)
     try {
+      const eventPayload = aiFiltered.map(e => ({
+        name: e.name,
+        date: e.date,
+        location: e.location,
+        seller: e.seller,
+        customerName: e.customerName,
+        packageName: e.packageName,
+        revenue: e.revenue,
+        totalCost: e.totalCost,
+        costByCategory: e.costByCategory,
+        profit: e.profit,
+        margin: e.margin,
+        expenseTotal: e.expenseTotal,
+        expenseCount: e.expenseCount,
+        expensePaid: e.expensePaid,
+        checkinCount: e.checkinCount,
+        checkinUniqueStaff: e.checkinUniqueStaff,
+        checkinHours: e.checkinHours,
+        graphicsNames: e.graphicsIds.map(id => getName(id)),
+        staff: e.staff,
+        status: e.status,
+      }))
+
       const payload = {
-        events: aiFiltered.map(e => ({
-          name: e.name,
-          date: e.date,
-          location: e.location,
-          seller: e.seller,
-          customerName: e.customerName,
-          packageName: e.packageName,
-          revenue: e.revenue,
-          totalCost: e.totalCost,
-          costByCategory: e.costByCategory,
-          profit: e.profit,
-          margin: e.margin,
-          expenseTotal: e.expenseTotal,
-          expenseCount: e.expenseCount,
-          expensePaid: e.expensePaid,
-          checkinCount: e.checkinCount,
-          checkinUniqueStaff: e.checkinUniqueStaff,
-          checkinHours: e.checkinHours,
-          graphicsNames: e.graphicsIds.map(id => getName(id)),
-          staff: e.staff,
-          status: e.status,
-        })),
+        events: eventPayload,
         includeSections: Array.from(aiSections),
         customPrompt: aiPrompt,
       }
+
+      // Build data snapshot for history
+      const totalRevenue = aiFiltered.reduce((s, e) => s + e.revenue, 0)
+      const totalCost = aiFiltered.reduce((s, e) => s + e.totalCost, 0)
+      const snapshot = {
+        totalRevenue,
+        totalCost,
+        totalProfit: totalRevenue - totalCost,
+        margin: totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue * 100) : 0,
+        events: eventPayload.map(e => ({
+          name: e.name, date: e.date, seller: e.seller, revenue: e.revenue,
+          totalCost: e.totalCost, profit: e.profit, margin: e.margin,
+        })),
+      }
+      setCurrentDataSnapshot(snapshot)
 
       const res = await fetch('/api/ai-analyze', {
         method: 'POST',
@@ -360,6 +416,19 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       if (!fullText) {
         setAiError('ไม่ได้รับข้อมูลจาก AI')
         setAiResult(null)
+      } else {
+        // Auto-save to history
+        await saveAiAnalysis({
+          eventCount: aiFiltered.length,
+          dateFrom: aiDateFrom,
+          dateTo: aiDateTo,
+          sections: Array.from(aiSections),
+          customPrompt: aiPrompt,
+          dataSnapshot: snapshot,
+          aiResult: fullText,
+        })
+        // Refresh history list if panel is open
+        if (showHistory) loadHistory()
       }
     } catch (err: any) {
       setAiError(err.message || 'เกิดข้อผิดพลาด')
@@ -367,7 +436,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
     } finally {
       setAiLoading(false)
     }
-  }, [aiFiltered, aiSections, aiPrompt])
+  }, [aiFiltered, aiSections, aiPrompt, aiDateFrom, aiDateTo, showHistory, loadHistory])
 
   // ─── Aggregates ─────────────────────────────────────────
   const totals = useMemo(() => {
@@ -879,6 +948,131 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       {/* ═══════════════════ AI ANALYSIS ═══════════════════ */}
       {viewMode === 'ai' && (
       <>
+        {/* History Toggle */}
+        <div className="flex items-center justify-end">
+          <button onClick={() => { setShowHistory(h => !h); if (!showHistory) setSelectedHistory(null) }}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all ${
+              showHistory
+                ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow-sm'
+                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+            }`}>
+            <History className="h-4 w-4" /> ประวัติการวิเคราะห์
+            {historyList.length > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-700 dark:bg-zinc-300 text-white dark:text-zinc-900">{historyList.length}</span>}
+          </button>
+        </div>
+
+        {/* ── History Panel ── */}
+        {showHistory && (
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+                <History className="h-4 w-4 text-zinc-400" /> ประวัติการวิเคราะห์ ({historyList.length})
+              </h3>
+              <button onClick={loadHistory} disabled={historyLoading}
+                className="text-[10px] text-zinc-400 hover:text-zinc-600 transition-colors">
+                {historyLoading ? 'กำลังโหลด...' : 'รีเฟรช'}
+              </button>
+            </div>
+            {historyList.length === 0 ? (
+              <p className="text-xs text-zinc-400 py-4 text-center">{historyLoading ? 'กำลังโหลด...' : 'ยังไม่มีประวัติ'}</p>
+            ) : (
+              <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                {historyList.map(h => (
+                  <div key={h.id}
+                    className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all ${
+                      selectedHistory?.id === h.id
+                        ? 'bg-zinc-100 dark:bg-zinc-800 ring-1 ring-zinc-300 dark:ring-zinc-600'
+                        : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                    }`}
+                    onClick={() => viewHistoryDetail(h.id)}
+                  >
+                    <div className="h-8 w-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
+                      <Bot className="h-3.5 w-3.5 text-zinc-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                          {h.event_count} อีเวนต์
+                        </span>
+                        <span className="text-[10px] text-zinc-400">
+                          {h.sections.length} หมวด
+                        </span>
+                        {h.date_from && (
+                          <span className="text-[10px] text-zinc-400">
+                            {h.date_from}{h.date_to ? ` → ${h.date_to}` : ''}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-zinc-400 flex items-center gap-1">
+                          <Clock className="h-2.5 w-2.5" />
+                          {new Date(h.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        {h.custom_prompt && (
+                          <span className="text-[10px] text-zinc-400 truncate max-w-[200px]" title={h.custom_prompt}>
+                            "{h.custom_prompt}"
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDeleteHistory(h.id) }}
+                      className="h-7 w-7 rounded-lg flex items-center justify-center text-zinc-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Selected History Detail ── */}
+        {selectedHistory && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setSelectedHistory(null)}
+                className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 transition-colors">
+                <ChevronLeft className="h-3.5 w-3.5" /> กลับ
+              </button>
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                ประวัติ: {new Date(selectedHistory.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </h3>
+            </div>
+
+            {/* Data Snapshot */}
+            <DataSnapshotPanel snapshot={selectedHistory.data_snapshot} />
+
+            {/* AI Result */}
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-zinc-400" /> ผลการวิเคราะห์
+                </h3>
+                <span className="text-[10px] text-zinc-400">{selectedHistory.model_used || 'Gemini'}</span>
+              </div>
+              <div className="prose prose-sm dark:prose-invert max-w-none
+                prose-headings:text-zinc-900 dark:prose-headings:text-zinc-100
+                prose-h2:text-base prose-h2:font-bold prose-h2:mt-6 prose-h2:mb-2
+                prose-h3:text-sm prose-h3:font-bold prose-h3:mt-4 prose-h3:mb-1
+                prose-p:text-xs prose-p:text-zinc-600 dark:prose-p:text-zinc-400 prose-p:leading-relaxed
+                prose-li:text-xs prose-li:text-zinc-600 dark:prose-li:text-zinc-400
+                prose-strong:text-zinc-900 dark:prose-strong:text-zinc-100
+                prose-table:text-xs
+                prose-th:text-[10px] prose-th:font-bold prose-th:text-zinc-400 prose-th:uppercase
+                prose-td:py-1 prose-td:text-zinc-600 dark:prose-td:text-zinc-400
+                [&_table]:border-collapse [&_th]:border [&_th]:border-zinc-200 [&_th]:dark:border-zinc-700 [&_th]:px-2 [&_th]:py-1
+                [&_td]:border [&_td]:border-zinc-200 [&_td]:dark:border-zinc-700 [&_td]:px-2
+              ">
+                <AiMarkdown content={selectedHistory.ai_result} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Main AI Controls (only when NOT viewing history detail) ── */}
+        {!selectedHistory && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Left: Controls */}
           <div className="space-y-4">
@@ -981,6 +1175,11 @@ export default function OverviewView({ data }: { data: OverviewData }) {
               </div>
             )}
 
+            {/* Data Snapshot for current analysis */}
+            {currentDataSnapshot && aiResult && (
+              <DataSnapshotPanel snapshot={currentDataSnapshot} />
+            )}
+
             {/* Result */}
             {aiResult && (
               <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-6">
@@ -988,7 +1187,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
                   <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-zinc-400" /> ผลการวิเคราะห์
                   </h3>
-                  <span className="text-[10px] text-zinc-400">Powered by Gemini 2.5 Flash</span>
+                  <span className="text-[10px] text-zinc-400">Powered by Gemini 2.5 Flash · บันทึกอัตโนมัติ ✓</span>
                 </div>
                 <div className="prose prose-sm dark:prose-invert max-w-none
                   prose-headings:text-zinc-900 dark:prose-headings:text-zinc-100
@@ -1018,6 +1217,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
             )}
           </div>
         </div>
+        )}
       </>
       )}
     </div>
@@ -1138,4 +1338,93 @@ function AiMarkdown({ content }: { content: string }) {
   if (inTable) flushTable()
 
   return <>{elements}</>
+}
+
+// Data Snapshot Panel — shows data that was sent to AI
+function DataSnapshotPanel({ snapshot }: { snapshot: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false)
+  const s = snapshot as {
+    totalRevenue?: number; totalCost?: number; totalProfit?: number; margin?: number
+    events?: { name: string; date: string | null; seller: string; revenue: number; totalCost: number; profit: number; margin: number }[]
+  }
+  const events = s.events || []
+
+  return (
+    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 overflow-hidden">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between p-5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors"
+      >
+        <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+          <Database className="h-4 w-4 text-zinc-400" /> ข้อมูลที่ส่งให้ AI วิเคราะห์
+        </h3>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] text-zinc-400">{events.length} อีเวนต์</span>
+          {expanded
+            ? <ChevronDown className="h-4 w-4 text-zinc-400" />
+            : <ChevronRight className="h-4 w-4 text-zinc-400" />}
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-5 pb-5 space-y-4 border-t border-zinc-100 dark:border-zinc-800 pt-4">
+          {/* Summary KPIs */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'รายรับรวม', value: s.totalRevenue || 0, color: 'text-zinc-900 dark:text-zinc-100' },
+              { label: 'ต้นทุนรวม', value: s.totalCost || 0, color: 'text-red-500 dark:text-red-400' },
+              { label: 'กำไรรวม', value: s.totalProfit || 0, color: (s.totalProfit || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400' },
+              { label: 'Margin %', value: s.margin || 0, color: 'text-zinc-700 dark:text-zinc-300', isFmt: true },
+            ].map(item => (
+              <div key={item.label} className="bg-zinc-50 dark:bg-zinc-800/50 rounded-xl p-3">
+                <div className="text-[10px] text-zinc-400 uppercase tracking-wider font-bold mb-0.5">{item.label}</div>
+                <div className={`text-sm font-bold font-mono ${item.color}`}>
+                  {item.isFmt ? `${item.value.toFixed(1)}%` : `฿${item.value.toLocaleString('th-TH', { maximumFractionDigits: 0 })}`}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Events table */}
+          {events.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[10px] text-zinc-400 uppercase tracking-wider border-b border-zinc-100 dark:border-zinc-800">
+                    <th className="py-2 text-left">#</th>
+                    <th className="py-2 text-left">อีเวนต์</th>
+                    <th className="py-2 text-left">วันที่</th>
+                    <th className="py-2 text-left">เซล</th>
+                    <th className="py-2 text-right">ราคาขาย</th>
+                    <th className="py-2 text-right">ต้นทุน</th>
+                    <th className="py-2 text-right">กำไร</th>
+                    <th className="py-2 text-right">Margin</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
+                  {events.map((ev, i) => (
+                    <tr key={i} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
+                      <td className="py-1.5 text-zinc-400">{i + 1}</td>
+                      <td className="py-1.5 font-medium text-zinc-900 dark:text-zinc-100 max-w-[180px] truncate">{ev.name}</td>
+                      <td className="py-1.5 text-zinc-500 whitespace-nowrap">
+                        {ev.date ? new Date(ev.date).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
+                      </td>
+                      <td className="py-1.5 text-zinc-600 dark:text-zinc-400">{ev.seller || '—'}</td>
+                      <td className="py-1.5 text-right font-mono font-bold text-zinc-900 dark:text-zinc-100">฿{ev.revenue.toLocaleString('th-TH', { maximumFractionDigits: 0 })}</td>
+                      <td className="py-1.5 text-right font-mono text-zinc-500">฿{ev.totalCost.toLocaleString('th-TH', { maximumFractionDigits: 0 })}</td>
+                      <td className={`py-1.5 text-right font-mono font-bold ${ev.profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>
+                        {ev.profit >= 0 ? '+' : ''}฿{ev.profit.toLocaleString('th-TH', { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className={`py-1.5 text-right font-mono font-bold ${ev.margin >= 40 ? 'text-emerald-600 dark:text-emerald-400' : ev.margin >= 20 ? 'text-zinc-700 dark:text-zinc-300' : ev.margin >= 0 ? 'text-amber-600 dark:text-amber-400' : 'text-red-500 dark:text-red-400'}`}>
+                        {ev.margin.toFixed(0)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }

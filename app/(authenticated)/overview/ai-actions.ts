@@ -1,11 +1,13 @@
 'use server'
 
 import { cookies } from 'next/headers'
+import { createServiceClient } from '@/lib/supabase-server'
 
 async function getSession() {
   const cookieStore = await cookies()
   const role = cookieStore.get('session_role')?.value || 'staff'
-  return { role }
+  const userId = cookieStore.get('session_user')?.value || ''
+  return { role, userId }
 }
 
 const COST_LABELS: Record<string, string> = {
@@ -172,7 +174,7 @@ function buildDataPayload(req: AiAnalysisRequest): string {
 }
 
 export async function analyzeOverview(req: AiAnalysisRequest): Promise<{ success: boolean; result?: string; error?: string }> {
-  const { role } = await getSession()
+  const { role } = await getSession() // eslint-disable-line @typescript-eslint/no-unused-vars -- used below
   if (role !== 'admin') return { success: false, error: 'Unauthorized' }
 
   const apiKey = process.env.GEMINI_API_KEY
@@ -275,4 +277,99 @@ export async function analyzeOverview(req: AiAnalysisRequest): Promise<{ success
     }
     return { success: false, error: msg }
   }
+}
+
+// ============================================================================
+// AI Analysis History — CRUD
+// ============================================================================
+
+export interface AiHistoryRecord {
+  id: string
+  created_at: string
+  event_count: number
+  date_from: string | null
+  date_to: string | null
+  sections: string[]
+  custom_prompt: string | null
+  data_snapshot: Record<string, unknown>
+  ai_result: string
+  model_used: string | null
+}
+
+export async function saveAiAnalysis(params: {
+  eventCount: number
+  dateFrom: string
+  dateTo: string
+  sections: string[]
+  customPrompt: string
+  dataSnapshot: Record<string, unknown>
+  aiResult: string
+  modelUsed?: string
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  const { role, userId } = await getSession()
+  if (role !== 'admin') return { success: false, error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('ai_analysis_history')
+    .insert({
+      created_by: userId,
+      event_count: params.eventCount,
+      date_from: params.dateFrom || null,
+      date_to: params.dateTo || null,
+      sections: params.sections,
+      custom_prompt: params.customPrompt || null,
+      data_snapshot: params.dataSnapshot,
+      ai_result: params.aiResult,
+      model_used: params.modelUsed || null,
+    })
+    .select('id')
+    .single()
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, id: data.id }
+}
+
+export async function getAiAnalysisHistory(): Promise<{ data: Omit<AiHistoryRecord, 'ai_result' | 'data_snapshot'>[]; error?: string }> {
+  const { role } = await getSession()
+  if (role !== 'admin') return { data: [], error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('ai_analysis_history')
+    .select('id, created_at, event_count, date_from, date_to, sections, custom_prompt, model_used')
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) return { data: [], error: error.message }
+  return { data: (data || []) as Omit<AiHistoryRecord, 'ai_result' | 'data_snapshot'>[] }
+}
+
+export async function getAiAnalysisDetail(id: string): Promise<{ data: AiHistoryRecord | null; error?: string }> {
+  const { role } = await getSession()
+  if (role !== 'admin') return { data: null, error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('ai_analysis_history')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error) return { data: null, error: error.message }
+  return { data: data as AiHistoryRecord }
+}
+
+export async function deleteAiAnalysis(id: string): Promise<{ success: boolean; error?: string }> {
+  const { role } = await getSession()
+  if (role !== 'admin') return { success: false, error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { error } = await supabase
+    .from('ai_analysis_history')
+    .delete()
+    .eq('id', id)
+
+  if (error) return { success: false, error: error.message }
+  return { success: true }
 }

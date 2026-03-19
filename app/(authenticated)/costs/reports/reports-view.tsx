@@ -6,8 +6,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import {
-  TrendingUp, TrendingDown, BarChart3, Users, UserCheck, CalendarDays
+  TrendingUp, TrendingDown, BarChart3, Users, UserCheck, CalendarDays, Search, X
 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { useLocale } from '@/lib/i18n/context'
 import { getCategoryColor } from '../types'
 import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
@@ -74,6 +75,7 @@ export default function ReportsView({
   const { locale } = useLocale()
   const isEn = locale === 'en'
   const [selectedMonth, setSelectedMonth] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const monthOptions = getMonthOptions(12)
   const importedSet = new Set(importedIds)
@@ -282,19 +284,67 @@ export default function ReportsView({
       {/* Event Comparison Table */}
       <Card className="border-0 shadow-sm overflow-hidden">
         <CardHeader className="bg-zinc-50/50 dark:bg-zinc-900/30">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="h-4 w-4 text-zinc-400" />
-            {isEn ? 'Event Comparison' : 'เปรียบเทียบงาน'}
-          </CardTitle>
-          <CardDescription>{rows.length} {isEn ? 'events' : 'งาน'}</CardDescription>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Users className="h-4 w-4 text-zinc-400" />
+                {isEn ? 'Event Comparison' : 'เปรียบเทียบงาน'}
+              </CardTitle>
+              <CardDescription>
+                {(() => {
+                  const q = searchQuery.toLowerCase()
+                  const filtered = q
+                    ? rows.filter(r =>
+                        (r.event_name || '').toLowerCase().includes(q) ||
+                        (r.seller || '').toLowerCase().includes(q) ||
+                        (r.staff || '').toLowerCase().includes(q)
+                      )
+                    : rows
+                  return `${filtered.length} ${isEn ? 'events' : 'งาน'}`
+                })()}
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:w-[240px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder={isEn ? 'Search event, seller, staff...' : 'ค้นหาชื่องาน, ผู้ขาย, ทีมงาน...'}
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="pl-8 pr-8 h-9 text-sm"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors"
+                >
+                  <X className="h-3 w-3 text-zinc-500 dark:text-zinc-400" />
+                </button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
-          {rows.length === 0 ? (
+          {(() => {
+            const q = searchQuery.toLowerCase()
+            const displayRows = q
+              ? rows.filter(r =>
+                  (r.event_name || '').toLowerCase().includes(q) ||
+                  (r.seller || '').toLowerCase().includes(q) ||
+                  (r.staff || '').toLowerCase().includes(q)
+                )
+              : rows
+            return displayRows.length === 0 ? (
             <div className="text-center py-12 px-4">
               <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
                 <BarChart3 className="h-7 w-7 text-zinc-400" />
               </div>
-              <p className="text-sm text-muted-foreground">{isEn ? 'No events to compare' : 'ไม่มีงานให้เปรียบเทียบ'}</p>
+              <p className="text-sm text-muted-foreground">{isEn ? (searchQuery ? 'No matching events' : 'No events to compare') : (searchQuery ? 'ไม่พบงานที่ตรงกัน' : 'ไม่มีงานให้เปรียบเทียบ')}</p>
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="mt-2 text-xs text-muted-foreground hover:text-foreground underline transition-colors">
+                  {isEn ? 'Clear search' : 'ล้างการค้นหา'}
+                </button>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -314,7 +364,7 @@ export default function ReportsView({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map(row => (
+                  {displayRows.map(row => (
                     <TableRow key={row.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
                       <TableCell className="font-medium max-w-[200px] truncate">{row.event_name}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{formatDate(row.event_date)}</TableCell>
@@ -358,7 +408,8 @@ export default function ReportsView({
                 </TableBody>
               </Table>
             </div>
-          )}
+          )
+          })()}
         </CardContent>
       </Card>
     </div>
