@@ -17,6 +17,7 @@ import { NAV_GROUPS, type NavGroup } from '@/lib/nav-config'
 
 // Module accent colors
 const moduleAccents: Record<string, { color: string; bg: string; activeBg: string }> = {
+    overview: { color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-950/30', activeBg: 'bg-indigo-50 dark:bg-indigo-950/30' },
     stock: { color: 'text-zinc-700 dark:text-zinc-300', bg: 'bg-zinc-100 dark:bg-zinc-800', activeBg: 'bg-zinc-100 dark:bg-zinc-800/80' },
     events: { color: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-50 dark:bg-sky-950/30', activeBg: 'bg-sky-50 dark:bg-sky-950/30' },
     kpi: { color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/30', activeBg: 'bg-amber-50 dark:bg-amber-950/30' },

@@ -26,6 +26,7 @@ export const NAV_GROUPS: NavGroup[] = [
     adminOnly: true,
     items: [
       { href: '/overview', icon: Eye, labelKey: 'overview', exact: true },
+      { href: '/overview/goals', icon: Target, labelKey: 'overviewGoals' },
     ],
   },
   {

@@ -40,6 +40,7 @@ export const dictionary = {
       checkinReport: 'Report',
 
       overview: 'Overview',
+      overviewGoals: 'Goals',
     },
     navGroups: {
       crm: 'CRM',
@@ -300,6 +301,7 @@ export const dictionary = {
       checkinReport: 'รายงาน',
 
       overview: 'ภาพรวม',
+      overviewGoals: 'เป้าหมาย',
     },
     navGroups: {
       crm: 'CRM',

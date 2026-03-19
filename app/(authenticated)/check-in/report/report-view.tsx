@@ -7,7 +7,7 @@ import {
   ArrowLeft, Calendar, Clock, Users, Building2, MapPin, Home,
   TrendingUp, BarChart3, UserCheck, AlertTriangle, Download,
   ChevronDown, ChevronRight, Eye, Search, Filter, X,
-  Settings, Timer, Zap, LayoutDashboard, Table2
+  Settings, Timer, Zap, LayoutDashboard, Table2, ExternalLink, Navigation
 } from 'lucide-react'
 import { getCheckinReportData, updateStaffWorkSettings } from '../actions'
 
@@ -96,6 +96,7 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
   const [expandedStaff, setExpandedStaff] = useState<Set<string>>(new Set())
   const [showPhotoLightbox, setShowPhotoLightbox] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showMapPopup, setShowMapPopup] = useState<{ userId: string; name: string; locations: { lat: number; lng: number; date: string; time: string; type: string }[] } | null>(null)
 
   // ─── Work Settings (configurable) ──────────────────────────
   const [standardHoursPerDay, setStandardHoursPerDay] = useState(8)
@@ -502,6 +503,7 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                 <th className="px-4 py-3 text-center text-[10px] font-bold text-zinc-400 uppercase tracking-wider">OT</th>
                 <th className="px-4 py-3 text-center text-[10px] font-bold text-zinc-400 uppercase tracking-wider">สาย</th>
                 <th className="px-4 py-3 text-center text-[10px] font-bold text-zinc-400 uppercase tracking-wider">เฉลี่ย/วัน</th>
+                <th className="px-4 py-3 text-center text-[10px] font-bold text-zinc-400 uppercase tracking-wider">แผนที่</th>
                 <th className="px-4 py-3 text-center text-[10px] font-bold text-zinc-400 uppercase tracking-wider">สถานะ</th>
               </tr>
             </thead>
@@ -566,6 +568,44 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                     </td>
                     <td className="px-4 py-3 text-center font-mono text-zinc-600 dark:text-zinc-400 text-xs">{avgPerDay.toFixed(1)} ชม.</td>
                     <td className="px-4 py-3 text-center">
+                      {(() => {
+                        const locations = member.records
+                          .filter(r => r.latitude && r.longitude)
+                          .map(r => ({
+                            lat: r.latitude!,
+                            lng: r.longitude!,
+                            date: formatDate(r.checked_in_at),
+                            time: formatTime(r.checked_in_at),
+                            type: TYPE_LABELS[r.check_type] || r.check_type,
+                          }))
+                        if (locations.length === 0) return <span className="text-zinc-300 dark:text-zinc-600">—</span>
+                        const latest = locations[locations.length - 1]
+                        if (locations.length === 1) {
+                          return (
+                            <a
+                              href={`https://www.google.com/maps?q=${latest.lat},${latest.lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors border border-emerald-200/50 dark:border-emerald-800/50"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <MapPin className="h-3 w-3" />
+                              ดูแผนที่
+                            </a>
+                          )
+                        }
+                        return (
+                          <button
+                            onClick={() => setShowMapPopup({ userId: member.userId, name: member.name, locations })}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors border border-emerald-200/50 dark:border-emerald-800/50"
+                          >
+                            <MapPin className="h-3 w-3" />
+                            {locations.length} จุด
+                          </button>
+                        )
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-center">
                       {diff >= 0 ? (
                         <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
                           +{diff.toFixed(1)}ชม.
@@ -603,7 +643,7 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                     })()}
                   </td>
                   <td className="px-4 py-3 text-center font-mono text-zinc-500">{overviewStats.lateCount}</td>
-                  <td className="px-4 py-3 text-center" colSpan={2} />
+                  <td className="px-4 py-3 text-center" colSpan={3} />
                 </tr>
               )}
             </tbody>
@@ -894,6 +934,71 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
           </div>
         )
       })()}
+
+      {/* Map Locations Popup */}
+      {showMapPopup && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowMapPopup(null)}>
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col"
+            onClick={e => e.stopPropagation()}>
+            {/* Popup Header */}
+            <div className="flex items-center justify-between p-5 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <Navigation className="h-4 w-4 text-emerald-500" />
+                  ตำแหน่ง Check-in
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">{showMapPopup.name} · {showMapPopup.locations.length} จุด</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`https://www.google.com/maps/dir/${showMapPopup.locations.map(l => `${l.lat},${l.lng}`).join('/')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="h-8 px-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold flex items-center gap-1.5 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors border border-emerald-200/50 dark:border-emerald-800/50"
+                >
+                  <Navigation className="h-3 w-3" />
+                  ดูทั้งหมด
+                </a>
+                <button onClick={() => setShowMapPopup(null)}
+                  className="h-8 w-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors">
+                  <X className="h-4 w-4 text-zinc-500" />
+                </button>
+              </div>
+            </div>
+            {/* Popup Body */}
+            <div className="overflow-y-auto p-3 space-y-1.5">
+              {showMapPopup.locations.map((loc, idx) => (
+                <a
+                  key={idx}
+                  href={`https://www.google.com/maps?q=${loc.lat},${loc.lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors group"
+                >
+                  <div className="h-8 w-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/40 transition-colors">
+                    <MapPin className="h-3.5 w-3.5 text-emerald-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                      {loc.date} · {loc.time}
+                    </div>
+                    <div className="text-[10px] text-zinc-400 font-mono truncate">
+                      {loc.lat.toFixed(6)}, {loc.lng.toFixed(6)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
+                      {loc.type}
+                    </span>
+                    <ExternalLink className="h-3.5 w-3.5 text-zinc-300 dark:text-zinc-600 group-hover:text-emerald-500 transition-colors" />
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Photo Lightbox */}
       {showPhotoLightbox && (
