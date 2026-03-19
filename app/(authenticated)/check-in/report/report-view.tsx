@@ -21,6 +21,8 @@ interface CheckinRecord {
   note: string | null
   photo_url: string | null
   event_id: string | null
+  latitude: number | null
+  longitude: number | null
   profiles: { id: string; full_name: string | null; nickname: string | null } | null
   events: { id: string; name: string } | null
 }
@@ -232,7 +234,7 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
 
   // CSV Export
   function exportCSV() {
-    const header = 'ชื่อ,วันที่,เวลาเข้า,เวลาออก,ชั่วโมง,ประเภท,หมายเหตุ\n'
+    const header = 'ชื่อ,วันที่,เวลาเข้า,เวลาออก,ชั่วโมง,ประเภท,ตำแหน่ง,หมายเหตุ\n'
     const rows = filteredRecords.map(r => {
       const name = r.profiles?.full_name || ''
       const date = new Date(r.checked_in_at).toLocaleDateString('th-TH')
@@ -240,8 +242,9 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
       const outTime = r.checked_out_at ? formatTime(r.checked_out_at) : ''
       const hours = diffHours(r.checked_in_at, r.checked_out_at).toFixed(1)
       const type = TYPE_LABELS[r.check_type] || r.check_type
+      const location = r.latitude && r.longitude ? `${r.latitude.toFixed(6)} ${r.longitude.toFixed(6)}` : ''
       const note = (r.note || '').replace(/,/g, ' ')
-      return `${name},${date},${inTime},${outTime},${hours},${type},${note}`
+      return `${name},${date},${inTime},${outTime},${hours},${type},${location},${note}`
     }).join('\n')
 
     const blob = new Blob(['\ufeff' + header + rows], { type: 'text/csv;charset=utf-8;' })
@@ -678,6 +681,7 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ออก</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ชั่วโมง</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ประเภท</th>
+                          <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ตำแหน่ง</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">รูป</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">หมายเหตุ</th>
                         </tr>
@@ -707,6 +711,22 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                                 <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 uppercase tracking-wide">
                                   {TYPE_LABELS[r.check_type] || r.check_type}
                                 </span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                {r.latitude && r.longitude ? (
+                                  <a
+                                    href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+                                    onClick={e => e.stopPropagation()}
+                                  >
+                                    <MapPin className="h-3 w-3" />
+                                    ดูแผนที่
+                                  </a>
+                                ) : (
+                                  <span className="text-zinc-300 dark:text-zinc-600">—</span>
+                                )}
                               </td>
                               <td className="px-4 py-2.5">
                                 {r.photo_url ? (
