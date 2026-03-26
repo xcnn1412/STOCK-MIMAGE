@@ -100,6 +100,10 @@ export type ActionType =
     // Event ↔ CRM Linking
     | 'LINK_EVENT_TO_CRM'
     | 'UNLINK_EVENT_FROM_CRM'
+    // Cost ↔ CRM Sync
+    | 'SYNC_REVENUE_FROM_CRM'
+    | 'LINK_COST_EVENT_TO_CRM'
+    | 'UNLINK_COST_EVENT_FROM_CRM'
     // User Profile
     | 'UPDATE_USER_PROFILE'
     | 'UPDATE_MY_PROFILE'

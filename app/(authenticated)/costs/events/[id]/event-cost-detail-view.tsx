@@ -13,12 +13,13 @@ import {
   DollarSign, Plus, Trash2, Edit3, CalendarDays, MapPin,
   Check, ArrowLeft, Users, Car, Package, UtensilsCrossed,
   Building2, Megaphone, MoreHorizontal, Receipt, Percent,
-  Clock, CheckCircle2, XCircle, Banknote, ExternalLink, RefreshCw
+  Clock, CheckCircle2, XCircle, Banknote, ExternalLink, RefreshCw,
+  Link as LinkIcon, Unlink as UnlinkIcon, Search
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLocale } from '@/lib/i18n/context'
-import { createCostItem, updateCostItem, deleteCostItem, updateJobEvent, syncRevenueFromCRM } from '../../actions'
+import { createCostItem, updateCostItem, deleteCostItem, updateJobEvent, syncRevenueFromCRM, searchCRMLeadsForLink, linkCostEventToCRM, unlinkCostEventFromCRM } from '../../actions'
 import { recreateCostItemFromClaim } from '@/app/(authenticated)/finance/actions'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
 import CostSummaryDashboard from '../../components/cost-summary-dashboard'
@@ -87,6 +88,10 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
   const [revenueVatMode, setRevenueVatMode] = useState(jobEvent.revenue_vat_mode || 'none')
   const [revenueWhtRate, setRevenueWhtRate] = useState(String(jobEvent.revenue_wht_rate || 0))
   const [editingItem, setEditingItem] = useState<JobCostItem | null>(null)
+  const [showLinkDialog, setShowLinkDialog] = useState(false)
+  const [linkSearchQuery, setLinkSearchQuery] = useState('')
+  const [linkSearchResults, setLinkSearchResults] = useState<any[]>([])
+  const [linkSearching, setLinkSearching] = useState(false)
   const router = useRouter()
   const { locale } = useLocale()
   const isEn = locale === 'en'
@@ -243,6 +248,89 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
           </Badge>
         </div>
       </div>
+
+      {/* CRM Link Section */}
+      <Card className="border border-zinc-200 dark:border-zinc-700 shadow-sm">
+        <CardContent className="py-4 px-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${(jobEvent as any).linked_lead_id ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-zinc-100 dark:bg-zinc-800'}`}>
+                <LinkIcon className={`h-4.5 w-4.5 ${(jobEvent as any).linked_lead_id ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`} />
+              </div>
+              <div className="min-w-0">
+                {(jobEvent as any).linked_lead_id ? (
+                  <>
+                    <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                      {isEn ? 'Linked to CRM Lead' : 'เชื่อมกับ CRM Lead แล้ว'}
+                    </p>
+                    <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70 font-mono">
+                      ID: {(jobEvent as any).linked_lead_id.substring(0, 8)}...
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300">
+                      {isEn ? 'Not linked to CRM' : 'ยังไม่เชื่อมกับ CRM Lead'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {isEn ? 'Link to auto-sync revenue from CRM' : 'เชื่อมเพื่อดึงราคาขายจาก CRM อัตโนมัติ'}
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {(jobEvent as any).linked_lead_id ? (
+                <>
+                  <a
+                    href={`/crm/${(jobEvent as any).linked_lead_id}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 transition-colors"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    {isEn ? 'View Lead' : 'ดู CRM Lead'}
+                  </a>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-zinc-400 hover:text-red-500"
+                    disabled={isPending}
+                    onClick={() => {
+                      if (!confirm(isEn ? 'Unlink this CRM Lead?' : 'ยกเลิกการเชื่อมกับ CRM Lead?')) return
+                      startTransition(async () => {
+                        await unlinkCostEventFromCRM(jobEvent.id)
+                        router.refresh()
+                      })
+                    }}
+                  >
+                    <UnlinkIcon className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-zinc-300 dark:border-zinc-600"
+                  onClick={() => {
+                    setShowLinkDialog(true)
+                    setLinkSearchQuery('')
+                    setLinkSearchResults([])
+                    // Auto-search on open
+                    setLinkSearching(true)
+                    searchCRMLeadsForLink('').then(r => {
+                      setLinkSearchResults(r.data || [])
+                      setLinkSearching(false)
+                    })
+                  }}
+                >
+                  <LinkIcon className="h-3.5 w-3.5 mr-1.5" />
+                  {isEn ? 'Link CRM Lead' : 'เชื่อม CRM Lead'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
 
 
       {/* Revenue Editing Panel (shown when editing) */}
@@ -755,6 +843,102 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
           }}
         />
       )}
+
+      {/* Link CRM Lead Dialog */}
+      <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LinkIcon className="h-4 w-4" />
+              {isEn ? 'Link CRM Lead' : 'เชื่อม CRM Lead'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder={isEn ? 'Search customer name...' : 'ค้นหาชื่อลูกค้า...'}
+                value={linkSearchQuery}
+                onChange={(e) => {
+                  const q = e.target.value
+                  setLinkSearchQuery(q)
+                  setLinkSearching(true)
+                  const timeout = setTimeout(() => {
+                    searchCRMLeadsForLink(q).then(r => {
+                      setLinkSearchResults(r.data || [])
+                      setLinkSearching(false)
+                    })
+                  }, 300)
+                  return () => clearTimeout(timeout)
+                }}
+              />
+            </div>
+            {/* Results */}
+            <div className="max-h-[360px] overflow-y-auto space-y-1">
+              {linkSearching ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  <RefreshCw className="h-4 w-4 animate-spin inline mr-2" />
+                  {isEn ? 'Searching...' : 'กำลังค้นหา...'}
+                </div>
+              ) : linkSearchResults.length === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  {isEn ? 'No CRM leads found' : 'ไม่พบ CRM Lead'}
+                </div>
+              ) : (
+                linkSearchResults.map((lead: any) => (
+                  <button
+                    key={lead.id}
+                    className="w-full text-left px-4 py-3 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors group"
+                    disabled={isPending}
+                    onClick={() => {
+                      startTransition(async () => {
+                        const result = await linkCostEventToCRM(jobEvent.id, lead.id)
+                        if (result.error) {
+                          alert(result.error)
+                        } else {
+                          if (result.revenue) setRevenue(String(result.revenue))
+                          setShowLinkDialog(false)
+                          router.refresh()
+                        }
+                      })
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate group-hover:text-emerald-600 transition-colors">
+                          {lead.customer_name}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {lead.event_date && (
+                            <span className="text-xs text-muted-foreground">
+                              📅 {formatDate(lead.event_date)}
+                            </span>
+                          )}
+                          {lead.package_name && (
+                            <span className="text-xs text-muted-foreground">• {lead.package_name}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-bold font-mono">
+                          ฿{fmt(Number(lead.confirmed_price || lead.quoted_price || 0))}
+                        </p>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                          lead.confirmed_price > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                        }`}>
+                          {lead.confirmed_price > 0 ? (isEn ? 'Confirmed' : 'ยืนยัน') : (isEn ? 'Quoted' : 'เสนอ')}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

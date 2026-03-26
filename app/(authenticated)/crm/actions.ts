@@ -561,7 +561,7 @@ export async function createEventFromLead(leadId: string) {
   if (leadErr || !lead) return { error: 'ไม่พบข้อมูล Lead' }
   if (lead.event_id) return { error: 'Lead นี้เปิดอีเวนต์แล้ว' }
 
-  // Create job_cost_events
+  // Create job_cost_events (with bidirectional link)
   const { data: event, error: eventErr } = await supabase
     .from('job_cost_events')
     .insert({
@@ -570,6 +570,9 @@ export async function createEventFromLead(leadId: string) {
       event_location: lead.event_location,
       staff: null,
       revenue: lead.confirmed_price || lead.quoted_price || 0,
+      revenue_vat_mode: lead.vat_mode || 'none',
+      revenue_wht_rate: Number(lead.wht_rate || 0),
+      linked_lead_id: leadId,
       status: 'draft',
       notes: lead.notes,
       imported_by: userId,
