@@ -739,7 +739,6 @@ export interface Database {
           }
         ]
       }
-    }
       crm_lead_staff: {
         Row: {
           id: string
