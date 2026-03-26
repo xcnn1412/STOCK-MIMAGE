@@ -1,5 +1,7 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server'
+import { createServiceClient } from '@/lib/supabase-server'
 import CreateEventForm from './create-event-form'
+import { getCrmSettings } from '../../crm/actions'
 
 export const revalidate = 0
 
@@ -23,39 +25,59 @@ export default async function NewEventPage({ searchParams }: PageProps) {
     .select('id, full_name, role')
     .order('full_name')
 
-  // If from_crm param, fetch lead data and resolve user IDs to names
+  // Fetch staff role settings
+  const { data: allSettings } = await getCrmSettings()
+  const staffRoles = (allSettings || []).filter((s: any) => s.category === 'staff_role' && s.is_active)
+
+  // If from_crm param, fetch lead data AND crm_lead_staff with roles
   let prefill: {
     name: string
     location: string
     eventDate: string
+    crmLeadId: string
+    staffAssignments: { user_id: string; full_name: string; role: string }[]
+    // Legacy backward-compat (also pass sellerNames & staffNames for the old hidden inputs)
     sellerNames: string[]
     staffNames: string[]
-    crmLeadId: string
   } | null = null
 
   if (params.from_crm) {
-    const { data: lead } = await supabase
-      .from('crm_leads')
-      .select('id, customer_name, package_name, event_date, event_location, assigned_sales, assigned_staff')
-      .eq('id', params.from_crm)
-      .single()
+    const serviceClient = createServiceClient()
+    
+    const [{ data: lead }, { data: leadStaff }] = await Promise.all([
+      supabase
+        .from('crm_leads')
+        .select('id, customer_name, package_name, event_date, event_location, assigned_sales, assigned_staff')
+        .eq('id', params.from_crm)
+        .single(),
+      serviceClient
+        .from('crm_lead_staff')
+        .select('user_id, role, profiles:user_id(full_name)')
+        .eq('lead_id', params.from_crm)
+        .order('created_at', { ascending: true }),
+    ])
 
     if (lead) {
-      // Resolve user IDs to full_name for sellers
+      // Build staff assignments from junction table
+      const staffAssignments = (leadStaff || []).map((s: any) => ({
+        user_id: s.user_id,
+        full_name: s.profiles?.full_name || '',
+        role: s.role,
+      }))
+
+      // Legacy name resolution for backward compat hidden inputs
       const sellerNames: string[] = []
       if (lead.assigned_sales?.length) {
-        const matchedProfiles = (profiles || []).filter(p => lead.assigned_sales.includes(p.id))
-        sellerNames.push(...matchedProfiles.map(p => p.full_name || '').filter(Boolean))
+        const matched = (profiles || []).filter(p => lead.assigned_sales.includes(p.id))
+        sellerNames.push(...matched.map(p => p.full_name || '').filter(Boolean))
       }
-
-      // Resolve user IDs to full_name for staff
       const staffNames: string[] = []
       if (lead.assigned_staff?.length) {
-        const matchedProfiles = (profiles || []).filter(p => lead.assigned_staff.includes(p.id))
-        staffNames.push(...matchedProfiles.map(p => p.full_name || '').filter(Boolean))
+        const matched = (profiles || []).filter(p => lead.assigned_staff.includes(p.id))
+        staffNames.push(...matched.map(p => p.full_name || '').filter(Boolean))
       }
 
-      // Build event name: "{package_name} {customer_name} {event_date}"
+      // Build event name
       const eventName = [
         lead.package_name || '',
         lead.customer_name || '',
@@ -66,9 +88,10 @@ export default async function NewEventPage({ searchParams }: PageProps) {
         name: eventName,
         location: lead.event_location || '',
         eventDate: lead.event_date || '',
+        crmLeadId: lead.id,
+        staffAssignments,
         sellerNames,
         staffNames,
-        crmLeadId: lead.id,
       }
     }
   }
@@ -78,6 +101,7 @@ export default async function NewEventPage({ searchParams }: PageProps) {
       availableKits={availableKits || []}
       profiles={profiles || []}
       prefill={prefill ?? undefined}
+      staffRoles={staffRoles as any[]}
     />
   )
 }

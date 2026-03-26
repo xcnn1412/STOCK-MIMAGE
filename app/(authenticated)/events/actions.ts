@@ -20,6 +20,7 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
   const staff = formData.get('staff') as string
   const seller = formData.get('seller') as string
   const kitIds = formData.getAll('kits') as string[] 
+  const fromCrm = formData.get('from_crm') as string | null
   
   if (!name) {
       return { error: 'Event name is required' }
@@ -34,7 +35,8 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
           location,
           staff,
           seller,
-          event_date: formData.get('event_date') as string || new Date().toISOString()
+          event_date: formData.get('event_date') as string || new Date().toISOString(),
+          crm_lead_id: fromCrm || null,
       })
       .select()
       .single()
@@ -42,6 +44,46 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
   if (eventError) {
       console.error('Create event error:', eventError)
       return { error: 'Failed to create event' }
+  }
+
+  // Staff assignments — Single Table approach
+  const staffAssignmentsJson = formData.get('staff_assignments') as string
+  if (staffAssignmentsJson) {
+    try {
+      const staffAssignments = JSON.parse(staffAssignmentsJson) as { user_id: string; role: string }[]
+      if (staffAssignments.length > 0) {
+        if (fromCrm) {
+          // CRM-linked: sync to crm_lead_staff (delete old + insert new)
+          await supabase.from('crm_lead_staff').delete().eq('lead_id', fromCrm)
+          const rows = staffAssignments.map(a => ({
+            lead_id: fromCrm,
+            user_id: a.user_id,
+            role: a.role,
+          }))
+          await supabase.from('crm_lead_staff').insert(rows)
+
+          // Sync old text arrays on crm_leads for Kanban board
+          const assigned_sales = staffAssignments.filter(a => a.role === 'sale').map(a => a.user_id)
+          const assigned_graphics = staffAssignments.filter(a => a.role === 'graphic').map(a => a.user_id)
+          const assigned_staff = staffAssignments.filter(a => a.role !== 'sale' && a.role !== 'graphic').map(a => a.user_id)
+          await supabase.from('crm_leads').update({
+            assigned_sales,
+            assigned_graphics,
+            assigned_staff,
+          }).eq('id', fromCrm)
+        } else {
+          // Standalone event: use event_staff
+          const rows = staffAssignments.map(a => ({
+            event_id: event.id,
+            user_id: a.user_id,
+            role: a.role,
+          }))
+          await supabase.from('event_staff').insert(rows)
+        }
+      }
+    } catch (e) {
+      console.error('Parse staff_assignments error:', e)
+    }
   }
 
   if (kitIds.length > 0) {
@@ -63,7 +105,6 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
   }, undefined)
 
   // If created from CRM, link the event back to the CRM lead
-  const fromCrm = formData.get('from_crm') as string
   if (fromCrm) {
     await supabase
       .from('crm_leads')
@@ -88,6 +129,69 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
   redirect('/events')
 }
 
+// ============================================================================
+// Link / Unlink Event ↔ CRM Lead
+// ============================================================================
+
+export async function linkEventToCrm(eventId: string, leadId: string) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  // Set events.crm_lead_id
+  const { error: e1 } = await supabase
+    .from('events')
+    .update({ crm_lead_id: leadId })
+    .eq('id', eventId)
+  if (e1) return { error: e1.message }
+
+  // Set crm_leads.event_id
+  await supabase
+    .from('crm_leads')
+    .update({ event_id: eventId, updated_at: new Date().toISOString() })
+    .eq('id', leadId)
+
+  await logActivity('LINK_EVENT_TO_CRM', { eventId, leadId })
+  revalidatePath('/events')
+  revalidatePath(`/events/${eventId}/edit`)
+  revalidatePath('/crm')
+  revalidatePath(`/crm/${leadId}`)
+  return { success: true }
+}
+
+export async function unlinkEventFromCrm(eventId: string) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  // Get current lead id before unlinking
+  const { data: event } = await supabase.from('events').select('crm_lead_id').eq('id', eventId).single()
+  const leadId = event?.crm_lead_id
+
+  // Clear events.crm_lead_id
+  await supabase.from('events').update({ crm_lead_id: null }).eq('id', eventId)
+
+  // Clear crm_leads.event_id  
+  if (leadId) {
+    await supabase
+      .from('crm_leads')
+      .update({ event_id: null, updated_at: new Date().toISOString() })
+      .eq('id', leadId)
+  }
+
+  await logActivity('UNLINK_EVENT_FROM_CRM', { eventId, leadId })
+  revalidatePath('/events')
+  revalidatePath(`/events/${eventId}/edit`)
+  if (leadId) {
+    revalidatePath('/crm')
+    revalidatePath(`/crm/${leadId}`)
+  }
+  return { success: true }
+}
 
 export async function updateEvent(id: string, prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
@@ -164,6 +268,63 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
           .in('id', selectedKitIds)
   }
 
+  // 3. Sync staff — Single Table approach
+  const staffAssignmentsJson = formData.get('staff_assignments') as string
+  if (staffAssignmentsJson) {
+    try {
+      const staffAssignments = JSON.parse(staffAssignmentsJson) as { user_id: string; role: string }[]
+      
+      // Check if event is CRM-linked
+      const { data: eventData } = await supabase.from('events').select('crm_lead_id').eq('id', id).single()
+      const crmLeadId = eventData?.crm_lead_id
+
+      console.log('--- DEBUG updateEvent ---')
+      console.log('eventId:', id)
+      console.log('crmLeadId:', crmLeadId)
+      console.log('staffAssignments:', staffAssignments)
+
+      if (crmLeadId) {
+        // CRM-linked: sync to crm_lead_staff
+        const { error: delErr } = await supabase.from('crm_lead_staff').delete().eq('lead_id', crmLeadId)
+        if (delErr) console.error('Delete CRM staff err:', delErr)
+
+        if (staffAssignments.length > 0) {
+          const rows = staffAssignments.map(a => ({
+            lead_id: crmLeadId,
+            user_id: a.user_id,
+            role: a.role,
+          }))
+          const { error: insErr } = await supabase.from('crm_lead_staff').insert(rows)
+          if (insErr) console.error('Insert CRM staff err:', insErr)
+          else console.log('Inserted CRM staff rows successfully:', rows.length)
+        }
+
+        // Sync old text arrays on crm_leads for Kanban board
+        const assignedSales = staffAssignments.filter(a => a.role === 'sale').map(a => a.user_id)
+        const assignedGraphics = staffAssignments.filter(a => a.role === 'graphic').map(a => a.user_id)
+        const assignedStaff = staffAssignments.filter(a => a.role !== 'sale' && a.role !== 'graphic').map(a => a.user_id)
+        await supabase.from('crm_leads').update({
+          assigned_sales: assignedSales,
+          assigned_graphics: assignedGraphics,
+          assigned_staff: assignedStaff,
+        }).eq('id', crmLeadId)
+      } else {
+        // Standalone event: sync to event_staff
+        await supabase.from('event_staff').delete().eq('event_id', id)
+        if (staffAssignments.length > 0) {
+          const rows = staffAssignments.map(a => ({
+            event_id: id,
+            user_id: a.user_id,
+            role: a.role,
+          }))
+          await supabase.from('event_staff').insert(rows)
+        }
+      }
+    } catch (e) {
+      console.error('Sync staff error:', e)
+    }
+  }
+
   await logActivity('UPDATE_EVENT', { 
       id, 
       name, 
@@ -172,6 +333,12 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 
   revalidatePath('/events')
   revalidatePath(`/events/${id}/edit`)
+  // Also revalidate CRM if linked
+  const { data: ev } = await supabase.from('events').select('crm_lead_id').eq('id', id).single()
+  if (ev?.crm_lead_id) {
+    revalidatePath('/crm')
+    revalidatePath(`/crm/${ev.crm_lead_id}`)
+  }
   redirect('/events')
 }
 

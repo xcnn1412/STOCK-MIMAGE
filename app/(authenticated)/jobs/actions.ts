@@ -697,10 +697,22 @@ export async function getCrmLeadForJob(leadId: string) {
         .select('*')
         .order('sort_order', { ascending: true })
 
+    // Get lead staff assignments from junction table
+    const { data: leadStaff } = await supabase
+        .from('crm_lead_staff')
+        .select('id, user_id, role, profiles:user_id(full_name)')
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: true })
+
     return {
         lead,
         installments: installments || [],
         crmSettings: crmSettings || [],
+        leadStaff: (leadStaff || []).map((s: any) => ({
+            user_id: s.user_id,
+            full_name: s.profiles?.full_name || '',
+            role: s.role,
+        })),
     }
 }
 

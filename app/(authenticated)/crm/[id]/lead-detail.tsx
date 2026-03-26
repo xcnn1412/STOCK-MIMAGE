@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -27,8 +27,10 @@ import {
 import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
   archiveLead, unarchiveLead, getLead, saveAllInstallments,
-  uploadPaymentProof, deletePaymentProof, checkEventDateConflicts
+  uploadPaymentProof, deletePaymentProof, checkEventDateConflicts,
+  addLeadStaff, removeLeadStaff,
 } from '../actions'
+import type { StaffAssignment } from '@/types/database.types'
 import { createJobsFromLead, getJobsByLeadId } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
 import { STATUS_CONFIG, ALL_STATUSES, getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
@@ -55,9 +57,10 @@ interface LeadDetailProps {
   settings: CrmSetting[]
   users: SystemUser[]
   installments: LeadInstallment[]
+  staffAssignments: StaffAssignment[]
 }
 
-export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments }: LeadDetailProps) {
+export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, staffAssignments: initialStaffAssignments }: LeadDetailProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.detail
@@ -75,15 +78,20 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   const [activityDesc, setActivityDesc] = useState('')
   const [addingActivity, setAddingActivity] = useState(false)
   const [staffSaving, setStaffSaving] = useState(false)
-  // Local state for staff assignments — batch save on dropdown close
-  const [localSales, setLocalSales] = useState<string[]>(lead.assigned_sales || [])
-  const [localGraphics, setLocalGraphics] = useState<string[]>(lead.assigned_graphics || [])
-  const [localStaff, setLocalStaff] = useState<string[]>(lead.assigned_staff || [])
+  // Junction table staff assignments
+  const [localStaffAssignments, setLocalStaffAssignments] = useState<StaffAssignment[]>(initialStaffAssignments)
+  const [staffSelectUser, setStaffSelectUser] = useState('')
+  const [staffSelectRole, setStaffSelectRole] = useState('')
+  const staffRoles = settings.filter(s => s.category === 'staff_role' && s.is_active).sort((a, b) => a.sort_order - b.sort_order)
   const [uploadingInstallment, setUploadingInstallment] = useState<string | null>(null)
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [localReceiptUrls, setLocalReceiptUrls] = useState<Record<string, string>>(
     Object.fromEntries(initialInstallments.filter(i => i.receipt_url).map(i => [i.id, i.receipt_url!]))
   )
+
+  useEffect(() => {
+    setLocalStaffAssignments(initialStaffAssignments)
+  }, [initialStaffAssignments])
 
   const getStatusLabel = (status: string) => {
     const cfg = getStatusConfig(settings, status)
@@ -435,43 +443,55 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     router.refresh()
   }
 
-  // Toggle locally (instant, no server call)
-  const localToggle = (field: 'assigned_sales' | 'assigned_graphics' | 'assigned_staff', userId: string) => {
-    const setters = {
-      assigned_sales: setLocalSales,
-      assigned_graphics: setLocalGraphics,
-      assigned_staff: setLocalStaff,
+  // Add staff assignment via junction table
+  const handleAddStaff = async () => {
+    if (!staffSelectUser || !staffSelectRole) return
+    // Check if already exists
+    if (localStaffAssignments.some(a => a.user_id === staffSelectUser && a.role === staffSelectRole)) {
+      toast.error(locale === 'th' ? 'พนักงานนี้มีหน้าที่นี้อยู่แล้ว' : 'This assignment already exists')
+      return
     }
-    const getters = {
-      assigned_sales: localSales,
-      assigned_graphics: localGraphics,
-      assigned_staff: localStaff,
+    setStaffSaving(true)
+    const result = await addLeadStaff(lead.id, staffSelectUser, staffSelectRole)
+    if (result.error) {
+      toast.error(result.error)
+    } else {
+      const user = users.find(u => u.id === staffSelectUser)
+      setLocalStaffAssignments(prev => [...prev, {
+        id: Date.now().toString(), // temp ID, will be replaced on refresh
+        user_id: staffSelectUser,
+        role: staffSelectRole,
+        note: null,
+        full_name: user?.full_name || null,
+      }])
+      setStaffSelectUser('')
+      setStaffSelectRole('')
+      router.refresh()
     }
-    const current = getters[field]
-    const updated = current.includes(userId)
-      ? current.filter(id => id !== userId)
-      : [...current, userId]
-    setters[field](updated)
+    setStaffSaving(false)
   }
 
-  // Save to server only when dropdown closes (batch save)
-  const saveStaffField = async (field: 'assigned_sales' | 'assigned_graphics' | 'assigned_staff', open: boolean) => {
-    if (open) return // only save on close
-    const getters = {
-      assigned_sales: localSales,
-      assigned_graphics: localGraphics,
-      assigned_staff: localStaff,
-    }
-    const original = lead[field] || []
-    const current = getters[field]
-    // Only save if changed
-    if (JSON.stringify([...original].sort()) === JSON.stringify([...current].sort())) return
+  // Remove staff assignment
+  const handleRemoveStaff = async (assignmentId: string) => {
     setStaffSaving(true)
-    const fd = new FormData()
-    fd.set(field, current.join(','))
-    await updateLead(lead.id, fd)
+    const result = await removeLeadStaff(assignmentId, lead.id)
+    if (result.error) {
+      toast.error(result.error)
+    } else {
+      setLocalStaffAssignments(prev => prev.filter(a => a.id !== assignmentId))
+      router.refresh()
+    }
     setStaffSaving(false)
-    router.refresh()
+  }
+
+  // Get role label from settings
+  const getRoleLabel = (roleValue: string) => {
+    const setting = staffRoles.find(s => s.value === roleValue)
+    if (!setting) return roleValue
+    return locale === 'th' ? setting.label_th : setting.label_en
+  }
+  const getRoleColor = (roleValue: string) => {
+    return staffRoles.find(s => s.value === roleValue)?.color || '#6b7280'
   }
 
   const getUserName = (userId: string) => {
@@ -774,129 +794,108 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         </CardContent>
       </Card>
 
-      {/* Staff Assignments Card */}
+      {/* Staff Assignments Card — Junction Table */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
             <div className="flex items-center justify-center h-6 w-6 rounded-md bg-amber-50 dark:bg-amber-950/40">
               <Users className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
             </div>
-            {locale === 'th' ? 'ผู้ดูแล' : 'Staff Assignments'}
+            {locale === 'th' ? 'ทีมงาน & หน้าที่' : 'Staff & Roles'}
+            {staffSaving && <span className="text-[10px] text-zinc-400 animate-pulse">saving...</span>}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Sale */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Briefcase className="h-3.5 w-3.5 text-blue-500" />
-              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                {locale === 'th' ? 'ฝ่ายขาย (Sale)' : 'Sale'}
-              </span>
+          {/* Add Staff Row */}
+          <div className="flex items-end gap-2">
+            <div className="flex-1 space-y-1">
+              <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'เลือกพนักงาน' : 'Select Staff'}</label>
+              <Select value={staffSelectUser} onValueChange={setStaffSelectUser}>
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder={locale === 'th' ? 'เลือกพนักงาน...' : 'Select staff...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.map(user => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.full_name || user.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <DropdownMenu onOpenChange={(open) => saveStaffField('assigned_sales', open)}>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="w-full justify-between text-sm font-normal h-9" disabled={staffSaving}>
-                  <span className="truncate text-left">
-                    {localSales.length > 0
-                      ? localSales.map(id => getUserName(id)).join(', ')
-                      : (locale === 'th' ? 'เลือกฝ่ายขาย...' : 'Select sales...')
-                    }
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="start">
-                <DropdownMenuLabel className="text-xs">{locale === 'th' ? 'เลือกฝ่ายขาย' : 'Select Sales'}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {users.map(user => (
-                  <DropdownMenuCheckboxItem
-                    key={user.id}
-                    checked={localSales.includes(user.id)}
-                    onCheckedChange={() => localToggle('assigned_sales', user.id)}
-                    onSelect={e => e.preventDefault()}
-                  >
-                    {user.full_name || user.id}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex-1 space-y-1">
+              <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'หน้าที่' : 'Role'}</label>
+              <Select value={staffSelectRole} onValueChange={setStaffSelectRole}>
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder={locale === 'th' ? 'เลือกหน้าที่...' : 'Select role...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {staffRoles.map(role => (
+                    <SelectItem key={role.value} value={role.value}>
+                      <span className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color || '#6b7280' }} />
+                        {locale === 'th' ? role.label_th : role.label_en}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              size="sm"
+              className="h-8 px-3"
+              onClick={handleAddStaff}
+              disabled={staffSaving || !staffSelectUser || !staffSelectRole}
+            >
+              {locale === 'th' ? '+ เพิ่ม' : '+ Add'}
+            </Button>
           </div>
 
-          {/* Graphic */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Palette className="h-3.5 w-3.5 text-violet-500" />
-              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                {locale === 'th' ? 'กราฟิก (Graphic)' : 'Graphic'}
-              </span>
-            </div>
-            <DropdownMenu onOpenChange={(open) => saveStaffField('assigned_graphics', open)}>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="w-full justify-between text-sm font-normal h-9" disabled={staffSaving}>
-                  <span className="truncate text-left">
-                    {localGraphics.length > 0
-                      ? localGraphics.map(id => getUserName(id)).join(', ')
-                      : (locale === 'th' ? 'เลือกกราฟิก...' : 'Select graphic...')
-                    }
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="start">
-                <DropdownMenuLabel className="text-xs">{locale === 'th' ? 'เลือกกราฟิก' : 'Select Graphic'}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {users.map(user => (
-                  <DropdownMenuCheckboxItem
-                    key={user.id}
-                    checked={localGraphics.includes(user.id)}
-                    onCheckedChange={() => localToggle('assigned_graphics', user.id)}
-                    onSelect={e => e.preventDefault()}
+          {/* Staff List */}
+          {localStaffAssignments.length === 0 ? (
+            <p className="text-xs text-zinc-400 text-center py-4">
+              {locale === 'th' ? 'ยังไม่มีทีมงาน' : 'No staff assigned'}
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {localStaffAssignments.map(assignment => (
+                <div
+                  key={assignment.id}
+                  className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 group hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center justify-center h-7 w-7 rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
+                      {(assignment.full_name || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                        {assignment.full_name || assignment.user_id}
+                      </p>
+                    </div>
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] shrink-0"
+                      style={{ backgroundColor: getRoleColor(assignment.role) + '20', color: getRoleColor(assignment.role), borderColor: getRoleColor(assignment.role) + '40' }}
+                    >
+                      {getRoleLabel(assignment.role)}
+                    </Badge>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
+                    onClick={() => handleRemoveStaff(assignment.id)}
+                    disabled={staffSaving}
                   >
-                    {user.full_name || user.id}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {/* Staff */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Wrench className="h-3.5 w-3.5 text-emerald-500" />
-              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                {locale === 'th' ? 'พนักงาน (Staff)' : 'Staff'}
-              </span>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
             </div>
-            <DropdownMenu onOpenChange={(open) => saveStaffField('assigned_staff', open)}>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="w-full justify-between text-sm font-normal h-9" disabled={staffSaving}>
-                  <span className="truncate text-left">
-                    {localStaff.length > 0
-                      ? localStaff.map(id => getUserName(id)).join(', ')
-                      : (locale === 'th' ? 'เลือกพนักงาน...' : 'Select staff...')
-                    }
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="start">
-                <DropdownMenuLabel className="text-xs">{locale === 'th' ? 'เลือกพนักงาน' : 'Select Staff'}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {users.map(user => (
-                  <DropdownMenuCheckboxItem
-                    key={user.id}
-                    checked={localStaff.includes(user.id)}
-                    onCheckedChange={() => localToggle('assigned_staff', user.id)}
-                    onSelect={e => e.preventDefault()}
-                  >
-                    {user.full_name || user.id}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          )}
         </CardContent>
       </Card>
+
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

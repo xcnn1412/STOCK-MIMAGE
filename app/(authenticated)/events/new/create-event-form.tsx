@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ArrowLeft, Loader2, Users, UserCheck, Search, Info } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+import { ArrowLeft, Loader2, Users, Info, X, Plus } from "lucide-react"
 import Link from 'next/link'
 import { ThaiDatePicker } from '@/components/thai-date-picker'
 import { useLanguage } from '@/contexts/language-context'
@@ -17,6 +21,19 @@ interface Profile {
   role: string
 }
 
+interface StaffRole {
+  value: string
+  label_th: string
+  label_en: string
+  color: string | null
+}
+
+interface StaffAssignment {
+  user_id: string
+  full_name: string
+  role: string
+}
+
 interface Prefill {
   name: string
   location: string
@@ -24,48 +41,59 @@ interface Prefill {
   sellerNames: string[]
   staffNames: string[]
   crmLeadId: string
+  staffAssignments?: StaffAssignment[]
 }
 
 export default function CreateEventForm({
   availableKits,
   profiles,
   prefill,
+  staffRoles = [],
 }: {
   availableKits: any[]
   profiles: Profile[]
   prefill?: Prefill
+  staffRoles?: StaffRole[]
 }) {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
+  const locale = lang || 'th'
   const [state, formAction, isPending] = useActionState(createEvent, { error: '' })
 
-  // Multi-select state for staff and seller — initialize from prefill if available
-  const [selectedStaff, setSelectedStaff] = useState<string[]>(prefill?.staffNames || [])
-  const [selectedSellers, setSelectedSellers] = useState<string[]>(prefill?.sellerNames || [])
-  const [staffSearch, setStaffSearch] = useState('')
-  const [sellerSearch, setSellerSearch] = useState('')
+  // Staff assignments — structured (user_id + role)
+  const [assignments, setAssignments] = useState<StaffAssignment[]>(
+    prefill?.staffAssignments || []
+  )
+  const [selectUser, setSelectUser] = useState('')
+  const [selectRole, setSelectRole] = useState('')
+
+  const addAssignment = () => {
+    if (!selectUser || !selectRole) return
+    if (assignments.some(a => a.user_id === selectUser && a.role === selectRole)) return
+    const profile = profiles.find(p => p.id === selectUser)
+    setAssignments(prev => [...prev, {
+      user_id: selectUser,
+      full_name: profile?.full_name || selectUser,
+      role: selectRole,
+    }])
+    setSelectUser('')
+    setSelectRole('')
+  }
+
+  const removeAssignment = (idx: number) => {
+    setAssignments(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const getRoleLabel = (roleValue: string) => {
+    const r = staffRoles.find(s => s.value === roleValue)
+    if (!r) return roleValue
+    return locale === 'th' ? r.label_th : r.label_en
+  }
+  const getRoleColor = (roleValue: string) => {
+    return staffRoles.find(s => s.value === roleValue)?.color || '#6b7280'
+  }
 
   const Label = ({ children, htmlFor, className }: any) => (
     <label htmlFor={htmlFor} className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${className}`}>{children}</label>
-  )
-
-  const toggleStaff = (name: string) => {
-    setSelectedStaff(prev =>
-      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
-    )
-  }
-
-  const toggleSeller = (name: string) => {
-    setSelectedSellers(prev =>
-      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
-    )
-  }
-
-  // Filter profiles by search
-  const filteredStaffProfiles = profiles.filter(p =>
-    p.full_name?.toLowerCase().includes(staffSearch.toLowerCase())
-  )
-  const filteredSellerProfiles = profiles.filter(p =>
-    p.full_name?.toLowerCase().includes(sellerSearch.toLowerCase())
   )
 
   return (
@@ -89,6 +117,11 @@ export default function CreateEventForm({
           {prefill?.crmLeadId && (
             <input type="hidden" name="from_crm" value={prefill.crmLeadId} />
           )}
+          {/* Hidden field: structured staff assignments as JSON */}
+          <input type="hidden" name="staff_assignments" value={JSON.stringify(assignments)} />
+          {/* Backward compat: staff as comma-joined names */}
+          <input type="hidden" name="staff" value={assignments.map(a => a.full_name).join(', ')} />
+
           <CardContent className="space-y-6">
             {/* CRM prefill banner */}
             {prefill && (
@@ -99,6 +132,7 @@ export default function CreateEventForm({
                 </p>
               </div>
             )}
+
             {/* ชื่ออีเวนต์ */}
             <div className="space-y-2">
               <Label htmlFor="name">{t.events.fields.name}</Label>
@@ -117,126 +151,102 @@ export default function CreateEventForm({
               <ThaiDatePicker name="event_date" defaultValue={prefill?.eventDate ? new Date(prefill.eventDate) : undefined} />
             </div>
 
-            {/* ผู้ขาย (Seller) — Multi-select from users */}
-            <div className="space-y-2">
+            {/* ===== Staff & Roles (Junction Table) ===== */}
+            <div className="space-y-3">
               <Label className="flex items-center gap-1.5">
-                <UserCheck className="h-4 w-4 text-blue-500" />
-                ผู้ขาย (Seller)
+                <Users className="h-4 w-4 text-amber-500" />
+                {locale === 'th' ? 'ทีมงาน & หน้าที่' : 'Staff & Roles'}
               </Label>
 
-              {/* Selected badges */}
-              {selectedSellers.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {selectedSellers.map(name => (
-                    <span
-                      key={name}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-xs font-medium rounded-full cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                      onClick={() => toggleSeller(name)}
-                      title="คลิกเพื่อลบ"
+              {/* Add row */}
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1">
+                  <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'เลือกพนักงาน' : 'Select Staff'}</label>
+                  <Select value={selectUser} onValueChange={setSelectUser}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder={locale === 'th' ? 'เลือกพนักงาน...' : 'Select staff...'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profiles.map(p => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.full_name || p.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1 space-y-1">
+                  <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'หน้าที่' : 'Role'}</label>
+                  <Select value={selectRole} onValueChange={setSelectRole}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder={locale === 'th' ? 'เลือกหน้าที่...' : 'Select role...'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {staffRoles.map(role => (
+                        <SelectItem key={role.value} value={role.value}>
+                          <span className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color || '#6b7280' }} />
+                            {locale === 'th' ? role.label_th : role.label_en}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 px-3"
+                  onClick={addAssignment}
+                  disabled={!selectUser || !selectRole}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  {locale === 'th' ? 'เพิ่ม' : 'Add'}
+                </Button>
+              </div>
+
+              {/* Assigned staff list */}
+              {assignments.length > 0 && (
+                <div className="space-y-1.5">
+                  {assignments.map((a, idx) => (
+                    <div
+                      key={`${a.user_id}-${a.role}-${idx}`}
+                      className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 group hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors"
                     >
-                      {name}
-                      <span className="text-blue-400">×</span>
-                    </span>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-center justify-center h-7 w-7 rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
+                          {(a.full_name || '?').charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                          {a.full_name}
+                        </span>
+                        <Badge
+                          variant="secondary"
+                          className="text-[10px] shrink-0"
+                          style={{ backgroundColor: getRoleColor(a.role) + '20', color: getRoleColor(a.role), borderColor: getRoleColor(a.role) + '40' }}
+                        >
+                          {getRoleLabel(a.role)}
+                        </Badge>
+                      </div>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
+                        onClick={() => removeAssignment(idx)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
                   ))}
                 </div>
               )}
 
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="ค้นหาชื่อ..."
-                  value={sellerSearch}
-                  onChange={(e) => setSellerSearch(e.target.value)}
-                  className="pl-8 h-8 text-xs"
-                />
-              </div>
-
-              {/* Checkbox list */}
-              <div className="border rounded-lg p-3 max-h-[160px] overflow-y-auto space-y-1">
-                {filteredSellerProfiles.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic py-2 text-center">ไม่พบข้อมูล</p>
-                ) : (
-                  filteredSellerProfiles.map(profile => (
-                    <div key={profile.id} className="flex items-center space-x-2 py-1 px-1 rounded hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                      <Checkbox
-                        id={`seller-${profile.id}`}
-                        checked={selectedSellers.includes(profile.full_name || '')}
-                        onCheckedChange={() => toggleSeller(profile.full_name || '')}
-                      />
-                      <label htmlFor={`seller-${profile.id}`} className="text-sm font-normal cursor-pointer flex-1">
-                        {profile.full_name || 'Unknown'}
-                      </label>
-                      <span className="text-[10px] text-muted-foreground">{profile.role}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Hidden input — join selected names */}
-              <input type="hidden" name="seller" value={selectedSellers.join(', ')} />
-            </div>
-
-            {/* Staff List — Multi-select from users */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-1.5">
-                <Users className="h-4 w-4 text-green-500" />
-                Staff List (ทีมงาน)
-              </Label>
-
-              {/* Selected badges */}
-              {selectedStaff.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {selectedStaff.map(name => (
-                    <span
-                      key={name}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300 text-xs font-medium rounded-full cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors"
-                      onClick={() => toggleStaff(name)}
-                      title="คลิกเพื่อลบ"
-                    >
-                      {name}
-                      <span className="text-green-400">×</span>
-                    </span>
-                  ))}
-                </div>
+              {assignments.length === 0 && (
+                <p className="text-xs text-zinc-400 text-center py-2">
+                  {locale === 'th' ? 'ยังไม่มีทีมงาน — เพิ่มพนักงานและเลือกหน้าที่' : 'No staff assigned — add staff and select a role'}
+                </p>
               )}
-
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="ค้นหาชื่อ..."
-                  value={staffSearch}
-                  onChange={(e) => setStaffSearch(e.target.value)}
-                  className="pl-8 h-8 text-xs"
-                />
-              </div>
-
-              {/* Checkbox list */}
-              <div className="border rounded-lg p-3 max-h-[160px] overflow-y-auto space-y-1">
-                {filteredStaffProfiles.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic py-2 text-center">ไม่พบข้อมูล</p>
-                ) : (
-                  filteredStaffProfiles.map(profile => (
-                    <div key={profile.id} className="flex items-center space-x-2 py-1 px-1 rounded hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                      <Checkbox
-                        id={`staff-${profile.id}`}
-                        checked={selectedStaff.includes(profile.full_name || '')}
-                        onCheckedChange={() => toggleStaff(profile.full_name || '')}
-                      />
-                      <label htmlFor={`staff-${profile.id}`} className="text-sm font-normal cursor-pointer flex-1">
-                        {profile.full_name || 'Unknown'}
-                      </label>
-                      <span className="text-[10px] text-muted-foreground">{profile.role}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Hidden input — join selected names */}
-              <input type="hidden" name="staff" value={selectedStaff.join(', ')} />
             </div>
 
             {/* จัดการ กระเป๋า */}

@@ -740,6 +740,91 @@ export interface Database {
         ]
       }
     }
+      crm_lead_staff: {
+        Row: {
+          id: string
+          lead_id: string
+          user_id: string
+          role: string
+          note: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          lead_id: string
+          user_id: string
+          role: string
+          note?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          lead_id?: string
+          user_id?: string
+          role?: string
+          note?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crm_lead_staff_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "crm_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crm_lead_staff_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      event_staff: {
+        Row: {
+          id: string
+          event_id: string
+          user_id: string
+          role: string
+          note: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          event_id: string
+          user_id: string
+          role: string
+          note?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          event_id?: string
+          user_id?: string
+          role?: string
+          note?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_staff_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_staff_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+    }
     Views: {
       [_ in never]: never
     }
@@ -761,6 +846,7 @@ type Tables = Database['public']['Tables']
 
 export type Event = Tables['events']['Row'] & {
   kits?: Kit[]
+  crm_lead_id?: string | null
 }
 
 export type Kit = Tables['kits']['Row'] & {
@@ -850,6 +936,15 @@ export interface ActionState {
 /** Kit with its contents and nested item data */
 export type KitWithContents = Kit & {
   kit_contents: (KitContent & { items: Item })[]
+}
+
+/** Staff assignment with profile info (used in CRM + Events) */
+export interface StaffAssignment {
+  id: string
+  user_id: string
+  role: string
+  note: string | null
+  full_name: string | null
 }
 
 /** Event with assigned kits */

@@ -274,6 +274,25 @@ export async function createLead(formData: FormData) {
     }
   }
 
+  // Insert staff assignments into junction table
+  const staffAssignmentsJson = formData.get('staff_assignments') as string
+  if (staffAssignmentsJson) {
+    try {
+      const staffAssignments = JSON.parse(staffAssignmentsJson) as { user_id: string; role: string }[]
+      if (staffAssignments.length > 0) {
+        const staffRows = staffAssignments.map(a => ({
+          lead_id: data.id,
+          user_id: a.user_id,
+          role: a.role,
+        }))
+        const { error: staffError } = await supabase.from('crm_lead_staff').insert(staffRows)
+        if (staffError) console.error('Insert crm_lead_staff error:', staffError)
+      }
+    } catch (e) {
+      console.error('Parse staff_assignments error:', e)
+    }
+  }
+
   await logActivity('CREATE_CRM_LEAD', {
     id: data.id,
     customer_name: lead.customer_name,
@@ -358,6 +377,25 @@ export async function updateLead(id: string, formData: FormData) {
 
   const { error } = await supabase.from('crm_leads').update(updates).eq('id', id)
   if (error) return { error: error.message }
+
+  // Sync crm_lead_staff junction table if staff_assignments provided
+  const staffAssignmentsJson = formData.get('staff_assignments') as string | null
+  if (staffAssignmentsJson) {
+    try {
+      const staffAssignments = JSON.parse(staffAssignmentsJson) as { user_id: string; role: string }[]
+      await supabase.from('crm_lead_staff').delete().eq('lead_id', id)
+      if (staffAssignments.length > 0) {
+        const rows = staffAssignments.map(a => ({
+          lead_id: id,
+          user_id: a.user_id,
+          role: a.role,
+        }))
+        await supabase.from('crm_lead_staff').insert(rows)
+      }
+    } catch (e) {
+      console.error('Sync crm_lead_staff error:', e)
+    }
+  }
 
   await logActivity('UPDATE_CRM_LEAD', { id, changes: Object.keys(updates).join(', ') })
   revalidatePath('/crm')
@@ -845,5 +883,123 @@ export async function deletePaymentProof(leadId: string, installmentId: string) 
 
   await logActivity('DELETE_PAYMENT_PROOF', { leadId, installmentId })
   revalidatePath(`/crm/${leadId}`)
+  return { success: true }
+}
+
+// ============================================================================
+// CRM Lead Staff — Junction Table CRUD
+// ============================================================================
+
+export async function getLeadStaff(leadId: string) {
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('crm_lead_staff')
+    .select('id, user_id, role, note, profiles:user_id(full_name)')
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: true })
+
+  if (error) return []
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    user_id: row.user_id,
+    role: row.role,
+    note: row.note,
+    full_name: row.profiles?.full_name || null,
+  }))
+}
+
+// Helper to sync crm_lead_staff state back to text arrays in crm_leads for Kanban board filtering
+async function syncLeadStaffArrays(supabase: any, leadId: string) {
+  const { data: staffData } = await supabase.from('crm_lead_staff').select('user_id, role, profiles(full_name)').eq('lead_id', leadId)
+  if (!staffData) return
+
+  const assigned_sales = staffData.filter((a: any) => a.role === 'sale').map((a: any) => a.user_id)
+  const assigned_graphics = staffData.filter((a: any) => a.role === 'graphic').map((a: any) => a.user_id)
+  const assigned_staff = staffData.filter((a: any) => a.role !== 'sale' && a.role !== 'graphic').map((a: any) => a.user_id)
+
+  await supabase.from('crm_leads').update({
+    assigned_sales,
+    assigned_graphics,
+    assigned_staff,
+    updated_at: new Date().toISOString()
+  }).eq('id', leadId)
+
+  // Sync to linked event (if any exists) to avoid ghost Resurrection on empty event edit fallback
+  const { data: leadData } = await supabase.from('crm_leads').select('event_id').eq('id', leadId).single()
+  if (leadData?.event_id) {
+    const sellerStr = staffData.filter((a: any) => a.role === 'sale').map((a: any) => a.profiles?.full_name || '').filter(Boolean).join(', ')
+    const staffStr = staffData.filter((a: any) => a.role !== 'sale').map((a: any) => a.profiles?.full_name || '').filter(Boolean).join(', ')
+    await supabase.from('events').update({
+      seller: sellerStr || null,
+      staff: staffStr || null,
+    }).eq('id', leadData.event_id)
+  }
+}
+
+export async function addLeadStaff(leadId: string, userId: string, role: string, note?: string) {
+  const { userId: sessionUserId } = await getSession()
+  if (!sessionUserId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { error } = await supabase.from('crm_lead_staff').insert({
+    lead_id: leadId,
+    user_id: userId,
+    role,
+    note: note || null,
+  })
+
+  if (error) {
+    if (error.code === '23505') return { error: 'พนักงานนี้มีหน้าที่นี้อยู่แล้ว' }
+    return { error: error.message }
+  }
+
+  await syncLeadStaffArrays(supabase, leadId)
+
+  revalidatePath(`/crm/${leadId}`)
+  revalidatePath('/crm')
+  return { success: true }
+}
+
+export async function removeLeadStaff(id: string, leadId: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { error } = await supabase.from('crm_lead_staff').delete().eq('id', id)
+  if (error) return { error: error.message }
+
+  await syncLeadStaffArrays(supabase, leadId)
+
+  revalidatePath(`/crm/${leadId}`)
+  revalidatePath('/crm')
+  return { success: true }
+}
+
+/** Bulk sync: replace all staff assignments for a lead */
+export async function syncLeadStaff(leadId: string, assignments: { user_id: string; role: string; note?: string }[]) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  // Delete all existing
+  await supabase.from('crm_lead_staff').delete().eq('lead_id', leadId)
+
+  // Insert new
+  if (assignments.length > 0) {
+    const rows = assignments.map(a => ({
+      lead_id: leadId,
+      user_id: a.user_id,
+      role: a.role,
+      note: a.note || null,
+    }))
+    const { error } = await supabase.from('crm_lead_staff').insert(rows)
+    if (error) return { error: error.message }
+  }
+
+  await syncLeadStaffArrays(supabase, leadId)
+
+  revalidatePath(`/crm/${leadId}`)
+  revalidatePath('/crm')
   return { success: true }
 }

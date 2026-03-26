@@ -1,6 +1,7 @@
-import { supabaseServer as supabase } from '@/lib/supabase-server'
+import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-server'
 import { notFound } from 'next/navigation'
 import EditEventForm from './edit-event-form'
+import { getCrmSettings } from '../../../crm/actions'
 
 import type { Kit } from '@/types'
 
@@ -32,6 +33,32 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
     .select('id, full_name, role')
     .order('full_name')
 
+  // 4. Fetch event_staff junction table records
+  const serviceClient = createServiceClient()
+  // 4. Fetch staff — Single Table approach
+  let eventStaff: any[] = []
+  if (event.crm_lead_id) {
+    // CRM-linked: read from crm_lead_staff
+    const { data } = await serviceClient
+      .from('crm_lead_staff')
+      .select('id, user_id, role, profiles:user_id(full_name)')
+      .eq('lead_id', event.crm_lead_id)
+      .order('created_at', { ascending: true })
+    eventStaff = data || []
+  } else {
+    // Standalone: read from event_staff
+    const { data } = await serviceClient
+      .from('event_staff')
+      .select('id, user_id, role, profiles:user_id(full_name)')
+      .eq('event_id', event.id)
+      .order('created_at', { ascending: true })
+    eventStaff = data || []
+  }
+
+  // 5. Fetch staff role settings
+  const { data: allSettings } = await getCrmSettings()
+  const staffRoles = (allSettings || []).filter((s: any) => s.category === 'staff_role' && s.is_active)
+
   // Combine them for the UI list
   const assignedList = (assignedKits || []) as Kit[]
   const availableList = (availableKits || []) as Kit[]
@@ -39,12 +66,52 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
   const allDisplayKits = [...assignedList, ...availableList].sort((a, b) => a.name.localeCompare(b.name))
   const assignedKitIds = assignedList.map(k => k.id)
 
+  // Map event staff to assignments
+  let staffAssignments = (eventStaff || []).map((s: any) => ({
+    user_id: s.user_id,
+    full_name: s.profiles?.full_name || '',
+    role: s.role,
+  }))
+
+  // Fallback B: if event_staff is empty, parse legacy text columns
+  if (staffAssignments.length === 0) {
+    const profileList = profiles || []
+    const parseAndMatch = (text: string | null | undefined, role: string) => {
+      if (!text) return []
+      return text.split(',').map(n => n.trim()).filter(Boolean).map(name => {
+        const match = profileList.find(p => p.full_name === name)
+        return match
+          ? { user_id: match.id, full_name: match.full_name || name, role }
+          : { user_id: `legacy_${name}`, full_name: name, role }
+      })
+    }
+    const sellerAssignments = parseAndMatch(event.seller, 'sale')
+    const staffTextAssignments = parseAndMatch(event.staff, 'general')
+    // Deduplicate by name+role
+    const seen = new Set<string>()
+    staffAssignments = [...sellerAssignments, ...staffTextAssignments].filter(a => {
+      const key = `${a.full_name}::${a.role}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+
+  // 6. Fetch CRM leads list for "เชื่อมกับ CRM" dropdown
+  const { data: crmLeads } = await serviceClient
+    .from('crm_leads')
+    .select('id, customer_name, event_date, package_name')
+    .order('created_at', { ascending: false })
+
   return (
     <EditEventForm
       event={event}
       availableKits={allDisplayKits}
       assignedKitIds={assignedKitIds}
       profiles={profiles || []}
+      staffAssignments={staffAssignments}
+      staffRoles={staffRoles as any[]}
+      crmLeads={(crmLeads || []).map(l => ({ id: l.id, customer_name: l.customer_name, event_date: l.event_date, package_name: l.package_name }))}
     />
   )
 }

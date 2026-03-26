@@ -53,6 +53,12 @@ interface Activity {
     profiles?: { full_name: string | null } | null
 }
 
+interface StaffAssignment {
+    user_id: string
+    full_name: string
+    role: string
+}
+
 interface CrmDataProp {
     lead: Record<string, any>
     installments: Array<{
@@ -75,6 +81,7 @@ interface CrmDataProp {
         sort_order: number
         is_active: boolean
     }>
+    leadStaff: StaffAssignment[]
 }
 
 // ============================================================================
@@ -228,9 +235,52 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
     // Tags state
     const [localTags, setLocalTags] = useState<string[]>(job.tags || [])
 
-    // Assigned states — separate for graphic and staff
-    const [localAssignedGraphics, setLocalAssignedGraphics] = useState<string[]>(job.assigned_graphics || [])
-    const [localAssignedStaff, setLocalAssignedStaff] = useState<string[]>(job.assigned_staff || [])
+    // Staff & Roles — junction table approach
+    const initialStaffAssignments = crmData?.leadStaff || []
+    const [localStaffAssignments, setLocalStaffAssignments] = useState<StaffAssignment[]>(initialStaffAssignments)
+    const [staffSelectUser, setStaffSelectUser] = useState('')
+    const [staffSelectRole, setStaffSelectRole] = useState('')
+    const staffRoles = crmSettings.filter(s => s.category === 'staff_role' && s.is_active)
+
+    const getStaffRoleColor = (role: string) => {
+        const r = staffRoles.find(s => s.value === role)
+        return r?.color || '#6b7280'
+    }
+    const getStaffRoleLabel = (role: string) => {
+        const r = staffRoles.find(s => s.value === role)
+        return r ? (locale === 'th' ? r.label_th : r.label_en) : role
+    }
+
+    const syncStaffToDb = (assignments: StaffAssignment[]) => {
+        if (!job.crm_lead_id) return
+        startTransition(async () => {
+            const fd = new FormData()
+            fd.set('staff_assignments', JSON.stringify(assignments.map(a => ({ user_id: a.user_id, role: a.role }))))
+            await updateLead(job.crm_lead_id!, fd)
+            router.refresh()
+        })
+    }
+
+    const handleAddStaffAssignment = () => {
+        if (!staffSelectUser || !staffSelectRole) return
+        const user = users.find(u => u.id === staffSelectUser)
+        const newAssignment: StaffAssignment = {
+            user_id: staffSelectUser,
+            full_name: user?.full_name || staffSelectUser,
+            role: staffSelectRole,
+        }
+        const updated = [...localStaffAssignments, newAssignment]
+        setLocalStaffAssignments(updated)
+        setStaffSelectUser('')
+        setStaffSelectRole('')
+        syncStaffToDb(updated)
+    }
+
+    const handleRemoveStaffAssignment = (idx: number) => {
+        const updated = localStaffAssignments.filter((_, i) => i !== idx)
+        setLocalStaffAssignments(updated)
+        syncStaffToDb(updated)
+    }
 
     // Checklist optimistic state — instant UI updates
     const [localChecklistItems, setLocalChecklistItems] = useState<ChecklistItem[]>(checklistItems)
@@ -663,137 +713,101 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                     {/* ============================================ */}
                     {isFromCrm && lead && (
                         <>
-                            {/* 1. Staff Assignments (was #2, CRM Tags removed) */}
+                            {/* 1. Staff & Roles — Junction Table UI */}
                             <CrmCard
-                                title={locale === 'th' ? 'ผู้ดูแล' : 'Staff Assignments'}
+                                title={locale === 'th' ? 'ทีมงาน & หน้าที่' : 'Staff & Roles'}
                                 icon={<UsersIcon className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />}
                                 iconBg="bg-amber-50 dark:bg-amber-950/40"
                             >
-                                <div className="space-y-4">
-                                    {/* Sales — read-only */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Briefcase className="h-3.5 w-3.5 text-blue-500" />
-                                            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">{locale === 'th' ? 'ฝ่ายขาย (Sale)' : 'Sale'}</span>
-                                            <Lock className="h-2.5 w-2.5 text-zinc-300" />
+                                <div className="space-y-3">
+                                    {/* Add row */}
+                                    <div className="flex items-end gap-2">
+                                        <div className="flex-1 space-y-1">
+                                            <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'เลือกพนักงาน' : 'Select Staff'}</label>
+                                            <Select value={staffSelectUser} onValueChange={setStaffSelectUser}>
+                                                <SelectTrigger className="h-8 text-sm">
+                                                    <SelectValue placeholder={locale === 'th' ? 'เลือกพนักงาน...' : 'Select staff...'} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {users.map(user => (
+                                                        <SelectItem key={user.id} value={user.id}>
+                                                            {user.full_name || user.id}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
-                                        <div className="flex flex-wrap gap-1">
-                                            {(lead.assigned_sales || []).length > 0
-                                                ? (lead.assigned_sales || []).map((uid: string) => (
-                                                    <Badge key={uid} variant="secondary" className="text-xs">{getUserName(uid)}</Badge>
-                                                ))
-                                                : <span className="text-sm text-zinc-400">—</span>
-                                            }
+                                        <div className="flex-1 space-y-1">
+                                            <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'หน้าที่' : 'Role'}</label>
+                                            <Select value={staffSelectRole} onValueChange={setStaffSelectRole}>
+                                                <SelectTrigger className="h-8 text-sm">
+                                                    <SelectValue placeholder={locale === 'th' ? 'เลือกหน้าที่...' : 'Select role...'} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {staffRoles.map(role => (
+                                                        <SelectItem key={role.value} value={role.value}>
+                                                            <span className="flex items-center gap-2">
+                                                                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color || '#6b7280' }} />
+                                                                {locale === 'th' ? role.label_th : role.label_en}
+                                                            </span>
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            className="h-8 px-3"
+                                            onClick={handleAddStaffAssignment}
+                                            disabled={!staffSelectUser || !staffSelectRole || isPending}
+                                        >
+                                            <Plus className="h-3.5 w-3.5 mr-1" />
+                                            {locale === 'th' ? 'เพิ่ม' : 'Add'}
+                                        </Button>
                                     </div>
 
-                                    {/* Graphics — dropdown */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Palette className="h-3.5 w-3.5 text-violet-500" />
-                                            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">{locale === 'th' ? 'กราฟิก (Graphic)' : 'Graphic'}</span>
-                                        </div>
-                                        <DropdownMenu onOpenChange={(open) => {
-                                            if (!open) {
-                                                startTransition(async () => {
-                                                    const fd = new FormData()
-                                                    fd.set('assigned_graphics', localAssignedGraphics.join(','))
-                                                    await updateJob(job.id, fd)
-                                                    if (job.crm_lead_id) {
-                                                        const crmFd = new FormData()
-                                                        crmFd.set('assigned_graphics', localAssignedGraphics.join(','))
-                                                        await updateLead(job.crm_lead_id, crmFd)
-                                                    }
-                                                })
-                                            }
-                                        }}>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="outline" size="sm" className="w-full justify-between text-sm font-normal h-9" disabled={isPending}>
-                                                    <span className="truncate text-left">
-                                                        {localAssignedGraphics.length > 0
-                                                            ? localAssignedGraphics.map(id => getUserName(id)).join(', ')
-                                                            : (locale === 'th' ? 'เลือกกราฟิก...' : 'Select graphic...')
-                                                        }
-                                                    </span>
-                                                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent className="w-56" align="start">
-                                                <DropdownMenuLabel className="text-xs">{locale === 'th' ? 'เลือกกราฟิก' : 'Select Graphic'}</DropdownMenuLabel>
-                                                <DropdownMenuSeparator />
-                                                {users.map(user => (
-                                                    <DropdownMenuCheckboxItem
-                                                        key={user.id}
-                                                        checked={localAssignedGraphics.includes(user.id)}
-                                                        onCheckedChange={() => {
-                                                            setLocalAssignedGraphics(prev =>
-                                                                prev.includes(user.id)
-                                                                    ? prev.filter(id => id !== user.id)
-                                                                    : [...prev, user.id]
-                                                            )
-                                                        }}
-                                                        onSelect={e => e.preventDefault()}
+                                    {/* Staff list */}
+                                    {localStaffAssignments.length > 0 ? (
+                                        <div className="space-y-1.5">
+                                            {localStaffAssignments.map((a, idx) => (
+                                                <div
+                                                    key={`${a.user_id}-${a.role}-${idx}`}
+                                                    className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 group hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className="flex items-center justify-center h-7 w-7 rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
+                                                            {(a.full_name || '?').charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                                                            {a.full_name}
+                                                        </span>
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className="text-[10px] shrink-0"
+                                                            style={{ backgroundColor: getStaffRoleColor(a.role) + '20', color: getStaffRoleColor(a.role), borderColor: getStaffRoleColor(a.role) + '40' }}
+                                                        >
+                                                            {getStaffRoleLabel(a.role)}
+                                                        </Badge>
+                                                    </div>
+                                                    <Button
+                                                        type="button"
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
+                                                        onClick={() => handleRemoveStaffAssignment(idx)}
+                                                        disabled={isPending}
                                                     >
-                                                        {user.full_name || user.id}
-                                                    </DropdownMenuCheckboxItem>
-                                                ))}
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </div>
-
-                                    {/* Staff — dropdown */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Wrench className="h-3.5 w-3.5 text-emerald-500" />
-                                            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">{locale === 'th' ? 'พนักงาน (Staff)' : 'Staff'}</span>
+                                                        <X className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                            ))}
                                         </div>
-                                        <DropdownMenu onOpenChange={(open) => {
-                                            if (!open) {
-                                                startTransition(async () => {
-                                                    const fd = new FormData()
-                                                    fd.set('assigned_staff', localAssignedStaff.join(','))
-                                                    await updateJob(job.id, fd)
-                                                    if (job.crm_lead_id) {
-                                                        const crmFd = new FormData()
-                                                        crmFd.set('assigned_staff', localAssignedStaff.join(','))
-                                                        await updateLead(job.crm_lead_id, crmFd)
-                                                    }
-                                                })
-                                            }
-                                        }}>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="outline" size="sm" className="w-full justify-between text-sm font-normal h-9" disabled={isPending}>
-                                                    <span className="truncate text-left">
-                                                        {localAssignedStaff.length > 0
-                                                            ? localAssignedStaff.map(id => getUserName(id)).join(', ')
-                                                            : (locale === 'th' ? 'เลือกพนักงาน...' : 'Select staff...')
-                                                        }
-                                                    </span>
-                                                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent className="w-56" align="start">
-                                                <DropdownMenuLabel className="text-xs">{locale === 'th' ? 'เลือกพนักงาน' : 'Select Staff'}</DropdownMenuLabel>
-                                                <DropdownMenuSeparator />
-                                                {users.map(user => (
-                                                    <DropdownMenuCheckboxItem
-                                                        key={user.id}
-                                                        checked={localAssignedStaff.includes(user.id)}
-                                                        onCheckedChange={() => {
-                                                            setLocalAssignedStaff(prev =>
-                                                                prev.includes(user.id)
-                                                                    ? prev.filter(id => id !== user.id)
-                                                                    : [...prev, user.id]
-                                                            )
-                                                        }}
-                                                        onSelect={e => e.preventDefault()}
-                                                    >
-                                                        {user.full_name || user.id}
-                                                    </DropdownMenuCheckboxItem>
-                                                ))}
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </div>
+                                    ) : (
+                                        <p className="text-xs text-zinc-400 text-center py-2">
+                                            {locale === 'th' ? 'ยังไม่มีทีมงาน — เพิ่มพนักงานและเลือกหน้าที่' : 'No staff assigned'}
+                                        </p>
+                                    )}
                                 </div>
                             </CrmCard>
 

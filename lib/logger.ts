@@ -97,6 +97,9 @@ export type ActionType =
     | 'DELETE_TICKET'
     | 'ARCHIVE_TICKET'
     | 'UNARCHIVE_TICKET'
+    // Event ↔ CRM Linking
+    | 'LINK_EVENT_TO_CRM'
+    | 'UNLINK_EVENT_FROM_CRM'
     // User Profile
     | 'UPDATE_USER_PROFILE'
     | 'UPDATE_MY_PROFILE'

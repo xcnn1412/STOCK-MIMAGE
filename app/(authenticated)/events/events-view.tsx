@@ -135,7 +135,7 @@ export default function EventsView({ events }: { events: Event[] }) {
                       )}
                     </span>
                     <span className="ml-2 text-zinc-500">
-                      {new Date(event.event_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(event.event_date).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
                 </div>

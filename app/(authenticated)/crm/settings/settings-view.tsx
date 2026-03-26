@@ -15,7 +15,7 @@ import { useLocale } from '@/lib/i18n/context'
 import ColorWheel from '../components/color-wheel'
 
 
-type TabKey = 'kanban_status' | 'package' | 'customer_type' | 'lead_source' | 'tag'
+type TabKey = 'kanban_status' | 'package' | 'customer_type' | 'lead_source' | 'tag' | 'staff_role'
 
 export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }) {
   const router = useRouter()
@@ -34,6 +34,7 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
     { key: 'customer_type', label: tc.customerTypes, icon: Users },
     { key: 'lead_source', label: tc.leadSources, icon: MessageSquare },
     { key: 'tag', label: tc.tags, icon: Tag },
+    { key: 'staff_role', label: locale === 'th' ? 'หน้าที่หน้างาน' : 'Staff Roles', icon: Users },
   ]
 
   // Dynamic tag sub-tabs: "ทั่วไป" + one per kanban_status
@@ -194,8 +195,8 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                   <X className="h-3 w-3" />
                 </Button>
               </div>
-              {/* Color wheel for tag or kanban_status categories */}
-              {(activeTab === 'tag' || activeTab === 'kanban_status') && (
+              {/* Color wheel for tag or kanban_status or staff_role categories */}
+              {(activeTab === 'tag' || activeTab === 'kanban_status' || activeTab === 'staff_role') && (
                 <div className="flex justify-center py-1">
                   <ColorWheel size={200} value="#3b82f6" name="color" />
                 </div>
@@ -233,8 +234,8 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
-                  {/* Color wheel for tag or kanban_status edit */}
-                  {(activeTab === 'tag' || activeTab === 'kanban_status') && (
+                  {/* Color wheel for tag or kanban_status or staff_role edit */}
+                  {(activeTab === 'tag' || activeTab === 'kanban_status' || activeTab === 'staff_role') && (
                     <div className="flex justify-center py-1">
                       <ColorWheel size={200} value={setting.color || '#3b82f6'} name="color" />
                     </div>
@@ -244,7 +245,7 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                 <div className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors group">
                   <div className="flex items-center gap-3 min-w-0">
                     {/* Color swatch for tags and kanban_status */}
-                    {(activeTab === 'tag' || activeTab === 'kanban_status') && (
+                    {(activeTab === 'tag' || activeTab === 'kanban_status' || activeTab === 'staff_role') && (
                       <span
                         className="h-4 w-4 rounded-full shrink-0 ring-1 ring-zinc-200 dark:ring-zinc-700"
                         style={{ backgroundColor: setting.color || '#3b82f6' }}
