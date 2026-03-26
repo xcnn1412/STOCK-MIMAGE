@@ -25,6 +25,7 @@ interface CheckinRecord {
   longitude: number | null
   profiles: { id: string; full_name: string | null; nickname: string | null } | null
   events: { id: string; name: string } | null
+  assigned_roles?: { role: string; label: string; color: string }[]
 }
 
 interface StaffMember {
@@ -233,28 +234,40 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
     })
   }
 
-  // CSV Export
-  function exportCSV() {
-    const header = 'ชื่อ,วันที่,เวลาเข้า,เวลาออก,ชั่วโมง,ประเภท,ตำแหน่ง,หมายเหตุ\n'
-    const rows = filteredRecords.map(r => {
-      const name = r.profiles?.full_name || ''
-      const date = new Date(r.checked_in_at).toLocaleDateString('th-TH')
-      const inTime = formatTime(r.checked_in_at)
-      const outTime = r.checked_out_at ? formatTime(r.checked_out_at) : ''
-      const hours = diffHours(r.checked_in_at, r.checked_out_at).toFixed(1)
-      const type = TYPE_LABELS[r.check_type] || r.check_type
-      const location = r.latitude && r.longitude ? `${r.latitude.toFixed(6)} ${r.longitude.toFixed(6)}` : ''
-      const note = (r.note || '').replace(/,/g, ' ')
-      return `${name},${date},${inTime},${outTime},${hours},${type},${location},${note}`
-    }).join('\n')
+  // Excel Export
+  async function exportExcel() {
+    try {
+      const XLSX = await import('xlsx')
+      const wb = XLSX.utils.book_new()
 
-    const blob = new Blob(['\ufeff' + header + rows], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `checkin-report-${startDate}-${endDate}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+      const mapToRow = (r: CheckinRecord) => ({
+        'ชื่อ-นามสกุล': r.profiles?.full_name || '',
+        'ชื่อเล่น': r.profiles?.nickname || '',
+        'วันที่': new Date(r.checked_in_at).toLocaleDateString('th-TH'),
+        'เวลาเข้า': formatTime(r.checked_in_at),
+        'เวลาออก': r.checked_out_at ? formatTime(r.checked_out_at) : '',
+        'ชั่วโมงทำงาน': diffHours(r.checked_in_at, r.checked_out_at).toFixed(1),
+        'ประเภท': TYPE_LABELS[r.check_type] || r.check_type,
+        'ละติจูด-ลองจิจูด': r.latitude && r.longitude ? `${r.latitude.toFixed(6)}, ${r.longitude.toFixed(6)}` : '',
+        'อีเวนต์': r.events?.name || '',
+        'หน้าที่': r.assigned_roles?.map(role => role.label).join(', ') || '',
+        'หมายเหตุ': r.note || ''
+      })
+
+      // Use filteredRecords to respect current search/staff filters, but group them for worksheets
+      const allRows = filteredRecords.map(mapToRow)
+      const officeRows = filteredRecords.filter(r => r.check_type === 'office').map(mapToRow)
+      const onsiteRows = filteredRecords.filter(r => r.check_type === 'onsite').map(mapToRow)
+
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(allRows), 'รวมทั้งหมด-All')
+      if (officeRows.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(officeRows), 'เข้าออฟฟิศ-Office')
+      if (onsiteRows.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(onsiteRows), 'ไปหน้างาน-Onsite')
+
+      XLSX.writeFile(wb, `checkin-report-${startDate}-to-${endDate}.xlsx`)
+    } catch (e) {
+      console.error('Export Excel error', e)
+      alert('เกิดข้อผิดพลาดในการโหลดไฟล์ Excel')
+    }
   }
 
   const maxHour = Math.max(...hourDistribution, 1)
@@ -275,9 +288,9 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
             <p className="text-sm text-zinc-400 dark:text-zinc-500">HR Report · Admin Only</p>
           </div>
         </div>
-        <button onClick={exportCSV}
+        <button onClick={exportExcel}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors shadow-sm active:scale-[0.98]">
-          <Download className="h-4 w-4" /> Export CSV
+          <Download className="h-4 w-4" /> Export Excel
         </button>
       </div>
 
@@ -335,13 +348,23 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
               <option key={s.id} value={s.id}>{s.full_name || s.nickname || s.id.slice(0, 8)}</option>
             ))}
           </select>
-          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
-            className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none">
-            <option value="all">ทุกประเภท</option>
-            <option value="office">เข้าออฟฟิศ</option>
-            <option value="onsite">ไปหน้างาน</option>
-            <option value="remote">WFH</option>
-          </select>
+          {/* Explicit Type Tabs (Separated visual design for Office/Onsite clarity) */}
+          <div className="flex bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-lg">
+            <button onClick={() => setTypeFilter('all')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${typeFilter === 'all' ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>ทั้งหมด</button>
+            <button onClick={() => setTypeFilter('office')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${typeFilter === 'office' ? 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 shadow-sm border-indigo-100 dark:border-indigo-800/50' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>
+              <Building2 className="h-3.5 w-3.5" /> เข้าออฟฟิศ
+            </button>
+            <button onClick={() => setTypeFilter('onsite')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${typeFilter === 'onsite' ? 'bg-rose-50 dark:bg-rose-900/40 text-rose-700 dark:text-rose-400 shadow-sm border-rose-100 dark:border-rose-800/50' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>
+              <MapPin className="h-3.5 w-3.5" /> ไปหน้างาน
+            </button>
+            <button onClick={() => setTypeFilter('remote')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${typeFilter === 'remote' ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 shadow-sm border-blue-100 dark:border-blue-800/50' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>
+              <Home className="h-3.5 w-3.5" /> WFH
+            </button>
+          </div>
           {(staffFilter !== 'all' || typeFilter !== 'all' || searchQuery) && (
             <button onClick={() => { setStaffFilter('all'); setTypeFilter('all'); setSearchQuery('') }}
               className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-1">
@@ -583,11 +606,10 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                         if (locations.length === 1) {
                           return (
                             <a
-                              href={`https://www.google.com/maps?q=${latest.lat},${latest.lng}`}
+                              href={`https://www.openstreetmap.org/?mlat=${latest.lat}&mlon=${latest.lng}#map=17/${latest.lat}/${latest.lng}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors border border-emerald-200/50 dark:border-emerald-800/50"
-                              onClick={e => e.stopPropagation()}
                             >
                               <MapPin className="h-3 w-3" />
                               ดูแผนที่
@@ -721,7 +743,8 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ออก</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ชั่วโมง</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ประเภท</th>
-                          <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ตำแหน่ง</th>
+                          <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">อีเวนต์ & หน้าที่</th>
+                          <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">แผนที่ (GPS)</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">รูป</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">หมายเหตุ</th>
                         </tr>
@@ -753,13 +776,31 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                                 </span>
                               </td>
                               <td className="px-4 py-2.5">
+                                {r.events ? (
+                                  <div className="flex flex-col gap-1.5 max-w-[180px]">
+                                    <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate">{r.events.name}</span>
+                                    {r.assigned_roles && r.assigned_roles.length > 0 && (
+                                      <div className="flex flex-wrap gap-1">
+                                        {r.assigned_roles.map((kr, i) => (
+                                          <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wide"
+                                                style={{ backgroundColor: `${kr.color}15`, borderColor: `${kr.color}30`, color: kr.color }}>
+                                            {kr.label}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-zinc-300 dark:text-zinc-600 text-xs">—</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-2.5">
                                 {r.latitude && r.longitude ? (
                                   <a
-                                    href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`}
+                                    href={`https://www.openstreetmap.org/?mlat=${r.latitude}&mlon=${r.longitude}#map=17/${r.latitude}/${r.longitude}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-                                    onClick={e => e.stopPropagation()}
                                   >
                                     <MapPin className="h-3 w-3" />
                                     ดูแผนที่
@@ -952,7 +993,7 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  href={`https://www.google.com/maps/dir/${showMapPopup.locations.map(l => `${l.lat},${l.lng}`).join('/')}`}
+                  href={`https://www.openstreetmap.org/?mlat=${showMapPopup.locations[0].lat}&mlon=${showMapPopup.locations[0].lng}#map=14/${showMapPopup.locations[0].lat}/${showMapPopup.locations[0].lng}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="h-8 px-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold flex items-center gap-1.5 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors border border-emerald-200/50 dark:border-emerald-800/50"
@@ -971,7 +1012,7 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
               {showMapPopup.locations.map((loc, idx) => (
                 <a
                   key={idx}
-                  href={`https://www.google.com/maps?q=${loc.lat},${loc.lng}`}
+                  href={`https://www.openstreetmap.org/?mlat=${loc.lat}&mlon=${loc.lng}#map=17/${loc.lat}/${loc.lng}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors group"

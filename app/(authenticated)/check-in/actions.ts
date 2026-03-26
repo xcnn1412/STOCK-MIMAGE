@@ -356,6 +356,9 @@ export async function getMyCheckinHistory(limit = 30) {
 }
 
 export async function getTodayEvents() {
+  const { userId, role } = await getSession()
+  if (!userId) return []
+
   const supabase = createServiceClient()
 
   const now = new Date()
@@ -369,13 +372,67 @@ export async function getTodayEvents() {
 
   const { data } = await supabase
     .from('events')
-    .select('id, name, event_date, location, status')
+    .select('id, name, event_date, location, status, crm_lead_id')
     .gte('event_date', yesterday)
     .lte('event_date', tomorrow)
     .in('status', ['upcoming', 'ongoing'])
     .order('event_date', { ascending: true })
 
-  return data || []
+  if (!data || data.length === 0) return []
+
+  // Fetch all staff setting mappings for nice labels/colors
+  const { data: settingsData } = await supabase.from('crm_settings').select('value, label_th, color').eq('category', 'staff_role')
+  const roleMap: Record<string, { label: string, color: string }> = {}
+  settingsData?.forEach(s => {
+    roleMap[s.value] = { label: s.label_th, color: s.color || '#6b7280' }
+  })
+
+  // Find assignments for this user to get their roles
+  const [{ data: eStaff }, { data: cStaff }] = await Promise.all([
+    supabase.from('event_staff').select('event_id, role').eq('user_id', userId),
+    supabase.from('crm_lead_staff').select('lead_id, role').eq('user_id', userId),
+  ])
+
+  const eStaffRoles = new Map<string, string[]>()
+  eStaff?.forEach(e => {
+    if (!eStaffRoles.has(e.event_id)) eStaffRoles.set(e.event_id, [])
+    eStaffRoles.get(e.event_id)!.push(e.role)
+  })
+
+  const cStaffRoles = new Map<string, string[]>()
+  cStaff?.forEach(c => {
+    if (!cStaffRoles.has(c.lead_id)) cStaffRoles.set(c.lead_id, [])
+    cStaffRoles.get(c.lead_id)!.push(c.role)
+  })
+
+  // Map events to attach roles nicely
+  const mappedEvents = data.map(ev => {
+    const rolesSet = new Set<string>()
+    if (eStaffRoles.has(ev.id)) {
+      eStaffRoles.get(ev.id)!.forEach(r => rolesSet.add(r))
+    }
+    if (ev.crm_lead_id && cStaffRoles.has(ev.crm_lead_id)) {
+      cStaffRoles.get(ev.crm_lead_id)!.forEach(r => rolesSet.add(r))
+    }
+
+    const assigned_roles = Array.from(rolesSet).map(r => ({
+      role: r,
+      label: roleMap[r]?.label || r,
+      color: roleMap[r]?.color || '#6b7280'
+    }))
+
+    return { ...ev, assigned_roles }
+  })
+
+  // If user is admin/owner, they can see all events (but they still get their role attached if applicable)
+  if (role === 'admin' || role === 'owner') {
+    return mappedEvents
+  }
+
+  // Filter events: non-admin must be assigned either directly or via CRM
+  const allowedEvents = mappedEvents.filter(ev => ev.assigned_roles.length > 0)
+
+  return allowedEvents
 }
 
 export async function getStaffList() {
@@ -403,7 +460,7 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
   const [recordsResult, staffResult] = await Promise.all([
     supabase
       .from('staff_checkins')
-      .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, checkout_photo_url, event_id, events:event_id(id, name), profiles:user_id(id, full_name, nickname)')
+      .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, checkout_photo_url, event_id, events:event_id(id, name, crm_lead_id), profiles:user_id(id, full_name, nickname)')
       .gte('checked_in_at', startISO)
       .lte('checked_in_at', endISO)
       .order('checked_in_at', { ascending: true }),
@@ -413,8 +470,61 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
       .order('full_name'),
   ])
 
+  const records = recordsResult.data || []
+  if (records.length === 0) return { records: [], staff: staffResult.data || [] }
+
+  const eventIds = Array.from(new Set(records.map(r => r.event_id).filter(Boolean))) as string[]
+  const leadIds = Array.from(new Set(records.map(r => (r.events as any)?.crm_lead_id).filter(Boolean))) as string[]
+
+  const [{ data: eStaff }, { data: cStaff }, { data: settingsData }] = await Promise.all([
+    eventIds.length > 0 ? supabase.from('event_staff').select('event_id, user_id, role').in('event_id', eventIds) : { data: [] },
+    leadIds.length > 0 ? supabase.from('crm_lead_staff').select('lead_id, user_id, role').in('lead_id', leadIds) : { data: [] },
+    supabase.from('crm_settings').select('value, label_th, color').eq('category', 'staff_role')
+  ])
+
+  const roleMap: Record<string, { label: string, color: string }> = {}
+  settingsData?.forEach(s => {
+    roleMap[s.value] = { label: s.label_th, color: s.color || '#6b7280' }
+  })
+
+  const eRoleMap = new Map<string, string[]>()
+  eStaff?.forEach(e => {
+    const key = `${e.event_id}_${e.user_id}`
+    if (!eRoleMap.has(key)) eRoleMap.set(key, [])
+    eRoleMap.get(key)!.push(e.role)
+  })
+
+  const cRoleMap = new Map<string, string[]>()
+  cStaff?.forEach(c => {
+    const key = `${c.lead_id}_${c.user_id}`
+    if (!cRoleMap.has(key)) cRoleMap.set(key, [])
+    cRoleMap.get(key)!.push(c.role)
+  })
+
+  const mappedRecords = records.map(r => {
+    const rolesSet = new Set<string>()
+    if (r.event_id) {
+      const eKey = `${r.event_id}_${r.user_id}`
+      if (eRoleMap.has(eKey)) eRoleMap.get(eKey)!.forEach(role => rolesSet.add(role))
+
+      const leadId = (r.events as any)?.crm_lead_id
+      if (leadId) {
+        const cKey = `${leadId}_${r.user_id}`
+        if (cRoleMap.has(cKey)) cRoleMap.get(cKey)!.forEach(role => rolesSet.add(role))
+      }
+    }
+
+    const assigned_roles = Array.from(rolesSet).map(role => ({
+      role,
+      label: roleMap[role]?.label || role,
+      color: roleMap[role]?.color || '#6b7280'
+    }))
+
+    return { ...r, assigned_roles }
+  })
+
   return {
-    records: recordsResult.data || [],
+    records: mappedRecords,
     staff: staffResult.data || [],
   }
 }

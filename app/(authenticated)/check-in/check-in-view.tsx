@@ -67,6 +67,7 @@ interface TodayEvent {
   event_date: string
   location: string | null
   status: string
+  assigned_roles?: { role: string; label: string; color: string }[]
 }
 
 interface JobEventOption {
@@ -550,7 +551,7 @@ export default function CheckInView({
           <div className="rounded-2xl border border-zinc-200 dark:border-zinc-700/80 bg-white dark:bg-zinc-900 p-5 space-y-4">
             {/* Event selector */}
             {checkType === 'onsite' && todayEvents.length > 0 && (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
                   <CalendarDays className="h-3.5 w-3.5 text-zinc-400" /> เลือกอีเวนต์วันนี้
                 </label>
@@ -561,6 +562,27 @@ export default function CheckInView({
                     <option key={ev.id} value={ev.id}>{ev.name} {ev.location ? `· ${ev.location}` : ''}</option>
                   ))}
                 </select>
+                {/* Show assigned roles for selected event */}
+                {eventId && (() => {
+                  const selectedEv = todayEvents.find(e => e.id === eventId)
+                  if (!selectedEv || !selectedEv.assigned_roles || selectedEv.assigned_roles.length === 0) return null
+                  return (
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 mt-1 rounded-xl bg-zinc-50/80 dark:bg-zinc-800/50 border border-zinc-200/80 dark:border-zinc-700/80 animate-in fade-in slide-in-from-top-2 duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]">
+                      <div className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                        <Users className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+                        <span className="text-sm font-bold tracking-wide">หน้าที่ของคุณ</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {selectedEv.assigned_roles.map((r, i) => (
+                          <span key={i} className="inline-flex items-center px-2.5 py-1 rounded-md border text-xs font-bold tracking-wide shadow-sm"
+                                style={{ backgroundColor: `${r.color}15`, borderColor: `${r.color}30`, color: r.color }}>
+                            {r.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
