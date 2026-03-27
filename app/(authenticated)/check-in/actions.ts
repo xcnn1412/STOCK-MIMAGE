@@ -256,21 +256,46 @@ async function autoCreateExpenseFromCheckin(
       cStaff?.forEach(c => rolesSet.add(c.role))
     }
 
-    // แปลง role values → labels (Thai) + structured data
-    let staffRolesData: { role: string; label: string }[] = []
-    if (rolesSet.size > 0) {
-      const { data: settings } = await supabase
+    // 5. ดึง Role Settings (rate + auto_calc per role) & Global auto_calc toggle
+    const [{ data: roleSettings }, { data: globalSettings }] = await Promise.all([
+      supabase
         .from('crm_settings')
-        .select('value, label_th')
+        .select('value, label_th, price, auto_calc')
         .eq('category', 'staff_role')
-        .in('value', Array.from(rolesSet))
+        .in('value', Array.from(rolesSet.size > 0 ? rolesSet : ['__none__'])),
+      supabase
+        .from('finance_auto_calc_settings')
+        .select('key, value')
+        .eq('key', 'auto_calc_enabled')
+        .maybeSingle(),
+    ])
 
-      staffRolesData = settings?.map(s => ({ role: s.value, label: s.label_th || s.value })) || 
-        Array.from(rolesSet).map(r => ({ role: r, label: r }))
+    const globalAutoCalcEnabled = globalSettings?.value === 'true'
+
+    // แปลง role values → labels (Thai) + structured data
+    const staffRolesData: { role: string; label: string }[] =
+      roleSettings?.map(s => ({ role: s.value, label: s.label_th || s.value })) ||
+      Array.from(rolesSet).map(r => ({ role: r, label: r }))
+
+    // 6. คำนวณ rate อัตโนมัติ (ใช้ role ที่ rate สูงสุดและเปิด auto_calc)
+    let autoRate = 0
+    let autoCalcUsed = false
+    let autoCalcRoleName = ''
+
+    if (globalAutoCalcEnabled && roleSettings && roleSettings.length > 0) {
+      // หา role ที่ auto_calc = true และ price สูงสุด
+      const autoCalcRoles = roleSettings
+        .filter(r => r.auto_calc === true && Number(r.price || 0) > 0)
+        .sort((a, b) => Number(b.price || 0) - Number(a.price || 0))
+
+      if (autoCalcRoles.length > 0) {
+        autoRate = Number(autoCalcRoles[0].price)
+        autoCalcUsed = true
+        autoCalcRoleName = autoCalcRoles[0].label_th || autoCalcRoles[0].value
+      }
     }
 
-
-    // 5. Generate claim number
+    // 7. Generate claim number
     const now = new Date()
     const prefix = `EXP-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
     const { count } = await supabase
@@ -280,7 +305,7 @@ async function autoCreateExpenseFromCheckin(
     const seq = (count || 0) + 1
     const claimNumber = `${prefix}-${String(seq).padStart(3, '0')}`
 
-    // 6. ดึงข้อมูลธนาคารของ staff
+    // 8. ดึงข้อมูลธนาคารของ staff
     const { data: profile } = await supabase
       .from('profiles')
       .select('full_name, bank_name, bank_account_number, account_holder_name')
@@ -289,22 +314,27 @@ async function autoCreateExpenseFromCheckin(
 
     const eventName = event.name.length > 60 ? event.name.substring(0, 60) + '...' : event.name
 
-    // 7. สร้างใบเบิก
+    // Auto-calc note
+    const autoCalcNote = autoCalcUsed
+      ? `[Auto] คำนวณจาก role: ${autoCalcRoleName} (฿${autoRate.toLocaleString()})`
+      : null
+
+    // 9. สร้างใบเบิก (ใส่ rate อัตโนมัติถ้าเปิด)
     await supabase.from('expense_claims').insert({
       claim_number: claimNumber,
       claim_type: 'event',
       job_event_id: jobEventId,
       title: `ค่าสตาฟ - ${eventName}`,
       category: 'staff',
-      amount: 0,
-      unit_price: 0,
+      amount: autoRate,
+      unit_price: autoRate,
       unit: 'บาท',
       quantity: 1,
       expense_date: event.event_date || now.toISOString().split('T')[0],
       vat_mode: 'none',
       include_vat: false,
       withholding_tax_rate: 0,
-      notes: null,
+      notes: autoCalcNote,
       staff_roles: staffRolesData.length > 0 ? staffRolesData : null,
       submitted_by: userId,
       from_checkin_id: checkinId,
