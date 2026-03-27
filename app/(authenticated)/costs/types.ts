@@ -89,6 +89,7 @@ export interface ExpenseClaim {
   reject_reason: string | null
   expense_date: string
   notes: string | null
+  staff_roles: { role: string; label: string }[] | null
   bank_name: string | null
   bank_account_number: string | null
   account_holder_name: string | null

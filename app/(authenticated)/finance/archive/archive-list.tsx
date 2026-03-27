@@ -50,6 +50,10 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
   // Filters
   const [filterSubmitter, setFilterSubmitter] = useState('')
   const [filterClaimType, setFilterClaimType] = useState('')
+  const [filterCategory, setFilterCategory] = useState('')
+  const [filterAmountRange, setFilterAmountRange] = useState('')
+  const [filterEvent, setFilterEvent] = useState('')
+  const [filterMonthYear, setFilterMonthYear] = useState('')
   const [filterExpenseDateFrom, setFilterExpenseDateFrom] = useState('')
   const [filterExpenseDateTo, setFilterExpenseDateTo] = useState('')
   const [filterPaidDateFrom, setFilterPaidDateFrom] = useState('')
@@ -67,7 +71,19 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
   }, [claims])
 
-  const hasActiveFilters = filterSubmitter || filterClaimType || filterExpenseDateFrom || filterExpenseDateTo || filterPaidDateFrom || filterPaidDateTo
+  // Unique events for dropdown
+  const events = useMemo(() => {
+    const map = new Map<string, string>()
+    claims.forEach(c => {
+      if (c.job_event_id && c.job_event) {
+        const name = (c.job_event as any)?.name || (c.job_event as any)?.event_name || ''
+        if (name) map.set(c.job_event_id, name)
+      }
+    })
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
+  }, [claims])
+
+  const hasActiveFilters = filterSubmitter || filterClaimType || filterCategory || filterAmountRange || filterEvent || filterMonthYear || filterExpenseDateFrom || filterExpenseDateTo || filterPaidDateFrom || filterPaidDateTo
 
   const filtered = useMemo(() => {
     let result = claims
@@ -93,6 +109,38 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
       result = result.filter(c => c.claim_type === filterClaimType)
     }
 
+    // Filter by category
+    if (filterCategory) {
+      result = result.filter(c => c.category === filterCategory)
+    }
+
+    // Filter by amount range
+    if (filterAmountRange) {
+      result = result.filter(c => {
+        const amt = c.amount || 0
+        if (filterAmountRange === '0') return amt === 0
+        if (filterAmountRange === '1-1000') return amt >= 1 && amt <= 1000
+        if (filterAmountRange === '1001-5000') return amt >= 1001 && amt <= 5000
+        if (filterAmountRange === '5001-10000') return amt >= 5001 && amt <= 10000
+        if (filterAmountRange === '10001+') return amt >= 10001
+        return true
+      })
+    }
+
+    // Filter by event
+    if (filterEvent) {
+      result = result.filter(c => c.job_event_id === filterEvent)
+    }
+
+    // Filter by month/year
+    if (filterMonthYear) {
+      const [fy, fm] = filterMonthYear.split('-').map(Number)
+      result = result.filter(c => {
+        const d = new Date(c.expense_date)
+        return d.getFullYear() === fy && d.getMonth() + 1 === fm
+      })
+    }
+
     // Filter by expense date range (วันที่เบิก)
     if (filterExpenseDateFrom || filterExpenseDateTo) {
       result = result.filter(c => dateInRange(c.expense_date, filterExpenseDateFrom, filterExpenseDateTo))
@@ -104,7 +152,7 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
     }
 
     return result
-  }, [claims, searchQuery, filterSubmitter, filterClaimType, filterExpenseDateFrom, filterExpenseDateTo, filterPaidDateFrom, filterPaidDateTo])
+  }, [claims, searchQuery, filterSubmitter, filterClaimType, filterCategory, filterAmountRange, filterEvent, filterMonthYear, filterExpenseDateFrom, filterExpenseDateTo, filterPaidDateFrom, filterPaidDateTo])
 
   // Stats
   const totalNet = useMemo(() => {
@@ -120,6 +168,10 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
   const clearFilters = () => {
     setFilterSubmitter('')
     setFilterClaimType('')
+    setFilterCategory('')
+    setFilterAmountRange('')
+    setFilterEvent('')
+    setFilterMonthYear('')
     setFilterExpenseDateFrom('')
     setFilterExpenseDateTo('')
     setFilterPaidDateFrom('')
@@ -234,6 +286,74 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
               </select>
             </div>
 
+            {/* Category Filter */}
+            <div>
+              <label className="block text-[11px] font-medium text-zinc-500 mb-1.5">
+                {isEn ? 'Category' : 'หมวดค่าใช้จ่าย'}
+              </label>
+              <select
+                value={filterCategory}
+                onChange={e => setFilterCategory(e.target.value)}
+                className={selectCls + ' w-full'}
+              >
+                <option value="">{isEn ? 'All categories' : 'ทั้งหมด'}</option>
+                {categories.map(cat => (
+                  <option key={cat.value} value={cat.value}>{isEn ? cat.label : cat.label_th}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Amount Range Filter */}
+            <div>
+              <label className="block text-[11px] font-medium text-zinc-500 mb-1.5">
+                {isEn ? 'Amount Range' : 'ช่วงยอดเงิน'}
+              </label>
+              <select
+                value={filterAmountRange}
+                onChange={e => setFilterAmountRange(e.target.value)}
+                className={selectCls + ' w-full'}
+              >
+                <option value="">{isEn ? 'All amounts' : 'ทั้งหมด'}</option>
+                <option value="0">฿0</option>
+                <option value="1-1000">฿1 - ฿1,000</option>
+                <option value="1001-5000">฿1,001 - ฿5,000</option>
+                <option value="5001-10000">฿5,001 - ฿10,000</option>
+                <option value="10001+">฿10,001+</option>
+              </select>
+            </div>
+
+            {/* Event Filter */}
+            {filterClaimType !== 'other' && events.length > 0 && (
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 mb-1.5">
+                  {isEn ? 'Event' : 'อีเวนต์'}
+                </label>
+                <select
+                  value={filterEvent}
+                  onChange={e => setFilterEvent(e.target.value)}
+                  className={selectCls + ' w-full'}
+                >
+                  <option value="">{isEn ? 'All events' : 'ทั้งหมด'}</option>
+                  {events.map(([id, name]) => (
+                    <option key={id} value={id}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Month/Year Picker */}
+            <div>
+              <label className="block text-[11px] font-medium text-zinc-500 mb-1.5">
+                {isEn ? 'Month/Year' : 'เดือน/ปี'}
+              </label>
+              <input
+                type="month"
+                value={filterMonthYear}
+                onChange={e => { setFilterMonthYear(e.target.value); if (e.target.value) { setFilterExpenseDateFrom(''); setFilterExpenseDateTo('') } }}
+                className={`${selectCls} w-full ${!filterMonthYear ? 'text-zinc-400' : ''}`}
+              />
+            </div>
+
             {/* Expense Date Filter (วันที่เบิก) */}
             <div>
               <label className="block text-[11px] font-medium text-zinc-500 mb-1.5 flex items-center gap-1">
@@ -244,14 +364,14 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
                 <input
                   type="date"
                   value={filterExpenseDateFrom}
-                  onChange={e => setFilterExpenseDateFrom(e.target.value)}
+                  onChange={e => { setFilterExpenseDateFrom(e.target.value); if (e.target.value) setFilterMonthYear('') }}
                   className={inputDateCls}
                 />
                 <span className="text-[10px] text-zinc-400 shrink-0">—</span>
                 <input
                   type="date"
                   value={filterExpenseDateTo}
-                  onChange={e => setFilterExpenseDateTo(e.target.value)}
+                  onChange={e => { setFilterExpenseDateTo(e.target.value); if (e.target.value) setFilterMonthYear('') }}
                   className={inputDateCls}
                 />
               </div>
