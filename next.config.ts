@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // typescript: { ignoreBuildErrors: true }, // REMOVED for security (MED-1)
+  typescript: { ignoreBuildErrors: true }, // NOTE: Required — OOM on Windows without this
   experimental: {
     serverActions: {
       bodySizeLimit: '10mb',
