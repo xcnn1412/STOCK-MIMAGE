@@ -50,7 +50,8 @@ export async function getClaims(filters?: {
       *,
       submitter:profiles!expense_claims_submitted_by_fkey(id, full_name),
       approver:profiles!expense_claims_approved_by_fkey(id, full_name),
-      job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name)
+      payer:profiles!expense_claims_paid_by_fkey(id, full_name),
+      job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name, source_event_id, linked_lead_id)
     `)
     .order('created_at', { ascending: false })
 
