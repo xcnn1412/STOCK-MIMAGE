@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers'
 import { getClaims } from './actions'
 import { getFinanceCategories } from './settings-actions'
 import ClaimsListView from './claims-list-view'
@@ -11,9 +12,14 @@ export const metadata = {
 }
 
 export default async function FinancePage() {
-  const [{ data, error }, categories] = await Promise.all([
+  const cookieStore = await cookies()
+  const role = cookieStore.get('session_role')?.value || 'staff'
+  const isAdmin = role === 'admin'
+
+  const [{ data, error }, categories, paidResult] = await Promise.all([
     getClaims(),
     getFinanceCategories(),
+    isAdmin ? getClaims({ status: 'paid' }) : Promise.resolve({ data: [] }),
   ])
 
   return (
@@ -21,6 +27,8 @@ export default async function FinancePage() {
       claims={(data || []) as unknown as ExpenseClaim[]}
       error={error || null}
       categories={categories}
+      isAdmin={isAdmin}
+      paidClaims={((paidResult as any).data || []) as unknown as ExpenseClaim[]}
     />
   )
 }
