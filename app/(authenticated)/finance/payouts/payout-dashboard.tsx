@@ -37,8 +37,12 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
   const router = useRouter()
 
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all')
+  const [monthYearFilter, setMonthYearFilter] = useState<string>('') // YYYY-MM format
   const [personFilter, setPersonFilter] = useState<string>('all')
   const [eventFilter, setEventFilter] = useState<string>('all')
+  const [claimTypeFilter, setClaimTypeFilter] = useState<string>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [amountRange, setAmountRange] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [payingId, setPayingId] = useState<string | null>(null)
 
@@ -92,10 +96,32 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
           if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false
         }
       }
+      // Month/Year filter
+      if (monthYearFilter) {
+        const [fy, fm] = monthYearFilter.split('-').map(Number)
+        const d = new Date(c.expense_date)
+        if (d.getFullYear() !== fy || d.getMonth() + 1 !== fm) return false
+      }
       // Person filter
       if (personFilter !== 'all' && c.submitted_by !== personFilter) return false
       // Event filter
       if (eventFilter !== 'all' && c.job_event_id !== eventFilter) return false
+      // Claim type filter
+      if (claimTypeFilter !== 'all') {
+        if (claimTypeFilter === 'event' && c.claim_type !== 'event') return false
+        if (claimTypeFilter === 'other' && c.claim_type === 'event') return false
+      }
+      // Category filter
+      if (categoryFilter !== 'all' && c.category !== categoryFilter) return false
+      // Amount range filter
+      if (amountRange !== 'all') {
+        const amt = c.amount || 0
+        if (amountRange === '0' && amt > 0) return false
+        if (amountRange === '1-1000' && (amt < 1 || amt > 1000)) return false
+        if (amountRange === '1001-5000' && (amt < 1001 || amt > 5000)) return false
+        if (amountRange === '5001-10000' && (amt < 5001 || amt > 10000)) return false
+        if (amountRange === '10001+' && amt < 10001) return false
+      }
       // Search
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase()
@@ -106,7 +132,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
       }
       return true
     })
-  }, [claims, timeFilter, personFilter, eventFilter, searchQuery])
+  }, [claims, timeFilter, monthYearFilter, personFilter, eventFilter, claimTypeFilter, categoryFilter, amountRange, searchQuery])
 
   // Group by person for payout view
   const groupedByPerson = useMemo(() => {
@@ -182,12 +208,21 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
         </div>
 
         {/* Time */}
-        <select value={timeFilter} onChange={e => setTimeFilter(e.target.value as TimeFilter)} className={`${selectCls} flex-1 sm:flex-none`}>
+        <select value={timeFilter} onChange={e => { setTimeFilter(e.target.value as TimeFilter); if (e.target.value !== 'all') setMonthYearFilter('') }} className={`${selectCls} flex-1 sm:flex-none`}>
           <option value="all">{isEn ? 'All Time' : 'ทุกช่วงเวลา'}</option>
           <option value="today">{isEn ? 'Today' : 'วันนี้'}</option>
           <option value="week">{isEn ? 'This Week' : 'สัปดาห์นี้'}</option>
           <option value="month">{isEn ? 'This Month' : 'เดือนนี้'}</option>
         </select>
+
+        {/* Month/Year Picker */}
+        <input
+          type="month"
+          value={monthYearFilter}
+          onChange={e => { setMonthYearFilter(e.target.value); if (e.target.value) setTimeFilter('all') }}
+          className={`${selectCls} flex-1 sm:flex-none sm:w-[160px] ${!monthYearFilter ? 'text-zinc-400' : ''}`}
+          placeholder={isEn ? 'Month/Year' : 'เดือน/ปี'}
+        />
 
         {/* Person */}
         <select value={personFilter} onChange={e => setPersonFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
@@ -197,13 +232,40 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
           ))}
         </select>
 
-        {/* Event */}
-        <select value={eventFilter} onChange={e => setEventFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
-          <option value="all">{isEn ? 'All Events' : 'ทุกอีเวนต์'}</option>
-          {events.map(([id, name]) => (
-            <option key={id} value={id}>{name}</option>
+        {/* Claim Type */}
+        <select value={claimTypeFilter} onChange={e => { setClaimTypeFilter(e.target.value); if (e.target.value === 'other') setEventFilter('all') }} className={`${selectCls} flex-1 sm:flex-none`}>
+          <option value="all">{isEn ? 'All Types' : 'ทุกประเภท'}</option>
+          <option value="event">{isEn ? 'Event Expense' : '📍 เบิกงานอีเวนต์'}</option>
+          <option value="other">{isEn ? 'Other Expense' : '📋 เบิกอื่นๆ'}</option>
+        </select>
+
+        {/* Category */}
+        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
+          <option value="all">{isEn ? 'All Categories' : 'ทุกหมวด'}</option>
+          {categories.map(cat => (
+            <option key={cat.value} value={cat.value}>{isEn ? cat.label : cat.label_th}</option>
           ))}
         </select>
+
+        {/* Amount Range */}
+        <select value={amountRange} onChange={e => setAmountRange(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
+          <option value="all">{isEn ? 'All Amounts' : 'ทุกยอดเงิน'}</option>
+          <option value="0">{isEn ? '฿0 (Pending)' : '฿0 (ยังไม่กรอกยอด)'}</option>
+          <option value="1-1000">฿1 - ฿1,000</option>
+          <option value="1001-5000">฿1,001 - ฿5,000</option>
+          <option value="5001-10000">฿5,001 - ฿10,000</option>
+          <option value="10001+">฿10,001+</option>
+        </select>
+
+        {/* Event */}
+        {claimTypeFilter !== 'other' && (
+          <select value={eventFilter} onChange={e => setEventFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
+            <option value="all">{isEn ? 'All Events' : 'ทุกอีเวนต์'}</option>
+            {events.map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Grouped by person */}

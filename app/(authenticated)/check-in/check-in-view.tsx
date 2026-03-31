@@ -148,6 +148,7 @@ export default function CheckInView({
   const [adminDate, setAdminDate] = useState('')
   const [adminTime, setAdminTime] = useState('09:00')
   const [adminNote, setAdminNote] = useState('')
+  const [adminCheckoutTime, setAdminCheckoutTime] = useState('')
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminError, setAdminError] = useState('')
   const [adminSuccess, setAdminSuccess] = useState('')
@@ -317,10 +318,11 @@ export default function CheckInView({
     if (adminCheckType === 'onsite' && adminEventId) fd.set('event_id', adminEventId)
     fd.set('checkin_date', adminDate)
     fd.set('checkin_time', adminTime)
+    if (adminCheckoutTime) fd.set('checkout_time', adminCheckoutTime)
     if (adminNote) fd.set('note', adminNote)
     const result = await adminCheckIn(fd)
     if (result.error) setAdminError(result.error)
-    else { setAdminSuccess('สร้าง Check-in สำเร็จ!'); setAdminTargetUser(''); setAdminDate(''); setAdminNote(''); router.refresh() }
+    else { setAdminSuccess('สร้าง Check-in สำเร็จ!'); setAdminTargetUser(''); setAdminDate(''); setAdminNote(''); setAdminCheckoutTime(''); router.refresh() }
     setAdminLoading(false)
   }
 
@@ -716,15 +718,21 @@ export default function CheckInView({
               </div>
 
               {/* Date + Time */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-sm font-semibold text-zinc-600 dark:text-zinc-400">วันที่ <span className="text-red-500">*</span></label>
                   <input type="date" value={adminDate} onChange={e => setAdminDate(e.target.value)}
                     className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-zinc-600 dark:text-zinc-400">เวลา <span className="text-red-500">*</span></label>
+                  <label className="text-sm font-semibold text-zinc-600 dark:text-zinc-400">เวลาเข้า <span className="text-red-500">*</span></label>
                   <input type="time" value={adminTime} onChange={e => setAdminTime(e.target.value)}
+                    className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold text-zinc-600 dark:text-zinc-400">เวลาออก <span className="text-[10px] text-zinc-400">(ไม่บังคับ)</span></label>
+                  <input type="time" value={adminCheckoutTime} onChange={e => setAdminCheckoutTime(e.target.value)}
+                    placeholder="--:--"
                     className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700" />
                 </div>
               </div>

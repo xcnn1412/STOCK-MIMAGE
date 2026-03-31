@@ -89,6 +89,7 @@ export interface ExpenseClaim {
   reject_reason: string | null
   expense_date: string
   notes: string | null
+  staff_roles: { role: string; label: string }[] | null
   bank_name: string | null
   bank_account_number: string | null
   account_holder_name: string | null
@@ -99,7 +100,7 @@ export interface ExpenseClaim {
   submitter?: { id: string; full_name: string } | null
   approver?: { id: string; full_name: string } | null
   payer?: { id: string; full_name: string } | null
-  job_event?: { id: string; event_name: string } | null
+  job_event?: { id: string; event_name: string; source_event_id?: string | null; linked_lead_id?: string | null } | null
 }
 
 export function getClaimStatusLabel(status: string, locale: 'th' | 'en' = 'th') {

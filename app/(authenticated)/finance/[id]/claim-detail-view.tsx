@@ -278,6 +278,23 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     />
                   </div>
                 )}
+                {/* Staff Roles (read-only from check-in) */}
+                {editClaimType === 'event' && claim.staff_roles && claim.staff_roles.length > 0 && (
+                  <div className="flex items-center gap-3 p-2.5 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-100 dark:border-amber-900/30">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <User className="h-3.5 w-3.5 text-amber-500" />
+                      <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{isEn ? 'Roles:' : 'ทีมงาน & หน้าที่:'}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {claim.staff_roles.map((r, i) => (
+                        <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/50 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                          {r.label}
+                        </span>
+                      ))}
+                    </div>
+                    <span className="text-[9px] text-amber-400 ml-auto shrink-0">{isEn ? 'from check-in' : 'จากระบบเช็คอิน'}</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -513,11 +530,28 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
 
               {/* Event Link */}
               {claim.job_event && (
-                <div className="flex items-center gap-2 text-sm p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                <div className={`flex items-center gap-2 text-sm p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 ${claim.staff_roles && claim.staff_roles.length > 0 ? 'rounded-t-lg' : 'rounded-lg'}`}>
                   <Banknote className="h-4 w-4 text-blue-500" />
                   <span className="text-blue-600 dark:text-blue-400">
                     {isEn ? 'Event:' : 'อีเวนต์:'} <strong>{(claim.job_event as any)?.name || (claim.job_event as any)?.event_name}</strong>
                   </span>
+                </div>
+              )}
+
+              {/* Staff Roles (ทีมงาน & หน้าที่) */}
+              {claim.staff_roles && claim.staff_roles.length > 0 && (
+                <div className={`flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 ${claim.job_event ? 'rounded-b-lg -mt-[5px] border-t-0' : 'rounded-lg'}`}>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <User className="h-4 w-4 text-amber-500" />
+                    <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">{isEn ? 'Roles:' : 'ทีมงาน & หน้าที่:'}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {claim.staff_roles.map((r, i) => (
+                      <span key={i} className="inline-flex items-center px-2.5 py-1 rounded-md bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/50 text-xs font-bold text-amber-700 dark:text-amber-300 tracking-wide">
+                        {r.label}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
 

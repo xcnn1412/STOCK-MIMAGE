@@ -7,9 +7,9 @@ import {
   ArrowLeft, Calendar, Clock, Users, Building2, MapPin, Home,
   TrendingUp, BarChart3, UserCheck, AlertTriangle, Download,
   ChevronDown, ChevronRight, Eye, Search, Filter, X,
-  Settings, Timer, Zap, LayoutDashboard, Table2, ExternalLink, Navigation
+  Settings, Timer, Zap, LayoutDashboard, Table2, ExternalLink, Navigation, Trash2
 } from 'lucide-react'
-import { getCheckinReportData, updateStaffWorkSettings } from '../actions'
+import { getCheckinReportData, updateStaffWorkSettings, adminDeleteCheckin } from '../actions'
 
 // ─── Types ─────────────────────────────────────────────────
 interface CheckinRecord {
@@ -747,6 +747,7 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">แผนที่ (GPS)</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">รูป</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">หมายเหตุ</th>
+                          <th className="px-4 py-2.5 text-center text-[10px] font-bold text-zinc-400 uppercase tracking-wider">จัดการ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -821,6 +822,25 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                               </td>
                               <td className="px-4 py-2.5 text-zinc-500 dark:text-zinc-400 max-w-[200px] truncate text-xs">
                                 {r.note || '—'}
+                              </td>
+                              <td className="px-4 py-2.5 text-center">
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    const name = r.profiles?.full_name || r.profiles?.nickname || 'ไม่ทราบ'
+                                    if (!confirm(`ลบ Check-in ของ "${name}" วันที่ ${formatDate(r.checked_in_at)}?\nจะไม่สามารถกู้คืนได้`)) return
+                                    const result = await adminDeleteCheckin(r.id)
+                                    if (result.error) {
+                                      alert(result.error)
+                                    } else {
+                                      setRecords(prev => prev.filter(rec => rec.id !== r.id))
+                                    }
+                                  }}
+                                  className="h-7 w-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                  title="ลบ Check-in"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
                               </td>
                             </tr>
                           )
