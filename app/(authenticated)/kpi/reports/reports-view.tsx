@@ -222,24 +222,55 @@ export default function ReportsView({ evaluations, replies, profiles, customEmoj
   }, [kpiSummaryData])
 
   const trendData = useMemo(() => {
-    return filteredEvals
-      .map((ev) => {
-        const a = ev.kpi_assignments
-        const target = a?.target || 0
-        const actual = ev.actual_value || 0
-        const pct = target > 0 ? Math.round((actual / target) * 1000) / 10 : 0
+    const map = new Map<string, { pctSum: number; actSum: number; tgtSum: number; count: number; dateForSort: string; unit: string; totalWeight: number; weightedSum: number }>()
+
+    filteredEvals.forEach((ev) => {
+      const a = ev.kpi_assignments
+      const target = a?.target || 0
+      const actual = ev.actual_value || 0
+      // @ts-ignore - weight might exist on custom type overlay
+      const weight = a?.weight || 1
+      const pct = target > 0 ? (actual / target) * 100 : 0
+      
+      const period = ev.period_label || ev.evaluation_date?.slice(0, 7) || 'Unknown'
+      
+      if (!map.has(period)) {
+        map.set(period, { pctSum: 0, actSum: 0, tgtSum: 0, count: 0, dateForSort: ev.evaluation_date || '', unit: a?.target_unit || '', totalWeight: 0, weightedSum: 0 })
+      }
+      
+      const entry = map.get(period)!
+      entry.pctSum += pct
+      entry.actSum += actual
+      entry.tgtSum += target
+      entry.count += 1
+      entry.totalWeight += weight
+      entry.weightedSum += (pct * weight)
+      
+      if (ev.evaluation_date && ev.evaluation_date > entry.dateForSort) {
+          entry.dateForSort = ev.evaluation_date
+      }
+    })
+
+    return Array.from(map.entries())
+      .map(([period, data]) => {
+        // Use weighted average if available, else simple average
+        const avgPct = data.totalWeight > 0 
+           ? Math.round((data.weightedSum / data.totalWeight) * 10) / 10 
+           : (data.count > 0 ? Math.round((data.pctSum / data.count) * 10) / 10 : 0)
+
         return {
-          date: ev.evaluation_date,
-          period: ev.period_label || ev.evaluation_date,
-          kpiName: a?.kpi_templates?.name || a?.custom_name || '-',
-          pct,
-          actual,
-          target,
-          unit: a?.target_unit || '',
+          period,
+          date: data.dateForSort,
+          kpiName: filterKpi !== 'all' ? filterKpi : 'ภาพรวม KPI (เฉลี่ยผลรวม)', 
+          pct: avgPct,
+          actual: filterKpi !== 'all' ? data.actSum : null,
+          target: filterKpi !== 'all' ? data.tgtSum : null,
+          unit: filterKpi !== 'all' ? data.unit : '%',
+          count: data.count,
         }
       })
       .sort((a, b) => a.date.localeCompare(b.date))
-  }, [filteredEvals])
+  }, [filteredEvals, filterKpi])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const BarTooltip = ({ active, payload }: any) => {
@@ -288,19 +319,28 @@ export default function ReportsView({ evaluations, replies, profiles, customEmoj
           <p className="text-[11px] text-muted-foreground mt-0.5">{data?.period}</p>
         </div>
         <div className="space-y-1">
-          <div className="flex justify-between text-xs">
-            <span className="text-zinc-500">{t.kpi.common.target}</span>
-            <span className="font-semibold">{fmt(data?.target)} {data?.unit}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-zinc-500">{t.kpi.common.actual}</span>
-            <span className="font-semibold" style={{ color: pctColor }}>{fmt(data?.actual)}</span>
-          </div>
+          {data?.target !== null && (
+            <div className="flex justify-between text-xs">
+              <span className="text-zinc-500">{t.kpi.common.target}</span>
+              <span className="font-semibold">{fmt(data?.target)} {data?.unit}</span>
+            </div>
+          )}
+          {data?.actual !== null && (
+            <div className="flex justify-between text-xs">
+              <span className="text-zinc-500">{t.kpi.common.actual}</span>
+              <span className="font-semibold" style={{ color: pctColor }}>{fmt(data?.actual)}</span>
+            </div>
+          )}
         </div>
-        <div className="pt-2 border-t border-zinc-100 dark:border-zinc-700">
-          <p className="font-extrabold text-center text-sm" style={{ color: pctColor }}>
+        <div className="pt-2 border-t border-zinc-100 dark:border-zinc-700 flex flex-col gap-1 items-center">
+          <p className="font-extrabold text-sm" style={{ color: pctColor }}>
             {getEmoji(data?.pct || 0)} {data?.pct}%
           </p>
+          {data?.count > 0 && (
+            <span className="text-[10px] text-muted-foreground bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">
+              อิงจาก {data.count} ข้อมูล
+            </span>
+          )}
         </div>
       </div>
     )
@@ -538,7 +578,7 @@ export default function ReportsView({ evaluations, replies, profiles, customEmoj
                     <YAxis
                       dataKey="name"
                       type="category"
-                      width={150}
+                      width={180}
                       fontSize={11}
                       axisLine={false}
                       tickLine={false}
@@ -557,8 +597,9 @@ export default function ReportsView({ evaluations, replies, profiles, customEmoj
                       radius={[0, 8, 8, 0]}
                       barSize={16}
                       opacity={0.85}
+                      minPointSize={4}
                     />
-                    <Bar dataKey="actualVal" name={t.kpi.common.actualLatest} radius={[0, 8, 8, 0]} barSize={16}>
+                    <Bar dataKey="actualVal" name={t.kpi.common.actualLatest} radius={[0, 8, 8, 0]} barSize={16} minPointSize={4}>
                       {barChartData.map((entry, i) => (
                         <Cell key={i} fill={getPctColor(entry.pct)} opacity={0.9} />
                       ))}
@@ -610,7 +651,7 @@ export default function ReportsView({ evaluations, replies, profiles, customEmoj
                         tick={{ fill: '#a1a1aa' }}
                       />
                       <Tooltip content={<TrendTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-                      <Bar dataKey="pct" name="Achievement %" radius={[8, 8, 0, 0]} barSize={36}>
+                      <Bar dataKey="pct" name="Achievement %" radius={[8, 8, 0, 0]} barSize={36} minPointSize={4}>
                         {trendData.map((entry, i) => (
                           <Cell key={i} fill={getPctColor(entry.pct)} opacity={0.9} />
                         ))}

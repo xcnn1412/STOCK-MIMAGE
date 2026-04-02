@@ -75,6 +75,16 @@ export default function FeedbackTimeline({ evaluations, replies, profiles, custo
   const editorRef = useRef<RichTextEditorRef>(null)
   const [lightboxImages, setLightboxImages] = useState<string[] | null>(null)
   const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [expandedEvals, setExpandedEvals] = useState<Set<string>>(new Set())
+
+  const toggleExpand = (id: string) => {
+    setExpandedEvals(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   // Filter only evaluations that have comments OR have replies
   const evaluationsWithDiscussions = evaluations.filter(ev => 
@@ -209,9 +219,35 @@ export default function FeedbackTimeline({ evaluations, replies, profiles, custo
                   </div>
                   
                   {/* Replies Thread */}
-                  {evReplies.length > 0 && (
-                    <div className="mt-4 pl-4 space-y-3 border-l-2 border-zinc-100 dark:border-zinc-800">
-                      {evReplies.map(reply => {
+                  {evReplies.length > 0 && (() => {
+                    const isExpanded = expandedEvals.has(ev.id)
+                    const visibleReplies = isExpanded ? evReplies : evReplies.slice(-2)
+                    
+                    return (
+                      <div className="mt-4 pl-4 space-y-3 border-l-2 border-zinc-100 dark:border-zinc-800">
+                        {!isExpanded && evReplies.length > 2 && (
+                          <button 
+                            onClick={() => toggleExpand(ev.id)}
+                            className="flex items-center gap-1.5 px-2 py-1 -ml-2 rounded-md text-[11px] font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/30 transition-colors"
+                          >
+                            <MessageCircle className="h-3 w-3" />
+                            {locale === 'th' 
+                              ? `ดูการโต้ตอบก่อนหน้าอีก ${evReplies.length - 2} รายการ`
+                              : `View ${evReplies.length - 2} previous replies`
+                            }
+                          </button>
+                        )}
+                        
+                        {isExpanded && evReplies.length > 2 && (
+                          <button 
+                            onClick={() => toggleExpand(ev.id)}
+                            className="flex items-center gap-1.5 px-2 py-1 -ml-2 rounded-md text-[11px] font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 transition-colors bg-zinc-50 dark:bg-zinc-800/50"
+                          >
+                            {locale === 'th' ? `ซ่อนการโต้ตอบ` : `Hide previous replies`}
+                          </button>
+                        )}
+
+                        {visibleReplies.map(reply => {
                         const rName = getUserName(reply.created_by)
                         const rInitial = rName[0] || '?'
                         const isMyReply = reply.created_by === currentUserId
@@ -252,9 +288,10 @@ export default function FeedbackTimeline({ evaluations, replies, profiles, custo
                             </div>
                           </div>
                         )
-                      })}
-                    </div>
-                  )}
+                        })}
+                      </div>
+                    )
+                  })()}
 
                   {/* Reply Button & Composer */}
                   {canReply && (
