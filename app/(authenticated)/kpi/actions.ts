@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
+import { createNotifications } from '@/lib/notifications'
 import type { Database } from '@/types/database.types'
 
 
@@ -329,6 +330,31 @@ export async function submitEvaluation(formData: FormData) {
   }
 
   await logActivity('SUBMIT_KPI_EVALUATION', { assignment_id, score, actual_value, difference, achievement_pct })
+
+  // ── Notification: แจ้ง staff ที่ถูกประเมิน ──
+  try {
+    const { data: evalAssignment } = await supabase
+      .from('kpi_assignments')
+      .select('assigned_to, kpi_templates(name), custom_name')
+      .eq('id', assignment_id)
+      .single()
+
+    if (evalAssignment?.assigned_to) {
+      const kpiName = (evalAssignment as any)?.kpi_templates?.name || (evalAssignment as any)?.custom_name || 'KPI'
+      await createNotifications({
+        userIds: [evalAssignment.assigned_to],
+        type: 'kpi_evaluated',
+        title: `มีผลประเมิน KPI ใหม่: ${kpiName}`,
+        body: comment || `คะแนน: ${score}, ผลสำเร็จ: ${achievement_pct ?? 0}%`,
+        referenceType: 'kpi_evaluation',
+        referenceId: assignment_id,
+        actorId: userId!,
+      })
+    }
+  } catch (e) {
+    console.error('[KPI Notification] Failed:', e)
+  }
+
   revalidatePath('/kpi/evaluate')
   revalidatePath('/kpi/reports')
   revalidatePath('/kpi/dashboard')
@@ -391,6 +417,44 @@ export async function submitSelfEvaluation(formData: FormData) {
   }
 
   await logActivity('SUBMIT_SELF_EVALUATION', { assignment_id, score, actual_value, difference, achievement_pct })
+
+  // ── Notification: แจ้ง Admin ทุกคนว่า Staff ประเมินตัวเอง ──
+  try {
+    const { data: selfAssignment } = await supabase
+      .from('kpi_assignments')
+      .select('kpi_templates(name), custom_name')
+      .eq('id', assignment_id)
+      .single()
+
+    const { data: selfUser } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', userId!)
+      .single()
+
+    const { data: admins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin')
+      .eq('is_approved', true)
+
+    if (admins && admins.length > 0) {
+      const kpiName = (selfAssignment as any)?.kpi_templates?.name || (selfAssignment as any)?.custom_name || 'KPI'
+      const staffName = selfUser?.full_name || 'พนักงาน'
+      await createNotifications({
+        userIds: admins.map(a => a.id),
+        type: 'kpi_self_evaluated',
+        title: `${staffName} ประเมินตัวเอง: ${kpiName}`,
+        body: comment || `ค่าจริง: ${actual_value}, คะแนน: ${score}`,
+        referenceType: 'kpi_evaluation',
+        referenceId: assignment_id,
+        actorId: userId!,
+      })
+    }
+  } catch (e) {
+    console.error('[KPI Self-Eval Notification] Failed:', e)
+  }
+
   revalidatePath('/kpi/dashboard')
   revalidatePath('/kpi/evaluate')
   revalidatePath('/kpi/reports')
@@ -467,4 +531,101 @@ export async function deleteAllEvaluationsByAssignment(assignmentId: string) {
   revalidatePath('/kpi/dashboard')
   revalidatePath('/kpi/assignments')
   return { success: true, count }
+}
+
+// ============================================================================
+// Feedback Replies
+// ============================================================================
+
+export async function getEvaluationReplies(evaluationId: string) {
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('kpi_evaluation_replies')
+    .select('*, profiles:created_by(id, full_name)')
+    .eq('evaluation_id', evaluationId)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching replies:', error)
+    return { data: [], error: error.message }
+  }
+  return { data: data || [] }
+}
+
+export async function createEvaluationReply(evaluationId: string, formData: FormData) {
+  const cookieStore = await cookies()
+  const userId = cookieStore.get('session_user_id')?.value
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  
+  // 1. Get original evaluation to know who to notify
+  const { data: evaluation } = await supabase
+    .from('kpi_evaluations')
+    .select('evaluated_by, kpi_assignments(assigned_to, kpi_templates(name))')
+    .eq('id', evaluationId)
+    .single()
+
+  if (!evaluation) return { error: 'Evaluation not found' }
+
+  const content = formData.get('content') as string
+  const attachments = JSON.parse(formData.get('attachments') as string || '[]')
+  const mentionedUsers = (formData.get('notify_users') as string || '').split(',').filter(Boolean)
+
+  const reply = {
+    evaluation_id: evaluationId,
+    content,
+    attachments,
+    created_by: userId
+  }
+
+  // 2. Insert reply
+  const { error } = await supabase
+    .from('kpi_evaluation_replies')
+    .insert(reply)
+
+  if (error) {
+    console.error('Error creating reply:', error)
+    return { error: error.message }
+  }
+
+  // 3. Notify participants
+  // Handle kpi_assignments which might be an array or object depending on relation
+  const assignments = Array.isArray(evaluation.kpi_assignments) 
+    ? evaluation.kpi_assignments[0] 
+    : evaluation.kpi_assignments
+    
+  const assignedTo = assignments?.assigned_to
+  const evaluatedBy = evaluation.evaluated_by
+  
+  // Handle kpi_templates which might be an array or object
+  const templates = assignments?.kpi_templates
+  const template = Array.isArray(templates) ? templates[0] : templates
+  const kpiName = template?.name || 'KPI'
+  
+  // Notify everyone involved except the sender
+  const participants = new Set<string>()
+  if (assignedTo && assignedTo !== userId) participants.add(assignedTo)
+  if (evaluatedBy && evaluatedBy !== userId) participants.add(evaluatedBy)
+  
+  // Add mentioned users
+  mentionedUsers.forEach(u => participants.add(u))
+  
+  // Remove sender just in case they mentioned themselves
+  participants.delete(userId)
+
+  if (participants.size > 0) {
+    await createNotifications({
+      userIds: Array.from(participants),
+      type: 'kpi_evaluation_reply',
+      title: `มีความคิดเห็นใหม่ใน KPI: ${kpiName}`,
+      body: content ? content.replace(/<[^>]*>?/gm, '').substring(0, 100) : 'มีไฟล์แนบใหม่',
+      referenceType: 'kpi_evaluation',
+      referenceId: evaluationId,
+      actorId: userId,
+    })
+  }
+
+  revalidatePath('/kpi/reports')
+  return { success: true }
 }

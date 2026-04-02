@@ -16,8 +16,11 @@ export type NotificationType =
   | 'ticket_status_changed'
   | 'expense_approved'
   | 'expense_rejected'
+  | 'kpi_evaluated'
+  | 'kpi_self_evaluated'
+  | 'kpi_evaluation_reply'
 
-export type ReferenceType = 'job' | 'ticket' | 'expense_claim'
+export type ReferenceType = 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation'
 
 interface CreateNotificationParams {
   userIds: string[]

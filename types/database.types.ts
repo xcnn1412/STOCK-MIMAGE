@@ -605,6 +605,13 @@ export interface Database {
             isOneToOne: false
             referencedRelation: "kpi_assignments"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kpi_evaluations_evaluated_by_fkey"
+            columns: ["evaluated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           }
         ]
       }
@@ -908,6 +915,17 @@ export type KpiAssignment = Tables['kpi_assignments']['Row'] & {
 }
 export type KpiEvaluation = Tables['kpi_evaluations']['Row'] & {
   kpi_assignments?: KpiAssignment | null
+  evaluator?: Pick<Profile, 'id' | 'full_name'> | null
+}
+
+export interface KpiEvaluationReply {
+  id: string
+  evaluation_id: string
+  content: string | null
+  attachments: string[]
+  created_by: string
+  created_at: string
+  profiles?: Pick<Profile, 'id' | 'full_name'> | null
 }
 
 export type JobCostEvent = Tables['job_cost_events']['Row'] & {

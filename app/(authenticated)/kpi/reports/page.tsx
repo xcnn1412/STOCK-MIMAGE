@@ -13,7 +13,7 @@ export default async function ReportsPage() {
   // ดึง evaluations พร้อม assignment + template + profile
   const query = supabase
     .from('kpi_evaluations')
-    .select('*, kpi_assignments(*, kpi_templates(*), profiles!kpi_assignments_assigned_to_fkey(id, full_name, department))')
+    .select('*, kpi_assignments(*, kpi_templates(*), profiles!kpi_assignments_assigned_to_fkey(id, full_name, department)), evaluator:profiles!kpi_evaluations_evaluated_by_fkey(id, full_name)')
     .order('evaluation_date', { ascending: false })
 
   // Staff เห็นเฉพาะ KPI ตัวเอง
@@ -23,16 +23,38 @@ export default async function ReportsPage() {
 
   const { data: evaluations } = await query
 
-  // profiles สำหรับ filter (admin only)
-  const { data: profiles } = isAdmin
-    ? await supabase.from('profiles').select('id, full_name, department').eq('is_approved', true).order('full_name')
+  // ดึง replies ของทุก evaluation ในหน้านี้
+  const evaluationIds = (evaluations || []).map(e => e.id)
+  const { data: replies } = evaluationIds.length > 0 
+    ? await supabase
+        .from('kpi_evaluation_replies')
+        .select('*, profiles:created_by(id, full_name, department)')
+        .in('evaluation_id', evaluationIds)
+        .order('created_at', { ascending: true })
     : { data: [] }
+
+  // profiles สำหรับ filter/mention (ทุกคนที่ active)
+  const { data: allProfiles } = await supabase
+    .from('profiles')
+    .select('id, full_name, department')
+    .eq('is_approved', true)
+    .order('full_name')
+    
+  // ดึง custom emojis
+  const { data: customEmojis } = await supabase
+    .from('custom_emojis')
+    .select('*')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
 
   return (
     <ReportsView
       evaluations={evaluations || []}
-      profiles={profiles || []}
+      replies={replies || []}
+      profiles={allProfiles || []}
+      customEmojis={customEmojis || []}
       isAdmin={isAdmin}
+      currentUserId={userId || ''}
     />
   )
 }

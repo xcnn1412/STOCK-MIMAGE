@@ -18,6 +18,9 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
   ticket_reply: { icon: '📝', color: 'text-teal-500' },
   expense_approved: { icon: '✅', color: 'text-emerald-500' },
   expense_rejected: { icon: '❌', color: 'text-red-500' },
+  kpi_evaluated: { icon: '📊', color: 'text-violet-500' },
+  kpi_self_evaluated: { icon: '📝', color: 'text-indigo-500' },
+  kpi_evaluation_reply: { icon: '💬', color: 'text-violet-500' },
 }
 
 // ============================================================================
@@ -54,6 +57,8 @@ function getNotificationUrl(item: NotificationItem): string {
       return `/jobs/tickets/${item.reference_id}`
     case 'expense_claim':
       return `/finance`
+    case 'kpi_evaluation':
+      return `/kpi/reports`
     default:
       return '/dashboard'
   }

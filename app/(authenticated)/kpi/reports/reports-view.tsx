@@ -1,17 +1,19 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { BarChart3, TrendingUp, Target, Filter, UserCircle, Building, ClipboardCheck, Award, Users, Weight, CalendarDays } from 'lucide-react'
+import { BarChart3, TrendingUp, Target, Filter, UserCircle, Building, ClipboardCheck, Award, Users, Weight, CalendarDays, MessageCircle, Quote } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useLocale } from '@/lib/i18n/context'
-import type { KpiEvaluation, KpiAssignment, Profile } from '@/types/database.types'
+import type { KpiEvaluation, KpiAssignment, Profile, KpiEvaluationReply } from '@/types/database.types'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Cell, RadialBarChart, RadialBar,
 } from 'recharts'
+import FeedbackTimeline from './feedback-timeline'
 
 const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString()
 const MONTH_NAMES_TH = [
@@ -27,15 +29,19 @@ type EvalWithRelations = KpiEvaluation & {
   kpi_assignments: KpiAssignment & {
     profiles: Pick<Profile, 'id' | 'full_name' | 'department'> | null
   }
+  evaluator?: Pick<Profile, 'id' | 'full_name'> | null
 }
 
 interface ReportsViewProps {
   evaluations: EvalWithRelations[]
+  replies: KpiEvaluationReply[]
   profiles: Pick<Profile, 'id' | 'full_name' | 'department'>[]
+  customEmojis: any[]
   isAdmin: boolean
+  currentUserId: string
 }
 
-export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsViewProps) {
+export default function ReportsView({ evaluations, replies, profiles, customEmojis, isAdmin, currentUserId }: ReportsViewProps) {
   const { t } = useLocale()
   const [filterUser, setFilterUser] = useState<string>('all')
   const [filterDept, setFilterDept] = useState<string>('all')
@@ -766,7 +772,11 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
 
         const hasDetailFilter = detailFilterUser !== 'all' || detailFilterKpi !== 'all' || detailFilterPeriod !== 'all'
 
+        // Comments for the Feedback Timeline
+        const commentsOnly = detailEvals.filter(ev => ev.comment && ev.comment.trim())
+
         return (
+          <>
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
@@ -898,8 +908,51 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
                           <TableCell className="text-xs">
                             {ev.period_label ? <Badge variant="outline" className="text-[10px]">{ev.period_label}</Badge> : '-'}
                           </TableCell>
-                          <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" title={ev.comment || ''}>
-                            {ev.comment || '-'}
+                          <TableCell className="text-xs">
+                            {ev.comment ? (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button className="flex items-center gap-1 max-w-[160px] text-left group">
+                                    <MessageCircle className="h-3 w-3 shrink-0 text-violet-500 group-hover:text-violet-700 transition-colors" />
+                                    <span className="truncate text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                                      {ev.comment}
+                                    </span>
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-80 p-0" align="end">
+                                  <div className="bg-linear-to-br from-violet-50 to-purple-50 dark:from-violet-950/30 dark:to-purple-950/30 px-4 py-3 border-b border-violet-100 dark:border-violet-800/30 rounded-t-md">
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-7 w-7 rounded-full bg-violet-500 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                                        {((ev as any).evaluator?.full_name || 'ผ')[0]}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-semibold text-violet-900 dark:text-violet-100 truncate">
+                                          {(ev as any).evaluator?.full_name || 'ผู้ประเมิน'}
+                                        </p>
+                                        <p className="text-[11px] text-violet-600/70 dark:text-violet-300/70">
+                                          {ev.evaluation_date} • {ev.period_label || '-'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="px-4 py-3">
+                                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                                      {ev.comment}
+                                    </p>
+                                  </div>
+                                  <div className="px-4 py-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center gap-2">
+                                    <Badge variant="secondary" className="text-[10px]">
+                                      คะแนน: {ev.score ?? '-'}
+                                    </Badge>
+                                    <Badge variant={ev.achievement_pct != null && ev.achievement_pct >= 100 ? 'default' : 'outline'} className="text-[10px]">
+                                      ผลสำเร็จ: {ev.achievement_pct ?? '-'}%
+                                    </Badge>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       )
@@ -908,6 +961,17 @@ export default function ReportsView({ evaluations, profiles, isAdmin }: ReportsV
               </Table>
             </CardContent>
           </Card>
+
+          {/* ─── Feedback Timeline ─── */}
+          <FeedbackTimeline 
+            evaluations={filteredEvals} 
+            replies={replies}
+            profiles={profiles as any} 
+            customEmojis={customEmojis}
+            currentUserId={currentUserId}
+            isAdmin={isAdmin}
+          />
+          </>
         )
       })()}
 

@@ -19,6 +19,9 @@ const TYPE_CONFIG: Record<string, { icon: string; accent: string; glow: string; 
     ticket_status_changed: { icon: '🔔', accent: 'from-cyan-400 to-teal-400', glow: 'shadow-cyan-400/25', border: '#06b6d4', iconBg: 'bg-cyan-100 dark:bg-cyan-900/50', progressBar: 'from-cyan-400 to-teal-400' },
     expense_approved:     { icon: '✅', accent: 'from-emerald-400 to-green-400', glow: 'shadow-emerald-400/25', border: '#10b981', iconBg: 'bg-emerald-100 dark:bg-emerald-900/50', progressBar: 'from-emerald-400 to-green-400' },
     expense_rejected:     { icon: '❌', accent: 'from-red-400 to-rose-400', glow: 'shadow-red-400/25', border: '#ef4444', iconBg: 'bg-red-100 dark:bg-red-900/50', progressBar: 'from-red-400 to-rose-400' },
+    kpi_evaluated:        { icon: '📊', accent: 'from-violet-400 to-purple-500', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-purple-500' },
+    kpi_self_evaluated:   { icon: '📝', accent: 'from-indigo-400 to-blue-500', glow: 'shadow-indigo-400/25', border: '#6366f1', iconBg: 'bg-indigo-100 dark:bg-indigo-900/50', progressBar: 'from-indigo-400 to-blue-500' },
+    kpi_evaluation_reply: { icon: '💬', accent: 'from-violet-400 to-fuchsia-400', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-fuchsia-400' },
 }
 
 const DEFAULT_CONFIG = { icon: '🔔', accent: 'from-violet-400 to-purple-400', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-purple-400' }
@@ -35,6 +38,8 @@ function getNotificationUrl(item: NotificationItem): string {
             return `/jobs/tickets/${item.reference_id}`
         case 'expense_claim':
             return `/finance`
+        case 'kpi_evaluation':
+            return `/kpi/reports`
         default:
             return '/dashboard'
     }
@@ -234,6 +239,13 @@ export default function NotificationToastContainer() {
                     if (freshItems.length > 0) {
                         // Mark as shown
                         freshItems.forEach(item => shownIdsRef.current.add(item.id))
+
+                        // Play notification sound
+                        try {
+                            const audio = new Audio('/sounds/notification.wav')
+                            audio.volume = 0.4
+                            audio.play().catch(() => { /* ignore autoplay block */ })
+                        } catch { /* ignore audio errors */ }
 
                         // Add to toast queue (max 3 at a time)
                         setToasts(prev => [...freshItems.slice(0, 3), ...prev].slice(0, 3))
