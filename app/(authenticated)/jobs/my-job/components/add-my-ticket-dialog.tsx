@@ -305,7 +305,7 @@ export function AddMyTicketDialog({
 
     return (
         <Dialog open={open} onOpenChange={v => { if (!v) reset(); onOpenChange(v) }}>
-            <DialogContent className={showComments ? 'max-w-4xl max-h-[90vh] overflow-y-auto' : 'max-w-2xl max-h-[90vh] overflow-y-auto'}>
+            <DialogContent className={showComments ? 'max-w-5xl max-h-[92vh] overflow-y-auto' : 'max-w-3xl max-h-[92vh] overflow-y-auto'}>
                 <DialogHeader>
                     <DialogTitle>
                         {isEdit

@@ -276,13 +276,13 @@ export function MyCommentThread({
 
     // ── Render ────────────────────────────────────────────────────────────────
     return (
-        <div className="flex flex-col" style={{ minHeight: 500 }}>
+        <div className="flex flex-col" style={{ minHeight: 600 }}>
 
             {/* ── Comment list ─────────────────────────────────────────── */}
             <div
                 ref={scrollRef}
                 className="flex-1 overflow-y-auto px-4 py-3 space-y-4"
-                style={{ maxHeight: 520, scrollbarWidth: 'thin' }}
+                style={{ maxHeight: 620, scrollbarWidth: 'thin' }}
             >
                 {loading ? (
                     <div className="flex items-center justify-center py-10">
