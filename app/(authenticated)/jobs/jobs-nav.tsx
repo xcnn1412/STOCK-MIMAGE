@@ -2,41 +2,71 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Briefcase, LayoutDashboard, Archive, Settings, BarChart3 } from 'lucide-react'
+import { Briefcase, LayoutDashboard, Archive, Settings, BarChart3, User, ShieldCheck } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 
-const tabMeta = [
-  { href: '/jobs', key: 'board' as const, icon: LayoutDashboard, exact: true },
-  { href: '/jobs/archive', key: 'archive' as const, icon: Archive, exact: false },
-  { href: '/jobs/report', key: 'report' as const, icon: BarChart3, exact: false },
-  { href: '/jobs/settings', key: 'settings' as const, icon: Settings, exact: false },
+type TabKey = 'board' | 'myJob' | 'adminJob' | 'archive' | 'report' | 'settings'
+
+interface TabMeta {
+  href: string
+  key: TabKey
+  icon: React.ElementType
+  exact: boolean
+  adminOnly?: boolean
+}
+
+const ALL_TABS: TabMeta[] = [
+  { href: '/jobs', key: 'board', icon: LayoutDashboard, exact: true },
+  { href: '/jobs/my-job', key: 'myJob', icon: User, exact: false },
+  { href: '/jobs/admin-job', key: 'adminJob', icon: ShieldCheck, exact: false, adminOnly: true },
+  { href: '/jobs/archive', key: 'archive', icon: Archive, exact: false },
+  { href: '/jobs/report', key: 'report', icon: BarChart3, exact: false },
+  { href: '/jobs/settings', key: 'settings', icon: Settings, exact: false },
 ]
 
-const labels = {
+const labels: Record<'en' | 'th', Record<TabKey, string>> = {
   en: {
     board: 'Board',
+    myJob: 'My Job',
+    adminJob: 'Admin Job',
     archive: 'Archive',
     report: 'Report',
     settings: 'Settings',
   },
   th: {
     board: 'Board',
+    myJob: 'งานของฉัน',
+    adminJob: 'Admin Job',
     archive: 'คลังเก็บ',
     report: 'รายงาน',
     settings: 'ตั้งค่า',
   },
 }
 
-export default function JobsNav() {
+interface JobsNavProps {
+  role?: string
+}
+
+export default function JobsNav({ role }: JobsNavProps) {
   const pathname = usePathname()
   const { locale } = useLocale()
+  const isAdmin = role === 'admin'
 
-  const t = labels[locale] || labels.th
+  const t = labels[locale as 'en' | 'th'] || labels.th
+  const tabMeta = ALL_TABS.filter(tab => !tab.adminOnly || isAdmin)
 
   const isActive = (href: string, exact: boolean) => {
     if (exact) {
-      // Active for /jobs, /jobs/[id], and /jobs/tickets — but NOT /jobs/settings, /jobs/archive, or /jobs/report
-      return pathname === href || (pathname.startsWith('/jobs/') && !pathname.startsWith('/jobs/settings') && !pathname.startsWith('/jobs/archive') && !pathname.startsWith('/jobs/report'))
+      // Active for /jobs, /jobs/[id], and /jobs/tickets —
+      // but NOT for the other named sub-routes
+      return pathname === href || (
+        pathname.startsWith('/jobs/') &&
+        !pathname.startsWith('/jobs/settings') &&
+        !pathname.startsWith('/jobs/archive') &&
+        !pathname.startsWith('/jobs/report') &&
+        !pathname.startsWith('/jobs/my-job') &&
+        !pathname.startsWith('/jobs/admin-job')
+      )
     }
     return pathname.startsWith(href)
   }
