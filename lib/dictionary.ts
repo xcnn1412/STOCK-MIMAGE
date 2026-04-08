@@ -33,6 +33,7 @@ export const dictionary = {
       financeSettings: 'Settings',
 
       jobsKanban: 'Jobs',
+      jobsMyWork: 'My Work',
       jobsSettings: 'Settings',
 
       checkinQuick: 'Quick Check-in',
@@ -294,6 +295,7 @@ export const dictionary = {
       financeSettings: 'ตั้งค่า',
 
       jobsKanban: 'งาน',
+      jobsMyWork: 'งานของฉัน',
       jobsSettings: 'ตั้งค่า',
 
       checkinQuick: 'เช็คอินด่วน',

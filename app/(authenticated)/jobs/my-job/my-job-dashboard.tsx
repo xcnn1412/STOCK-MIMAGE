@@ -1,11 +1,11 @@
-'use client'
+﻿'use client'
 
 import { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
-    Plus, Search, LayoutGrid, List, ChevronDown, User, ShieldCheck,
-    Briefcase, Ticket as TicketIcon,
+    Plus, Search, LayoutGrid, List, ChevronDown, User, Calendar,
+    Ticket as TicketIcon, Briefcase,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,7 +23,7 @@ import { TicketKanbanBoard, getTicketStatuses, getTicketStatusConfig } from '../
 import { AddTicketDialog } from '../components/add-ticket-dialog'
 import { getStatusesFromSettings, getStatusConfig } from '../jobs-dashboard'
 import { useLocale } from '@/lib/i18n/context'
-import type { Job, JobSetting, Ticket } from '../actions'
+import type { Job, JobSetting, JobType, Ticket } from '../actions'
 
 // ============================================================================
 // Types
@@ -36,58 +36,56 @@ interface SystemUser {
 }
 
 interface MyJobDashboardProps {
-    myJobs: Job[]
-    myTickets: Ticket[]
-    allJobs: Job[]        // populated only when isAdmin = true
-    allTickets: Ticket[]  // populated only when isAdmin = true
+    jobs: Job[]
     settings: JobSetting[]
     users: SystemUser[]
     jobTypes: JobSetting[]
+    tickets: Ticket[]
     ticketCategories: JobSetting[]
-    userId: string
-    isAdmin: boolean
+    /** Base URL prefix for router.replace; defaults to /jobs/my-job */
+    basePath?: string
+    pageTitle?: string
+    pageTitleTh?: string
+    pageSubtitle?: string
+    pageSubtitleTh?: string
 }
 
 // ============================================================================
-// My Job Dashboard
+// My Job Dashboard — identical UI/UX to JobsDashboard, scoped to one user
 // ============================================================================
 
 export default function MyJobDashboard({
-    myJobs, myTickets, allJobs, allTickets,
-    settings, users, jobTypes, ticketCategories,
-    userId, isAdmin,
+    jobs,
+    settings,
+    users,
+    jobTypes,
+    tickets,
+    ticketCategories,
+    basePath = '/jobs/my-job',
+    pageTitle = 'My Work',
+    pageTitleTh = 'งานของฉัน',
+    pageSubtitle = 'Jobs and tickets assigned to or created by you',
+    pageSubtitleTh = 'งานและ Ticket ที่ถูกมอบหมายหรือสร้างโดยคุณ',
 }: MyJobDashboardProps) {
     const { locale } = useLocale()
     const searchParams = useSearchParams()
     const router = useRouter()
 
-    // ---------- View mode: 'personal' (my data) or 'admin' (all data) ----------
-    const initialView = searchParams.get('view') === 'admin' && isAdmin ? 'admin' : 'personal'
-    const [viewMode, setViewMode] = useState<'personal' | 'admin'>(initialView)
-
-    // ---------- Board mode: jobs or tickets ----------
     const initialTab = searchParams.get('tab') === 'tickets' ? 'tickets' : 'jobs'
-    const [boardMode, setBoardMode] = useState<'jobs' | 'tickets'>(initialTab)
+    const initialCat = searchParams.get('cat') || ticketCategories[0]?.value || ''
 
-    // ---------- Jobs state ----------
+    const [boardMode, setBoardMode] = useState<'jobs' | 'tickets'>(initialTab)
+    const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban')
     const [pipelineTab, setPipelineTab] = useState<string>(jobTypes[0]?.value || 'graphic')
-    const [kanbanView, setKanbanView] = useState<'kanban' | 'table'>('kanban')
+    const [ticketCategoryTab, setTicketCategoryTab] = useState<string>(initialCat)
     const [search, setSearch] = useState('')
-    const [statusFilter, setStatusFilter] = useState<'all' | string>('all')
-    const [assigneeFilter, setAssigneeFilter] = useState<'all' | string>('all')
+    const [statusFilter, setStatusFilter] = useState<string>('all')
+    const [assigneeFilter, setAssigneeFilter] = useState<string>('all')
     const [tagFilter, setTagFilter] = useState<string[]>([])
     const [addDialogOpen, setAddDialogOpen] = useState(false)
-
-    // ---------- Tickets state ----------
-    const initialCat = searchParams.get('cat') || ticketCategories[0]?.value || ''
-    const [ticketCategoryTab, setTicketCategoryTab] = useState<string>(initialCat)
     const [addTicketDialogOpen, setAddTicketDialogOpen] = useState(false)
 
-    // ---------- Data source: personal vs admin ----------
-    const sourceJobs = viewMode === 'admin' && isAdmin ? allJobs : myJobs
-    const sourceTickets = viewMode === 'admin' && isAdmin ? allTickets : myTickets
-
-    // ---------- Jobs computed ----------
+    // ---- Jobs ----
     const kanbanStatuses = useMemo(
         () => getStatusesFromSettings(settings, pipelineTab),
         [settings, pipelineTab],
@@ -99,9 +97,14 @@ export default function MyJobDashboard({
     }, [settings, pipelineTab, locale])
 
     const pipelineJobs = useMemo(
-        () => sourceJobs.filter(j => j.job_type === pipelineTab),
-        [sourceJobs, pipelineTab],
+        () => jobs.filter(j => j.job_type === pipelineTab),
+        [jobs, pipelineTab],
     )
+
+    const assignedUsers = useMemo(() => {
+        const ids = new Set(pipelineJobs.flatMap(j => j.assigned_to || []))
+        return users.filter(u => ids.has(u.id))
+    }, [pipelineJobs, users])
 
     const availableTags = useMemo(
         () => settings.filter(s => s.category === 'tag' && s.is_active),
@@ -115,9 +118,7 @@ export default function MyJobDashboard({
     const filteredJobs = useMemo(() => pipelineJobs.filter(job => {
         if (statusFilter !== 'all' && job.status !== statusFilter) return false
         if (assigneeFilter !== 'all' && !(job.assigned_to || []).includes(assigneeFilter)) return false
-        if (tagFilter.length > 0) {
-            if (!tagFilter.every(t => (job.tags || []).includes(t))) return false
-        }
+        if (tagFilter.length > 0 && !tagFilter.every(t => (job.tags || []).includes(t))) return false
         if (search) {
             const q = search.toLowerCase()
             if (!job.title.toLowerCase().includes(q) && !(job.customer_name?.toLowerCase().includes(q))) return false
@@ -133,45 +134,41 @@ export default function MyJobDashboard({
         return { statusCounts, total: pipelineJobs.length }
     }, [pipelineJobs, kanbanStatuses])
 
-    // ---------- Tickets computed ----------
+    // ---- Tickets ----
     const ticketStatuses = useMemo(() => getTicketStatuses(settings), [settings])
 
-    const filteredTickets = useMemo(() => sourceTickets.filter(t => {
+    const filteredTickets = useMemo(() => tickets.filter(t => {
         if (search) {
             const q = search.toLowerCase()
             if (!t.subject.toLowerCase().includes(q) && !(t.description?.toLowerCase().includes(q))) return false
         }
         if (statusFilter !== 'all' && t.status !== statusFilter) return false
         return true
-    }), [sourceTickets, search, statusFilter])
+    }), [tickets, search, statusFilter])
 
     const ticketStats = useMemo(() => {
-        const categoryTickets = sourceTickets.filter(t => t.category === ticketCategoryTab)
+        const categoryTickets = tickets.filter(t => t.category === ticketCategoryTab)
         const statusCounts = ticketStatuses.reduce((acc, s) => {
             acc[s] = categoryTickets.filter(t => t.status === s).length
             return acc
         }, {} as Record<string, number>)
         return { statusCounts, total: categoryTickets.length }
-    }, [sourceTickets, ticketCategoryTab, ticketStatuses])
+    }, [tickets, ticketCategoryTab, ticketStatuses])
 
-    const switchView = (v: 'personal' | 'admin') => {
-        setViewMode(v)
+    // ---- Navigation ----
+    const switchToJobs = () => {
+        setBoardMode('jobs')
         setStatusFilter('all')
         setSearch('')
-        router.replace(`/jobs/my-job?view=${v}&tab=${boardMode}`, { scroll: false })
+        router.replace(basePath, { scroll: false })
     }
 
-    const switchBoard = (mode: 'jobs' | 'tickets') => {
-        setBoardMode(mode)
+    const switchToTickets = () => {
+        setBoardMode('tickets')
         setStatusFilter('all')
         setSearch('')
-        router.replace(
-            `/jobs/my-job?view=${viewMode}&tab=${mode}${mode === 'tickets' ? `&cat=${ticketCategoryTab}` : ''}`,
-            { scroll: false },
-        )
+        router.replace(`${basePath}?tab=tickets&cat=${ticketCategoryTab}`, { scroll: false })
     }
-
-    const currentJobType = jobTypes.find(jt => jt.value === pipelineTab)
 
     return (
         <div className="space-y-6">
@@ -182,55 +179,18 @@ export default function MyJobDashboard({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                        {viewMode === 'admin' ? (
-                            <ShieldCheck className="h-5 w-5 text-violet-500" />
-                        ) : (
-                            <User className="h-5 w-5 text-violet-500" />
-                        )}
-                        {viewMode === 'admin'
-                            ? (locale === 'th' ? 'บอร์ดทั้งหมด (Admin)' : 'All Board (Admin)')
-                            : (locale === 'th' ? 'งานของฉัน' : 'My Job')
-                        }
+                        <User className="h-5 w-5 text-violet-500 shrink-0" />
+                        {locale === 'th' ? pageTitleTh : pageTitle}
                     </h1>
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                        {viewMode === 'admin'
-                            ? (locale === 'th' ? 'ดูงานทั้งหมดในระบบ' : 'Viewing all jobs in the system')
-                            : (locale === 'th' ? 'งานที่ถูกมอบหมายหรือสร้างโดยคุณ' : 'Jobs assigned to or created by you')
-                        }
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
+                        {locale === 'th' ? pageSubtitleTh : pageSubtitle}
                     </p>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                    {/* Personal / Admin view toggle (admin only) */}
-                    {isAdmin && (
-                        <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1">
-                            <button
-                                onClick={() => switchView('personal')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'personal'
-                                    ? 'bg-white dark:bg-zinc-700 text-violet-700 dark:text-violet-300 shadow-sm'
-                                    : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
-                                    }`}
-                            >
-                                <User className="h-3.5 w-3.5" />
-                                <span className="hidden sm:inline">{locale === 'th' ? 'ของฉัน' : 'Mine'}</span>
-                            </button>
-                            <button
-                                onClick={() => switchView('admin')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'admin'
-                                    ? 'bg-white dark:bg-zinc-700 text-violet-700 dark:text-violet-300 shadow-sm'
-                                    : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
-                                    }`}
-                            >
-                                <ShieldCheck className="h-3.5 w-3.5" />
-                                <span className="hidden sm:inline">Admin</span>
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Jobs / Tickets mode */}
+                <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1">
                         <button
-                            onClick={() => switchBoard('jobs')}
+                            onClick={switchToJobs}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${boardMode === 'jobs'
                                 ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
@@ -240,7 +200,7 @@ export default function MyJobDashboard({
                             <span className="hidden sm:inline">Jobs</span>
                         </button>
                         <button
-                            onClick={() => switchBoard('tickets')}
+                            onClick={switchToTickets}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${boardMode === 'tickets'
                                 ? 'bg-white dark:bg-zinc-700 text-violet-600 dark:text-violet-400 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
@@ -248,15 +208,14 @@ export default function MyJobDashboard({
                         >
                             <TicketIcon className="h-4 w-4" />
                             <span className="hidden sm:inline">Ticket</span>
-                            {sourceTickets.filter(t => t.status !== 'closed').length > 0 && (
+                            {tickets.filter(t => t.status !== 'closed').length > 0 && (
                                 <Badge className="ml-0.5 bg-violet-100 dark:bg-violet-950 text-violet-600 dark:text-violet-400 text-[10px] px-1.5 py-0 border-0">
-                                    {sourceTickets.filter(t => t.status !== 'closed').length}
+                                    {tickets.filter(t => t.status !== 'closed').length}
                                 </Badge>
                             )}
                         </button>
                     </div>
 
-                    {/* Add button */}
                     {boardMode === 'jobs' ? (
                         <Button
                             onClick={() => setAddDialogOpen(true)}
@@ -300,7 +259,7 @@ export default function MyJobDashboard({
                                 <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: jt.color || '#9ca3af' }} />
                                 {locale === 'th' ? jt.label_th : jt.label_en}
                                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                                    {sourceJobs.filter(j => j.job_type === jt.value).length}
+                                    {jobs.filter(j => j.job_type === jt.value).length}
                                 </Badge>
                             </button>
                         ))}
@@ -334,12 +293,12 @@ export default function MyJobDashboard({
                         })}
                     </div>
 
-                    {/* Filters */}
+                    {/* Kanban/Table toggle + Filters */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1">
                             <button
-                                onClick={() => setKanbanView('kanban')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${kanbanView === 'kanban'
+                                onClick={() => setViewMode('kanban')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'kanban'
                                     ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
                                     : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
                                     }`}
@@ -348,8 +307,8 @@ export default function MyJobDashboard({
                                 <span className="hidden sm:inline">Kanban</span>
                             </button>
                             <button
-                                onClick={() => setKanbanView('table')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${kanbanView === 'table'
+                                onClick={() => setViewMode('table')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'table'
                                     ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
                                     : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
                                     }`}
@@ -386,6 +345,19 @@ export default function MyJobDashboard({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+                                <SelectTrigger className="h-9 w-[130px] sm:w-[150px]">
+                                    <SelectValue placeholder={locale === 'th' ? 'ทุกคน' : 'All Assignees'} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">{locale === 'th' ? 'ทุกคน' : 'All Assignees'}</SelectItem>
+                                    {assignedUsers.map(u => (
+                                        <SelectItem key={u.id} value={u.id}>
+                                            {u.full_name || u.id.slice(0, 8)}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                             {availableTags.length > 0 && (
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
@@ -417,8 +389,8 @@ export default function MyJobDashboard({
                         </div>
                     </div>
 
-                    {/* Kanban Board */}
-                    {kanbanView === 'kanban' ? (
+                    {/* Board */}
+                    {viewMode === 'kanban' ? (
                         <div className="relative -mx-4 md:-mx-6 px-2">
                             <JobKanbanBoard
                                 jobs={filteredJobs}
@@ -428,7 +400,11 @@ export default function MyJobDashboard({
                             />
                         </div>
                     ) : (
-                        <JobTableFallback jobs={filteredJobs} settings={settings} jobType={pipelineTab} locale={locale} />
+                        <JobTableView
+                            jobs={filteredJobs}
+                            settings={settings}
+                            jobType={pipelineTab}
+                        />
                     )}
 
                     <AddJobDialog
@@ -452,16 +428,19 @@ export default function MyJobDashboard({
                         {ticketCategories.map(cat => {
                             const isActive = ticketCategoryTab === cat.value
                             const catColor = cat.color || '#8b5cf6'
-                            const count = sourceTickets.filter(t => t.category === cat.value && t.status !== 'closed').length
+                            const count = tickets.filter(t => t.category === cat.value && t.status !== 'closed').length
                             return (
                                 <button
                                     key={cat.value}
                                     onClick={() => {
                                         setTicketCategoryTab(cat.value)
                                         setStatusFilter('all')
-                                        router.replace(`/jobs/my-job?view=${viewMode}&tab=tickets&cat=${cat.value}`, { scroll: false })
+                                        router.replace(`${basePath}?tab=tickets&cat=${cat.value}`, { scroll: false })
                                     }}
-                                    className={`group flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-semibold transition-all duration-200 whitespace-nowrap ${isActive ? 'shadow-sm scale-[1.02]' : 'bg-zinc-100 dark:bg-zinc-800/70 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'}`}
+                                    className={`group flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-semibold transition-all duration-200 whitespace-nowrap ${isActive
+                                        ? 'shadow-sm scale-[1.02]'
+                                        : 'bg-zinc-100 dark:bg-zinc-800/70 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                                        }`}
                                     style={isActive ? {
                                         backgroundColor: `${catColor}14`,
                                         color: catColor,
@@ -490,7 +469,10 @@ export default function MyJobDashboard({
                             const cfg = getTicketStatusConfig(settings, status)
                             const count = ticketStats.statusCounts[status] || 0
                             return (
-                                <div key={status} className="flex-shrink-0 w-[120px] sm:w-auto sm:flex-1 sm:min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 sm:p-5 snap-start">
+                                <div
+                                    key={status}
+                                    className="flex-shrink-0 w-[120px] sm:w-auto sm:flex-1 sm:min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 sm:p-5 snap-start"
+                                >
                                     <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: `linear-gradient(to bottom, ${cfg.color}, ${cfg.color}dd)` }} />
                                     <div className="flex items-center gap-2 mb-3">
                                         <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: cfg.color }} />
@@ -507,7 +489,7 @@ export default function MyJobDashboard({
                     </div>
 
                     {/* Ticket Filters */}
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-end gap-2 flex-wrap">
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
                             <Input
@@ -538,6 +520,7 @@ export default function MyJobDashboard({
                         </Select>
                     </div>
 
+                    {/* Ticket Kanban Board */}
                     <div className="relative -mx-4 md:-mx-6 px-2">
                         <TicketKanbanBoard
                             tickets={filteredTickets}
@@ -568,17 +551,23 @@ export default function MyJobDashboard({
 }
 
 // ============================================================================
-// Minimal Table Fallback (Jobs list view in table mode)
+// Table View — mirrors jobs-dashboard.tsx JobTableView
 // ============================================================================
 
-function JobTableFallback({
-    jobs, settings, jobType, locale,
+function JobTableView({
+    jobs, settings, jobType,
 }: {
     jobs: Job[]
     settings: JobSetting[]
-    jobType: string
-    locale: string
+    jobType: JobType
 }) {
+    const { locale } = useLocale()
+
+    const getStatusLabel = (status: string) => {
+        const cfg = getStatusConfig(settings, jobType, status)
+        return locale === 'th' ? cfg.labelTh : cfg.label
+    }
+
     const priorityLabels: Record<string, { label: string; color: string }> = {
         low: { label: locale === 'th' ? 'ต่ำ' : 'Low', color: 'text-zinc-500' },
         medium: { label: locale === 'th' ? 'ปานกลาง' : 'Medium', color: 'text-blue-600' },
@@ -586,46 +575,97 @@ function JobTableFallback({
         urgent: { label: locale === 'th' ? 'เร่งด่วน' : 'Urgent', color: 'text-red-600' },
     }
 
-    if (jobs.length === 0) {
-        return (
-            <div className="text-center py-16 text-sm text-zinc-400 dark:text-zinc-500">
-                {locale === 'th' ? 'ไม่พบงาน' : 'No jobs found'}
-            </div>
-        )
-    }
-
     return (
-        <div className="space-y-2">
-            {jobs.map(job => {
-                const statusCfg = getStatusConfig(settings, jobType, job.status)
-                const priority = priorityLabels[job.priority] || priorityLabels.medium
-                return (
-                    <Link key={job.id} href={`/jobs/${job.id}`} className="block">
-                        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 p-3.5 hover:shadow-md transition-shadow">
-                            <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                    <p className="font-semibold text-sm text-zinc-900 dark:text-zinc-100 truncate">{job.title}</p>
-                                    {job.customer_name && (
-                                        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">{job.customer_name}</p>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                    <span className={`text-xs font-semibold ${priority.color}`}>{priority.label}</span>
-                                    <Badge
-                                        className="border-0 text-[11px]"
-                                        style={{ backgroundColor: `${statusCfg.color}20`, color: statusCfg.color }}
-                                    >
-                                        {locale === 'th' ? statusCfg.labelTh : statusCfg.label}
+        <div>
+            {/* Mobile */}
+            <div className="md:hidden space-y-2">
+                {jobs.map(job => {
+                    const statusCfg = getStatusConfig(settings, jobType, job.status)
+                    const priority = priorityLabels[job.priority] || priorityLabels.medium
+                    return (
+                        <Link key={job.id} href={`/jobs/${job.id}`} className="block">
+                            <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 p-3.5 hover:shadow-md transition-shadow">
+                                <div className="flex items-start justify-between gap-2 mb-2">
+                                    <div className="min-w-0">
+                                        <div className="font-semibold text-sm text-zinc-900 dark:text-zinc-100 truncate">{job.title}</div>
+                                        {job.customer_name && (
+                                            <p className="text-xs text-zinc-400 mt-0.5 truncate">{job.customer_name}</p>
+                                        )}
+                                    </div>
+                                    <Badge className="border-0 text-[11px] shrink-0" style={{ backgroundColor: `${statusCfg.color}20`, color: statusCfg.color }}>
+                                        {getStatusLabel(job.status)}
                                     </Badge>
                                 </div>
+                                <div className="flex items-center gap-3 text-xs text-zinc-500 flex-wrap">
+                                    {job.event_date && (
+                                        <span className="flex items-center gap-1">
+                                            <Calendar className="h-3 w-3" /> {job.event_date}
+                                        </span>
+                                    )}
+                                    <span className={`font-medium ${priority.color}`}>{priority.label}</span>
+                                </div>
                             </div>
-                            {job.event_date && (
-                                <p className="text-xs text-zinc-400 mt-1.5">{job.event_date}</p>
-                            )}
-                        </div>
-                    </Link>
-                )
-            })}
+                        </Link>
+                    )
+                })}
+                {jobs.length === 0 && (
+                    <div className="text-center py-12 text-sm text-zinc-400">
+                        {locale === 'th' ? 'ไม่พบงาน' : 'No jobs found'}
+                    </div>
+                )}
+            </div>
+
+            {/* Desktop */}
+            <div className="hidden md:block bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 overflow-x-auto">
+                <table className="w-full">
+                    <thead className="border-b border-zinc-100 dark:border-zinc-800">
+                        <tr>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500">{locale === 'th' ? 'ชื่องาน' : 'Title'}</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500">{locale === 'th' ? 'ลูกค้า' : 'Customer'}</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500">{locale === 'th' ? 'สถานะ' : 'Status'}</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500">{locale === 'th' ? 'ลำดับความสำคัญ' : 'Priority'}</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500">{locale === 'th' ? 'วันงาน' : 'Event Date'}</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500">{locale === 'th' ? 'กำหนดส่ง' : 'Due Date'}</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                        {jobs.map(job => {
+                            const statusCfg = getStatusConfig(settings, jobType, job.status)
+                            const priority = priorityLabels[job.priority] || priorityLabels.medium
+                            const isOverdue = job.due_date && new Date(job.due_date) < new Date() && job.status !== 'done'
+                            return (
+                                <tr key={job.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+                                    <td className="px-4 py-3">
+                                        <Link href={`/jobs/${job.id}`} className="font-medium text-sm text-zinc-900 dark:text-zinc-100 hover:text-violet-600 transition-colors">
+                                            {job.title}
+                                        </Link>
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">{job.customer_name || '—'}</td>
+                                    <td className="px-4 py-3">
+                                        <Badge className="border-0 text-xs" style={{ backgroundColor: `${statusCfg.color}20`, color: statusCfg.color }}>
+                                            {getStatusLabel(job.status)}
+                                        </Badge>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                        <span className={`text-sm font-medium ${priority.color}`}>{priority.label}</span>
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">{job.event_date || '—'}</td>
+                                    <td className={`px-4 py-3 text-sm font-medium ${isOverdue ? 'text-red-500' : 'text-zinc-600 dark:text-zinc-400'}`}>
+                                        {job.due_date || '—'}
+                                    </td>
+                                </tr>
+                            )
+                        })}
+                        {jobs.length === 0 && (
+                            <tr>
+                                <td colSpan={6} className="px-4 py-12 text-center text-sm text-zinc-400">
+                                    {locale === 'th' ? 'ไม่พบงาน' : 'No jobs found'}
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
         </div>
     )
 }

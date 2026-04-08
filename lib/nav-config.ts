@@ -1,4 +1,4 @@
-import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History, Eye } from 'lucide-react'
+import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History, Eye, User } from 'lucide-react'
 
 export type ModuleKey = 'overview' | 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'jobs' | 'checkin' | 'admin'
 
@@ -46,6 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Briefcase,
     items: [
       { href: '/jobs', icon: Briefcase, labelKey: 'jobsKanban', exact: true },
+      { href: '/jobs/my-job', icon: User, labelKey: 'jobsMyWork' },
       { href: '/jobs/settings', icon: Settings, labelKey: 'jobsSettings' },
     ],
   },
