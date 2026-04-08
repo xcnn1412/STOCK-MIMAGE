@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import {
     Plus, Search, LayoutGrid, List, ChevronDown, User, Settings,
     Ticket as TicketIcon, Briefcase, Calendar, AlertCircle,
@@ -73,7 +73,6 @@ export default function MyJobDashboard({
 }: MyJobDashboardProps) {
     const { locale }    = useLocale()
     const searchParams  = useSearchParams()
-    const router        = useRouter()
 
     // canEdit = true for own view (not readonly) OR admin view (adminTargetUserId set)
     const canEdit = !readonly || !!adminTargetUserId
@@ -159,8 +158,8 @@ export default function MyJobDashboard({
     }, [tickets, ticketCategoryTab, ticketStatuses])
 
     // ---- Navigation ----
-    const switchToJobs    = () => { setBoardMode('jobs');    setStatusFilter('all'); setSearch(''); router.replace(basePath, { scroll: false }) }
-    const switchToTickets = () => { setBoardMode('tickets'); setStatusFilter('all'); setSearch(''); router.replace(`${basePath}?tab=tickets&cat=${ticketCategoryTab}`, { scroll: false }) }
+    const switchToJobs    = () => { setBoardMode('jobs');    setStatusFilter('all'); setSearch('') }
+    const switchToTickets = () => { setBoardMode('tickets'); setStatusFilter('all'); setSearch('') }
 
     const openTickets = tickets.filter(t => t.status !== 'closed').length
 
@@ -465,6 +464,7 @@ export default function MyJobDashboard({
                                 isAdmin={isAdmin}
                             />
                             <AddMyJobDialog
+                                key={editJob?.id || 'new-job'}
                                 open={!!editJob}
                                 onOpenChange={v => { if (!v) setEditJob(null) }}
                                 settings={settings}
@@ -500,7 +500,6 @@ export default function MyJobDashboard({
                                         onClick={() => {
                                             setTicketCategoryTab(cat.value)
                                             setStatusFilter('all')
-                                            router.replace(`${basePath}?tab=tickets&cat=${cat.value}`, { scroll: false })
                                         }}
                                         className={`group flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-semibold transition-all duration-200 whitespace-nowrap ${isActive
                                             ? 'shadow-sm scale-[1.02]'
@@ -598,6 +597,7 @@ export default function MyJobDashboard({
                                 isAdmin={isAdmin}
                             />
                             <AddMyTicketDialog
+                                key={editTicket?.id || 'new-ticket'}
                                 open={!!editTicket}
                                 onOpenChange={v => { if (!v) setEditTicket(null) }}
                                 settings={settings}

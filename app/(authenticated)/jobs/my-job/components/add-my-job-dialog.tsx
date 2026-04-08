@@ -126,7 +126,7 @@ export function AddMyJobDialog({
 
     return (
         <Dialog open={open} onOpenChange={v => { if (!v) reset(); onOpenChange(v) }}>
-            <DialogContent className={showComments ? 'max-w-2xl' : 'max-w-lg'}>
+            <DialogContent className={showComments ? 'max-w-4xl max-h-[90vh] overflow-y-auto' : 'max-w-2xl max-h-[90vh] overflow-y-auto'}>
                 <DialogHeader>
                     <DialogTitle>
                         {isEdit

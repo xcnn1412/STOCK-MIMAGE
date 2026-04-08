@@ -19,7 +19,7 @@ import { useLocale } from '@/lib/i18n/context'
 // Types
 // ============================================================================
 
-type AnyComment = MyJobComment | MyTicketComment
+type AnyComment = (MyJobComment | MyTicketComment) & { _optimistic?: boolean }
 
 interface MyCommentThreadProps {
     itemId: string
@@ -179,50 +179,110 @@ export function MyCommentThread({
         }
     }
 
-    // ── Send ─────────────────────────────────────────────────────────────────
+    // ── Derive current user display name from existing comments ────────────
+    const currentUserName = comments.find(c => c.user_id === currentUserId)?.profiles?.full_name || null
+
+    // ── Send (Optimistic) ────────────────────────────────────────────────────
     const handleSend = () => {
         const text = inputText.trim()
-        if (!text && pendingUrls.length === 0) return
+        const urls = [...pendingUrls]
+        if (!text && urls.length === 0) return
 
+        // Build optimistic comment
+        const tempId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const optimisticComment: AnyComment = {
+            id: tempId,
+            user_id: currentUserId,
+            content: text || null,
+            attachments: urls,
+            created_at: new Date().toISOString(),
+            profiles: { full_name: currentUserName || 'You', role: isAdmin ? 'admin' : 'user' },
+            _optimistic: true,
+            ...(itemType === 'job' ? { job_id: itemId } : { ticket_id: itemId }),
+        } as AnyComment
+
+        // 1) Immediately append to UI
+        setComments(prev => {
+            const next = [...prev, optimisticComment]
+            onCommentCountChange?.(next.length)
+            return next
+        })
+        setInputText('')
+        setPendingUrls([])
+        setErrorMsg(null)
+
+        // Reset textarea height
+        if (textareaRef.current) {
+            textareaRef.current.style.height = '38px'
+        }
+
+        // 2) Fire server action in background
         const fd = new FormData()
         fd.set('content', text)
-        fd.set('attachments', JSON.stringify(pendingUrls))
+        fd.set('attachments', JSON.stringify(urls))
 
         startTransition(async () => {
-            setErrorMsg(null)
             const result = itemType === 'job'
                 ? await addMyJobComment(itemId, fd)
                 : await addMyTicketComment(itemId, fd)
 
             if (result.error) {
+                // 3) Rollback optimistic comment on failure
+                setComments(prev => {
+                    const next = prev.filter(c => c.id !== tempId)
+                    onCommentCountChange?.(next.length)
+                    return next
+                })
                 setErrorMsg(result.error)
+                // Restore input so user can retry
+                setInputText(text)
+                setPendingUrls(urls)
             } else {
-                setInputText('')
-                setPendingUrls([])
+                // 4) Sync: replace optimistic with real data from server
                 await loadComments()
             }
         })
     }
 
-    // ── Delete ───────────────────────────────────────────────────────────────
+    // ── Delete (Optimistic) ──────────────────────────────────────────────────
     const handleDelete = (commentId: string) => {
+        // Don't allow deleting optimistic comments
+        if (commentId.startsWith('optimistic-')) return
+
+        // Snapshot for rollback
+        const prevComments = comments
+
+        // 1) Immediately remove from UI
+        setComments(prev => {
+            const next = prev.filter(c => c.id !== commentId)
+            onCommentCountChange?.(next.length)
+            return next
+        })
+
+        // 2) Fire server action
         startTransition(async () => {
             const result = itemType === 'job'
                 ? await deleteMyJobComment(commentId)
                 : await deleteMyTicketComment(commentId)
-            if (!result.error) await loadComments()
+
+            if (result.error) {
+                // 3) Rollback on failure
+                setComments(prevComments)
+                onCommentCountChange?.(prevComments.length)
+                setErrorMsg(result.error)
+            }
         })
     }
 
     // ── Render ────────────────────────────────────────────────────────────────
     return (
-        <div className="flex flex-col" style={{ minHeight: 380 }}>
+        <div className="flex flex-col" style={{ minHeight: 500 }}>
 
             {/* ── Comment list ─────────────────────────────────────────── */}
             <div
                 ref={scrollRef}
                 className="flex-1 overflow-y-auto px-4 py-3 space-y-4"
-                style={{ maxHeight: 360, scrollbarWidth: 'thin' }}
+                style={{ maxHeight: 520, scrollbarWidth: 'thin' }}
             >
                 {loading ? (
                     <div className="flex items-center justify-center py-10">
@@ -247,9 +307,10 @@ export function MyCommentThread({
                         const color   = avatarColor(name)
                         const isOwn   = comment.user_id === currentUserId
                         const isCommentByAdmin = comment.profiles?.role === 'admin'
+                        const isOptimistic = !!(comment as AnyComment)._optimistic
 
                         return (
-                            <div key={comment.id} className="flex items-start gap-2.5 group">
+                            <div key={comment.id} className={`flex items-start gap-2.5 group ${isOptimistic ? 'opacity-60' : ''}`}>
                                 {/* Avatar */}
                                 <div
                                     className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm"
@@ -273,7 +334,7 @@ export function MyCommentThread({
                                         <span className="text-[10px] text-zinc-400 leading-none">
                                             {formatTime(comment.created_at, locale)}
                                         </span>
-                                        {(isOwn || isAdmin) && (
+                                        {(isOwn || isAdmin) && !isOptimistic && (
                                             <button
                                                 onClick={() => handleDelete(comment.id)}
                                                 disabled={isPending}
@@ -432,14 +493,11 @@ export function MyCommentThread({
                     <button
                         type="button"
                         onClick={handleSend}
-                        disabled={isPending || (!inputText.trim() && pendingUrls.length === 0)}
+                        disabled={!inputText.trim() && pendingUrls.length === 0}
                         className="flex-shrink-0 p-2 rounded-full bg-violet-600 hover:bg-violet-700 text-white shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         title={locale === 'th' ? 'ส่ง' : 'Send'}
                     >
-                        {isPending
-                            ? <Loader2 className="h-4 w-4 animate-spin" />
-                            : <Send className="h-4 w-4" />
-                        }
+                        <Send className="h-4 w-4" />
                     </button>
                 </div>
             </div>
