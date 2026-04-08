@@ -12,6 +12,7 @@ import MyJobDashboard from './my-job-dashboard'
 export default async function MyJobPage() {
     const cookieStore = await cookies()
     const userId = cookieStore.get('session_user_id')?.value
+    const role   = cookieStore.get('session_role')?.value
 
     if (!userId) redirect('/login')
 
@@ -37,6 +38,8 @@ export default async function MyJobPage() {
                 tickets={ticketsResult.data || []}
                 ticketCategories={ticketCategories}
                 showSettingsLink
+                currentUserId={userId}
+                isAdmin={role === 'admin'}
             />
         </Suspense>
     )

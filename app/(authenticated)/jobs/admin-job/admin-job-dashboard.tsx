@@ -27,6 +27,8 @@ interface AdminJobDashboardProps {
     jobTypes: PersonalSetting[]
     tickets: PersonalTicket[]
     ticketCategories: PersonalSetting[]
+    /** The admin's own user ID — for comment authoring */
+    currentUserId?: string
 }
 
 // ============================================================================
@@ -41,6 +43,7 @@ export default function AdminJobDashboard({
     jobTypes,
     tickets,
     ticketCategories,
+    currentUserId,
 }: AdminJobDashboardProps) {
     const { locale } = useLocale()
     const router = useRouter()
@@ -173,9 +176,11 @@ export default function AdminJobDashboard({
                     basePath={`/jobs/admin-job?user=${selectedUserId}`}
                     pageTitle={selectedUser?.full_name || 'User'}
                     pageTitleTh={selectedUser?.full_name || 'ผู้ใช้'}
-                    pageSubtitle="Personal jobs and tickets (view only)"
-                    pageSubtitleTh="งานและ Ticket ส่วนตัว (อ่านอย่างเดียว)"
-                    readonly
+                    pageSubtitle="Personal jobs and tickets (admin edit enabled)"
+                    pageSubtitleTh="งานและ Ticket ส่วนตัว (แก้ไขได้โดย Admin)"
+                    adminTargetUserId={selectedUserId}
+                    currentUserId={currentUserId}
+                    isAdmin
                 />
             )}
         </div>

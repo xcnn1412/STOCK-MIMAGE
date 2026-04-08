@@ -46,15 +46,18 @@ interface MyJobKanbanBoardProps {
     jobType: string
     onEdit?: (job: PersonalJob) => void
     readonly?: boolean
+    /** When set (admin view), mutations target this user instead of the logged-in user */
+    adminTargetUserId?: string
 }
 
-export function MyJobKanbanBoard({ jobs, settings, jobType, onEdit, readonly }: MyJobKanbanBoardProps) {
+export function MyJobKanbanBoard({ jobs, settings, jobType, onEdit, readonly, adminTargetUserId }: MyJobKanbanBoardProps) {
     const { locale } = useLocale()
     const [draggedId, setDraggedId]     = useState<string | null>(null)
     const [dragOverStatus, setDragOverStatus] = useState<string | null>(null)
     const [, startTransition]           = useTransition()
     const [optimisticJobs, setOptimisticJobs] = useOptimistic(jobs)
 
+    const canEdit = !readonly || !!adminTargetUserId
     const statuses = getMyJobStatuses(settings, jobType)
 
     const getStatusLabel = (status: string) => {
@@ -63,10 +66,10 @@ export function MyJobKanbanBoard({ jobs, settings, jobType, onEdit, readonly }: 
     }
 
     const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
-        if (readonly) return
+        if (!canEdit) return
         e.dataTransfer.effectAllowed = 'move'
         setDraggedId(id)
-    }, [readonly])
+    }, [canEdit])
 
     const handleDragEnd   = useCallback(() => { setDraggedId(null); setDragOverStatus(null) }, [])
     const handleDragOver  = useCallback((e: React.DragEvent, s: string) => { e.preventDefault(); setDragOverStatus(s) }, [])
@@ -75,16 +78,16 @@ export function MyJobKanbanBoard({ jobs, settings, jobType, onEdit, readonly }: 
     const handleDrop = useCallback((e: React.DragEvent, newStatus: string) => {
         e.preventDefault()
         setDragOverStatus(null)
-        if (!draggedId || readonly) return
+        if (!draggedId || !canEdit) return
         const job = optimisticJobs.find(j => j.id === draggedId)
         if (!job || job.status === newStatus) { setDraggedId(null); return }
 
         startTransition(async () => {
             setOptimisticJobs(prev => prev.map(j => j.id === draggedId ? { ...j, status: newStatus } : j))
-            await updateMyJobStatus(draggedId, newStatus)
+            await updateMyJobStatus(draggedId, newStatus, adminTargetUserId)
         })
         setDraggedId(null)
-    }, [draggedId, optimisticJobs, readonly])
+    }, [draggedId, optimisticJobs, canEdit, adminTargetUserId])
 
     if (statuses.length === 0) {
         return (
@@ -140,8 +143,9 @@ export function MyJobKanbanBoard({ jobs, settings, jobType, onEdit, readonly }: 
                                     isDragging={draggedId === job.id}
                                     onDragStart={handleDragStart}
                                     onDragEnd={handleDragEnd}
-                                    onEdit={readonly ? undefined : onEdit}
-                                    readonly={readonly}
+                                    onEdit={canEdit ? onEdit : undefined}
+                                    readonly={!canEdit}
+                                    adminTargetUserId={adminTargetUserId}
                                 />
                             ))}
                             {isDragOver && colJobs.length === 0 && (
@@ -169,6 +173,7 @@ function MyJobCard({
     onDragEnd,
     onEdit,
     readonly,
+    adminTargetUserId,
 }: {
     job: PersonalJob
     statusColor: string
@@ -177,6 +182,7 @@ function MyJobCard({
     onDragEnd: () => void
     onEdit?: (job: PersonalJob) => void
     readonly?: boolean
+    adminTargetUserId?: string
 }) {
     const { locale }        = useLocale()
     const router            = useRouter()
@@ -188,13 +194,13 @@ function MyJobCard({
     const handleArchive = async (e: React.MouseEvent) => {
         e.stopPropagation()
         if (!confirm(locale === 'th' ? 'ย้ายงานนี้ไปคลัง?' : 'Archive this job?')) return
-        startTransition(async () => { await archiveMyJob(job.id); router.refresh() })
+        startTransition(async () => { await archiveMyJob(job.id, adminTargetUserId); router.refresh() })
     }
 
     const handleDelete = async (e: React.MouseEvent) => {
         e.stopPropagation()
         if (!confirm(locale === 'th' ? 'ลบถาวร?' : 'Delete permanently?')) return
-        startTransition(async () => { await deleteMyJob(job.id); router.refresh() })
+        startTransition(async () => { await deleteMyJob(job.id, adminTargetUserId); router.refresh() })
     }
 
     return (

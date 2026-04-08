@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useTransition, useOptimistic, memo } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { AlertCircle, Pencil, Trash2 } from 'lucide-react'
+import { AlertCircle, Pencil, Trash2, CircleHelp } from 'lucide-react'
 import { updateMyTicketStatus, deleteMyTicket } from '../actions'
 import { useRouter } from 'next/navigation'
 import type { PersonalTicket, PersonalSetting } from '../actions'
@@ -35,9 +35,11 @@ interface MyTicketKanbanBoardProps {
     ticketCategory: string
     onEdit?: (ticket: PersonalTicket) => void
     readonly?: boolean
+    /** When set (admin view), mutations target this user instead of logged-in user */
+    adminTargetUserId?: string
 }
 
-export function MyTicketKanbanBoard({ tickets, settings, ticketCategory, onEdit, readonly }: MyTicketKanbanBoardProps) {
+export function MyTicketKanbanBoard({ tickets, settings, ticketCategory, onEdit, readonly, adminTargetUserId }: MyTicketKanbanBoardProps) {
     const { locale }    = useLocale()
     const [draggingId, setDraggingId]         = useState<string | null>(null)
     const [dragOverStatus, setDragOverStatus] = useState<string | null>(null)
@@ -49,6 +51,7 @@ export function MyTicketKanbanBoard({ tickets, settings, ticketCategory, onEdit,
             current.map(t => t.id === id ? { ...t, status } : t)
     )
 
+    const canEdit = !readonly || !!adminTargetUserId
     const statuses = getMyTicketStatuses(settings)
     const [mobileTab, setMobileTab] = useState<string>(statuses[0] || '')
 
@@ -58,11 +61,11 @@ export function MyTicketKanbanBoard({ tickets, settings, ticketCategory, onEdit,
     }
 
     const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
-        if (readonly) return
+        if (!canEdit) return
         e.dataTransfer.setData('text/plain', id)
         e.dataTransfer.effectAllowed = 'move'
         setDraggingId(id)
-    }, [readonly])
+    }, [canEdit])
 
     const handleDragOver  = useCallback((e: React.DragEvent, s: string) => { e.preventDefault(); setDragOverStatus(s) }, [])
     const handleDragLeave = useCallback(() => setDragOverStatus(null), [])
@@ -73,15 +76,15 @@ export function MyTicketKanbanBoard({ tickets, settings, ticketCategory, onEdit,
         const id = e.dataTransfer.getData('text/plain')
         setDraggingId(null)
         setDragOverStatus(null)
-        if (!id || readonly) return
+        if (!id || !canEdit) return
         const ticket = tickets.find(t => t.id === id)
         if (!ticket || ticket.status === newStatus) return
 
         startTransition(async () => {
             setOptimisticTickets({ id, status: newStatus })
-            await updateMyTicketStatus(id, newStatus)
+            await updateMyTicketStatus(id, newStatus, adminTargetUserId)
         })
-    }, [tickets, readonly])
+    }, [tickets, canEdit, adminTargetUserId])
 
     const categoryTickets = optimisticTickets.filter(t => t.category === ticketCategory)
 
@@ -139,8 +142,9 @@ export function MyTicketKanbanBoard({ tickets, settings, ticketCategory, onEdit,
                                     isDragging={false}
                                     onDragStart={handleDragStart}
                                     onDragEnd={handleDragEnd}
-                                    onEdit={readonly ? undefined : onEdit}
-                                    readonly={readonly}
+                                    onEdit={canEdit ? onEdit : undefined}
+                                    readonly={!canEdit}
+                                    adminTargetUserId={adminTargetUserId}
                                 />
                             ))
                         )}
@@ -193,8 +197,9 @@ export function MyTicketKanbanBoard({ tickets, settings, ticketCategory, onEdit,
                                             isDragging={draggingId === ticket.id}
                                             onDragStart={handleDragStart}
                                             onDragEnd={handleDragEnd}
-                                            onEdit={readonly ? undefined : onEdit}
-                                            readonly={readonly}
+                                            onEdit={canEdit ? onEdit : undefined}
+                                            readonly={!canEdit}
+                                            adminTargetUserId={adminTargetUserId}
                                         />
                                     ))
                                 )}
@@ -226,9 +231,10 @@ interface TicketCardProps {
     onDragEnd: () => void
     onEdit?: (ticket: PersonalTicket) => void
     readonly?: boolean
+    adminTargetUserId?: string
 }
 
-function TicketCard({ ticket, statusColor, isDragging, onDragStart, onDragEnd, onEdit, readonly }: TicketCardProps) {
+function TicketCard({ ticket, statusColor, isDragging, onDragStart, onDragEnd, onEdit, readonly, adminTargetUserId }: TicketCardProps) {
     const { locale } = useLocale()
     const router     = useRouter()
     const [, startTransition] = useTransition()
@@ -239,7 +245,7 @@ function TicketCard({ ticket, statusColor, isDragging, onDragStart, onDragEnd, o
     const handleDelete = async (e: React.MouseEvent) => {
         e.stopPropagation()
         if (!confirm(locale === 'th' ? 'ลบ Ticket นี้?' : 'Delete this ticket?')) return
-        startTransition(async () => { await deleteMyTicket(ticket.id); router.refresh() })
+        startTransition(async () => { await deleteMyTicket(ticket.id, adminTargetUserId); router.refresh() })
     }
 
     return (
@@ -276,6 +282,29 @@ function TicketCard({ ticket, statusColor, isDragging, onDragStart, onDragEnd, o
 
             {ticket.description && (
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2 mt-1.5 pl-4">{ticket.description}</p>
+            )}
+
+            {/* Questions list */}
+            {ticket.questions && ticket.questions.length > 0 && (
+                <div className="mt-2 pl-4 space-y-1">
+                    <div className="flex items-center gap-1 mb-1">
+                        <CircleHelp className="h-3 w-3 text-pink-400" />
+                        <span className="text-[10px] font-semibold text-pink-400 uppercase tracking-wide">
+                            {locale === 'th' ? 'คำถาม' : 'Questions'} ({ticket.questions.length})
+                        </span>
+                    </div>
+                    {ticket.questions.slice(0, 3).map((q, i) => (
+                        <div key={i} className="flex items-start gap-1.5">
+                            <span className="flex items-center justify-center h-4 w-4 rounded-full bg-pink-100 dark:bg-pink-900/30 text-pink-500 text-[9px] font-bold shrink-0 mt-0.5">
+                                {i + 1}
+                            </span>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-1">{q}</p>
+                        </div>
+                    ))}
+                    {ticket.questions.length > 3 && (
+                        <p className="text-[10px] text-pink-400 pl-5">+{ticket.questions.length - 3} {locale === 'th' ? 'ข้อ' : 'more'}</p>
+                    )}
+                </div>
             )}
 
             <div className="flex items-center gap-2 mt-2 pl-4">

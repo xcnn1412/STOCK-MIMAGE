@@ -40,8 +40,14 @@ interface MyJobDashboardProps {
     pageTitleTh?: string
     pageSubtitle?: string
     pageSubtitleTh?: string
-    readonly?: boolean                   // true when admin is viewing another user
+    readonly?: boolean                   // true = strict view-only (no editing at all)
     showSettingsLink?: boolean           // show gear icon link to /jobs/my-job/settings
+    /** When set (admin view), enables edit/add/delete targeting this user's data */
+    adminTargetUserId?: string
+    /** Current signed-in user's ID — needed for comment threads */
+    currentUserId?: string
+    /** Whether current user is admin */
+    isAdmin?: boolean
 }
 
 // ============================================================================
@@ -61,10 +67,16 @@ export default function MyJobDashboard({
     pageSubtitleTh = '',
     readonly = false,
     showSettingsLink = false,
+    adminTargetUserId,
+    currentUserId,
+    isAdmin = false,
 }: MyJobDashboardProps) {
     const { locale }    = useLocale()
     const searchParams  = useSearchParams()
     const router        = useRouter()
+
+    // canEdit = true for own view (not readonly) OR admin view (adminTargetUserId set)
+    const canEdit = !readonly || !!adminTargetUserId
 
     const initialTab = searchParams.get('tab') === 'tickets' ? 'tickets' : 'jobs'
     const initialCat = searchParams.get('cat') || ticketCategories[0]?.value || ''
@@ -166,9 +178,14 @@ export default function MyJobDashboard({
                     <h1 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                         <User className="h-5 w-5 text-violet-500 shrink-0" />
                         {locale === 'th' ? pageTitleTh : pageTitle}
-                        {readonly && (
+                        {readonly && !adminTargetUserId && (
                             <Badge variant="outline" className="ml-1 text-xs font-normal text-zinc-400">
                                 {locale === 'th' ? 'อ่านอย่างเดียว' : 'View only'}
+                            </Badge>
+                        )}
+                        {adminTargetUserId && (
+                            <Badge variant="outline" className="ml-1 text-xs font-normal text-violet-500 border-violet-300">
+                                {locale === 'th' ? 'Admin Edit' : 'Admin Edit'}
                             </Badge>
                         )}
                     </h1>
@@ -218,7 +235,7 @@ export default function MyJobDashboard({
                     )}
 
                     {/* Add button */}
-                    {!readonly && boardMode === 'jobs' && hasJobTypes && (
+                    {canEdit && boardMode === 'jobs' && hasJobTypes && (
                         <Button
                             onClick={() => setAddJobOpen(true)}
                             className="bg-violet-600 hover:bg-violet-700 text-white shadow-sm hidden sm:inline-flex"
@@ -227,7 +244,7 @@ export default function MyJobDashboard({
                             {locale === 'th' ? 'เพิ่มงาน' : 'Add Job'}
                         </Button>
                     )}
-                    {!readonly && boardMode === 'tickets' && (
+                    {canEdit && boardMode === 'tickets' && (
                         <Button
                             onClick={() => setAddTicketOpen(true)}
                             className="bg-violet-600 hover:bg-violet-700 text-white shadow-sm hidden sm:inline-flex"
@@ -240,7 +257,22 @@ export default function MyJobDashboard({
             </div>
 
             {/* No settings onboarding */}
-            {!hasJobTypes && !readonly && (
+            {!hasJobTypes && !canEdit && readonly && (
+                <div className="flex flex-col items-center justify-center py-16 text-center rounded-2xl border-2 border-dashed border-violet-200 dark:border-violet-800 bg-violet-50/30 dark:bg-violet-950/10">
+                    <div className="flex items-center justify-center h-16 w-16 rounded-full bg-violet-100 dark:bg-violet-900/40 mb-4">
+                        <Settings className="h-8 w-8 text-violet-400" />
+                    </div>
+                    <p className="text-base font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                        {locale === 'th' ? 'ยังไม่ได้ตั้งค่า My Job' : 'My Job not configured'}
+                    </p>
+                    <p className="text-sm text-zinc-400 mb-4">
+                        {locale === 'th'
+                            ? 'ผู้ใช้นี้ยังไม่ได้ตั้งค่าประเภทงาน'
+                            : 'This user has not configured job types yet'}
+                    </p>
+                </div>
+            )}
+            {!hasJobTypes && canEdit && !adminTargetUserId && (
                 <div className="flex flex-col items-center justify-center py-16 text-center rounded-2xl border-2 border-dashed border-violet-200 dark:border-violet-800 bg-violet-50/30 dark:bg-violet-950/10">
                     <div className="flex items-center justify-center h-16 w-16 rounded-full bg-violet-100 dark:bg-violet-900/40 mb-4">
                         <Settings className="h-8 w-8 text-violet-400" />
@@ -405,8 +437,9 @@ export default function MyJobDashboard({
                                 jobs={filteredJobs}
                                 settings={settings}
                                 jobType={pipelineTab}
-                                onEdit={readonly ? undefined : job => setEditJob(job)}
-                                readonly={readonly}
+                                onEdit={canEdit ? job => setEditJob(job) : undefined}
+                                readonly={!canEdit}
+                                adminTargetUserId={adminTargetUserId}
                             />
                         </div>
                     ) : (
@@ -414,12 +447,12 @@ export default function MyJobDashboard({
                             jobs={filteredJobs}
                             settings={settings}
                             jobType={pipelineTab}
-                            onEdit={readonly ? undefined : job => setEditJob(job)}
+                            onEdit={canEdit ? job => setEditJob(job) : undefined}
                         />
                     )}
 
                     {/* Dialogs */}
-                    {!readonly && (
+                    {canEdit && (
                         <>
                             <AddMyJobDialog
                                 open={addJobOpen}
@@ -427,6 +460,9 @@ export default function MyJobDashboard({
                                 settings={settings}
                                 jobTypes={jobTypes}
                                 defaultJobType={pipelineTab}
+                                targetUserId={adminTargetUserId}
+                                currentUserId={currentUserId}
+                                isAdmin={isAdmin}
                             />
                             <AddMyJobDialog
                                 open={!!editJob}
@@ -435,7 +471,11 @@ export default function MyJobDashboard({
                                 jobTypes={jobTypes}
                                 defaultJobType={pipelineTab}
                                 editJob={editJob || undefined}
-                                onUpdate={updateMyJob}
+                                onUpdate={adminTargetUserId
+                                    ? (id, fd) => updateMyJob(id, fd, adminTargetUserId)
+                                    : updateMyJob}
+                                currentUserId={currentUserId}
+                                isAdmin={isAdmin}
                             />
                         </>
                     )}
@@ -539,19 +579,23 @@ export default function MyJobDashboard({
                             tickets={filteredTickets}
                             settings={settings}
                             ticketCategory={ticketCategoryTab}
-                            onEdit={readonly ? undefined : ticket => setEditTicket(ticket)}
-                            readonly={readonly}
+                            onEdit={canEdit ? ticket => setEditTicket(ticket) : undefined}
+                            readonly={!canEdit}
+                            adminTargetUserId={adminTargetUserId}
                         />
                     </div>
 
                     {/* Dialogs */}
-                    {!readonly && (
+                    {canEdit && (
                         <>
                             <AddMyTicketDialog
                                 open={addTicketOpen}
                                 onOpenChange={setAddTicketOpen}
                                 settings={settings}
                                 defaultCategory={ticketCategoryTab}
+                                targetUserId={adminTargetUserId}
+                                currentUserId={currentUserId}
+                                isAdmin={isAdmin}
                             />
                             <AddMyTicketDialog
                                 open={!!editTicket}
@@ -559,7 +603,11 @@ export default function MyJobDashboard({
                                 settings={settings}
                                 defaultCategory={ticketCategoryTab}
                                 editTicket={editTicket || undefined}
-                                onUpdate={updateMyTicket}
+                                onUpdate={adminTargetUserId
+                                    ? (id, fd) => updateMyTicket(id, fd, adminTargetUserId)
+                                    : updateMyTicket}
+                                currentUserId={currentUserId}
+                                isAdmin={isAdmin}
                             />
                         </>
                     )}
@@ -567,7 +615,7 @@ export default function MyJobDashboard({
             )}
 
             {/* Mobile FAB */}
-            {!readonly && (
+            {canEdit && (
                 <button
                     onClick={() => boardMode === 'jobs' ? setAddJobOpen(true) : setAddTicketOpen(true)}
                     className="sm:hidden fixed bottom-6 right-6 z-40 flex items-center justify-center h-14 w-14 rounded-full bg-violet-600 hover:bg-violet-700 text-white shadow-xl hover:shadow-2xl transition-all duration-200 active:scale-95"

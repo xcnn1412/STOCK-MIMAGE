@@ -12,6 +12,7 @@ interface AdminJobPageProps {
 export default async function AdminJobPage({ searchParams }: AdminJobPageProps) {
     const cookieStore = await cookies()
     const role = cookieStore.get('session_role')?.value
+    const currentUserId = cookieStore.get('session_user_id')?.value
 
     if (role !== 'admin') redirect('/jobs/my-job')
 
@@ -42,6 +43,7 @@ export default async function AdminJobPage({ searchParams }: AdminJobPageProps) 
                 jobTypes={jobTypes}
                 tickets={ticketsResult.data || []}
                 ticketCategories={ticketCategories}
+                currentUserId={currentUserId}
             />
         </Suspense>
     )
