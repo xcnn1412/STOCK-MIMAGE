@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import MentionTextarea from '@/components/mention-textarea'
 import { Switch } from '@/components/ui/switch'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -77,6 +78,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   const [activityType, setActivityType] = useState('note')
   const [activityDesc, setActivityDesc] = useState('')
   const [addingActivity, setAddingActivity] = useState(false)
+  const [mentionedActivityUsers, setMentionedActivityUsers] = useState<string[]>([])
   const [staffSaving, setStaffSaving] = useState(false)
   // Junction table staff assignments
   const [localStaffAssignments, setLocalStaffAssignments] = useState<StaffAssignment[]>(initialStaffAssignments)
@@ -331,8 +333,12 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     const formData = new FormData()
     formData.set('activity_type', activityType)
     formData.set('description', activityDesc)
+    if (mentionedActivityUsers.length > 0) {
+      formData.set('notify_users', mentionedActivityUsers.join(','))
+    }
     await createActivity(lead.id, formData)
     setActivityDesc('')
+    setMentionedActivityUsers([])
     setAddingActivity(false)
     router.refresh()
   }
@@ -1619,12 +1625,16 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                   })}
                 </div>
                 <div className="flex gap-2">
-                  <Input
-                    value={activityDesc}
-                    onChange={e => setActivityDesc(e.target.value)}
-                    placeholder={ta.addNotePlaceholder}
-                    className="h-9"
-                  />
+                  <div className="flex-1">
+                    <MentionTextarea
+                      value={activityDesc}
+                      onChange={setActivityDesc}
+                      users={users}
+                      placeholder={ta.addNotePlaceholder}
+                      rows={2}
+                      onMentionedUsersChange={setMentionedActivityUsers}
+                    />
+                  </div>
                   <Button type="submit" size="sm" disabled={addingActivity || !activityDesc.trim()}>
                     {addingActivity ? '...' : ta.add}
                   </Button>

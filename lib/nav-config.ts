@@ -10,6 +10,7 @@ export interface NavItem {
   labelKey: string
   description?: string
   exact?: boolean
+  adminOnly?: boolean
 }
 
 export interface NavGroup {
@@ -91,9 +92,9 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Target,
     items: [
       { href: '/kpi/dashboard', icon: LayoutDashboard, labelKey: 'kpiDashboard' },
-      { href: '/kpi/templates', icon: FileText, labelKey: 'kpiTemplates' },
-      { href: '/kpi/assignments', icon: UserCheck, labelKey: 'kpiAssignments' },
-      { href: '/kpi/evaluate', icon: ClipboardCheck, labelKey: 'kpiEvaluate' },
+      { href: '/kpi/templates', icon: FileText, labelKey: 'kpiTemplates', adminOnly: true },
+      { href: '/kpi/assignments', icon: UserCheck, labelKey: 'kpiAssignments', adminOnly: true },
+      { href: '/kpi/evaluate', icon: ClipboardCheck, labelKey: 'kpiEvaluate', adminOnly: true },
       { href: '/kpi/reports', icon: BarChart3, labelKey: 'kpiReports' },
     ],
   },

@@ -7,11 +7,11 @@ import { useLocale } from '@/lib/i18n/context'
 
 const tabMeta = [
   { href: '/kpi/dashboard', key: 'dashboard' as const, icon: LayoutDashboard, adminOnly: false },
-  { href: '/kpi/templates', key: 'templates' as const, icon: FileText, adminOnly: false },
-  { href: '/kpi/assignments', key: 'assignments' as const, icon: UserCheck, adminOnly: false },
-  { href: '/kpi/evaluate', key: 'evaluate' as const, icon: ClipboardCheck, adminOnly: false },
+  { href: '/kpi/templates', key: 'templates' as const, icon: FileText, adminOnly: true },
+  { href: '/kpi/assignments', key: 'assignments' as const, icon: UserCheck, adminOnly: true },
+  { href: '/kpi/evaluate', key: 'evaluate' as const, icon: ClipboardCheck, adminOnly: true },
   { href: '/kpi/reports', key: 'reports' as const, icon: BarChart3, adminOnly: false },
-  { href: '/kpi/download', key: 'download' as const, icon: Download, adminOnly: false },
+  { href: '/kpi/download', key: 'download' as const, icon: Download, adminOnly: true },
 ]
 
 export default function KpiNav({ isAdmin }: { isAdmin: boolean }) {

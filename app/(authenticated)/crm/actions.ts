@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
+import { createNotifications } from '@/lib/notifications'
 
 
 
@@ -537,6 +538,26 @@ export async function createActivity(leadId: string, formData: FormData) {
   await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', leadId)
 
   await logActivity('CREATE_CRM_ACTIVITY', { leadId, activity_type, description })
+
+  // Notify @mentioned users
+  const mentionedUsers = (formData.get('notify_users') as string || '').split(',').filter(Boolean)
+  if (mentionedUsers.length > 0) {
+    const { data: lead } = await supabase.from('crm_leads').select('company_name, contact_name').eq('id', leadId).single()
+    const leadName = lead?.company_name || lead?.contact_name || 'Lead'
+    await createNotifications({
+      userIds: mentionedUsers,
+      type: 'crm_mentioned',
+      title: `คุณถูกแท็กใน CRM: ${leadName}`,
+      body: description?.replace(/@\[[^\]]+\]\([^)]+\)/g, match => {
+        const m = match.match(/@\[([^\]]+)\]/);
+        return m ? `@${m[1]}` : match;
+      }).substring(0, 200) || undefined,
+      referenceType: 'crm_lead',
+      referenceId: leadId,
+      actorId: userId,
+    })
+  }
+
   revalidatePath(`/crm/${leadId}`)
   return { success: true }
 }

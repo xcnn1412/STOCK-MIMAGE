@@ -22,6 +22,7 @@ const TYPE_CONFIG: Record<string, { icon: string; accent: string; glow: string; 
     kpi_evaluated:        { icon: '📊', accent: 'from-violet-400 to-purple-500', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-purple-500' },
     kpi_self_evaluated:   { icon: '📝', accent: 'from-indigo-400 to-blue-500', glow: 'shadow-indigo-400/25', border: '#6366f1', iconBg: 'bg-indigo-100 dark:bg-indigo-900/50', progressBar: 'from-indigo-400 to-blue-500' },
     kpi_evaluation_reply: { icon: '💬', accent: 'from-violet-400 to-fuchsia-400', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-fuchsia-400' },
+    crm_mentioned:        { icon: '📍', accent: 'from-orange-400 to-amber-400', glow: 'shadow-orange-400/25', border: '#f97316', iconBg: 'bg-orange-100 dark:bg-orange-900/50', progressBar: 'from-orange-400 to-amber-400' },
 }
 
 const DEFAULT_CONFIG = { icon: '🔔', accent: 'from-violet-400 to-purple-400', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-purple-400' }
@@ -40,6 +41,8 @@ function getNotificationUrl(item: NotificationItem): string {
             return `/finance`
         case 'kpi_evaluation':
             return `/kpi/reports`
+        case 'crm_lead':
+            return `/crm/${item.reference_id}`
         default:
             return '/dashboard'
     }

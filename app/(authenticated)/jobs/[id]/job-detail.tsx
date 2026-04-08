@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import MentionTextarea from '@/components/mention-textarea'
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -231,6 +232,7 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
     // Activity state
     const [activityNote, setActivityNote] = useState('')
     const [activityType, setActivityType] = useState('note')
+    const [mentionedActivityUsers, setMentionedActivityUsers] = useState<string[]>([])
 
     // Tags state
     const [localTags, setLocalTags] = useState<string[]>(job.tags || [])
@@ -467,8 +469,12 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
             const formData = new FormData()
             formData.set('activity_type', activityType)
             formData.set('description', activityNote)
+            if (mentionedActivityUsers.length > 0) {
+                formData.set('notify_users', mentionedActivityUsers.join(','))
+            }
             await createJobActivity(job.id, formData)
             setActivityNote('')
+            setMentionedActivityUsers([])
             setActivityType('note')
         })
     }
@@ -1416,8 +1422,17 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                                             <SelectItem value="meeting">{locale === 'th' ? 'ประชุม' : 'Meeting'}</SelectItem>
                                         </SelectContent>
                                     </Select>
-                                    <Input value={activityNote} onChange={e => setActivityNote(e.target.value)} className="h-8 text-xs" placeholder={locale === 'th' ? 'เพิ่มโน้ต...' : 'Add note...'} onKeyDown={e => e.key === 'Enter' && handleAddActivity()} />
-                                    <Button size="sm" className="h-8 px-2 bg-violet-600 hover:bg-violet-700 text-white" onClick={handleAddActivity} disabled={isPending || !activityNote.trim()}>
+                                    <div className="flex-1">
+                                        <MentionTextarea
+                                            value={activityNote}
+                                            onChange={setActivityNote}
+                                            users={users}
+                                            placeholder={locale === 'th' ? 'เพิ่มโน้ต (@ เพื่อแท็ก)...' : 'Add note (@ to mention)...'}
+                                            rows={2}
+                                            onMentionedUsersChange={setMentionedActivityUsers}
+                                        />
+                                    </div>
+                                    <Button size="sm" className="h-8 px-2 bg-violet-600 hover:bg-violet-700 text-white self-start mt-0.5" onClick={handleAddActivity} disabled={isPending || !activityNote.trim()}>
                                         <Plus className="h-3.5 w-3.5" />
                                     </Button>
                                 </div>

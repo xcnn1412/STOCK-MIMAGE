@@ -47,6 +47,7 @@ function SidebarGroup({
     getLabel,
     getGroupLabel,
     onNavigate,
+    role,
 }: {
     group: NavGroup
     collapsed: boolean
@@ -54,8 +55,10 @@ function SidebarGroup({
     getLabel: (key: string) => string
     getGroupLabel: (key: string) => string
     onNavigate?: () => void
+    role?: string
 }) {
-    const hasActiveRoute = group.items.some(item => isActive(item.href, item.exact))
+    const visibleItems = group.items.filter(item => !item.adminOnly || role === 'admin')
+    const hasActiveRoute = visibleItems.some(item => isActive(item.href, item.exact))
     const [open, setOpen] = useState(false) // Start closed for SSR safety
     const accent = moduleAccents[group.key] || moduleAccents.stock
 
@@ -94,7 +97,7 @@ function SidebarGroup({
             {/* Items */}
             {open && (
                 <div className="space-y-0.5 ml-2 pl-3 border-l-2 border-zinc-200/60 dark:border-zinc-700/40">
-                    {group.items.map(item => {
+                    {visibleItems.map(item => {
                         const active = isActive(item.href, item.exact)
                         return (
                             <Link
@@ -213,6 +216,7 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                         getLabel={getLabel}
                         getGroupLabel={getGroupLabel}
                         onNavigate={isMobile ? closeMobile : undefined}
+                        role={role}
                     />
                 ))}
             </nav>

@@ -16,11 +16,13 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
   job_comment: { icon: '💬', color: 'text-sky-500' },
   ticket_assigned: { icon: '🎫', color: 'text-indigo-500' },
   ticket_reply: { icon: '📝', color: 'text-teal-500' },
+  ticket_status_changed: { icon: '🔔', color: 'text-cyan-500' },
   expense_approved: { icon: '✅', color: 'text-emerald-500' },
   expense_rejected: { icon: '❌', color: 'text-red-500' },
   kpi_evaluated: { icon: '📊', color: 'text-violet-500' },
   kpi_self_evaluated: { icon: '📝', color: 'text-indigo-500' },
   kpi_evaluation_reply: { icon: '💬', color: 'text-violet-500' },
+  crm_mentioned: { icon: '📍', color: 'text-orange-500' },
 }
 
 // ============================================================================
@@ -59,6 +61,8 @@ function getNotificationUrl(item: NotificationItem): string {
       return `/finance`
     case 'kpi_evaluation':
       return `/kpi/reports`
+    case 'crm_lead':
+      return `/crm/${item.reference_id}`
     default:
       return '/dashboard'
   }
@@ -243,7 +247,7 @@ export default function NotificationBell() {
           {items.length > 0 && (
             <div className="border-t border-zinc-100 dark:border-zinc-800 px-4 py-2 shrink-0">
               <button
-                onClick={() => { setOpen(false); router.push('/dashboard') }}
+                onClick={() => { setOpen(false); router.push('/notifications') }}
                 className="flex items-center justify-center gap-1 w-full text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 font-medium transition-colors py-1"
               >
                 <ExternalLink className="h-3 w-3" />

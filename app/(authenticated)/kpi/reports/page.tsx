@@ -11,17 +11,17 @@ export default async function ReportsPage() {
   const isAdmin = role === 'admin'
 
   // ดึง evaluations พร้อม assignment + template + profile
-  const query = supabase
-    .from('kpi_evaluations')
-    .select('*, kpi_assignments(*, kpi_templates(*), profiles!kpi_assignments_assigned_to_fkey(id, full_name, department)), evaluator:profiles!kpi_evaluations_evaluated_by_fkey(id, full_name)')
-    .order('evaluation_date', { ascending: false })
-
-  // Staff เห็นเฉพาะ KPI ตัวเอง
-  if (!isAdmin && userId) {
-    query.eq('kpi_assignments.assigned_to', userId)
-  }
-
-  const { data: evaluations } = await query
+  // Admin: ดึงทั้งหมด | Staff: ใช้ !inner join กรองเฉพาะ KPI ของตัวเอง
+  const { data: evaluations } = isAdmin
+    ? await supabase
+        .from('kpi_evaluations')
+        .select('*, kpi_assignments(*, kpi_templates(*), profiles!kpi_assignments_assigned_to_fkey(id, full_name, department)), evaluator:profiles!kpi_evaluations_evaluated_by_fkey(id, full_name)')
+        .order('evaluation_date', { ascending: false })
+    : await supabase
+        .from('kpi_evaluations')
+        .select('*, kpi_assignments!inner(*, kpi_templates(*), profiles!kpi_assignments_assigned_to_fkey(id, full_name, department)), evaluator:profiles!kpi_evaluations_evaluated_by_fkey(id, full_name)')
+        .eq('kpi_assignments.assigned_to', userId!)
+        .order('evaluation_date', { ascending: false })
 
   // ดึง replies ของทุก evaluation ในหน้านี้
   const evaluationIds = (evaluations || []).map(e => e.id)

@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import DownloadView from './download-view'
 
@@ -9,6 +10,10 @@ export default async function DownloadPage() {
   const userId = cookieStore.get('session_user_id')?.value
   const role = cookieStore.get('session_role')?.value
   const isAdmin = role === 'admin'
+
+  if (!isAdmin) {
+    redirect('/kpi/dashboard')
+  }
 
   // Admin: ดึงข้อมูลทั้งหมด | Staff: ดึงเฉพาะข้อมูลตัวเอง
   const [
