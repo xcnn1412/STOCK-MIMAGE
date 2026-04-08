@@ -16,9 +16,398 @@ async function getSession() {
 }
 
 // ============================================================================
-// Personal Notes — Types
+// Types
 // ============================================================================
 
+export interface PersonalSetting {
+    id: string
+    user_id: string
+    category: string
+    value: string
+    label_th: string
+    label_en: string
+    color: string | null
+    sort_order: number
+    is_active: boolean
+    created_at: string
+}
+
+export interface PersonalJob {
+    id: string
+    user_id: string
+    job_type: string
+    status: string
+    title: string
+    description: string | null
+    tags: string[]
+    priority: string
+    due_date: string | null
+    notes: string | null
+    sort_order: number
+    created_at: string
+    updated_at: string
+    archived_at: string | null
+}
+
+export interface PersonalTicket {
+    id: string
+    user_id: string
+    subject: string
+    description: string | null
+    status: string
+    category: string
+    priority: string
+    outcome: string | null
+    created_at: string
+    updated_at: string
+}
+
+// ============================================================================
+// My Job Settings — CRUD
+// ============================================================================
+
+/** Fetch all settings for the logged-in user (or a target user for admins). */
+export async function getMyJobSettings(targetUserId?: string) {
+    const { userId, role } = await getSession()
+    if (!userId) return { data: [] as PersonalSetting[], error: 'Unauthorized' }
+
+    const effectiveUserId = targetUserId && role === 'admin' ? targetUserId : userId
+
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('my_job_settings')
+        .select('*')
+        .eq('user_id', effectiveUserId)
+        .order('sort_order', { ascending: true })
+
+    if (error) return { data: [] as PersonalSetting[], error: error.message }
+    return { data: (data || []) as PersonalSetting[] }
+}
+
+export async function createMyJobSetting(formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('my_job_settings').insert({
+        user_id: userId,
+        category: formData.get('category') as string,
+        value: formData.get('value') as string,
+        label_th: formData.get('label_th') as string,
+        label_en: formData.get('label_en') as string,
+        color: (formData.get('color') as string) || null,
+        sort_order: Number(formData.get('sort_order') || 0),
+        is_active: true,
+    })
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function updateMyJobSetting(id: string, formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const updates: Record<string, unknown> = {}
+    const fields = ['value', 'label_th', 'label_en', 'color']
+    fields.forEach(f => {
+        const v = formData.get(f)
+        if (v !== null) updates[f] = (v as string) || null
+    })
+    if (formData.get('sort_order') !== null) updates.sort_order = Number(formData.get('sort_order') || 0)
+    if (formData.has('is_active')) updates.is_active = formData.get('is_active') === 'true'
+
+    const { error } = await supabase
+        .from('my_job_settings')
+        .update(updates)
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function deleteMyJobSetting(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('my_job_settings')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function toggleMyJobSetting(id: string, is_active: boolean) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('my_job_settings')
+        .update({ is_active })
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+/** Initialize settings with default pipeline/status/ticket config. No-op if already set up. */
+export async function initMyJobDefaultSettings() {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    // Check if already initialized
+    const { count } = await supabase
+        .from('my_job_settings')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+
+    if ((count ?? 0) > 0) return { success: true, alreadyInitialized: true }
+
+    const defaults = [
+        // Job Types (pipelines)
+        { user_id: userId, category: 'job_type', value: 'personal', label_th: 'งานส่วนตัว', label_en: 'Personal', color: '#8b5cf6', sort_order: 0, is_active: true },
+        { user_id: userId, category: 'job_type', value: 'work',     label_th: 'งานบริษัท',   label_en: 'Work',     color: '#3b82f6', sort_order: 1, is_active: true },
+        // Statuses — Personal
+        { user_id: userId, category: 'status_personal', value: 'todo',        label_th: 'ยังไม่เริ่ม',       label_en: 'To Do',       color: '#9ca3af', sort_order: 0, is_active: true },
+        { user_id: userId, category: 'status_personal', value: 'in_progress', label_th: 'กำลังทำ',           label_en: 'In Progress', color: '#3b82f6', sort_order: 1, is_active: true },
+        { user_id: userId, category: 'status_personal', value: 'done',        label_th: 'เสร็จแล้ว',         label_en: 'Done',        color: '#10b981', sort_order: 2, is_active: true },
+        // Statuses — Work
+        { user_id: userId, category: 'status_work', value: 'pending',     label_th: 'รอดำเนินการ', label_en: 'Pending',     color: '#f59e0b', sort_order: 0, is_active: true },
+        { user_id: userId, category: 'status_work', value: 'in_progress', label_th: 'กำลังทำ',     label_en: 'In Progress', color: '#3b82f6', sort_order: 1, is_active: true },
+        { user_id: userId, category: 'status_work', value: 'review',      label_th: 'รอตรวจสอบ',   label_en: 'Review',      color: '#8b5cf6', sort_order: 2, is_active: true },
+        { user_id: userId, category: 'status_work', value: 'done',        label_th: 'เสร็จแล้ว',   label_en: 'Done',        color: '#10b981', sort_order: 3, is_active: true },
+        // Ticket Categories
+        { user_id: userId, category: 'ticket_category', value: 'question', label_th: 'คำถาม',       label_en: 'Question', color: '#3b82f6', sort_order: 0, is_active: true },
+        { user_id: userId, category: 'ticket_category', value: 'issue',    label_th: 'ปัญหา',        label_en: 'Issue',    color: '#ef4444', sort_order: 1, is_active: true },
+        { user_id: userId, category: 'ticket_category', value: 'reminder', label_th: 'เตือนความจำ', label_en: 'Reminder', color: '#f59e0b', sort_order: 2, is_active: true },
+        // Ticket Statuses
+        { user_id: userId, category: 'status_ticket', value: 'open',        label_th: 'เปิด',              label_en: 'Open',        color: '#3b82f6', sort_order: 0, is_active: true },
+        { user_id: userId, category: 'status_ticket', value: 'in_progress', label_th: 'กำลังดำเนินการ',   label_en: 'In Progress', color: '#f59e0b', sort_order: 1, is_active: true },
+        { user_id: userId, category: 'status_ticket', value: 'closed',      label_th: 'ปิดแล้ว',           label_en: 'Closed',      color: '#10b981', sort_order: 2, is_active: true },
+    ]
+
+    const { error } = await supabase.from('my_job_settings').insert(defaults)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+// ============================================================================
+// My Jobs — CRUD
+// ============================================================================
+
+export async function getMyJobs(targetUserId?: string) {
+    const { userId, role } = await getSession()
+    if (!userId) return { data: [] as PersonalJob[], error: 'Unauthorized' }
+
+    const effectiveUserId = targetUserId && role === 'admin' ? targetUserId : userId
+
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('my_jobs')
+        .select('*')
+        .eq('user_id', effectiveUserId)
+        .is('archived_at', null)
+        .order('created_at', { ascending: false })
+
+    if (error) return { data: [] as PersonalJob[], error: error.message }
+    return { data: (data || []) as PersonalJob[] }
+}
+
+export async function createMyJob(formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('my_jobs').insert({
+        user_id: userId,
+        job_type: (formData.get('job_type') as string) || 'personal',
+        status: (formData.get('status') as string) || 'todo',
+        title: ((formData.get('title') as string) || '').trim(),
+        description: (formData.get('description') as string) || null,
+        tags: ((formData.get('tags') as string) || '').split(',').map(t => t.trim()).filter(Boolean),
+        priority: (formData.get('priority') as string) || 'medium',
+        due_date: (formData.get('due_date') as string) || null,
+        notes: (formData.get('notes') as string) || null,
+    })
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function updateMyJob(id: string, formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+
+    const textFields = ['title', 'description', 'notes', 'priority', 'status', 'job_type']
+    textFields.forEach(f => {
+        const v = formData.get(f)
+        if (v !== null) updates[f] = (v as string) || null
+    })
+    if (formData.has('due_date')) updates.due_date = (formData.get('due_date') as string) || null
+    if (formData.has('tags'))     updates.tags = ((formData.get('tags') as string) || '').split(',').map(t => t.trim()).filter(Boolean)
+
+    const { error } = await supabase
+        .from('my_jobs')
+        .update(updates)
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function updateMyJobStatus(id: string, status: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('my_jobs')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function archiveMyJob(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('my_jobs')
+        .update({ archived_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function deleteMyJob(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('my_jobs')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+// ============================================================================
+// My Tickets — CRUD
+// ============================================================================
+
+export async function getMyTickets(targetUserId?: string) {
+    const { userId, role } = await getSession()
+    if (!userId) return { data: [] as PersonalTicket[], error: 'Unauthorized' }
+
+    const effectiveUserId = targetUserId && role === 'admin' ? targetUserId : userId
+
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+        .from('my_tickets')
+        .select('*')
+        .eq('user_id', effectiveUserId)
+        .order('created_at', { ascending: false })
+
+    if (error) return { data: [] as PersonalTicket[], error: error.message }
+    return { data: (data || []) as PersonalTicket[] }
+}
+
+export async function createMyTicket(formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('my_tickets').insert({
+        user_id: userId,
+        subject: ((formData.get('subject') as string) || '').trim(),
+        description: (formData.get('description') as string) || null,
+        status: (formData.get('status') as string) || 'open',
+        category: (formData.get('category') as string) || 'general',
+        priority: (formData.get('priority') as string) || 'medium',
+        outcome: (formData.get('outcome') as string) || null,
+    })
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function updateMyTicket(id: string, formData: FormData) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    const fields = ['subject', 'description', 'status', 'category', 'priority', 'outcome']
+    fields.forEach(f => {
+        const v = formData.get(f)
+        if (v !== null) updates[f] = (v as string) || null
+    })
+
+    const { error } = await supabase
+        .from('my_tickets')
+        .update(updates)
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function updateMyTicketStatus(id: string, status: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('my_tickets')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+export async function deleteMyTicket(id: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('my_tickets')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    return { success: true }
+}
+
+// ---- legacy: keep PersonalNote interface for any remaining references ----
 export interface PersonalNote {
     id: string
     user_id: string

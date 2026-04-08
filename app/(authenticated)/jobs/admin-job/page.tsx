@@ -1,10 +1,8 @@
 import { Suspense } from 'react'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import {
-    getJobs, getJobSettings, getSystemUsers, getJobTypes,
-    getTickets, getTicketCategories,
-} from '../actions'
+import { getSystemUsers } from '../actions'
+import { getMyJobs, getMyTickets, getMyJobSettings } from '../my-job/actions'
 import AdminJobDashboard from './admin-job-dashboard'
 
 interface AdminJobPageProps {
@@ -20,40 +18,30 @@ export default async function AdminJobPage({ searchParams }: AdminJobPageProps) 
     const params = await searchParams
     const selectedUserId = params.user
 
-    const [jobsResult, settingsResult, users, jobTypesResult, ticketsResult, ticketCategoriesResult] = await Promise.all([
-        getJobs(),
-        getJobSettings(),
-        getSystemUsers(),
-        getJobTypes(),
-        getTickets(),
-        getTicketCategories(),
-    ])
+    const users = await getSystemUsers()
 
-    const allJobs = jobsResult.data || []
-    const allTickets = ticketsResult.data || []
+    const [jobsResult, ticketsResult, settingsResult] = selectedUserId
+        ? await Promise.all([
+            getMyJobs(selectedUserId),
+            getMyTickets(selectedUserId),
+            getMyJobSettings(selectedUserId),
+          ])
+        : [{ data: [] }, { data: [] }, { data: [] }]
 
-    // Filter to selected user's jobs/tickets (empty if no user selected)
-    const userJobs = selectedUserId
-        ? allJobs.filter(j =>
-            j.created_by === selectedUserId || (j.assigned_to || []).includes(selectedUserId)
-          )
-        : []
-    const userTickets = selectedUserId
-        ? allTickets.filter(t =>
-            t.created_by === selectedUserId || (t.assigned_to || []).includes(selectedUserId)
-          )
-        : []
+    const settings         = settingsResult.data || []
+    const jobTypes         = settings.filter(s => s.category === 'job_type' && s.is_active)
+    const ticketCategories = settings.filter(s => s.category === 'ticket_category' && s.is_active)
 
     return (
         <Suspense>
             <AdminJobDashboard
                 users={users}
                 selectedUserId={selectedUserId}
-                jobs={userJobs}
-                settings={settingsResult.data || []}
-                jobTypes={jobTypesResult.data || []}
-                tickets={userTickets}
-                ticketCategories={ticketCategoriesResult.data || []}
+                jobs={jobsResult.data || []}
+                settings={settings}
+                jobTypes={jobTypes}
+                tickets={ticketsResult.data || []}
+                ticketCategories={ticketCategories}
             />
         </Suspense>
     )

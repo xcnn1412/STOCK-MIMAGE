@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/select'
 import { useLocale } from '@/lib/i18n/context'
 import MyJobDashboard from '../my-job/my-job-dashboard'
-import type { Job, JobSetting, Ticket } from '../actions'
+import type { PersonalJob, PersonalSetting, PersonalTicket } from '../my-job/actions'
 
 // ============================================================================
 // Types
@@ -22,11 +22,11 @@ interface SystemUser {
 interface AdminJobDashboardProps {
     users: SystemUser[]
     selectedUserId?: string
-    jobs: Job[]
-    settings: JobSetting[]
-    jobTypes: JobSetting[]
-    tickets: Ticket[]
-    ticketCategories: JobSetting[]
+    jobs: PersonalJob[]
+    settings: PersonalSetting[]
+    jobTypes: PersonalSetting[]
+    tickets: PersonalTicket[]
+    ticketCategories: PersonalSetting[]
 }
 
 // ============================================================================
@@ -167,15 +167,15 @@ export default function AdminJobDashboard({
                 <MyJobDashboard
                     jobs={jobs}
                     settings={settings}
-                    users={users}
                     jobTypes={jobTypes}
                     tickets={tickets}
                     ticketCategories={ticketCategories}
                     basePath={`/jobs/admin-job?user=${selectedUserId}`}
                     pageTitle={selectedUser?.full_name || 'User'}
                     pageTitleTh={selectedUser?.full_name || 'ผู้ใช้'}
-                    pageSubtitle="Jobs and tickets for this user"
-                    pageSubtitleTh="งานและ Ticket ของผู้ใช้คนนี้"
+                    pageSubtitle="Personal jobs and tickets (view only)"
+                    pageSubtitleTh="งานและ Ticket ส่วนตัว (อ่านอย่างเดียว)"
+                    readonly
                 />
             )}
         </div>
