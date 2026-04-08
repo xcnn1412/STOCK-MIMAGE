@@ -298,14 +298,18 @@ export function EmojiPicker({ onSelect, onClose, customEmojis = [], customEmojiM
                                         transition-all duration-150
                                         hover:bg-violet-100 dark:hover:bg-violet-900/30 hover:scale-105 active:scale-95"
                                 >
-                                    <img
-                                        src={customEmojiMap?.get(emoji) || ''}
-                                        alt={emoji}
-                                        width={40}
-                                        height={40}
-                                        className="object-contain rounded"
-                                        draggable={false}
-                                    />
+                                    {customEmojiMap?.get(emoji) ? (
+                                        <img
+                                            src={customEmojiMap.get(emoji)}
+                                            alt={emoji}
+                                            width={40}
+                                            height={40}
+                                            className="object-contain rounded"
+                                            draggable={false}
+                                        />
+                                    ) : (
+                                        <span className="text-2xl">✦</span>
+                                    )}
                                     <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 truncate max-w-full">
                                         {customEmoji?.name || emoji}
                                     </span>
@@ -330,14 +334,18 @@ export function EmojiPicker({ onSelect, onClose, customEmojis = [], customEmojiM
                                         ${isCustom ? 'h-11 w-11 hover:scale-110' : 'h-9 w-9 hover:scale-125'}`}
                                 >
                                     {isCustom ? (
-                                        <img
-                                            src={customEmojiMap?.get(emoji) || ''}
-                                            alt={emoji}
-                                            width={32}
-                                            height={32}
-                                            className="object-contain rounded"
-                                            draggable={false}
-                                        />
+                                        customEmojiMap?.get(emoji) ? (
+                                            <img
+                                                src={customEmojiMap.get(emoji)}
+                                                alt={emoji}
+                                                width={32}
+                                                height={32}
+                                                className="object-contain rounded"
+                                                draggable={false}
+                                            />
+                                        ) : (
+                                            <span className="text-lg">✦</span>
+                                        )
                                     ) : (
                                         <TwemojiImg emoji={emoji} size={24} />
                                     )}

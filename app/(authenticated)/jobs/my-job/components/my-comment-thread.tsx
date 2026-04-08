@@ -106,6 +106,7 @@ export function MyCommentThread({
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
     const [customEmojis, setCustomEmojis]     = useState<CustomEmoji[]>([])
     const [customEmojiMap, setCustomEmojiMap] = useState<Map<string, string>>(new Map())
+    const [errorMsg, setErrorMsg]             = useState<string | null>(null)
 
     const scrollRef   = useRef<HTMLDivElement>(null)
     const fileRef     = useRef<HTMLInputElement>(null)
@@ -130,10 +131,14 @@ export function MyCommentThread({
                 : getMyTicketComments(itemId),
         ]).then(([emojisResult, commentsResult]) => {
             if (cancelled) return
-            if (emojisResult) {
-                setCustomEmojis(emojisResult)
+            const emojis = emojisResult?.data || []
+            if (emojis.length) {
+                setCustomEmojis(emojis)
                 const map = new Map<string, string>()
-                emojisResult.forEach(ce => map.set(`:${ce.shortcode}:`, ce.image_url))
+                emojis.forEach(ce => {
+                    map.set(ce.shortcode, ce.image_url)
+                    map.set(`:${ce.shortcode}:`, ce.image_url)
+                })
                 setCustomEmojiMap(map)
             }
             const items = commentsResult.data || []
@@ -184,11 +189,14 @@ export function MyCommentThread({
         fd.set('attachments', JSON.stringify(pendingUrls))
 
         startTransition(async () => {
+            setErrorMsg(null)
             const result = itemType === 'job'
                 ? await addMyJobComment(itemId, fd)
                 : await addMyTicketComment(itemId, fd)
 
-            if (!result.error) {
+            if (result.error) {
+                setErrorMsg(result.error)
+            } else {
                 setInputText('')
                 setPendingUrls([])
                 await loadComments()
@@ -345,6 +353,16 @@ export function MyCommentThread({
                             customEmojiMap={customEmojiMap}
                         />
                     </div>
+                </div>
+            )}
+
+            {/* ── Error message ─────────────────────────────────────── */}
+            {errorMsg && (
+                <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs flex items-center justify-between">
+                    <span>{errorMsg}</span>
+                    <button onClick={() => setErrorMsg(null)} className="ml-2 hover:text-red-800 dark:hover:text-red-300">
+                        <X className="h-3.5 w-3.5" />
+                    </button>
                 </div>
             )}
 
