@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /c/Users/User/Desktop/software/STOCK-MIMAGE/next.*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}

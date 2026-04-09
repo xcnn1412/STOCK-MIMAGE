@@ -6,8 +6,16 @@ import { Toaster } from "@/components/ui/sonner";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Event Inventory Management",
-  description: "Track equipment, manage kits, and handle Event Check-in/Check-out flows.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'),
+  title: {
+    default: 'Event Inventory Management',
+    template: '%s | Event Inventory',
+  },
+  description: 'Track equipment, manage kits, and handle Event Check-in/Check-out flows.',
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 import { Providers } from '@/components/providers'

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { getSystemUsers } from '../actions'
 import { getMyJobs, getMyTickets, getMyJobSettings } from '../my-job/actions'
 import AdminJobDashboard from './admin-job-dashboard'
+import JobsLoading from '../loading'
 
 interface AdminJobPageProps {
     searchParams: Promise<{ user?: string }>
@@ -34,7 +35,7 @@ export default async function AdminJobPage({ searchParams }: AdminJobPageProps) 
     const ticketCategories = settings.filter(s => s.category === 'ticket_category' && s.is_active)
 
     return (
-        <Suspense>
+        <Suspense fallback={<JobsLoading />}>
             <AdminJobDashboard
                 users={users}
                 selectedUserId={selectedUserId}

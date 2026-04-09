@@ -8,6 +8,7 @@ import {
     initMyJobDefaultSettings,
 } from './actions'
 import MyJobDashboard from './my-job-dashboard'
+import JobsLoading from '../loading'
 
 export default async function MyJobPage() {
     const cookieStore = await cookies()
@@ -30,7 +31,7 @@ export default async function MyJobPage() {
     const ticketCategories = settings.filter(s => s.category === 'ticket_category' && s.is_active)
 
     return (
-        <Suspense>
+        <Suspense fallback={<JobsLoading />}>
             <MyJobDashboard
                 jobs={jobsResult.data || []}
                 settings={settings}
