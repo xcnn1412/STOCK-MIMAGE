@@ -737,8 +737,8 @@ export async function markAsPendingMonthEnd(id: string) {
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
-  // Accept both 'approved' (new flow) and 'awaiting_payment' (legacy data)
-  if (!['approved', 'awaiting_payment'].includes(claim.status)) {
+  // Accept 'approved', 'waiting_tax_invoice' (new flow) and 'awaiting_payment' (legacy data)
+  if (!['approved', 'awaiting_payment', 'waiting_tax_invoice'].includes(claim.status)) {
     return { error: 'เลื่อนจ่ายสิ้นเดือนได้เฉพาะใบเบิกที่อนุมัติแล้วเท่านั้น' }
   }
 
@@ -769,6 +769,118 @@ export async function markAsPendingMonthEnd(id: string) {
 }
 
 // ============================================================================
+// Mark as Waiting Tax Invoice (admin only) — approved → waiting_tax_invoice
+// ============================================================================
+
+export async function markAsWaitingTaxInvoice(id: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('claim_number, status, submitted_by, title')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.status !== 'approved') {
+    return { error: 'ขอใบกำกับภาษีได้เฉพาะใบเบิกที่อยู่ในสถานะ "อนุมัติแล้ว" เท่านั้น' }
+  }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({ status: 'waiting_tax_invoice' })
+    .eq('id', id)
+
+  if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'waiting_tax_invoice',
+    changed_by: userId,
+    changes: { status: { from: 'approved', to: 'waiting_tax_invoice' } },
+    note: 'รอใบกำกับภาษีจากผู้เบิก',
+  })
+
+  await logActivity('MARK_CLAIM_WAITING_TAX_INVOICE', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+  })
+
+  if (claim.submitted_by) {
+    await createNotifications({
+      userIds: [claim.submitted_by],
+      type: 'expense_approved',
+      title: `ใบเบิก ${claim.claim_number} รอใบกำกับภาษี`,
+      body: 'กรุณาอัพโหลดใบกำกับภาษีเพื่อดำเนินการชำระเงินต่อ',
+      referenceType: 'expense_claim',
+      referenceId: id,
+      actorId: userId,
+    })
+  }
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  return { success: true }
+}
+
+// ============================================================================
+// Upload Tax Invoice (owner or admin) — only when status = waiting_tax_invoice
+// ============================================================================
+
+export async function uploadTaxInvoice(id: string, formData: FormData) {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('status, submitted_by, claim_number, tax_invoice_urls')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.status !== 'waiting_tax_invoice') {
+    return { error: 'อัพโหลดใบกำกับภาษีได้เฉพาะเมื่ออยู่ในสถานะ "รอใบกำกับภาษี" เท่านั้น' }
+  }
+  if (role !== 'admin' && claim.submitted_by !== userId) {
+    return { error: 'คุณไม่มีสิทธิ์อัพโหลดเอกสารนี้' }
+  }
+
+  const files: File[] = []
+  for (const entry of formData.getAll('tax_invoice_files')) {
+    if (entry instanceof File && entry.size > 0) files.push(entry)
+  }
+  if (files.length === 0) return { error: 'กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์' }
+
+  const newUrls = await uploadReceiptFiles(supabase, files, `${claim.claim_number}-tax-invoice`)
+  if (newUrls.length === 0) return { error: 'เกิดข้อผิดพลาดในการอัพโหลดไฟล์' }
+
+  const existing: string[] = claim.tax_invoice_urls || []
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({ tax_invoice_urls: [...existing, ...newUrls] })
+    .eq('id', id)
+
+  if (error) return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'upload_tax_invoice',
+    changed_by: userId,
+    changes: { tax_invoice_urls: { from: existing.length, to: existing.length + newUrls.length } },
+    note: `อัพโหลดใบกำกับภาษี ${newUrls.length} ไฟล์`,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  return { success: true }
+}
+
+// ============================================================================
 // Mark as Paid (admin only) — approved | pending_month_end | awaiting_payment → paid
 // ============================================================================
 
@@ -785,8 +897,8 @@ export async function markAsPaid(id: string) {
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
-  // Accept new 'approved' and legacy 'awaiting_payment' as well as deferred 'pending_month_end'
-  if (!['approved', 'awaiting_payment', 'pending_month_end'].includes(claim.status)) {
+  // Accept new 'approved', 'waiting_tax_invoice', legacy 'awaiting_payment' and deferred 'pending_month_end'
+  if (!['approved', 'awaiting_payment', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)) {
     return { error: 'ชำระเงินได้เฉพาะใบเบิกที่อนุมัติแล้วเท่านั้น' }
   }
 
@@ -872,7 +984,7 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถ Override สถานะได้' }
   if (!reason?.trim()) return { error: 'กรุณาระบุเหตุผลในการเปลี่ยนสถานะ' }
 
-  const validStatuses = ['draft', 'pending', 'approved', 'pending_month_end', 'paid', 'rejected', 'cancelled']
+  const validStatuses = ['draft', 'pending', 'approved', 'waiting_tax_invoice', 'pending_month_end', 'paid', 'rejected', 'cancelled']
   if (!validStatuses.includes(newStatus)) return { error: 'สถานะไม่ถูกต้อง' }
 
   const supabase = createServiceClient()
@@ -918,6 +1030,15 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
     updatePayload.paid_by = null
     updatePayload.cancelled_at = null
     updatePayload.cancelled_by = null
+    if (!claim.submitted_at) updatePayload.submitted_at = now
+  } else if (newStatus === 'waiting_tax_invoice') {
+    if (!claim.approved_by) updatePayload.approved_by = userId
+    if (!claim.approved_at) updatePayload.approved_at = now
+    updatePayload.paid_at = null
+    updatePayload.paid_by = null
+    updatePayload.cancelled_at = null
+    updatePayload.cancelled_by = null
+    updatePayload.reject_reason = null
     if (!claim.submitted_at) updatePayload.submitted_at = now
   } else if (newStatus === 'pending_month_end') {
     if (!claim.approved_by) updatePayload.approved_by = userId

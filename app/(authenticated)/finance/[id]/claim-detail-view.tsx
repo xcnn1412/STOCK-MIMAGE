@@ -7,7 +7,7 @@ import {
   Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
   Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -65,6 +65,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [overrideReason, setOverrideReason] = useState('')
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [editReceiptFiles, setEditReceiptFiles] = useState<File[]>([])
+  const [taxInvoiceFiles, setTaxInvoiceFiles] = useState<File[]>([])
 
   // Edit form state
   const [editTitle, setEditTitle] = useState(claim.title)
@@ -89,6 +90,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const isPending = claim.status === 'pending'
   const isApproved = claim.status === 'approved' || claim.status === 'awaiting_payment'
   const isPendingMonthEnd = claim.status === 'pending_month_end'
+  const isWaitingTaxInvoice = claim.status === 'waiting_tax_invoice'
   const isCancelled = claim.status === 'cancelled'
   const isTerminal = ['paid', 'rejected', 'cancelled'].includes(claim.status)
   const canEdit = isAdmin || ((isDraft || isPending) && isOwner)
@@ -175,6 +177,29 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     const result = await approveAsPendingMonthEnd(claim.id)
     if (result.error) { setError(result.error); setLoading(false) }
     else { router.refresh(); setLoading(false) }
+  }
+
+  const handleMarkWaitingTaxInvoice = async () => {
+    if (!confirm(isEn ? 'Request tax invoice from claimant?' : 'ขอใบกำกับภาษีจากผู้เบิก?')) return
+    setLoading(true)
+    setError(null)
+    const result = await markAsWaitingTaxInvoice(claim.id)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
+  }
+
+  const handleUploadTaxInvoice = async () => {
+    if (taxInvoiceFiles.length === 0) { setError(isEn ? 'Please select at least one file.' : 'กรุณาเลือกไฟล์ก่อนอัพโหลด'); return }
+    setLoading(true)
+    setError(null)
+    const formData = new FormData()
+    for (const f of taxInvoiceFiles) {
+      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+      formData.append('tax_invoice_files', compressed)
+    }
+    const result = await uploadTaxInvoice(claim.id, formData)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { setTaxInvoiceFiles([]); router.refresh(); setLoading(false) }
   }
 
   const handleAdminOverride = async () => {
@@ -287,6 +312,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
           <div className="flex items-center gap-3">
             {claim.status === 'draft' && <FileText className="h-5 w-5" style={{ color: statusColor }} />}
             {(claim.status === 'pending' || claim.status === 'awaiting_payment' || claim.status === 'pending_month_end') && <Clock className="h-5 w-5" style={{ color: statusColor }} />}
+            {claim.status === 'waiting_tax_invoice' && <Receipt className="h-5 w-5" style={{ color: statusColor }} />}
             {(claim.status === 'approved' || claim.status === 'paid') && <CheckCircle2 className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'rejected' && <XCircle className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'cancelled' && <Ban className="h-5 w-5" style={{ color: statusColor }} />}
@@ -784,6 +810,44 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   </div>
                 </div>
               )}
+
+              {/* Tax Invoice Documents */}
+              {claim.tax_invoice_urls && claim.tax_invoice_urls.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1.5 mb-3">
+                    <Receipt className="h-3.5 w-3.5" />
+                    {isEn ? 'Tax Invoice Documents' : 'ใบกำกับภาษี'} ({claim.tax_invoice_urls.length})
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {claim.tax_invoice_urls.map((url, i) => {
+                      const isPdf = url.toLowerCase().endsWith('.pdf')
+                      return (
+                        <a
+                          key={i}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group relative block rounded-lg border border-sky-200 dark:border-sky-800 overflow-hidden hover:border-sky-400 hover:shadow-md transition-all aspect-[4/3] bg-sky-50 dark:bg-sky-950/20"
+                        >
+                          {isPdf ? (
+                            <div className="flex flex-col items-center justify-center h-full gap-2 text-sky-400">
+                              <FileText className="h-10 w-10" />
+                              <span className="text-xs">PDF</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={url}
+                              alt={`${isEn ? 'Tax Invoice' : 'ใบกำกับภาษี'} ${i + 1}`}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            />
+                          )}
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                        </a>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -882,10 +946,10 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               )
             )}
 
-            {/* ── Admin: Mark as Paid / Defer to Month End ── */}
-            {isAdmin && (isApproved || isPendingMonthEnd) && (
-              <div className="flex items-center gap-3">
-                {isApproved && (
+            {/* ── Admin: Mark as Paid / Defer to Month End / Request Tax Invoice ── */}
+            {isAdmin && (isApproved || isPendingMonthEnd || isWaitingTaxInvoice) && (
+              <div className="flex items-center gap-3 flex-wrap">
+                {(isApproved || isWaitingTaxInvoice) && (
                   <button
                     onClick={handleDeferMonthEnd}
                     disabled={loading}
@@ -893,6 +957,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   >
                     <Clock className="h-4 w-4" />
                     {loading ? '...' : (isEn ? 'Defer to Month End' : 'เลื่อนสิ้นเดือน')}
+                  </button>
+                )}
+                {isApproved && (
+                  <button
+                    onClick={handleMarkWaitingTaxInvoice}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Receipt className="h-4 w-4" />
+                    {loading ? '...' : (isEn ? 'Request Tax Invoice' : 'ขอใบกำกับภาษี')}
                   </button>
                 )}
                 <button
@@ -903,6 +977,64 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   <CheckCircle2 className="h-4 w-4" />
                   {loading ? '...' : (isEn ? 'Mark as Paid' : 'ชำระเงินแล้ว')}
                 </button>
+              </div>
+            )}
+
+            {/* ── Owner/Admin: Upload Tax Invoice ── */}
+            {isWaitingTaxInvoice && (isOwner || isAdmin) && (
+              <div className="space-y-2.5 p-3.5 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <Receipt className="h-4 w-4 text-sky-500" />
+                  <p className="text-sm font-semibold text-sky-700 dark:text-sky-400">
+                    {isEn ? 'Upload Tax Invoice Documents' : 'อัพโหลดใบกำกับภาษี'}
+                  </p>
+                  {claim.tax_invoice_urls && claim.tax_invoice_urls.length > 0 && (
+                    <span className="ml-auto text-xs text-sky-500 font-medium">
+                      {isEn ? `${claim.tax_invoice_urls.length} uploaded` : `อัพโหลดแล้ว ${claim.tax_invoice_urls.length} ไฟล์`}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-sky-600 dark:text-sky-500">
+                  {isEn
+                    ? 'Please upload the tax invoice document(s) to proceed with payment.'
+                    : 'กรุณาอัพโหลดใบกำกับภาษีเพื่อให้ Admin ดำเนินการชำระเงินต่อได้'}
+                </p>
+                <div className="border-2 border-dashed border-sky-300 dark:border-sky-700 rounded-lg p-3 text-center hover:border-sky-400 transition-colors">
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    multiple
+                    onChange={(e) => { if (e.target.files) setTaxInvoiceFiles(prev => [...prev, ...Array.from(e.target.files!)]) }}
+                    className="hidden"
+                    id="tax-invoice-upload"
+                  />
+                  <label htmlFor="tax-invoice-upload" className="cursor-pointer">
+                    <Upload className="h-6 w-6 mx-auto text-sky-400 mb-1" />
+                    <p className="text-xs text-sky-500">
+                      {isEn ? 'Click to select tax invoice files' : 'คลิกเพื่อเลือกไฟล์ใบกำกับภาษี'}
+                    </p>
+                  </label>
+                </div>
+                {taxInvoiceFiles.length > 0 && (
+                  <div className="space-y-1.5">
+                    {taxInvoiceFiles.map((file, i) => (
+                      <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-zinc-800 rounded text-xs border border-sky-100 dark:border-sky-900/30">
+                        <span className="truncate text-zinc-600 dark:text-zinc-400">{file.name}</span>
+                        <button type="button" onClick={() => setTaxInvoiceFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-zinc-400 hover:text-red-500 ml-2 shrink-0">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={handleUploadTaxInvoice}
+                      disabled={loading}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Upload className="h-4 w-4" />
+                      {loading ? '...' : (isEn ? 'Upload Tax Invoice' : 'อัพโหลดใบกำกับภาษี')}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1014,6 +1146,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'defer_month_end' ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400'
                       : log.action === 'mark_paid'       ? 'bg-teal-100 text-teal-700 dark:bg-teal-950/30 dark:text-teal-400'
                       : log.action === 'admin_override'  ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-400'
+                      : log.action === 'waiting_tax_invoice' ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
+                      : log.action === 'upload_tax_invoice'  ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
                       :                                    'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}>
                       {log.action === 'update'          ? (isEn ? 'Edit' : 'แก้ไข')
@@ -1026,6 +1160,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'defer_month_end' ? (isEn ? 'Deferred' : 'เลื่อนสิ้นเดือน')
                       : log.action === 'mark_paid'       ? (isEn ? 'Paid' : 'ชำระแล้ว')
                       : log.action === 'admin_override'  ? (isEn ? 'Admin Override' : 'Admin Override')
+                      : log.action === 'waiting_tax_invoice' ? (isEn ? 'Tax Invoice Req.' : 'ขอใบกำกับภาษี')
+                      : log.action === 'upload_tax_invoice'  ? (isEn ? 'Tax Invoice Upload' : 'อัพโหลดใบกำกับภาษี')
                       : log.action}
                     </span>
                     <span className="text-xs text-zinc-500">

@@ -51,6 +51,7 @@ export const CLAIM_STATUSES = [
   { value: 'pending',           label: 'Pending',              labelTh: 'รออนุมัติ',           color: '#f59e0b' },
   { value: 'approved',          label: 'Approved',             labelTh: 'อนุมัติแล้ว',         color: '#22c55e' },
   { value: 'pending_month_end', label: 'Pending End of Month', labelTh: 'รอจ่ายสิ้นเดือน',    color: '#8b5cf6' },
+  { value: 'waiting_tax_invoice', label: 'Waiting Tax Invoice', labelTh: 'รอใบกำกับภาษี',       color: '#0ea5e9' },
   { value: 'paid',              label: 'Paid',                 labelTh: 'ชำระเงินแล้ว',        color: '#14b8a6' },
   { value: 'rejected',          label: 'Rejected',             labelTh: 'ปฏิเสธ',              color: '#ef4444' },
   { value: 'cancelled',         label: 'Cancelled',            labelTh: 'ยกเลิกแล้ว',           color: '#94a3b8' },
@@ -70,10 +71,11 @@ export const CLAIM_TRANSITIONS: Record<string, {
 }> = {
   draft:             { admin: ['pending', 'cancelled'], owner: ['pending', 'cancelled'] },
   pending:           { admin: ['approved', 'rejected'], owner: ['cancelled'] },
-  approved:          { admin: ['pending_month_end', 'paid'], owner: [] },
+  approved:          { admin: ['waiting_tax_invoice', 'pending_month_end', 'paid'], owner: [] },
+  waiting_tax_invoice: { admin: ['pending_month_end', 'paid'], owner: [] },
   pending_month_end: { admin: ['paid'], owner: [] },
   // terminal states — no further transitions
-  paid:              { admin: [], owner: [] },
+  paid:               { admin: [], owner: [] },
   rejected:          { admin: [], owner: [] },
   cancelled:         { admin: [], owner: [] },
   // legacy
@@ -128,6 +130,7 @@ export interface ExpenseClaim {
   include_vat: boolean
   withholding_tax_rate: number
   receipt_urls: string[]
+  tax_invoice_urls: string[] | null
   status: ClaimStatus
   submitted_by: string | null
   approved_by: string | null
@@ -168,7 +171,7 @@ export function getAdminOverrideStatuses(currentStatus: string): ClaimStatus[] {
  */
 export function isAdminSensitiveTransition(from: string, to: string): boolean {
   if (['paid', 'rejected', 'cancelled'].includes(from)) return true
-  if (['approved', 'pending_month_end'].includes(from) && ['pending', 'draft', 'rejected', 'cancelled'].includes(to)) return true
+  if (['approved', 'waiting_tax_invoice', 'pending_month_end'].includes(from) && ['pending', 'draft', 'rejected', 'cancelled'].includes(to)) return true
   return false
 }
 
