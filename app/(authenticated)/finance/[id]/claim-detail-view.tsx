@@ -63,7 +63,6 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [editing, setEditing] = useState(false)
   const [overrideStatus, setOverrideStatus] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
-  const [overrideOpen, setOverrideOpen] = useState(false)
   const [editReceiptFiles, setEditReceiptFiles] = useState<File[]>([])
   const [taxInvoiceFiles, setTaxInvoiceFiles] = useState<File[]>([])
 
@@ -208,7 +207,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     setError(null)
     const result = await adminOverrideStatus(claim.id, overrideStatus, overrideReason)
     if (result.error) { setError(result.error); setLoading(false) }
-    else { setOverrideOpen(false); setOverrideStatus(''); setOverrideReason(''); router.refresh(); setLoading(false) }
+    else { setOverrideStatus(''); setOverrideReason(''); router.refresh(); setLoading(false) }
   }
 
   const handleSaveEdit = async () => {
@@ -1037,82 +1036,72 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               </div>
             )}
 
-            {/* ── Admin Override ── */}
+            {/* ── Admin Override — always visible for admin ── */}
             {isAdmin && (
-              <div className="border-t border-zinc-200 dark:border-zinc-700 pt-3">
-                {!overrideOpen ? (
-                  <button
-                    onClick={() => setOverrideOpen(true)}
-                    className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-orange-500 transition-colors"
-                  >
-                    <ShieldAlert className="h-3.5 w-3.5" />
-                    {isEn ? 'Admin: Override Status' : 'Admin: บังคับเปลี่ยนสถานะ'}
-                  </button>
-                ) : (
-                  <div className="space-y-2.5">
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-orange-600 dark:text-orange-400">
-                      <ShieldAlert className="h-3.5 w-3.5" />
-                      {isEn ? 'Admin Status Override' : 'บังคับเปลี่ยนสถานะ (Admin)'}
-                    </div>
+              <div className="border-t border-zinc-200 dark:border-zinc-700 pt-3 space-y-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-orange-600 dark:text-orange-400">
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  {isEn ? 'Admin: Override Status' : 'Admin: บังคับเปลี่ยนสถานะ'}
+                </div>
 
-                    {/* Sensitive transition warning */}
-                    {overrideStatus && isAdminSensitiveTransition(claim.status, overrideStatus) && (
-                      <div className="flex items-start gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900/40 rounded-lg">
-                        <ShieldAlert className="h-3.5 w-3.5 text-orange-500 mt-0.5 shrink-0" />
-                        <p className="text-xs text-orange-700 dark:text-orange-400">
-                          {isEn
-                            ? 'Sensitive change — this reverses a finalised state. Ensure you have a valid reason.'
-                            : 'การเปลี่ยนสถานะที่มีความเสี่ยงสูง — กรุณาตรวจสอบก่อนดำเนินการ'}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="flex flex-wrap items-start gap-2">
-                      {/* Status dropdown */}
-                      <select
-                        value={overrideStatus}
-                        onChange={e => setOverrideStatus(e.target.value)}
-                        className="px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
-                      >
-                        <option value="">{isEn ? '— Select status —' : '— เลือกสถานะ —'}</option>
-                        {getAdminOverrideStatuses(claim.status).map(s => {
-                          const info = CLAIM_STATUSES.find(c => c.value === s)
-                          return (
-                            <option key={s} value={s}>
-                              {isEn ? info?.label : info?.labelTh} ({s})
-                            </option>
-                          )
-                        })}
-                      </select>
-
-                      {/* Reason input */}
-                      <input
-                        type="text"
-                        value={overrideReason}
-                        onChange={e => setOverrideReason(e.target.value)}
-                        placeholder={isEn ? 'Reason (required)' : 'เหตุผล (จำเป็น)'}
-                        className="flex-1 min-w-40 px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
-                      />
-
-                      {/* Confirm */}
-                      <button
-                        onClick={handleAdminOverride}
-                        disabled={loading || !overrideStatus || !overrideReason.trim()}
-                        className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors"
-                      >
-                        {loading ? '...' : (isEn ? 'Confirm' : 'ยืนยัน')}
-                      </button>
-
-                      {/* Cancel */}
-                      <button
-                        onClick={() => { setOverrideOpen(false); setOverrideStatus(''); setOverrideReason('') }}
-                        className="px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                      >
-                        {isEn ? 'Cancel' : 'ยกเลิก'}
-                      </button>
-                    </div>
+                {/* Sensitive transition warning */}
+                {overrideStatus && isAdminSensitiveTransition(claim.status, overrideStatus) && (
+                  <div className="flex items-start gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900/40 rounded-lg">
+                    <ShieldAlert className="h-3.5 w-3.5 text-orange-500 mt-0.5 shrink-0" />
+                    <p className="text-xs text-orange-700 dark:text-orange-400">
+                      {isEn
+                        ? 'Sensitive change — this reverses a finalised state. Ensure you have a valid reason.'
+                        : 'การเปลี่ยนสถานะที่มีความเสี่ยงสูง — กรุณาตรวจสอบก่อนดำเนินการ'}
+                    </p>
                   </div>
                 )}
+
+                <div className="flex flex-wrap items-start gap-2">
+                  {/* Status dropdown */}
+                  <select
+                    value={overrideStatus}
+                    onChange={e => setOverrideStatus(e.target.value)}
+                    className="px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+                  >
+                    <option value="">{isEn ? '— Select status —' : '— เลือกสถานะ —'}</option>
+                    {getAdminOverrideStatuses(claim.status).map(s => {
+                      const info = CLAIM_STATUSES.find(c => c.value === s)
+                      return (
+                        <option key={s} value={s}>
+                          {isEn ? info?.label : info?.labelTh} ({s})
+                        </option>
+                      )
+                    })}
+                  </select>
+
+                  {/* Reason input */}
+                  <input
+                    type="text"
+                    value={overrideReason}
+                    onChange={e => setOverrideReason(e.target.value)}
+                    placeholder={isEn ? 'Reason (required)' : 'เหตุผล (จำเป็น)'}
+                    className="flex-1 min-w-40 px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+                  />
+
+                  {/* Confirm */}
+                  <button
+                    onClick={handleAdminOverride}
+                    disabled={loading || !overrideStatus || !overrideReason.trim()}
+                    className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    {loading ? '...' : (isEn ? 'Confirm' : 'ยืนยัน')}
+                  </button>
+
+                  {/* Clear form */}
+                  {(overrideStatus || overrideReason) && (
+                    <button
+                      onClick={() => { setOverrideStatus(''); setOverrideReason('') }}
+                      className="px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                    >
+                      {isEn ? 'Clear' : 'ล้าง'}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1147,6 +1136,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'admin_override'  ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-400'
                       : log.action === 'waiting_tax_invoice' ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
                       : log.action === 'upload_tax_invoice'  ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
+                      : log.action === 'auto_transition'      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
                       :                                    'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}>
                       {log.action === 'update'          ? (isEn ? 'Edit' : 'แก้ไข')
@@ -1161,6 +1151,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'admin_override'  ? (isEn ? 'Admin Override' : 'Admin Override')
                       : log.action === 'waiting_tax_invoice' ? (isEn ? 'Tax Invoice Req.' : 'ขอใบกำกับภาษี')
                       : log.action === 'upload_tax_invoice'  ? (isEn ? 'Tax Invoice Upload' : 'อัพโหลดใบกำกับภาษี')
+                      : log.action === 'auto_transition'      ? (isEn ? 'Auto Transition' : 'เปลี่ยนสถานะอัตโนมัติ')
                       : log.action}
                     </span>
                     <span className="text-xs text-zinc-500">

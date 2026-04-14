@@ -19,6 +19,8 @@ const TYPE_CONFIG: Record<string, { icon: string; accent: string; glow: string; 
     ticket_status_changed: { icon: '🔔', accent: 'from-cyan-400 to-teal-400', glow: 'shadow-cyan-400/25', border: '#06b6d4', iconBg: 'bg-cyan-100 dark:bg-cyan-900/50', progressBar: 'from-cyan-400 to-teal-400' },
     expense_approved:     { icon: '✅', accent: 'from-emerald-400 to-green-400', glow: 'shadow-emerald-400/25', border: '#10b981', iconBg: 'bg-emerald-100 dark:bg-emerald-900/50', progressBar: 'from-emerald-400 to-green-400' },
     expense_rejected:     { icon: '❌', accent: 'from-red-400 to-rose-400', glow: 'shadow-red-400/25', border: '#ef4444', iconBg: 'bg-red-100 dark:bg-red-900/50', progressBar: 'from-red-400 to-rose-400' },
+    expense_waiting_tax_invoice: { icon: '🧾', accent: 'from-sky-400 to-cyan-400', glow: 'shadow-sky-400/25', border: '#0ea5e9', iconBg: 'bg-sky-100 dark:bg-sky-900/50', progressBar: 'from-sky-400 to-cyan-400' },
+    expense_tax_invoice_uploaded: { icon: '📤', accent: 'from-teal-400 to-emerald-400', glow: 'shadow-teal-400/25', border: '#14b8a6', iconBg: 'bg-teal-100 dark:bg-teal-900/50', progressBar: 'from-teal-400 to-emerald-400' },
     kpi_evaluated:        { icon: '📊', accent: 'from-violet-400 to-purple-500', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-purple-500' },
     kpi_self_evaluated:   { icon: '📝', accent: 'from-indigo-400 to-blue-500', glow: 'shadow-indigo-400/25', border: '#6366f1', iconBg: 'bg-indigo-100 dark:bg-indigo-900/50', progressBar: 'from-indigo-400 to-blue-500' },
     kpi_evaluation_reply: { icon: '💬', accent: 'from-violet-400 to-fuchsia-400', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-fuchsia-400' },
@@ -38,7 +40,7 @@ function getNotificationUrl(item: NotificationItem): string {
         case 'ticket':
             return `/jobs/tickets/${item.reference_id}`
         case 'expense_claim':
-            return `/finance`
+            return `/finance/${item.reference_id}`
         case 'kpi_evaluation':
             return `/kpi/reports`
         case 'crm_lead':

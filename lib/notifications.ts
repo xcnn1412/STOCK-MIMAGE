@@ -16,6 +16,8 @@ export type NotificationType =
   | 'ticket_status_changed'
   | 'expense_approved'
   | 'expense_rejected'
+  | 'expense_waiting_tax_invoice'
+  | 'expense_tax_invoice_uploaded'
   | 'kpi_evaluated'
   | 'kpi_self_evaluated'
   | 'kpi_evaluation_reply'

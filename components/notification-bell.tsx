@@ -19,6 +19,8 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
   ticket_status_changed: { icon: '🔔', color: 'text-cyan-500' },
   expense_approved: { icon: '✅', color: 'text-emerald-500' },
   expense_rejected: { icon: '❌', color: 'text-red-500' },
+  expense_waiting_tax_invoice: { icon: '🧾', color: 'text-sky-500' },
+  expense_tax_invoice_uploaded: { icon: '📤', color: 'text-teal-500' },
   kpi_evaluated: { icon: '📊', color: 'text-violet-500' },
   kpi_self_evaluated: { icon: '📝', color: 'text-indigo-500' },
   kpi_evaluation_reply: { icon: '💬', color: 'text-violet-500' },
@@ -58,7 +60,7 @@ function getNotificationUrl(item: NotificationItem): string {
     case 'ticket':
       return `/jobs/tickets/${item.reference_id}`
     case 'expense_claim':
-      return `/finance`
+      return `/finance/${item.reference_id}`
     case 'kpi_evaluation':
       return `/kpi/reports`
     case 'crm_lead':

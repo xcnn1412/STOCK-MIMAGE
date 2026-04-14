@@ -812,9 +812,9 @@ export async function markAsWaitingTaxInvoice(id: string) {
   if (claim.submitted_by) {
     await createNotifications({
       userIds: [claim.submitted_by],
-      type: 'expense_approved',
-      title: `ใบเบิก ${claim.claim_number} รอใบกำกับภาษี`,
-      body: 'กรุณาอัพโหลดใบกำกับภาษีเพื่อดำเนินการชำระเงินต่อ',
+      type: 'expense_waiting_tax_invoice',
+      title: `ใบเบิก ${claim.claim_number} — กรุณาอัพโหลดใบกำกับภาษี`,
+      body: 'Admin ขอใบกำกับภาษีสำหรับใบเบิกนี้ กรุณาอัพโหลดเพื่อดำเนินการชำระเงินต่อ',
       referenceType: 'expense_claim',
       referenceId: id,
       actorId: userId,
@@ -862,11 +862,16 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
   const existing: string[] = claim.tax_invoice_urls || []
   const { error } = await supabase
     .from('expense_claims')
-    .update({ tax_invoice_urls: [...existing, ...newUrls] })
+    .update({
+      tax_invoice_urls: [...existing, ...newUrls],
+      // Auto-transition: waiting_tax_invoice → approved once files are uploaded
+      status: 'approved',
+    })
     .eq('id', id)
 
   if (error) return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
 
+  // Log the file upload
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
     action: 'upload_tax_invoice',
@@ -875,9 +880,38 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
     note: `อัพโหลดใบกำกับภาษี ${newUrls.length} ไฟล์`,
   })
 
+  // Log the auto status transition
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'auto_transition',
+    changed_by: userId,
+    changes: { status: { from: 'waiting_tax_invoice', to: 'approved' } },
+    note: 'Auto-transition: Tax Invoice Uploaded',
+  })
+
+  // Notify all admins that the tax invoice has been uploaded and claim is ready
+  const { data: adminProfiles } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('role', 'admin')
+
+  const adminIds = (adminProfiles || []).map((p: { id: string }) => p.id)
+  if (adminIds.length > 0) {
+    await createNotifications({
+      userIds: adminIds,
+      type: 'expense_tax_invoice_uploaded',
+      title: `ใบเบิก ${claim.claim_number} — อัพโหลดใบกำกับภาษีแล้ว`,
+      body: 'ผู้เบิกอัพโหลดใบกำกับภาษีแล้ว สถานะกลับเป็น "อนุมัติแล้ว" พร้อมดำเนินการชำระเงิน',
+      referenceType: 'expense_claim',
+      referenceId: id,
+      actorId: userId,
+    })
+  }
+
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
-  return { success: true }
+  revalidatePath('/finance/payouts')
+  return { success: true, autoTransitioned: true }
 }
 
 // ============================================================================
