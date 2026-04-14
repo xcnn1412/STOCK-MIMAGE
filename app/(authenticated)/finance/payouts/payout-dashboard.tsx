@@ -8,7 +8,7 @@ import { useLocale } from '@/lib/i18n/context'
 import { getCategoryLabel } from '../../costs/types'
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
-import { markAsPaid } from '../actions'
+import { markAsPaid, markAsPendingMonthEnd } from '../actions'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -45,6 +45,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
   const [amountRange, setAmountRange] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [payingId, setPayingId] = useState<string | null>(null)
+  const [deferringId, setDeferringId] = useState<string | null>(null)
 
   const handleMarkPaid = async (id: string) => {
     if (!confirm(isEn ? 'Confirm payment for this claim?' : 'ยืนยันการชำระเงินใบเบิกนี้?')) return
@@ -52,6 +53,15 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
     const res = await markAsPaid(id)
     if (res.error) alert(res.error)
     setPayingId(null)
+    router.refresh()
+  }
+
+  const handleDeferToMonthEnd = async (id: string) => {
+    if (!confirm(isEn ? 'Defer this claim to end of month?' : 'เลื่อนใบเบิกนี้เป็น "รอจ่ายสิ้นเดือน"?')) return
+    setDeferringId(id)
+    const res = await markAsPendingMonthEnd(id)
+    if (res.error) alert(res.error)
+    setDeferringId(null)
     router.refresh()
   }
 
@@ -423,6 +433,15 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                           ฿{fmtDec(tax.netPayable)}
                         </div>
                         <div className="col-span-2 text-right flex items-center justify-end gap-1">
+                          {['approved', 'awaiting_payment'].includes(c.status) && (
+                            <button
+                              onClick={() => handleDeferToMonthEnd(c.id)}
+                              disabled={deferringId === c.id}
+                              className="px-2 py-1 text-[10px] font-medium rounded-md bg-violet-50 text-violet-600 hover:bg-violet-100 dark:bg-violet-950/30 dark:text-violet-400 dark:hover:bg-violet-900/40 transition-colors disabled:opacity-50"
+                            >
+                              {deferringId === c.id ? '...' : (isEn ? 'Month End' : 'สิ้นเดือน')}
+                            </button>
+                          )}
                           <button
                             onClick={() => handleMarkPaid(c.id)}
                             disabled={payingId === c.id}
@@ -485,6 +504,15 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                         </div>
                         {/* Row 3: actions */}
                         <div className="flex items-center justify-end gap-2">
+                          {['approved', 'awaiting_payment'].includes(c.status) && (
+                            <button
+                              onClick={() => handleDeferToMonthEnd(c.id)}
+                              disabled={deferringId === c.id}
+                              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 dark:bg-violet-950/30 dark:text-violet-400 transition-colors disabled:opacity-50"
+                            >
+                              {deferringId === c.id ? '...' : (isEn ? 'Month End' : 'เลื่อนสิ้นเดือน')}
+                            </button>
+                          )}
                           <button
                             onClick={() => handleMarkPaid(c.id)}
                             disabled={payingId === c.id}

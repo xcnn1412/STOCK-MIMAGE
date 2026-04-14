@@ -218,7 +218,7 @@ export async function createClaim(formData: FormData) {
       account_holder_name,
       receipt_urls,
       submitted_by: userId,
-      status: 'pending',
+      status: 'draft',
     })
     .select('id')
     .single()
@@ -280,8 +280,8 @@ export async function updateClaim(id: string, updateData: {
   const isAdmin = role === 'admin'
   const isOwner = claim.submitted_by === userId
 
-  // Admin แก้ไขได้ทุกสถานะ, เจ้าของแก้ไขได้เฉพาะตอน pending เท่านั้น
-  if (!isAdmin && claim.status !== 'pending') return { error: 'แก้ไขได้เฉพาะใบเบิกที่รออนุมัติเท่านั้น' }
+  // Admin แก้ไขได้ทุกสถานะ; เจ้าของแก้ไขได้เฉพาะ draft / pending เท่านั้น
+  if (!isAdmin && !['draft', 'pending'].includes(claim.status)) return { error: 'แก้ไขได้เฉพาะใบเบิกที่ยังไม่ถูกดำเนินการ' }
   if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
 
   // Auto-import stock event → job_cost_events
@@ -393,6 +393,109 @@ export async function getClaimLogs(claimId: string) {
 }
 
 // ============================================================================
+// Submit Claim (owner) — draft → pending
+// Requires at least one receipt to be attached.
+// ============================================================================
+
+export async function submitClaim(id: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('status, submitted_by, receipt_urls, claim_number, title, amount')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.submitted_by !== userId) return { error: 'คุณไม่มีสิทธิ์ยื่นใบเบิกนี้' }
+  if (claim.status !== 'draft') return { error: 'ยื่นได้เฉพาะใบเบิกที่อยู่ในสถานะ "แบบร่าง" เท่านั้น' }
+  if (!claim.receipt_urls || claim.receipt_urls.length === 0) {
+    return { error: 'กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นใบเบิก' }
+  }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({ status: 'pending', submitted_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'submit',
+    changed_by: userId,
+    changes: { status: { from: 'draft', to: 'pending' } },
+    note: 'ยื่นใบเบิกเพื่อขออนุมัติ',
+  })
+
+  await logActivity('SUBMIT_EXPENSE_CLAIM', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+    title: claim.title,
+    amount: claim.amount,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  return { success: true }
+}
+
+// ============================================================================
+// Cancel Claim (owner only) — draft | pending → cancelled
+// ============================================================================
+
+export async function cancelClaim(id: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('status, submitted_by, claim_number')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.submitted_by !== userId) return { error: 'เฉพาะผู้ยื่นใบเบิกเท่านั้นที่สามารถยกเลิกได้' }
+  if (!['draft', 'pending'].includes(claim.status)) {
+    return { error: 'ยกเลิกได้เฉพาะใบเบิกที่อยู่ในสถานะ "แบบร่าง" หรือ "รออนุมัติ" เท่านั้น' }
+  }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: userId,
+    })
+    .eq('id', id)
+
+  if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'cancel',
+    changed_by: userId,
+    changes: { status: { from: claim.status, to: 'cancelled' } },
+    note: 'ยกเลิกใบเบิกโดยผู้ยื่น',
+  })
+
+  await logActivity('CANCEL_EXPENSE_CLAIM', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+    fromStatus: claim.status,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  return { success: true }
+}
+
+// ============================================================================
 // Approve / Reject
 // ============================================================================
 
@@ -410,19 +513,29 @@ export async function approveClaim(id: string) {
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
-  if (claim.status !== 'pending') return { error: 'ใบเบิกนี้ถูกดำเนินการแล้ว' }
+  if (claim.status !== 'pending') return { error: 'อนุมัติได้เฉพาะใบเบิกที่อยู่ในสถานะ "รออนุมัติ" เท่านั้น' }
 
-  // Update claim status
+  const now = new Date().toISOString()
+
+  // Update claim status: pending → approved
   const { error } = await supabase
     .from('expense_claims')
     .update({
-      status: 'awaiting_payment',
+      status: 'approved',
       approved_by: userId,
-      approved_at: new Date().toISOString(),
+      approved_at: now,
     })
     .eq('id', id)
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'approve',
+    changed_by: userId,
+    changes: { status: { from: 'pending', to: 'approved' } },
+    note: 'อนุมัติใบเบิก',
+  })
 
   // If linked to event → job_event_id ชี้ไป job_cost_events.id ตรงๆ แล้ว
   if (claim.job_event_id) {
@@ -476,7 +589,7 @@ export async function rejectClaim(id: string, reason: string) {
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
-  if (claim.status !== 'pending') return { error: 'ใบเบิกนี้ถูกดำเนินการแล้ว' }
+  if (claim.status !== 'pending') return { error: 'ปฏิเสธได้เฉพาะใบเบิกที่อยู่ในสถานะ "รออนุมัติ" เท่านั้น' }
 
   const { error } = await supabase
     .from('expense_claims')
@@ -489,6 +602,14 @@ export async function rejectClaim(id: string, reason: string) {
     .eq('id', id)
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'reject',
+    changed_by: userId,
+    changes: { status: { from: 'pending', to: 'rejected' } },
+    note: reason || 'ไม่ระบุเหตุผล',
+  })
 
   await logActivity('REJECT_EXPENSE_CLAIM', {
     claimId: id,
@@ -514,7 +635,134 @@ export async function rejectClaim(id: string, reason: string) {
 }
 
 // ============================================================================
-// Mark as Paid (admin only) — awaiting_payment → paid
+// Mark as Pending Month End (admin only) — awaiting_payment → pending_month_end
+// ============================================================================
+
+// ============================================================================
+// Approve directly as Pending Month End (admin only) — pending → pending_month_end
+// ============================================================================
+
+export async function approveAsPendingMonthEnd(id: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.status !== 'pending') return { error: 'อนุมัติได้เฉพาะใบเบิกที่อยู่ในสถานะ "รออนุมัติ" เท่านั้น' }
+
+  const now = new Date().toISOString()
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({
+      status: 'pending_month_end',
+      approved_by: userId,
+      approved_at: now,
+    })
+    .eq('id', id)
+
+  if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  // Create cost item if linked to event (same as approveClaim)
+  if (claim.job_event_id) {
+    await supabase.from('job_cost_items').insert({
+      job_event_id: claim.job_event_id,
+      category: claim.category,
+      description: `[เบิกเงิน] ${claim.title}`,
+      amount: claim.amount || (claim.unit_price * claim.quantity),
+      unit_price: claim.unit_price || claim.amount,
+      quantity: claim.quantity,
+      unit: 'รายการ',
+      recorded_by: userId,
+      notes: `${claim.claim_number}::${id}`,
+    })
+  }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'approve_month_end',
+    changed_by: userId,
+    changes: { status: { from: 'pending', to: 'pending_month_end' } },
+    note: 'อนุมัติ — รอจ่ายสิ้นเดือน',
+  })
+
+  await logActivity('APPROVE_EXPENSE_CLAIM_MONTH_END', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+    totalAmount: claim.total_amount,
+  })
+
+  if (claim.submitted_by) {
+    await createNotifications({
+      userIds: [claim.submitted_by],
+      type: 'expense_approved',
+      title: `ใบเบิก ${claim.claim_number} ได้รับการอนุมัติ (รอจ่ายสิ้นเดือน)`,
+      body: claim.title,
+      referenceType: 'expense_claim',
+      referenceId: id,
+      actorId: userId,
+    })
+  }
+
+  revalidatePath('/finance')
+  revalidatePath('/finance/payouts')
+  revalidatePath('/costs')
+  return { success: true }
+}
+
+export async function markAsPendingMonthEnd(id: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('claim_number, status, total_amount')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  // Accept both 'approved' (new flow) and 'awaiting_payment' (legacy data)
+  if (!['approved', 'awaiting_payment'].includes(claim.status)) {
+    return { error: 'เลื่อนจ่ายสิ้นเดือนได้เฉพาะใบเบิกที่อนุมัติแล้วเท่านั้น' }
+  }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({ status: 'pending_month_end' })
+    .eq('id', id)
+
+  if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'defer_month_end',
+    changed_by: userId,
+    changes: { status: { from: claim.status, to: 'pending_month_end' } },
+    note: 'เลื่อนจ่ายสิ้นเดือน',
+  })
+
+  await logActivity('MARK_CLAIM_PENDING_MONTH_END', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+    totalAmount: claim.total_amount,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath('/finance/payouts')
+  return { success: true }
+}
+
+// ============================================================================
+// Mark as Paid (admin only) — approved | pending_month_end | awaiting_payment → paid
 // ============================================================================
 
 export async function markAsPaid(id: string) {
@@ -530,7 +778,10 @@ export async function markAsPaid(id: string) {
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
-  if (claim.status !== 'awaiting_payment') return { error: 'ใบเบิกนี้ยังไม่อนุมัติหรือชำระแล้ว' }
+  // Accept new 'approved' and legacy 'awaiting_payment' as well as deferred 'pending_month_end'
+  if (!['approved', 'awaiting_payment', 'pending_month_end'].includes(claim.status)) {
+    return { error: 'ชำระเงินได้เฉพาะใบเบิกที่อนุมัติแล้วเท่านั้น' }
+  }
 
   const { error } = await supabase
     .from('expense_claims')
@@ -542,6 +793,14 @@ export async function markAsPaid(id: string) {
     .eq('id', id)
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'mark_paid',
+    changed_by: userId,
+    changes: { status: { from: claim.status, to: 'paid' } },
+    note: 'ชำระเงินแล้ว',
+  })
 
   await logActivity('MARK_CLAIM_PAID', {
     claimId: id,

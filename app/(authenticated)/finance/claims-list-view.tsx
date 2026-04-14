@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
-import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
 import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../costs/types'
 import type { FinanceCategory } from './settings-actions'
+import { cancelClaim } from './actions'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -28,16 +30,36 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const statusIcons: Record<string, typeof Clock> = {
-  pending: Clock,
-  approved: CheckCircle2,
-  awaiting_payment: Clock,
-  paid: CheckCircle2,
-  rejected: XCircle,
+  draft:             FileEdit,
+  pending:           Clock,
+  approved:          CheckCircle2,
+  awaiting_payment:  Clock,
+  pending_month_end: Clock,
+  paid:              CheckCircle2,
+  rejected:          XCircle,
+  cancelled:         Ban,
 }
 
-export default function ClaimsListView({ claims, error, categories = [], isAdmin = false, paidClaims = [] }: { claims: ExpenseClaim[]; error: string | null; categories?: FinanceCategory[]; isAdmin?: boolean; paidClaims?: ExpenseClaim[] }) {
+export default function ClaimsListView({
+  claims,
+  error,
+  categories = [],
+  isAdmin = false,
+  userId = '',
+  paidClaims = [],
+}: {
+  claims: ExpenseClaim[]
+  error: string | null
+  categories?: FinanceCategory[]
+  isAdmin?: boolean
+  userId?: string
+  paidClaims?: ExpenseClaim[]
+}) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [paidSearch, setPaidSearch] = useState('')
   const [paidTypeFilter, setPaidTypeFilter] = useState<'all' | 'event' | 'other'>('all')
@@ -93,14 +115,29 @@ export default function ClaimsListView({ claims, error, categories = [], isAdmin
 
   const isFiltering = paidTypeFilter !== 'all' || !!paidCategoryFilter || !!paidMonthFilter || !!paidSearch.trim()
 
-  // Hide 'paid' claims — those go to archive
-  const activeClaims = claims.filter(c => c.status !== 'paid')
+  const handleCancel = async (claimId: string, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!confirm(isEn ? 'Cancel this claim?' : 'ยืนยันยกเลิกใบเบิกนี้?')) return
+    setCancellingId(claimId)
+    const res = await cancelClaim(claimId)
+    setCancellingId(null)
+    if (res.error) alert(res.error)
+    else startTransition(() => router.refresh())
+  }
 
-  const filtered = filterStatus === 'all' ? activeClaims : activeClaims.filter(c => c.status === filterStatus)
+  // Active = everything except paid (archive) and cancelled
+  const activeClaims = claims.filter(c => c.status !== 'paid' && c.status !== 'cancelled')
+
+  const filtered = filterStatus === 'all'
+    ? activeClaims
+    : activeClaims.filter(c => c.status === filterStatus)
 
   // Stats
+  const totalDraft = claims.filter(c => c.status === 'draft').length
   const totalPending = activeClaims.filter(c => c.status === 'pending').length
-  const totalAwaiting = activeClaims.filter(c => c.status === 'awaiting_payment').length
+  const totalApproved = activeClaims.filter(c => c.status === 'approved' || c.status === 'awaiting_payment').length
+  const totalPendingMonthEnd = activeClaims.filter(c => c.status === 'pending_month_end').length
 
   return (
     <div className="space-y-6">
@@ -111,7 +148,12 @@ export default function ClaimsListView({ claims, error, categories = [], isAdmin
             {locale === 'th' ? 'ใบเบิกเงิน' : 'Expense Claims'}
           </h1>
           <p className="text-sm text-zinc-500 mt-1">
-            {locale === 'th' ? `${activeClaims.length} รายการ` : `${activeClaims.length} claims`}
+            {locale === 'th' ? `${activeClaims.length} รายการที่ใช้งาน` : `${activeClaims.length} active`}
+            {totalDraft > 0 && (
+              <span className="ml-2 text-zinc-400 font-medium">
+                • {totalDraft} {locale === 'th' ? 'แบบร่าง' : 'draft'}
+              </span>
+            )}
             {totalPending > 0 && (
               <span className="ml-2 text-amber-600 font-medium">
                 • {totalPending} {locale === 'th' ? 'รออนุมัติ' : 'pending'}
@@ -129,21 +171,25 @@ export default function ClaimsListView({ claims, error, categories = [], isAdmin
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-          <p className="text-xs text-zinc-500 mb-1">{locale === 'th' ? 'ทั้งหมด' : 'Total'}</p>
-          <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{activeClaims.length}</p>
+          <p className="text-xs text-zinc-400 mb-1">{isEn ? 'Draft' : 'แบบร่าง'}</p>
+          <p className="text-2xl font-bold text-zinc-500">{totalDraft}</p>
         </div>
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-          <p className="text-xs text-amber-600 mb-1">{locale === 'th' ? 'รออนุมัติ' : 'Pending'}</p>
+          <p className="text-xs text-amber-600 mb-1">{isEn ? 'Pending' : 'รออนุมัติ'}</p>
           <p className="text-2xl font-bold text-amber-600">{totalPending}</p>
         </div>
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-          <p className="text-xs text-blue-600 mb-1">{locale === 'th' ? 'รอชำระเงิน' : 'Awaiting Payment'}</p>
-          <p className="text-2xl font-bold text-blue-600">{totalAwaiting}</p>
+          <p className="text-xs text-emerald-600 mb-1">{isEn ? 'Approved' : 'อนุมัติแล้ว'}</p>
+          <p className="text-2xl font-bold text-emerald-600">{totalApproved}</p>
         </div>
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-          <p className="text-xs text-red-500 mb-1">{locale === 'th' ? 'ปฏิเสธ' : 'Rejected'}</p>
+          <p className="text-xs text-violet-600 mb-1">{isEn ? 'Month End' : 'รอจ่ายสิ้นเดือน'}</p>
+          <p className="text-2xl font-bold text-violet-600">{totalPendingMonthEnd}</p>
+        </div>
+        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
+          <p className="text-xs text-red-500 mb-1">{isEn ? 'Rejected' : 'ปฏิเสธ'}</p>
           <p className="text-2xl font-bold text-red-500">
             {activeClaims.filter(c => c.status === 'rejected').length}
           </p>
@@ -164,20 +210,22 @@ export default function ClaimsListView({ claims, error, categories = [], isAdmin
           >
             {locale === 'th' ? 'ทั้งหมด' : 'All'}
           </button>
-          {CLAIM_STATUSES.filter(s => s.value !== 'paid' && s.value !== 'approved').map(s => (
-            <button
-              key={s.value}
-              onClick={() => setFilterStatus(s.value)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                filterStatus === s.value
-                  ? 'text-white'
-                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
-              }`}
-              style={filterStatus === s.value ? { backgroundColor: s.color } : {}}
-            >
-              {locale === 'th' ? s.labelTh : s.label}
-            </button>
-          ))}
+          {CLAIM_STATUSES
+            .filter(s => !['paid', 'approved', 'awaiting_payment', 'cancelled'].includes(s.value))
+            .map(s => (
+              <button
+                key={s.value}
+                onClick={() => setFilterStatus(s.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  filterStatus === s.value
+                    ? 'text-white'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
+                }`}
+                style={filterStatus === s.value ? { backgroundColor: s.color } : {}}
+              >
+                {isEn ? s.label : s.labelTh}
+              </button>
+            ))}
           {isAdmin && (
             <button
               onClick={() => setFilterStatus('paid')}
@@ -243,13 +291,25 @@ export default function ClaimsListView({ claims, error, categories = [], isAdmin
                     </p>
                   </div>
                 </div>
-                <div className="text-right shrink-0 ml-4">
-                  <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                    ฿{(claim.amount || 0).toLocaleString()}
-                  </p>
-                  <p className="text-xs text-zinc-400">
-                    {getCategoryLabel(claim.category, locale, categories)}
-                  </p>
+                <div className="flex items-center gap-2 shrink-0 ml-4">
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                      ฿{(claim.amount || 0).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-zinc-400">
+                      {getCategoryLabel(claim.category, locale, categories)}
+                    </p>
+                  </div>
+                  {userId && claim.submitted_by === userId && ['draft', 'pending'].includes(claim.status) && (
+                    <button
+                      onClick={(e) => handleCancel(claim.id, e)}
+                      disabled={cancellingId === claim.id}
+                      title={isEn ? 'Cancel claim' : 'ยกเลิกใบเบิก'}
+                      className="p-1.5 rounded-lg text-zinc-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors disabled:opacity-40"
+                    >
+                      <Ban className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </Link>
             )

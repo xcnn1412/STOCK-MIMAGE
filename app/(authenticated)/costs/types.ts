@@ -45,16 +45,62 @@ export function getCategoryColor(category: string, dbCategories?: FinanceCategor
 // Expense Claims (ระบบเบิกเงิน / Finance)
 // ============================================================================
 
-/** สถานะใบเบิก */
+/** สถานะใบเบิก — เรียงตามลำดับ lifecycle */
 export const CLAIM_STATUSES = [
-  { value: 'pending', label: 'Pending', labelTh: 'รออนุมัติ', color: '#f59e0b' },
-  { value: 'approved', label: 'Approved', labelTh: 'อนุมัติแล้ว', color: '#22c55e' },
-  { value: 'awaiting_payment', label: 'Awaiting Payment', labelTh: 'รอชำระเงิน', color: '#3b82f6' },
-  { value: 'paid', label: 'Paid', labelTh: 'ชำระเงินแล้ว', color: '#14b8a6' },
-  { value: 'rejected', label: 'Rejected', labelTh: 'ปฏิเสธ', color: '#ef4444' },
+  { value: 'draft',             label: 'Draft',                labelTh: 'แบบร่าง',           color: '#6b7280' },
+  { value: 'pending',           label: 'Pending',              labelTh: 'รออนุมัติ',           color: '#f59e0b' },
+  { value: 'approved',          label: 'Approved',             labelTh: 'อนุมัติแล้ว',         color: '#22c55e' },
+  { value: 'pending_month_end', label: 'Pending End of Month', labelTh: 'รอจ่ายสิ้นเดือน',    color: '#8b5cf6' },
+  { value: 'paid',              label: 'Paid',                 labelTh: 'ชำระเงินแล้ว',        color: '#14b8a6' },
+  { value: 'rejected',          label: 'Rejected',             labelTh: 'ปฏิเสธ',              color: '#ef4444' },
+  { value: 'cancelled',         label: 'Cancelled',            labelTh: 'ยกเลิกแล้ว',           color: '#94a3b8' },
+  // legacy — no longer produced by new code, kept for existing data
+  { value: 'awaiting_payment',  label: 'Awaiting Payment',     labelTh: 'รอชำระเงิน (เก่า)',   color: '#3b82f6' },
 ] as const
 
 export type ClaimStatus = typeof CLAIM_STATUSES[number]['value']
+
+/**
+ * Valid transitions per actor role.
+ * Key = current status. Value = set of statuses the actor may move to.
+ */
+export const CLAIM_TRANSITIONS: Record<string, {
+  admin: ClaimStatus[]
+  owner: ClaimStatus[]   // claim submitter (non-admin)
+}> = {
+  draft:             { admin: ['pending', 'cancelled'], owner: ['pending', 'cancelled'] },
+  pending:           { admin: ['approved', 'rejected'], owner: ['cancelled'] },
+  approved:          { admin: ['pending_month_end', 'paid'], owner: [] },
+  pending_month_end: { admin: ['paid'], owner: [] },
+  // terminal states — no further transitions
+  paid:              { admin: [], owner: [] },
+  rejected:          { admin: [], owner: [] },
+  cancelled:         { admin: [], owner: [] },
+  // legacy
+  awaiting_payment:  { admin: ['pending_month_end', 'paid'], owner: [] },
+}
+
+/** Returns allowed next statuses for the given actor */
+export function getAllowedTransitions(
+  status: string,
+  role: 'admin' | 'staff',
+  isOwner: boolean,
+): ClaimStatus[] {
+  const t = CLAIM_TRANSITIONS[status]
+  if (!t) return []
+  if (role === 'admin') return t.admin
+  return isOwner ? t.owner : []
+}
+
+/** Whether a given transition is allowed */
+export function canTransitionTo(
+  from: string,
+  to: ClaimStatus,
+  role: 'admin' | 'staff',
+  isOwner: boolean,
+): boolean {
+  return getAllowedTransitions(from, role, isOwner).includes(to)
+}
 
 /** ประเภทใบเบิก */
 export const CLAIM_TYPES = [
@@ -95,6 +141,9 @@ export interface ExpenseClaim {
   account_holder_name: string | null
   paid_at: string | null
   paid_by: string | null
+  submitted_at: string | null
+  cancelled_at: string | null
+  cancelled_by: string | null
   created_at: string
   // Joined
   submitter?: { id: string; full_name: string } | null

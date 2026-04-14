@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
   Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
-  Receipt, Percent, Upload, History, FileDown
+  Receipt, Percent, Upload, History, FileDown, Send, Ban
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -82,8 +82,15 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
 
   const isAdmin = role === 'admin'
   const isOwner = claim.submitted_by === userId
+  const isDraft = claim.status === 'draft'
   const isPending = claim.status === 'pending'
-  const canEdit = isAdmin || (isPending && isOwner)
+  const isApproved = claim.status === 'approved' || claim.status === 'awaiting_payment'
+  const isPendingMonthEnd = claim.status === 'pending_month_end'
+  const isCancelled = claim.status === 'cancelled'
+  const isTerminal = ['paid', 'rejected', 'cancelled'].includes(claim.status)
+  const canEdit = isAdmin || ((isDraft || isPending) && isOwner)
+  const canSubmit = isOwner && isDraft
+  const canCancel = isOwner && !isAdmin && (isDraft || isPending)
   const statusColor = getClaimStatusColor(claim.status)
   const isEn = locale === 'en'
 
@@ -120,6 +127,51 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     const result = await deleteClaim(claim.id)
     if (result.error) { setError(result.error); setLoading(false) }
     else { router.push('/finance') }
+  }
+
+  const handleSubmit = async () => {
+    if (!confirm(isEn ? 'Submit this claim for approval?' : 'ยืนยันยื่นใบเบิกนี้เพื่อขออนุมัติ?')) return
+    setLoading(true)
+    setError(null)
+    const result = await submitClaim(claim.id)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
+  }
+
+  const handleCancel = async () => {
+    if (!confirm(isEn ? 'Cancel this claim? This cannot be undone.' : 'ยืนยันยกเลิกใบเบิกนี้? ไม่สามารถย้อนกลับได้')) return
+    setLoading(true)
+    setError(null)
+    const result = await cancelClaim(claim.id)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
+  }
+
+  const handleMarkPaid = async () => {
+    if (!confirm(isEn ? 'Confirm payment for this claim?' : 'ยืนยันการชำระเงินใบเบิกนี้?')) return
+    setLoading(true)
+    setError(null)
+    const result = await markAsPaid(claim.id)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
+  }
+
+  const handleDeferMonthEnd = async () => {
+    if (!confirm(isEn ? 'Defer payment to end of month?' : 'เลื่อนการชำระเงินไปสิ้นเดือน?')) return
+    setLoading(true)
+    setError(null)
+    const result = await markAsPendingMonthEnd(claim.id)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
+  }
+
+  const handleApproveAsMonthEnd = async () => {
+    if (!confirm(isEn ? 'Approve and defer to end of month?' : 'อนุมัติและเลื่อนจ่ายสิ้นเดือน?')) return
+    setLoading(true)
+    setError(null)
+    const result = await approveAsPendingMonthEnd(claim.id)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
   }
 
   const handleSaveEdit = async () => {
@@ -202,7 +254,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             <FileDown className="h-4 w-4" />
             {isEn ? 'Export PDF' : 'ส่งออก PDF'}
           </button>
-          {(isAdmin || isPending) && (
+          {isAdmin && (
             <button onClick={handleDelete} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors">
               <Trash2 className="h-4 w-4" />
               {isEn ? 'Delete' : 'ลบ'}
@@ -220,9 +272,11 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
         {/* Status Banner */}
         <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: `${statusColor}10` }}>
           <div className="flex items-center gap-3">
-            {claim.status === 'pending' && <Clock className="h-5 w-5" style={{ color: statusColor }} />}
-            {claim.status === 'approved' && <CheckCircle2 className="h-5 w-5" style={{ color: statusColor }} />}
+            {claim.status === 'draft' && <FileText className="h-5 w-5" style={{ color: statusColor }} />}
+            {(claim.status === 'pending' || claim.status === 'awaiting_payment' || claim.status === 'pending_month_end') && <Clock className="h-5 w-5" style={{ color: statusColor }} />}
+            {(claim.status === 'approved' || claim.status === 'paid') && <CheckCircle2 className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'rejected' && <XCircle className="h-5 w-5" style={{ color: statusColor }} />}
+            {claim.status === 'cancelled' && <Ban className="h-5 w-5" style={{ color: statusColor }} />}
             <div>
               <span className="text-sm font-semibold" style={{ color: statusColor }}>
                 {getClaimStatusLabel(claim.status, locale)}
@@ -721,33 +775,124 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
           )}
         </div>
 
-        {/* Admin Action Bar */}
-        {isAdmin && isPending && !editing && (
-          <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 print:hidden">
-            {!rejectOpen ? (
+        {/* ===== Workflow Action Bar ===== */}
+        {!editing && !isTerminal && (
+          <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/40 print:hidden space-y-3">
+
+            {/* ── Owner: Submit draft ── */}
+            {canSubmit && (
               <div className="flex items-center gap-3">
-                <button onClick={handleApprove} disabled={loading} className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
-                  <CheckCircle2 className="h-4 w-4" />
-                  {loading ? '...' : (isEn ? 'Approve' : 'อนุมัติ')}
-                </button>
-                <button onClick={() => setRejectOpen(true)} disabled={loading} className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
-                  <XCircle className="h-4 w-4" />
-                  {isEn ? 'Reject' : 'ปฏิเสธ'}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder={isEn ? 'Enter rejection reason...' : 'กรอกเหตุผลที่ปฏิเสธ...'} rows={2} className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm outline-none resize-none" />
-                <div className="flex gap-2">
-                  <button onClick={handleReject} disabled={loading} className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
-                    {loading ? '...' : (isEn ? 'Confirm Reject' : 'ยืนยันปฏิเสธ')}
-                  </button>
-                  <button onClick={() => { setRejectOpen(false); setRejectReason('') }} className="px-4 py-2 text-zinc-600 hover:bg-zinc-100 rounded-lg text-sm">
-                    {isEn ? 'Cancel' : 'ยกเลิก'}
-                  </button>
+                <div className="flex-1 text-xs text-zinc-500">
+                  {isEn
+                    ? 'Attach at least one receipt, then submit for approval.'
+                    : 'แนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นขออนุมัติ'}
                 </div>
+                <button
+                  onClick={handleSubmit}
+                  disabled={loading || (claim.receipt_urls || []).length === 0}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <Send className="h-4 w-4" />
+                  {loading ? '...' : (isEn ? 'Submit Claim' : 'ยื่นใบเบิก')}
+                </button>
               </div>
             )}
+
+            {/* ── Owner: Cancel (draft or pending) ── */}
+            {canCancel && (
+              <div className="flex justify-end">
+                <button
+                  onClick={handleCancel}
+                  disabled={loading}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-zinc-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors"
+                >
+                  <Ban className="h-4 w-4" />
+                  {isEn ? 'Cancel Claim' : 'ยกเลิกใบเบิก'}
+                </button>
+              </div>
+            )}
+
+            {/* ── Admin: Approve / Reject ── */}
+            {isAdmin && isPending && (
+              !rejectOpen ? (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={handleApprove}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {loading ? '...' : (isEn ? 'Approve' : 'อนุมัติ')}
+                  </button>
+                  <button
+                    onClick={handleApproveAsMonthEnd}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    <Clock className="h-4 w-4" />
+                    {loading ? '...' : (isEn ? 'Approve — Month End' : 'รอจ่ายสิ้นเดือน')}
+                  </button>
+                  <button
+                    onClick={() => setRejectOpen(true)}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    {isEn ? 'Reject' : 'ปฏิเสธ'}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <textarea
+                    value={rejectReason}
+                    onChange={e => setRejectReason(e.target.value)}
+                    placeholder={isEn ? 'Enter rejection reason...' : 'กรอกเหตุผลที่ปฏิเสธ...'}
+                    rows={2}
+                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm outline-none resize-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleReject}
+                      disabled={loading}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      {loading ? '...' : (isEn ? 'Confirm Reject' : 'ยืนยันปฏิเสธ')}
+                    </button>
+                    <button
+                      onClick={() => { setRejectOpen(false); setRejectReason('') }}
+                      className="px-4 py-2 text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-sm"
+                    >
+                      {isEn ? 'Back' : 'ยกเลิก'}
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+
+            {/* ── Admin: Mark as Paid / Defer to Month End ── */}
+            {isAdmin && (isApproved || isPendingMonthEnd) && (
+              <div className="flex items-center gap-3">
+                {isApproved && (
+                  <button
+                    onClick={handleDeferMonthEnd}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Clock className="h-4 w-4" />
+                    {loading ? '...' : (isEn ? 'Defer to Month End' : 'เลื่อนสิ้นเดือน')}
+                  </button>
+                )}
+                <button
+                  onClick={handleMarkPaid}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  {loading ? '...' : (isEn ? 'Mark as Paid' : 'ชำระเงินแล้ว')}
+                </button>
+              </div>
+            )}
+
           </div>
         )}
       </div>
@@ -766,13 +911,28 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               <div key={log.id} className="px-6 py-3">
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${log.action === 'update' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
-                      : log.action === 'upload_receipt' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
-                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                      }`}>
-                      {log.action === 'update' ? (isEn ? 'Edit' : 'แก้ไข')
-                        : log.action === 'upload_receipt' ? (isEn ? 'Upload' : 'อัพโหลด')
-                          : log.action}
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                      log.action === 'update'          ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
+                      : log.action === 'upload_receipt'  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+                      : log.action === 'submit'          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                      : log.action === 'approve'         ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+                      : log.action === 'approve_month_end' ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400'
+                      : log.action === 'reject'          ? 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400'
+                      : log.action === 'cancel'          ? 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+                      : log.action === 'defer_month_end' ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400'
+                      : log.action === 'mark_paid'       ? 'bg-teal-100 text-teal-700 dark:bg-teal-950/30 dark:text-teal-400'
+                      :                                    'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                    }`}>
+                      {log.action === 'update'          ? (isEn ? 'Edit' : 'แก้ไข')
+                      : log.action === 'upload_receipt'  ? (isEn ? 'Upload' : 'อัพโหลด')
+                      : log.action === 'submit'          ? (isEn ? 'Submitted' : 'ยื่นแล้ว')
+                      : log.action === 'approve'         ? (isEn ? 'Approved' : 'อนุมัติ')
+                      : log.action === 'approve_month_end' ? (isEn ? 'Approved (Month End)' : 'อนุมัติ-สิ้นเดือน')
+                      : log.action === 'reject'          ? (isEn ? 'Rejected' : 'ปฏิเสธ')
+                      : log.action === 'cancel'          ? (isEn ? 'Cancelled' : 'ยกเลิก')
+                      : log.action === 'defer_month_end' ? (isEn ? 'Deferred' : 'เลื่อนสิ้นเดือน')
+                      : log.action === 'mark_paid'       ? (isEn ? 'Paid' : 'ชำระแล้ว')
+                      : log.action}
                     </span>
                     <span className="text-xs text-zinc-500">
                       {log.editor?.full_name || (isEn ? 'Unknown' : 'ไม่ทราบ')}

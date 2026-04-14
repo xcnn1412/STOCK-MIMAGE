@@ -14,6 +14,7 @@ export const metadata = {
 export default async function FinancePage() {
   const cookieStore = await cookies()
   const role = cookieStore.get('session_role')?.value || 'staff'
+  const userId = cookieStore.get('session_user_id')?.value || ''
   const isAdmin = role === 'admin'
 
   const [{ data, error }, categories, paidResult] = await Promise.all([
@@ -28,6 +29,7 @@ export default async function FinancePage() {
       error={error || null}
       categories={categories}
       isAdmin={isAdmin}
+      userId={userId}
       paidClaims={((paidResult as any).data || []) as unknown as ExpenseClaim[]}
     />
   )
