@@ -180,7 +180,6 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleMarkWaitingTaxInvoice = async () => {
-    if (!confirm(isEn ? 'Request tax invoice from claimant?' : 'ขอใบกำกับภาษีจากผู้เบิก?')) return
     setLoading(true)
     setError(null)
     const result = await markAsWaitingTaxInvoice(claim.id)
