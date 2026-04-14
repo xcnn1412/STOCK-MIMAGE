@@ -152,6 +152,26 @@ export interface ExpenseClaim {
   job_event?: { id: string; event_name: string; source_event_id?: string | null; linked_lead_id?: string | null } | null
 }
 
+/**
+ * All statuses an Admin can override to from a given current status.
+ * Excludes the current status and the legacy 'awaiting_payment'.
+ */
+export function getAdminOverrideStatuses(currentStatus: string): ClaimStatus[] {
+  return CLAIM_STATUSES
+    .filter(s => s.value !== currentStatus && s.value !== 'awaiting_payment')
+    .map(s => s.value as ClaimStatus)
+}
+
+/**
+ * Returns true for transitions that warrant an extra confirmation warning.
+ * Sensitive = reversing a finalised state or un-approving an approved claim.
+ */
+export function isAdminSensitiveTransition(from: string, to: string): boolean {
+  if (['paid', 'rejected', 'cancelled'].includes(from)) return true
+  if (['approved', 'pending_month_end'].includes(from) && ['pending', 'draft', 'rejected', 'cancelled'].includes(to)) return true
+  return false
+}
+
 export function getClaimStatusLabel(status: string, locale: 'th' | 'en' = 'th') {
   const s = CLAIM_STATUSES.find(c => c.value === status)
   return locale === 'th' ? (s?.labelTh || status) : (s?.label || status)

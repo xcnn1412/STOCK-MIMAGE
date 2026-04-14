@@ -864,6 +864,138 @@ export async function deleteClaim(id: string) {
 }
 
 // ============================================================================
+// Admin Override Status — Admin only, any → any transition with reason
+// ============================================================================
+
+export async function adminOverrideStatus(id: string, newStatus: string, reason: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถ Override สถานะได้' }
+  if (!reason?.trim()) return { error: 'กรุณาระบุเหตุผลในการเปลี่ยนสถานะ' }
+
+  const validStatuses = ['draft', 'pending', 'approved', 'pending_month_end', 'paid', 'rejected', 'cancelled']
+  if (!validStatuses.includes(newStatus)) return { error: 'สถานะไม่ถูกต้อง' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.status === newStatus) return { error: 'สถานะเดิมและสถานะใหม่เหมือนกัน' }
+
+  const now = new Date().toISOString()
+  const fromStatus = claim.status
+
+  // Build update payload — set/clear metadata fields based on target status
+  const updatePayload: Record<string, any> = { status: newStatus }
+
+  if (newStatus === 'draft') {
+    updatePayload.submitted_at = null
+    updatePayload.approved_by = null
+    updatePayload.approved_at = null
+    updatePayload.reject_reason = null
+    updatePayload.paid_at = null
+    updatePayload.paid_by = null
+    updatePayload.cancelled_at = null
+    updatePayload.cancelled_by = null
+  } else if (newStatus === 'pending') {
+    updatePayload.approved_by = null
+    updatePayload.approved_at = null
+    updatePayload.reject_reason = null
+    updatePayload.paid_at = null
+    updatePayload.paid_by = null
+    updatePayload.cancelled_at = null
+    updatePayload.cancelled_by = null
+    if (!claim.submitted_at) updatePayload.submitted_at = now
+  } else if (newStatus === 'approved') {
+    updatePayload.approved_by = userId
+    updatePayload.approved_at = now
+    updatePayload.reject_reason = null
+    updatePayload.paid_at = null
+    updatePayload.paid_by = null
+    updatePayload.cancelled_at = null
+    updatePayload.cancelled_by = null
+    if (!claim.submitted_at) updatePayload.submitted_at = now
+  } else if (newStatus === 'pending_month_end') {
+    if (!claim.approved_by) updatePayload.approved_by = userId
+    if (!claim.approved_at) updatePayload.approved_at = now
+    updatePayload.paid_at = null
+    updatePayload.paid_by = null
+    updatePayload.cancelled_at = null
+    updatePayload.cancelled_by = null
+    updatePayload.reject_reason = null
+    if (!claim.submitted_at) updatePayload.submitted_at = now
+  } else if (newStatus === 'paid') {
+    if (!claim.approved_by) updatePayload.approved_by = userId
+    if (!claim.approved_at) updatePayload.approved_at = now
+    updatePayload.paid_at = now
+    updatePayload.paid_by = userId
+    updatePayload.cancelled_at = null
+    updatePayload.cancelled_by = null
+    updatePayload.reject_reason = null
+    if (!claim.submitted_at) updatePayload.submitted_at = now
+  } else if (newStatus === 'rejected') {
+    updatePayload.reject_reason = reason
+    updatePayload.approved_by = userId
+    updatePayload.approved_at = now
+    updatePayload.paid_at = null
+    updatePayload.paid_by = null
+    updatePayload.cancelled_at = null
+    updatePayload.cancelled_by = null
+  } else if (newStatus === 'cancelled') {
+    updatePayload.cancelled_at = now
+    updatePayload.cancelled_by = userId
+    updatePayload.paid_at = null
+    updatePayload.paid_by = null
+  }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update(updatePayload)
+    .eq('id', id)
+
+  if (error) return { error: 'เกิดข้อผิดพลาดในการเปลี่ยนสถานะ' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'admin_override',
+    changed_by: userId,
+    changes: { status: { from: fromStatus, to: newStatus } },
+    note: `[Admin Override] ${reason}`,
+  })
+
+  await logActivity('ADMIN_OVERRIDE_CLAIM_STATUS', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+    fromStatus,
+    toStatus: newStatus,
+    reason,
+  })
+
+  // Notify submitter of the override
+  if (claim.submitted_by && claim.submitted_by !== userId) {
+    await createNotifications({
+      userIds: [claim.submitted_by],
+      type: 'expense_approved',
+      title: `ใบเบิก ${claim.claim_number} สถานะถูกเปลี่ยนเป็น "${newStatus}" โดย Admin`,
+      body: reason,
+      referenceType: 'expense_claim',
+      referenceId: id,
+      actorId: userId,
+    })
+  }
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  revalidatePath('/finance/payouts')
+  revalidatePath('/costs')
+  return { success: true }
+}
+
+// ============================================================================
 // Get Job Events for dropdown
 // ============================================================================
 
