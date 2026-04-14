@@ -39,7 +39,7 @@ export async function getClaims(filters?: {
   claim_type?: string
   submitted_by?: string
 }) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { data: [], error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -55,6 +55,9 @@ export async function getClaims(filters?: {
     `)
     .order('created_at', { ascending: false })
 
+  // 🔒 Non-admins can only see their own claims
+  if (role !== 'admin') query = query.eq('submitted_by', userId)
+
   if (filters?.status) query = query.eq('status', filters.status)
   if (filters?.claim_type) query = query.eq('claim_type', filters.claim_type)
   if (filters?.submitted_by) query = query.eq('submitted_by', filters.submitted_by)
@@ -64,11 +67,12 @@ export async function getClaims(filters?: {
 }
 
 export async function getClaim(id: string) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { data: null, error: 'Unauthorized' }
 
   const supabase = createServiceClient()
-  const { data, error } = await supabase
+
+  let query = supabase
     .from('expense_claims')
     .select(`
       *,
@@ -77,8 +81,11 @@ export async function getClaim(id: string) {
       job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name)
     `)
     .eq('id', id)
-    .single()
 
+  // 🔒 Non-admins can only access their own claim
+  if (role !== 'admin') query = query.eq('submitted_by', userId)
+
+  const { data, error } = await query.single()
   return { data, error: error?.message }
 }
 
