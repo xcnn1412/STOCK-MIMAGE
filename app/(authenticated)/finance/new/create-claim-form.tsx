@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useActionState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon } from 'lucide-react'
+import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon, Wallet, Info } from 'lucide-react'
 import { createClaim } from '../actions'
 import { CLAIM_TYPES } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
@@ -50,7 +50,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const router = useRouter()
   const { locale } = useLocale()
   const isEn = locale === 'en'
-  const [claimType, setClaimType] = useState<'event' | 'other'>('event')
+  const [claimType, setClaimType] = useState<'event' | 'other' | 'advance'>('event')
+  const isAdvance = claimType === 'advance'
   const [selectedCategory, setSelectedCategory] = useState(categories[0]?.value || 'staff')
   const [receiptFiles, setReceiptFiles] = useState<File[]>([])
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
@@ -150,24 +151,53 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
             {isEn ? 'Claim Type' : 'ประเภทการเบิก'} *
           </label>
-          <div className="grid grid-cols-2 gap-3">
-            {CLAIM_TYPES.map(type => (
-              <button
-                key={type.value}
-                type="button"
-                onClick={() => setClaimType(type.value as 'event' | 'other')}
-                className={`p-4 rounded-xl border-2 text-left transition-all ${claimType === type.value
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20'
-                    : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300'
-                  }`}
-              >
-                <p className="font-medium text-zinc-900 dark:text-zinc-100">
-                  {isEn ? type.label : type.labelTh}
-                </p>
-              </button>
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {CLAIM_TYPES.map(type => {
+              const isActive = claimType === type.value
+              const isAdvanceType = type.value === 'advance'
+              return (
+                <button
+                  key={type.value}
+                  type="button"
+                  onClick={() => setClaimType(type.value as 'event' | 'other' | 'advance')}
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${isActive
+                      ? (isAdvanceType
+                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/20'
+                          : 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20')
+                      : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300'
+                    }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {isAdvanceType && <Wallet className={`h-4 w-4 ${isActive ? 'text-amber-600' : 'text-zinc-400'}`} />}
+                    <p className="font-medium text-zinc-900 dark:text-zinc-100">
+                      {isEn ? type.label : type.labelTh}
+                    </p>
+                  </div>
+                  {isAdvanceType && (
+                    <p className="text-[11px] text-zinc-500 mt-1">
+                      {isEn ? 'Request money up-front, settle after use' : 'ขอเงินล่วงหน้า คืนส่วนต่างภายหลัง'}
+                    </p>
+                  )}
+                </button>
+              )
+            })}
           </div>
           <input type="hidden" name="claim_type" value={claimType} />
+
+          {/* Advance workflow info banner */}
+          {isAdvance && (
+            <div className="mt-3 flex items-start gap-2.5 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+              <Info className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                <p className="font-semibold">{isEn ? 'How Advance Payment Works' : 'วิธีการทำงานของ "เบิกทดลองจ่าย"'}</p>
+                <ol className="list-decimal list-inside space-y-0.5 text-amber-600 dark:text-amber-400">
+                  <li>{isEn ? 'Request the advance amount before the expense occurs.' : 'เบิกเงินล่วงหน้าไปใช้จ่ายก่อน'}</li>
+                  <li>{isEn ? 'After the expense, enter the actual amount spent and upload receipts.' : 'เมื่อใช้จ่ายเสร็จ ให้อัพเดทค่าใช้จ่ายจริง พร้อมอัพโหลดสลิป/ใบเสร็จ'}</li>
+                  <li>{isEn ? 'The remaining amount will be auto-calculated — upload the refund slip when you return it.' : 'ระบบจะคำนวณจำนวนเงินคืนให้อัตโนมัติ — แนบสลิปการโอนคืนบริษัท'}</li>
+                </ol>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Event Selector (if event type) */}
@@ -336,11 +366,12 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           )
         })()}
 
-        {/* Unit Price + Unit + Quantity */}
-        <div className="grid grid-cols-3 gap-3">
+        {/* Unit Price + Unit + Quantity — simplified to single amount field for advance */}
+        {isAdvance ? (
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-              {isEn ? 'Unit Price (฿)' : 'ราคาต่อหน่วย'} *
+              <Wallet className="inline h-3.5 w-3.5 mr-1 text-amber-500" />
+              {isEn ? 'Advance Amount (฿)' : 'จำนวนเงินที่ขอเบิกล่วงหน้า (฿)'} *
             </label>
             <input
               type="number"
@@ -350,55 +381,84 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               value={unitPrice}
               onChange={e => setUnitPrice(e.target.value)}
               placeholder="0"
-              className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
             />
+            <input type="hidden" name="unit" value="บาท" />
+            <input type="hidden" name="quantity" value="1" />
+            <p className="text-[11px] text-zinc-400 mt-1">
+              {isEn ? 'You will settle the actual amount spent later.' : 'จำนวนเงินที่ใช้จ่ายจริงจะอัพเดทย้อนหลัง เมื่อเสร็จงาน'}
+            </p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-              {isEn ? 'Unit' : 'หน่วย'}
-            </label>
-            <input
-              type="text"
-              name="unit"
-              defaultValue="บาท"
-              placeholder="บาท"
-              className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
-            />
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+                {isEn ? 'Unit Price (฿)' : 'ราคาต่อหน่วย'} *
+              </label>
+              <input
+                type="number"
+                name="unit_price"
+                min="0"
+                step="0.01"
+                value={unitPrice}
+                onChange={e => setUnitPrice(e.target.value)}
+                placeholder="0"
+                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+                {isEn ? 'Unit' : 'หน่วย'}
+              </label>
+              <input
+                type="text"
+                name="unit"
+                defaultValue="บาท"
+                placeholder="บาท"
+                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+                {isEn ? 'Quantity' : 'จำนวน'}
+              </label>
+              <input
+                type="number"
+                name="quantity"
+                min="1"
+                value={quantity}
+                onChange={e => setQuantity(e.target.value)}
+                placeholder="1"
+                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-              {isEn ? 'Quantity' : 'จำนวน'}
-            </label>
-            <input
-              type="number"
-              name="quantity"
-              min="1"
-              value={quantity}
-              onChange={e => setQuantity(e.target.value)}
-              placeholder="1"
-              className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
-            />
-          </div>
-        </div>
+        )}
 
         {/* Computed Amount + Date */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-              {isEn ? 'Total Amount (฿)' : 'ยอดรวม (฿)'}
+              {isAdvance
+                ? (isEn ? 'Advance Total (฿)' : 'ยอดเบิกล่วงหน้า (฿)')
+                : (isEn ? 'Total Amount (฿)' : 'ยอดรวม (฿)')}
             </label>
             <div className="flex items-center h-[42px] px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 font-mono font-semibold text-sm">
               ฿{fmtDec(computedAmount)}
             </div>
             <input type="hidden" name="amount" value={computedAmount} />
-            <p className="text-[10px] text-zinc-400 mt-1">
-              {isEn ? 'Unit Price × Quantity (before VAT)' : 'ราคาต่อหน่วย × จำนวน (ก่อน VAT)'}
-            </p>
+            {!isAdvance && (
+              <p className="text-[10px] text-zinc-400 mt-1">
+                {isEn ? 'Unit Price × Quantity (before VAT)' : 'ราคาต่อหน่วย × จำนวน (ก่อน VAT)'}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
               <Calendar className="inline h-3.5 w-3.5 mr-1" />
-              {isEn ? 'Expense Date' : 'วันที่เกิดค่าใช้จ่าย'}
+              {isAdvance
+                ? (isEn ? 'Planned Expense Date' : 'วันที่คาดว่าจะใช้จ่าย')
+                : (isEn ? 'Expense Date' : 'วันที่เกิดค่าใช้จ่าย')}
             </label>
             <input
               type="date"
@@ -409,7 +469,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           </div>
         </div>
 
-        {/* VAT + WHT */}
+        {/* VAT + WHT — hidden for advance (ทดลองจ่าย) since no receipts yet */}
+        {!isAdvance && (
         <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-4 space-y-3 bg-zinc-50/50 dark:bg-zinc-800/30">
           <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5">
             <Receipt className="h-3.5 w-3.5" />
@@ -511,6 +572,15 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             </div>
           )}
         </div>
+        )}
+
+        {/* Hidden defaults for advance — no VAT/WHT */}
+        {isAdvance && (
+          <>
+            <input type="hidden" name="vat_mode" value="none" />
+            <input type="hidden" name="withholding_tax_rate" value="0" />
+          </>
+        )}
 
         {/* Payment Details (ผู้เบิก) */}
         <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl p-4 space-y-3 bg-zinc-50/50 dark:bg-zinc-800/30">
@@ -595,8 +665,17 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
         <div>
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
             <Upload className="inline h-3.5 w-3.5 mr-1" />
-            {isEn ? 'Attach Receipts (Optional)' : 'แนบใบเสร็จ (ไม่บังคับ)'}
+            {isAdvance
+              ? (isEn ? 'Attach Reference Documents (Optional)' : 'แนบเอกสารอ้างอิง (ไม่บังคับ)')
+              : (isEn ? 'Attach Receipts (Optional)' : 'แนบใบเสร็จ (ไม่บังคับ)')}
           </label>
+          {isAdvance && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mb-1.5">
+              {isEn
+                ? 'For advance payments, actual receipts are uploaded later when you settle the claim.'
+                : 'ใบเสร็จจริงสามารถอัพโหลดย้อนหลังได้ หลังจากใช้จ่ายเสร็จแล้ว'}
+            </p>
+          )}
           <div
             className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-4 text-center hover:border-emerald-400 transition-colors cursor-pointer"
             onClick={() => fileInputRef.current?.click()}

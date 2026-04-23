@@ -412,14 +412,15 @@ export async function submitClaim(id: string) {
 
   const { data: claim } = await supabase
     .from('expense_claims')
-    .select('status, submitted_by, receipt_urls, claim_number, title, amount')
+    .select('status, submitted_by, receipt_urls, claim_number, title, amount, claim_type')
     .eq('id', id)
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
   if (claim.submitted_by !== userId) return { error: 'คุณไม่มีสิทธิ์ยื่นใบเบิกนี้' }
   if (claim.status !== 'draft') return { error: 'ยื่นได้เฉพาะใบเบิกที่อยู่ในสถานะ "แบบร่าง" เท่านั้น' }
-  if (!claim.receipt_urls || claim.receipt_urls.length === 0) {
+  // Advance (ทดลองจ่าย) claims don't require receipts at submission — they're uploaded on settlement
+  if (claim.claim_type !== 'advance' && (!claim.receipt_urls || claim.receipt_urls.length === 0)) {
     return { error: 'กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นใบเบิก' }
   }
 
@@ -1260,4 +1261,169 @@ export async function recreateCostItemFromClaim(claimId: string, jobCostEventId:
   revalidatePath('/costs')
   revalidatePath('/finance')
   return { success: true }
+}
+
+// ============================================================================
+// Settle Advance Claim (เบิกทดลองจ่าย) — update actual spent + upload receipts
+// & optional refund slip. Refund amount is auto-calculated.
+//
+// Allowed actors: owner of the claim, or admin.
+// Allowed statuses: approved | paid | pending_month_end | waiting_tax_invoice
+//   (any post-approval state — the user has the money and is reconciling it)
+// ============================================================================
+
+export async function settleAdvanceClaim(id: string, formData: FormData) {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.claim_type !== 'advance') {
+    return { error: 'การอัพเดทค่าใช้จ่ายจริงใช้ได้กับใบเบิกประเภท "ทดลองจ่าย" เท่านั้น' }
+  }
+
+  const isAdmin = role === 'admin'
+  const isOwner = claim.submitted_by === userId
+  if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์อัพเดทใบเบิกนี้' }
+
+  if (!['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)) {
+    return { error: 'อัพเดทค่าใช้จ่ายจริงได้หลังจากใบเบิกถูกอนุมัติแล้วเท่านั้น' }
+  }
+
+  // Accept itemized breakdown (preferred) or a single total.
+  // If items are provided, actual_spent_amount = sum(items[].amount).
+  let items: { description: string; amount: number }[] = []
+  const itemsRaw = formData.get('actual_spent_items') as string | null
+  if (itemsRaw) {
+    try {
+      const parsed = JSON.parse(itemsRaw)
+      if (Array.isArray(parsed)) {
+        items = parsed
+          .map((x: any) => ({
+            description: String(x?.description ?? '').trim(),
+            amount: Number(x?.amount) || 0,
+          }))
+          .filter(i => i.amount > 0 || i.description.length > 0)
+      }
+    } catch {
+      return { error: 'รูปแบบรายการค่าใช้จ่ายไม่ถูกต้อง' }
+    }
+  }
+
+  let actualSpent: number
+  if (items.length > 0) {
+    actualSpent = items.reduce((sum, i) => sum + (Number(i.amount) || 0), 0)
+  } else {
+    const actualSpentRaw = formData.get('actual_spent_amount')
+    const n = actualSpentRaw !== null && actualSpentRaw !== '' ? Number(actualSpentRaw) : null
+    if (n === null || !Number.isFinite(n) || n < 0) {
+      return { error: 'กรุณาระบุจำนวนเงินที่ใช้จ่ายจริง หรือเพิ่มรายการค่าใช้จ่าย' }
+    }
+    actualSpent = n
+  }
+
+  const advanceAmount = Number(claim.amount) || 0
+  const refundAmount = Math.max(0, advanceAmount - actualSpent)
+
+  // Collect file uploads
+  const actualReceiptFiles: File[] = []
+  for (const entry of formData.getAll('actual_receipt_files')) {
+    if (entry instanceof File && entry.size > 0) actualReceiptFiles.push(entry)
+  }
+  const refundSlipFiles: File[] = []
+  for (const entry of formData.getAll('refund_slip_files')) {
+    if (entry instanceof File && entry.size > 0) refundSlipFiles.push(entry)
+  }
+
+  let newActualReceiptUrls: string[] = []
+  if (actualReceiptFiles.length > 0) {
+    newActualReceiptUrls = await uploadReceiptFiles(supabase, actualReceiptFiles, `${claim.claim_number}-actual`)
+  }
+  let newRefundSlipUrls: string[] = []
+  if (refundSlipFiles.length > 0) {
+    newRefundSlipUrls = await uploadReceiptFiles(supabase, refundSlipFiles, `${claim.claim_number}-refund`)
+  }
+
+  const existingActual: string[] = claim.actual_receipt_urls || []
+  const existingRefund: string[] = claim.refund_slip_urls || []
+
+  const updatePayload: Record<string, any> = {
+    actual_spent_amount: actualSpent,
+    actual_spent_items: items.length > 0 ? items : (claim.actual_spent_items ?? []),
+    refund_amount: refundAmount,
+    advance_settled_at: new Date().toISOString(),
+    advance_settled_by: userId,
+  }
+  if (newActualReceiptUrls.length > 0) {
+    updatePayload.actual_receipt_urls = [...existingActual, ...newActualReceiptUrls]
+  }
+  if (newRefundSlipUrls.length > 0) {
+    updatePayload.refund_slip_urls = [...existingRefund, ...newRefundSlipUrls]
+  }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update(updatePayload)
+    .eq('id', id)
+
+  if (error) {
+    console.error('Settle advance error:', error)
+    return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+  }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'settle_advance',
+    changed_by: userId,
+    changes: {
+      actual_spent_amount: { from: claim.actual_spent_amount ?? null, to: actualSpent },
+      refund_amount: { from: claim.refund_amount ?? null, to: refundAmount },
+      ...(newActualReceiptUrls.length > 0
+        ? { actual_receipt_urls: { from: existingActual.length, to: existingActual.length + newActualReceiptUrls.length } }
+        : {}),
+      ...(newRefundSlipUrls.length > 0
+        ? { refund_slip_urls: { from: existingRefund.length, to: existingRefund.length + newRefundSlipUrls.length } }
+        : {}),
+    },
+    note: `อัพเดทค่าใช้จ่ายจริง ฿${actualSpent.toLocaleString()} (เงินคืน ฿${refundAmount.toLocaleString()})`,
+  })
+
+  await logActivity('SETTLE_ADVANCE_CLAIM', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+    advanceAmount,
+    actualSpent,
+    refundAmount,
+  })
+
+  // Notify admins when a user settles their advance so they can reconcile
+  if (!isAdmin) {
+    const { data: adminProfiles } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin')
+    const adminIds = (adminProfiles || []).map((p: { id: string }) => p.id)
+    if (adminIds.length > 0) {
+      await createNotifications({
+        userIds: adminIds,
+        type: 'expense_approved',
+        title: `ใบเบิก ${claim.claim_number} — อัพเดทค่าใช้จ่ายจริง`,
+        body: `ผู้เบิกอัพเดทค่าใช้จ่ายจริง ฿${actualSpent.toLocaleString()} / เงินคืน ฿${refundAmount.toLocaleString()}`,
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+    }
+  }
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  return { success: true, refundAmount }
 }

@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
   Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
-  Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert
+  Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert,
+  Wallet, RefreshCw, Plus
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -66,6 +67,21 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [editReceiptFiles, setEditReceiptFiles] = useState<File[]>([])
   const [taxInvoiceFiles, setTaxInvoiceFiles] = useState<File[]>([])
 
+  // Advance settlement state (ทดลองจ่าย)
+  type SpentItem = { description: string; amount: string }
+  const seededItems: SpentItem[] = Array.isArray(claim.actual_spent_items) && claim.actual_spent_items.length > 0
+    ? claim.actual_spent_items.map(i => ({ description: i.description || '', amount: String(i.amount ?? '') }))
+    : [{ description: '', amount: '' }]
+  const [spentItems, setSpentItems] = useState<SpentItem[]>(seededItems)
+  const [actualReceiptFiles, setActualReceiptFiles] = useState<File[]>([])
+  const [refundSlipFiles, setRefundSlipFiles] = useState<File[]>([])
+
+  const addSpentItem = () => setSpentItems(prev => [...prev, { description: '', amount: '' }])
+  const removeSpentItem = (idx: number) => setSpentItems(prev => prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx))
+  const updateSpentItem = (idx: number, patch: Partial<SpentItem>) =>
+    setSpentItems(prev => prev.map((it, i) => i === idx ? { ...it, ...patch } : it))
+  const spentItemsTotal = spentItems.reduce((sum, it) => sum + (Number(it.amount) || 0), 0)
+
   // Edit form state
   const [editTitle, setEditTitle] = useState(claim.title)
   const [editDescription, setEditDescription] = useState(claim.description || '')
@@ -92,6 +108,12 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const isWaitingTaxInvoice = claim.status === 'waiting_tax_invoice'
   const isCancelled = claim.status === 'cancelled'
   const isTerminal = ['paid', 'rejected', 'cancelled'].includes(claim.status)
+  const isAdvance = claim.claim_type === 'advance'
+  // Settlement allowed after the claim has been approved (user has or will have the money)
+  const canSettleAdvance = isAdvance && (isOwner || isAdmin) && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)
+  const advanceAmount = claim.amount || 0
+  const actualSpentNum = spentItemsTotal
+  const computedRefund = Math.max(0, advanceAmount - actualSpentNum)
   const canEdit = isAdmin || ((isDraft || isPending) && isOwner)
   const canSubmit = isOwner && isDraft
   const canCancel = isOwner && !isAdmin && (isDraft || isPending)
@@ -198,6 +220,36 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     const result = await uploadTaxInvoice(claim.id, formData)
     if (result.error) { setError(result.error); setLoading(false) }
     else { setTaxInvoiceFiles([]); router.refresh(); setLoading(false) }
+  }
+
+  const handleSettleAdvance = async () => {
+    const cleanItems = spentItems
+      .map(it => ({ description: it.description.trim(), amount: Number(it.amount) || 0 }))
+      .filter(it => it.amount > 0)
+    if (cleanItems.length === 0) {
+      setError(isEn ? 'Please add at least one expense item.' : 'กรุณาเพิ่มรายการค่าใช้จ่ายอย่างน้อย 1 รายการ')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    const formData = new FormData()
+    formData.append('actual_spent_items', JSON.stringify(cleanItems))
+    for (const f of actualReceiptFiles) {
+      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+      formData.append('actual_receipt_files', compressed)
+    }
+    for (const f of refundSlipFiles) {
+      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+      formData.append('refund_slip_files', compressed)
+    }
+    const result = await settleAdvanceClaim(claim.id, formData)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else {
+      setActualReceiptFiles([])
+      setRefundSlipFiles([])
+      router.refresh()
+      setLoading(false)
+    }
   }
 
   const handleAdminOverride = async () => {
@@ -590,10 +642,14 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               {/* Info Grid — ข้อมูลทั่วไป */}
               <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                 <div className="flex items-center gap-2 text-sm">
-                  <FileText className="h-4 w-4 text-zinc-400 shrink-0" />
+                  {isAdvance ? <Wallet className="h-4 w-4 text-amber-500 shrink-0" /> : <FileText className="h-4 w-4 text-zinc-400 shrink-0" />}
                   <span className="text-zinc-500">{isEn ? 'Type:' : 'ประเภท:'}</span>
-                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                    {claim.claim_type === 'event' ? (isEn ? 'Event' : 'เบิกงานอีเวนต์') : (isEn ? 'Other' : 'ค่าอื่นๆ')}
+                  <span className={`font-medium ${isAdvance ? 'text-amber-700 dark:text-amber-300' : 'text-zinc-900 dark:text-zinc-100'}`}>
+                    {claim.claim_type === 'event'
+                      ? (isEn ? 'Event' : 'เบิกงานอีเวนต์')
+                      : claim.claim_type === 'advance'
+                        ? (isEn ? 'Advance Payment' : 'เบิกทดลองจ่าย')
+                        : (isEn ? 'Other' : 'ค่าอื่นๆ')}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
@@ -809,6 +865,118 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 </div>
               )}
 
+              {/* Advance Settlement Summary (ทดลองจ่าย) */}
+              {isAdvance && (
+                <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 bg-zinc-50/50 dark:bg-zinc-800/30">
+                  <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5 mb-2">
+                    <Wallet className="h-3.5 w-3.5 text-emerald-500" />
+                    {isEn ? 'Advance Settlement' : 'การเบิกทดลองจ่าย'}
+                  </p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <p className="text-[10px] text-zinc-400">{isEn ? 'Advance Amount' : 'เบิกล่วงหน้า'}</p>
+                      <p className="text-sm font-mono font-semibold text-zinc-800 dark:text-zinc-200">฿{fmtDec(claim.amount || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-zinc-400">{isEn ? 'Actual Spent' : 'ใช้จ่ายจริง'}</p>
+                      <p className="text-sm font-mono font-semibold text-zinc-800 dark:text-zinc-200">
+                        {claim.actual_spent_amount != null ? `฿${fmtDec(Number(claim.actual_spent_amount))}` : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-zinc-400">{isEn ? 'Refund to Company' : 'เงินคืนบริษัท'}</p>
+                      <p className={`text-sm font-mono font-semibold ${(claim.refund_amount || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-500'}`}>
+                        {claim.refund_amount != null ? `฿${fmtDec(Number(claim.refund_amount))}` : '—'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Itemized breakdown */}
+                  {Array.isArray(claim.actual_spent_items) && claim.actual_spent_items.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-700">
+                      <p className="text-[10px] font-medium text-zinc-400 mb-1.5">
+                        {isEn ? 'Itemized Breakdown' : 'รายการค่าใช้จ่าย'}
+                      </p>
+                      <div className="space-y-0.5">
+                        {claim.actual_spent_items.map((item, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs py-1 px-2 odd:bg-white/60 dark:odd:bg-zinc-900/40 rounded">
+                            <span className="text-zinc-600 dark:text-zinc-400 flex items-center gap-1.5">
+                              <span className="text-zinc-400 font-mono">{i + 1}.</span>
+                              {item.description || <span className="italic text-zinc-400">{isEn ? '(no description)' : '(ไม่ระบุ)'}</span>}
+                            </span>
+                            <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300">
+                              ฿{fmtDec(Number(item.amount) || 0)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {claim.advance_settled_at && (
+                    <p className="text-[10px] text-zinc-400 mt-2">
+                      {isEn ? 'Last settled at' : 'อัพเดทล่าสุด'}: {new Date(claim.advance_settled_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Actual Receipts (from advance settlement) */}
+              {isAdvance && claim.actual_receipt_urls && claim.actual_receipt_urls.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1.5 mb-3">
+                    <Receipt className="h-3.5 w-3.5" />
+                    {isEn ? 'Actual Spending Receipts' : 'หลักฐานการใช้จ่ายจริง'} ({claim.actual_receipt_urls.length})
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {claim.actual_receipt_urls.map((url, i) => {
+                      const isPdf = url.toLowerCase().endsWith('.pdf')
+                      return (
+                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="group relative block rounded-lg border border-amber-200 dark:border-amber-800 overflow-hidden hover:border-amber-400 hover:shadow-md transition-all aspect-[4/3] bg-amber-50 dark:bg-amber-950/20">
+                          {isPdf ? (
+                            <div className="flex flex-col items-center justify-center h-full gap-2 text-amber-400">
+                              <FileText className="h-10 w-10" />
+                              <span className="text-xs">PDF</span>
+                            </div>
+                          ) : (
+                            <img src={url} alt={`${isEn ? 'Actual receipt' : 'หลักฐานการจ่ายจริง'} ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                          )}
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                        </a>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Refund Slips (advance settlement) */}
+              {isAdvance && claim.refund_slip_urls && claim.refund_slip_urls.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 mb-3">
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    {isEn ? 'Refund Transfer Slips' : 'สลิปการโอนเงินคืนบริษัท'} ({claim.refund_slip_urls.length})
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {claim.refund_slip_urls.map((url, i) => {
+                      const isPdf = url.toLowerCase().endsWith('.pdf')
+                      return (
+                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="group relative block rounded-lg border border-emerald-200 dark:border-emerald-800 overflow-hidden hover:border-emerald-400 hover:shadow-md transition-all aspect-[4/3] bg-emerald-50 dark:bg-emerald-950/20">
+                          {isPdf ? (
+                            <div className="flex flex-col items-center justify-center h-full gap-2 text-emerald-400">
+                              <FileText className="h-10 w-10" />
+                              <span className="text-xs">PDF</span>
+                            </div>
+                          ) : (
+                            <img src={url} alt={`${isEn ? 'Refund slip' : 'สลิปเงินคืน'} ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                          )}
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                        </a>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Tax Invoice Documents */}
               {claim.tax_invoice_urls && claim.tax_invoice_urls.length > 0 && (
                 <div>
@@ -851,7 +1019,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
         </div>
 
         {/* ===== Workflow Action Bar ===== */}
-        {!editing && (!isTerminal || isAdmin) && (
+        {/* Owners of advance claims can still settle after the advance is paid out */}
+        {!editing && (!isTerminal || isAdmin || canSettleAdvance) && (
           <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/40 print:hidden space-y-3">
 
             {/* ── Owner: Submit draft ── */}
@@ -1036,6 +1205,288 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               </div>
             )}
 
+            {/* ── Advance Settlement (ทดลองจ่าย) ── */}
+            {canSettleAdvance && (
+              <div className="space-y-3.5 p-4 bg-zinc-50/60 dark:bg-zinc-800/30 border border-zinc-200 dark:border-zinc-700 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center h-7 w-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                    <Wallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                      {isEn ? 'Settle Advance Payment' : 'อัพเดทค่าใช้จ่ายจริง'}
+                    </p>
+                    <p className="text-[11px] text-zinc-500">
+                      {isEn
+                        ? 'Add each expense line item; the refund is calculated automatically.'
+                        : 'เพิ่มรายการค่าใช้จ่ายได้หลายรายการ ระบบคำนวณเงินคืนให้อัตโนมัติ'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Summary strip: advance / spent / refund */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Advance' : 'เบิกล่วงหน้า'}</p>
+                    <p className="text-sm font-mono font-semibold text-zinc-800 dark:text-zinc-200">
+                      ฿{fmtDec(advanceAmount)}
+                    </p>
+                  </div>
+                  <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Actual Spent' : 'ใช้จ่ายจริง'}</p>
+                    <p className="text-sm font-mono font-semibold text-zinc-800 dark:text-zinc-200">
+                      ฿{fmtDec(actualSpentNum)}
+                    </p>
+                    <p className="text-[9px] text-zinc-400 mt-0.5">
+                      {spentItems.filter(i => Number(i.amount) > 0).length} {isEn ? 'item(s)' : 'รายการ'}
+                    </p>
+                  </div>
+                  <div className={`p-2.5 rounded-lg border ${computedRefund > 0 ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800' : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700'}`}>
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Refund' : 'เงินคืนบริษัท'}</p>
+                    <p className={`text-sm font-mono font-semibold ${computedRefund > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-500'}`}>
+                      ฿{fmtDec(computedRefund)}
+                    </p>
+                    <p className="text-[9px] text-zinc-400 mt-0.5">{isEn ? 'Auto' : 'คำนวณอัตโนมัติ'}</p>
+                  </div>
+                </div>
+
+                {actualSpentNum > advanceAmount && (
+                  <div className="flex items-start gap-2 p-2.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-600 dark:text-red-400">
+                    <ShieldAlert className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      {isEn
+                        ? `Actual spent (฿${fmtDec(actualSpentNum)}) exceeds the advance (฿${fmtDec(advanceAmount)}). No refund due — please create a top-up claim for the difference.`
+                        : `ค่าใช้จ่ายจริง (฿${fmtDec(actualSpentNum)}) เกินเงินที่เบิกไป (฿${fmtDec(advanceAmount)}) — ไม่มีเงินคืน กรุณาเบิกเพิ่มส่วนต่างในใบเบิกใหม่`}
+                    </span>
+                  </div>
+                )}
+
+                {/* Line items */}
+                <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                      <Receipt className="h-3.5 w-3.5 text-emerald-500" />
+                      {isEn ? 'Expense Line Items' : 'รายการค่าใช้จ่าย'}
+                    </label>
+                    <span className="text-[11px] text-zinc-400">
+                      {spentItems.filter(i => Number(i.amount) > 0).length}/{spentItems.length}
+                    </span>
+                  </div>
+
+                  {/* Column headers */}
+                  <div className="hidden sm:flex items-center gap-2 px-1 pb-1.5 text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
+                    <span className="w-6 shrink-0"></span>
+                    <span className="flex-1">{isEn ? 'Description' : 'รายการ'}</span>
+                    <span className="w-36 text-right pr-9">{isEn ? 'Amount (฿)' : 'จำนวน (฿)'}</span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {spentItems.map((item, idx) => {
+                      const itemAmount = Number(item.amount) || 0
+                      const pct = spentItemsTotal > 0 ? (itemAmount / spentItemsTotal) * 100 : 0
+                      return (
+                        <div
+                          key={idx}
+                          className="group relative flex items-center gap-2 px-1.5 py-1 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors"
+                        >
+                          {/* Progress bar (item share of total) */}
+                          {itemAmount > 0 && (
+                            <div
+                              className="absolute left-0 bottom-0 h-0.5 bg-emerald-400/40 dark:bg-emerald-500/30 rounded-full transition-all"
+                              style={{ width: `${pct}%` }}
+                            />
+                          )}
+                          <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-mono text-zinc-500 shrink-0">
+                            {idx + 1}
+                          </span>
+                          <input
+                            type="text"
+                            value={item.description}
+                            onChange={e => updateSpentItem(idx, { description: e.target.value })}
+                            placeholder={isEn ? 'Description (e.g. Fuel, Tolls)' : 'ใส่รายการ เช่น ค่าน้ำมัน'}
+                            className="flex-1 min-w-0 px-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                          />
+                          <div className="relative w-36 shrink-0">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 pointer-events-none">฿</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              inputMode="decimal"
+                              value={item.amount}
+                              onChange={e => updateSpentItem(idx, { amount: e.target.value })}
+                              placeholder="0.00"
+                              className="w-full pl-6 pr-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm font-mono text-right outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeSpentItem(idx)}
+                            disabled={spentItems.length <= 1}
+                            className="p-1.5 text-zinc-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded disabled:opacity-20 disabled:hover:text-zinc-300 disabled:hover:bg-transparent shrink-0 transition-colors"
+                            title={isEn ? 'Remove' : 'ลบ'}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Add Item + Quick-add presets */}
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={addSpentItem}
+                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-600 border border-dashed border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-md transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {isEn ? 'Add Item' : 'เพิ่มรายการ'}
+                    </button>
+                    <span className="text-[10px] text-zinc-400 mx-1">
+                      {isEn ? 'Quick add:' : 'เพิ่มด่วน:'}
+                    </span>
+                    {(isEn
+                      ? ['Fuel', 'Tolls', 'Lodging', 'Meals', 'Transport', 'Supplies']
+                      : ['ค่าน้ำมัน', 'ค่าทางด่วน', 'ที่พัก', 'อาหาร', 'ค่าเดินทาง', 'อุปกรณ์']
+                    ).map(preset => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          // Fill the first empty row, otherwise append
+                          const emptyIdx = spentItems.findIndex(i => !i.description.trim() && !i.amount)
+                          if (emptyIdx >= 0) {
+                            updateSpentItem(emptyIdx, { description: preset })
+                          } else {
+                            setSpentItems(prev => [...prev, { description: preset, amount: '' }])
+                          }
+                        }}
+                        className="px-2 py-1 text-[11px] bg-zinc-100 hover:bg-emerald-100 dark:bg-zinc-800 dark:hover:bg-emerald-950/30 text-zinc-600 hover:text-emerald-700 dark:hover:text-emerald-300 rounded transition-colors"
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Total row */}
+                  <div className="mt-2.5 pt-2.5 border-t border-zinc-200 dark:border-zinc-700 flex justify-between items-center">
+                    <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                      {isEn ? 'Total' : 'รวม'}
+                      <span className="ml-2 text-[10px] text-zinc-400">
+                        ({spentItems.filter(i => Number(i.amount) > 0).length} {isEn ? 'items' : 'รายการ'})
+                      </span>
+                    </span>
+                    <span className="text-base font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                      ฿{fmtDec(spentItemsTotal)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Actual receipts upload */}
+                <div>
+                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1.5 flex items-center gap-1.5">
+                    <Upload className="h-3.5 w-3.5" />
+                    {isEn ? 'Attach Receipts / Payment Slips' : 'แนบสลิป / ใบเสร็จการจ่ายจริง'}
+                    {claim.actual_receipt_urls && claim.actual_receipt_urls.length > 0 && (
+                      <span className="ml-auto text-[10px] text-zinc-400">
+                        {isEn ? `${claim.actual_receipt_urls.length} uploaded` : `อัพโหลดแล้ว ${claim.actual_receipt_urls.length} ไฟล์`}
+                      </span>
+                    )}
+                  </label>
+                  <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-3 text-center hover:border-emerald-400 transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*,application/pdf"
+                      multiple
+                      onChange={(e) => { if (e.target.files) setActualReceiptFiles(prev => [...prev, ...Array.from(e.target.files!)]) }}
+                      className="hidden"
+                      id="actual-receipt-upload"
+                    />
+                    <label htmlFor="actual-receipt-upload" className="cursor-pointer">
+                      <Upload className="h-5 w-5 mx-auto text-zinc-400 mb-1" />
+                      <p className="text-xs text-zinc-500">
+                        {isEn ? 'Click to upload' : 'คลิกเพื่ออัพโหลด'}
+                      </p>
+                    </label>
+                  </div>
+                  {actualReceiptFiles.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {actualReceiptFiles.map((file, i) => (
+                        <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-zinc-800 rounded-md text-xs border border-zinc-200 dark:border-zinc-700">
+                          <span className="truncate text-zinc-600 dark:text-zinc-400">{file.name}</span>
+                          <button type="button" onClick={() => setActualReceiptFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-zinc-400 hover:text-red-500 ml-2 shrink-0">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Refund slip upload — only when refund due */}
+                {computedRefund > 0 && (
+                  <div>
+                    <label className="text-xs font-medium text-emerald-700 dark:text-emerald-400 mb-1.5 flex items-center gap-1.5">
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      {isEn
+                        ? `Refund Transfer Slip (฿${fmtDec(computedRefund)})`
+                        : `สลิปโอนเงินคืนบริษัท (฿${fmtDec(computedRefund)})`}
+                      {claim.refund_slip_urls && claim.refund_slip_urls.length > 0 && (
+                        <span className="ml-auto text-[10px] text-zinc-400">
+                          {isEn ? `${claim.refund_slip_urls.length} uploaded` : `อัพโหลดแล้ว ${claim.refund_slip_urls.length} ไฟล์`}
+                        </span>
+                      )}
+                    </label>
+                    <div className="border-2 border-dashed border-emerald-300 dark:border-emerald-800 rounded-lg p-3 text-center hover:border-emerald-500 transition-colors bg-emerald-50/30 dark:bg-emerald-950/10">
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        multiple
+                        onChange={(e) => { if (e.target.files) setRefundSlipFiles(prev => [...prev, ...Array.from(e.target.files!)]) }}
+                        className="hidden"
+                        id="refund-slip-upload"
+                      />
+                      <label htmlFor="refund-slip-upload" className="cursor-pointer">
+                        <Upload className="h-5 w-5 mx-auto text-emerald-500 mb-1" />
+                        <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                          {isEn ? 'Click to upload refund slip' : 'คลิกเพื่อแนบสลิปการโอนคืน'}
+                        </p>
+                      </label>
+                    </div>
+                    {refundSlipFiles.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {refundSlipFiles.map((file, i) => (
+                          <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-zinc-800 rounded-md text-xs border border-emerald-200 dark:border-emerald-800">
+                            <span className="truncate text-zinc-600 dark:text-zinc-400">{file.name}</span>
+                            <button type="button" onClick={() => setRefundSlipFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-zinc-400 hover:text-red-500 ml-2 shrink-0">
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={handleSettleAdvance}
+                    disabled={loading || spentItemsTotal <= 0}
+                    className="flex items-center gap-1.5 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    <Save className="h-4 w-4" />
+                    {loading ? '...' : (isEn ? 'Save Settlement' : 'บันทึกการอัพเดท')}
+                  </button>
+                  <p className="text-[11px] text-zinc-400">
+                    {isEn
+                      ? 'Multiple updates allowed — each save appends to history.'
+                      : 'อัพเดทได้หลายครั้ง — แต่ละครั้งจะถูกบันทึกในประวัติ'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* ── Admin Override — always visible for admin ── */}
             {isAdmin && (
               <div className="border-t border-zinc-200 dark:border-zinc-700 pt-3 space-y-2.5">
@@ -1137,6 +1588,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'waiting_tax_invoice' ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
                       : log.action === 'upload_tax_invoice'  ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
                       : log.action === 'auto_transition'      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+                      : log.action === 'settle_advance'       ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
                       :                                    'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}>
                       {log.action === 'update'          ? (isEn ? 'Edit' : 'แก้ไข')
@@ -1152,6 +1604,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'waiting_tax_invoice' ? (isEn ? 'Tax Invoice Req.' : 'ขอใบกำกับภาษี')
                       : log.action === 'upload_tax_invoice'  ? (isEn ? 'Tax Invoice Upload' : 'อัพโหลดใบกำกับภาษี')
                       : log.action === 'auto_transition'      ? (isEn ? 'Auto Transition' : 'เปลี่ยนสถานะอัตโนมัติ')
+                      : log.action === 'settle_advance'       ? (isEn ? 'Advance Settled' : 'อัพเดทค่าใช้จ่ายจริง')
                       : log.action}
                     </span>
                     <span className="text-xs text-zinc-500">

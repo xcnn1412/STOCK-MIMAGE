@@ -3,7 +3,7 @@
 import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban } from 'lucide-react'
+import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
 import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../costs/types'
@@ -62,7 +62,7 @@ export default function ClaimsListView({
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [paidSearch, setPaidSearch] = useState('')
-  const [paidTypeFilter, setPaidTypeFilter] = useState<'all' | 'event' | 'other'>('all')
+  const [paidTypeFilter, setPaidTypeFilter] = useState<'all' | 'event' | 'other' | 'advance'>('all')
   const [paidCategoryFilter, setPaidCategoryFilter] = useState('')
   const [paidMonthFilter, setPaidMonthFilter] = useState('')
 
@@ -84,7 +84,7 @@ export default function ClaimsListView({
       })
     }
     if (paidTypeFilter !== 'all') {
-      list = list.filter(c => paidTypeFilter === 'event' ? c.claim_type === 'event' : c.claim_type !== 'event')
+      list = list.filter(c => c.claim_type === paidTypeFilter)
     }
     if (paidCategoryFilter) {
       list = list.filter(c => c.category === paidCategoryFilter)
@@ -126,8 +126,15 @@ export default function ClaimsListView({
     else startTransition(() => router.refresh())
   }
 
-  // Active = everything except paid (archive) and cancelled
-  const activeClaims = claims.filter(c => c.status !== 'paid' && c.status !== 'cancelled')
+  // Active = everything except paid (archive) and cancelled —
+  // EXCEPT advance claims that are paid but not yet settled (user still
+  // needs to report actual spend), which we keep visible so the claimant
+  // can find them to settle.
+  const isUnsettledAdvance = (c: ExpenseClaim) =>
+    c.claim_type === 'advance' && c.status === 'paid' && c.actual_spent_amount == null
+  const activeClaims = claims.filter(c =>
+    (c.status !== 'paid' && c.status !== 'cancelled') || isUnsettledAdvance(c)
+  )
 
   const filtered = filterStatus === 'all'
     ? activeClaims
@@ -278,9 +285,24 @@ export default function ClaimsListView({
                       >
                         {getClaimStatusLabel(claim.status, locale)}
                       </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                        {claim.claim_type === 'event' ? (locale === 'th' ? 'อีเวนต์' : 'Event') : (locale === 'th' ? 'ค่าอื่นๆ' : 'Other')}
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium inline-flex items-center gap-1 ${
+                        claim.claim_type === 'advance'
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                      }`}>
+                        {claim.claim_type === 'advance' && <Wallet className="h-2.5 w-2.5" />}
+                        {claim.claim_type === 'event'
+                          ? (locale === 'th' ? 'อีเวนต์' : 'Event')
+                          : claim.claim_type === 'advance'
+                            ? (locale === 'th' ? 'ทดลองจ่าย' : 'Advance')
+                            : (locale === 'th' ? 'ค่าอื่นๆ' : 'Other')}
                       </span>
+                      {isUnsettledAdvance(claim) && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500 text-white inline-flex items-center gap-1 animate-pulse">
+                          <AlertCircle className="h-2.5 w-2.5" />
+                          {locale === 'th' ? 'รออัพเดทค่าใช้จ่าย' : 'Settle required'}
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate mt-1">
                       {claim.title}
@@ -381,7 +403,7 @@ export default function ClaimsListView({
           <div className="flex flex-wrap items-center gap-2">
             {/* Type */}
             <div className="flex gap-1">
-              {(['all', 'event', 'other'] as const).map(t => (
+              {(['all', 'event', 'other', 'advance'] as const).map(t => (
                 <button
                   key={t}
                   onClick={() => setPaidTypeFilter(t)}
@@ -391,7 +413,10 @@ export default function ClaimsListView({
                       : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
                   }`}
                 >
-                  {t === 'all' ? (isEn ? 'All Types' : 'ทุกประเภท') : t === 'event' ? (isEn ? 'Event' : 'อีเวนต์') : (isEn ? 'Other' : 'ค่าอื่นๆ')}
+                  {t === 'all'     ? (isEn ? 'All Types' : 'ทุกประเภท')
+                   : t === 'event'  ? (isEn ? 'Event' : 'อีเวนต์')
+                   : t === 'advance'? (isEn ? 'Advance' : 'ทดลองจ่าย')
+                   :                  (isEn ? 'Other' : 'ค่าอื่นๆ')}
                 </button>
               ))}
             </div>

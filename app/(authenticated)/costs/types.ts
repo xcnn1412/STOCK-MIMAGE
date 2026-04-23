@@ -106,8 +106,9 @@ export function canTransitionTo(
 
 /** ประเภทใบเบิก */
 export const CLAIM_TYPES = [
-  { value: 'event', label: 'Event', labelTh: 'เบิกงานอีเวนต์' },
-  { value: 'other', label: 'Other', labelTh: 'เบิกค่าอื่นๆ' },
+  { value: 'event',   label: 'Event',           labelTh: 'เบิกงานอีเวนต์' },
+  { value: 'other',   label: 'Other',           labelTh: 'เบิกค่าอื่นๆ' },
+  { value: 'advance', label: 'Advance Payment', labelTh: 'เบิกทดลองจ่าย' },
 ] as const
 
 export type ClaimType = typeof CLAIM_TYPES[number]['value']
@@ -131,6 +132,14 @@ export interface ExpenseClaim {
   withholding_tax_rate: number
   receipt_urls: string[]
   tax_invoice_urls: string[] | null
+  // Advance (ทดลองจ่าย) settlement fields — only used when claim_type = 'advance'
+  actual_spent_amount: number | null
+  actual_spent_items: { description: string; amount: number }[] | null
+  refund_amount: number | null
+  actual_receipt_urls: string[] | null
+  refund_slip_urls: string[] | null
+  advance_settled_at: string | null
+  advance_settled_by: string | null
   status: ClaimStatus
   submitted_by: string | null
   approved_by: string | null
