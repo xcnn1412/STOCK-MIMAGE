@@ -1368,14 +1368,28 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
     updatePayload.refund_slip_urls = [...existingRefund, ...newRefundSlipUrls]
   }
 
-  const { error } = await supabase
+  let { error } = await supabase
     .from('expense_claims')
     .update(updatePayload)
     .eq('id', id)
 
+  // Fallback: if the itemized column hasn't been added to the DB yet,
+  // retry without it so the totals (actual_spent_amount / refund_amount)
+  // still persist. The migration `20260423_add_advance_spent_items.sql`
+  // must be applied to restore the itemized breakdown.
+  if (error && /actual_spent_items/i.test(error.message)) {
+    console.warn('actual_spent_items column missing — retrying without it. Run migration 20260423_add_advance_spent_items.sql.')
+    const { actual_spent_items: _dropped, ...fallbackPayload } = updatePayload
+    const retry = await supabase
+      .from('expense_claims')
+      .update(fallbackPayload)
+      .eq('id', id)
+    error = retry.error
+  }
+
   if (error) {
     console.error('Settle advance error:', error)
-    return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+    return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
   }
 
   await supabase.from('expense_claim_logs').insert({
