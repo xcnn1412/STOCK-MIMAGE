@@ -18,6 +18,7 @@ export type NotificationType =
   | 'expense_rejected'
   | 'expense_waiting_tax_invoice'
   | 'expense_tax_invoice_uploaded'
+  | 'expense_refund_confirmed'
   | 'kpi_evaluated'
   | 'kpi_self_evaluated'
   | 'kpi_evaluation_reply'

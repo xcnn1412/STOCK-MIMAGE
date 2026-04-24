@@ -8,7 +8,7 @@ import {
   Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert,
   Wallet, RefreshCw, Plus
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -109,10 +109,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const isPendingMonthEnd = claim.status === 'pending_month_end'
   const isWaitingTaxInvoice = claim.status === 'waiting_tax_invoice'
   const isCancelled = claim.status === 'cancelled'
-  const isTerminal = ['paid', 'rejected', 'cancelled'].includes(claim.status)
+  const isRefundConfirmed = claim.status === 'refund_confirmed'
+  const isTerminal = ['paid', 'rejected', 'cancelled', 'refund_confirmed'].includes(claim.status)
   const isAdvance = claim.claim_type === 'advance'
   // Settlement allowed after the claim has been approved (user has or will have the money)
-  const canSettleAdvance = isAdvance && (isOwner || isAdmin) && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)
+  const canSettleAdvance = isAdvance && (isOwner || isAdmin) && !isRefundConfirmed && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)
+  // Admin may confirm the refund once the user has uploaded a transfer slip
+  const canConfirmRefund = isAdmin && isAdvance && !isRefundConfirmed
+    && (Number(claim.refund_amount) || 0) > 0
+    && (claim.refund_slip_urls?.length ?? 0) > 0
+    && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice', 'awaiting_payment'].includes(claim.status)
   const advanceAmount = claim.amount || 0
   const actualSpentNum = spentItemsTotal
   const computedRefund = Math.max(0, advanceAmount - actualSpentNum)
@@ -255,6 +261,18 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     }
   }
 
+  const handleConfirmRefund = async () => {
+    const msg = isEn
+      ? 'Confirm that the refund has been received from the staff member? This will finalise the claim (no more edits).'
+      : 'ยืนยันว่าได้รับเงินคืนจากพนักงานแล้ว? หลังยืนยันจะไม่สามารถแก้ไขรายการได้อีก'
+    if (!window.confirm(msg)) return
+    setLoading(true)
+    setError(null)
+    const result = await confirmRefundReceived(claim.id)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
+  }
+
   const handleAdminOverride = async () => {
     if (!overrideStatus) return
     if (!overrideReason.trim()) { setError(isEn ? 'Please enter a reason for the override.' : 'กรุณาระบุเหตุผลในการเปลี่ยนสถานะ'); return }
@@ -367,6 +385,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             {(claim.status === 'pending' || claim.status === 'awaiting_payment' || claim.status === 'pending_month_end') && <Clock className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'waiting_tax_invoice' && <Receipt className="h-5 w-5" style={{ color: statusColor }} />}
             {(claim.status === 'approved' || claim.status === 'paid') && <CheckCircle2 className="h-5 w-5" style={{ color: statusColor }} />}
+            {claim.status === 'refund_confirmed' && <RefreshCw className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'rejected' && <XCircle className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'cancelled' && <Ban className="h-5 w-5" style={{ color: statusColor }} />}
             <div>
@@ -920,6 +939,49 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     <p className="text-[10px] text-zinc-400 mt-2">
                       {isEn ? 'Last settled at' : 'อัพเดทล่าสุด'}: {new Date(claim.advance_settled_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
                     </p>
+                  )}
+
+                  {/* Refund confirmation — confirmed state */}
+                  {isRefundConfirmed && (
+                    <div className="mt-3 flex items-start gap-2 p-3 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-200 dark:border-cyan-800 rounded-lg">
+                      <CheckCircle2 className="h-4 w-4 text-cyan-600 dark:text-cyan-400 shrink-0 mt-0.5" />
+                      <div className="text-xs">
+                        <p className="font-semibold text-cyan-700 dark:text-cyan-300">
+                          {isEn ? 'Refund received and confirmed' : 'คืนเงินบริษัทเรียบร้อยแล้ว'}
+                        </p>
+                        {claim.refund_confirmed_at && (
+                          <p className="text-[10px] text-cyan-600/80 dark:text-cyan-400/80 mt-0.5">
+                            {isEn ? 'Confirmed at' : 'ยืนยันเมื่อ'}: {new Date(claim.refund_confirmed_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Admin action — confirm receipt of refund */}
+                  {canConfirmRefund && (
+                    <div className="mt-3 flex items-center justify-between gap-2 p-3 bg-emerald-50/60 dark:bg-emerald-950/20 border border-dashed border-emerald-300 dark:border-emerald-800 rounded-lg">
+                      <div className="text-xs">
+                        <p className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          {isEn
+                            ? `Awaiting your confirmation — refund ฿${fmtDec(Number(claim.refund_amount) || 0)}`
+                            : `รอ admin ยืนยัน — เงินคืน ฿${fmtDec(Number(claim.refund_amount) || 0)}`}
+                        </p>
+                        <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">
+                          {isEn ? 'Check the refund slip, then mark as received.' : 'ตรวจสลิปการโอน แล้วกดยืนยันได้รับเงิน'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleConfirmRefund}
+                        disabled={loading}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {loading ? '...' : (isEn ? 'Confirm Received' : 'ยืนยันรับเงิน')}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

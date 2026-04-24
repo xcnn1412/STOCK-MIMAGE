@@ -322,6 +322,7 @@ export default function FinanceDownloadView({ claims, categories, profileMap = {
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
           <option value="all">{isEn ? 'All Status' : 'ทุกสถานะ'}</option>
           <option value="paid">{isEn ? 'Paid' : 'ชำระแล้ว'}</option>
+          <option value="refund_confirmed">{isEn ? 'Refund Confirmed' : 'คืนเงินบริษัทแล้ว'}</option>
           <option value="awaiting_payment">{isEn ? 'Awaiting Payment' : 'รอชำระเงิน'}</option>
           <option value="pending">{isEn ? 'Pending' : 'รออนุมัติ'}</option>
         </select>

@@ -35,7 +35,7 @@ async function generateClaimNumber(supabase: any) {
 // ============================================================================
 
 export async function getClaims(filters?: {
-  status?: string
+  status?: string | string[]
   claim_type?: string
   submitted_by?: string
 }) {
@@ -58,7 +58,11 @@ export async function getClaims(filters?: {
   // 🔒 Non-admins can only see their own claims
   if (role !== 'admin') query = query.eq('submitted_by', userId)
 
-  if (filters?.status) query = query.eq('status', filters.status)
+  if (filters?.status) {
+    query = Array.isArray(filters.status)
+      ? query.in('status', filters.status)
+      : query.eq('status', filters.status)
+  }
   if (filters?.claim_type) query = query.eq('claim_type', filters.claim_type)
   if (filters?.submitted_by) query = query.eq('submitted_by', filters.submitted_by)
 
@@ -1293,6 +1297,9 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
   const isOwner = claim.submitted_by === userId
   if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์อัพเดทใบเบิกนี้' }
 
+  if (claim.status === 'refund_confirmed') {
+    return { error: 'ยืนยันการคืนเงินไปแล้ว ไม่สามารถแก้ไขได้ (ติดต่อ admin เพื่อ override สถานะ)' }
+  }
   if (!['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)) {
     return { error: 'อัพเดทค่าใช้จ่ายจริงได้หลังจากใบเบิกถูกอนุมัติแล้วเท่านั้น' }
   }
@@ -1440,4 +1447,91 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
   return { success: true, refundAmount }
+}
+
+// ============================================================================
+// Confirm Refund Received (admin-only)
+// Marks an advance claim as fully settled once admin has verified the refund
+// transfer slip and received the money back. Transitions status to
+// 'refund_confirmed' (terminal).
+// ============================================================================
+export async function confirmRefundReceived(id: string) {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+  if (role !== 'admin') return { error: 'เฉพาะผู้ดูแลระบบเท่านั้นที่ยืนยันได้' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.claim_type !== 'advance') {
+    return { error: 'ใช้ได้เฉพาะใบเบิกประเภท "ทดลองจ่าย" เท่านั้น' }
+  }
+  if (claim.status === 'refund_confirmed') {
+    return { error: 'ยืนยันการคืนเงินไปแล้ว' }
+  }
+  if (!['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice', 'awaiting_payment'].includes(claim.status)) {
+    return { error: 'ยืนยันการคืนเงินได้หลังจากใบเบิกถูกอนุมัติแล้วเท่านั้น' }
+  }
+  const refundAmount = Number(claim.refund_amount) || 0
+  if (refundAmount <= 0) {
+    return { error: 'ใบเบิกนี้ไม่มีเงินคืนที่ต้องยืนยัน' }
+  }
+  const refundSlips: string[] = claim.refund_slip_urls || []
+  if (refundSlips.length === 0) {
+    return { error: 'ต้องมีสลิปโอนเงินคืนก่อนจึงจะยืนยันได้' }
+  }
+
+  const nowIso = new Date().toISOString()
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({
+      status: 'refund_confirmed',
+      refund_confirmed_at: nowIso,
+      refund_confirmed_by: userId,
+    })
+    .eq('id', id)
+
+  if (error) {
+    console.error('Confirm refund error:', error)
+    return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
+  }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'confirm_refund',
+    changed_by: userId,
+    changes: {
+      status: { from: claim.status, to: 'refund_confirmed' },
+      refund_amount: { from: null, to: refundAmount },
+    },
+    note: `ยืนยันรับเงินคืนบริษัท ฿${refundAmount.toLocaleString()}`,
+  })
+
+  await logActivity('CONFIRM_REFUND_RECEIVED', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+    refundAmount,
+  })
+
+  if (claim.submitted_by && claim.submitted_by !== userId) {
+    await createNotifications({
+      userIds: [claim.submitted_by],
+      type: 'expense_refund_confirmed',
+      title: `ใบเบิก ${claim.claim_number} — ยืนยันรับเงินคืนแล้ว`,
+      body: `admin ยืนยันรับเงินคืน ฿${refundAmount.toLocaleString()} เรียบร้อย`,
+      referenceType: 'expense_claim',
+      referenceId: id,
+      actorId: userId,
+    })
+  }
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  return { success: true }
 }
