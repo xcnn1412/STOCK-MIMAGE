@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import {
     LogOut, Menu, X,
     PanelLeftClose, PanelLeftOpen,
-    ChevronDown, ChevronRight, User,
+    ChevronDown, ChevronRight, User, BookOpen,
 } from "lucide-react"
 import { logout } from '@/app/login/actions'
 import { useLanguage } from '@/contexts/language-context'
@@ -192,9 +192,11 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
             {/* Logo */}
             <div className={`flex items-center ${collapsed && !isMobile ? 'justify-center px-2' : 'px-4'} h-14 shrink-0 border-b border-zinc-200/80 dark:border-zinc-800/80`}>
                 <Link href="/dashboard" className="flex items-center gap-2.5 group" onClick={isMobile ? closeMobile : undefined}>
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 text-white text-xs font-bold shadow-sm transition-transform duration-200 group-hover:scale-105 dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900 shrink-0">
-                        EA
-                    </div>
+                    <img
+                        src="/icon/officehub.svg"
+                        alt="Office Hub"
+                        className="h-8 w-8 rounded-lg shadow-sm transition-transform duration-200 group-hover:scale-105 shrink-0"
+                    />
                     {(!collapsed || isMobile) && (
                         <span className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
                             Office Hub
@@ -250,6 +252,25 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                 >
                     <User className="h-4 w-4 shrink-0" />
                     {(!collapsed || isMobile) && <span>โปรไฟล์ของฉัน</span>}
+                </Link>
+
+                {/* How-to guide */}
+                <Link
+                    href="/howto"
+                    onClick={isMobile ? closeMobile : undefined}
+                    className={`
+                      w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
+                      transition-colors duration-200
+                      ${collapsed && !isMobile ? 'justify-center' : ''}
+                      ${isActive('/howto')
+                            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-semibold'
+                            : 'text-zinc-500 hover:text-emerald-600 hover:bg-emerald-50/50 dark:text-zinc-400 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20'
+                        }
+                    `}
+                    title={t.nav.howto || 'คู่มือใช้งาน'}
+                >
+                    <BookOpen className="h-4 w-4 shrink-0" />
+                    {(!collapsed || isMobile) && <span>{t.nav.howto || 'คู่มือใช้งาน'}</span>}
                 </Link>
 
                 {/* Collapse Toggle (desktop only) */}
@@ -318,9 +339,11 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
             {/* ====== MOBILE TOP BAR (<md) ====== */}
             <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between h-14 px-4 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-lg border-b border-zinc-200/80 dark:border-zinc-800/80">
                 <Link href="/dashboard" className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 text-white text-xs font-bold dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900 shrink-0">
-                        EA
-                    </div>
+                    <img
+                        src="/icon/officehub.svg"
+                        alt="Office Hub"
+                        className="h-8 w-8 rounded-lg shrink-0"
+                    />
                     <span className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
                         Office Hub
                     </span>

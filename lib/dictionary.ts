@@ -42,6 +42,8 @@ export const dictionary = {
 
       overview: 'Overview',
       overviewGoals: 'Goals',
+
+      howto: 'How-to Guide',
     },
     navGroups: {
       crm: 'CRM',
@@ -304,6 +306,8 @@ export const dictionary = {
 
       overview: 'ภาพรวม',
       overviewGoals: 'เป้าหมาย',
+
+      howto: 'คู่มือใช้งาน',
     },
     navGroups: {
       crm: 'CRM',
