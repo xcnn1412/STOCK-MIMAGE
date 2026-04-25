@@ -71,6 +71,7 @@ export type ActionType =
     | 'DELETE_EXPENSE_CLAIM'
     | 'MARK_CLAIM_PAID'
     | 'SETTLE_ADVANCE_CLAIM'
+    | 'CONFIRM_REFUND_RECEIVED'
     // Security Module
     | 'ACCOUNT_LOCKED'
     | 'ACCOUNT_UNLOCKED'

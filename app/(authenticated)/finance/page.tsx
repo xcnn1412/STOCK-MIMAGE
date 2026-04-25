@@ -20,7 +20,7 @@ export default async function FinancePage() {
   const [{ data, error }, categories, paidResult] = await Promise.all([
     getClaims(),
     getFinanceCategories(),
-    isAdmin ? getClaims({ status: 'paid' }) : Promise.resolve({ data: [] }),
+    isAdmin ? getClaims({ status: ['paid', 'refund_confirmed'] }) : Promise.resolve({ data: [] }),
   ])
 
   return (

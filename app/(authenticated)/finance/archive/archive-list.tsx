@@ -2,9 +2,9 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { Archive, Search, ExternalLink, CheckCircle2, Filter, CalendarDays, X, Tag } from 'lucide-react'
+import { Archive, Search, ExternalLink, CheckCircle2, Filter, CalendarDays, X, Tag, RefreshCw } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
-import { getCategoryLabel } from '../../costs/types'
+import { getCategoryLabel, getClaimStatusLabel, getClaimStatusColor } from '../../costs/types'
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 
@@ -470,10 +470,13 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
                         : '—'
                       }
                     </div>
-                    <div className="w-20">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400">
-                        <CheckCircle2 className="h-3 w-3" />
-                        {isEn ? 'Paid' : 'ชำระแล้ว'}
+                    <div className="w-28">
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full"
+                        style={{ backgroundColor: `${getClaimStatusColor(c.status)}15`, color: getClaimStatusColor(c.status) }}
+                      >
+                        {c.status === 'refund_confirmed' ? <RefreshCw className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
+                        {getClaimStatusLabel(c.status, locale)}
                       </span>
                     </div>
                     <div className="w-6 text-right">
@@ -502,9 +505,12 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-teal-600 dark:text-teal-400">฿{fmtDec(tax.netPayable)}</p>
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400 mt-0.5">
-                        <CheckCircle2 className="h-2.5 w-2.5" />
-                        {isEn ? 'Paid' : 'ชำระแล้ว'}
+                      <span
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-full mt-0.5"
+                        style={{ backgroundColor: `${getClaimStatusColor(c.status)}15`, color: getClaimStatusColor(c.status) }}
+                      >
+                        {c.status === 'refund_confirmed' ? <RefreshCw className="h-2.5 w-2.5" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
+                        {getClaimStatusLabel(c.status, locale)}
                       </span>
                     </div>
                   </div>

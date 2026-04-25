@@ -12,7 +12,7 @@ export const metadata = {
 
 export default async function ArchivePage() {
   const [{ data }, categories] = await Promise.all([
-    getClaims({ status: 'paid' }),
+    getClaims({ status: ['paid', 'refund_confirmed'] }),
     getFinanceCategories(),
   ])
 

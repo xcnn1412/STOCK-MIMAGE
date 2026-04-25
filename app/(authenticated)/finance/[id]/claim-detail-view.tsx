@@ -8,7 +8,7 @@ import {
   Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert,
   Wallet, RefreshCw, Plus
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -73,6 +73,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     ? claim.actual_spent_items.map(i => ({ description: i.description || '', amount: String(i.amount ?? '') }))
     : [{ description: '', amount: '' }]
   const [spentItems, setSpentItems] = useState<SpentItem[]>(seededItems)
+  const hasSavedSpentItems = Array.isArray(claim.actual_spent_items) && claim.actual_spent_items.length > 0
+  const [itemsEditMode, setItemsEditMode] = useState<boolean>(!hasSavedSpentItems)
   const [actualReceiptFiles, setActualReceiptFiles] = useState<File[]>([])
   const [refundSlipFiles, setRefundSlipFiles] = useState<File[]>([])
 
@@ -107,10 +109,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const isPendingMonthEnd = claim.status === 'pending_month_end'
   const isWaitingTaxInvoice = claim.status === 'waiting_tax_invoice'
   const isCancelled = claim.status === 'cancelled'
-  const isTerminal = ['paid', 'rejected', 'cancelled'].includes(claim.status)
+  const isRefundConfirmed = claim.status === 'refund_confirmed'
+  const isTerminal = ['paid', 'rejected', 'cancelled', 'refund_confirmed'].includes(claim.status)
   const isAdvance = claim.claim_type === 'advance'
   // Settlement allowed after the claim has been approved (user has or will have the money)
-  const canSettleAdvance = isAdvance && (isOwner || isAdmin) && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)
+  const canSettleAdvance = isAdvance && (isOwner || isAdmin) && !isRefundConfirmed && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)
+  // Admin may confirm the refund once the user has uploaded a transfer slip
+  const canConfirmRefund = isAdmin && isAdvance && !isRefundConfirmed
+    && (Number(claim.refund_amount) || 0) > 0
+    && (claim.refund_slip_urls?.length ?? 0) > 0
+    && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice', 'awaiting_payment'].includes(claim.status)
   const advanceAmount = claim.amount || 0
   const actualSpentNum = spentItemsTotal
   const computedRefund = Math.max(0, advanceAmount - actualSpentNum)
@@ -247,9 +255,22 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     else {
       setActualReceiptFiles([])
       setRefundSlipFiles([])
+      setItemsEditMode(false)
       router.refresh()
       setLoading(false)
     }
+  }
+
+  const handleConfirmRefund = async () => {
+    const msg = isEn
+      ? 'Confirm that the refund has been received from the staff member? This will finalise the claim (no more edits).'
+      : 'ยืนยันว่าได้รับเงินคืนจากพนักงานแล้ว? หลังยืนยันจะไม่สามารถแก้ไขรายการได้อีก'
+    if (!window.confirm(msg)) return
+    setLoading(true)
+    setError(null)
+    const result = await confirmRefundReceived(claim.id)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
   }
 
   const handleAdminOverride = async () => {
@@ -364,6 +385,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             {(claim.status === 'pending' || claim.status === 'awaiting_payment' || claim.status === 'pending_month_end') && <Clock className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'waiting_tax_invoice' && <Receipt className="h-5 w-5" style={{ color: statusColor }} />}
             {(claim.status === 'approved' || claim.status === 'paid') && <CheckCircle2 className="h-5 w-5" style={{ color: statusColor }} />}
+            {claim.status === 'refund_confirmed' && <RefreshCw className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'rejected' && <XCircle className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'cancelled' && <Ban className="h-5 w-5" style={{ color: statusColor }} />}
             <div>
@@ -918,6 +940,49 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       {isEn ? 'Last settled at' : 'อัพเดทล่าสุด'}: {new Date(claim.advance_settled_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
                     </p>
                   )}
+
+                  {/* Refund confirmation — confirmed state */}
+                  {isRefundConfirmed && (
+                    <div className="mt-3 flex items-start gap-2 p-3 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-200 dark:border-cyan-800 rounded-lg">
+                      <CheckCircle2 className="h-4 w-4 text-cyan-600 dark:text-cyan-400 shrink-0 mt-0.5" />
+                      <div className="text-xs">
+                        <p className="font-semibold text-cyan-700 dark:text-cyan-300">
+                          {isEn ? 'Refund received and confirmed' : 'คืนเงินบริษัทเรียบร้อยแล้ว'}
+                        </p>
+                        {claim.refund_confirmed_at && (
+                          <p className="text-[10px] text-cyan-600/80 dark:text-cyan-400/80 mt-0.5">
+                            {isEn ? 'Confirmed at' : 'ยืนยันเมื่อ'}: {new Date(claim.refund_confirmed_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Admin action — confirm receipt of refund */}
+                  {canConfirmRefund && (
+                    <div className="mt-3 flex items-center justify-between gap-2 p-3 bg-emerald-50/60 dark:bg-emerald-950/20 border border-dashed border-emerald-300 dark:border-emerald-800 rounded-lg">
+                      <div className="text-xs">
+                        <p className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          {isEn
+                            ? `Awaiting your confirmation — refund ฿${fmtDec(Number(claim.refund_amount) || 0)}`
+                            : `รอ admin ยืนยัน — เงินคืน ฿${fmtDec(Number(claim.refund_amount) || 0)}`}
+                        </p>
+                        <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">
+                          {isEn ? 'Check the refund slip, then mark as received.' : 'ตรวจสลิปการโอน แล้วกดยืนยันได้รับเงิน'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleConfirmRefund}
+                        disabled={loading}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {loading ? '...' : (isEn ? 'Confirm Received' : 'ยืนยันรับเงิน')}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1267,10 +1332,32 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
                       <Receipt className="h-3.5 w-3.5 text-emerald-500" />
                       {isEn ? 'Expense Line Items' : 'รายการค่าใช้จ่าย'}
+                      {!itemsEditMode && hasSavedSpentItems && (
+                        <span className="ml-1 px-1.5 py-0.5 text-[9px] font-medium text-zinc-500 bg-zinc-100 dark:bg-zinc-800 rounded">
+                          {isEn ? 'Locked' : 'ล็อกไว้'}
+                        </span>
+                      )}
                     </label>
-                    <span className="text-[11px] text-zinc-400">
-                      {spentItems.filter(i => Number(i.amount) > 0).length}/{spentItems.length}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-zinc-400">
+                        {spentItems.filter(i => Number(i.amount) > 0).length}/{spentItems.length}
+                      </span>
+                      {hasSavedSpentItems && (
+                        <button
+                          type="button"
+                          onClick={() => setItemsEditMode(v => !v)}
+                          className={`flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors ${
+                            itemsEditMode
+                              ? 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                              : 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800'
+                          }`}
+                          title={itemsEditMode ? (isEn ? 'Cancel edit' : 'ยกเลิกการแก้ไข') : (isEn ? 'Edit items' : 'แก้ไขรายการ')}
+                        >
+                          {itemsEditMode ? <X className="h-3 w-3" /> : <Edit3 className="h-3 w-3" />}
+                          {itemsEditMode ? (isEn ? 'Cancel' : 'ยกเลิก') : (isEn ? 'Edit' : 'แก้ไข')}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Column headers */}
@@ -1304,7 +1391,12 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                             value={item.description}
                             onChange={e => updateSpentItem(idx, { description: e.target.value })}
                             placeholder={isEn ? 'Description (e.g. Fuel, Tolls)' : 'ใส่รายการ เช่น ค่าน้ำมัน'}
-                            className="flex-1 min-w-0 px-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                            readOnly={!itemsEditMode}
+                            className={`flex-1 min-w-0 px-2.5 py-2 border rounded-md text-sm outline-none transition-colors ${
+                              itemsEditMode
+                                ? 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                                : 'border-transparent bg-zinc-50 dark:bg-zinc-800/40 text-zinc-700 dark:text-zinc-300 cursor-default'
+                            }`}
                           />
                           <div className="relative w-36 shrink-0">
                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 pointer-events-none">฿</span>
@@ -1316,58 +1408,69 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                               value={item.amount}
                               onChange={e => updateSpentItem(idx, { amount: e.target.value })}
                               placeholder="0.00"
-                              className="w-full pl-6 pr-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm font-mono text-right outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                              readOnly={!itemsEditMode}
+                              className={`w-full pl-6 pr-2.5 py-2 border rounded-md text-sm font-mono text-right outline-none transition-colors ${
+                                itemsEditMode
+                                  ? 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                                  : 'border-transparent bg-zinc-50 dark:bg-zinc-800/40 text-zinc-700 dark:text-zinc-300 cursor-default'
+                              }`}
                             />
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => removeSpentItem(idx)}
-                            disabled={spentItems.length <= 1}
-                            className="p-1.5 text-zinc-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded disabled:opacity-20 disabled:hover:text-zinc-300 disabled:hover:bg-transparent shrink-0 transition-colors"
-                            title={isEn ? 'Remove' : 'ลบ'}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
+                          {itemsEditMode ? (
+                            <button
+                              type="button"
+                              onClick={() => removeSpentItem(idx)}
+                              disabled={spentItems.length <= 1}
+                              className="p-1.5 text-zinc-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded disabled:opacity-20 disabled:hover:text-zinc-300 disabled:hover:bg-transparent shrink-0 transition-colors"
+                              title={isEn ? 'Remove' : 'ลบ'}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          ) : (
+                            <span className="w-[26px] shrink-0" aria-hidden />
+                          )}
                         </div>
                       )
                     })}
                   </div>
 
-                  {/* Add Item + Quick-add presets */}
-                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={addSpentItem}
-                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-600 border border-dashed border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-md transition-colors"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {isEn ? 'Add Item' : 'เพิ่มรายการ'}
-                    </button>
-                    <span className="text-[10px] text-zinc-400 mx-1">
-                      {isEn ? 'Quick add:' : 'เพิ่มด่วน:'}
-                    </span>
-                    {(isEn
-                      ? ['Fuel', 'Tolls', 'Lodging', 'Meals', 'Transport', 'Supplies']
-                      : ['ค่าน้ำมัน', 'ค่าทางด่วน', 'ที่พัก', 'อาหาร', 'ค่าเดินทาง', 'อุปกรณ์']
-                    ).map(preset => (
+                  {/* Add Item + Quick-add presets (only in edit mode) */}
+                  {itemsEditMode && (
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                       <button
-                        key={preset}
                         type="button"
-                        onClick={() => {
-                          // Fill the first empty row, otherwise append
-                          const emptyIdx = spentItems.findIndex(i => !i.description.trim() && !i.amount)
-                          if (emptyIdx >= 0) {
-                            updateSpentItem(emptyIdx, { description: preset })
-                          } else {
-                            setSpentItems(prev => [...prev, { description: preset, amount: '' }])
-                          }
-                        }}
-                        className="px-2 py-1 text-[11px] bg-zinc-100 hover:bg-emerald-100 dark:bg-zinc-800 dark:hover:bg-emerald-950/30 text-zinc-600 hover:text-emerald-700 dark:hover:text-emerald-300 rounded transition-colors"
+                        onClick={addSpentItem}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-600 border border-dashed border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-md transition-colors"
                       >
-                        {preset}
+                        <Plus className="h-3.5 w-3.5" />
+                        {isEn ? 'Add Item' : 'เพิ่มรายการ'}
                       </button>
-                    ))}
-                  </div>
+                      <span className="text-[10px] text-zinc-400 mx-1">
+                        {isEn ? 'Quick add:' : 'เพิ่มด่วน:'}
+                      </span>
+                      {(isEn
+                        ? ['Fuel', 'Tolls', 'Lodging', 'Meals', 'Transport', 'Supplies']
+                        : ['ค่าน้ำมัน', 'ค่าทางด่วน', 'ที่พัก', 'อาหาร', 'ค่าเดินทาง', 'อุปกรณ์']
+                      ).map(preset => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            // Fill the first empty row, otherwise append
+                            const emptyIdx = spentItems.findIndex(i => !i.description.trim() && !i.amount)
+                            if (emptyIdx >= 0) {
+                              updateSpentItem(emptyIdx, { description: preset })
+                            } else {
+                              setSpentItems(prev => [...prev, { description: preset, amount: '' }])
+                            }
+                          }}
+                          className="px-2 py-1 text-[11px] bg-zinc-100 hover:bg-emerald-100 dark:bg-zinc-800 dark:hover:bg-emerald-950/30 text-zinc-600 hover:text-emerald-700 dark:hover:text-emerald-300 rounded transition-colors"
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Total row */}
                   <div className="mt-2.5 pt-2.5 border-t border-zinc-200 dark:border-zinc-700 flex justify-between items-center">

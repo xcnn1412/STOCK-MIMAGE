@@ -3,7 +3,7 @@
 import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle } from 'lucide-react'
+import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
 import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../costs/types'
@@ -36,6 +36,7 @@ const statusIcons: Record<string, typeof Clock> = {
   awaiting_payment:  Clock,
   pending_month_end: Clock,
   paid:              CheckCircle2,
+  refund_confirmed:  RefreshCw,
   rejected:          XCircle,
   cancelled:         Ban,
 }
@@ -133,7 +134,7 @@ export default function ClaimsListView({
   const isUnsettledAdvance = (c: ExpenseClaim) =>
     c.claim_type === 'advance' && c.status === 'paid' && c.actual_spent_amount == null
   const activeClaims = claims.filter(c =>
-    (c.status !== 'paid' && c.status !== 'cancelled') || isUnsettledAdvance(c)
+    (c.status !== 'paid' && c.status !== 'cancelled' && c.status !== 'refund_confirmed') || isUnsettledAdvance(c)
   )
 
   const filtered = filterStatus === 'all'
@@ -218,7 +219,7 @@ export default function ClaimsListView({
             {locale === 'th' ? 'ทั้งหมด' : 'All'}
           </button>
           {CLAIM_STATUSES
-            .filter(s => !['paid', 'approved', 'awaiting_payment', 'cancelled'].includes(s.value))
+            .filter(s => !['paid', 'approved', 'awaiting_payment', 'cancelled', 'refund_confirmed'].includes(s.value))
             .map(s => (
               <button
                 key={s.value}

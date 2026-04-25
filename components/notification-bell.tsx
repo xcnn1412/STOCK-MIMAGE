@@ -21,6 +21,7 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
   expense_rejected: { icon: '❌', color: 'text-red-500' },
   expense_waiting_tax_invoice: { icon: '🧾', color: 'text-sky-500' },
   expense_tax_invoice_uploaded: { icon: '📤', color: 'text-teal-500' },
+  expense_refund_confirmed: { icon: '💸', color: 'text-cyan-500' },
   kpi_evaluated: { icon: '📊', color: 'text-violet-500' },
   kpi_self_evaluated: { icon: '📝', color: 'text-indigo-500' },
   kpi_evaluation_reply: { icon: '💬', color: 'text-violet-500' },

@@ -209,9 +209,11 @@ export default function Navbar({ role, allowedModules = ['stock'] }: NavbarProps
             <div className="flex h-14 items-center justify-between px-4 md:px-6">
                 {/* Logo */}
                 <Link href="/dashboard" className="flex items-center gap-2.5 group">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 text-white text-xs font-bold shadow-sm transition-transform duration-200 group-hover:scale-105 dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900">
-                        EA
-                    </div>
+                    <img
+                        src="/icon/officehub.svg"
+                        alt="Office Hub"
+                        className="h-8 w-8 rounded-lg shadow-sm transition-transform duration-200 group-hover:scale-105"
+                    />
                     <span className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
                         Office Hub
                     </span>
@@ -264,9 +266,11 @@ export default function Navbar({ role, allowedModules = ['stock'] }: NavbarProps
                         <SheetContent side="left" className="w-[85%] sm:w-[320px] p-0">
                             <SheetHeader className="p-5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 text-left">
                                 <SheetTitle className="flex items-center gap-2.5">
-                                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 text-white text-xs font-bold dark:from-zinc-100 dark:to-zinc-300 dark:text-zinc-900">
-                                        EA
-                                    </div>
+                                    <img
+                                        src="/icon/officehub.svg"
+                                        alt="Office Hub"
+                                        className="h-8 w-8 rounded-lg"
+                                    />
                                     <span className="text-base font-bold tracking-tight">Office Hub</span>
                                 </SheetTitle>
                             </SheetHeader>

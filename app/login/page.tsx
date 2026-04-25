@@ -76,9 +76,11 @@ export default function LoginPage() {
             <Card className="w-full max-w-md shadow-lg border-zinc-200 dark:border-zinc-800">
                 <CardHeader className="space-y-1 pb-2">
                     <div className="flex items-center justify-center mb-2">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-bold shadow-sm">
-                            EA
-                        </div>
+                        <img
+                            src="/icon/officehub.svg"
+                            alt="Office Hub"
+                            className="h-10 w-10 rounded-lg shadow-sm"
+                        />
                     </div>
                     <CardTitle className="text-2xl font-bold tracking-tight text-center">Event Inventory</CardTitle>
                     <CardDescription className="text-center">

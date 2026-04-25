@@ -42,8 +42,8 @@ export default function OverviewDashboard({ claims, categories }: { claims: Expe
     return claims.filter(c => new Date(c.created_at) >= cutoff)
   }, [claims, range])
 
-  // Only paid claims for analysis
-  const paidClaims = useMemo(() => filtered.filter(c => c.status === 'paid'), [filtered])
+  // Paid + refund_confirmed are both "settled" terminal states for analysis
+  const paidClaims = useMemo(() => filtered.filter(c => c.status === 'paid' || c.status === 'refund_confirmed'), [filtered])
   const allActiveClaims = useMemo(() => filtered.filter(c => c.status !== 'rejected'), [filtered])
 
   // ========== Stats ==========
