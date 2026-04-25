@@ -33,7 +33,7 @@ export async function getOverviewData() {
     // 2) All cost items
     supabase
       .from('job_cost_items')
-      .select('id, job_event_id, category, description, amount, title, unit_price, quantity, vat_mode, include_vat, withholding_tax_rate'),
+      .select('id, job_event_id, category, description, amount, title, unit_price, quantity, vat_mode, include_vat, withholding_tax_rate, cost_date'),
 
     // 3) CRM leads (linked to events via event_id)
     supabase
@@ -43,7 +43,7 @@ export async function getOverviewData() {
     // 4) Expense claims linked to events
     supabase
       .from('expense_claims')
-      .select('id, job_event_id, total_amount, status, claim_type, submitted_by, category'),
+      .select('id, job_event_id, total_amount, status, claim_type, submitted_by, category, paid_at, expense_date, vat_mode, include_vat, withholding_tax_rate'),
 
     // 5) Staff checkins (for event check-in counts)
     supabase

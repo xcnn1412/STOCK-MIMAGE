@@ -13,6 +13,7 @@ import {
   saveAiAnalysis, getAiAnalysisHistory, getAiAnalysisDetail, deleteAiAnalysis,
   type AiHistoryRecord
 } from './ai-actions'
+import AnalyticsPanel from './analytics-panel'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ function marginBg(m: number): string {
 // ─── Component ──────────────────────────────────────────────
 
 export default function OverviewView({ data }: { data: OverviewData }) {
-  const [viewMode, setViewMode] = useState<'dashboard' | 'table' | 'ai'>('dashboard')
+  const [viewMode, setViewMode] = useState<'dashboard' | 'table' | 'ai' | 'analytics'>('dashboard')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -565,7 +566,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl w-fit">
-        {([{key: 'dashboard' as const, icon: LayoutDashboard, label: 'Dashboard'}, {key: 'table' as const, icon: Table2, label: 'ตารางข้อมูล'}, {key: 'ai' as const, icon: Bot, label: 'AI Analysis'}]).map(tab => (
+        {([{key: 'dashboard' as const, icon: LayoutDashboard, label: 'Dashboard'}, {key: 'table' as const, icon: Table2, label: 'ตารางข้อมูล'}, {key: 'analytics' as const, icon: BarChart3, label: 'Analytics'}, {key: 'ai' as const, icon: Bot, label: 'AI Analysis'}]).map(tab => (
           <button key={tab.key} onClick={() => setViewMode(tab.key)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
               viewMode === tab.key ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-sm' : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700'
@@ -944,6 +945,9 @@ export default function OverviewView({ data }: { data: OverviewData }) {
         </div>
       </>
       )}
+
+      {/* ═══════════════════ ANALYTICS ═══════════════════ */}
+      {viewMode === 'analytics' && <AnalyticsPanel data={data} />}
 
       {/* ═══════════════════ AI ANALYSIS ═══════════════════ */}
       {viewMode === 'ai' && (

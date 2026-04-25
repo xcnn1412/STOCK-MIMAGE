@@ -8,3 +8,4 @@ ALTER TABLE expense_claims
 ALTER TABLE expense_claims
   ADD CONSTRAINT expense_claims_status_check
   CHECK (status IN ('pending', 'approved', 'awaiting_payment', 'pending_month_end', 'paid', 'rejected'));
+
