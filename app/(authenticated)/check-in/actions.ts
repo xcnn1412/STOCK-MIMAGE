@@ -75,6 +75,23 @@ export async function checkIn(formData: FormData) {
 
   const supabase = createServiceClient()
 
+  // Guard: only one active session per check_type at a time.
+  // Office / onsite / remote run independently, but you can't have two
+  // un-checked-out office sessions (etc.) overlapping.
+  const { data: existingActive } = await supabase
+    .from('staff_checkins')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('check_type', checkType)
+    .is('checked_out_at', null)
+    .limit(1)
+  if (existingActive && existingActive.length > 0) {
+    const typeLabel = checkType === 'office' ? 'ออฟฟิศ'
+      : checkType === 'onsite' ? 'อีเวนต์'
+      : 'นอกสถานที่'
+    return { error: `มี Check-in ประเภท "${typeLabel}" ที่ยังไม่ checkout — กรุณา checkout ก่อนเริ่มรอบใหม่` }
+  }
+
   const { data: inserted, error } = await supabase
     .from('staff_checkins')
     .insert({

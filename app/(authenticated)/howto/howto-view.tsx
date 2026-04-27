@@ -7,7 +7,7 @@ import {
   XCircle, Ban, Send, ShieldAlert, Upload, Bell, Layout, User, UserCog,
   CircleDollarSign, ListChecks, ArrowRight, ExternalLink, Edit3, Lock,
   GitBranch, ChevronDown, Building2, Hash, Sparkles, FileSpreadsheet, Percent,
-  AlertCircle, X,
+  AlertCircle, X, Camera, MapPin, Home, LogIn, LogOut, History,
 } from 'lucide-react'
 
 export default function HowtoView() {
@@ -15,7 +15,7 @@ export default function HowtoView() {
   const isEn = locale === 'en'
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8 pb-12">
+    <div id="top" className="max-w-5xl mx-auto space-y-8 pb-12">
 
       {/* ── Hero ───────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950/20 dark:via-zinc-900 dark:to-teal-950/20 p-6 md:p-8">
@@ -36,57 +36,15 @@ export default function HowtoView() {
         </div>
       </div>
 
-      {/* ── TOC ────────────────────────────────────────────────────── */}
-      <nav aria-label="Table of contents" className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4">
-        <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-          {isEn ? 'On this page' : 'หัวข้อ'}
-        </p>
-        <ul className="flex flex-wrap gap-2">
-          {[
-            { id: 'finance-whats-new',  th: 'อัปเดตล่าสุด',              en: "What's new" },
-            { id: 'finance-flowcharts', th: 'แผนผังขั้นตอน',              en: 'Flowcharts' },
-            { id: 'finance-types',      th: 'ประเภทใบเบิก',             en: 'Claim types' },
-            { id: 'finance-funding',    th: 'แหล่งเงินที่ใช้เบิก',         en: 'Funding source' },
-            { id: 'finance-normal',     th: 'Flow ปกติ',                en: 'Normal flow' },
-            { id: 'finance-advance',    th: 'Flow เบิกทดลองจ่าย',        en: 'Advance flow' },
-            { id: 'finance-tax-invoice', th: 'ใบกำกับภาษี',              en: 'Tax invoice' },
-            { id: 'finance-checklist',  th: 'ตรวจเอกสารก่อนส่งบัญชี',     en: 'Document checklist' },
-            { id: 'finance-report',     th: 'รายงานตรวจสอบ',             en: 'Audit report' },
-            { id: 'finance-wht',        th: 'สรุปหัก ณ ที่จ่าย',          en: 'WHT 3% summary' },
-            { id: 'finance-status',     th: 'สถานะทั้งหมด',              en: 'All statuses' },
-            { id: 'finance-permissions', th: 'สิทธิ์การใช้งาน',          en: 'Permissions' },
-            { id: 'finance-notifications', th: 'การแจ้งเตือน',           en: 'Notifications' },
-            { id: 'finance-menu',       th: 'เมนูทั้งหมด',                en: 'Menu shortcuts' },
-          ].map(i => (
-            <li key={i.id}>
-              <a
-                href={`#${i.id}`}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 rounded-lg transition-colors"
-              >
-                {isEn ? i.en : i.th}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
+      {/* ── Module library — landing card grid ────────────────────── */}
+      <ModuleLibrary modules={MODULES} isEn={isEn} />
 
-      {/* ── Section: Finance datasheet ─────────────────────────────── */}
+      {/* ════════════════════════════════════════════════════════════════
+          MODULE: FINANCE
+          ════════════════════════════════════════════════════════════════ */}
       <section className="space-y-6">
-        <div className="flex items-center gap-3 pb-2 border-b border-zinc-200 dark:border-zinc-800">
-          <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-teal-100 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400">
-            <Banknote className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
-              {isEn ? 'Expense Claims — Complete Guide' : 'ใบเบิกเงิน — คู่มือครบทั้งระบบ'}
-            </h2>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              {isEn
-                ? 'What users and admins need to do for each claim type.'
-                : 'สรุปขั้นตอนที่ user และ admin ต้องทำในการเบิกแต่ละประเภท'}
-            </p>
-          </div>
-        </div>
+        <ModuleHero mod={MODULES[0]} isEn={isEn} />
+        <ModuleSubToc mod={MODULES[0]} isEn={isEn} />
 
         {/* ── What's new (Apr 2026) ───────────────────────────────── */}
         <div id="finance-whats-new" className="scroll-mt-6">
@@ -955,6 +913,264 @@ export default function HowtoView() {
 
       </section>
 
+      {/* ════════════════════════════════════════════════════════════════
+          MODULE: CHECK-IN
+          ════════════════════════════════════════════════════════════════ */}
+      <section className="space-y-6">
+        <ModuleHero mod={MODULES[1]} isEn={isEn} />
+        <ModuleSubToc mod={MODULES[1]} isEn={isEn} />
+
+        {/* ── Overview ─────────────────────────────────────────────── */}
+        <div id="checkin-overview" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ListChecks className="h-4 w-4" />}
+            title={isEn ? 'Overview' : 'ภาพรวม'}
+          />
+          <div className="rounded-xl border-2 border-sky-200 dark:border-sky-900 bg-gradient-to-br from-sky-50 to-white dark:from-sky-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Each day you can have up to 1 active session per type — office, on-site (event), and remote run independently. Office + event can run at the same time (you don\'t need to check out from office before checking in to an event).'
+                : 'แต่ละวันสามารถมี active session ได้สูงสุด 1 รอบต่อประเภท — ออฟฟิศ / อีเวนต์ / นอกสถานที่ เป็นอิสระจากกัน เช่น เช็คอินออฟฟิศพร้อมเช็คอินอีเวนต์ได้เลย ไม่ต้อง checkout ออฟฟิศก่อน'}
+            </p>
+            <ul className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+              <NewItem
+                icon={<Building2 className="h-3.5 w-3.5" />}
+                titleTh="🏢 ออฟฟิศ"
+                titleEn="🏢 Office"
+                descTh="เข้า-ออกที่บริษัท สูงสุด 1 รอบ active"
+                descEn="Clock in at company HQ — max 1 active"
+                isEn={isEn}
+              />
+              <NewItem
+                icon={<MapPin className="h-3.5 w-3.5" />}
+                titleTh="📍 อีเวนต์"
+                titleEn="📍 On-site"
+                descTh="ผูกกับงาน auto-สร้างใบเบิกตอน checkout"
+                descEn="Linked to event; auto-creates expense claim on checkout"
+                isEn={isEn}
+              />
+              <NewItem
+                icon={<Home className="h-3.5 w-3.5" />}
+                titleTh="🏠 WFH"
+                titleEn="🏠 Remote"
+                descTh="ทำงานนอกสถานที่ ต้องระบุหมายเหตุ"
+                descEn="Working from home/elsewhere — note required"
+                isEn={isEn}
+              />
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Check-in types ───────────────────────────────────────── */}
+        <div id="checkin-types" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Layout className="h-4 w-4" />}
+            title={isEn ? 'Check-in types — when to use which' : 'ประเภทเช็คอิน — ใช้เมื่อไหร่'}
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Type' : 'ประเภท'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'When to use' : 'ใช้เมื่อไหร่'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Required fields' : 'ข้อมูลที่ต้องมี'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold hidden sm:table-cell">{isEn ? 'On checkout' : 'ตอน checkout'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
+                <CheckinTypeRow
+                  emoji="🏢"
+                  label={isEn ? 'Office' : 'ออฟฟิศ'}
+                  when={isEn ? 'You are working from the company office' : 'มาทำงานที่บริษัท'}
+                  required={isEn ? 'Photo only' : 'รูปถ่ายเท่านั้น'}
+                  onCheckout={isEn ? 'Photo' : 'รูปถ่าย'}
+                />
+                <CheckinTypeRow
+                  emoji="📍"
+                  label={isEn ? 'On-site (event)' : 'อีเวนต์'}
+                  when={isEn ? 'Working at a client event' : 'ออกไปจัดงานลูกค้า'}
+                  required={isEn ? 'Photo + select event from today\'s list' : 'รูปถ่าย + เลือกอีเวนต์ของวัน'}
+                  onCheckout={isEn ? 'Photo + auto-creates expense claim' : 'รูปถ่าย + สร้างใบเบิกอัตโนมัติ'}
+                />
+                <CheckinTypeRow
+                  emoji="🏠"
+                  label={isEn ? 'Remote (WFH)' : 'WFH'}
+                  when={isEn ? 'Working from home or elsewhere' : 'ทำงานนอกสถานที่'}
+                  required={isEn ? 'Photo + note (where/what you\'re doing)' : 'รูปถ่าย + หมายเหตุ (อยู่ที่ไหน ทำอะไร)'}
+                  onCheckout={isEn ? 'Photo' : 'รูปถ่าย'}
+                />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Normal flow ──────────────────────────────────────────── */}
+        <div id="checkin-normal" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Clock className="h-4 w-4" />}
+            title={isEn ? 'Normal flow — single session' : 'Flow ปกติ — เช็คอินรอบเดียว'}
+            color="emerald"
+          />
+          <FlowchartBox
+            title={isEn ? 'Single check-in → check-out' : 'เช็คอิน → เลิกงาน → checkout'}
+            color="sky"
+          >
+            <FlowNode variant="start" emoji="🚪" title={isEn ? 'Arrive at workplace' : 'มาถึงที่ทำงาน'} />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="📝" title={isEn ? 'Pick type — office / on-site / remote' : 'เลือกประเภท — ออฟฟิศ / อีเวนต์ / WFH'} subtitle="/check-in" />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="📷" title={isEn ? 'Take check-in photo' : 'ถ่ายรูป Check-in'} subtitle={isEn ? 'GPS auto-captured' : 'ระบบเก็บ GPS อัตโนมัติ'} />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="✅" title={isEn ? 'Click "Check-in"' : 'กด "เช็คอินเข้างาน"'} tag={isEn ? 'session active' : 'session active'} />
+            <FlowArrow label={isEn ? 'work happens' : 'ทำงาน...'} />
+            <FlowNode variant="user" emoji="📷" title={isEn ? 'When done — take check-out photo' : 'เลิกงาน — ถ่ายรูป Check-out'} />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="🚶" title={isEn ? 'Click "Check-out"' : 'กด "Check-out"'} tag={isEn ? 'session closed' : 'session ปิด'} />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="🏁" title={isEn ? 'Done — appears in history' : 'จบ — ขึ้นในประวัติ'} />
+          </FlowchartBox>
+        </div>
+
+        {/* ── Overlap flow (NEW feature) ──────────────────────────── */}
+        <div id="checkin-overlap" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Sparkles className="h-4 w-4" />}
+            title={isEn ? 'Overlap flow — office + event at the same time (NEW)' : 'Flow คาบเกี่ยว — ออฟฟิศ + อีเวนต์พร้อมกัน (ใหม่)'}
+            color="amber"
+          />
+          <div className="rounded-xl border-2 border-amber-200 dark:border-amber-900 bg-amber-50/40 dark:bg-amber-950/10 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'You no longer need to check out of the office before going to an event. Office and event sessions can run concurrently — checkout each one independently when you finish.'
+                : 'ไม่ต้อง checkout ออฟฟิศก่อนไปงานอีเวนต์อีกต่อไป — เช็คอินทั้งสองได้พร้อมกัน แล้ว checkout แยกตามงานที่จบจริง'}
+            </p>
+
+            {/* Example timeline */}
+            <div className="rounded-lg border border-amber-200/60 dark:border-amber-900/50 bg-white dark:bg-zinc-900 p-3 space-y-2">
+              <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
+                {isEn ? 'Example timeline' : 'ตัวอย่างไทม์ไลน์'}
+              </p>
+              <TimelineRow time="09:00" emoji="🏢" textTh="เช็คอินเข้าออฟฟิศ" textEn="Check in at office" tagTh="office active" tagEn="office active" isEn={isEn} />
+              <TimelineRow time="14:00" emoji="📍" textTh="ไปงานอีเวนต์ — เช็คอินอีเวนต์ (ออฟฟิศยัง active)" textEn="Go to event — check in (office still active)" tagTh="office + event active" tagEn="office + event active" isEn={isEn} variant="highlight" />
+              <TimelineRow time="18:00" emoji="🚶" textTh="งานเสร็จ — checkout จากอีเวนต์" textEn="Event done — check out" tagTh="office still active" tagEn="office still active" isEn={isEn} />
+              <TimelineRow time="19:00" emoji="🏁" textTh="กลับถึงออฟฟิศ — checkout ออฟฟิศ" textEn="Back at office — check out" tagTh="all closed" tagEn="all closed" isEn={isEn} variant="success" />
+            </div>
+
+            <ul className="space-y-1.5 text-xs text-zinc-700 dark:text-zinc-300">
+              <li className="flex items-start gap-2">
+                <span className="text-amber-500">•</span>
+                <span>
+                  {isEn
+                    ? 'You\'ll see a card per active session, with its own checkout button + photo capture.'
+                    : 'จะเห็น card ต่อ session ที่ active แต่ละ card มีปุ่ม checkout + ถ่ายรูปของตัวเอง'}
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-amber-500">•</span>
+                <span>
+                  {isEn
+                    ? 'Cards are color-coded by type (office=blue, event=amber, remote=violet) and sorted oldest → newest.'
+                    : 'การ์ดแยกสีตามประเภท (ออฟฟิศ=ฟ้า, อีเวนต์=อำพัน, WFH=ม่วง) และเรียงเก่า→ใหม่'}
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-amber-500">•</span>
+                <span>
+                  {isEn
+                    ? 'You can\'t have two active sessions of the same type — checkout the first one before re-opening that type.'
+                    : 'ห้ามซ้ำประเภทเดียวกัน — เช่น มี office active อยู่ จะเช็คอิน office อีกรอบไม่ได้จนกว่าจะ checkout'}
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-amber-500">•</span>
+                <span>
+                  {isEn
+                    ? 'When all 3 types are active, the check-in form hides — checkout one before starting another type.'
+                    : 'ถ้า active ครบ 3 ประเภท ฟอร์มเช็คอินจะซ่อน — ต้อง checkout อย่างน้อย 1 รอบก่อน'}
+                </span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Tips ─────────────────────────────────────────────────── */}
+        <div id="checkin-tips" className="scroll-mt-6">
+          <SectionHeader
+            icon={<AlertCircle className="h-4 w-4" />}
+            title={isEn ? 'Tips & gotchas' : 'เคล็ดลับและข้อควรรู้'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard
+              tone="emerald"
+              icon={<Camera className="h-4 w-4" />}
+              titleTh="รูปถ่ายจำเป็นเสมอ"
+              titleEn="Photo always required"
+              descTh="ทั้งตอนเช็คอินและ checkout ระบบบังคับถ่ายรูป (เลือกกล้องหน้า/หลังได้)"
+              descEn="Both check-in and check-out require a photo. You can switch between front/rear camera."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="sky"
+              icon={<MapPin className="h-4 w-4" />}
+              titleTh="GPS เก็บอัตโนมัติ"
+              titleEn="GPS captured automatically"
+              descTh="ระบบขอ location เพื่อบันทึกพิกัดตอนเช็คอิน — กรุณาอนุญาตในเบราว์เซอร์"
+              descEn="The browser prompts for location on load — allow it so check-ins are geo-tagged."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="amber"
+              icon={<RefreshCw className="h-4 w-4" />}
+              titleTh="ยกเลิก checkout ภายใน 5 นาที"
+              titleEn="Undo checkout within 5 minutes"
+              descTh="ถ้าเผลอกด Check-out ใช้ปุ่มย้อนกลับ ↩ ภายใน 5 นาที — เกินจากนั้นต้องให้ admin แก้"
+              descEn="Accidentally checked out? Use the undo arrow within 5 minutes. After that, admin override only."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="violet"
+              icon={<Clock className="h-4 w-4" />}
+              titleTh="งานข้ามวันได้ (22:00 → 05:00)"
+              titleEn="Overnight shifts supported"
+              descTh="ระบบไม่ปิด session อัตโนมัติตอนเที่ยงคืน — เปิด session ค้างได้ checkout ตอนเช้าวันถัดไป"
+              descEn="Sessions don't auto-close at midnight, so a 22:00 → 05:00 shift works fine."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="emerald"
+              icon={<Receipt className="h-4 w-4" />}
+              titleTh="On-site → ใบเบิกอัตโนมัติ"
+              titleEn="On-site → auto expense claim"
+              descTh="ตอน checkout จากอีเวนต์ ระบบจะสร้างใบเบิกค่าตัวสตาฟตามอัตราที่ admin ตั้ง"
+              descEn="When you check out from an on-site session, the system creates an expense claim using the configured staff rate."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="sky"
+              icon={<History className="h-4 w-4" />}
+              titleTh="ดูประวัติได้ที่ /check-in/history"
+              titleEn="History at /check-in/history"
+              descTh="ดูรอบเช็คอินย้อนหลัง พร้อมรูปและตำแหน่ง GPS"
+              descEn="Browse past sessions including photos and GPS coordinates."
+              isEn={isEn}
+            />
+          </div>
+        </div>
+
+        {/* ── Menu shortcuts ───────────────────────────────────────── */}
+        <div id="checkin-menu" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ExternalLink className="h-4 w-4" />}
+            title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/check-in"          labelEn="Check in / out"               labelTh="เช็คอิน / Check-out" />
+            <MenuLink href="/check-in/history"  labelEn="My history (7 days)"          labelTh="ประวัติของฉัน (7 วัน)" />
+            <MenuLink href="/check-in/report"   labelEn="Team report (admin)"          labelTh="รายงานทีม (admin)" />
+          </div>
+        </div>
+      </section>
+
       {/* ── Footer note ────────────────────────────────────────────── */}
       <p className="text-xs text-zinc-400 text-center pt-4">
         {isEn
@@ -1219,6 +1435,452 @@ function FeatureBlock({
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+function CheckinTypeRow({
+  emoji, label, when, required, onCheckout,
+}: { emoji: string; label: string; when: string; required: string; onCheckout: string }) {
+  return (
+    <tr className="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/30">
+      <td className="px-3 py-2.5 align-top">
+        <span className="inline-flex items-center gap-2 text-zinc-800 dark:text-zinc-200 font-medium">
+          <span className="text-base">{emoji}</span>
+          {label}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{when}</td>
+      <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{required}</td>
+      <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top hidden sm:table-cell">{onCheckout}</td>
+    </tr>
+  )
+}
+
+function TimelineRow({
+  time, emoji, textTh, textEn, tagTh, tagEn, isEn, variant,
+}: {
+  time: string
+  emoji: string
+  textTh: string
+  textEn: string
+  tagTh: string
+  tagEn: string
+  isEn: boolean
+  variant?: 'highlight' | 'success'
+}) {
+  const tagCls = variant === 'highlight'
+    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+    : variant === 'success'
+      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+      : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700'
+  return (
+    <div className="flex items-center gap-2.5 text-xs">
+      <span className="font-mono text-[11px] font-bold text-zinc-500 w-12 shrink-0 tabular-nums">{time}</span>
+      <span className="text-base shrink-0">{emoji}</span>
+      <span className="flex-1 min-w-0 text-zinc-700 dark:text-zinc-300">{isEn ? textEn : textTh}</span>
+      <span className={`shrink-0 px-1.5 py-0.5 rounded-md text-[9px] font-mono font-semibold border ${tagCls}`}>
+        {isEn ? tagEn : tagTh}
+      </span>
+    </div>
+  )
+}
+
+function TipCard({
+  tone, icon, titleTh, titleEn, descTh, descEn, isEn,
+}: {
+  tone: 'emerald' | 'sky' | 'amber' | 'violet'
+  icon: React.ReactNode
+  titleTh: string
+  titleEn: string
+  descTh: string
+  descEn: string
+  isEn: boolean
+}) {
+  const toneMap = {
+    emerald: 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400',
+    sky:     'border-sky-200 dark:border-sky-900/50 bg-sky-50/40 dark:bg-sky-950/20 text-sky-700 dark:text-sky-400',
+    amber:   'border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400',
+    violet:  'border-violet-200 dark:border-violet-900/50 bg-violet-50/40 dark:bg-violet-950/20 text-violet-700 dark:text-violet-400',
+  }
+  return (
+    <div className={`rounded-lg border p-3 ${toneMap[tone]}`}>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="shrink-0">{icon}</span>
+        <p className="text-xs font-bold">
+          {isEn ? titleEn : titleTh}
+        </p>
+      </div>
+      <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
+        {isEn ? descEn : descTh}
+      </p>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Module library — config-driven so adding a new module = 1 entry
+// ─────────────────────────────────────────────────────────────────────
+
+type ModuleAccent = 'emerald' | 'sky' | 'violet' | 'amber' | 'rose' | 'zinc'
+
+interface ModuleSubItem { id: string; titleTh: string; titleEn: string }
+interface ModuleSubGroup {
+  titleTh: string
+  titleEn: string
+  items: ModuleSubItem[]
+}
+interface ModuleConfig {
+  id: string                    // anchor id used both by ModuleLibrary card and module section
+  accent: ModuleAccent
+  Icon: typeof BookOpen
+  titleTh: string
+  titleEn: string
+  descTh: string
+  descEn: string
+  /** Sub-section groups for the in-module navigation */
+  groups: ModuleSubGroup[]
+  /** Optional badge ("New", "Beta", "Coming soon") */
+  badge?: { th: string; en: string; tone: 'new' | 'soon' }
+  /** When set, the card is shown but not clickable (placeholder for future modules) */
+  comingSoon?: boolean
+}
+
+const MODULES: ModuleConfig[] = [
+  {
+    id: 'mod-finance',
+    accent: 'emerald',
+    Icon: Banknote,
+    titleTh: 'Finance — ใบเบิกเงิน',
+    titleEn: 'Finance — Expense Claims',
+    descTh: 'ระบบเบิกค่าใช้จ่าย ใบกำกับภาษี และรายงานตรวจสอบก่อนส่งบัญชี',
+    descEn: 'Expense claims, tax invoices, and pre-accounting audit reports.',
+    groups: [
+      {
+        titleTh: 'อัปเดตล่าสุด',
+        titleEn: 'Highlights',
+        items: [
+          { id: 'finance-whats-new', titleTh: 'อัปเดตล่าสุด', titleEn: "What's new" },
+        ],
+      },
+      {
+        titleTh: 'ฟลูว์งาน',
+        titleEn: 'Workflow',
+        items: [
+          { id: 'finance-flowcharts', titleTh: 'แผนผังขั้นตอน', titleEn: 'Flowcharts' },
+          { id: 'finance-types',      titleTh: 'ประเภทใบเบิก',  titleEn: 'Claim types' },
+          { id: 'finance-funding',    titleTh: 'แหล่งเงินที่ใช้เบิก', titleEn: 'Funding source' },
+          { id: 'finance-normal',     titleTh: 'Flow ปกติ',     titleEn: 'Normal flow' },
+          { id: 'finance-advance',    titleTh: 'Flow เบิกทดลองจ่าย', titleEn: 'Advance flow' },
+        ],
+      },
+      {
+        titleTh: 'เอกสาร',
+        titleEn: 'Documents',
+        items: [
+          { id: 'finance-tax-invoice', titleTh: 'ใบกำกับภาษี',           titleEn: 'Tax invoice' },
+          { id: 'finance-checklist',   titleTh: 'ตรวจเอกสารก่อนส่งบัญชี', titleEn: 'Document checklist' },
+        ],
+      },
+      {
+        titleTh: 'รายงาน',
+        titleEn: 'Reports',
+        items: [
+          { id: 'finance-report', titleTh: 'รายงานตรวจสอบ',  titleEn: 'Audit report' },
+          { id: 'finance-wht',    titleTh: 'สรุปหัก ณ ที่จ่าย', titleEn: 'WHT 3% summary' },
+        ],
+      },
+      {
+        titleTh: 'อ้างอิง',
+        titleEn: 'Reference',
+        items: [
+          { id: 'finance-status',        titleTh: 'สถานะทั้งหมด', titleEn: 'All statuses' },
+          { id: 'finance-permissions',   titleTh: 'สิทธิ์การใช้งาน', titleEn: 'Permissions' },
+          { id: 'finance-notifications', titleTh: 'การแจ้งเตือน',   titleEn: 'Notifications' },
+          { id: 'finance-menu',          titleTh: 'เมนูทั้งหมด',     titleEn: 'Menu shortcuts' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'mod-checkin',
+    accent: 'sky',
+    Icon: LogIn,
+    titleTh: 'Check-in — ลงเวลาทำงาน',
+    titleEn: 'Check-in — Time Tracking',
+    descTh: 'ลงเวลาเข้า-ออก สำหรับออฟฟิศ งานอีเวนต์ และทำงานนอกสถานที่',
+    descEn: 'Daily clock in/out for office, on-site events, and remote work.',
+    badge: { th: 'ฟีเจอร์ใหม่', en: 'NEW', tone: 'new' },
+    groups: [
+      {
+        titleTh: 'เริ่มต้น',
+        titleEn: 'Get started',
+        items: [
+          { id: 'checkin-overview', titleTh: 'ภาพรวม',         titleEn: 'Overview' },
+          { id: 'checkin-types',    titleTh: 'ประเภทเช็คอิน',  titleEn: 'Check-in types' },
+        ],
+      },
+      {
+        titleTh: 'ฟลูว์งาน',
+        titleEn: 'Workflow',
+        items: [
+          { id: 'checkin-normal',  titleTh: 'Flow ปกติ',                  titleEn: 'Normal flow' },
+          { id: 'checkin-overlap', titleTh: 'Flow คาบเกี่ยว (ใหม่)',      titleEn: 'Overlap flow (new)' },
+        ],
+      },
+      {
+        titleTh: 'อ้างอิง',
+        titleEn: 'Reference',
+        items: [
+          { id: 'checkin-tips', titleTh: 'เคล็ดลับและข้อควรรู้', titleEn: 'Tips & gotchas' },
+          { id: 'checkin-menu', titleTh: 'เมนูทั้งหมด',          titleEn: 'Menu shortcuts' },
+        ],
+      },
+    ],
+  },
+]
+
+// Tailwind class maps for accent colors — kept here so the per-accent classes
+// are picked up by Tailwind's JIT scanner via static literal strings.
+const accentClasses: Record<ModuleAccent, {
+  cardBorder: string
+  cardBg: string
+  cardHover: string
+  iconBox: string
+  iconText: string
+  titleText: string
+  pillBg: string
+  heroBg: string
+  heroBorder: string
+  groupTitle: string
+  badgeNew: string
+}> = {
+  emerald: {
+    cardBorder: 'border-emerald-200 dark:border-emerald-900/50',
+    cardBg:     'bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/20 dark:to-zinc-900',
+    cardHover:  'hover:border-emerald-300 hover:shadow-md hover:shadow-emerald-500/10',
+    iconBox:    'bg-emerald-100 dark:bg-emerald-900/40',
+    iconText:   'text-emerald-600 dark:text-emerald-400',
+    titleText:  'text-emerald-900 dark:text-emerald-200',
+    pillBg:     'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50',
+    heroBg:     'bg-gradient-to-r from-emerald-500/10 via-emerald-50 to-white dark:from-emerald-900/30 dark:via-emerald-950/20 dark:to-zinc-900',
+    heroBorder: 'border-emerald-200 dark:border-emerald-900/50',
+    groupTitle: 'text-emerald-700 dark:text-emerald-400',
+    badgeNew:   'bg-emerald-500 text-white',
+  },
+  sky: {
+    cardBorder: 'border-sky-200 dark:border-sky-900/50',
+    cardBg:     'bg-gradient-to-br from-sky-50 to-white dark:from-sky-950/20 dark:to-zinc-900',
+    cardHover:  'hover:border-sky-300 hover:shadow-md hover:shadow-sky-500/10',
+    iconBox:    'bg-sky-100 dark:bg-sky-900/40',
+    iconText:   'text-sky-600 dark:text-sky-400',
+    titleText:  'text-sky-900 dark:text-sky-200',
+    pillBg:     'text-sky-700 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/30 hover:bg-sky-100 dark:hover:bg-sky-950/50',
+    heroBg:     'bg-gradient-to-r from-sky-500/10 via-sky-50 to-white dark:from-sky-900/30 dark:via-sky-950/20 dark:to-zinc-900',
+    heroBorder: 'border-sky-200 dark:border-sky-900/50',
+    groupTitle: 'text-sky-700 dark:text-sky-400',
+    badgeNew:   'bg-sky-500 text-white',
+  },
+  violet: {
+    cardBorder: 'border-violet-200 dark:border-violet-900/50',
+    cardBg:     'bg-gradient-to-br from-violet-50 to-white dark:from-violet-950/20 dark:to-zinc-900',
+    cardHover:  'hover:border-violet-300 hover:shadow-md hover:shadow-violet-500/10',
+    iconBox:    'bg-violet-100 dark:bg-violet-900/40',
+    iconText:   'text-violet-600 dark:text-violet-400',
+    titleText:  'text-violet-900 dark:text-violet-200',
+    pillBg:     'text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/50',
+    heroBg:     'bg-gradient-to-r from-violet-500/10 via-violet-50 to-white dark:from-violet-900/30 dark:via-violet-950/20 dark:to-zinc-900',
+    heroBorder: 'border-violet-200 dark:border-violet-900/50',
+    groupTitle: 'text-violet-700 dark:text-violet-400',
+    badgeNew:   'bg-violet-500 text-white',
+  },
+  amber: {
+    cardBorder: 'border-amber-200 dark:border-amber-900/50',
+    cardBg:     'bg-gradient-to-br from-amber-50 to-white dark:from-amber-950/20 dark:to-zinc-900',
+    cardHover:  'hover:border-amber-300 hover:shadow-md hover:shadow-amber-500/10',
+    iconBox:    'bg-amber-100 dark:bg-amber-900/40',
+    iconText:   'text-amber-600 dark:text-amber-400',
+    titleText:  'text-amber-900 dark:text-amber-200',
+    pillBg:     'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/50',
+    heroBg:     'bg-gradient-to-r from-amber-500/10 via-amber-50 to-white dark:from-amber-900/30 dark:via-amber-950/20 dark:to-zinc-900',
+    heroBorder: 'border-amber-200 dark:border-amber-900/50',
+    groupTitle: 'text-amber-700 dark:text-amber-400',
+    badgeNew:   'bg-amber-500 text-white',
+  },
+  rose: {
+    cardBorder: 'border-rose-200 dark:border-rose-900/50',
+    cardBg:     'bg-gradient-to-br from-rose-50 to-white dark:from-rose-950/20 dark:to-zinc-900',
+    cardHover:  'hover:border-rose-300 hover:shadow-md hover:shadow-rose-500/10',
+    iconBox:    'bg-rose-100 dark:bg-rose-900/40',
+    iconText:   'text-rose-600 dark:text-rose-400',
+    titleText:  'text-rose-900 dark:text-rose-200',
+    pillBg:     'text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50',
+    heroBg:     'bg-gradient-to-r from-rose-500/10 via-rose-50 to-white dark:from-rose-900/30 dark:via-rose-950/20 dark:to-zinc-900',
+    heroBorder: 'border-rose-200 dark:border-rose-900/50',
+    groupTitle: 'text-rose-700 dark:text-rose-400',
+    badgeNew:   'bg-rose-500 text-white',
+  },
+  zinc: {
+    cardBorder: 'border-zinc-200 dark:border-zinc-800',
+    cardBg:     'bg-zinc-50/50 dark:bg-zinc-900',
+    cardHover:  'hover:border-zinc-300',
+    iconBox:    'bg-zinc-100 dark:bg-zinc-800',
+    iconText:   'text-zinc-500 dark:text-zinc-400',
+    titleText:  'text-zinc-700 dark:text-zinc-300',
+    pillBg:     'text-zinc-700 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800',
+    heroBg:     'bg-zinc-50 dark:bg-zinc-900',
+    heroBorder: 'border-zinc-200 dark:border-zinc-800',
+    groupTitle: 'text-zinc-700 dark:text-zinc-400',
+    badgeNew:   'bg-zinc-500 text-white',
+  },
+}
+
+// ─── Module library — landing card grid ──────────────────────────────
+
+function ModuleLibrary({ modules, isEn }: { modules: ModuleConfig[]; isEn: boolean }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+        {isEn ? 'Modules in this guide' : 'หมวดในคู่มือ'}
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {modules.map(mod => (
+          <ModuleCard key={mod.id} mod={mod} isEn={isEn} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ModuleCard({ mod, isEn }: { mod: ModuleConfig; isEn: boolean }) {
+  const a = accentClasses[mod.accent]
+  const Icon = mod.Icon
+  const itemCount = mod.groups.reduce((sum, g) => sum + g.items.length, 0)
+  const isComing = mod.comingSoon
+
+  const inner = (
+    <>
+      <div className="flex items-start gap-3">
+        <div className={`flex items-center justify-center h-10 w-10 rounded-xl shrink-0 ${a.iconBox}`}>
+          <Icon className={`h-5 w-5 ${a.iconText}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className={`text-sm font-bold ${a.titleText}`}>
+              {isEn ? mod.titleEn : mod.titleTh}
+            </p>
+            {mod.badge && (
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                mod.badge.tone === 'new' ? a.badgeNew : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400'
+              }`}>
+                {isEn ? mod.badge.en : mod.badge.th}
+              </span>
+            )}
+            {isComing && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
+                {isEn ? 'COMING SOON' : 'เร็วๆ นี้'}
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-zinc-600 dark:text-zinc-400 mt-1 leading-relaxed">
+            {isEn ? mod.descEn : mod.descTh}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-200/60 dark:border-zinc-800/60">
+        <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+          {itemCount} {isEn ? 'topics' : 'หัวข้อ'}
+        </span>
+        {!isComing && (
+          <span className={`flex items-center gap-1 text-[10px] font-semibold ${a.iconText}`}>
+            {isEn ? 'Read guide' : 'อ่านคู่มือ'}
+            <ArrowRight className="h-3 w-3" />
+          </span>
+        )}
+      </div>
+    </>
+  )
+
+  if (isComing) {
+    return (
+      <div className={`rounded-xl border ${a.cardBorder} ${a.cardBg} p-4 opacity-60 cursor-not-allowed`}>
+        {inner}
+      </div>
+    )
+  }
+  return (
+    <a
+      href={`#${mod.id}`}
+      className={`block rounded-xl border ${a.cardBorder} ${a.cardBg} ${a.cardHover} p-4 transition-all group`}
+    >
+      {inner}
+    </a>
+  )
+}
+
+// ─── Module hero — colored top of each module section ────────────────
+
+function ModuleHero({ mod, isEn }: { mod: ModuleConfig; isEn: boolean }) {
+  const a = accentClasses[mod.accent]
+  const Icon = mod.Icon
+  return (
+    <div id={mod.id} className={`scroll-mt-6 rounded-2xl border ${a.heroBorder} ${a.heroBg} p-5 md:p-6`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center h-12 w-12 rounded-xl shrink-0 ${a.iconBox}`}>
+            <Icon className={`h-6 w-6 ${a.iconText}`} />
+          </div>
+          <div>
+            <h2 className={`text-xl md:text-2xl font-bold ${a.titleText}`}>
+              {isEn ? mod.titleEn : mod.titleTh}
+            </h2>
+            <p className="text-xs md:text-sm text-zinc-600 dark:text-zinc-400 mt-0.5">
+              {isEn ? mod.descEn : mod.descTh}
+            </p>
+          </div>
+        </div>
+        <a
+          href="#top"
+          className="hidden sm:flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 px-2 py-1 rounded-md hover:bg-white/40 dark:hover:bg-zinc-800/40 transition-colors shrink-0"
+          title={isEn ? 'Back to top' : 'กลับขึ้นบน'}
+        >
+          ↑ {isEn ? 'Top' : 'บน'}
+        </a>
+      </div>
+    </div>
+  )
+}
+
+// ─── In-module sub-TOC, grouped by category ──────────────────────────
+
+function ModuleSubToc({ mod, isEn }: { mod: ModuleConfig; isEn: boolean }) {
+  const a = accentClasses[mod.accent]
+  return (
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3">
+      <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+        {isEn ? 'Jump to' : 'ไปยัง'}
+      </p>
+      <div className="space-y-2.5">
+        {mod.groups.map((g, gi) => (
+          <div key={gi}>
+            <p className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 ${a.groupTitle}`}>
+              {isEn ? g.titleEn : g.titleTh}
+            </p>
+            <ul className="flex flex-wrap gap-1.5">
+              {g.items.map(it => (
+                <li key={it.id}>
+                  <a
+                    href={`#${it.id}`}
+                    className={`inline-flex items-center px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${a.pillBg}`}
+                  >
+                    {isEn ? it.titleEn : it.titleTh}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

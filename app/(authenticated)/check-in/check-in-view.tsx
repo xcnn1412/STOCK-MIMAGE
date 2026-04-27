@@ -109,12 +109,24 @@ export default function CheckInView({
 }) {
   const router = useRouter()
   const isAdmin = role === 'admin'
-  // Find active (not checked-out) check-in for current user
-  const myActiveCheckin = todayCheckins.find(c => c.user_id === userId && !c.checked_out_at)
   // All of today's check-ins by current user (for display)
   const myTodayCheckins = todayCheckins.filter(c => c.user_id === userId)
+  // Active sessions — one per check_type can run concurrently. Sorted oldest-first.
+  const myActiveCheckins = myTodayCheckins
+    .filter(c => !c.checked_out_at)
+    .sort((a, b) => a.checked_in_at.localeCompare(b.checked_in_at))
+  // Set of types currently active — used to disable matching buttons in the form
+  const activeTypes = new Set(myActiveCheckins.map(c => c.check_type))
+  const allTypesActive = activeTypes.size >= 3
 
-  const [checkType, setCheckType] = useState<'office' | 'onsite' | 'remote'>('office')
+  // Default check type — pick first non-active type so the form is usable on load
+  const initialCheckType = (() => {
+    const initialActive = new Set(myActiveCheckins.map(c => c.check_type))
+    if (!initialActive.has('office')) return 'office'
+    if (!initialActive.has('onsite')) return 'onsite'
+    return 'remote'
+  })()
+  const [checkType, setCheckType] = useState<'office' | 'onsite' | 'remote'>(initialCheckType)
   const [eventId, setEventId] = useState('')
   const [note, setNote] = useState('')
   const [gps, setGps] = useState<{ lat: number; lng: number; accuracy: number } | null>(null)
@@ -133,12 +145,7 @@ export default function CheckInView({
   const [photoSize, setPhotoSize] = useState<string | null>(null)
   const [cameraMode, setCameraMode] = useState<'user' | 'environment'>('user')
 
-  // Photo capture (check-out)
-  const [checkoutPhotoPreview, setCheckoutPhotoPreview] = useState<string | null>(null)
-  const [checkoutPhotoBase64, setCheckoutPhotoBase64] = useState<string | null>(null)
-  const checkoutFileInputRef = useRef<HTMLInputElement>(null)
-  const [checkoutCompressing, setCheckoutCompressing] = useState(false)
-  const [checkoutPhotoSize, setCheckoutPhotoSize] = useState<string | null>(null)
+  // Checkout photo state lives inside <ActiveSessionCard> — each card is independent.
 
   // Admin retroactive
   const [showRetroactive, setShowRetroactive] = useState(false)
@@ -212,8 +219,9 @@ export default function CheckInView({
   }
 
   async function handleCheckIn() {
-    if (myActiveCheckin) {
-      setError('คุณยังไม่ได้ Check-out จากรอบก่อน กรุณา Check-out ก่อนเริ่มรอบใหม่')
+    if (activeTypes.has(checkType)) {
+      const typeLabel = CHECK_TYPES.find(t => t.key === checkType)?.label || checkType
+      setError(`มี Check-in ประเภท "${typeLabel}" ที่ยังไม่ checkout — กรุณา checkout ก่อนเริ่มรอบใหม่`)
       return
     }
     if (!confirm('ยืนยัน Check-in เข้างาน?')) return
@@ -230,68 +238,8 @@ export default function CheckInView({
     setLoading(false)
   }
 
-  async function handleCheckoutPhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setCheckoutCompressing(true)
-    try {
-      const compressed = await compressImage(file, 800, 0.7)
-      setCheckoutPhotoPreview(compressed)
-      setCheckoutPhotoBase64(compressed)
-      const sizeKB = Math.round((compressed.length * 3) / 4 / 1024)
-      setCheckoutPhotoSize(sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${sizeKB} KB`)
-    } catch {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        const result = reader.result as string
-        setCheckoutPhotoPreview(result)
-        setCheckoutPhotoBase64(result)
-        setCheckoutPhotoSize(null)
-      }
-      reader.readAsDataURL(file)
-    }
-    setCheckoutCompressing(false)
-  }
-
-  function clearCheckoutPhoto() {
-    setCheckoutPhotoPreview(null)
-    setCheckoutPhotoBase64(null)
-    setCheckoutPhotoSize(null)
-    if (checkoutFileInputRef.current) checkoutFileInputRef.current.value = ''
-  }
-
-  async function handleCheckOut() {
-    if (!myActiveCheckin) return
-    if (!checkoutPhotoBase64) {
-      setError('กรุณาถ่ายรูป Check-out ก่อน')
-      return
-    }
-    if (!confirm('ยืนยัน Check-out เลิกงาน?')) return
-    setLoading(true); setError('')
-    const fd = new FormData()
-    fd.set('checkin_id', myActiveCheckin.id)
-    fd.set('photo', checkoutPhotoBase64)
-    const result = await checkOut(fd)
-    if (result.error) setError(result.error)
-    else {
-      setSuccess('Check-out สำเร็จ! สามารถ Check-in รอบใหม่ได้')
-      clearCheckoutPhoto()
-      router.refresh()
-    }
-    setLoading(false)
-  }
-
-  async function handleUndoCheckout() {
-    // Find the most recent checked-out record for undo
-    const lastCheckedOut = myTodayCheckins.find(c => c.checked_out_at)
-    if (!lastCheckedOut) return
-    if (!confirm('ยกเลิก Check-out?')) return
-    setLoading(true); setError('')
-    const result = await undoCheckout(lastCheckedOut.id)
-    if (result.error) setError(result.error)
-    else { setSuccess('ยกเลิก Check-out สำเร็จ!'); router.refresh() }
-    setLoading(false)
-  }
+  // Check-out + Undo handlers moved into <ActiveSessionCard> — each card runs them
+  // independently so the user can manage office and event sessions in parallel.
 
   async function handleAdminDelete(id: string, name: string) {
     if (!confirm(`ลบ Check-in ของ "${name}"?\nจะไม่สามารถกู้คืนได้`)) return
@@ -387,153 +335,64 @@ export default function CheckInView({
         </div>
       </div>
 
-      {/* ══════════════ ALREADY CHECKED IN ══════════════ */}
-      {myActiveCheckin ? (
-        <div className="relative overflow-hidden rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/20 dark:to-zinc-900 p-6 space-y-4">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-emerald-100/50 dark:from-emerald-900/20 to-transparent rounded-bl-full" />
-
-          <div className="relative flex items-center gap-4">
-            <div className="h-14 w-14 rounded-2xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shadow-sm">
-              <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div>
-              <p className="font-bold text-lg text-zinc-900 dark:text-zinc-100">กำลังทำงาน (รอบที่ {myTodayCheckins.length}) ✓</p>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                {CHECK_TYPES.find(t => t.key === myActiveCheckin.check_type)?.emoji}{' '}
-                {CHECK_TYPES.find(t => t.key === myActiveCheckin.check_type)?.label}
-                {' · '}เวลา {formatTime(myActiveCheckin.checked_in_at)}
-              </p>
-            </div>
-          </div>
-
-          {myActiveCheckin.events && (
-            <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300 bg-white/60 dark:bg-zinc-800/40 rounded-xl px-4 py-2.5 backdrop-blur-sm">
-              <CalendarDays className="h-4 w-4 text-emerald-500 shrink-0" />
-              <span>{(myActiveCheckin.events as any).name}</span>
-            </div>
-          )}
-          {myActiveCheckin.note && (
-            <div className="text-sm text-zinc-600 dark:text-zinc-300 bg-white/60 dark:bg-zinc-800/40 rounded-xl px-4 py-2.5">
-              💬 {myActiveCheckin.note}
-            </div>
-          )}
-          {myActiveCheckin.photo_url && (
-            <button onClick={() => setShowPhotoLightbox(myActiveCheckin.photo_url)}
-              className="block rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800/50 hover:shadow-md transition-shadow">
-              <img src={myActiveCheckin.photo_url} alt="Check-in photo"
-                className="w-full max-w-[160px] h-auto object-cover" />
-            </button>
-          )}
-
-          {/* ── Checkout Photo Capture ── */}
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-              <Camera className="h-3.5 w-3.5 text-zinc-400" /> ถ่ายรูป Check-out <span className="text-red-500 text-xs">(จำเป็น)</span>
-            </label>
-            <input
-              ref={checkoutFileInputRef}
-              type="file"
-              accept="image/*"
-              capture={cameraMode}
-              onChange={handleCheckoutPhotoCapture}
-              className="hidden"
-            />
-            {checkoutCompressing ? (
-              <div className="w-full flex flex-col items-center justify-center gap-2 py-6 px-4 rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30">
-                <div className="h-6 w-6 border-2 border-zinc-300 border-t-zinc-600 dark:border-zinc-600 dark:border-t-zinc-300 rounded-full animate-spin" />
-                <span className="text-xs text-zinc-400">กำลังบีบอัดรูป...</span>
-              </div>
-            ) : checkoutPhotoPreview ? (
-              <div className="space-y-2">
-                <div className="relative inline-block">
-                  <img
-                    src={checkoutPhotoPreview}
-                    alt="Check-out photo preview"
-                    className="w-full max-w-[200px] h-auto rounded-xl border border-zinc-200 dark:border-zinc-700 object-cover shadow-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={clearCheckoutPhoto}
-                    className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 transition-colors active:scale-90"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                  {checkoutPhotoSize && (
-                    <span className="absolute bottom-2 left-2 text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-black/50 text-white backdrop-blur-sm">
-                      {checkoutPhotoSize}
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => checkoutFileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors py-1"
-                >
-                  <Camera className="h-3.5 w-3.5" /> ถ่ายใหม่
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => checkoutFileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2.5 py-4 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-500 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-all duration-200 bg-zinc-50/50 dark:bg-zinc-800/30 active:scale-[0.98]"
-              >
-                <Camera className="h-5 w-5" />
-                <span className="text-sm font-semibold">แตะเพื่อถ่ายรูป Check-out</span>
-              </button>
+      {/* ══════════════ ACTIVE SESSIONS (1 per type allowed concurrently) ══════════════ */}
+      {myActiveCheckins.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+              กำลังทำงาน ({myActiveCheckins.length})
+            </p>
+            {myActiveCheckins.length > 1 && (
+              <span className="text-[10px] text-zinc-400">
+                💡 หลายประเภทพร้อมกันได้ — checkout แยกของใคร ของมัน
+              </span>
             )}
           </div>
-
-          {/* Messages */}
-          {error && (
-            <div className="flex items-center gap-2.5 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 rounded-xl px-4 py-3 border border-red-100 dark:border-red-900/30">
-              <AlertCircle className="h-4 w-4 shrink-0" /> {error}
-            </div>
-          )}
-
-          <button onClick={handleCheckOut} disabled={loading || !checkoutPhotoBase64}
-            className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm hover:shadow-md">
-            <LogOut className="h-5 w-5" /> {loading ? 'กำลัง Check-out...' : 'Check-out เลิกงาน'}
-          </button>
-
-          {/* Show today's completed sessions */}
-          {myTodayCheckins.filter(c => c.checked_out_at).length > 0 && (
-            <div className="border-t border-emerald-100 dark:border-emerald-900/30 pt-3 mt-2">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">รอบก่อนหน้าวันนี้</p>
-              {myTodayCheckins.filter(c => c.checked_out_at).map(c => (
-                <div key={c.id} className="flex items-center justify-between text-xs text-zinc-500 py-1">
-                  <span>{CHECK_TYPES.find(t => t.key === c.check_type)?.emoji} {CHECK_TYPES.find(t => t.key === c.check_type)?.label}</span>
-                  <span className="font-mono tabular-nums">{formatTime(c.checked_in_at)} — {formatTime(c.checked_out_at!)}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          {myActiveCheckins.map(session => (
+            <ActiveSessionCard
+              key={session.id}
+              session={session}
+              cameraMode={cameraMode}
+              onLightbox={setShowPhotoLightbox}
+              onRefresh={() => router.refresh()}
+            />
+          ))}
         </div>
-      ) : (
-        /* ══════════════ CHECK-IN FORM ══════════════ */
-        <div className="space-y-4">
-          {/* Show previous completed sessions */}
-          {myTodayCheckins.length > 0 && (
-            <div className="flex items-center gap-2.5 text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 rounded-xl px-4 py-3 border border-blue-100 dark:border-blue-900/30">
-              <Clock className="h-4 w-4 shrink-0" />
-              <div>
-                <span className="font-medium">Check-in รอบที่ {myTodayCheckins.length + 1}</span>
-                <span className="text-blue-400 dark:text-blue-500 ml-1.5 text-xs">
-                  (วันนี้ {myTodayCheckins.length} รอบเสร็จแล้ว: {myTodayCheckins.map(c => `${formatTime(c.checked_in_at)}–${c.checked_out_at ? formatTime(c.checked_out_at) : '?'}`).join(', ')})
-                </span>
+      )}
+
+      {/* ══════════════ COMPLETED ROUNDS — collapsible footer above form ══════════════ */}
+      {myTodayCheckins.filter(c => c.checked_out_at).length > 0 && (
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/40 dark:bg-zinc-900/40 px-4 py-2.5">
+          <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+            วันนี้เสร็จแล้ว ({myTodayCheckins.filter(c => c.checked_out_at).length})
+          </p>
+          <div className="space-y-1">
+            {myTodayCheckins.filter(c => c.checked_out_at).map(c => (
+              <div key={c.id} className="flex items-center justify-between text-xs text-zinc-500">
+                <span>{CHECK_TYPES.find(t => t.key === c.check_type)?.emoji} {CHECK_TYPES.find(t => t.key === c.check_type)?.label}</span>
+                <span className="font-mono tabular-nums">{formatTime(c.checked_in_at)} — {formatTime(c.checked_out_at!)}</span>
               </div>
-            </div>
-          )}
-          {/* Type Cards */}
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ CHECK-IN FORM ══════════════ */}
+      {!allTypesActive ? (
+        <div className="space-y-4">
+          {/* Type Cards — disabled if active for current user */}
           <div className="grid grid-cols-3 gap-3">
             {CHECK_TYPES.map(type => {
               const selected = checkType === type.key
-              const disabled = type.key === 'onsite' && todayEvents.length === 0
+              const noEventToday = type.key === 'onsite' && todayEvents.length === 0
+              const alreadyActive = activeTypes.has(type.key)
+              const disabled = noEventToday || alreadyActive
               return (
                 <button key={type.key} type="button" disabled={disabled}
                   onClick={() => { setCheckType(type.key); if (type.key !== 'onsite') setEventId('') }}
+                  title={alreadyActive ? 'มีรอบที่ยังไม่ checkout — checkout ก่อนเริ่มใหม่' : undefined}
                   className={`relative group rounded-2xl p-4 md:p-5 text-left transition-all duration-300 overflow-hidden ${
-                    disabled ? 'opacity-30 cursor-not-allowed bg-zinc-100 dark:bg-zinc-800/50' :
+                    disabled ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-800/50' :
                     selected
                       ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow-lg shadow-zinc-900/20 dark:shadow-white/10 scale-[1.02]'
                       : 'bg-white dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 hover:shadow-md'
@@ -543,7 +402,8 @@ export default function CheckInView({
                     <span className="text-2xl mb-2 block">{type.emoji}</span>
                     <p className={`text-sm font-bold ${selected ? '' : 'text-zinc-900 dark:text-zinc-100'}`}>{type.label}</p>
                     <p className={`text-[11px] mt-0.5 ${selected ? 'text-white/70 dark:text-zinc-500' : 'text-zinc-400'}`}>{type.desc}</p>
-                    {disabled && <p className="text-[10px] text-zinc-400 mt-1">ไม่มีงานวันนี้</p>}
+                    {alreadyActive && <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 mt-1">● กำลังทำงานอยู่</p>}
+                    {!alreadyActive && noEventToday && <p className="text-[10px] text-zinc-400 mt-1">ไม่มีงานวันนี้</p>}
                   </div>
                 </button>
               )
@@ -683,11 +543,21 @@ export default function CheckInView({
 
             {/* Check-in Button */}
             <button onClick={handleCheckIn}
-              disabled={loading || !photoBase64 || (checkType === 'onsite' && !eventId) || (checkType === 'remote' && !note)}
+              disabled={loading || !photoBase64 || activeTypes.has(checkType) || (checkType === 'onsite' && !eventId) || (checkType === 'remote' && !note)}
               className="w-full flex items-center justify-center gap-2.5 py-4 px-4 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-bold text-base hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-zinc-900/20 dark:shadow-white/10 hover:shadow-xl hover:scale-[1.01] active:scale-[0.99]">
               <Fingerprint className="h-5 w-5" /> {loading ? 'กำลังบันทึก...' : 'เช็คอินเข้างาน'}
             </button>
           </div>
+        </div>
+      ) : (
+        /* All 3 types are active — no more rounds available */
+        <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20 px-5 py-6 text-center">
+          <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+            ✓ ทุกประเภทกำลังทำงานอยู่
+          </p>
+          <p className="text-xs text-emerald-600/70 mt-1">
+            กด "Check-out" จากการ์ดด้านบนก่อน ถึงจะเริ่มรอบใหม่ของประเภทนั้นได้
+          </p>
         </div>
       )}
 
@@ -894,6 +764,196 @@ export default function CheckInView({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// <ActiveSessionCard> — one card per un-checked-out session.
+// Each card owns its checkout-photo state so multiple active sessions
+// (e.g. office + onsite) can be managed independently.
+// ─────────────────────────────────────────────────────────────────────
+
+function ActiveSessionCard({
+  session,
+  cameraMode,
+  onLightbox,
+  onRefresh,
+}: {
+  session: CheckinRecord
+  cameraMode: 'user' | 'environment'
+  onLightbox: (url: string) => void
+  onRefresh: () => void
+}) {
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null)
+  const [photoSize, setPhotoSize] = useState<string | null>(null)
+  const [compressing, setCompressing] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+  const typeMeta = CHECK_TYPES.find(t => t.key === session.check_type)
+
+  async function handlePhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCompressing(true)
+    try {
+      const compressed = await compressImage(file, 800, 0.7)
+      setPhotoPreview(compressed)
+      setPhotoBase64(compressed)
+      const sizeKB = Math.round((compressed.length * 3) / 4 / 1024)
+      setPhotoSize(sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${sizeKB} KB`)
+    } catch {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const result = reader.result as string
+        setPhotoPreview(result)
+        setPhotoBase64(result)
+        setPhotoSize(null)
+      }
+      reader.readAsDataURL(file)
+    }
+    setCompressing(false)
+  }
+
+  function clearPhoto() {
+    setPhotoPreview(null)
+    setPhotoBase64(null)
+    setPhotoSize(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function handleCheckOut() {
+    if (!photoBase64) {
+      setError('กรุณาถ่ายรูป Check-out ก่อน')
+      return
+    }
+    if (!confirm(`ยืนยัน Check-out จาก "${typeMeta?.label}"?`)) return
+    setLoading(true); setError('')
+    const fd = new FormData()
+    fd.set('checkin_id', session.id)
+    fd.set('photo', photoBase64)
+    const result = await checkOut(fd)
+    if (result.error) { setError(result.error); setLoading(false); return }
+    clearPhoto()
+    setLoading(false)
+    onRefresh()
+  }
+
+  async function handleUndoCheckout() {
+    if (!confirm('ยกเลิก Check-out รอบนี้?')) return
+    setLoading(true); setError('')
+    const result = await undoCheckout(session.id)
+    if (result.error) setError(result.error)
+    setLoading(false)
+    onRefresh()
+  }
+
+  // Tone the card differently per type
+  const accent = session.check_type === 'office'
+    ? 'border-sky-200 dark:border-sky-900/50 from-sky-50/60 dark:from-sky-950/20'
+    : session.check_type === 'onsite'
+      ? 'border-amber-200 dark:border-amber-900/50 from-amber-50/60 dark:from-amber-950/20'
+      : 'border-violet-200 dark:border-violet-900/50 from-violet-50/60 dark:from-violet-950/20'
+
+  return (
+    <div className={`relative overflow-hidden rounded-2xl border bg-gradient-to-br to-white dark:to-zinc-900 p-5 space-y-4 ${accent}`}>
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-xl bg-white dark:bg-zinc-800 flex items-center justify-center text-2xl shadow-sm">
+            {typeMeta?.emoji}
+          </div>
+          <div>
+            <p className="font-bold text-base text-zinc-900 dark:text-zinc-100">{typeMeta?.label}</p>
+            <p className="text-xs text-zinc-500">
+              เริ่ม {formatTime(session.checked_in_at)}
+              {session.events && ` · ${(session.events as { name: string }).name}`}
+            </p>
+          </div>
+        </div>
+        {session.photo_url && (
+          <button onClick={() => onLightbox(session.photo_url!)}
+            className="block rounded-lg overflow-hidden border border-white/60 dark:border-zinc-700/60 hover:shadow-md transition-shadow shrink-0">
+            <img src={session.photo_url} alt="Check-in photo" className="h-12 w-12 object-cover" />
+          </button>
+        )}
+      </div>
+
+      {session.note && (
+        <div className="text-sm text-zinc-600 dark:text-zinc-300 bg-white/60 dark:bg-zinc-800/40 rounded-xl px-4 py-2.5">
+          💬 {session.note}
+        </div>
+      )}
+
+      {/* Checkout photo capture */}
+      <div className="space-y-2">
+        <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+          <Camera className="h-3.5 w-3.5 text-zinc-400" /> ถ่ายรูป Check-out <span className="text-red-500 text-[10px]">(จำเป็น)</span>
+        </label>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture={cameraMode}
+          onChange={handlePhotoCapture}
+          className="hidden"
+        />
+        {compressing ? (
+          <div className="w-full flex items-center justify-center gap-2 py-4 px-4 rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30">
+            <div className="h-5 w-5 border-2 border-zinc-300 border-t-zinc-600 rounded-full animate-spin" />
+            <span className="text-xs text-zinc-400">กำลังบีบอัดรูป...</span>
+          </div>
+        ) : photoPreview ? (
+          <div className="space-y-2">
+            <div className="relative inline-block">
+              <img src={photoPreview} alt="Check-out preview" className="w-full max-w-50 h-auto rounded-xl border border-zinc-200 dark:border-zinc-700 object-cover shadow-sm" />
+              <button type="button" onClick={clearPhoto}
+                className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md hover:bg-red-600 active:scale-90">
+                <X className="h-3.5 w-3.5" />
+              </button>
+              {photoSize && (
+                <span className="absolute bottom-2 left-2 text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-black/50 text-white backdrop-blur-sm">
+                  {photoSize}
+                </span>
+              )}
+            </div>
+            <button type="button" onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 transition-colors py-1">
+              <Camera className="h-3.5 w-3.5" /> ถ่ายใหม่
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => fileInputRef.current?.click()}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 transition-all bg-white/40 dark:bg-zinc-800/30 active:scale-[0.98]">
+            <Camera className="h-5 w-5" />
+            <span className="text-sm font-semibold">แตะเพื่อถ่ายรูป</span>
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 rounded-lg px-3 py-2 border border-red-100 dark:border-red-900/30">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {error}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button onClick={handleCheckOut} disabled={loading || !photoBase64}
+          className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm">
+          <LogOut className="h-4 w-4" />
+          {loading ? 'กำลัง Check-out...' : `Check-out จาก${typeMeta?.label}`}
+        </button>
+        {session.checked_out_at && (
+          <button onClick={handleUndoCheckout} disabled={loading}
+            className="px-3 py-3 text-xs text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl"
+            title="ยกเลิก Check-out (ภายใน 5 นาที)">
+            ↩
+          </button>
+        )}
+      </div>
     </div>
   )
 }
