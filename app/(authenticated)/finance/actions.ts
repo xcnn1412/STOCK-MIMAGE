@@ -158,6 +158,8 @@ export async function createClaim(formData: FormData) {
   const bank_name = (formData.get('bank_name') as string || '').trim() || null
   const bank_account_number = (formData.get('bank_account_number') as string || '').trim() || null
   const account_holder_name = (formData.get('account_holder_name') as string || '').trim() || null
+  const fundingSourceRaw = (formData.get('funding_source') as string || 'company').trim()
+  const funding_source: 'company' | 'personal' = fundingSourceRaw === 'personal' ? 'personal' : 'company'
 
   // Collect receipt files from FormData
   const receiptFiles: File[] = []
@@ -228,6 +230,7 @@ export async function createClaim(formData: FormData) {
       bank_account_number,
       account_holder_name,
       receipt_urls,
+      funding_source,
       submitted_by: userId,
       status: 'draft',
     })
@@ -274,6 +277,8 @@ export async function updateClaim(id: string, updateData: {
   account_holder_name?: string | null
   claim_type?: string
   job_event_id?: string | null
+  funding_source?: 'company' | 'personal'
+  tax_invoice_numbers?: string[] | null
 }, receiptFormData?: FormData) {
   const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
@@ -323,7 +328,7 @@ export async function updateClaim(id: string, updateData: {
 
   // Track what changed for the log
   const changes: Record<string, { from: any; to: any }> = {}
-  const fieldsToCheck = ['title', 'description', 'category', 'amount', 'unit_price', 'unit', 'quantity', 'expense_date', 'vat_mode', 'withholding_tax_rate', 'notes', 'bank_name', 'bank_account_number', 'account_holder_name', 'claim_type', 'job_event_id'] as const
+  const fieldsToCheck = ['title', 'description', 'category', 'amount', 'unit_price', 'unit', 'quantity', 'expense_date', 'vat_mode', 'withholding_tax_rate', 'notes', 'bank_name', 'bank_account_number', 'account_holder_name', 'claim_type', 'job_event_id', 'funding_source'] as const
   for (const key of fieldsToCheck) {
     if (key in updateData && updateData[key as keyof typeof updateData] !== (claim as any)[key]) {
       changes[key] = { from: (claim as any)[key], to: updateData[key as keyof typeof updateData] }
@@ -348,6 +353,18 @@ export async function updateClaim(id: string, updateData: {
     const existing = claim.receipt_urls || []
     finalData.receipt_urls = [...existing, ...newReceiptUrls]
     changes['receipt_urls'] = { from: existing.length, to: finalData.receipt_urls.length }
+  }
+
+  // Tax invoice numbers — array, compare element-wise for change log
+  if ('tax_invoice_numbers' in updateData) {
+    const incoming = (updateData.tax_invoice_numbers ?? []).map(s => String(s).trim()).filter(Boolean)
+    const existing = (claim.tax_invoice_numbers ?? []) as string[]
+    const sameLength = incoming.length === existing.length
+    const sameContent = sameLength && incoming.every((v, i) => v === existing[i])
+    if (!sameContent) {
+      changes['tax_invoice_numbers'] = { from: existing, to: incoming }
+    }
+    finalData.tax_invoice_numbers = incoming
   }
 
   const { error } = await supabase
@@ -843,7 +860,7 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
 
   const { data: claim } = await supabase
     .from('expense_claims')
-    .select('status, submitted_by, claim_number, tax_invoice_urls')
+    .select('status, submitted_by, claim_number, tax_invoice_urls, tax_invoice_numbers')
     .eq('id', id)
     .single()
 
@@ -855,34 +872,78 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
     return { error: 'คุณไม่มีสิทธิ์อัพโหลดเอกสารนี้' }
   }
 
-  const files: File[] = []
-  for (const entry of formData.getAll('tax_invoice_files')) {
-    if (entry instanceof File && entry.size > 0) files.push(entry)
+  // Paired upload: each tax invoice entry = (optional file, optional number).
+  // The client appends them in matching order — index N of `tax_invoice_files`
+  // corresponds to index N of `tax_invoice_numbers`. Empty placeholder
+  // entries (an empty file or empty string) are still appended to keep alignment.
+  const fileEntries = formData.getAll('tax_invoice_files')
+  const numberEntries = formData.getAll('tax_invoice_numbers')
+  const pairedCount = Math.max(fileEntries.length, numberEntries.length)
+
+  type Pair = { file: File | null; number: string }
+  const pairs: Pair[] = []
+  for (let i = 0; i < pairedCount; i++) {
+    const f = fileEntries[i]
+    const n = numberEntries[i]
+    const file = f instanceof File && f.size > 0 ? f : null
+    const number = typeof n === 'string' ? n.trim() : ''
+    if (!file && !number) continue
+    pairs.push({ file, number })
   }
-  if (files.length === 0) return { error: 'กรุณาเลือกไฟล์อย่างน้อย 1 ไฟล์' }
 
-  const newUrls = await uploadReceiptFiles(supabase, files, `${claim.claim_number}-tax-invoice`)
-  if (newUrls.length === 0) return { error: 'เกิดข้อผิดพลาดในการอัพโหลดไฟล์' }
+  if (pairs.length === 0) {
+    return { error: 'กรุณาแนบไฟล์ใบกำกับภาษีหรือกรอกเลขที่ใบกำกับอย่างน้อย 1 รายการ' }
+  }
 
-  const existing: string[] = claim.tax_invoice_urls || []
+  // Upload files; null files map to empty-string URLs so we keep the parallel
+  // alignment between `tax_invoice_urls[i]` and `tax_invoice_numbers[i]`.
+  const filesToUpload = pairs.filter(p => p.file).map(p => p.file as File)
+  let uploadedUrls: string[] = []
+  if (filesToUpload.length > 0) {
+    uploadedUrls = await uploadReceiptFiles(supabase, filesToUpload, `${claim.claim_number}-tax-invoice`)
+    if (uploadedUrls.length !== filesToUpload.length) {
+      return { error: 'เกิดข้อผิดพลาดในการอัพโหลดไฟล์ใบกำกับภาษี' }
+    }
+  }
+
+  // Re-map uploaded URLs back into pair order (entries without a file get '')
+  const newUrls: string[] = []
+  const newNumbers: string[] = []
+  let uIdx = 0
+  for (const p of pairs) {
+    newUrls.push(p.file ? uploadedUrls[uIdx++] : '')
+    newNumbers.push(p.number)
+  }
+
+  const existingUrls: string[] = (claim.tax_invoice_urls as string[]) || []
+  const existingNumbers: string[] = (claim.tax_invoice_numbers as string[]) || []
+
+  const updatePayload: Record<string, any> = {
+    tax_invoice_urls: [...existingUrls, ...newUrls],
+    tax_invoice_numbers: [...existingNumbers, ...newNumbers],
+    // Auto-transition: waiting_tax_invoice → approved once entries are provided
+    status: 'approved',
+  }
+
   const { error } = await supabase
     .from('expense_claims')
-    .update({
-      tax_invoice_urls: [...existing, ...newUrls],
-      // Auto-transition: waiting_tax_invoice → approved once files are uploaded
-      status: 'approved',
-    })
+    .update(updatePayload)
     .eq('id', id)
 
   if (error) return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
 
-  // Log the file upload
+  // Log: how many invoice entries were added (file + number pairs)
+  const filesAdded = newUrls.filter(u => u !== '').length
+  const numbersAdded = newNumbers.filter(n => n !== '').length
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
     action: 'upload_tax_invoice',
     changed_by: userId,
-    changes: { tax_invoice_urls: { from: existing.length, to: existing.length + newUrls.length } },
-    note: `อัพโหลดใบกำกับภาษี ${newUrls.length} ไฟล์`,
+    changes: {
+      tax_invoice_urls: { from: existingUrls.length, to: existingUrls.length + newUrls.length },
+      tax_invoice_numbers: { from: existingNumbers.length, to: existingNumbers.length + newNumbers.length },
+    },
+    note: `เพิ่มใบกำกับภาษี ${pairs.length} รายการ (ไฟล์ ${filesAdded} • เลขที่ ${numbersAdded})`,
   })
 
   // Log the auto status transition
@@ -917,6 +978,71 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
   revalidatePath(`/finance/${id}`)
   revalidatePath('/finance/payouts')
   return { success: true, autoTransitioned: true }
+}
+
+// ============================================================================
+// Set tax invoice entries — owner or admin (any post-submit status)
+//
+// Replaces both `tax_invoice_urls[]` and `tax_invoice_numbers[]` so they stay
+// aligned by index (entry i = url[i] + number[i]). Used by the detail view's
+// inline editor to delete an entry, edit a number, or reorder.
+// ============================================================================
+
+export async function setTaxInvoiceEntries(
+  id: string,
+  entries: { url: string; number: string }[],
+) {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('submitted_by, tax_invoice_urls, tax_invoice_numbers, claim_number')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  const isAdmin = role === 'admin'
+  const isOwner = claim.submitted_by === userId
+  if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
+
+  const cleaned = (entries || [])
+    .map(e => ({ url: String(e?.url || '').trim(), number: String(e?.number || '').trim() }))
+    .filter(e => e.url || e.number)
+
+  const newUrls = cleaned.map(e => e.url)
+  const newNumbers = cleaned.map(e => e.number)
+
+  const existingUrls: string[] = (claim.tax_invoice_urls as string[]) || []
+  const existingNumbers: string[] = (claim.tax_invoice_numbers as string[]) || []
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({
+      tax_invoice_urls: newUrls,
+      tax_invoice_numbers: newNumbers,
+    })
+    .eq('id', id)
+
+  if (error) return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'update_tax_invoice_entries',
+    changed_by: userId,
+    changes: {
+      tax_invoice_urls: { from: existingUrls.length, to: newUrls.length },
+      tax_invoice_numbers: { from: existingNumbers, to: newNumbers },
+    },
+    note: `แก้ไขรายการใบกำกับภาษี (${existingUrls.length} → ${newUrls.length} รายการ)`,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  revalidatePath('/finance/overview')
+  return { success: true }
 }
 
 // ============================================================================

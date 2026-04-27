@@ -6,7 +6,8 @@ import {
   BookOpen, Banknote, FileText, CheckCircle2, Clock, Receipt, Wallet, RefreshCw,
   XCircle, Ban, Send, ShieldAlert, Upload, Bell, Layout, User, UserCog,
   CircleDollarSign, ListChecks, ArrowRight, ExternalLink, Edit3, Lock,
-  GitBranch, ChevronDown,
+  GitBranch, ChevronDown, Building2, Hash, Sparkles, FileSpreadsheet, Percent,
+  AlertCircle, X,
 } from 'lucide-react'
 
 export default function HowtoView() {
@@ -42,10 +43,16 @@ export default function HowtoView() {
         </p>
         <ul className="flex flex-wrap gap-2">
           {[
+            { id: 'finance-whats-new',  th: 'อัปเดตล่าสุด',              en: "What's new" },
             { id: 'finance-flowcharts', th: 'แผนผังขั้นตอน',              en: 'Flowcharts' },
             { id: 'finance-types',      th: 'ประเภทใบเบิก',             en: 'Claim types' },
+            { id: 'finance-funding',    th: 'แหล่งเงินที่ใช้เบิก',         en: 'Funding source' },
             { id: 'finance-normal',     th: 'Flow ปกติ',                en: 'Normal flow' },
             { id: 'finance-advance',    th: 'Flow เบิกทดลองจ่าย',        en: 'Advance flow' },
+            { id: 'finance-tax-invoice', th: 'ใบกำกับภาษี',              en: 'Tax invoice' },
+            { id: 'finance-checklist',  th: 'ตรวจเอกสารก่อนส่งบัญชี',     en: 'Document checklist' },
+            { id: 'finance-report',     th: 'รายงานตรวจสอบ',             en: 'Audit report' },
+            { id: 'finance-wht',        th: 'สรุปหัก ณ ที่จ่าย',          en: 'WHT 3% summary' },
             { id: 'finance-status',     th: 'สถานะทั้งหมด',              en: 'All statuses' },
             { id: 'finance-permissions', th: 'สิทธิ์การใช้งาน',          en: 'Permissions' },
             { id: 'finance-notifications', th: 'การแจ้งเตือน',           en: 'Notifications' },
@@ -81,6 +88,69 @@ export default function HowtoView() {
           </div>
         </div>
 
+        {/* ── What's new (Apr 2026) ───────────────────────────────── */}
+        <div id="finance-whats-new" className="scroll-mt-6">
+          <div className="rounded-xl border-2 border-emerald-200 dark:border-emerald-900 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-600 text-white">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-emerald-900 dark:text-emerald-200">
+                  {isEn ? "What's new — April 2026" : 'อัปเดตใหม่ — เมษายน 2026'}
+                </p>
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                  {isEn
+                    ? '5 changes that affect how you submit and audit claims'
+                    : 'การเปลี่ยนแปลง 5 อย่างที่กระทบการเบิก/ตรวจสอบใบเบิก'}
+                </p>
+              </div>
+            </div>
+            <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-emerald-900 dark:text-emerald-200">
+              <NewItem
+                icon={<Building2 className="h-3.5 w-3.5" />}
+                titleTh="แหล่งเงินที่ใช้เบิก"
+                titleEn="Funding source"
+                descTh="เลือกได้ว่าใช้เงินบริษัท หรือเงินส่วนตัวออกก่อน (reimbursement)"
+                descEn="Choose: company money or personal money (reimburse)"
+                isEn={isEn}
+              />
+              <NewItem
+                icon={<Hash className="h-3.5 w-3.5" />}
+                titleTh="เลขที่ใบกำกับภาษี + แนบหลายใบ"
+                titleEn="Tax invoice numbers + multi-row"
+                descTh="เพิ่มเลขที่ใบกำกับ และอัพโหลดได้หลายใบในครั้งเดียว — แต่ละใบมีเลขของตัวเอง"
+                descEn="Pair file + number per invoice; upload multiple at once"
+                isEn={isEn}
+              />
+              <NewItem
+                icon={<ListChecks className="h-3.5 w-3.5" />}
+                titleTh="Document checklist"
+                titleEn="Document checklist"
+                descTh="แสดงสถานะเอกสารแต่ละใบ: ใบเสร็จ • ใบกำกับ • คืนเงิน — ตรวจครบหรือยัง"
+                descEn="Status of receipts / tax invoice / refund per claim"
+                isEn={isEn}
+              />
+              <NewItem
+                icon={<FileSpreadsheet className="h-3.5 w-3.5" />}
+                titleTh="หน้ารายงานตรวจสอบ (overview)"
+                titleEn="Audit Report page"
+                descTh="ตาราง filter วัน/สัปดาห์/เดือน/ปี + export Excel/PDF — ใช้เป็นใบปะหน้าก่อนส่งบัญชี"
+                descEn="Filter day/week/month/year + Excel/PDF export — for accounting handover"
+                isEn={isEn}
+              />
+              <NewItem
+                icon={<Percent className="h-3.5 w-3.5" />}
+                titleTh="หน้า WHT แยกชัด"
+                titleEn="WHT page focused"
+                descTh="/finance/download → สรุปหัก ณ ที่จ่ายรายบุคคลเท่านั้น (ภ.ง.ด.3 / 53)"
+                descEn="/finance/download → WHT-only summary (per-person)"
+                isEn={isEn}
+              />
+            </ul>
+          </div>
+        </div>
+
         {/* ── Flowcharts ──────────────────────────────────────────── */}
         <div id="finance-flowcharts" className="scroll-mt-6 space-y-6">
           <SectionHeader
@@ -109,7 +179,7 @@ export default function HowtoView() {
             <FlowArrow />
             <FlowNode variant="user"  emoji="📝" title={isEn ? 'Create new claim' : 'สร้างใบเบิกใหม่'} subtitle="/finance/new" tag="status: draft" />
             <FlowArrow />
-            <FlowNode variant="user"  emoji="✏️" title={isEn ? 'Fill in details' : 'กรอกข้อมูล'} subtitle={isEn ? 'type, category, amount, VAT/WHT, attach receipt, bank info' : 'ประเภท / หมวดหมู่ / ยอด / VAT / WHT / แนบใบเสร็จ / เลขบัญชี'} />
+            <FlowNode variant="user"  emoji="✏️" title={isEn ? 'Fill in details' : 'กรอกข้อมูล'} subtitle={isEn ? 'type, funding source, category, amount, VAT/WHT, attach receipt, bank info' : 'ประเภท / แหล่งเงิน / หมวดหมู่ / ยอด / VAT / WHT / แนบใบเสร็จ / เลขบัญชี'} />
             <FlowArrow />
             <FlowNode variant="user"  emoji="📤" title={isEn ? 'Submit for approval' : 'กดส่งอนุมัติ'} tag="draft → pending" />
             <FlowArrow label={isEn ? 'can cancel anytime → cancelled' : 'ยกเลิกได้ตลอด → cancelled'} />
@@ -302,6 +372,60 @@ export default function HowtoView() {
           </div>
         </div>
 
+        {/* ── Funding source (เงินบริษัท / เงินส่วนตัว) ──────────── */}
+        <div id="finance-funding" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Building2 className="h-4 w-4" />}
+            title={isEn ? 'Funding source — who paid first?' : 'แหล่งเงินที่ใช้เบิก — ใครออกก่อน?'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-xl border-2 border-sky-200 dark:border-sky-900 bg-sky-50/40 dark:bg-sky-950/20 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center justify-center h-7 w-7 rounded-lg bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400">
+                  <Building2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-sky-900 dark:text-sky-200">
+                    {isEn ? 'Company Money' : 'เงินบริษัท'}
+                  </p>
+                  <code className="text-[10px] font-mono text-sky-600">funding_source: company</code>
+                </div>
+              </div>
+              <p className="text-xs text-sky-800 dark:text-sky-300 leading-relaxed">
+                {isEn
+                  ? 'Default. The company pays the bill directly (e.g. via company card or transfer).'
+                  : 'ค่า default — บริษัทจ่ายค่าใช้จ่ายตรง (บัตรบริษัท / โอนตรง)'}
+              </p>
+            </div>
+            <div className="rounded-xl border-2 border-amber-200 dark:border-amber-900 bg-amber-50/40 dark:bg-amber-950/20 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center justify-center h-7 w-7 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400">
+                  <User className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                    {isEn ? 'Personal Money' : 'เงินส่วนตัว'}
+                  </p>
+                  <code className="text-[10px] font-mono text-amber-600">funding_source: personal</code>
+                </div>
+              </div>
+              <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                {isEn
+                  ? 'You paid out of pocket; the company will reimburse you after approval. Pick this when you bought something with your own money.'
+                  : 'คุณออกเงินส่วนตัวก่อน — บริษัทจะโอนคืนให้หลังอนุมัติ เลือกแบบนี้เมื่อซื้อของด้วยเงินตัวเอง'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex items-start gap-2 p-2.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg">
+            <AlertCircle className="h-3.5 w-3.5 text-zinc-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+              {isEn
+                ? 'Advance claims always default to "Company Money" (the company is sending money out — there\'s nothing personal to reimburse).'
+                : 'ใบเบิก "ทดลองจ่าย" จะใช้แหล่งเงิน "บริษัท" เสมอ (บริษัทจ่ายเงินล่วงหน้าให้ — ไม่ใช่การ reimburse)'}
+            </p>
+          </div>
+        </div>
+
         {/* ── Normal flow (event / other) ─────────────────────────── */}
         <div id="finance-normal" className="scroll-mt-6">
           <SectionHeader
@@ -317,18 +441,20 @@ export default function HowtoView() {
               title={isEn ? 'User (Claimant)' : 'User (ผู้เบิก)'}
               steps={isEn ? [
                 { n: 1, label: 'Create claim at /finance/new', tag: 'draft' },
-                { n: 2, label: 'Fill in category, amount, VAT/WHT, attach receipt, bank info', tag: null },
-                { n: 3, label: 'Click "Submit for approval"', tag: 'draft → pending' },
-                { n: 4, label: 'While waiting, can still cancel', tag: 'pending → cancelled' },
-                { n: 5, label: 'If admin requests tax invoice → upload it', tag: 'waiting_tax_invoice → approved (auto)' },
-                { n: 6, label: 'If rejected → see reason, create new claim (old one is locked)', tag: null },
+                { n: 2, label: 'Pick funding source: company money OR personal (reimbursement)', tag: 'funding_source' },
+                { n: 3, label: 'Fill in category, amount, VAT/WHT, attach receipt, bank info', tag: null },
+                { n: 4, label: 'Click "Submit for approval"', tag: 'draft → pending' },
+                { n: 5, label: 'While waiting, can still cancel', tag: 'pending → cancelled' },
+                { n: 6, label: 'If admin requests tax invoice → upload paired (file + number)', tag: 'waiting_tax_invoice → approved (auto)' },
+                { n: 7, label: 'If rejected → see reason, create new claim (old one is locked)', tag: null },
               ] : [
                 { n: 1, label: 'สร้างใบเบิกที่ /finance/new', tag: 'draft' },
-                { n: 2, label: 'กรอก: หัวข้อ, หมวดหมู่, ยอด, VAT/WHT, แนบใบเสร็จ, เลขบัญชี', tag: null },
-                { n: 3, label: 'กด "ส่งอนุมัติ"', tag: 'draft → pending' },
-                { n: 4, label: 'ระหว่างรอ — ยกเลิกได้', tag: 'pending → cancelled' },
-                { n: 5, label: 'ถ้า admin ขอใบกำกับภาษี → upload', tag: 'waiting_tax_invoice → approved (auto)' },
-                { n: 6, label: 'ถ้าถูกปฏิเสธ → ดูเหตุผล + สร้างใบใหม่ (แก้ใบเก่าไม่ได้)', tag: null },
+                { n: 2, label: 'เลือก "แหล่งเงิน": เงินบริษัท หรือ เงินส่วนตัว (เบิกย้อนหลัง)', tag: 'funding_source' },
+                { n: 3, label: 'กรอก: หัวข้อ, หมวดหมู่, ยอด, VAT/WHT, แนบใบเสร็จ, เลขบัญชี', tag: null },
+                { n: 4, label: 'กด "ส่งอนุมัติ"', tag: 'draft → pending' },
+                { n: 5, label: 'ระหว่างรอ — ยกเลิกได้', tag: 'pending → cancelled' },
+                { n: 6, label: 'ถ้า admin ขอใบกำกับภาษี → แนบเป็นคู่ (ไฟล์ + เลขที่) ได้หลายใบ', tag: 'waiting_tax_invoice → approved (auto)' },
+                { n: 7, label: 'ถ้าถูกปฏิเสธ → ดูเหตุผล + สร้างใบใหม่ (แก้ใบเก่าไม่ได้)', tag: null },
               ]}
             />
 
@@ -450,6 +576,289 @@ export default function HowtoView() {
           </div>
         </div>
 
+        {/* ── Tax invoice (paired upload) ─────────────────────────── */}
+        <div id="finance-tax-invoice" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Receipt className="h-4 w-4" />}
+            title={isEn ? 'Tax invoice — paired upload' : 'ใบกำกับภาษี — แนบไฟล์คู่กับเลขที่'}
+          />
+          <div className="rounded-xl border-2 border-sky-200 dark:border-sky-900 bg-sky-50/40 dark:bg-sky-950/20 p-4 space-y-3">
+            <p className="text-xs text-sky-800 dark:text-sky-300 leading-relaxed">
+              {isEn
+                ? 'When admin requests a tax invoice (status: waiting_tax_invoice), the upload box on the claim page lets you add multiple invoices — each row pairs one file with its own invoice number.'
+                : 'เมื่อ admin ขอใบกำกับภาษี (สถานะ waiting_tax_invoice) ที่หน้าใบเบิกจะมีกล่องอัพโหลดที่เพิ่มได้หลายรายการ — แต่ละแถวคือใบกำกับ 1 ใบ พร้อมเลขที่ของตัวเอง'}
+            </p>
+
+            {/* Mock paired row */}
+            <div className="rounded-lg border border-sky-200 dark:border-sky-800 bg-white dark:bg-zinc-900 p-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-sky-600 dark:text-sky-400">
+                  {isEn ? 'Invoice #1' : 'ใบกำกับ #1'}
+                </span>
+                <X className="h-3.5 w-3.5 text-zinc-400" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 mb-1 flex items-center gap-1">
+                    <Hash className="h-2.5 w-2.5" />
+                    {isEn ? 'Tax Invoice Number' : 'เลขที่ใบกำกับภาษี'}
+                  </label>
+                  <div className="px-2.5 py-1.5 text-xs font-mono border border-sky-200 dark:border-sky-800 rounded-md bg-zinc-50 dark:bg-zinc-800 text-zinc-400">
+                    INV-2026-0001
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 mb-1 flex items-center gap-1">
+                    <Upload className="h-2.5 w-2.5" />
+                    {isEn ? 'Invoice File' : 'ไฟล์ใบกำกับภาษี'}
+                  </label>
+                  <div className="flex items-center gap-2 px-2 py-1.5 bg-sky-50 dark:bg-sky-950/40 rounded-md border border-sky-200 dark:border-sky-800">
+                    <FileText className="h-3 w-3 text-sky-500" />
+                    <span className="text-[11px] text-zinc-500">invoice-1.pdf</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <ul className="space-y-1.5 text-xs text-sky-900 dark:text-sky-200">
+              <li className="flex items-start gap-2">
+                <span className="text-sky-500">•</span>
+                <span>
+                  {isEn
+                    ? 'Click "+ Add another invoice" to add more rows — no limit.'
+                    : 'กด "+ เพิ่มใบกำกับภาษีอีก" เพื่อเพิ่มรายการ — ไม่จำกัดจำนวน'}
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-sky-500">•</span>
+                <span>
+                  {isEn
+                    ? 'You can have only a number, only a file, or both — at least one is required per row.'
+                    : 'จะมีเฉพาะเลขที่ หรือเฉพาะไฟล์ก็ได้ — แต่อย่างน้อยต้องกรอก 1 อย่างต่อแถว'}
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-sky-500">•</span>
+                <span>
+                  {isEn
+                    ? 'After save, status auto-transitions back to "approved" — admin can then mark paid.'
+                    : 'หลังบันทึก status จะเปลี่ยนกลับเป็น approved อัตโนมัติ — admin กดชำระเงินได้ต่อ'}
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-sky-500">•</span>
+                <span>
+                  {isEn
+                    ? 'To edit/remove invoice numbers later: open the claim → "Tax Invoices" section → click "Edit".'
+                    : 'แก้ไข/ลบเลขที่ภายหลัง: เปิดใบเบิก → ส่วน "ใบกำกับภาษี" → กดปุ่ม "แก้ไข"'}
+                </span>
+              </li>
+            </ul>
+
+            <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                {isEn
+                  ? 'Tax invoices are different from receipts. Use the "Receipts / Additional Documents" box (in Edit mode) for everything else — boarding passes, generic receipts, etc.'
+                  : 'ใบกำกับภาษี ≠ ใบเสร็จทั่วไป — ใบเสร็จ/เอกสารอื่น ใช้กล่อง "ใบเสร็จ / เอกสารเพิ่มเติม" ในโหมดแก้ไข แทน'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Document checklist ─────────────────────────────────── */}
+        <div id="finance-checklist" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ListChecks className="h-4 w-4" />}
+            title={isEn ? 'Document checklist — pre-accounting handover' : 'ตรวจเอกสารก่อนส่งสำนักงานบัญชี'}
+          />
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3">
+            {isEn
+              ? 'Every claim has a checklist panel showing whether all required documents are in. Use it to spot incomplete claims before sending to accounting.'
+              : 'ใบเบิกทุกใบมี panel checklist บอกว่าเอกสารครบหรือยัง — ใช้คัดกรองใบเบิกที่ยังไม่ครบก่อนส่งบัญชี'}
+          </p>
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Document' : 'เอกสาร'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'When required?' : 'ต้องมีเมื่อ?'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Counts as ✓ when' : 'นับ ✓ เมื่อ'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
+                <ChecklistRow
+                  emoji="📄"
+                  label={isEn ? 'Receipt' : 'ใบเสร็จ'}
+                  required={isEn ? 'Always (every claim)' : 'เสมอ (ทุกใบเบิก)'}
+                  passes={isEn ? '≥1 receipt file uploaded (or actual_receipt for advance)' : 'แนบไฟล์ใบเสร็จอย่างน้อย 1 ไฟล์ (หรือ actual_receipt สำหรับ advance)'}
+                />
+                <ChecklistRow
+                  emoji="🧾"
+                  label={isEn ? 'Tax invoice' : 'ใบกำกับภาษี'}
+                  required={isEn ? 'When status was waiting_tax_invoice OR a tax invoice was attached' : 'เมื่อสถานะเคยเป็น waiting_tax_invoice หรือเคยแนบใบกำกับ'}
+                  passes={isEn ? '≥1 file uploaded OR ≥1 invoice number entered' : 'แนบไฟล์อย่างน้อย 1 ไฟล์ หรือ มีเลขที่ใบกำกับอย่างน้อย 1 รายการ'}
+                />
+                <ChecklistRow
+                  emoji="🏦"
+                  label={isEn ? 'Refund slip' : 'สลิปคืนเงิน'}
+                  required={isEn ? 'Advance claims with refund > 0 only' : 'เฉพาะ advance ที่ refund > 0'}
+                  passes={isEn ? '≥1 refund slip uploaded' : 'แนบสลิปการโอนคืนอย่างน้อย 1 ไฟล์'}
+                />
+                <ChecklistRow
+                  emoji="✅"
+                  label={isEn ? 'Refund confirmed' : 'ยืนยันคืนเงินแล้ว'}
+                  required={isEn ? 'Advance claims with refund > 0 only' : 'เฉพาะ advance ที่ refund > 0'}
+                  passes={isEn ? 'Status = refund_confirmed (admin clicked "Confirm received")' : 'สถานะ refund_confirmed (admin กด "ยืนยันรับเงิน")'}
+                />
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-zinc-500">
+            {isEn
+              ? 'When all required boxes are ✓, the claim shows a green "READY" badge — safe to hand over to accounting. The audit report can filter to show only ready or only incomplete claims.'
+              : 'เมื่อทุกช่องที่จำเป็น ✓ ใบเบิกจะแสดง badge สีเขียว "พร้อมส่งบัญชี" — รายงานตรวจสอบ filter ให้เห็นเฉพาะที่พร้อม/ที่ยังไม่ครบได้'}
+          </p>
+        </div>
+
+        {/* ── Audit Report (/finance/overview) ────────────────────── */}
+        <div id="finance-report" className="scroll-mt-6">
+          <SectionHeader
+            icon={<FileSpreadsheet className="h-4 w-4" />}
+            title={isEn ? 'Audit Report — /finance/overview' : 'รายงานตรวจสอบ — /finance/overview'}
+          />
+          <div className="rounded-xl border-2 border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20 p-4 space-y-3">
+            <p className="text-xs text-emerald-900 dark:text-emerald-200 leading-relaxed">
+              {isEn
+                ? 'A table-style audit page used as a cover sheet before sending claims to accounting. Filter by date range and status, verify document checklist per row, then export.'
+                : 'หน้ารายงานตาราง ใช้เป็นใบปะหน้าตรวจเช็คก่อนส่งสำนักงานบัญชี — filter ช่วงวันที่ + สถานะ ตรวจ checklist รายแถว แล้ว export'}
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FeatureBlock
+                titleTh="📅 ช่วงเวลา (Range)"
+                titleEn="📅 Date range"
+                lines={isEn
+                  ? ['Today / 7 Days / Month / Year / Custom (date picker) / All']
+                  : ['วันนี้ / 7 วัน / เดือนนี้ / ปีนี้ / กำหนดเอง (เลือกวัน) / ทั้งหมด']}
+              />
+              <FeatureBlock
+                titleTh="🔍 ตัวกรอง"
+                titleEn="🔍 Filters"
+                lines={isEn
+                  ? [
+                      'Status (multi-select + "All Statuses")',
+                      'Type: event / other / advance',
+                      'Funding: company / personal',
+                      'Document status: ready / incomplete',
+                      'Category, search by claim no./name/tax invoice number',
+                    ]
+                  : [
+                      'สถานะ (เลือกหลายอันได้ + ปุ่ม "ทุกสถานะ")',
+                      'ประเภท: อีเวนต์ / อื่นๆ / ทดลองจ่าย',
+                      'แหล่งเงิน: บริษัท / ส่วนตัว',
+                      'เอกสาร: ครบ / ยังไม่ครบ',
+                      'หมวดหมู่ + ค้นหาตามเลขที่/ชื่อ/เลขใบกำกับ',
+                    ]}
+              />
+              <FeatureBlock
+                titleTh="📊 Summary cards"
+                titleEn="📊 Summary cards"
+                lines={isEn
+                  ? [
+                      'Total claims, total amount, net paid',
+                      'Ready vs incomplete count',
+                      'Personal-funded count',
+                    ]
+                  : [
+                      'จำนวนใบเบิก / ยอดรวม / จ่ายจริง',
+                      'พร้อมส่งบัญชี vs ยังไม่ครบ',
+                      'ที่ใช้เงินส่วนตัว',
+                    ]}
+              />
+              <FeatureBlock
+                titleTh="📥 Export"
+                titleEn="📥 Export"
+                lines={isEn
+                  ? [
+                      'Excel (.xlsx) — 18 columns including checklist',
+                      'PDF — printable cover sheet with summary + table',
+                    ]
+                  : [
+                      'Excel (.xlsx) — 18 คอลัมน์รวม checklist',
+                      'PDF — ใบปะหน้าพร้อม summary + ตาราง',
+                    ]}
+              />
+            </div>
+
+            <div className="flex items-start gap-2 p-2.5 bg-white dark:bg-zinc-900 border border-emerald-200 dark:border-emerald-900 rounded-lg">
+              <span className="text-base">💡</span>
+              <p className="text-[11px] text-emerald-900 dark:text-emerald-200">
+                {isEn
+                  ? 'Workflow: filter by month → set "Document status: incomplete" → fix the gaps → switch to "ready" → export Excel/PDF as the cover sheet.'
+                  : 'วิธีใช้: filter เดือน → ตั้ง "เอกสาร: ยังไม่ครบ" → ตามแก้ → สลับเป็น "ครบ" → export Excel/PDF เป็นใบปะหน้าส่งบัญชี'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── WHT 3% Summary (/finance/download) ──────────────────── */}
+        <div id="finance-wht" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Percent className="h-4 w-4" />}
+            title={isEn ? 'WHT 3% Summary — /finance/download' : 'สรุปหัก ณ ที่จ่าย — /finance/download'}
+          />
+          <div className="rounded-xl border-2 border-purple-200 dark:border-purple-900 bg-purple-50/40 dark:bg-purple-950/20 p-4 space-y-3">
+            <p className="text-xs text-purple-900 dark:text-purple-200 leading-relaxed">
+              {isEn
+                ? 'Per-person summary of withholding tax for issuing WHT certificates and filing ภ.ง.ด.3 / 53. Pulls national_id, address, and bank info from each user\'s profile.'
+                : 'สรุปหัก ณ ที่จ่าย รายบุคคล สำหรับออกหนังสือรับรองและยื่น ภ.ง.ด.3 / 53 — ดึงเลขบัตร ปชช. + ที่อยู่ + เลขบัญชีจากโปรไฟล์ผู้เบิก'}
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FeatureBlock
+                titleTh="📋 หัวคอลัมน์"
+                titleEn="📋 Columns"
+                lines={isEn
+                  ? [
+                      'Full name + nickname',
+                      'National ID + address',
+                      'Bank name + account no. + holder',
+                      'Count, gross, WHT 3%, net',
+                    ]
+                  : [
+                      'ชื่อ-สกุล + ชื่อเล่น',
+                      'เลขบัตรประชาชน + ที่อยู่',
+                      'ธนาคาร + เลขบัญชี + ชื่อบัญชี',
+                      'จำนวนรายการ / ยอดรวม / หัก 3% / จ่ายจริง',
+                    ]}
+              />
+              <FeatureBlock
+                titleTh="🎯 ใช้งานเมื่อ"
+                titleEn="🎯 When to use"
+                lines={isEn
+                  ? [
+                      'Month-end: export WHT for accounting filing',
+                      'Issuing WHT certificates to staff/freelancers',
+                      'Quick filter: status (paid/approved/...) + month',
+                    ]
+                  : [
+                      'สิ้นเดือน — export ส่งสำนักงานบัญชี',
+                      'ออกหนังสือรับรองหัก ณ ที่จ่ายให้พนักงาน/freelancer',
+                      'Filter: สถานะ + เดือน',
+                    ]}
+              />
+            </div>
+            <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                {isEn
+                  ? 'Only includes claims with WHT > 0%. If the page is empty, no claim in the filter has withholding tax applied.'
+                  : 'แสดงเฉพาะใบเบิกที่ตั้งค่าหัก ณ ที่จ่าย > 0% เท่านั้น — ถ้าว่าง = ไม่มีใบเบิกที่หัก ในช่วงที่เลือก'}
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* ── Status reference ────────────────────────────────────── */}
         <div id="finance-status" className="scroll-mt-6">
           <SectionHeader
@@ -534,13 +943,13 @@ export default function HowtoView() {
             title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <MenuLink href="/finance"           labelEn="All claims + stats"    labelTh="รายการใบเบิก + สถิติ" />
-            <MenuLink href="/finance/new"        labelEn="Create new claim"     labelTh="สร้างใบเบิกใหม่" />
-            <MenuLink href="/finance/payouts"    labelEn="Payout queue (admin)" labelTh="คิวรอจ่ายเงิน (admin)" />
-            <MenuLink href="/finance/archive"    labelEn="Archive (closed)"     labelTh="คลังใบเบิกปิดเคส" />
-            <MenuLink href="/finance/overview"   labelEn="Monthly stats"        labelTh="สถิติรายเดือน" />
-            <MenuLink href="/finance/download"   labelEn="Export Excel/CSV"     labelTh="Export Excel/CSV" />
-            <MenuLink href="/finance/settings"   labelEn="Category settings (admin)" labelTh="ตั้งค่าหมวดหมู่ (admin)" />
+            <MenuLink href="/finance"           labelEn="All claims + checklist badges" labelTh="รายการใบเบิก + checklist" />
+            <MenuLink href="/finance/new"        labelEn="Create new claim"             labelTh="สร้างใบเบิกใหม่" />
+            <MenuLink href="/finance/overview"   labelEn="Audit Report (cover sheet)"   labelTh="รายงานตรวจสอบ (ใบปะหน้า)" />
+            <MenuLink href="/finance/payouts"    labelEn="Payout queue (admin)"         labelTh="คิวรอจ่ายเงิน (admin)" />
+            <MenuLink href="/finance/archive"    labelEn="Archive (closed)"             labelTh="คลังใบเบิกปิดเคส" />
+            <MenuLink href="/finance/download"   labelEn="WHT 3% per-person summary"    labelTh="สรุปหัก ณ ที่จ่ายรายบุคคล" />
+            <MenuLink href="/finance/settings"   labelEn="Category settings (admin)"    labelTh="ตั้งค่าหมวดหมู่ (admin)" />
           </div>
         </div>
 
@@ -744,6 +1153,72 @@ function NotifRow({
           <ArrowRight className="inline h-2.5 w-2.5" /> {isEn ? toEn : toTh}
         </p>
       </div>
+    </div>
+  )
+}
+
+function NewItem({
+  icon, titleTh, titleEn, descTh, descEn, isEn,
+}: {
+  icon: React.ReactNode
+  titleTh: string
+  titleEn: string
+  descTh: string
+  descEn: string
+  isEn: boolean
+}) {
+  return (
+    <li className="flex items-start gap-2.5 p-2.5 rounded-lg bg-white/70 dark:bg-zinc-900/70 border border-emerald-200/60 dark:border-emerald-900/40">
+      <span className="flex items-center justify-center h-6 w-6 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5">
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+          {isEn ? titleEn : titleTh}
+        </p>
+        <p className="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug mt-0.5">
+          {isEn ? descEn : descTh}
+        </p>
+      </div>
+    </li>
+  )
+}
+
+function ChecklistRow({
+  emoji, label, required, passes,
+}: { emoji: string; label: string; required: string; passes: string }) {
+  return (
+    <tr className="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/30">
+      <td className="px-3 py-2.5 align-top">
+        <span className="inline-flex items-center gap-2 text-zinc-800 dark:text-zinc-200 font-medium">
+          <span className="text-base">{emoji}</span>
+          {label}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{required}</td>
+      <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{passes}</td>
+    </tr>
+  )
+}
+
+function FeatureBlock({
+  titleTh, titleEn, lines,
+}: { titleTh: string; titleEn: string; lines: string[] }) {
+  const { locale } = useLocale()
+  const isEn = locale === 'en'
+  return (
+    <div className="rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3">
+      <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 mb-2">
+        {isEn ? titleEn : titleTh}
+      </p>
+      <ul className="space-y-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+        {lines.map((l, i) => (
+          <li key={i} className="flex items-start gap-1.5">
+            <span className="text-zinc-300 mt-0.5">•</span>
+            <span>{l}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

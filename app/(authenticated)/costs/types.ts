@@ -134,6 +134,9 @@ export interface ExpenseClaim {
   withholding_tax_rate: number
   receipt_urls: string[]
   tax_invoice_urls: string[] | null
+  tax_invoice_numbers: string[] | null
+  /** แหล่งเงินที่ใช้เบิก: 'company' = เงินบริษัท (default), 'personal' = ผู้เบิกออกเงินส่วนตัวก่อนแล้วเบิกย้อนหลัง */
+  funding_source: 'company' | 'personal'
   // Advance (ทดลองจ่าย) settlement fields — only used when claim_type = 'advance'
   actual_spent_amount: number | null
   actual_spent_items: { description: string; amount: number }[] | null
@@ -195,4 +198,81 @@ export function getClaimStatusLabel(status: string, locale: 'th' | 'en' = 'th') 
 
 export function getClaimStatusColor(status: string) {
   return CLAIM_STATUSES.find(c => c.value === status)?.color || '#6b7280'
+}
+
+// ============================================================================
+// Funding source (แหล่งเงินที่ใช้เบิก)
+// ============================================================================
+
+export const FUNDING_SOURCES = [
+  { value: 'company',  label: 'Company Money',  labelTh: 'เงินบริษัท',     color: '#0ea5e9', descriptionTh: 'เบิกจากเงินบริษัทตามปกติ' },
+  { value: 'personal', label: 'Personal Money', labelTh: 'เงินส่วนตัว',    color: '#f59e0b', descriptionTh: 'ออกเงินส่วนตัวก่อน เบิกคืนย้อนหลัง' },
+] as const
+
+export type FundingSource = typeof FUNDING_SOURCES[number]['value']
+
+export function getFundingSourceLabel(value: string | null | undefined, locale: 'th' | 'en' = 'th') {
+  const v = value || 'company'
+  const f = FUNDING_SOURCES.find(s => s.value === v)
+  return locale === 'th' ? (f?.labelTh || v) : (f?.label || v)
+}
+
+export function getFundingSourceColor(value: string | null | undefined) {
+  const v = value || 'company'
+  return FUNDING_SOURCES.find(s => s.value === v)?.color || '#0ea5e9'
+}
+
+// ============================================================================
+// Document checklist — สรุปสถานะเอกสารของใบเบิกหนึ่งใบ
+//
+// ใช้สำหรับแสดง badge ในหน้ารายการ + checklist ในหน้ารายงาน/ตรวจสอบ
+// ก่อนส่งสำนักงานบัญชี
+// ============================================================================
+
+export interface ClaimChecklist {
+  /** ใบเสร็จ — แนบครบ (อย่างน้อย 1 ไฟล์) */
+  hasReceipt: boolean
+  /** ใบกำกับภาษี — แนบครบ (มีไฟล์อย่างน้อย 1 หรือมีเลขที่ใบกำกับ) */
+  hasTaxInvoice: boolean
+  /** ต้องการใบกำกับภาษีหรือไม่ — มีกรณีเดียวคือสถานะ waiting_tax_invoice หรือเคยขอแล้ว */
+  taxInvoiceRequired: boolean
+  /** เฉพาะ advance: ต้องคืนเงินบริษัทหรือไม่ */
+  refundRequired: boolean
+  /** เฉพาะ advance: แนบสลิปคืนเงินแล้ว */
+  hasRefundSlip: boolean
+  /** เฉพาะ advance: admin ยืนยันรับเงินคืนแล้ว */
+  refundConfirmed: boolean
+  /** เอกสารครบทุกอย่าง พร้อมส่งสำนักงานบัญชี */
+  isComplete: boolean
+}
+
+/** สรุปสถานะเอกสารของใบเบิก ใช้กับ list/report/detail */
+export function getClaimChecklist(claim: ExpenseClaim): ClaimChecklist {
+  const hasReceipt = (claim.receipt_urls?.length ?? 0) > 0
+    || (claim.actual_receipt_urls?.length ?? 0) > 0
+  const hasTaxInvoiceFiles = (claim.tax_invoice_urls?.length ?? 0) > 0
+  const hasTaxInvoiceNumbers = (claim.tax_invoice_numbers?.length ?? 0) > 0
+  const hasTaxInvoice = hasTaxInvoiceFiles || hasTaxInvoiceNumbers
+  const taxInvoiceRequired =
+    claim.status === 'waiting_tax_invoice' || hasTaxInvoiceFiles || hasTaxInvoiceNumbers
+
+  const isAdvance = claim.claim_type === 'advance'
+  const refundAmount = Number(claim.refund_amount) || 0
+  const refundRequired = isAdvance && refundAmount > 0
+  const hasRefundSlip = (claim.refund_slip_urls?.length ?? 0) > 0
+  const refundConfirmed = claim.status === 'refund_confirmed' || !!claim.refund_confirmed_at
+
+  let isComplete = hasReceipt
+  if (taxInvoiceRequired) isComplete = isComplete && hasTaxInvoice
+  if (refundRequired) isComplete = isComplete && hasRefundSlip && refundConfirmed
+
+  return {
+    hasReceipt,
+    hasTaxInvoice,
+    taxInvoiceRequired,
+    refundRequired,
+    hasRefundSlip,
+    refundConfirmed,
+    isComplete,
+  }
 }

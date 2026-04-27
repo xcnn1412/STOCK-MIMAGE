@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef, useActionState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon, Wallet, Info } from 'lucide-react'
+import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon, Wallet, Info, Building2, User as UserIcon } from 'lucide-react'
 import { createClaim } from '../actions'
-import { CLAIM_TYPES } from '../../costs/types'
+import { CLAIM_TYPES, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
 import BankSelect from '@/components/bank-select'
@@ -52,6 +52,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const isEn = locale === 'en'
   const [claimType, setClaimType] = useState<'event' | 'other' | 'advance'>('event')
   const isAdvance = claimType === 'advance'
+  const [fundingSource, setFundingSource] = useState<FundingSource>('company')
+  const isPersonalFunded = fundingSource === 'personal'
   const [selectedCategory, setSelectedCategory] = useState(categories[0]?.value || 'staff')
   const [receiptFiles, setReceiptFiles] = useState<File[]>([])
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
@@ -183,6 +185,69 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             })}
           </div>
           <input type="hidden" name="claim_type" value={claimType} />
+
+          {/* Funding Source — เงินบริษัท / เงินส่วนตัว */}
+          {!isAdvance && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                {isEn ? 'Funding Source' : 'แหล่งเงินที่ใช้เบิก'} *
+                <span className="text-[11px] text-zinc-400 font-normal ml-2">
+                  {isEn ? '— who paid the bill?' : '— ใครออกเงินก่อน?'}
+                </span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {FUNDING_SOURCES.map(s => {
+                  const isActive = fundingSource === s.value
+                  const Icon = s.value === 'personal' ? UserIcon : Building2
+                  return (
+                    <button
+                      key={s.value}
+                      type="button"
+                      onClick={() => setFundingSource(s.value as FundingSource)}
+                      className={`flex items-start gap-3 p-3.5 rounded-xl border-2 text-left transition-all ${
+                        isActive
+                          ? s.value === 'personal'
+                            ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/20'
+                            : 'border-sky-500 bg-sky-50 dark:bg-sky-950/20'
+                          : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300'
+                      }`}
+                    >
+                      <div className={`flex items-center justify-center h-8 w-8 rounded-lg shrink-0 ${
+                        s.value === 'personal'
+                          ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400'
+                          : 'bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400'
+                      }`}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                          {isEn ? s.label : s.labelTh}
+                        </p>
+                        <p className="text-[11px] text-zinc-500 mt-0.5">
+                          {s.value === 'personal'
+                            ? (isEn ? 'I paid first, claim back later' : 'ออกเงินส่วนตัวก่อน เบิกคืนย้อนหลัง')
+                            : (isEn ? 'Company pays directly' : 'เบิกจากเงินบริษัทตามปกติ')}
+                        </p>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+              <input type="hidden" name="funding_source" value={fundingSource} />
+              {isPersonalFunded && (
+                <div className="mt-3 flex items-start gap-2.5 p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <Info className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    {isEn
+                      ? 'You paid out of pocket. The company will reimburse you once approved.'
+                      : 'คุณออกเงินส่วนตัวไปก่อน บริษัทจะโอนคืนให้หลังอนุมัติ'}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          {/* Advance type defaults to company funding */}
+          {isAdvance && <input type="hidden" name="funding_source" value="company" />}
 
           {/* Advance workflow info banner */}
           {isAdvance && (

@@ -3,10 +3,10 @@
 import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw } from 'lucide-react'
+import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, FileText, Hash, Receipt, User as UserIcon, Building2 } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
-import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../costs/types'
+import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getClaimChecklist, getFundingSourceColor, getFundingSourceLabel } from '../costs/types'
 import type { FinanceCategory } from './settings-actions'
 import { cancelClaim } from './actions'
 
@@ -28,6 +28,34 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 }
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+function DocBadge({
+  ok,
+  labelTh,
+  labelEn,
+  Icon,
+}: {
+  ok: boolean
+  labelTh: string
+  labelEn: string
+  Icon: typeof Clock
+}) {
+  // We don't have access to locale here; use both labels as a tooltip and Thai by default
+  return (
+    <span
+      title={ok ? `${labelTh} ครบ` : `${labelTh} ยังไม่ครบ`}
+      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-semibold ${
+        ok
+          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60'
+          : 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400 border border-red-200/60 dark:border-red-800/60'
+      }`}
+    >
+      <Icon className="h-2.5 w-2.5" />
+      {labelTh}
+      {ok ? ' ✓' : ' ✗'}
+    </span>
+  )
+}
 
 const statusIcons: Record<string, typeof Clock> = {
   draft:             FileEdit,
@@ -264,11 +292,18 @@ export default function ClaimsListView({
           {filtered.map(claim => {
             const StatusIcon = statusIcons[claim.status] || Clock
             const statusColor = getClaimStatusColor(claim.status)
+            const ck = getClaimChecklist(claim)
+            const fundingColor = getFundingSourceColor(claim.funding_source)
+            const isPersonal = claim.funding_source === 'personal'
             return (
               <Link
                 key={claim.id}
                 href={`/finance/${claim.id}`}
-                className="flex items-center justify-between p-4 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-emerald-300 dark:hover:border-emerald-800 transition-colors group"
+                className={`flex items-center justify-between p-4 bg-white dark:bg-zinc-900 rounded-xl border transition-colors group ${
+                  ck.isComplete
+                    ? 'border-zinc-200 dark:border-zinc-800 hover:border-emerald-300'
+                    : 'border-zinc-200 dark:border-zinc-800 hover:border-amber-300'
+                }`}
               >
                 <div className="flex items-center gap-4 min-w-0">
                   <div
@@ -278,13 +313,22 @@ export default function ClaimsListView({
                     <StatusIcon className="h-5 w-5" style={{ color: statusColor }} />
                   </div>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-mono text-zinc-400">{claim.claim_number}</span>
                       <span
                         className="px-2 py-0.5 rounded-full text-[10px] font-semibold text-white"
                         style={{ backgroundColor: statusColor }}
                       >
                         {getClaimStatusLabel(claim.status, locale)}
+                      </span>
+                      {/* Funding source badge */}
+                      <span
+                        className="px-2 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1"
+                        style={{ backgroundColor: `${fundingColor}1a`, color: fundingColor }}
+                        title={isEn ? 'Funding source' : 'แหล่งเงิน'}
+                      >
+                        {isPersonal ? <UserIcon className="h-2.5 w-2.5" /> : <Building2 className="h-2.5 w-2.5" />}
+                        {getFundingSourceLabel(claim.funding_source, locale)}
                       </span>
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium inline-flex items-center gap-1 ${
                         claim.claim_type === 'advance'
@@ -312,6 +356,31 @@ export default function ClaimsListView({
                       {claim.submitter?.full_name || '—'} • {new Date(claim.expense_date).toLocaleDateString('th-TH')}
                       {(claim.job_event as any)?.event_name && ` • ${(claim.job_event as any).event_name}`}
                     </p>
+                    {/* Document checklist mini badges */}
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      <DocBadge
+                        ok={ck.hasReceipt}
+                        labelTh="ใบเสร็จ"
+                        labelEn="Receipt"
+                        Icon={FileText}
+                      />
+                      {ck.taxInvoiceRequired && (
+                        <DocBadge
+                          ok={ck.hasTaxInvoice}
+                          labelTh="ใบกำกับ"
+                          labelEn="Tax Inv."
+                          Icon={Hash}
+                        />
+                      )}
+                      {ck.refundRequired && (
+                        <DocBadge
+                          ok={ck.hasRefundSlip && ck.refundConfirmed}
+                          labelTh="คืนเงิน"
+                          labelEn="Refund"
+                          Icon={RefreshCw}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 ml-4">

@@ -7,8 +7,8 @@ import { createServiceClient } from '@/lib/supabase-server'
 export const revalidate = 0
 
 export const metadata = {
-  title: 'ดาวน์โหลดรายงาน — Finance',
-  description: 'ส่งออกข้อมูลใบเบิก .xlsx / .pdf สำหรับสำนักงานบัญชี',
+  title: 'หัก ณ ที่จ่าย 3% — Finance',
+  description: 'สรุปหัก ณ ที่จ่ายรายบุคคล สำหรับออกหนังสือรับรองและยื่น ภ.ง.ด.3 / 53',
 }
 
 export default async function DownloadPage() {

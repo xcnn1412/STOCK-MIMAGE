@@ -1,15 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
   Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
   Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert,
-  Wallet, RefreshCw, Plus
+  Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived } from '../actions'
-import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES } from '../../costs/types'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries } from '../actions'
+import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES, getClaimChecklist, getFundingSourceLabel, getFundingSourceColor, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../../costs/types'
@@ -65,7 +65,36 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [overrideStatus, setOverrideStatus] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
   const [editReceiptFiles, setEditReceiptFiles] = useState<File[]>([])
-  const [taxInvoiceFiles, setTaxInvoiceFiles] = useState<File[]>([])
+
+  /**
+   * Tax invoice upload — each entry is one tax invoice document with its own
+   * file (optional) + number (optional). At least one of the two must be set.
+   * Submitted as parallel arrays in FormData to keep alignment server-side.
+   */
+  type TaxInvoiceUploadRow = { id: number; file: File | null; number: string }
+  const [taxInvoiceRows, setTaxInvoiceRows] = useState<TaxInvoiceUploadRow[]>([
+    { id: 0, file: null, number: '' },
+  ])
+  const taxInvoiceRowIdRef = useRef(1)
+  const nextTaxInvoiceRowId = () => taxInvoiceRowIdRef.current++
+
+  /**
+   * Existing tax invoice entries (paired by index between tax_invoice_urls and
+   * tax_invoice_numbers). Used by the inline edit panel.
+   */
+  type ExistingTaxEntry = { url: string; number: string }
+  const buildExistingEntries = (): ExistingTaxEntry[] => {
+    const urls = claim.tax_invoice_urls || []
+    const numbers = claim.tax_invoice_numbers || []
+    const len = Math.max(urls.length, numbers.length)
+    const out: ExistingTaxEntry[] = []
+    for (let i = 0; i < len; i++) {
+      out.push({ url: urls[i] || '', number: numbers[i] || '' })
+    }
+    return out
+  }
+  const [editTaxEntries, setEditTaxEntries] = useState<ExistingTaxEntry[]>(buildExistingEntries())
+  const [editingTaxEntries, setEditingTaxEntries] = useState(false)
 
   // Advance settlement state (ทดลองจ่าย)
   type SpentItem = { description: string; amount: string }
@@ -100,6 +129,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [editAccountHolder, setEditAccountHolder] = useState(claim.account_holder_name || '')
   const [editClaimType, setEditClaimType] = useState<'event' | 'other'>(claim.claim_type as 'event' | 'other' || 'other')
   const [editEventId, setEditEventId] = useState(claim.job_event_id || '')
+  const [editFundingSource, setEditFundingSource] = useState<FundingSource>((claim.funding_source as FundingSource) || 'company')
 
   const isAdmin = role === 'admin'
   const isOwner = claim.submitted_by === userId
@@ -217,17 +247,47 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleUploadTaxInvoice = async () => {
-    if (taxInvoiceFiles.length === 0) { setError(isEn ? 'Please select at least one file.' : 'กรุณาเลือกไฟล์ก่อนอัพโหลด'); return }
+    const validRows = taxInvoiceRows.filter(r => r.file || r.number.trim())
+    if (validRows.length === 0) {
+      setError(isEn
+        ? 'Please add at least one tax invoice (file or number).'
+        : 'กรุณาเพิ่มใบกำกับภาษีอย่างน้อย 1 รายการ (แนบไฟล์หรือกรอกเลขที่)')
+      return
+    }
     setLoading(true)
     setError(null)
     const formData = new FormData()
-    for (const f of taxInvoiceFiles) {
-      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-      formData.append('tax_invoice_files', compressed)
+    // Append files and numbers in matching order — server pairs them by index.
+    for (const row of validRows) {
+      if (row.file) {
+        const compressed = row.file.type.startsWith('image/')
+          ? await compressImage(row.file)
+          : row.file
+        formData.append('tax_invoice_files', compressed)
+      } else {
+        // Empty Blob preserves index alignment when there's only a number.
+        formData.append('tax_invoice_files', new Blob([]), '')
+      }
+      formData.append('tax_invoice_numbers', row.number.trim())
     }
     const result = await uploadTaxInvoice(claim.id, formData)
     if (result.error) { setError(result.error); setLoading(false) }
-    else { setTaxInvoiceFiles([]); router.refresh(); setLoading(false) }
+    else {
+      setTaxInvoiceRows([{ id: nextTaxInvoiceRowId(), file: null, number: '' }])
+      router.refresh()
+      setLoading(false)
+    }
+  }
+
+  const handleSaveTaxEntries = async () => {
+    setLoading(true)
+    setError(null)
+    const result = await setTaxInvoiceEntries(
+      claim.id,
+      editTaxEntries.map(e => ({ url: e.url, number: e.number })),
+    )
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { setEditingTaxEntries(false); router.refresh(); setLoading(false) }
   }
 
   const handleSettleAdvance = async () => {
@@ -313,6 +373,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       account_holder_name: editAccountHolder || null,
       claim_type: editClaimType,
       job_event_id: editClaimType === 'event' ? editEventId || null : null,
+      funding_source: editFundingSource,
     }, receiptFormData)
     if (result.error) { setError(result.error); setLoading(false) }
     else { setEditing(false); setEditReceiptFiles([]); router.refresh(); setLoading(false) }
@@ -336,6 +397,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     setEditReceiptFiles([])
     setEditClaimType(claim.claim_type as 'event' | 'other' || 'other')
     setEditEventId(claim.job_event_id || '')
+    setEditFundingSource((claim.funding_source as FundingSource) || 'company')
   }
 
 
@@ -376,6 +438,112 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
         <div className="mb-4 p-4 bg-red-50 dark:bg-red-950/20 rounded-xl text-red-600 text-sm">{error}</div>
       )}
 
+      {/* Document Checklist Panel — pre-accounting handover */}
+      {(() => {
+        const ck = getClaimChecklist(claim)
+        const items: { key: string; labelTh: string; labelEn: string; done: boolean; required: boolean; note?: string }[] = [
+          {
+            key: 'receipt',
+            labelTh: 'แนบใบเสร็จ/เอกสาร',
+            labelEn: 'Receipt attached',
+            done: ck.hasReceipt,
+            required: true,
+            note: claim.claim_type === 'advance'
+              ? (isEn ? 'Receipt OR settlement receipts' : 'ใบเสร็จเดิม หรือใบเสร็จตอน settle')
+              : undefined,
+          },
+          {
+            key: 'tax_invoice',
+            labelTh: 'ใบกำกับภาษี (ไฟล์/เลขที่)',
+            labelEn: 'Tax invoice (file/number)',
+            done: ck.hasTaxInvoice,
+            required: ck.taxInvoiceRequired,
+          },
+        ]
+        if (ck.refundRequired) {
+          items.push({
+            key: 'refund_slip',
+            labelTh: 'สลิปโอนเงินคืนบริษัท',
+            labelEn: 'Refund slip uploaded',
+            done: ck.hasRefundSlip,
+            required: true,
+          })
+          items.push({
+            key: 'refund_confirmed',
+            labelTh: 'ยืนยันรับเงินคืนแล้ว',
+            labelEn: 'Refund confirmed by admin',
+            done: ck.refundConfirmed,
+            required: true,
+          })
+        }
+
+        return (
+          <div className={`mb-4 rounded-xl border overflow-hidden ${
+            ck.isComplete
+              ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20'
+              : 'border-amber-200 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-950/20'
+          }`}>
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-current/10">
+              <div className="flex items-center gap-2">
+                <ListChecks className={`h-4 w-4 ${ck.isComplete ? 'text-emerald-600' : 'text-amber-600'}`} />
+                <p className={`text-xs font-bold ${
+                  ck.isComplete
+                    ? 'text-emerald-700 dark:text-emerald-300'
+                    : 'text-amber-700 dark:text-amber-300'
+                }`}>
+                  {isEn ? 'Document Checklist' : 'รายการเอกสารต้องตรวจ'}
+                </p>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                ck.isComplete
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-amber-500 text-white'
+              }`}>
+                {ck.isComplete
+                  ? (isEn ? 'READY' : 'พร้อมส่งบัญชี')
+                  : (isEn ? 'INCOMPLETE' : 'ยังไม่ครบ')}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3">
+              {items.map(it => (
+                <div
+                  key={it.key}
+                  className={`flex items-start gap-2 p-2 rounded-lg ${
+                    it.done
+                      ? 'bg-emerald-100/50 dark:bg-emerald-900/20'
+                      : it.required
+                        ? 'bg-red-50 dark:bg-red-950/20'
+                        : 'bg-zinc-50 dark:bg-zinc-800/40'
+                  }`}
+                >
+                  {it.done ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : it.required ? (
+                    <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                  ) : (
+                    <Clock className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
+                  )}
+                  <div className="min-w-0">
+                    <p className={`text-xs font-medium ${
+                      it.done
+                        ? 'text-emerald-700 dark:text-emerald-300'
+                        : it.required
+                          ? 'text-red-700 dark:text-red-400'
+                          : 'text-zinc-500'
+                    }`}>
+                      {isEn ? it.labelEn : it.labelTh}
+                    </p>
+                    {it.note && (
+                      <p className="text-[10px] text-zinc-400 mt-0.5">{it.note}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Main Card */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden print:border-none print:shadow-none">
         {/* Status Banner */}
@@ -389,11 +557,29 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             {claim.status === 'rejected' && <XCircle className="h-5 w-5" style={{ color: statusColor }} />}
             {claim.status === 'cancelled' && <Ban className="h-5 w-5" style={{ color: statusColor }} />}
             <div>
-              <span className="text-sm font-semibold" style={{ color: statusColor }}>
-                {getClaimStatusLabel(claim.status, locale)}
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold" style={{ color: statusColor }}>
+                  {getClaimStatusLabel(claim.status, locale)}
+                </span>
+                {/* Funding source badge */}
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                  style={{
+                    backgroundColor: `${getFundingSourceColor(claim.funding_source)}20`,
+                    color: getFundingSourceColor(claim.funding_source),
+                  }}
+                  title={isEn ? 'Funding source' : 'แหล่งเงินที่ใช้เบิก'}
+                >
+                  {claim.funding_source === 'personal' ? (
+                    <User className="h-2.5 w-2.5" />
+                  ) : (
+                    <Building2 className="h-2.5 w-2.5" />
+                  )}
+                  {getFundingSourceLabel(claim.funding_source, locale)}
+                </span>
+              </div>
               {claim.approver && (
-                <span className="text-xs text-zinc-500 ml-2">
+                <span className="text-xs text-zinc-500 mt-0.5 block">
                   {isEn ? 'by' : 'โดย'} {claim.approver.full_name}
                   {claim.approved_at && ` • ${new Date(claim.approved_at).toLocaleDateString('th-TH')}`}
                 </span>
@@ -461,6 +647,38 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   </div>
                 )}
               </div>
+
+              {/* Funding Source — เงินบริษัท / เงินส่วนตัว */}
+              {!isAdvance && (
+                <div>
+                  <label className="text-xs font-medium text-zinc-500 mb-1.5 block">
+                    {isEn ? 'Funding Source' : 'แหล่งเงินที่ใช้เบิก'}
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {FUNDING_SOURCES.map(s => {
+                      const isActive = editFundingSource === s.value
+                      const Icon = s.value === 'personal' ? User : Building2
+                      return (
+                        <button
+                          key={s.value}
+                          type="button"
+                          onClick={() => setEditFundingSource(s.value as FundingSource)}
+                          className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm transition-all ${
+                            isActive
+                              ? s.value === 'personal'
+                                ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300'
+                                : 'border-sky-500 bg-sky-50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-300'
+                              : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                          }`}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                          <span className="font-medium">{isEn ? s.label : s.labelTh}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="text-xs font-medium text-zinc-500 mb-1 block">{isEn ? 'Category' : 'หมวด'}</label>
@@ -580,18 +798,25 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 </div>
               </div>
 
-              {/* Receipt Upload in Edit Mode */}
-              <div>
-                <label className="text-xs font-medium text-zinc-500 mb-1.5 flex items-center gap-1.5 block">
-                  <Upload className="h-3.5 w-3.5" />
-                  {isEn ? 'Upload Receipts' : 'อัพโหลดเอกสารเพิ่มเติม'}
-                </label>
-                {claim.receipt_urls && claim.receipt_urls.length > 0 && (
-                  <p className="text-xs text-zinc-400 mb-2">
-                    {isEn ? `${claim.receipt_urls.length} existing file(s)` : `มีเอกสารเดิม ${claim.receipt_urls.length} ไฟล์`}
-                  </p>
-                )}
-                <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-3 text-center hover:border-emerald-400 transition-colors">
+              {/* Additional Documents (NOT tax invoice) Upload in Edit Mode */}
+              <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-emerald-500" />
+                    {isEn ? 'Receipts / Additional Documents' : 'ใบเสร็จ / เอกสารเพิ่มเติม'}
+                  </label>
+                  {claim.receipt_urls && claim.receipt_urls.length > 0 && (
+                    <span className="text-[10px] text-zinc-400">
+                      {isEn ? `${claim.receipt_urls.length} existing` : `มีอยู่ ${claim.receipt_urls.length} ไฟล์`}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-zinc-500 mb-2 italic">
+                  {isEn
+                    ? 'For tax invoices, use the dedicated tax invoice section (only available when status is "Waiting Tax Invoice").'
+                    : 'สำหรับใบกำกับภาษี ใช้ส่วน "แนบใบกำกับภาษี" โดยเฉพาะ (เปิดเมื่อสถานะ "รอใบกำกับภาษี")'}
+                </p>
+                <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-3 text-center hover:border-emerald-400 transition-colors bg-white dark:bg-zinc-900">
                   <input
                     type="file"
                     accept="image/*,application/pdf"
@@ -603,7 +828,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   <label htmlFor="edit-receipt-upload" className="cursor-pointer">
                     <Upload className="h-6 w-6 mx-auto text-zinc-400 mb-1" />
                     <p className="text-xs text-zinc-500">
-                      {isEn ? 'Click to upload' : 'คลิกเพื่ออัพโหลด'}
+                      {isEn ? 'Click to add receipts or other documents' : 'คลิกเพื่อแนบใบเสร็จหรือเอกสารอื่น ๆ'}
                     </p>
                   </label>
                 </div>
@@ -1042,43 +1267,168 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 </div>
               )}
 
-              {/* Tax Invoice Documents */}
-              {claim.tax_invoice_urls && claim.tax_invoice_urls.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1.5 mb-3">
-                    <Receipt className="h-3.5 w-3.5" />
-                    {isEn ? 'Tax Invoice Documents' : 'ใบกำกับภาษี'} ({claim.tax_invoice_urls.length})
-                  </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {claim.tax_invoice_urls.map((url, i) => {
-                      const isPdf = url.toLowerCase().endsWith('.pdf')
-                      return (
-                        <a
-                          key={i}
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="group relative block rounded-lg border border-sky-200 dark:border-sky-800 overflow-hidden hover:border-sky-400 hover:shadow-md transition-all aspect-[4/3] bg-sky-50 dark:bg-sky-950/20"
+              {/* Tax Invoice Entries — file + number paired by index */}
+              {(() => {
+                const urls = claim.tax_invoice_urls || []
+                const numbers = claim.tax_invoice_numbers || []
+                const total = Math.max(urls.length, numbers.length)
+                const showSection = total > 0 || isOwner || isAdmin
+                if (!showSection) return null
+
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1.5">
+                        <Receipt className="h-3.5 w-3.5" />
+                        {isEn ? 'Tax Invoices' : 'ใบกำกับภาษี'}
+                        {total > 0 && (
+                          <span className="text-zinc-400 font-normal">({total})</span>
+                        )}
+                      </p>
+                      {total > 0 && (isOwner || isAdmin) && !editingTaxEntries && (
+                        <button
+                          onClick={() => { setEditTaxEntries(buildExistingEntries()); setEditingTaxEntries(true) }}
+                          className="text-[11px] text-sky-600 hover:text-sky-700 font-medium flex items-center gap-1"
                         >
-                          {isPdf ? (
-                            <div className="flex flex-col items-center justify-center h-full gap-2 text-sky-400">
-                              <FileText className="h-10 w-10" />
-                              <span className="text-xs">PDF</span>
+                          <Edit3 className="h-3 w-3" />
+                          {isEn ? 'Edit' : 'แก้ไข'}
+                        </button>
+                      )}
+                    </div>
+
+                    {total === 0 && !editingTaxEntries ? (
+                      <p className="text-xs text-zinc-400 italic">
+                        {isEn ? 'No tax invoices yet' : 'ยังไม่มีใบกำกับภาษี'}
+                      </p>
+                    ) : !editingTaxEntries ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {Array.from({ length: total }).map((_, i) => {
+                          const url = urls[i] || ''
+                          const number = numbers[i] || ''
+                          const isPdf = url.toLowerCase().endsWith('.pdf')
+                          return (
+                            <div
+                              key={i}
+                              className="rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50/50 dark:bg-sky-950/20 p-2.5"
+                            >
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="text-[10px] font-bold text-sky-600 dark:text-sky-400">
+                                  #{i + 1}
+                                </span>
+                                {number ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-100 dark:bg-sky-900/30 text-[11px] font-mono text-sky-700 dark:text-sky-300">
+                                    <Hash className="h-2.5 w-2.5" />
+                                    {number}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-zinc-400 italic">
+                                    {isEn ? 'no number' : 'ไม่มีเลขที่'}
+                                  </span>
+                                )}
+                              </div>
+                              {url ? (
+                                <a
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="group block rounded-md border border-sky-200 dark:border-sky-800 overflow-hidden bg-white dark:bg-zinc-900 hover:border-sky-400 hover:shadow-md transition-all aspect-[4/3]"
+                                >
+                                  {isPdf ? (
+                                    <div className="flex flex-col items-center justify-center h-full gap-1 text-sky-400">
+                                      <FileText className="h-8 w-8" />
+                                      <span className="text-[10px]">PDF</span>
+                                    </div>
+                                  ) : (
+                                    <img
+                                      src={url}
+                                      alt={`${isEn ? 'Tax Invoice' : 'ใบกำกับภาษี'} ${i + 1}`}
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                    />
+                                  )}
+                                </a>
+                              ) : (
+                                <div className="flex items-center justify-center aspect-[4/3] rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 text-[11px] text-zinc-400">
+                                  {isEn ? 'No file attached' : 'ไม่ได้แนบไฟล์'}
+                                </div>
+                              )}
                             </div>
-                          ) : (
-                            <img
-                              src={url}
-                              alt={`${isEn ? 'Tax Invoice' : 'ใบกำกับภาษี'} ${i + 1}`}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                            />
-                          )}
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                        </a>
-                      )
-                    })}
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      /* Edit mode — paired rows */
+                      <div className="space-y-2 p-3 border border-sky-200 dark:border-sky-800 rounded-lg bg-sky-50/50 dark:bg-sky-950/20">
+                        {editTaxEntries.length > 0 ? (
+                          <div className="space-y-2">
+                            {editTaxEntries.map((entry, i) => {
+                              const isPdf = entry.url.toLowerCase().endsWith('.pdf')
+                              return (
+                                <div key={i} className="flex items-center gap-2 p-2 bg-white dark:bg-zinc-900 rounded-md border border-sky-200 dark:border-sky-800">
+                                  <span className="text-[10px] font-bold text-sky-600 dark:text-sky-400 w-6 shrink-0">
+                                    #{i + 1}
+                                  </span>
+                                  {entry.url ? (
+                                    <a
+                                      href={entry.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-1 px-2 py-1 text-[11px] text-sky-600 hover:text-sky-700 hover:underline shrink-0"
+                                    >
+                                      {isPdf ? <FileText className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
+                                      {isEn ? 'View' : 'ดูไฟล์'}
+                                    </a>
+                                  ) : (
+                                    <span className="text-[11px] text-zinc-400 italic px-2 shrink-0">
+                                      {isEn ? 'no file' : 'ไม่มีไฟล์'}
+                                    </span>
+                                  )}
+                                  <input
+                                    type="text"
+                                    value={entry.number}
+                                    onChange={e => {
+                                      const v = e.target.value
+                                      setEditTaxEntries(prev => prev.map((x, idx) => idx === i ? { ...x, number: v } : x))
+                                    }}
+                                    placeholder={isEn ? 'tax invoice number' : 'เลขที่ใบกำกับภาษี'}
+                                    className="flex-1 min-w-0 px-2.5 py-1.5 text-xs font-mono border border-sky-200 dark:border-sky-800 rounded-md bg-white dark:bg-zinc-900 outline-none focus:border-sky-500"
+                                  />
+                                  <button
+                                    onClick={() => setEditTaxEntries(prev => prev.filter((_, idx) => idx !== i))}
+                                    className="text-zinc-400 hover:text-red-500 p-1 shrink-0"
+                                    title={isEn ? 'Remove this invoice' : 'ลบรายการนี้'}
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-zinc-400 italic">
+                            {isEn ? 'No invoices to edit. Use the upload section above to add new ones.' : 'ไม่มีใบกำกับภาษี ใช้ส่วนอัพโหลดด้านบนเพื่อเพิ่มใหม่'}
+                          </p>
+                        )}
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          <button
+                            onClick={handleSaveTaxEntries}
+                            disabled={loading}
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-md font-semibold"
+                          >
+                            <Save className="h-3 w-3" />
+                            {loading ? '...' : (isEn ? 'Save' : 'บันทึก')}
+                          </button>
+                          <button
+                            onClick={() => { setEditingTaxEntries(false); setEditTaxEntries(buildExistingEntries()) }}
+                            className="px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md"
+                          >
+                            {isEn ? 'Cancel' : 'ยกเลิก'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                )
+              })()}
             </>
           )}
         </div>
@@ -1212,61 +1562,137 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               </div>
             )}
 
-            {/* ── Owner/Admin: Upload Tax Invoice ── */}
+            {/* ── Owner/Admin: Upload Tax Invoice (paired rows) ── */}
             {isWaitingTaxInvoice && (isOwner || isAdmin) && (
-              <div className="space-y-2.5 p-3.5 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800 rounded-xl">
+              <div className="space-y-3 p-3.5 bg-sky-50 dark:bg-sky-950/20 border-2 border-sky-200 dark:border-sky-800 rounded-xl">
                 <div className="flex items-center gap-2">
-                  <Receipt className="h-4 w-4 text-sky-500" />
-                  <p className="text-sm font-semibold text-sky-700 dark:text-sky-400">
-                    {isEn ? 'Upload Tax Invoice Documents' : 'อัพโหลดใบกำกับภาษี'}
-                  </p>
-                  {claim.tax_invoice_urls && claim.tax_invoice_urls.length > 0 && (
-                    <span className="ml-auto text-xs text-sky-500 font-medium">
-                      {isEn ? `${claim.tax_invoice_urls.length} uploaded` : `อัพโหลดแล้ว ${claim.tax_invoice_urls.length} ไฟล์`}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-sky-600 dark:text-sky-500">
-                  {isEn
-                    ? 'Please upload the tax invoice document(s) to proceed with payment.'
-                    : 'กรุณาอัพโหลดใบกำกับภาษีเพื่อให้ Admin ดำเนินการชำระเงินต่อได้'}
-                </p>
-                <div className="border-2 border-dashed border-sky-300 dark:border-sky-700 rounded-lg p-3 text-center hover:border-sky-400 transition-colors">
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    multiple
-                    onChange={(e) => { if (e.target.files) setTaxInvoiceFiles(prev => [...prev, ...Array.from(e.target.files!)]) }}
-                    className="hidden"
-                    id="tax-invoice-upload"
-                  />
-                  <label htmlFor="tax-invoice-upload" className="cursor-pointer">
-                    <Upload className="h-6 w-6 mx-auto text-sky-400 mb-1" />
-                    <p className="text-xs text-sky-500">
-                      {isEn ? 'Click to select tax invoice files' : 'คลิกเพื่อเลือกไฟล์ใบกำกับภาษี'}
-                    </p>
-                  </label>
-                </div>
-                {taxInvoiceFiles.length > 0 && (
-                  <div className="space-y-1.5">
-                    {taxInvoiceFiles.map((file, i) => (
-                      <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-zinc-800 rounded text-xs border border-sky-100 dark:border-sky-900/30">
-                        <span className="truncate text-zinc-600 dark:text-zinc-400">{file.name}</span>
-                        <button type="button" onClick={() => setTaxInvoiceFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-zinc-400 hover:text-red-500 ml-2 shrink-0">
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      onClick={handleUploadTaxInvoice}
-                      disabled={loading}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
-                    >
-                      <Upload className="h-4 w-4" />
-                      {loading ? '...' : (isEn ? 'Upload Tax Invoice' : 'อัพโหลดใบกำกับภาษี')}
-                    </button>
+                  <div className="flex items-center justify-center h-7 w-7 rounded-lg bg-sky-100 dark:bg-sky-900/40">
+                    <Receipt className="h-4 w-4 text-sky-600 dark:text-sky-400" />
                   </div>
-                )}
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-sky-700 dark:text-sky-300">
+                      {isEn ? 'Upload Tax Invoice(s)' : 'แนบใบกำกับภาษี'}
+                    </p>
+                    <p className="text-[11px] text-sky-600 dark:text-sky-400">
+                      {isEn
+                        ? 'Pair each invoice file with its number — add a row per invoice.'
+                        : 'แนบใบกำกับภาษีพร้อมเลขที่ — เพิ่มได้หลายใบ'}
+                    </p>
+                  </div>
+                  {(claim.tax_invoice_urls?.length || claim.tax_invoice_numbers?.length) ? (
+                    <span className="text-[10px] text-sky-500 font-medium bg-white dark:bg-sky-950/40 px-2 py-0.5 rounded-full border border-sky-200">
+                      {isEn
+                        ? `${Math.max(claim.tax_invoice_urls?.length || 0, claim.tax_invoice_numbers?.length || 0)} on file`
+                        : `มีอยู่ ${Math.max(claim.tax_invoice_urls?.length || 0, claim.tax_invoice_numbers?.length || 0)} ใบ`}
+                    </span>
+                  ) : null}
+                </div>
+
+                {/* Paired rows */}
+                <div className="space-y-2">
+                  {taxInvoiceRows.map((row, idx) => (
+                    <div
+                      key={row.id}
+                      className="rounded-lg border border-sky-200 dark:border-sky-800 bg-white dark:bg-zinc-900 p-2.5 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-sky-600 dark:text-sky-400">
+                          {isEn ? `Invoice #${idx + 1}` : `ใบกำกับ #${idx + 1}`}
+                        </span>
+                        {taxInvoiceRows.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setTaxInvoiceRows(prev => prev.filter(r => r.id !== row.id))}
+                            className="text-zinc-400 hover:text-red-500 p-1"
+                            title={isEn ? 'Remove' : 'ลบรายการนี้'}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* Number */}
+                        <div>
+                          <label className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 mb-1 flex items-center gap-1">
+                            <Hash className="h-2.5 w-2.5" />
+                            {isEn ? 'Tax Invoice Number' : 'เลขที่ใบกำกับภาษี'}
+                          </label>
+                          <input
+                            type="text"
+                            value={row.number}
+                            onChange={e => setTaxInvoiceRows(prev => prev.map(r => r.id === row.id ? { ...r, number: e.target.value } : r))}
+                            placeholder={isEn ? 'e.g. INV-2026-0001' : 'เช่น INV-2026-0001'}
+                            className="w-full px-2.5 py-1.5 text-xs font-mono border border-sky-200 dark:border-sky-800 rounded-md bg-white dark:bg-zinc-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
+                          />
+                        </div>
+                        {/* File */}
+                        <div>
+                          <label className="text-[10px] font-semibold text-sky-700 dark:text-sky-400 mb-1 flex items-center gap-1">
+                            <Upload className="h-2.5 w-2.5" />
+                            {isEn ? 'Invoice File' : 'ไฟล์ใบกำกับภาษี'}
+                          </label>
+                          {row.file ? (
+                            <div className="flex items-center gap-2 px-2 py-1.5 bg-sky-50 dark:bg-sky-950/40 rounded-md border border-sky-200 dark:border-sky-800">
+                              <FileText className="h-3 w-3 text-sky-500 shrink-0" />
+                              <span className="text-[11px] text-zinc-700 dark:text-zinc-300 truncate flex-1" title={row.file.name}>
+                                {row.file.name}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setTaxInvoiceRows(prev => prev.map(r => r.id === row.id ? { ...r, file: null } : r))}
+                                className="text-zinc-400 hover:text-red-500"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <label
+                              htmlFor={`tax-invoice-file-${row.id}`}
+                              className="flex items-center justify-center gap-1.5 px-2 py-1.5 border border-dashed border-sky-300 dark:border-sky-700 rounded-md cursor-pointer hover:border-sky-500 hover:bg-sky-50 dark:hover:bg-sky-950/30 text-[11px] text-sky-600"
+                            >
+                              <Upload className="h-3 w-3" />
+                              {isEn ? 'Choose file' : 'เลือกไฟล์'}
+                            </label>
+                          )}
+                          <input
+                            id={`tax-invoice-file-${row.id}`}
+                            type="file"
+                            accept="image/*,application/pdf"
+                            className="hidden"
+                            onChange={e => {
+                              const f = e.target.files?.[0]
+                              if (f) {
+                                setTaxInvoiceRows(prev => prev.map(r => r.id === row.id ? { ...r, file: f } : r))
+                              }
+                              e.target.value = ''
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTaxInvoiceRows(prev => [...prev, { id: nextTaxInvoiceRowId(), file: null, number: '' }])}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/40 rounded-md font-semibold border border-dashed border-sky-300 dark:border-sky-700"
+                  >
+                    <Plus className="h-3 w-3" />
+                    {isEn ? 'Add another invoice' : 'เพิ่มใบกำกับภาษีอีก'}
+                  </button>
+                  <button
+                    onClick={handleUploadTaxInvoice}
+                    disabled={loading || taxInvoiceRows.every(r => !r.file && !r.number.trim())}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    <Upload className="h-4 w-4" />
+                    {loading
+                      ? '...'
+                      : (isEn ? 'Save All Invoices' : 'บันทึกใบกำกับภาษี')}
+                  </button>
+                </div>
               </div>
             )}
 
