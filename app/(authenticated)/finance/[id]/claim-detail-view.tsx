@@ -2,11 +2,13 @@
 
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { useConfirm } from '../use-confirm'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
   Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
   Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert,
-  Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle
+  Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle,
+  ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES, getClaimChecklist, getFundingSourceLabel, getFundingSourceColor, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
@@ -36,6 +38,53 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+// ── Collapsible section (inline component) ───────────────────────────
+function CollapsibleSection({
+  title,
+  count,
+  accentColor = 'zinc',
+  Icon,
+  defaultOpen = false,
+  children,
+}: {
+  title: string
+  count?: number
+  accentColor?: 'zinc' | 'sky' | 'emerald' | 'amber'
+  Icon?: typeof Clock
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  const accentMap = {
+    zinc: 'text-zinc-500',
+    sky: 'text-sky-600 dark:text-sky-400',
+    emerald: 'text-emerald-600 dark:text-emerald-400',
+    amber: 'text-amber-600 dark:text-amber-400',
+  } as const
+
+  return (
+    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors text-left"
+      >
+        <span className={`flex items-center gap-1.5 text-xs font-semibold ${accentMap[accentColor]}`}>
+          {Icon && <Icon className="h-3.5 w-3.5" />}
+          {title}
+          {typeof count === 'number' && count > 0 && (
+            <span className="text-zinc-400 font-normal">({count})</span>
+          )}
+        </span>
+        {open
+          ? <ChevronDown className="h-4 w-4 text-zinc-400" />
+          : <ChevronRight className="h-4 w-4 text-zinc-400" />}
+      </button>
+      {open && <div className="px-3 pb-3 pt-1">{children}</div>}
+    </div>
+  )
+}
+
 interface ClaimLog {
   id: string
   action: string
@@ -57,6 +106,7 @@ interface JobEventOption {
 export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', jobEvents = [] }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; jobEvents?: JobEventOption[] }) {
   const router = useRouter()
   const { locale } = useLocale()
+  const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
   const [loading, setLoading] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
@@ -168,8 +218,23 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const viewWhtRate = claim.withholding_tax_rate || 0
   const viewTax = calcTax(viewAmount, viewVatMode, viewWhtRate)
 
+  // Common detail panel shown in confirm dialogs so admins see context before clicking
+  const claimContextDetails = [
+    { label: isEn ? 'Claim no.' : 'เลขที่', value: claim.claim_number },
+    { label: isEn ? 'Title' : 'หัวข้อ', value: claim.title },
+    { label: isEn ? 'Net payable' : 'ยอดจ่ายจริง', value: `฿${fmtDec(viewTax.netPayable)}` },
+    { label: isEn ? 'Submitter' : 'ผู้เบิก', value: claim.submitter?.full_name || '—' },
+  ]
+
   const handleApprove = async () => {
-    if (!confirm(isEn ? 'Confirm approval?' : 'ยืนยันอนุมัติใบเบิกนี้?')) return
+    const ok = await askConfirm({
+      title: isEn ? 'Approve this claim?' : 'ยืนยันอนุมัติใบเบิกนี้?',
+      description: isEn ? 'The submitter will be notified.' : 'ระบบจะแจ้งเตือนผู้ยื่น',
+      details: claimContextDetails,
+      confirmLabel: isEn ? 'Approve' : 'อนุมัติ',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
     setLoading(true)
     setError(null)
     const result = await approveClaim(claim.id)
@@ -186,7 +251,17 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleDelete = async () => {
-    if (!confirm(isEn ? 'Confirm deletion?' : 'ยืนยันลบใบเบิกนี้?')) return
+    const ok = await askConfirm({
+      title: isEn ? 'Delete this claim?' : 'ลบใบเบิกนี้?',
+      description: isEn
+        ? 'This permanently deletes the claim. If approved, its linked cost item will also be removed.'
+        : 'ลบถาวร — ถ้าอนุมัติแล้ว ระบบจะลบ cost item ที่ผูกอยู่ด้วย',
+      details: claimContextDetails,
+      variant: 'destructive',
+      confirmLabel: isEn ? 'Delete permanently' : 'ลบถาวร',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
     setLoading(true)
     const result = await deleteClaim(claim.id)
     if (result.error) { setError(result.error); setLoading(false) }
@@ -194,7 +269,13 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleSubmit = async () => {
-    if (!confirm(isEn ? 'Submit this claim for approval?' : 'ยืนยันยื่นใบเบิกนี้เพื่อขออนุมัติ?')) return
+    const ok = await askConfirm({
+      title: isEn ? 'Submit this claim for approval?' : 'ยื่นใบเบิกเพื่อขออนุมัติ?',
+      details: claimContextDetails,
+      confirmLabel: isEn ? 'Submit' : 'ยืนยันยื่น',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
     setLoading(true)
     setError(null)
     const result = await submitClaim(claim.id)
@@ -203,7 +284,17 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleCancel = async () => {
-    if (!confirm(isEn ? 'Cancel this claim? This cannot be undone.' : 'ยืนยันยกเลิกใบเบิกนี้? ไม่สามารถย้อนกลับได้')) return
+    const ok = await askConfirm({
+      title: isEn ? 'Cancel this claim?' : 'ยกเลิกใบเบิกนี้?',
+      description: isEn
+        ? 'This cannot be undone. The claim will be marked as cancelled.'
+        : 'ไม่สามารถย้อนกลับได้ ใบเบิกจะถูกทำเครื่องหมายว่ายกเลิกแล้ว',
+      details: claimContextDetails,
+      variant: 'destructive',
+      confirmLabel: isEn ? 'Cancel claim' : 'ยืนยันยกเลิก',
+      cancelLabel: isEn ? 'Keep' : 'ไม่ยกเลิก',
+    })
+    if (!ok) return
     setLoading(true)
     setError(null)
     const result = await cancelClaim(claim.id)
@@ -212,7 +303,17 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleMarkPaid = async () => {
-    if (!confirm(isEn ? 'Confirm payment for this claim?' : 'ยืนยันการชำระเงินใบเบิกนี้?')) return
+    const ok = await askConfirm({
+      title: isEn ? 'Mark this claim as paid?' : 'ยืนยันชำระเงินใบเบิกนี้?',
+      description: isEn
+        ? 'Confirm the transfer has been made. This is logged with your name.'
+        : 'ยืนยันว่าโอนเงินเรียบร้อย — ระบบจะบันทึกการกระทำนี้ในชื่อของคุณ',
+      details: claimContextDetails,
+      variant: 'warning',
+      confirmLabel: isEn ? 'Mark paid' : 'ยืนยันชำระเงิน',
+      cancelLabel: isEn ? 'Not yet' : 'ยังไม่จ่าย',
+    })
+    if (!ok) return
     setLoading(true)
     setError(null)
     const result = await markAsPaid(claim.id)
@@ -221,7 +322,13 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleDeferMonthEnd = async () => {
-    if (!confirm(isEn ? 'Defer payment to end of month?' : 'เลื่อนการชำระเงินไปสิ้นเดือน?')) return
+    const ok = await askConfirm({
+      title: isEn ? 'Defer payment to month end?' : 'เลื่อนชำระเงินไปสิ้นเดือน?',
+      details: claimContextDetails,
+      confirmLabel: isEn ? 'Defer' : 'เลื่อน',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
     setLoading(true)
     setError(null)
     const result = await markAsPendingMonthEnd(claim.id)
@@ -230,7 +337,13 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleApproveAsMonthEnd = async () => {
-    if (!confirm(isEn ? 'Approve and defer to end of month?' : 'อนุมัติและเลื่อนจ่ายสิ้นเดือน?')) return
+    const ok = await askConfirm({
+      title: isEn ? 'Approve and defer to month end?' : 'อนุมัติและเลื่อนจ่ายสิ้นเดือน?',
+      details: claimContextDetails,
+      confirmLabel: isEn ? 'Approve & defer' : 'อนุมัติ + เลื่อน',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
     setLoading(true)
     setError(null)
     const result = await approveAsPendingMonthEnd(claim.id)
@@ -322,10 +435,20 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleConfirmRefund = async () => {
-    const msg = isEn
-      ? 'Confirm that the refund has been received from the staff member? This will finalise the claim (no more edits).'
-      : 'ยืนยันว่าได้รับเงินคืนจากพนักงานแล้ว? หลังยืนยันจะไม่สามารถแก้ไขรายการได้อีก'
-    if (!window.confirm(msg)) return
+    const ok = await askConfirm({
+      title: isEn ? 'Confirm refund received?' : 'ยืนยันรับเงินคืนแล้ว?',
+      description: isEn
+        ? 'Verify the refund has hit the company account. This finalises the claim — no further edits will be allowed.'
+        : 'ตรวจให้แน่ใจว่าเงินคืนเข้าบัญชีบริษัทแล้ว หลังยืนยันจะไม่สามารถแก้ไขใบเบิกนี้ได้อีก',
+      details: [
+        ...claimContextDetails,
+        { label: isEn ? 'Refund amount' : 'ยอดคืน', value: `฿${fmtDec(Number(claim.refund_amount) || 0)}` },
+      ],
+      variant: 'warning',
+      confirmLabel: isEn ? 'Confirm received' : 'ยืนยันรับแล้ว',
+      cancelLabel: isEn ? 'Not yet' : 'ยังไม่ได้รับ',
+    })
+    if (!ok) return
     setLoading(true)
     setError(null)
     const result = await confirmRefundReceived(claim.id)
@@ -405,6 +528,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
 
   return (
     <div className="max-w-3xl mx-auto">
+      {confirmDialog}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <button onClick={() => router.push('/finance')} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400">
@@ -1211,13 +1335,14 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 </div>
               )}
 
-              {/* Actual Receipts (from advance settlement) */}
+              {/* Actual Receipts (from advance settlement) — collapsible */}
               {isAdvance && claim.actual_receipt_urls && claim.actual_receipt_urls.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1.5 mb-3">
-                    <Receipt className="h-3.5 w-3.5" />
-                    {isEn ? 'Actual Spending Receipts' : 'หลักฐานการใช้จ่ายจริง'} ({claim.actual_receipt_urls.length})
-                  </p>
+                <CollapsibleSection
+                  title={isEn ? 'Actual Spending Receipts' : 'หลักฐานการใช้จ่ายจริง'}
+                  count={claim.actual_receipt_urls.length}
+                  accentColor="amber"
+                  Icon={Receipt}
+                >
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {claim.actual_receipt_urls.map((url, i) => {
                       const isPdf = url.toLowerCase().endsWith('.pdf')
@@ -1236,16 +1361,19 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       )
                     })}
                   </div>
-                </div>
+                </CollapsibleSection>
               )}
 
-              {/* Refund Slips (advance settlement) */}
+              {/* Refund Slips (advance settlement) — collapsible, opens by default
+                  if a refund is required but not yet confirmed. */}
               {isAdvance && claim.refund_slip_urls && claim.refund_slip_urls.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 mb-3">
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    {isEn ? 'Refund Transfer Slips' : 'สลิปการโอนเงินคืนบริษัท'} ({claim.refund_slip_urls.length})
-                  </p>
+                <CollapsibleSection
+                  title={isEn ? 'Refund Transfer Slips' : 'สลิปการโอนเงินคืนบริษัท'}
+                  count={claim.refund_slip_urls.length}
+                  accentColor="emerald"
+                  Icon={RefreshCw}
+                  defaultOpen={!isRefundConfirmed}
+                >
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {claim.refund_slip_urls.map((url, i) => {
                       const isPdf = url.toLowerCase().endsWith('.pdf')
@@ -1264,16 +1392,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       )
                     })}
                   </div>
-                </div>
+                </CollapsibleSection>
               )}
 
-              {/* Tax Invoice Entries — file + number paired by index */}
+              {/* Tax Invoice Entries — file + number paired by index. Always shown
+                  so non-owner/non-admin viewers can see the audit state instead
+                  of having the section silently disappear. */}
               {(() => {
                 const urls = claim.tax_invoice_urls || []
                 const numbers = claim.tax_invoice_numbers || []
                 const total = Math.max(urls.length, numbers.length)
-                const showSection = total > 0 || isOwner || isAdmin
-                if (!showSection) return null
 
                 return (
                   <div>
@@ -1471,34 +1599,41 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               </div>
             )}
 
-            {/* ── Admin: Approve / Reject ── */}
+            {/* ── Admin: Approve / Reject ──
+                 Primary: Approve (filled green). Secondary: Approve - Month End (outline).
+                 Destructive: Reject pushed right with extra spacing. */}
             {isAdmin && isPending && (
               !rejectOpen ? (
-                <div className="flex items-center gap-3 flex-wrap">
-                  <button
-                    onClick={handleApprove}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    {loading ? '...' : (isEn ? 'Approve' : 'อนุมัติ')}
-                  </button>
-                  <button
-                    onClick={handleApproveAsMonthEnd}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
-                  >
-                    <Clock className="h-4 w-4" />
-                    {loading ? '...' : (isEn ? 'Approve — Month End' : 'รอจ่ายสิ้นเดือน')}
-                  </button>
-                  <button
-                    onClick={() => setRejectOpen(true)}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
-                  >
-                    <XCircle className="h-4 w-4" />
-                    {isEn ? 'Reject' : 'ปฏิเสธ'}
-                  </button>
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                    {isEn ? 'Next step' : 'ขั้นตอนถัดไป'}
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={handleApprove}
+                      disabled={loading}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      {loading ? '...' : (isEn ? 'Approve' : 'อนุมัติ')}
+                    </button>
+                    <button
+                      onClick={handleApproveAsMonthEnd}
+                      disabled={loading}
+                      className="flex items-center gap-2 px-4 py-2.5 border-2 border-violet-300 dark:border-violet-800 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Clock className="h-4 w-4" />
+                      {loading ? '...' : (isEn ? 'Approve — Month End' : 'อนุมัติ — สิ้นเดือน')}
+                    </button>
+                    <button
+                      onClick={() => setRejectOpen(true)}
+                      disabled={loading}
+                      className="ml-auto flex items-center gap-2 px-4 py-2.5 border-2 border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <XCircle className="h-4 w-4" />
+                      {isEn ? 'Reject' : 'ปฏิเสธ'}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1528,37 +1663,44 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               )
             )}
 
-            {/* ── Admin: Mark as Paid / Defer to Month End / Request Tax Invoice ── */}
+            {/* ── Admin: Post-approval actions ──
+                 Primary: Mark as Paid (the canonical happy path).
+                 Secondaries: Defer / Request Tax Invoice as outline. */}
             {isAdmin && (isApproved || isPendingMonthEnd || isWaitingTaxInvoice) && (
-              <div className="flex items-center gap-3 flex-wrap">
-                {(isApproved || isWaitingTaxInvoice) && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  {isEn ? 'Next step' : 'ขั้นตอนถัดไป'}
+                </p>
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
-                    onClick={handleDeferMonthEnd}
+                    onClick={handleMarkPaid}
                     disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                    className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
                   >
-                    <Clock className="h-4 w-4" />
-                    {loading ? '...' : (isEn ? 'Defer to Month End' : 'เลื่อนสิ้นเดือน')}
+                    <CheckCircle2 className="h-4 w-4" />
+                    {loading ? '...' : (isEn ? 'Mark as Paid' : 'ชำระเงินแล้ว')}
                   </button>
-                )}
-                {isApproved && (
-                  <button
-                    onClick={handleMarkWaitingTaxInvoice}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <Receipt className="h-4 w-4" />
-                    {loading ? '...' : (isEn ? 'Request Tax Invoice' : 'ขอใบกำกับภาษี')}
-                  </button>
-                )}
-                <button
-                  onClick={handleMarkPaid}
-                  disabled={loading}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  {loading ? '...' : (isEn ? 'Mark as Paid' : 'ชำระเงินแล้ว')}
-                </button>
+                  {(isApproved || isWaitingTaxInvoice) && (
+                    <button
+                      onClick={handleDeferMonthEnd}
+                      disabled={loading}
+                      className="flex items-center gap-2 px-4 py-2.5 border-2 border-violet-300 dark:border-violet-800 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Clock className="h-4 w-4" />
+                      {loading ? '...' : (isEn ? 'Defer to Month End' : 'เลื่อนสิ้นเดือน')}
+                    </button>
+                  )}
+                  {isApproved && (
+                    <button
+                      onClick={handleMarkWaitingTaxInvoice}
+                      disabled={loading}
+                      className="flex items-center gap-2 px-4 py-2.5 border-2 border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Receipt className="h-4 w-4" />
+                      {loading ? '...' : (isEn ? 'Request Tax Invoice' : 'ขอใบกำกับภาษี')}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1715,8 +1857,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   </div>
                 </div>
 
-                {/* Summary strip: advance / spent / refund */}
-                <div className="grid grid-cols-3 gap-2">
+                {/* Summary strip: advance / spent / refund — stacks on mobile */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
                     <p className="text-[10px] text-zinc-400">{isEn ? 'Advance' : 'เบิกล่วงหน้า'}</p>
                     <p className="text-sm font-mono font-semibold text-zinc-800 dark:text-zinc-200">
@@ -1786,11 +1928,11 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     </div>
                   </div>
 
-                  {/* Column headers */}
+                  {/* Column headers — desktop only */}
                   <div className="hidden sm:flex items-center gap-2 px-1 pb-1.5 text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
                     <span className="w-6 shrink-0"></span>
                     <span className="flex-1">{isEn ? 'Description' : 'รายการ'}</span>
-                    <span className="w-36 text-right pr-9">{isEn ? 'Amount (฿)' : 'จำนวน (฿)'}</span>
+                    <span className="w-32 text-right pr-9">{isEn ? 'Amount (฿)' : 'จำนวน (฿)'}</span>
                   </div>
 
                   <div className="space-y-1.5">
@@ -1800,7 +1942,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       return (
                         <div
                           key={idx}
-                          className="group relative flex items-center gap-2 px-1.5 py-1 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors"
+                          className="group relative flex flex-col sm:flex-row sm:items-center gap-2 px-1.5 py-1 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors"
                         >
                           {/* Progress bar (item share of total) */}
                           {itemAmount > 0 && (
@@ -1809,52 +1951,58 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                               style={{ width: `${pct}%` }}
                             />
                           )}
-                          <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-mono text-zinc-500 shrink-0">
-                            {idx + 1}
-                          </span>
-                          <input
-                            type="text"
-                            value={item.description}
-                            onChange={e => updateSpentItem(idx, { description: e.target.value })}
-                            placeholder={isEn ? 'Description (e.g. Fuel, Tolls)' : 'ใส่รายการ เช่น ค่าน้ำมัน'}
-                            readOnly={!itemsEditMode}
-                            className={`flex-1 min-w-0 px-2.5 py-2 border rounded-md text-sm outline-none transition-colors ${
-                              itemsEditMode
-                                ? 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
-                                : 'border-transparent bg-zinc-50 dark:bg-zinc-800/40 text-zinc-700 dark:text-zinc-300 cursor-default'
-                            }`}
-                          />
-                          <div className="relative w-36 shrink-0">
-                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 pointer-events-none">฿</span>
+                          {/* Mobile: number badge floats top-left, label "Item N" inline */}
+                          <div className="flex items-center gap-2 sm:contents">
+                            <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[10px] font-mono text-zinc-500 shrink-0">
+                              {idx + 1}
+                            </span>
                             <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              inputMode="decimal"
-                              value={item.amount}
-                              onChange={e => updateSpentItem(idx, { amount: e.target.value })}
-                              placeholder="0.00"
+                              type="text"
+                              value={item.description}
+                              onChange={e => updateSpentItem(idx, { description: e.target.value })}
+                              placeholder={isEn ? 'Description (e.g. Fuel, Tolls)' : 'ใส่รายการ เช่น ค่าน้ำมัน'}
                               readOnly={!itemsEditMode}
-                              className={`w-full pl-6 pr-2.5 py-2 border rounded-md text-sm font-mono text-right outline-none transition-colors ${
+                              className={`flex-1 min-w-0 px-2.5 py-2 border rounded-md text-sm outline-none transition-colors ${
                                 itemsEditMode
                                   ? 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
                                   : 'border-transparent bg-zinc-50 dark:bg-zinc-800/40 text-zinc-700 dark:text-zinc-300 cursor-default'
                               }`}
                             />
                           </div>
-                          {itemsEditMode ? (
-                            <button
-                              type="button"
-                              onClick={() => removeSpentItem(idx)}
-                              disabled={spentItems.length <= 1}
-                              className="p-1.5 text-zinc-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded disabled:opacity-20 disabled:hover:text-zinc-300 disabled:hover:bg-transparent shrink-0 transition-colors"
-                              title={isEn ? 'Remove' : 'ลบ'}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          ) : (
-                            <span className="w-[26px] shrink-0" aria-hidden />
-                          )}
+                          {/* Amount + delete (mobile: full-width row below; desktop: same row) */}
+                          <div className="flex items-center gap-2 pl-7 sm:pl-0">
+                            <div className="relative flex-1 sm:flex-none sm:w-32">
+                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 pointer-events-none">฿</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                inputMode="decimal"
+                                value={item.amount}
+                                onChange={e => updateSpentItem(idx, { amount: e.target.value })}
+                                placeholder="0.00"
+                                readOnly={!itemsEditMode}
+                                className={`w-full pl-6 pr-2.5 py-2 border rounded-md text-sm font-mono text-right outline-none transition-colors ${
+                                  itemsEditMode
+                                    ? 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                                    : 'border-transparent bg-zinc-50 dark:bg-zinc-800/40 text-zinc-700 dark:text-zinc-300 cursor-default'
+                                }`}
+                              />
+                            </div>
+                            {itemsEditMode ? (
+                              <button
+                                type="button"
+                                onClick={() => removeSpentItem(idx)}
+                                disabled={spentItems.length <= 1}
+                                className="p-1.5 text-zinc-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded disabled:opacity-20 disabled:hover:text-zinc-300 disabled:hover:bg-transparent shrink-0 transition-colors"
+                                title={isEn ? 'Remove' : 'ลบ'}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            ) : (
+                              <span className="w-[26px] shrink-0" aria-hidden />
+                            )}
+                          </div>
                         </div>
                       )
                     })}

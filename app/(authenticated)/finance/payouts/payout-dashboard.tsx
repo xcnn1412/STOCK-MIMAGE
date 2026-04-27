@@ -3,12 +3,14 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Banknote, Users, Calendar, Filter, ChevronDown, ExternalLink, CheckCircle2, Search } from 'lucide-react'
+import { Banknote, Users, Calendar, Filter, ChevronDown, ExternalLink, CheckCircle2, Search, AlertCircle } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
-import { getCategoryLabel } from '../../costs/types'
+import { getCategoryLabel, getClaimChecklist } from '../../costs/types'
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { markAsPaid, markAsPendingMonthEnd } from '../actions'
+import { FundingBadge, ChecklistBadges } from '../doc-badges'
+import { useConfirm } from '../use-confirm'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -35,6 +37,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
   const { locale } = useLocale()
   const isEn = locale === 'en'
   const router = useRouter()
+  const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
 
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all')
   const [monthYearFilter, setMonthYearFilter] = useState<string>('') // YYYY-MM format
@@ -47,19 +50,45 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
   const [payingId, setPayingId] = useState<string | null>(null)
   const [deferringId, setDeferringId] = useState<string | null>(null)
 
-  const handleMarkPaid = async (id: string) => {
-    if (!confirm(isEn ? 'Confirm payment for this claim?' : 'ยืนยันการชำระเงินใบเบิกนี้?')) return
-    setPayingId(id)
-    const res = await markAsPaid(id)
+  const handleMarkPaid = async (c: ExpenseClaim) => {
+    const tax = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
+    const ok = await askConfirm({
+      title: isEn ? 'Mark this claim as paid?' : 'ยืนยันชำระเงินใบเบิกนี้?',
+      description: isEn
+        ? 'Confirm the transfer has been made. Logged with your name.'
+        : 'ยืนยันว่าโอนเงินเรียบร้อยแล้ว — ระบบจะบันทึกการกระทำในชื่อของคุณ',
+      details: [
+        { label: isEn ? 'Claim no.' : 'เลขที่', value: c.claim_number },
+        { label: isEn ? 'Submitter' : 'ผู้รับเงิน', value: c.submitter?.full_name || '—' },
+        { label: isEn ? 'Bank' : 'ธนาคาร', value: c.bank_name || '—' },
+        { label: isEn ? 'Account' : 'เลขบัญชี', value: c.bank_account_number || '—' },
+        { label: isEn ? 'Net to transfer' : 'ยอดโอน', value: `฿${fmtDec(tax.netPayable)}` },
+      ],
+      variant: 'warning',
+      confirmLabel: isEn ? 'Mark paid' : 'ยืนยันชำระแล้ว',
+      cancelLabel: isEn ? 'Not yet' : 'ยังไม่จ่าย',
+    })
+    if (!ok) return
+    setPayingId(c.id)
+    const res = await markAsPaid(c.id)
     if (res.error) alert(res.error)
     setPayingId(null)
     router.refresh()
   }
 
-  const handleDeferToMonthEnd = async (id: string) => {
-    if (!confirm(isEn ? 'Defer this claim to end of month?' : 'เลื่อนใบเบิกนี้เป็น "รอจ่ายสิ้นเดือน"?')) return
-    setDeferringId(id)
-    const res = await markAsPendingMonthEnd(id)
+  const handleDeferToMonthEnd = async (c: ExpenseClaim) => {
+    const ok = await askConfirm({
+      title: isEn ? 'Defer to month end?' : 'เลื่อนเป็น "รอจ่ายสิ้นเดือน"?',
+      details: [
+        { label: isEn ? 'Claim no.' : 'เลขที่', value: c.claim_number },
+        { label: isEn ? 'Submitter' : 'ผู้เบิก', value: c.submitter?.full_name || '—' },
+      ],
+      confirmLabel: isEn ? 'Defer' : 'เลื่อน',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
+    setDeferringId(c.id)
+    const res = await markAsPendingMonthEnd(c.id)
     if (res.error) alert(res.error)
     setDeferringId(null)
     router.refresh()
@@ -180,6 +209,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 bg-white dark:bg-zinc-900">
@@ -406,10 +436,23 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                   {group.claims.map(c => {
                     const tax = getNetPayable(c)
                     const amt = c.amount || 0
+                    const ck = getClaimChecklist(c)
                     return (
-                      <div key={c.id} className="grid grid-cols-16 gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-                        <div className="col-span-2 text-xs font-mono text-zinc-500">{c.claim_number}</div>
-                        <div className="col-span-2 truncate font-medium text-zinc-900 dark:text-zinc-100">{c.title}</div>
+                      <div key={c.id} className={`grid grid-cols-16 gap-2 px-4 py-2.5 items-center text-sm transition-colors ${
+                        ck.isComplete
+                          ? 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'
+                          : 'bg-amber-50/40 dark:bg-amber-950/10 hover:bg-amber-50/70 dark:hover:bg-amber-950/20'
+                      }`}>
+                        <div className="col-span-2 space-y-1">
+                          <div className="text-xs font-mono text-zinc-500">{c.claim_number}</div>
+                          <FundingBadge claim={c} isEn={isEn} size="xs" />
+                        </div>
+                        <div className="col-span-2 min-w-0">
+                          <p className="truncate font-medium text-zinc-900 dark:text-zinc-100">{c.title}</p>
+                          <div className="mt-1">
+                            <ChecklistBadges claim={c} isEn={isEn} />
+                          </div>
+                        </div>
                         <div className="col-span-2 text-xs truncate">
                           {c.bank_name ? (
                             <span className="text-zinc-700 dark:text-zinc-300 font-medium">{c.bank_name}</span>
@@ -435,7 +478,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                         <div className="col-span-2 text-right flex items-center justify-end gap-1">
                           {['approved', 'awaiting_payment'].includes(c.status) && (
                             <button
-                              onClick={() => handleDeferToMonthEnd(c.id)}
+                              onClick={() => handleDeferToMonthEnd(c)}
                               disabled={deferringId === c.id}
                               className="px-2 py-1 text-[10px] font-medium rounded-md bg-violet-50 text-violet-600 hover:bg-violet-100 dark:bg-violet-950/30 dark:text-violet-400 dark:hover:bg-violet-900/40 transition-colors disabled:opacity-50"
                             >
@@ -443,11 +486,20 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                             </button>
                           )}
                           <button
-                            onClick={() => handleMarkPaid(c.id)}
-                            disabled={payingId === c.id}
-                            className="px-2 py-1 text-[10px] font-medium rounded-md bg-teal-50 text-teal-600 hover:bg-teal-100 dark:bg-teal-950/30 dark:text-teal-400 dark:hover:bg-teal-900/40 transition-colors disabled:opacity-50"
+                            onClick={() => handleMarkPaid(c)}
+                            disabled={payingId === c.id || !ck.isComplete}
+                            title={!ck.isComplete
+                              ? (isEn ? 'Documents incomplete — cannot pay' : 'เอกสารไม่ครบ — ยังจ่ายไม่ได้')
+                              : undefined}
+                            className={`px-2 py-1 text-[10px] font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                              ck.isComplete
+                                ? 'bg-teal-50 text-teal-600 hover:bg-teal-100 dark:bg-teal-950/30 dark:text-teal-400 dark:hover:bg-teal-900/40'
+                                : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500'
+                            }`}
                           >
-                            {payingId === c.id ? '...' : (isEn ? 'Paid' : 'ชำระแล้ว')}
+                            {payingId === c.id ? '...' : !ck.isComplete
+                              ? <span className="inline-flex items-center gap-0.5"><AlertCircle className="h-2.5 w-2.5" />{isEn ? 'Locked' : 'ล็อก'}</span>
+                              : (isEn ? 'Paid' : 'ชำระแล้ว')}
                           </button>
                           <Link href={`/finance/${c.id}`} className="text-zinc-400 hover:text-emerald-500 transition-colors">
                             <ExternalLink className="h-3.5 w-3.5 inline" />
@@ -474,14 +526,18 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                 <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
                   {group.claims.map(c => {
                     const tax = getNetPayable(c)
-                    const amt = c.amount || 0
+                    const ck = getClaimChecklist(c)
                     return (
-                      <div key={c.id} className="p-3 space-y-2">
+                      <div key={c.id} className={`p-3 space-y-2 ${ck.isComplete ? '' : 'bg-amber-50/40 dark:bg-amber-950/10'}`}>
                         {/* Row 1: claim number + title */}
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="text-[10px] font-mono text-zinc-400">{c.claim_number}</p>
                             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{c.title}</p>
+                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                              <FundingBadge claim={c} isEn={isEn} size="xs" />
+                              <ChecklistBadges claim={c} isEn={isEn} />
+                            </div>
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">฿{fmtDec(tax.netPayable)}</p>
@@ -506,7 +562,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                         <div className="flex items-center justify-end gap-2">
                           {['approved', 'awaiting_payment'].includes(c.status) && (
                             <button
-                              onClick={() => handleDeferToMonthEnd(c.id)}
+                              onClick={() => handleDeferToMonthEnd(c)}
                               disabled={deferringId === c.id}
                               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 dark:bg-violet-950/30 dark:text-violet-400 transition-colors disabled:opacity-50"
                             >
@@ -514,11 +570,20 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                             </button>
                           )}
                           <button
-                            onClick={() => handleMarkPaid(c.id)}
-                            disabled={payingId === c.id}
-                            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-teal-50 text-teal-600 hover:bg-teal-100 dark:bg-teal-950/30 dark:text-teal-400 transition-colors disabled:opacity-50"
+                            onClick={() => handleMarkPaid(c)}
+                            disabled={payingId === c.id || !ck.isComplete}
+                            title={!ck.isComplete
+                              ? (isEn ? 'Documents incomplete — cannot pay' : 'เอกสารไม่ครบ — ยังจ่ายไม่ได้')
+                              : undefined}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                              ck.isComplete
+                                ? 'bg-teal-50 text-teal-600 hover:bg-teal-100 dark:bg-teal-950/30 dark:text-teal-400'
+                                : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500'
+                            }`}
                           >
-                            {payingId === c.id ? '...' : (isEn ? 'Mark Paid' : 'ชำระแล้ว')}
+                            {payingId === c.id ? '...' : !ck.isComplete
+                              ? <span className="inline-flex items-center gap-1"><AlertCircle className="h-3 w-3" />{isEn ? 'Locked' : 'ล็อก'}</span>
+                              : (isEn ? 'Mark Paid' : 'ชำระแล้ว')}
                           </button>
                           <Link href={`/finance/${c.id}`} className="px-2 py-1.5 text-zinc-400 hover:text-emerald-500 transition-colors">
                             <ExternalLink className="h-4 w-4" />

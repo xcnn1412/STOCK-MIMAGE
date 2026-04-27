@@ -7,6 +7,7 @@ import { useLocale } from '@/lib/i18n/context'
 import { getCategoryLabel, getClaimStatusLabel, getClaimStatusColor } from '../../costs/types'
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
+import { FundingBadge } from '../doc-badges'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -410,25 +411,26 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
         </div>
       ) : (
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
-          {/* Desktop Table */}
+          {/* Desktop Table — column template aligned between header + cells */}
           <div className="hidden md:block">
-            <div className="grid grid-cols-[2fr_2fr_2fr_1fr_1fr_auto_auto_auto_auto] gap-2 px-4 py-2.5 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold bg-zinc-50 dark:bg-zinc-800/30 border-b border-zinc-200 dark:border-zinc-800">
+            <div className="grid grid-cols-[2fr_2fr_2fr_1fr_1fr_1fr_5rem_7rem_7rem_1.5rem] gap-2 px-4 py-2.5 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold bg-zinc-50 dark:bg-zinc-800/30 border-b border-zinc-200 dark:border-zinc-800">
               <div>{isEn ? 'Claim No.' : 'เลขที่'}</div>
               <div>{isEn ? 'Submitter' : 'ผู้เบิก'}</div>
               <div>{isEn ? 'Title' : 'หัวข้อ'}</div>
               <div>{isEn ? 'Type' : 'ประเภท'}</div>
+              <div>{isEn ? 'Funding' : 'แหล่งเงิน'}</div>
               <div className="text-right">{isEn ? 'Net Paid' : 'จ่ายจริง'}</div>
-              <div className="w-20">{isEn ? 'Expense Date' : 'วันที่เบิก'}</div>
-              <div className="w-28">{isEn ? 'Paid At' : 'วันที่ชำระ'}</div>
-              <div className="w-20">{isEn ? 'Status' : 'สถานะ'}</div>
-              <div className="w-6"></div>
+              <div>{isEn ? 'Expense' : 'วันที่เบิก'}</div>
+              <div>{isEn ? 'Paid At' : 'วันที่ชำระ'}</div>
+              <div>{isEn ? 'Status' : 'สถานะ'}</div>
+              <div></div>
             </div>
             <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {filtered.map(c => {
                 const amt = c.amount || 0
                 const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
                 return (
-                  <div key={c.id} className="grid grid-cols-[2fr_2fr_2fr_1fr_1fr_auto_auto_auto_auto] gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                  <div key={c.id} className="grid grid-cols-[2fr_2fr_2fr_1fr_1fr_1fr_5rem_7rem_7rem_1.5rem] gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
                     <div className="text-xs font-mono text-zinc-500 truncate">{c.claim_number}</div>
                     <div className="truncate font-medium text-zinc-700 dark:text-zinc-300">
                       {c.submitter?.full_name || '—'}
@@ -449,28 +451,37 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
                           c.claim_type === 'event'
                             ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400'
-                            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                            : c.claim_type === 'advance'
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                              : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                         }`}>
-                          {c.claim_type === 'event' ? (isEn ? 'Event' : 'อีเวนต์') : (isEn ? 'Other' : 'อื่นๆ')}
+                          {c.claim_type === 'event'
+                            ? (isEn ? 'Event' : 'อีเวนต์')
+                            : c.claim_type === 'advance'
+                              ? (isEn ? 'Advance' : 'ทดลองจ่าย')
+                              : (isEn ? 'Other' : 'อื่นๆ')}
                         </span>
                       )}
+                    </div>
+                    <div>
+                      <FundingBadge claim={c} isEn={isEn} size="xs" />
                     </div>
                     <div className="text-right font-mono font-bold text-teal-600 dark:text-teal-400">
                       ฿{fmtDec(tax.netPayable)}
                     </div>
-                    <div className="w-20 text-xs text-zinc-500">
+                    <div className="text-xs text-zinc-500">
                       {c.expense_date
                         ? new Date(c.expense_date).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
                         : '—'
                       }
                     </div>
-                    <div className="w-28 text-xs text-zinc-500">
+                    <div className="text-xs text-zinc-500">
                       {c.paid_at
                         ? new Date(c.paid_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                         : '—'
                       }
                     </div>
-                    <div className="w-28">
+                    <div>
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full"
                         style={{ backgroundColor: `${getClaimStatusColor(c.status)}15`, color: getClaimStatusColor(c.status) }}
@@ -479,7 +490,7 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
                         {getClaimStatusLabel(c.status, locale)}
                       </span>
                     </div>
-                    <div className="w-6 text-right">
+                    <div className="text-right">
                       <Link href={`/finance/${c.id}`} className="text-zinc-400 hover:text-teal-500 transition-colors">
                         <ExternalLink className="h-3.5 w-3.5 inline" />
                       </Link>
@@ -501,7 +512,10 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
                     <div className="min-w-0">
                       <p className="text-[10px] font-mono text-zinc-400">{c.claim_number}</p>
                       <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{c.title}</p>
-                      <p className="text-xs text-zinc-500 mt-0.5">{c.submitter?.full_name || '—'}</p>
+                      <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1.5">
+                        <span>{c.submitter?.full_name || '—'}</span>
+                        <FundingBadge claim={c} isEn={isEn} size="xs" />
+                      </p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-teal-600 dark:text-teal-400">฿{fmtDec(tax.netPayable)}</p>

@@ -3,10 +3,12 @@
 import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, FileText, Hash, Receipt, User as UserIcon, Building2 } from 'lucide-react'
+import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
-import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getClaimChecklist, getFundingSourceColor, getFundingSourceLabel } from '../costs/types'
+import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../costs/types'
+import { ChecklistBadges, FundingBadge } from './doc-badges'
+import { useConfirm } from './use-confirm'
 import type { FinanceCategory } from './settings-actions'
 import { cancelClaim } from './actions'
 
@@ -28,34 +30,6 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 }
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-function DocBadge({
-  ok,
-  labelTh,
-  labelEn,
-  Icon,
-}: {
-  ok: boolean
-  labelTh: string
-  labelEn: string
-  Icon: typeof Clock
-}) {
-  // We don't have access to locale here; use both labels as a tooltip and Thai by default
-  return (
-    <span
-      title={ok ? `${labelTh} ครบ` : `${labelTh} ยังไม่ครบ`}
-      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-semibold ${
-        ok
-          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60'
-          : 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400 border border-red-200/60 dark:border-red-800/60'
-      }`}
-    >
-      <Icon className="h-2.5 w-2.5" />
-      {labelTh}
-      {ok ? ' ✓' : ' ✗'}
-    </span>
-  )
-}
 
 const statusIcons: Record<string, typeof Clock> = {
   draft:             FileEdit,
@@ -87,6 +61,7 @@ export default function ClaimsListView({
   const { locale } = useLocale()
   const isEn = locale === 'en'
   const router = useRouter()
+  const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
   const [isPending, startTransition] = useTransition()
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
@@ -144,12 +119,26 @@ export default function ClaimsListView({
 
   const isFiltering = paidTypeFilter !== 'all' || !!paidCategoryFilter || !!paidMonthFilter || !!paidSearch.trim()
 
-  const handleCancel = async (claimId: string, e: React.MouseEvent) => {
+  const handleCancel = async (claim: ExpenseClaim, e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (!confirm(isEn ? 'Cancel this claim?' : 'ยืนยันยกเลิกใบเบิกนี้?')) return
-    setCancellingId(claimId)
-    const res = await cancelClaim(claimId)
+    const ok = await askConfirm({
+      title: isEn ? 'Cancel this claim?' : 'ยกเลิกใบเบิกนี้?',
+      description: isEn
+        ? 'This cannot be undone. The claim will be marked as cancelled.'
+        : 'ไม่สามารถย้อนกลับได้ ใบเบิกจะถูกทำเครื่องหมายว่ายกเลิกแล้ว',
+      details: [
+        { label: isEn ? 'Claim no.' : 'เลขที่', value: claim.claim_number },
+        { label: isEn ? 'Title' : 'หัวข้อ', value: claim.title },
+        { label: isEn ? 'Amount' : 'ยอด', value: `฿${(claim.amount || 0).toLocaleString()}` },
+      ],
+      variant: 'destructive',
+      confirmLabel: isEn ? 'Cancel claim' : 'ยืนยันยกเลิก',
+      cancelLabel: isEn ? 'Keep' : 'ไม่ยกเลิก',
+    })
+    if (!ok) return
+    setCancellingId(claim.id)
+    const res = await cancelClaim(claim.id)
     setCancellingId(null)
     if (res.error) alert(res.error)
     else startTransition(() => router.refresh())
@@ -177,6 +166,7 @@ export default function ClaimsListView({
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -292,18 +282,16 @@ export default function ClaimsListView({
           {filtered.map(claim => {
             const StatusIcon = statusIcons[claim.status] || Clock
             const statusColor = getClaimStatusColor(claim.status)
-            const ck = getClaimChecklist(claim)
-            const fundingColor = getFundingSourceColor(claim.funding_source)
-            const isPersonal = claim.funding_source === 'personal'
+            const typeLabel = claim.claim_type === 'event'
+              ? (isEn ? 'Event' : 'อีเวนต์')
+              : claim.claim_type === 'advance'
+                ? (isEn ? 'Advance' : 'ทดลองจ่าย')
+                : (isEn ? 'Other' : 'ค่าอื่นๆ')
             return (
               <Link
                 key={claim.id}
                 href={`/finance/${claim.id}`}
-                className={`flex items-center justify-between p-4 bg-white dark:bg-zinc-900 rounded-xl border transition-colors group ${
-                  ck.isComplete
-                    ? 'border-zinc-200 dark:border-zinc-800 hover:border-emerald-300'
-                    : 'border-zinc-200 dark:border-zinc-800 hover:border-amber-300'
-                }`}
+                className="flex items-center justify-between p-4 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-emerald-300 dark:hover:border-emerald-800 transition-colors group"
               >
                 <div className="flex items-center gap-4 min-w-0">
                   <div
@@ -321,65 +309,37 @@ export default function ClaimsListView({
                       >
                         {getClaimStatusLabel(claim.status, locale)}
                       </span>
-                      {/* Funding source badge */}
-                      <span
-                        className="px-2 py-0.5 rounded-full text-[10px] font-semibold inline-flex items-center gap-1"
-                        style={{ backgroundColor: `${fundingColor}1a`, color: fundingColor }}
-                        title={isEn ? 'Funding source' : 'แหล่งเงิน'}
-                      >
-                        {isPersonal ? <UserIcon className="h-2.5 w-2.5" /> : <Building2 className="h-2.5 w-2.5" />}
-                        {getFundingSourceLabel(claim.funding_source, locale)}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium inline-flex items-center gap-1 ${
-                        claim.claim_type === 'advance'
-                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
-                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                      }`}>
-                        {claim.claim_type === 'advance' && <Wallet className="h-2.5 w-2.5" />}
-                        {claim.claim_type === 'event'
-                          ? (locale === 'th' ? 'อีเวนต์' : 'Event')
-                          : claim.claim_type === 'advance'
-                            ? (locale === 'th' ? 'ทดลองจ่าย' : 'Advance')
-                            : (locale === 'th' ? 'ค่าอื่นๆ' : 'Other')}
-                      </span>
                       {isUnsettledAdvance(claim) && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500 text-white inline-flex items-center gap-1 animate-pulse">
                           <AlertCircle className="h-2.5 w-2.5" />
-                          {locale === 'th' ? 'รออัพเดทค่าใช้จ่าย' : 'Settle required'}
+                          {isEn ? 'Settle required' : 'รออัพเดทค่าใช้จ่าย'}
                         </span>
                       )}
                     </div>
                     <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate mt-1">
                       {claim.title}
                     </p>
-                    <p className="text-xs text-zinc-500 mt-0.5">
-                      {claim.submitter?.full_name || '—'} • {new Date(claim.expense_date).toLocaleDateString('th-TH')}
-                      {(claim.job_event as any)?.event_name && ` • ${(claim.job_event as any).event_name}`}
+                    <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span className="inline-flex items-center gap-1">
+                        {claim.claim_type === 'advance' && <Wallet className="h-2.5 w-2.5 text-amber-500" />}
+                        {typeLabel}
+                      </span>
+                      <span className="text-zinc-300">•</span>
+                      <FundingBadge claim={claim} isEn={isEn} size="xs" />
+                      <span className="text-zinc-300">•</span>
+                      <span>{claim.submitter?.full_name || '—'}</span>
+                      <span className="text-zinc-300">•</span>
+                      <span>{new Date(claim.expense_date).toLocaleDateString('th-TH')}</span>
+                      {(claim.job_event as any)?.event_name && (
+                        <>
+                          <span className="text-zinc-300">•</span>
+                          <span className="truncate">{(claim.job_event as any).event_name}</span>
+                        </>
+                      )}
                     </p>
-                    {/* Document checklist mini badges */}
-                    <div className="flex items-center gap-1.5 mt-1.5">
-                      <DocBadge
-                        ok={ck.hasReceipt}
-                        labelTh="ใบเสร็จ"
-                        labelEn="Receipt"
-                        Icon={FileText}
-                      />
-                      {ck.taxInvoiceRequired && (
-                        <DocBadge
-                          ok={ck.hasTaxInvoice}
-                          labelTh="ใบกำกับ"
-                          labelEn="Tax Inv."
-                          Icon={Hash}
-                        />
-                      )}
-                      {ck.refundRequired && (
-                        <DocBadge
-                          ok={ck.hasRefundSlip && ck.refundConfirmed}
-                          labelTh="คืนเงิน"
-                          labelEn="Refund"
-                          Icon={RefreshCw}
-                        />
-                      )}
+                    {/* Doc checklist — shown only when something is missing */}
+                    <div className="mt-1.5">
+                      <ChecklistBadges claim={claim} isEn={isEn} />
                     </div>
                   </div>
                 </div>
@@ -394,7 +354,7 @@ export default function ClaimsListView({
                   </div>
                   {userId && claim.submitted_by === userId && ['draft', 'pending'].includes(claim.status) && (
                     <button
-                      onClick={(e) => handleCancel(claim.id, e)}
+                      onClick={(e) => handleCancel(claim, e)}
                       disabled={cancellingId === claim.id}
                       title={isEn ? 'Cancel claim' : 'ยกเลิกใบเบิก'}
                       className="p-1.5 rounded-lg text-zinc-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors disabled:opacity-40"
