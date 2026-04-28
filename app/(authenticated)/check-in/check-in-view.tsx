@@ -852,6 +852,19 @@ function ActiveSessionCard({
     onRefresh()
   }
 
+  // Detect stale sessions — checked in before today (00:00 Bangkok). These are
+  // typically overnight shifts that crossed midnight or forgotten check-ins.
+  // Showing them lets the user close them so they can start a new round.
+  const checkinDate = new Date(session.checked_in_at)
+  const bangkokOffset = 7 * 60 * 60 * 1000
+  const bangkokNow = new Date(Date.now() + bangkokOffset)
+  const todayStr = bangkokNow.toISOString().split('T')[0]
+  const checkinDateStr = new Date(checkinDate.getTime() + bangkokOffset).toISOString().split('T')[0]
+  const isStale = checkinDateStr !== todayStr
+  const daysAgo = isStale
+    ? Math.max(1, Math.floor((Date.now() - checkinDate.getTime()) / (24 * 60 * 60 * 1000)))
+    : 0
+
   // Tone the card differently per type
   const accent = session.check_type === 'office'
     ? 'border-sky-200 dark:border-sky-900/50 from-sky-50/60 dark:from-sky-950/20'
@@ -860,7 +873,17 @@ function ActiveSessionCard({
       : 'border-violet-200 dark:border-violet-900/50 from-violet-50/60 dark:from-violet-950/20'
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl border bg-gradient-to-br to-white dark:to-zinc-900 p-5 space-y-4 ${accent}`}>
+    <div className={`relative overflow-hidden rounded-2xl border bg-gradient-to-br to-white dark:to-zinc-900 p-5 space-y-4 ${accent} ${isStale ? 'ring-2 ring-amber-300 dark:ring-amber-700' : ''}`}>
+      {/* Stale warning banner — shown when session is from before today */}
+      {isStale && (
+        <div className="flex items-center gap-2 px-3 py-2 -mx-2 -mt-2 mb-1 rounded-lg bg-amber-100 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            ⚠ ค้างจาก{daysAgo === 1 ? 'เมื่อวาน' : `${daysAgo} วันที่แล้ว`} — กรุณา Check-out รอบนี้ก่อนเริ่มรอบใหม่
+          </span>
+        </div>
+      )}
+
       <div className="relative flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="h-12 w-12 rounded-xl bg-white dark:bg-zinc-800 flex items-center justify-center text-2xl shadow-sm">
@@ -869,7 +892,9 @@ function ActiveSessionCard({
           <div>
             <p className="font-bold text-base text-zinc-900 dark:text-zinc-100">{typeMeta?.label}</p>
             <p className="text-xs text-zinc-500">
-              เริ่ม {formatTime(session.checked_in_at)}
+              {isStale
+                ? `${new Date(session.checked_in_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} ${formatTime(session.checked_in_at)}`
+                : `เริ่ม ${formatTime(session.checked_in_at)}`}
               {session.events && ` · ${(session.events as { name: string }).name}`}
             </p>
           </div>

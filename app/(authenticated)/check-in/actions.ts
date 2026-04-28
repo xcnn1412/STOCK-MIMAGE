@@ -527,20 +527,44 @@ export async function getTodayCheckins() {
 
   const startOfDay = new Date(`${todayStr}T00:00:00+07:00`).toISOString()
   const endOfDay = new Date(`${todayStr}T23:59:59+07:00`).toISOString()
+  // 7-day cutoff for stale active sessions — anything older is treated as
+  // abandoned and not surfaced (admin would need to clean up via override).
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
-  const { data, error } = await supabase
+  const selectFields = '*, profiles:user_id(id, full_name, nickname), events:event_id(id, name), photo_url, checkout_photo_url'
+
+  // Query 1 — today's records (whether active or completed)
+  const todayQuery = supabase
     .from('staff_checkins')
-    .select('*, profiles:user_id(id, full_name, nickname), events:event_id(id, name), photo_url, checkout_photo_url')
+    .select(selectFields)
     .gte('checked_in_at', startOfDay)
     .lte('checked_in_at', endOfDay)
     .order('checked_in_at', { ascending: true })
 
-  if (error) {
-    console.error('Get today checkins error:', error)
-    return []
+  // Query 2 — stale active sessions (not yet checked out) from before today.
+  // Captures overnight shifts and forgotten sessions so the user can see and
+  // close them, instead of being silently blocked from new check-ins.
+  const staleActiveQuery = supabase
+    .from('staff_checkins')
+    .select(selectFields)
+    .is('checked_out_at', null)
+    .gte('checked_in_at', sevenDaysAgo)
+    .lt('checked_in_at', startOfDay)
+    .order('checked_in_at', { ascending: true })
+
+  const [todayRes, staleRes] = await Promise.all([todayQuery, staleActiveQuery])
+
+  if (todayRes.error) {
+    console.error('Get today checkins error:', todayRes.error)
+  }
+  if (staleRes.error) {
+    console.error('Get stale active checkins error:', staleRes.error)
   }
 
-  return data || []
+  const merged = [...(todayRes.data || []), ...(staleRes.data || [])]
+  // Sort by checked_in_at ascending (stale first since they're older)
+  merged.sort((a, b) => (a.checked_in_at || '').localeCompare(b.checked_in_at || ''))
+  return merged
 }
 
 export async function getMyCheckinHistory(limit = 30) {
