@@ -7,7 +7,7 @@ import {
   XCircle, Ban, Send, ShieldAlert, Upload, Bell, Layout, User, UserCog,
   CircleDollarSign, ListChecks, ArrowRight, ExternalLink, Edit3, Lock,
   GitBranch, ChevronDown, Building2, Hash, Sparkles, FileSpreadsheet, Percent,
-  AlertCircle, X, Camera, MapPin, Home, LogIn, LogOut, History,
+  AlertCircle, X, Camera, MapPin, Home, LogIn, LogOut, History, Zap, Image as ImageIcon,
 } from 'lucide-react'
 
 export default function HowtoView() {
@@ -1017,11 +1017,11 @@ export default function HowtoView() {
           >
             <FlowNode variant="start" emoji="🚪" title={isEn ? 'Arrive at workplace' : 'มาถึงที่ทำงาน'} />
             <FlowArrow />
-            <FlowNode variant="user" emoji="📝" title={isEn ? 'Pick type — office / on-site / remote' : 'เลือกประเภท — ออฟฟิศ / อีเวนต์ / WFH'} subtitle="/check-in" />
+            <FlowNode variant="user" emoji="📝" title={isEn ? 'Pick type — office / on-site / remote' : 'เลือกประเภท — ออฟฟิศ / อีเวนต์ / WFH'} subtitle={isEn ? 'Camera opens automatically' : 'กล้องจะเปิดอัตโนมัติ'} />
             <FlowArrow />
             <FlowNode variant="user" emoji="📷" title={isEn ? 'Take check-in photo' : 'ถ่ายรูป Check-in'} subtitle={isEn ? 'GPS auto-captured' : 'ระบบเก็บ GPS อัตโนมัติ'} />
             <FlowArrow />
-            <FlowNode variant="user" emoji="✅" title={isEn ? 'Click "Check-in"' : 'กด "เช็คอินเข้างาน"'} tag={isEn ? 'session active' : 'session active'} />
+            <FlowNode variant="user" emoji="✅" title={isEn ? 'Tap the dynamic submit button' : 'กดปุ่มส่ง (บอกประเภทชัดเจน)'} subtitle={isEn ? 'e.g. "Check in at office"' : 'เช่น "เช็คอินเข้าออฟฟิศ"'} tag={isEn ? 'session active' : 'session active'} />
             <FlowArrow label={isEn ? 'work happens' : 'ทำงาน...'} />
             <FlowNode variant="user" emoji="📷" title={isEn ? 'When done — take check-out photo' : 'เลิกงาน — ถ่ายรูป Check-out'} />
             <FlowArrow />
@@ -1090,6 +1090,88 @@ export default function HowtoView() {
                 </span>
               </li>
             </ul>
+          </div>
+        </div>
+
+        {/* ── Smart shortcuts (recent UX update) ──────────────────── */}
+        <div id="checkin-shortcuts" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Zap className="h-4 w-4" />}
+            title={isEn ? 'Smart shortcuts — fewer taps' : 'ทางลัด — เช็คอินเร็วขึ้น'}
+            color="violet"
+          />
+          <div className="rounded-xl border-2 border-violet-200 dark:border-violet-900 bg-violet-50/40 dark:bg-violet-950/10 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Recent updates trim the typical office check-in from ~5 taps to 2. The form auto-fills what it can, and the submit button names exactly what\'s about to happen — no more confirm() dialog interrupting the flow.'
+                : 'อัพเดทล่าสุด ลดการกดเช็คอินจาก ~5 ปุ่มเหลือ 2 ฟอร์มจะกรอกข้อมูลให้อัตโนมัติเท่าที่เดาได้ และปุ่มส่งจะบอกชัดว่ากำลังจะส่งอะไร — ไม่มี confirm dialog ขั้นกลางอีกต่อไป'}
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              <TipCard
+                tone="violet"
+                icon={<Camera className="h-4 w-4" />}
+                titleTh="📷 กล้องเปิดเองเมื่อกดเลือกประเภท"
+                titleEn="📷 Camera opens on type select"
+                descTh="พอแตะปุ่มออฟฟิศ/อีเวนต์/WFH กล้องจะเด้งให้ทันที — ไม่ต้องกด &quot;แตะเพื่อถ่ายรูป&quot; เป็นขั้นที่สอง"
+                descEn="Tap a type and the camera opens immediately — no second tap on the photo button."
+                isEn={isEn}
+              />
+              <TipCard
+                tone="sky"
+                icon={<MapPin className="h-4 w-4" />}
+                titleTh="🎯 เลือกอีเวนต์อัตโนมัติ"
+                titleEn="🎯 Auto-select event"
+                descTh="ถ้าวันนี้มีอีเวนต์เดียว ระบบจะเลือกให้เลย — ข้าม dropdown ไปได้"
+                descEn="If there's only one event today, it's pre-selected — skip the dropdown entirely."
+                isEn={isEn}
+              />
+              <TipCard
+                tone="emerald"
+                icon={<CheckCircle2 className="h-4 w-4" />}
+                titleTh="🏷 ปุ่มบอกชัดว่ากำลังเช็คอินอะไร"
+                titleEn="🏷 Submit button names the action"
+                descTh="ปุ่มจะแสดงเช่น &quot;เช็คอินเข้าออฟฟิศ&quot; / &quot;เช็คอินไปหน้างาน · ชื่ออีเวนต์&quot; / &quot;เช็คอิน WFH&quot; — ตรวจง่ายก่อนส่ง"
+                descEn='Button reads e.g. "Check in at office" / "On-site · {event name}" / "Check in WFH" — easy to verify before submitting.'
+                isEn={isEn}
+              />
+              <TipCard
+                tone="amber"
+                icon={<RefreshCw className="h-4 w-4" />}
+                titleTh="🔁 ใช้ note ครั้งก่อน (WFH)"
+                titleEn="🔁 Reuse last WFH note"
+                descTh="ถ้าเคยเช็คอิน WFH มาก่อน ระบบจะเสนอปุ่มกดครั้งเดียวเพื่อใช้ note ของรอบล่าสุด — ใครอยู่บ้านเดิมไม่ต้องพิมพ์ซ้ำ"
+                descEn="If you've checked in remote before, one tap pastes your last note — no retyping the same address every day."
+                isEn={isEn}
+              />
+              <TipCard
+                tone="violet"
+                icon={<ImageIcon className="h-4 w-4" />}
+                titleTh="📸 ใช้รูป checkout ร่วมกันได้"
+                titleEn="📸 Reuse checkout photo"
+                descTh="ถ้าจะ checkout หลายรอบติดกัน (ออฟฟิศ + อีเวนต์ ฯลฯ) — card ถัดไปจะเสนอปุ่ม &quot;ใช้รูปเดียวกันกับรอบก่อนหน้า&quot; แทนถ่ายซ้ำ"
+                descEn="Closing several sessions in one go? Sibling cards offer to reuse the photo just captured — no need to re-shoot."
+                isEn={isEn}
+              />
+              <TipCard
+                tone="amber"
+                icon={<AlertCircle className="h-4 w-4" />}
+                titleTh="🔔 แจ้งเตือน session ค้างจากวันก่อน"
+                titleEn="🔔 Stale-session sticky banner"
+                descTh="ถ้ามีรอบจากวันก่อนยังไม่ได้ checkout จะมีแถบสีส้มลอยบนสุดของหน้า พร้อมปุ่ม &quot;ไป Checkout →&quot; กดแล้วหน้าจะ scroll ไปการ์ดนั้นให้"
+                descEn="If a previous-day session was never closed, an orange banner sticks to the top of the page with a jump-to button."
+                isEn={isEn}
+              />
+            </div>
+            <div className="rounded-lg border border-violet-200/60 dark:border-violet-900/50 bg-white dark:bg-zinc-900 p-3">
+              <p className="text-[11px] font-bold text-violet-700 dark:text-violet-300 uppercase tracking-wider mb-1.5">
+                {isEn ? 'Per-type reminder popup' : 'Pop-up เตือนแยกตามประเภท'}
+              </p>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                {isEn
+                  ? 'Office and on-site are independent. Trying to check in to a type that already has an open session shows a scoped popup naming that specific session (with the event name for on-site) — sessions of other types stay unblocked.'
+                  : 'ออฟฟิศ กับ อีเวนต์ เป็นอิสระจากกัน — ถ้าเช็คอินซ้ำประเภทเดิมที่ยังเปิดอยู่ จะมี pop-up ระบุชื่อ session นั้นโดยเฉพาะ (สำหรับอีเวนต์ก็แสดงชื่อด้วย) ส่วนประเภทอื่นไม่ถูกบล็อก'}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -1624,8 +1706,9 @@ const MODULES: ModuleConfig[] = [
         titleTh: 'ฟลูว์งาน',
         titleEn: 'Workflow',
         items: [
-          { id: 'checkin-normal',  titleTh: 'Flow ปกติ',                  titleEn: 'Normal flow' },
-          { id: 'checkin-overlap', titleTh: 'Flow คาบเกี่ยว (ใหม่)',      titleEn: 'Overlap flow (new)' },
+          { id: 'checkin-normal',    titleTh: 'Flow ปกติ',                  titleEn: 'Normal flow' },
+          { id: 'checkin-overlap',   titleTh: 'Flow คาบเกี่ยว (ใหม่)',      titleEn: 'Overlap flow (new)' },
+          { id: 'checkin-shortcuts', titleTh: 'ทางลัด — เช็คอินเร็วขึ้น',   titleEn: 'Smart shortcuts' },
         ],
       },
       {
