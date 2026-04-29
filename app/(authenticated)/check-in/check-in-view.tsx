@@ -45,6 +45,17 @@ function compressImage(file: File, maxSize: number, quality: number): Promise<st
   })
 }
 
+// True if the session was checked in BEFORE today (Bangkok time). Takes `now`
+// as a parameter so callers can pass a stable timestamp (e.g. the ticking
+// `currentTime` state) — calling `Date.now()` inline during render violates
+// React 19's purity rule.
+function isSessionStale(checkedInAt: string, now: number): boolean {
+  const bangkokOffset = 7 * 60 * 60 * 1000
+  const todayStr = new Date(now + bangkokOffset).toISOString().split('T')[0]
+  const checkinStr = new Date(new Date(checkedInAt).getTime() + bangkokOffset).toISOString().split('T')[0]
+  return checkinStr !== todayStr
+}
+
 interface CheckinRecord {
   id: string
   user_id: string
@@ -127,8 +138,13 @@ export default function CheckInView({
     return 'remote'
   })()
   const [checkType, setCheckType] = useState<'office' | 'onsite' | 'remote'>(initialCheckType)
-  const [eventId, setEventId] = useState('')
+  // Auto-pick the only event when there's exactly one today — saves a tap.
+  const [eventId, setEventId] = useState(todayEvents.length === 1 ? todayEvents[0].id : '')
   const [note, setNote] = useState('')
+
+  // Most recent remote note — surfaced as a one-tap "ใช้ note ครั้งก่อน"
+  // shortcut so WFH-from-the-same-place users don't retype every day.
+  const lastRemoteNote = myHistory.find(c => c.check_type === 'remote' && c.note?.trim())?.note?.trim() || ''
   const [gps, setGps] = useState<{ lat: number; lng: number; accuracy: number } | null>(null)
   const [gpsLoading, setGpsLoading] = useState(false)
   const [gpsError, setGpsError] = useState('')
@@ -144,6 +160,11 @@ export default function CheckInView({
   const [compressing, setCompressing] = useState(false)
   const [photoSize, setPhotoSize] = useState<string | null>(null)
   const [cameraMode, setCameraMode] = useState<'user' | 'environment'>('user')
+
+  // Shared across <ActiveSessionCard>s: when user captures a checkout photo
+  // for one session, sibling cards offer a one-tap "ใช้รูปเดียวกัน" so the
+  // user doesn't need to re-shoot when closing multiple rounds back-to-back.
+  const [lastCheckoutPhoto, setLastCheckoutPhoto] = useState<string | null>(null)
 
   // Reminder modal is scoped per check_type. Office, onsite, and remote run
   // independently — one open session does NOT block the others. The modal only
@@ -189,6 +210,26 @@ export default function CheckInView({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTypesKey])
+
+  // When the user picks onsite and there's exactly one event today, auto-pick
+  // it. Re-runs if the user clears `eventId` and the form returns to onsite.
+  useEffect(() => {
+    if (checkType === 'onsite' && todayEvents.length === 1 && !eventId) {
+      setEventId(todayEvents[0].id)
+    }
+  }, [checkType, todayEvents, eventId])
+
+  // Single entry point for picking a check_type from the form. Resets the
+  // event selection when leaving onsite, and auto-opens the camera the first
+  // time so the user doesn't need a second tap on "แตะเพื่อถ่ายรูป". Skips
+  // the auto-camera if a photo is already taken (user is just adjusting type).
+  function selectType(newType: 'office' | 'onsite' | 'remote') {
+    setCheckType(newType)
+    if (newType !== 'onsite') setEventId('')
+    if (!photoBase64 && !compressing) {
+      requestAnimationFrame(() => fileInputRef.current?.click())
+    }
+  }
 
   function requestGPS() {
     if (!navigator.geolocation) { setGpsError('เบราว์เซอร์ไม่รองรับ GPS'); return }
@@ -252,7 +293,10 @@ export default function CheckInView({
       setReminderType(checkType)
       return
     }
-    if (!confirm('ยืนยัน Check-in เข้างาน?')) return
+    // No confirm() — the user has already supplied a photo + (for onsite)
+    // an event + (for remote) a note, which is enough commitment signal.
+    // Browser-native confirm() is jarring on mobile; the dynamic button text
+    // already names what's about to happen.
     setLoading(true); setError(''); setSuccess('')
     const fd = new FormData()
     fd.set('check_type', checkType)
@@ -311,55 +355,72 @@ export default function CheckInView({
   const timeStr = currentTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   const dateStr = currentTime.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
+  // Sticky banner trigger — derived once per render from the ticking clock so
+  // the user can't miss a session that crossed midnight without checking out.
+  const nowMs = currentTime.getTime()
+  const firstStaleSession = myActiveCheckins.find(s => isSessionStale(s.checked_in_at, nowMs))
+
   return (
     <div className="space-y-6 pb-24 md:pb-6 max-w-2xl mx-auto">
 
-      {/* ══════════════ HERO CLOCK HEADER ══════════════ */}
-      <div className="relative overflow-hidden rounded-3xl bg-zinc-900 dark:bg-zinc-800/80 p-6 md:p-8 text-white">
-        {/* Decorative gradient orbs */}
-        <div className="absolute -top-20 -right-20 w-40 h-40 rounded-full bg-gradient-to-br from-white/[0.06] to-transparent blur-2xl" />
-        <div className="absolute -bottom-16 -left-16 w-32 h-32 rounded-full bg-gradient-to-tr from-white/[0.04] to-transparent blur-2xl" />
+      {/* ══════════════ STICKY STALE-SESSION BANNER ══════════════ */}
+      {firstStaleSession && (
+        <div className="sticky top-0 z-30 -mx-4 md:mx-0 md:rounded-xl px-4 py-2.5 bg-amber-500 dark:bg-amber-600 text-white shadow-lg flex items-center gap-2 animate-in slide-in-from-top duration-300">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="text-xs font-semibold flex-1 truncate">
+            มีรอบ &quot;{CHECK_TYPES.find(t => t.key === firstStaleSession.check_type)?.label}&quot; ค้างจากวันก่อน — ยังไม่ได้ Check-out
+          </span>
+          <button
+            onClick={() => document.getElementById(`active-session-${firstStaleSession.id}`)
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+            className="text-xs font-bold underline whitespace-nowrap shrink-0">
+            ไป Checkout →
+          </button>
+        </div>
+      )}
 
-        <div className="relative z-10 flex items-start justify-between">
-          <div>
-            <p className="text-zinc-400 text-sm font-medium tracking-wide uppercase mb-1">
-              {dateStr}
-            </p>
+      {/* ══════════════ HERO CLOCK — compact, single-row layout ══════════════ */}
+      <div className="relative overflow-hidden rounded-2xl bg-zinc-900 dark:bg-zinc-800/80 px-4 md:px-5 py-3.5 text-white">
+        <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full bg-gradient-to-br from-white/[0.06] to-transparent blur-2xl" />
+
+        <div className="relative z-10 flex items-center gap-3">
+          {/* Time + date stacked tightly on the left */}
+          <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-1">
-              <span className="text-5xl md:text-6xl font-bold tracking-tighter font-mono tabular-nums">
+              <span className="text-3xl md:text-4xl font-bold tracking-tighter font-mono tabular-nums leading-none">
                 {timeStr.slice(0, 5)}
               </span>
-              <span className="text-2xl md:text-3xl font-light text-zinc-400 tabular-nums">
+              <span className="text-base md:text-lg font-light text-zinc-400 tabular-nums leading-none">
                 :{timeStr.slice(6)}
               </span>
+              <span className="text-zinc-600 mx-1">·</span>
+              <span className="text-[11px] md:text-xs text-zinc-400 truncate">{dateStr}</span>
+            </div>
+            {/* GPS inline on a slim second row */}
+            <div className="mt-1.5 flex items-center gap-2 text-[11px]">
+              {gpsLoading ? (
+                <span className="flex items-center gap-1.5 text-zinc-400">
+                  <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-zinc-400 opacity-75" /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-zinc-400" /></span>
+                  ค้นหาตำแหน่ง...
+                </span>
+              ) : gps ? (
+                <span className="flex items-center gap-1.5 text-emerald-400">
+                  <span className="relative flex h-1.5 w-1.5"><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" /></span>
+                  GPS ±{Math.round(gps.accuracy)}m
+                </span>
+              ) : gpsError ? (
+                <button onClick={requestGPS} className="flex items-center gap-1.5 text-amber-400 hover:text-amber-300 transition-colors">
+                  <span className="relative flex h-1.5 w-1.5"><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-400" /></span>
+                  {gpsError} · ลองอีกครั้ง
+                </button>
+              ) : null}
             </div>
           </div>
           <Link href="/check-in/history"
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all duration-200 border border-white/10"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all duration-200 border border-white/10 shrink-0"
           >
             <History className="h-3.5 w-3.5" /> ประวัติ
           </Link>
-        </div>
-
-        {/* GPS indicator */}
-        <div className="relative z-10 mt-4 flex items-center gap-2 text-xs">
-          {gpsLoading ? (
-            <span className="flex items-center gap-1.5 text-zinc-400">
-              <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-zinc-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-zinc-400" /></span>
-              ค้นหาตำแหน่ง...
-            </span>
-          ) : gps ? (
-            <span className="flex items-center gap-1.5 text-emerald-400">
-              <span className="relative flex h-2 w-2"><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" /></span>
-              {gps.lat.toFixed(4)}, {gps.lng.toFixed(4)}
-              <span className="text-zinc-500">±{Math.round(gps.accuracy)}m</span>
-            </span>
-          ) : gpsError ? (
-            <button onClick={requestGPS} className="flex items-center gap-1.5 text-amber-400 hover:text-amber-300 transition-colors">
-              <span className="relative flex h-2 w-2"><span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" /></span>
-              {gpsError}
-            </button>
-          ) : null}
         </div>
       </div>
 
@@ -383,6 +444,9 @@ export default function CheckInView({
               cameraMode={cameraMode}
               onLightbox={setShowPhotoLightbox}
               onRefresh={() => router.refresh()}
+              now={nowMs}
+              sharedPhoto={lastCheckoutPhoto}
+              onSharedPhotoCapture={setLastCheckoutPhoto}
             />
           ))}
         </div>
@@ -408,31 +472,33 @@ export default function CheckInView({
       {/* ══════════════ CHECK-IN FORM ══════════════ */}
       {!allTypesActive ? (
         <div className="space-y-4">
-          {/* Type Cards — disabled if active for current user */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Type Cards — compact (emoji + label). Description moves to title
+              attribute to reduce visual noise; status pill anchors below the
+              label. Selecting auto-opens the camera (saves a tap). */}
+          <div className="grid grid-cols-3 gap-2.5">
             {CHECK_TYPES.map(type => {
               const selected = checkType === type.key
               const noEventToday = type.key === 'onsite' && todayEvents.length === 0
               const alreadyActive = activeTypes.has(type.key)
               const disabled = noEventToday || alreadyActive
+              const tooltip = alreadyActive ? `${type.desc} — กำลังทำงานอยู่`
+                : noEventToday ? `${type.desc} — ไม่มีงานวันนี้`
+                : type.desc
               return (
                 <button key={type.key} type="button" disabled={disabled}
-                  onClick={() => { setCheckType(type.key); if (type.key !== 'onsite') setEventId('') }}
-                  title={alreadyActive ? 'มีรอบที่ยังไม่ checkout — checkout ก่อนเริ่มใหม่' : undefined}
-                  className={`relative group rounded-2xl p-4 md:p-5 text-left transition-all duration-300 overflow-hidden ${
+                  onClick={() => selectType(type.key)}
+                  title={tooltip}
+                  className={`relative rounded-xl py-3 px-2 text-center transition-all duration-200 ${
                     disabled ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-800/50' :
                     selected
-                      ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow-lg shadow-zinc-900/20 dark:shadow-white/10 scale-[1.02]'
-                      : 'bg-white dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 hover:shadow-md'
+                      ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow-md scale-[1.02]'
+                      : 'bg-white dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
                   }`}>
-                  {selected && <div className="absolute inset-0 bg-gradient-to-br from-white/[0.08] to-transparent" />}
-                  <div className="relative">
-                    <span className="text-2xl mb-2 block">{type.emoji}</span>
-                    <p className={`text-sm font-bold ${selected ? '' : 'text-zinc-900 dark:text-zinc-100'}`}>{type.label}</p>
-                    <p className={`text-[11px] mt-0.5 ${selected ? 'text-white/70 dark:text-zinc-500' : 'text-zinc-400'}`}>{type.desc}</p>
-                    {alreadyActive && <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 mt-1">● กำลังทำงานอยู่</p>}
-                    {!alreadyActive && noEventToday && <p className="text-[10px] text-zinc-400 mt-1">ไม่มีงานวันนี้</p>}
-                  </div>
+                  <span className="text-xl block leading-none">{type.emoji}</span>
+                  <p className={`text-xs md:text-sm font-bold mt-1.5 ${selected ? '' : 'text-zinc-900 dark:text-zinc-100'}`}>{type.label}</p>
+                  {alreadyActive && (
+                    <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5">● ทำงานอยู่</p>
+                  )}
                 </button>
               )
             })}
@@ -555,6 +621,14 @@ export default function CheckInView({
               <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
                 placeholder={checkType === 'remote' ? 'ระบุว่าอยู่ที่ไหน ทำอะไร...' : 'เพิ่มหมายเหตุ (ไม่บังคับ)'}
                 className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-800 text-sm focus:border-zinc-400 dark:focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 outline-none resize-none transition-all placeholder:text-zinc-300 dark:placeholder:text-zinc-600" />
+              {/* One-tap shortcut for WFH: paste the most recent remote note. */}
+              {checkType === 'remote' && lastRemoteNote && !note && (
+                <button type="button" onClick={() => setNote(lastRemoteNote)}
+                  className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors py-0.5">
+                  <Undo2 className="h-3 w-3" />
+                  ใช้ note ครั้งก่อน: &quot;{lastRemoteNote.length > 40 ? lastRemoteNote.slice(0, 40) + '…' : lastRemoteNote}&quot;
+                </button>
+              )}
             </div>
 
             {/* Messages */}
@@ -569,13 +643,20 @@ export default function CheckInView({
               </div>
             )}
 
-            {/* Check-in Button — when a previous session is still open, the
-                click handler shows a popup instead of being disabled, so the
-                user gets a clear nudge to checkout first. */}
+            {/* Check-in Button — text is dynamic per type so the user knows
+                exactly what's about to be submitted. For onsite, includes the
+                event name so a misclick on the wrong event is obvious before
+                hitting Submit. */}
             <button onClick={handleCheckIn}
               disabled={loading || !photoBase64 || (checkType === 'onsite' && !eventId) || (checkType === 'remote' && !note)}
               className="w-full flex items-center justify-center gap-2.5 py-4 px-4 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-bold text-base hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-zinc-900/20 dark:shadow-white/10 hover:shadow-xl hover:scale-[1.01] active:scale-[0.99]">
-              <Fingerprint className="h-5 w-5" /> {loading ? 'กำลังบันทึก...' : 'เช็คอินเข้างาน'}
+              <Fingerprint className="h-5 w-5" />
+              {loading ? 'กำลังบันทึก...' : (() => {
+                if (checkType === 'office') return 'เช็คอินเข้าออฟฟิศ'
+                if (checkType === 'remote') return 'เช็คอิน WFH'
+                const ev = todayEvents.find(e => e.id === eventId)
+                return ev ? `เช็คอินไปหน้างาน · ${ev.name}` : 'เช็คอินไปหน้างาน'
+              })()}
             </button>
           </div>
         </div>
@@ -875,11 +956,21 @@ function ActiveSessionCard({
   cameraMode,
   onLightbox,
   onRefresh,
+  now,
+  sharedPhoto,
+  onSharedPhotoCapture,
 }: {
   session: CheckinRecord
   cameraMode: 'user' | 'environment'
   onLightbox: (url: string) => void
   onRefresh: () => void
+  // Bangkok-clock timestamp from the parent's ticking state — passed in so the
+  // stale check stays a pure render (no `Date.now()` mid-render).
+  now: number
+  // Shared with sibling cards: when one card captures a checkout photo, the
+  // others can offer a one-tap reuse instead of forcing another shot.
+  sharedPhoto: string | null
+  onSharedPhotoCapture: (photo: string) => void
 }) {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [photoBase64, setPhotoBase64] = useState<string | null>(null)
@@ -900,6 +991,7 @@ function ActiveSessionCard({
       const compressed = await compressImage(file, 800, 0.7)
       setPhotoPreview(compressed)
       setPhotoBase64(compressed)
+      onSharedPhotoCapture(compressed)
       const sizeKB = Math.round((compressed.length * 3) / 4 / 1024)
       setPhotoSize(sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${sizeKB} KB`)
     } catch {
@@ -908,11 +1000,20 @@ function ActiveSessionCard({
         const result = reader.result as string
         setPhotoPreview(result)
         setPhotoBase64(result)
+        onSharedPhotoCapture(result)
         setPhotoSize(null)
       }
       reader.readAsDataURL(file)
     }
     setCompressing(false)
+  }
+
+  function reuseSharedPhoto() {
+    if (!sharedPhoto) return
+    setPhotoPreview(sharedPhoto)
+    setPhotoBase64(sharedPhoto)
+    const sizeKB = Math.round((sharedPhoto.length * 3) / 4 / 1024)
+    setPhotoSize(sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${sizeKB} KB`)
   }
 
   function clearPhoto() {
@@ -927,7 +1028,8 @@ function ActiveSessionCard({
       setError('กรุณาถ่ายรูป Check-out ก่อน')
       return
     }
-    if (!confirm(`ยืนยัน Check-out จาก "${typeMeta?.label}"?`)) return
+    // No confirm() — the photo already establishes intent, and an Undo
+    // affordance is visible right after checkout for accidental clicks.
     setLoading(true); setError('')
     const fd = new FormData()
     fd.set('checkin_id', session.id)
@@ -950,15 +1052,11 @@ function ActiveSessionCard({
 
   // Detect stale sessions — checked in before today (00:00 Bangkok). These are
   // typically overnight shifts that crossed midnight or forgotten check-ins.
-  // Showing them lets the user close them so they can start a new round.
-  const checkinDate = new Date(session.checked_in_at)
-  const bangkokOffset = 7 * 60 * 60 * 1000
-  const bangkokNow = new Date(Date.now() + bangkokOffset)
-  const todayStr = bangkokNow.toISOString().split('T')[0]
-  const checkinDateStr = new Date(checkinDate.getTime() + bangkokOffset).toISOString().split('T')[0]
-  const isStale = checkinDateStr !== todayStr
+  // `now` is threaded down from the parent's ticking clock so this stays pure
+  // (React 19's purity rule rejects `Date.now()` during render).
+  const isStale = isSessionStale(session.checked_in_at, now)
   const daysAgo = isStale
-    ? Math.max(1, Math.floor((Date.now() - checkinDate.getTime()) / (24 * 60 * 60 * 1000)))
+    ? Math.max(1, Math.floor((now - new Date(session.checked_in_at).getTime()) / (24 * 60 * 60 * 1000)))
     : 0
 
   // Tone the card differently per type
@@ -1047,11 +1145,21 @@ function ActiveSessionCard({
             </button>
           </div>
         ) : (
-          <button type="button" onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 transition-all bg-white/40 dark:bg-zinc-800/30 active:scale-[0.98]">
-            <Camera className="h-5 w-5" />
-            <span className="text-sm font-semibold">แตะเพื่อถ่ายรูป</span>
-          </button>
+          <div className="space-y-2">
+            <button type="button" onClick={() => fileInputRef.current?.click()}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 transition-all bg-white/40 dark:bg-zinc-800/30 active:scale-[0.98]">
+              <Camera className="h-5 w-5" />
+              <span className="text-sm font-semibold">แตะเพื่อถ่ายรูป</span>
+            </button>
+            {/* Reuse the photo a sibling card just captured — typically the
+                user is closing several rounds in the same place at once. */}
+            {sharedPhoto && (
+              <button type="button" onClick={reuseSharedPhoto}
+                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 bg-white/60 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-lg transition-colors">
+                <ImageIcon className="h-3.5 w-3.5" /> ใช้รูปเดียวกับรอบก่อนหน้า
+              </button>
+            )}
+          </div>
         )}
       </div>
 
