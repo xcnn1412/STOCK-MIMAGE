@@ -145,6 +145,12 @@ export default function CheckInView({
   const [photoSize, setPhotoSize] = useState<string | null>(null)
   const [cameraMode, setCameraMode] = useState<'user' | 'environment'>('user')
 
+  // Reminder modal is scoped per check_type. Office, onsite, and remote run
+  // independently — one open session does NOT block the others. The modal only
+  // appears when the user tries to check in to a type that is already running,
+  // and shows only that type's open session (for onsite, the specific event).
+  const [reminderType, setReminderType] = useState<'office' | 'onsite' | 'remote' | null>(null)
+
   // Checkout photo state lives inside <ActiveSessionCard> — each card is independent.
 
   // Admin retroactive
@@ -168,6 +174,21 @@ export default function CheckInView({
   }, [])
 
   useEffect(() => { requestGPS() }, [])
+
+  // Keep `checkType` in sync with active sessions: when the currently selected
+  // type becomes active (e.g. right after a successful check-in), auto-switch
+  // to the next non-active type. Without this, useState's initial-only value
+  // stays stale across router.refresh() and the form re-submits the same type
+  // — server then rejects it. Re-runs whenever the set of active types changes.
+  const activeTypesKey = [...activeTypes].sort().join('|')
+  useEffect(() => {
+    if (activeTypes.has(checkType)) {
+      if (!activeTypes.has('office')) setCheckType('office')
+      else if (!activeTypes.has('onsite')) setCheckType('onsite')
+      else if (!activeTypes.has('remote')) setCheckType('remote')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTypesKey])
 
   function requestGPS() {
     if (!navigator.geolocation) { setGpsError('เบราว์เซอร์ไม่รองรับ GPS'); return }
@@ -219,9 +240,16 @@ export default function CheckInView({
   }
 
   async function handleCheckIn() {
-    if (activeTypes.has(checkType)) {
-      const typeLabel = CHECK_TYPES.find(t => t.key === checkType)?.label || checkType
-      setError(`มี Check-in ประเภท "${typeLabel}" ที่ยังไม่ checkout — กรุณา checkout ก่อนเริ่มรอบใหม่`)
+    // Office and onsite run independently — only block when the SAME type is
+    // already open. The scoped reminder names that specific session (for
+    // onsite, including the event) so the user can close it before retrying.
+    const conflicting = myActiveCheckins.find(c => c.check_type === checkType)
+    if (conflicting) {
+      // Clear any stale inline messages so the popup is the sole signal —
+      // otherwise a leftover red error from a previous server response sits
+      // under the form and competes with the popup.
+      setError(''); setSuccess('')
+      setReminderType(checkType)
       return
     }
     if (!confirm('ยืนยัน Check-in เข้างาน?')) return
@@ -541,9 +569,11 @@ export default function CheckInView({
               </div>
             )}
 
-            {/* Check-in Button */}
+            {/* Check-in Button — when a previous session is still open, the
+                click handler shows a popup instead of being disabled, so the
+                user gets a clear nudge to checkout first. */}
             <button onClick={handleCheckIn}
-              disabled={loading || !photoBase64 || activeTypes.has(checkType) || (checkType === 'onsite' && !eventId) || (checkType === 'remote' && !note)}
+              disabled={loading || !photoBase64 || (checkType === 'onsite' && !eventId) || (checkType === 'remote' && !note)}
               className="w-full flex items-center justify-center gap-2.5 py-4 px-4 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-bold text-base hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-zinc-900/20 dark:shadow-white/10 hover:shadow-xl hover:scale-[1.01] active:scale-[0.99]">
               <Fingerprint className="h-5 w-5" /> {loading ? 'กำลังบันทึก...' : 'เช็คอินเข้างาน'}
             </button>
@@ -750,6 +780,72 @@ export default function CheckInView({
           </div>
         </div>
       )}
+      {/* ══════════════ CHECKOUT REMINDER MODAL — scoped to one check_type ══════════════ */}
+      {(() => {
+        if (!reminderType) return null
+        const sessions = myActiveCheckins.filter(c => c.check_type === reminderType)
+        if (sessions.length === 0) return null
+        const meta = CHECK_TYPES.find(t => t.key === reminderType)
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+            onClick={() => setReminderType(null)}>
+            <div className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-zinc-900 shadow-2xl border border-zinc-200 dark:border-zinc-800 p-6 space-y-5 animate-in zoom-in-95 duration-200"
+              onClick={e => e.stopPropagation()}>
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center shrink-0">
+                  <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <p className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                    ยังมีรอบ "{meta?.label}" ที่ค้างอยู่
+                  </p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                    กรุณา Check-out รอบนี้ก่อน ถึงจะเริ่ม "{meta?.label}" รอบใหม่ได้
+                    {reminderType !== 'onsite' && ' (ประเภทอื่นไม่ถูกบล็อก)'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {sessions.map(session => (
+                  <div key={session.id}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-800/40">
+                    <span className="text-2xl shrink-0">{meta?.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                        {meta?.label}
+                      </p>
+                      <p className="text-xs text-zinc-500 truncate">
+                        เริ่ม {formatTime(session.checked_in_at)}
+                        {session.events && ` · ${(session.events as { name: string }).name}`}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const id = session.id
+                        setReminderType(null)
+                        // Defer scroll so the modal unmounts first
+                        setTimeout(() => {
+                          document.getElementById(`active-session-${id}`)
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                        }, 80)
+                      }}
+                      className="flex items-center gap-1 px-3 py-2 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-xs font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors shrink-0 shadow-sm">
+                      <LogOut className="h-3.5 w-3.5" /> Checkout
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={() => setReminderType(null)}
+                className="w-full py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 text-sm font-semibold hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors">
+                ปิด
+              </button>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ══════════════ PHOTO LIGHTBOX ══════════════ */}
       {showPhotoLightbox && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
@@ -873,7 +969,7 @@ function ActiveSessionCard({
       : 'border-violet-200 dark:border-violet-900/50 from-violet-50/60 dark:from-violet-950/20'
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl border bg-gradient-to-br to-white dark:to-zinc-900 p-5 space-y-4 ${accent} ${isStale ? 'ring-2 ring-amber-300 dark:ring-amber-700' : ''}`}>
+    <div id={`active-session-${session.id}`} className={`relative overflow-hidden rounded-2xl border bg-gradient-to-br to-white dark:to-zinc-900 p-5 space-y-4 ${accent} ${isStale ? 'ring-2 ring-amber-300 dark:ring-amber-700' : ''}`}>
       {/* Stale warning banner — shown when session is from before today */}
       {isStale && (
         <div className="flex items-center gap-2 px-3 py-2 -mx-2 -mt-2 mb-1 rounded-lg bg-amber-100 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 text-xs font-semibold">
