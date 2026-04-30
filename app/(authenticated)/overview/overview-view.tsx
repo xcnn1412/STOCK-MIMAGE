@@ -510,6 +510,164 @@ export default function OverviewView({ data }: { data: OverviewData }) {
     return bands
   }, [filtered])
 
+  // ─── Native, rule-based insights (no AI) ────────────────────
+  // Each insight is precomputed from the already-loaded data so the dashboard
+  // can answer "what needs attention?" without an external LLM call.
+  // Severity colors the chip; clicking applies a filter so the user can drill in.
+  const dataInsights = useMemo(() => {
+    type Severity = 'alert' | 'warning' | 'info' | 'positive'
+    type Insight = {
+      id: string
+      severity: Severity
+      title: string
+      value: string
+      detail?: string
+      filterStatus?: string
+    }
+    const list: Insight[] = []
+
+    const lossEvents = filtered.filter(e => e.margin < 0 && e.revenue > 0)
+    if (lossEvents.length > 0) {
+      const totalLoss = lossEvents.reduce((s, e) => s + e.profit, 0)
+      list.push({
+        id: 'loss', severity: 'alert',
+        title: 'อีเวนต์ขาดทุน', value: `${lossEvents.length} อีเวนต์`,
+        detail: `ผลรวมขาดทุน ฿${fmtK(Math.abs(totalLoss))}`,
+      })
+    }
+
+    const lowMargin = filtered.filter(e => e.margin >= 0 && e.margin < 20 && e.revenue > 0)
+    if (lowMargin.length > 0) {
+      list.push({
+        id: 'low-margin', severity: 'warning',
+        title: 'Margin ต่ำ (<20%)', value: `${lowMargin.length} อีเวนต์`,
+        detail: 'ทบทวนต้นทุนหรือราคาขาย',
+      })
+    }
+
+    const noCheckin = filtered.filter(e => e.status === 'completed' && e.checkinCount === 0)
+    if (noCheckin.length > 0) {
+      list.push({
+        id: 'no-checkin', severity: 'warning',
+        title: 'อีเวนต์เสร็จแต่ไม่มีเช็คอิน', value: `${noCheckin.length} อีเวนต์`,
+        detail: 'ทีมไม่ได้บันทึกเข้างาน?',
+      })
+    }
+
+    const noCost = filtered.filter(e => e.revenue > 0 && e.totalCost === 0)
+    if (noCost.length > 0) {
+      list.push({
+        id: 'no-cost', severity: 'info',
+        title: 'รายได้แต่ยังไม่ลงต้นทุน', value: `${noCost.length} อีเวนต์`,
+        detail: 'อาจจะรอลงข้อมูลต้นทุน',
+      })
+    }
+
+    const noSeller = filtered.filter(e => !e.seller && e.revenue > 0)
+    if (noSeller.length > 0) {
+      list.push({
+        id: 'no-seller', severity: 'info',
+        title: 'ไม่ระบุเซล', value: `${noSeller.length} อีเวนต์`,
+        detail: 'ข้อมูลไม่ครบ — กระทบสรุปยอดต่อเซล',
+      })
+    }
+
+    const highDiscount = filtered.filter(e => e.discountPct > 20)
+    if (highDiscount.length > 0) {
+      const avg = highDiscount.reduce((s, e) => s + e.discountPct, 0) / highDiscount.length
+      list.push({
+        id: 'discount', severity: 'warning',
+        title: 'ลดราคา > 20%', value: `${highDiscount.length} อีเวนต์`,
+        detail: `เฉลี่ย ${avg.toFixed(0)}% off quote`,
+      })
+    }
+
+    // Stale pending expenses — `expense_date` older than 30 days, status pending
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000
+    const stalePending = data.expenseClaims.filter(c => {
+      if (c.status !== 'pending') return false
+      const ed = (c as { expense_date?: string | null }).expense_date
+      if (!ed) return false
+      return new Date(ed).getTime() < thirtyDaysAgo
+    })
+    if (stalePending.length > 0) {
+      const total = stalePending.reduce((s, c) => s + Number(c.total_amount || 0), 0)
+      list.push({
+        id: 'stale-pending', severity: 'alert',
+        title: 'เบิกค้าง > 30 วัน', value: `${stalePending.length} ใบ`,
+        detail: `รวม ฿${fmtK(total)}`,
+      })
+    }
+
+    // Month-over-month — needs at least 2 months of data
+    if (monthlyData.length >= 2) {
+      const [, prev] = monthlyData[monthlyData.length - 2]
+      const [, curr] = monthlyData[monthlyData.length - 1]
+      const change = pct(curr.revenue - prev.revenue, prev.revenue)
+      list.push({
+        id: 'mom', severity: change >= 0 ? 'positive' : 'warning',
+        title: 'รายรับเดือนนี้ vs เดือนก่อน',
+        value: `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`,
+        detail: `฿${fmtK(curr.revenue)} vs ฿${fmtK(prev.revenue)}`,
+      })
+    }
+
+    // Best margin event — celebratory positive
+    const topMarginEvent = [...filtered].filter(e => e.revenue > 0)
+      .sort((a, b) => b.margin - a.margin)[0]
+    if (topMarginEvent && topMarginEvent.margin > 30) {
+      list.push({
+        id: 'top-margin', severity: 'positive',
+        title: 'Margin สูงสุด', value: `${topMarginEvent.margin.toFixed(0)}%`,
+        detail: topMarginEvent.name,
+      })
+    }
+
+    return list
+  }, [filtered, monthlyData, data.expenseClaims])
+
+  // Top 5 most profitable events — quick "what's working" answer
+  const topProfitable = useMemo(() =>
+    [...filtered].filter(e => e.revenue > 0).sort((a, b) => b.profit - a.profit).slice(0, 5)
+  , [filtered])
+
+  // Bottom 5 events by profit — quick "what to fix" answer
+  const bottomEvents = useMemo(() =>
+    [...filtered].filter(e => e.revenue > 0).sort((a, b) => a.profit - b.profit).slice(0, 5)
+  , [filtered])
+
+  // Top customers by total revenue across their events
+  const topCustomers = useMemo(() => {
+    const map = new Map<string, { name: string; revenue: number; profit: number; count: number }>()
+    filtered.forEach(e => {
+      if (e.customerName) {
+        const prev = map.get(e.customerName) || { name: e.customerName, revenue: 0, profit: 0, count: 0 }
+        prev.revenue += e.revenue; prev.profit += e.profit; prev.count += 1
+        map.set(e.customerName, prev)
+      }
+    })
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 8)
+  }, [filtered])
+
+  // Seller stats with avg discount + margin — extends what topSellers shows
+  const sellerStats = useMemo(() => {
+    const map = new Map<string, { name: string; events: number; revenue: number; profit: number; discountSum: number; discountCount: number }>()
+    filtered.forEach(e => {
+      if (!e.seller) return
+      const prev = map.get(e.seller) || { name: e.seller, events: 0, revenue: 0, profit: 0, discountSum: 0, discountCount: 0 }
+      prev.events += 1
+      prev.revenue += e.revenue
+      prev.profit += e.profit
+      if (e.quotedPrice > 0) { prev.discountSum += e.discountPct; prev.discountCount += 1 }
+      map.set(e.seller, prev)
+    })
+    return Array.from(map.values()).map(s => ({
+      ...s,
+      avgDiscount: s.discountCount > 0 ? s.discountSum / s.discountCount : 0,
+      margin: pct(s.profit, s.revenue),
+    })).sort((a, b) => b.revenue - a.revenue)
+  }, [filtered])
+
   const toggleSort = (key: string) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir('desc') }
@@ -566,10 +724,20 @@ export default function OverviewView({ data }: { data: OverviewData }) {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl w-fit">
-        {([{key: 'dashboard' as const, icon: LayoutDashboard, label: 'Dashboard'}, {key: 'table' as const, icon: Table2, label: 'ตารางข้อมูล'}, {key: 'analytics' as const, icon: BarChart3, label: 'Analytics'}, {key: 'ai' as const, icon: Bot, label: 'AI Analysis'}]).map(tab => (
+        {([
+          {key: 'dashboard' as const, icon: LayoutDashboard, label: 'Dashboard'},
+          {key: 'table' as const, icon: Table2, label: 'ตารางข้อมูล'},
+          {key: 'analytics' as const, icon: BarChart3, label: 'Analytics'},
+          // AI is intentionally last + muted: most questions are answered by
+          // the rule-based Insights panel on the Dashboard already. Use AI
+          // only for free-form summaries or follow-up questions.
+          {key: 'ai' as const, icon: Bot, label: 'AI Assist (เสริม)', muted: true},
+        ]).map(tab => (
           <button key={tab.key} onClick={() => setViewMode(tab.key)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
-              viewMode === tab.key ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-sm' : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700'
+              viewMode === tab.key ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-sm'
+              : tab.muted ? 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-600'
+              : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700'
             }`}>
             <tab.icon className="h-4 w-4" /> {tab.label}
           </button>
@@ -602,6 +770,40 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       {/* ═══════════════════ DASHBOARD ═══════════════════ */}
       {viewMode === 'dashboard' && (
       <>
+        {/* ── Insights & Action Items (rule-based, no AI) ──
+            Sits at the top so admins land on "what needs attention?" before
+            scrolling through KPI cards. Severities are color-coded:
+            alert(red) → warning(amber) → info(zinc) → positive(emerald). */}
+        {dataInsights.length > 0 && (
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-amber-500" /> ข้อมูลที่ควรสังเกต
+                <span className="text-[10px] font-medium text-zinc-400 normal-case tracking-normal">
+                  · คำนวณจากข้อมูลในระบบโดยตรง (ไม่ใช้ AI)
+                </span>
+              </h2>
+              <span className="text-[10px] text-zinc-400 shrink-0">{dataInsights.length} รายการ</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {dataInsights.map(ins => {
+                const tone =
+                  ins.severity === 'alert' ? 'border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/20 text-red-700 dark:text-red-400' :
+                  ins.severity === 'warning' ? 'border-amber-200 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400' :
+                  ins.severity === 'positive' ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400' :
+                  'border-zinc-200 dark:border-zinc-700/60 bg-zinc-50/60 dark:bg-zinc-800/40 text-zinc-600 dark:text-zinc-400'
+                return (
+                  <div key={ins.id} className={`rounded-xl border p-3 ${tone}`}>
+                    <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">{ins.title}</p>
+                    <p className="text-base font-bold font-mono mt-0.5">{ins.value}</p>
+                    {ins.detail && <p className="text-[10px] opacity-70 mt-0.5 line-clamp-1">{ins.detail}</p>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Financial KPIs ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <KpiCard icon={Calendar} label="อีเวนต์ทั้งหมด" value={totals.events.toString()} sub={`เสร็จ ${totals.completed} (${completionRate.toFixed(0)}%)`} />
@@ -725,7 +927,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
             <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-zinc-400" /> Sales Performance
             </h2>
-            {topSellers.length === 0 ? <p className="text-xs text-zinc-400">ไม่มีข้อมูล</p> : (
+            {sellerStats.length === 0 ? <p className="text-xs text-zinc-400">ไม่มีข้อมูล</p> : (
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-[10px] text-zinc-400 uppercase tracking-wider">
@@ -735,22 +937,23 @@ export default function OverviewView({ data }: { data: OverviewData }) {
                     <th className="py-1 text-right">รายรับ</th>
                     <th className="py-1 text-right">กำไร</th>
                     <th className="py-1 text-right">Margin</th>
+                    <th className="py-1 text-right" title="ส่วนลดเฉลี่ยที่ให้จากราคา quote">Disc.</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {topSellers.map((s, i) => {
-                    const m = pct(s.profit, s.revenue)
-                    return (
-                      <tr key={s.name}>
-                        <td className="py-1.5 text-zinc-400 font-bold">{i + 1}</td>
-                        <td className="py-1.5 font-medium text-zinc-900 dark:text-zinc-100">{s.name}</td>
-                        <td className="py-1.5 text-right font-mono text-zinc-500">{s.count}</td>
-                        <td className="py-1.5 text-right font-mono font-bold text-zinc-900 dark:text-zinc-100">฿{fmtK(s.revenue)}</td>
-                        <td className="py-1.5 text-right font-mono text-zinc-600 dark:text-zinc-400">฿{fmtK(s.profit)}</td>
-                        <td className={`py-1.5 text-right font-mono font-bold ${marginBand(m)}`}>{m.toFixed(0)}%</td>
-                      </tr>
-                    )
-                  })}
+                  {sellerStats.map((s, i) => (
+                    <tr key={s.name}>
+                      <td className="py-1.5 text-zinc-400 font-bold">{i + 1}</td>
+                      <td className="py-1.5 font-medium text-zinc-900 dark:text-zinc-100">{s.name}</td>
+                      <td className="py-1.5 text-right font-mono text-zinc-500">{s.events}</td>
+                      <td className="py-1.5 text-right font-mono font-bold text-zinc-900 dark:text-zinc-100">฿{fmtK(s.revenue)}</td>
+                      <td className="py-1.5 text-right font-mono text-zinc-600 dark:text-zinc-400">฿{fmtK(s.profit)}</td>
+                      <td className={`py-1.5 text-right font-mono font-bold ${marginBand(s.margin)}`}>{s.margin.toFixed(0)}%</td>
+                      <td className={`py-1.5 text-right font-mono ${s.avgDiscount > 15 ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-zinc-400'}`}>
+                        {s.discountCount > 0 ? `${s.avgDiscount.toFixed(0)}%` : '—'}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
@@ -786,6 +989,97 @@ export default function OverviewView({ data }: { data: OverviewData }) {
             )}
           </div>
         </div>
+        {/* ── Top 5 / Bottom 5 events — quick "what's working / what's broken" ── */}
+        {filtered.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-emerald-200/60 dark:border-emerald-900/40 p-5 space-y-3">
+              <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+                <ArrowUpRight className="h-4 w-4 text-emerald-500" /> Top 5 ทำกำไรสูงสุด
+              </h2>
+              {topProfitable.length === 0 ? <p className="text-xs text-zinc-400">ไม่มีข้อมูล</p> : (
+                <ol className="space-y-1.5">
+                  {topProfitable.map((e, i) => (
+                    <li key={e.id} className="flex items-center gap-3 text-xs">
+                      <span className="text-zinc-400 font-bold w-4">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-zinc-900 dark:text-zinc-100 truncate">{e.name}</div>
+                        <div className="text-[10px] text-zinc-400">{fmtDate(e.date)}{e.seller && ` · ${e.seller}`}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-mono font-bold text-emerald-600 dark:text-emerald-400">+฿{fmtK(e.profit)}</div>
+                        <div className={`text-[10px] font-mono ${marginBand(e.margin)}`}>{e.margin.toFixed(0)}% margin</div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-red-200/60 dark:border-red-900/40 p-5 space-y-3">
+              <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+                <ArrowDownRight className="h-4 w-4 text-red-500" /> Bottom 5 ที่ควรทบทวน
+              </h2>
+              {bottomEvents.length === 0 ? <p className="text-xs text-zinc-400">ไม่มีข้อมูล</p> : (
+                <ol className="space-y-1.5">
+                  {bottomEvents.map((e, i) => (
+                    <li key={e.id} className="flex items-center gap-3 text-xs">
+                      <span className="text-zinc-400 font-bold w-4">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-zinc-900 dark:text-zinc-100 truncate">{e.name}</div>
+                        <div className="text-[10px] text-zinc-400">{fmtDate(e.date)}{e.seller && ` · ${e.seller}`}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className={`font-mono font-bold ${e.profit < 0 ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                          {e.profit >= 0 ? '+' : ''}฿{fmtK(e.profit)}
+                        </div>
+                        <div className={`text-[10px] font-mono ${marginBand(e.margin)}`}>{e.margin.toFixed(0)}% margin</div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Top Customers — group filtered events by customer_name ── */}
+        {topCustomers.length > 0 && (
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-5 space-y-3">
+            <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
+              <Users className="h-4 w-4 text-zinc-400" /> ลูกค้าที่สร้างรายรับสูงสุด
+              <span className="text-[10px] font-medium text-zinc-400 normal-case tracking-normal">
+                · {topCustomers.length} ราย
+              </span>
+            </h2>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] text-zinc-400 uppercase tracking-wider">
+                  <th className="py-1 text-left w-6">#</th>
+                  <th className="py-1 text-left">ลูกค้า</th>
+                  <th className="py-1 text-right">งาน</th>
+                  <th className="py-1 text-right">รายรับรวม</th>
+                  <th className="py-1 text-right">กำไรรวม</th>
+                  <th className="py-1 text-right">Margin</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {topCustomers.map((c, i) => {
+                  const m = pct(c.profit, c.revenue)
+                  return (
+                    <tr key={c.name}>
+                      <td className="py-1.5 text-zinc-400 font-bold">{i + 1}</td>
+                      <td className="py-1.5 font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[280px]">{c.name}</td>
+                      <td className="py-1.5 text-right font-mono text-zinc-500">{c.count}</td>
+                      <td className="py-1.5 text-right font-mono font-bold text-zinc-900 dark:text-zinc-100">฿{fmtK(c.revenue)}</td>
+                      <td className="py-1.5 text-right font-mono text-zinc-600 dark:text-zinc-400">฿{fmtK(c.profit)}</td>
+                      <td className={`py-1.5 text-right font-mono font-bold ${marginBand(m)}`}>{m.toFixed(0)}%</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </>
       )}
 
@@ -952,6 +1246,25 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       {/* ═══════════════════ AI ANALYSIS ═══════════════════ */}
       {viewMode === 'ai' && (
       <>
+        {/* Hint banner — push users back to native analysis first to avoid
+            unnecessary LLM calls. AI is for free-form follow-up, not "what
+            are my numbers" questions which the Dashboard already answers. */}
+        <div className="flex items-start gap-3 p-4 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-zinc-50/60 dark:bg-zinc-900/40">
+          <Sparkles className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs text-zinc-600 dark:text-zinc-400 space-y-1">
+            <p className="font-semibold text-zinc-700 dark:text-zinc-300">ลองดู Dashboard ก่อน — ส่วนใหญ่ตอบได้โดยไม่ต้องใช้ AI</p>
+            <p>
+              ระบบคำนวณ &quot;ข้อมูลที่ควรสังเกต&quot; (loss / margin ต่ำ / เบิกค้าง / ข้อมูลขาด) · Top 5 / Bottom 5 ·
+              ลูกค้าที่สร้างรายรับสูงสุด · MoM growth — ทั้งหมดเป็น deterministic จากข้อมูลในระบบโดยตรง
+            </p>
+            <p className="text-zinc-400">ใช้ AI Assist ก็ต่อเมื่อต้องการสรุปแบบ free-form หรือถาม follow-up ที่ Dashboard ยังไม่ตอบ</p>
+          </div>
+          <button onClick={() => setViewMode('dashboard')}
+            className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 underline whitespace-nowrap shrink-0">
+            ไป Dashboard →
+          </button>
+        </div>
+
         {/* History Toggle */}
         <div className="flex items-center justify-end">
           <button onClick={() => { setShowHistory(h => !h); if (!showHistory) setSelectedHistory(null) }}

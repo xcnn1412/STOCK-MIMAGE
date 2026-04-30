@@ -15,18 +15,20 @@ import { LanguageSwitcher } from '@/components/language-switcher'
 import NotificationBell from '@/components/notification-bell'
 import { NAV_GROUPS, type NavGroup } from '@/lib/nav-config'
 
-// Module accent colors
-const moduleAccents: Record<string, { color: string; bg: string; activeBg: string }> = {
-    overview: { color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-950/30', activeBg: 'bg-indigo-50 dark:bg-indigo-950/30' },
-    stock: { color: 'text-zinc-700 dark:text-zinc-300', bg: 'bg-zinc-100 dark:bg-zinc-800', activeBg: 'bg-zinc-100 dark:bg-zinc-800/80' },
-    events: { color: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-50 dark:bg-sky-950/30', activeBg: 'bg-sky-50 dark:bg-sky-950/30' },
-    kpi: { color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/30', activeBg: 'bg-amber-50 dark:bg-amber-950/30' },
-    costs: { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/30', activeBg: 'bg-emerald-50 dark:bg-emerald-950/30' },
-    finance: { color: 'text-teal-600 dark:text-teal-400', bg: 'bg-teal-50 dark:bg-teal-950/30', activeBg: 'bg-teal-50 dark:bg-teal-950/30' },
-    crm: { color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/30', activeBg: 'bg-blue-50 dark:bg-blue-950/30' },
-    jobs: { color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-950/30', activeBg: 'bg-violet-50 dark:bg-violet-950/30' },
-    checkin: { color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-950/30', activeBg: 'bg-rose-50 dark:bg-rose-950/30' },
-    admin: { color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950/30', activeBg: 'bg-purple-50 dark:bg-purple-950/30' },
+// Module accent colors. `bar` is the solid-color sliver shown to the left of
+// active items — Tailwind's JIT can't infer color names, so each entry must
+// declare its bar class explicitly (don't try to derive from `color`).
+const moduleAccents: Record<string, { color: string; bg: string; activeBg: string; bar: string }> = {
+    overview: { color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-950/30', activeBg: 'bg-indigo-50/70 dark:bg-indigo-950/30',  bar: 'bg-indigo-500 dark:bg-indigo-400' },
+    stock:    { color: 'text-zinc-700 dark:text-zinc-300',     bg: 'bg-zinc-100 dark:bg-zinc-800',       activeBg: 'bg-zinc-100/80 dark:bg-zinc-800/80',     bar: 'bg-zinc-700 dark:bg-zinc-300' },
+    events:   { color: 'text-sky-600 dark:text-sky-400',       bg: 'bg-sky-50 dark:bg-sky-950/30',       activeBg: 'bg-sky-50/70 dark:bg-sky-950/30',        bar: 'bg-sky-500 dark:bg-sky-400' },
+    kpi:      { color: 'text-amber-600 dark:text-amber-400',   bg: 'bg-amber-50 dark:bg-amber-950/30',   activeBg: 'bg-amber-50/70 dark:bg-amber-950/30',    bar: 'bg-amber-500 dark:bg-amber-400' },
+    costs:    { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/30', activeBg: 'bg-emerald-50/70 dark:bg-emerald-950/30', bar: 'bg-emerald-500 dark:bg-emerald-400' },
+    finance:  { color: 'text-teal-600 dark:text-teal-400',     bg: 'bg-teal-50 dark:bg-teal-950/30',     activeBg: 'bg-teal-50/70 dark:bg-teal-950/30',      bar: 'bg-teal-500 dark:bg-teal-400' },
+    crm:      { color: 'text-blue-600 dark:text-blue-400',     bg: 'bg-blue-50 dark:bg-blue-950/30',     activeBg: 'bg-blue-50/70 dark:bg-blue-950/30',      bar: 'bg-blue-500 dark:bg-blue-400' },
+    jobs:     { color: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-50 dark:bg-violet-950/30', activeBg: 'bg-violet-50/70 dark:bg-violet-950/30',  bar: 'bg-violet-500 dark:bg-violet-400' },
+    checkin:  { color: 'text-rose-600 dark:text-rose-400',     bg: 'bg-rose-50 dark:bg-rose-950/30',     activeBg: 'bg-rose-50/70 dark:bg-rose-950/30',      bar: 'bg-rose-500 dark:bg-rose-400' },
+    admin:    { color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950/30', activeBg: 'bg-purple-50/70 dark:bg-purple-950/30',  bar: 'bg-purple-500 dark:bg-purple-400' },
 }
 
 // ============================================================================
@@ -74,29 +76,29 @@ function SidebarGroup({
 
     return (
         <div className="space-y-0.5">
-            {/* Group trigger */}
+            {/* Group trigger — single chevron with rotation animation, hover
+                lifts text color so the whole row feels interactive. */}
             <button
                 onClick={() => setOpen(!open)}
                 className={`
-          w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider
-          transition-colors duration-200 select-none
-          ${hasActiveRoute
-                        ? `${accent.color}`
-                        : 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-400'
+                    w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[10.5px] font-bold uppercase tracking-[0.08em]
+                    transition-colors duration-200 select-none group/trigger
+                    ${hasActiveRoute
+                        ? accent.color
+                        : 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
                     }
-        `}
+                `}
             >
-                <group.icon className="h-3.5 w-3.5 shrink-0" />
+                <group.icon className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 group-hover/trigger:scale-110`} />
                 <span className="flex-1 text-left truncate">{getGroupLabel(group.key)}</span>
-                {open
-                    ? <ChevronDown className="h-3 w-3 opacity-60 shrink-0" />
-                    : <ChevronRight className="h-3 w-3 opacity-60 shrink-0" />
-                }
+                <ChevronDown className={`h-3 w-3 opacity-50 shrink-0 transition-transform duration-300 ${open ? '' : '-rotate-90'}`} />
             </button>
 
-            {/* Items */}
+            {/* Items — left-edge accent bar marks the active route; the bar
+                color matches the module accent so each section reads as one
+                visual family. Hover gets a subtle inset bg, no bar. */}
             {open && (
-                <div className="space-y-0.5 ml-2 pl-3 border-l-2 border-zinc-200/60 dark:border-zinc-700/40">
+                <div className="space-y-px pl-2.5 ml-2 border-l border-zinc-200/60 dark:border-zinc-800/60">
                     {visibleItems.map(item => {
                         const active = isActive(item.href, item.exact)
                         return (
@@ -105,19 +107,20 @@ function SidebarGroup({
                                 href={item.href}
                                 onClick={onNavigate}
                                 className={`
-                  flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
-                  transition-all duration-200
-                  ${active
-                                        ? `${accent.activeBg} text-zinc-900 dark:text-zinc-100 font-semibold`
-                                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800/40'
+                                    relative flex items-center gap-2.5 pl-3 pr-3 py-2 rounded-md text-[13.5px] font-medium
+                                    transition-all duration-150
+                                    ${active
+                                        ? `${accent.activeBg} text-zinc-900 dark:text-zinc-50 font-semibold`
+                                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/40'
                                     }
-                `}
+                                `}
                             >
-                                <item.icon className={`h-4 w-4 shrink-0 ${active ? accent.color : 'text-zinc-400 dark:text-zinc-500'}`} />
-                                <span className="truncate">{getLabel(item.labelKey)}</span>
+                                {/* Active indicator: a vertical pill flush to the left edge */}
                                 {active && (
-                                    <span className="ml-auto h-1.5 w-1.5 rounded-full bg-zinc-900 dark:bg-zinc-100 shrink-0" />
+                                    <span className={`absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full ${accent.bar}`} />
                                 )}
+                                <item.icon className={`h-4 w-4 shrink-0 transition-colors ${active ? accent.color : 'text-zinc-400 dark:text-zinc-500'}`} />
+                                <span className="truncate">{getLabel(item.labelKey)}</span>
                             </Link>
                         )
                     })}
@@ -189,20 +192,35 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
     // Sidebar navigation content (shared between desktop and mobile drawer)
     const sidebarNav = (isMobile: boolean) => (
         <div className="flex flex-col h-full">
-            {/* Logo */}
-            <div className={`flex items-center ${collapsed && !isMobile ? 'justify-center px-2' : 'px-4'} h-14 shrink-0 border-b border-zinc-200/80 dark:border-zinc-800/80`}>
-                <Link href="/dashboard" className="flex items-center gap-2.5 group" onClick={isMobile ? closeMobile : undefined}>
-                    <img
-                        src="/icon/officehub.svg"
-                        alt="Office Hub"
-                        className="h-8 w-8 rounded-lg shadow-sm transition-transform duration-200 group-hover:scale-105 shrink-0"
-                    />
+            {/* Logo — gradient hairline at the bottom replaces the hard
+                border so the header blends into the nav below. Avatar gains
+                a subtle hover lift; role label sits beneath the wordmark. */}
+            <div className={`relative flex items-center ${collapsed && !isMobile ? 'justify-center px-2' : 'px-4'} h-16 shrink-0`}>
+                <Link href="/dashboard" className="flex items-center gap-3 group" onClick={isMobile ? closeMobile : undefined}>
+                    <div className="relative shrink-0">
+                        <img
+                            src="/icon/officehub.svg"
+                            alt="Office Hub"
+                            className="h-9 w-9 rounded-xl shadow-sm transition-all duration-300 group-hover:shadow-md group-hover:-translate-y-0.5"
+                        />
+                        {/* Live indicator — tiny emerald dot suggests "online/connected" */}
+                        <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-white dark:ring-zinc-900" />
+                    </div>
                     {(!collapsed || isMobile) && (
-                        <span className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
-                            Office Hub
-                        </span>
+                        <div className="flex flex-col leading-tight">
+                            <span className="text-[15px] font-bold tracking-tight text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+                                Office Hub
+                            </span>
+                            {role && (
+                                <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500 mt-0.5">
+                                    {role === 'admin' ? '★ Admin' : 'Staff'}
+                                </span>
+                            )}
+                        </div>
                     )}
                 </Link>
+                {/* Soft gradient hairline divider */}
+                <div className="absolute inset-x-3 bottom-0 h-px bg-gradient-to-r from-transparent via-zinc-200 to-transparent dark:via-zinc-800" />
             </div>
 
             {/* Navigation */}
@@ -223,35 +241,31 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                 ))}
             </nav>
 
-            {/* Bottom: Language + Collapse + Logout */}
-            <div className={`shrink-0 border-t border-zinc-200/80 dark:border-zinc-800/80 py-3 ${collapsed && !isMobile ? 'px-1.5' : 'px-3'} space-y-1`}>
-                {/* Language Switcher */}
-                {(!collapsed || isMobile) ? (
-                    <div className="px-1 mb-1">
-                        <LanguageSwitcher />
-                    </div>
-                ) : (
-                    <div className="flex justify-center mb-1">
-                        <LanguageSwitcher />
-                    </div>
-                )}
+            {/* Bottom — gradient hairline replaces hard border. Profile +
+                How-to grouped above utility row (lang + collapse + logout). */}
+            <div className={`relative shrink-0 pt-3 pb-3 ${collapsed && !isMobile ? 'px-1.5' : 'px-3'} space-y-0.5`}>
+                <div className="absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-zinc-200 to-transparent dark:via-zinc-800" />
 
                 {/* My Profile */}
                 <Link
                     href="/profile"
                     onClick={isMobile ? closeMobile : undefined}
                     className={`
-                      w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
-                      transition-colors duration-200
-                      ${collapsed && !isMobile ? 'justify-center' : ''}
-                      ${isActive('/profile', true)
-                            ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-semibold'
-                            : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-300 dark:hover:bg-zinc-800'
+                        relative w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-[13.5px] font-medium
+                        transition-all duration-150
+                        ${collapsed && !isMobile ? 'justify-center' : ''}
+                        ${isActive('/profile', true)
+                            ? 'bg-zinc-100/80 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-50 font-semibold'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/40'
                         }
                     `}
+                    title="โปรไฟล์ของฉัน"
                 >
+                    {isActive('/profile', true) && (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-zinc-700 dark:bg-zinc-300" />
+                    )}
                     <User className="h-4 w-4 shrink-0" />
-                    {(!collapsed || isMobile) && <span>โปรไฟล์ของฉัน</span>}
+                    {(!collapsed || isMobile) && <span className="truncate">โปรไฟล์ของฉัน</span>}
                 </Link>
 
                 {/* How-to guide */}
@@ -259,53 +273,55 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                     href="/howto"
                     onClick={isMobile ? closeMobile : undefined}
                     className={`
-                      w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
-                      transition-colors duration-200
-                      ${collapsed && !isMobile ? 'justify-center' : ''}
-                      ${isActive('/howto')
-                            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-semibold'
-                            : 'text-zinc-500 hover:text-emerald-600 hover:bg-emerald-50/50 dark:text-zinc-400 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20'
+                        relative w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-[13.5px] font-medium
+                        transition-all duration-150
+                        ${collapsed && !isMobile ? 'justify-center' : ''}
+                        ${isActive('/howto')
+                            ? 'bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-semibold'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20'
                         }
                     `}
                     title={t.nav.howto || 'คู่มือใช้งาน'}
                 >
+                    {isActive('/howto') && (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-emerald-500 dark:bg-emerald-400" />
+                    )}
                     <BookOpen className="h-4 w-4 shrink-0" />
-                    {(!collapsed || isMobile) && <span>{t.nav.howto || 'คู่มือใช้งาน'}</span>}
+                    {(!collapsed || isMobile) && <span className="truncate">{t.nav.howto || 'คู่มือใช้งาน'}</span>}
                 </Link>
 
-                {/* Collapse Toggle (desktop only) */}
-                {!isMobile && (
-                    <button
-                        onClick={toggleCollapsed}
-                        className="w-full flex items-center justify-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800 transition-colors duration-200"
-                    >
-                        {collapsed ? (
-                            <PanelLeftOpen className="h-4 w-4" />
-                        ) : (
-                            <>
-                                <PanelLeftClose className="h-4 w-4 shrink-0" />
-                                <span className="flex-1 text-left truncate">{(t.common as Record<string, string>)?.collapse || 'ย่อเมนู'}</span>
-                            </>
-                        )}
-                    </button>
-                )}
+                {/* Utility row — language + collapse + logout grouped on one
+                    line when expanded; stacked centered when collapsed. */}
+                <div className={`pt-2 mt-1 border-t border-zinc-200/40 dark:border-zinc-800/40 ${collapsed && !isMobile ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1'}`}>
+                    <div className="shrink-0">
+                        <LanguageSwitcher />
+                    </div>
 
-                {/* Logout */}
-                <form action={logout}>
-                    <button
-                        type="submit"
-                        className={`
-              w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
-              text-zinc-400 hover:text-red-600 hover:bg-red-50
-              dark:text-zinc-500 dark:hover:text-red-400 dark:hover:bg-red-950/30
-              transition-colors duration-200
-              ${collapsed && !isMobile ? 'justify-center' : ''}
-            `}
-                    >
-                        <LogOut className="h-4 w-4 shrink-0" />
-                        {(!collapsed || isMobile) && <span>{t.common.logout}</span>}
-                    </button>
-                </form>
+                    {/* Spacer pushes collapse + logout to the right when expanded */}
+                    {(!collapsed || isMobile) && <div className="flex-1" />}
+
+                    {/* Collapse Toggle (desktop only) */}
+                    {!isMobile && (
+                        <button
+                            onClick={toggleCollapsed}
+                            className="flex items-center justify-center h-8 w-8 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800/60 transition-colors duration-150"
+                            title={(t.common as Record<string, string>)?.collapse || 'ย่อเมนู'}
+                        >
+                            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                        </button>
+                    )}
+
+                    {/* Logout */}
+                    <form action={logout}>
+                        <button
+                            type="submit"
+                            className="flex items-center justify-center h-8 w-8 rounded-md text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:text-zinc-500 dark:hover:text-red-400 dark:hover:bg-red-950/30 transition-colors duration-150"
+                            title={t.common.logout}
+                        >
+                            <LogOut className="h-4 w-4" />
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     )
@@ -315,24 +331,28 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
             {/* ====== DESKTOP SIDEBAR (md+) ====== */}
             <aside
                 className={`
-          hidden md:flex flex-col shrink-0 h-screen sticky top-0
-          bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm
-          border-r border-zinc-200/80 dark:border-zinc-800/80
-          transition-all duration-300 ease-in-out z-40 overflow-hidden
-          ${collapsed ? 'w-0 border-r-0' : 'w-[240px]'}
-        `}
+                    hidden md:flex flex-col shrink-0 h-screen sticky top-0
+                    bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl
+                    border-r border-zinc-200/60 dark:border-zinc-800/60
+                    transition-all duration-300 ease-in-out z-40 overflow-hidden
+                    sidebar-scroll
+                    ${collapsed ? 'w-0 border-r-0' : 'w-[244px]'}
+                `}
             >
                 {sidebarNav(false)}
             </aside>
 
-            {/* Desktop: Floating toggle when collapsed */}
+            {/* Desktop: Floating toggle when collapsed — pill shape with the
+                Office Hub mark above the chevron, hinting at the brand even
+                while the rail is hidden. */}
             {collapsed && (
                 <button
                     onClick={toggleCollapsed}
-                    className="hidden md:flex fixed top-3 left-3 z-50 items-center justify-center h-10 w-10 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700/80 shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100"
+                    className="hidden md:flex fixed top-3 left-3 z-50 flex-col items-center justify-center gap-1 h-14 w-10 rounded-2xl bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border border-zinc-200/70 dark:border-zinc-700/70 shadow-lg hover:shadow-xl hover:scale-[1.04] active:scale-95 transition-all duration-200 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 group"
                     title={(t.common as Record<string, string>)?.expand || 'ขยายเมนู'}
                 >
-                    <PanelLeftOpen className="h-4.5 w-4.5" />
+                    <img src="/icon/officehub.svg" alt="" className="h-5 w-5 rounded-md transition-transform duration-200 group-hover:-translate-y-0.5" />
+                    <PanelLeftOpen className="h-3 w-3 opacity-60" />
                 </button>
             )}
 

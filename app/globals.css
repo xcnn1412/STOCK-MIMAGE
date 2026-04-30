@@ -359,3 +359,38 @@
   text-overflow: ellipsis;
 }
 
+/* Sidebar — slim, fade-in scrollbar that doesn't reserve track width on
+   modern browsers. Track is invisible until the cursor enters the rail,
+   so the resting visual stays uncluttered. */
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+}
+.sidebar-scroll:hover {
+  scrollbar-color: rgba(161, 161, 170, 0.4) transparent;
+}
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.4);
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.7);
+}
+.dark .sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(82, 82, 91, 0.6);
+}
+.dark .sidebar-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.8);
+}
+
