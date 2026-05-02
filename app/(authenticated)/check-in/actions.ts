@@ -78,18 +78,51 @@ export async function checkIn(formData: FormData) {
   // Guard: only one active session per check_type at a time.
   // Office / onsite / remote run independently, but you can't have two
   // un-checked-out office sessions (etc.) overlapping.
+  //
+  // Window-aligned with getTodayCheckins() (7 days). Orphans older than that
+  // are auto-closed at end-of-checkin-day so the user isn't permanently
+  // blocked by a record they can't see in the UI to check out manually.
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+  const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_MS).toISOString()
+
   const { data: existingActive } = await supabase
     .from('staff_checkins')
-    .select('id')
+    .select('id, check_type, event_id, checked_in_at, note')
     .eq('user_id', userId)
     .eq('check_type', checkType)
     .is('checked_out_at', null)
-    .limit(1)
+
   if (existingActive && existingActive.length > 0) {
-    const typeLabel = checkType === 'office' ? 'ออฟฟิศ'
-      : checkType === 'onsite' ? 'อีเวนต์'
-      : 'นอกสถานที่'
-    return { error: `มี Check-in ประเภท "${typeLabel}" ที่ยังไม่ checkout — กรุณา checkout ก่อนเริ่มรอบใหม่` }
+    const recent = existingActive.filter(r => r.checked_in_at >= sevenDaysAgo)
+    const ancient = existingActive.filter(r => r.checked_in_at < sevenDaysAgo)
+
+    // Auto-close ancient orphans (user can't see/manage them in UI)
+    for (const orphan of ancient) {
+      const bangkokOffset = 7 * 60 * 60 * 1000
+      const checkinDateStr = new Date(new Date(orphan.checked_in_at).getTime() + bangkokOffset)
+        .toISOString().split('T')[0]
+      const endOfCheckinDay = new Date(`${checkinDateStr}T23:59:59+07:00`).toISOString()
+      const autoNote = '[Auto] orphaned >7d'
+      const newNote = orphan.note ? `${orphan.note} · ${autoNote}` : autoNote
+
+      await supabase
+        .from('staff_checkins')
+        .update({ checked_out_at: endOfCheckinDay, note: newNote })
+        .eq('id', orphan.id)
+
+      // Trigger expense for onsite orphans (work was done — staff deserves the rate)
+      if (orphan.check_type === 'onsite' && orphan.event_id) {
+        await autoCreateExpenseFromCheckin(supabase, orphan.id, userId, orphan.event_id)
+      }
+    }
+
+    // Recent active sessions — block, user can manage them via UI
+    if (recent.length > 0) {
+      const typeLabel = checkType === 'office' ? 'ออฟฟิศ'
+        : checkType === 'onsite' ? 'อีเวนต์'
+        : 'นอกสถานที่'
+      return { error: `มี Check-in ประเภท "${typeLabel}" ที่ยังไม่ checkout — กรุณา checkout ก่อนเริ่มรอบใหม่` }
+    }
   }
 
   const { data: inserted, error } = await supabase
