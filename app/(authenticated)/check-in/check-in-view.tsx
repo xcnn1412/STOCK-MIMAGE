@@ -8,7 +8,7 @@ import {
   ShieldCheck, UserPlus, Clock, Fingerprint, Sparkles, Undo2, Trash2, RotateCcw,
   Camera, X, ImageIcon
 } from 'lucide-react'
-import { checkIn, checkOut, adminCheckIn, undoCheckout, adminDeleteCheckin, adminEditCheckin } from './actions'
+import { checkIn, checkOut, adminCheckIn, undoCheckout, quickCheckoutStale, adminDeleteCheckin, adminEditCheckin } from './actions'
 import EventSelectCombobox from '../finance/new/event-select-combobox'
 import Link from 'next/link'
 
@@ -1050,6 +1050,16 @@ function ActiveSessionCard({
     onRefresh()
   }
 
+  async function handleQuickCheckout() {
+    const checkinDate = new Date(session.checked_in_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
+    if (!confirm(`Check-out ด่วนรอบนี้?\n\n· จะตัดเวลาเป็น 23:59 ของวันที่ ${checkinDate}\n· จะไม่มีรูป Check-out\n· บันทึก [Auto] ใน note`)) return
+    setLoading(true); setError('')
+    const result = await quickCheckoutStale(session.id)
+    if (result.error) { setError(result.error); setLoading(false); return }
+    setLoading(false)
+    onRefresh()
+  }
+
   // Detect stale sessions — checked in before today (00:00 Bangkok). These are
   // typically overnight shifts that crossed midnight or forgotten check-ins.
   // `now` is threaded down from the parent's ticking clock so this stays pure
@@ -1183,6 +1193,16 @@ function ActiveSessionCard({
           </button>
         )}
       </div>
+
+      {/* Quick Check-out — เฉพาะ session ค้างจากวันก่อน. ตัดที่ 23:59 ของวันนั้น
+          โดยไม่ต้องใส่รูป — ใช้กรณีลืม checkout จริงๆ ที่รูปย้อนหลังไม่ใช่ proof */}
+      {isStale && (
+        <button onClick={handleQuickCheckout} disabled={loading}
+          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-xs font-semibold hover:bg-amber-100 dark:hover:bg-amber-950/50 transition-colors disabled:opacity-50">
+          <AlertCircle className="h-3.5 w-3.5" />
+          Check-out ด่วน — ตัดเวลา 23:59 ของวันนั้น (ไม่ใส่รูป)
+        </button>
+      )}
     </div>
   )
 }

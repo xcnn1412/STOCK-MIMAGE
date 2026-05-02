@@ -415,6 +415,69 @@ export async function checkOut(formData: FormData) {
   return { success: true }
 }
 
+// ─── Quick Check-out (ค้างจากวันก่อน — ไม่ต้องใส่รูป) ────
+//
+// สำหรับเคสลืม check-out จากเมื่อวาน (หรือก่อนหน้า) ที่ถ่ายรูปย้อนหลังไม่
+// ทำให้เป็น proof of work ที่ใช้ได้อยู่ดี — ตัด checked_out_at ที่ end-of-day
+// 23:59:59 ของวันที่ check-in แล้ว tag note "[Auto] ตัด end-of-day" เพื่อให้
+// admin/รายงานเห็นชัดว่า record นี้ปิดโดยระบบ ไม่ใช่ผู้ใช้
+//
+// Backend gate: อนุญาตเฉพาะ session ที่ "stale" จริงๆ (checked_in_at < วันนี้
+// 00:00 Bangkok) เพื่อกัน user ใช้ปุ่มนี้ปิด session วันนี้แบบเลี่ยงรูป
+
+export async function quickCheckoutStale(checkinId: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: record } = await supabase
+    .from('staff_checkins')
+    .select('id, user_id, check_type, event_id, checked_in_at, checked_out_at, note')
+    .eq('id', checkinId)
+    .eq('user_id', userId)
+    .single()
+
+  if (!record) return { error: 'ไม่พบ record' }
+  if (record.checked_out_at) return { error: 'Check-out แล้ว' }
+
+  // กัน user ใช้ปุ่มนี้กับ session วันนี้ — ต้องผ่านขั้น check-out + รูปปกติ
+  const bangkokOffset = 7 * 60 * 60 * 1000
+  const todayStr = new Date(Date.now() + bangkokOffset).toISOString().split('T')[0]
+  const checkinDateStr = new Date(new Date(record.checked_in_at).getTime() + bangkokOffset).toISOString().split('T')[0]
+  if (checkinDateStr >= todayStr) {
+    return { error: 'ใช้ปุ่มนี้ได้เฉพาะ session ที่ค้างจากวันก่อน — กรุณา Check-out ปกติ' }
+  }
+
+  // ตัดที่ 23:59:59 ของวันที่ check-in (Bangkok) — สื่อความหมาย "ปิดที่สิ้นวัน"
+  const endOfCheckinDay = new Date(`${checkinDateStr}T23:59:59+07:00`).toISOString()
+
+  const autoNote = '[Auto] ตัด end-of-day'
+  const newNote = record.note ? `${record.note} · ${autoNote}` : autoNote
+
+  const { error } = await supabase
+    .from('staff_checkins')
+    .update({
+      checked_out_at: endOfCheckinDay,
+      note: newNote,
+    })
+    .eq('id', checkinId)
+    .eq('user_id', userId)
+
+  if (error) {
+    console.error('Quick checkout error:', error)
+    return { error: 'เกิดข้อผิดพลาด' }
+  }
+
+  // Auto-create expense claim สำหรับงาน on-site (เหมือน checkOut ปกติ)
+  if (record.check_type === 'onsite' && record.event_id) {
+    await autoCreateExpenseFromCheckin(supabase, checkinId, userId, record.event_id)
+  }
+
+  revalidatePath('/check-in')
+  return { success: true }
+}
+
 // ─── Undo Check-out (ภายใน 5 นาที) ───────────────────────
 
 export async function undoCheckout(checkinId: string) {
