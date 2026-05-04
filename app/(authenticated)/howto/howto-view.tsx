@@ -8,6 +8,7 @@ import {
   CircleDollarSign, ListChecks, ArrowRight, ExternalLink, Edit3, Lock,
   GitBranch, ChevronDown, Building2, Hash, Sparkles, FileSpreadsheet, Percent,
   AlertCircle, X, Camera, MapPin, Home, LogIn, LogOut, History, Zap, Image as ImageIcon,
+  CalendarDays, Heart, Plane, Briefcase, ShieldCheck,
 } from 'lucide-react'
 
 export default function HowtoView() {
@@ -1175,6 +1176,139 @@ export default function HowtoView() {
           </div>
         </div>
 
+        {/* ── Leave requests (NEW feature) ────────────────────────── */}
+        <div id="checkin-leave" className="scroll-mt-6">
+          <SectionHeader
+            icon={<CalendarDays className="h-4 w-4" />}
+            title={isEn ? 'Leave requests — personal / sick / vacation' : 'ลางาน — ลากิจ / ลาป่วย / ลาพักร้อน'}
+            color="rose"
+          />
+          <div className="rounded-xl border-2 border-rose-200 dark:border-rose-900 bg-gradient-to-br from-rose-50 to-white dark:from-rose-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'A "Leave requests" section lives between the today-summary footer and the check-in form. Tap the "+ ขอลางาน" pill in the section header to open the request modal — pick a type, set the date range, add a reason, and submit. Admins review pending requests in their own panel below.'
+                : 'ส่วน "คำขอลางาน" อยู่ระหว่าง footer สรุปวันนี้ กับฟอร์มเช็คอิน — แตะปุ่ม "+ ขอลางาน" มุมขวาบนของ section จะเปิด modal เลือกประเภท ระบุช่วงวันที่ เหตุผล แล้วกดส่ง · admin จะเห็น panel "รออนุมัติ" สีเหลืองด้านล่าง'}
+            </p>
+
+            {/* 3 leave types */}
+            <ul className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+              <NewItem
+                icon={<Briefcase className="h-3.5 w-3.5" />}
+                titleTh="📋 ลากิจ"
+                titleEn="📋 Personal"
+                descTh="ธุระส่วนตัว — เหตุผลจำเป็น"
+                descEn="Personal errands — reason required"
+                isEn={isEn}
+              />
+              <NewItem
+                icon={<Heart className="h-3.5 w-3.5" />}
+                titleTh="🤒 ลาป่วย"
+                titleEn="🤒 Sick"
+                descTh="เจ็บป่วย — แนบใบรับรองแพทย์ได้"
+                descEn="Sick day — attach doctor's note (optional)"
+                isEn={isEn}
+              />
+              <NewItem
+                icon={<Plane className="h-3.5 w-3.5" />}
+                titleTh="🌴 ลาพักร้อน"
+                titleEn="🌴 Vacation"
+                descTh="พักร้อน — เหตุผลไม่บังคับ"
+                descEn="Vacation — reason optional"
+                isEn={isEn}
+              />
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Leave flow ──────────────────────────────────────────── */}
+        <div id="checkin-leave-flow" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Send className="h-4 w-4" />}
+            title={isEn ? 'Leave flow — request → review → outcome' : 'Flow การลา — ขอ → review → ผลลัพธ์'}
+            color="rose"
+          />
+          <FlowchartBox
+            title={isEn ? 'From request to approval' : 'จากการขอจนถึงผลลัพธ์'}
+            color="rose"
+          >
+            <FlowNode variant="user" emoji="📝" title={isEn ? 'Tap "+ ขอลางาน"' : 'กด "+ ขอลางาน"'} subtitle="/check-in" />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="🗂" title={isEn ? 'Pick type · date range · reason' : 'เลือกประเภท · ช่วงวันที่ · เหตุผล'} subtitle={isEn ? 'half-day toggle if start = end' : 'มี checkbox ครึ่งวันถ้า start = end'} />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="📷" title={isEn ? 'Optional: attach doctor\'s note' : 'แนบใบรับรองแพทย์ (ไม่บังคับ)'} />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="📨" title={isEn ? 'Submit — status: รออนุมัติ' : 'ส่งคำขอ — status: รออนุมัติ'} tag="pending" />
+            <FlowArrow label={isEn ? 'admin reviews' : 'admin ตรวจ'} />
+            <FlowNode variant="user" emoji="👀" title={isEn ? 'Admin sees in "รออนุมัติ" panel' : 'Admin เห็นใน panel "รออนุมัติ"'} subtitle={isEn ? 'amber-highlighted on /check-in' : 'แถบสีเหลืองบน /check-in'} />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="✅" title={isEn ? 'Approve OR reject (with reason)' : 'อนุมัติ หรือ ปฏิเสธ (พร้อมเหตุผล)'} tag={isEn ? 'approved / rejected' : 'approved / rejected'} />
+          </FlowchartBox>
+        </div>
+
+        {/* ── Leave reference (status + rules) ────────────────────── */}
+        <div id="checkin-leave-ref" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ShieldCheck className="h-4 w-4" />}
+            title={isEn ? 'Status & rules' : 'สถานะ และกฎการลา'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard
+              tone="amber"
+              icon={<Clock className="h-4 w-4" />}
+              titleTh="⏳ รออนุมัติ (pending)"
+              titleEn="⏳ Pending"
+              descTh="เพิ่งส่งคำขอ admin ยังไม่ตรวจ — user ยังกด &quot;ยกเลิกคำขอ&quot; ได้"
+              descEn="Just submitted, awaiting admin review. User can still cancel their own request."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="emerald"
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              titleTh="✅ อนุมัติ (approved)"
+              titleEn="✅ Approved"
+              descTh="Admin อนุมัติแล้ว — บล็อกการลาช่วงเดียวกันไม่ให้ขอซ้ำ"
+              descEn="Admin approved. Blocks overlapping pending/approved requests in the same range."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="sky"
+              icon={<X className="h-4 w-4" />}
+              titleTh="❌ ปฏิเสธ (rejected)"
+              titleEn="❌ Rejected"
+              descTh="Admin ปฏิเสธ — ต้องระบุเหตุผล user เห็น note ใน card"
+              descEn="Admin rejected with a required note — user sees the reason on the card."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="violet"
+              icon={<Ban className="h-4 w-4" />}
+              titleTh="🚫 ยกเลิกแล้ว (cancelled)"
+              titleEn="🚫 Cancelled"
+              descTh="User ยกเลิกเอง — ลบจาก active list, ย้ายไปประวัติด้านล่าง"
+              descEn="User cancelled. Moves out of active view into the history footer."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="amber"
+              icon={<AlertCircle className="h-4 w-4" />}
+              titleTh="⚠ กันลาทับซ้อน"
+              titleEn="⚠ Overlap blocked"
+              descTh="ระบบบล็อกถ้าช่วงใหม่ทับกับ pending/approved ที่มีอยู่ — ต้องยกเลิกตัวเดิมก่อน"
+              descEn="System blocks new requests that overlap any pending/approved range — cancel the existing one first."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="sky"
+              icon={<CalendarDays className="h-4 w-4" />}
+              titleTh="½ ลาครึ่งวัน (0.5)"
+              titleEn="½ Half-day (0.5)"
+              descTh="ถ้าเลือกวันเริ่ม = วันสิ้นสุด จะมี checkbox &quot;ลาครึ่งวัน&quot; ให้กด → total_days = 0.5"
+              descEn="When start = end date, a half-day checkbox appears — sets total_days to 0.5."
+              isEn={isEn}
+            />
+          </div>
+        </div>
+
         {/* ── Tips ─────────────────────────────────────────────────── */}
         <div id="checkin-tips" className="scroll-mt-6">
           <SectionHeader
@@ -1274,12 +1408,13 @@ function SectionHeader({
 }: {
   icon: React.ReactNode
   title: string
-  color?: 'zinc' | 'emerald' | 'amber'
+  color?: 'zinc' | 'emerald' | 'amber' | 'rose'
 }) {
   const colorMap = {
     zinc:    'text-zinc-500',
     emerald: 'text-emerald-600 dark:text-emerald-400',
     amber:   'text-amber-600 dark:text-amber-400',
+    rose:    'text-rose-600 dark:text-rose-400',
   } as const
   return (
     <h3 className={`flex items-center gap-2 text-sm font-semibold mb-3 ${colorMap[color]}`}>
@@ -1709,6 +1844,9 @@ const MODULES: ModuleConfig[] = [
           { id: 'checkin-normal',    titleTh: 'Flow ปกติ',                  titleEn: 'Normal flow' },
           { id: 'checkin-overlap',   titleTh: 'Flow คาบเกี่ยว (ใหม่)',      titleEn: 'Overlap flow (new)' },
           { id: 'checkin-shortcuts', titleTh: 'ทางลัด — เช็คอินเร็วขึ้น',   titleEn: 'Smart shortcuts' },
+          { id: 'checkin-leave',      titleTh: 'ลางาน (ใหม่)',              titleEn: 'Leave requests (new)' },
+          { id: 'checkin-leave-flow', titleTh: 'Flow การลา',                titleEn: 'Leave flow' },
+          { id: 'checkin-leave-ref',  titleTh: 'สถานะ และกฎการลา',          titleEn: 'Leave status & rules' },
         ],
       },
       {
@@ -2008,13 +2146,14 @@ function FlowchartBox({
 }: {
   title: string
   subtitle?: string
-  color: 'sky' | 'amber' | 'purple'
+  color: 'sky' | 'amber' | 'purple' | 'rose'
   children: React.ReactNode
 }) {
   const headerMap = {
     sky:    'bg-sky-600 text-white',
     amber:  'bg-amber-500 text-white',
     purple: 'bg-purple-600 text-white',
+    rose:   'bg-rose-600 text-white',
   }
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
