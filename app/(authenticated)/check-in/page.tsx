@@ -1,4 +1,5 @@
 import { getTodayCheckins, getMyCheckinHistory, getTodayEvents, getStaffList } from './actions'
+import { getMyLeaves, getPendingLeaves } from './leave-actions'
 import { getJobEventsForSelect } from '../finance/actions'
 import { cookies } from 'next/headers'
 import CheckInView from './check-in-view'
@@ -12,12 +13,14 @@ export default async function CheckInPage() {
 
   const isAdmin = role === 'admin'
 
-  const [todayCheckins, myHistory, todayEvents, allEvents, staffList] = await Promise.all([
+  const [todayCheckins, myHistory, todayEvents, allEvents, staffList, myLeaves, pendingLeaves] = await Promise.all([
     getTodayCheckins(),
     getMyCheckinHistory(7),
     getTodayEvents(),
     isAdmin ? getJobEventsForSelect() : Promise.resolve([]),
     isAdmin ? getStaffList() : Promise.resolve([]),
+    getMyLeaves(),
+    isAdmin ? getPendingLeaves() : Promise.resolve([]),
   ])
 
   return (
@@ -29,6 +32,8 @@ export default async function CheckInPage() {
       staffList={staffList}
       userId={userId}
       role={role}
+      myLeaves={myLeaves}
+      pendingLeaves={pendingLeaves}
     />
   )
 }

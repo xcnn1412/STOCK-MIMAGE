@@ -9,6 +9,8 @@ import {
   Camera, X, ImageIcon
 } from 'lucide-react'
 import { checkIn, checkOut, adminCheckIn, undoCheckout, quickCheckoutStale, adminDeleteCheckin, adminEditCheckin } from './actions'
+import LeaveSection from './leave-section'
+import type { LeaveRecord } from './leave-actions'
 import EventSelectCombobox from '../finance/new/event-select-combobox'
 import Link from 'next/link'
 
@@ -109,6 +111,8 @@ export default function CheckInView({
   staffList,
   userId,
   role,
+  myLeaves,
+  pendingLeaves,
 }: {
   todayCheckins: CheckinRecord[]
   myHistory: CheckinRecord[]
@@ -117,6 +121,8 @@ export default function CheckInView({
   staffList: StaffMember[]
   userId: string
   role: string
+  myLeaves: LeaveRecord[]
+  pendingLeaves: LeaveRecord[]
 }) {
   const router = useRouter()
   const isAdmin = role === 'admin'
@@ -468,6 +474,15 @@ export default function CheckInView({
           </div>
         </div>
       )}
+
+      {/* ══════════════ LEAVE REQUESTS ═══════════════
+          Sits between the today-summary footer and the check-in form so
+          users see "what's pending for me" alongside today's check-in flow. */}
+      <LeaveSection
+        myLeaves={myLeaves}
+        pendingLeaves={pendingLeaves}
+        isAdmin={isAdmin}
+      />
 
       {/* ══════════════ CHECK-IN FORM ══════════════ */}
       {!allTypesActive ? (
