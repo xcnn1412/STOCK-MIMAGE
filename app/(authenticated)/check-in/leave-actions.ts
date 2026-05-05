@@ -209,6 +209,25 @@ export async function getMyLeaves(): Promise<LeaveRecord[]> {
   return (data || []) as unknown as LeaveRecord[]
 }
 
+// Fetch all leaves overlapping [fromISO, toISO]. Admin sees the whole team;
+// staff only see their own. Used by the calendar dashboard so we can fill in
+// any day a leave touches, including multi-day ranges that started earlier.
+export async function getLeavesInRange(fromISO: string, toISO: string): Promise<LeaveRecord[]> {
+  const { userId, role } = await getSession()
+  if (!userId) return []
+  const supabase = createServiceClient()
+  let query = supabase
+    .from('leave_requests')
+    .select('*, profiles:user_id(id, full_name, nickname), reviewer:reviewed_by(id, full_name, nickname)')
+    .lte('start_date', toISO)
+    .gte('end_date', fromISO)
+    .order('start_date', { ascending: true })
+  if (role !== 'admin') query = query.eq('user_id', userId)
+  const { data, error } = await query
+  if (error) { console.error('getLeavesInRange error:', error); return [] }
+  return (data || []) as unknown as LeaveRecord[]
+}
+
 export async function getPendingLeaves(): Promise<LeaveRecord[]> {
   const { role } = await getSession()
   if (role !== 'admin') return []

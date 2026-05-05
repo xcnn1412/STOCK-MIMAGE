@@ -2,9 +2,10 @@
 
 import { useState, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   CalendarDays, Heart, Plane, Briefcase, X, Plus, AlertCircle, CheckCircle2,
-  Clock, Sparkles, Camera, ImageIcon, ShieldCheck, Trash2,
+  Clock, Sparkles, Camera, ImageIcon, ShieldCheck, Trash2, BarChart3,
 } from 'lucide-react'
 import {
   requestLeave, cancelLeave, reviewLeave,
@@ -108,12 +109,21 @@ export default function LeaveSection({
             </span>
           )}
         </p>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-xs font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-all duration-200 shadow-sm hover:shadow-md active:scale-95"
-        >
-          <Plus className="h-3.5 w-3.5" /> ขอลางาน
-        </button>
+        <div className="flex items-center gap-1.5">
+          <Link
+            href="/check-in/dashboard"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-xs font-semibold hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all duration-200 active:scale-95"
+            title="ดูปฏิทิน + สถิติการลา"
+          >
+            <BarChart3 className="h-3.5 w-3.5" /> Dashboard
+          </Link>
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-xs font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-all duration-200 shadow-sm hover:shadow-md active:scale-95"
+          >
+            <Plus className="h-3.5 w-3.5" /> ขอลางาน
+          </button>
+        </div>
       </div>
 
       {/* My active leaves */}

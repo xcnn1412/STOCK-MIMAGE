@@ -237,7 +237,11 @@ export default function ClaimsListView({
             {locale === 'th' ? 'ทั้งหมด' : 'All'}
           </button>
           {CLAIM_STATUSES
-            .filter(s => !['paid', 'approved', 'awaiting_payment', 'cancelled', 'refund_confirmed'].includes(s.value))
+            // `paid` has its own admin-only button to the right of this row,
+            // and the rest are terminal/legacy states we keep out of the
+            // primary filter pills. `approved` IS shown — it's a real
+            // intermediate state (อนุมัติแล้วรอจ่าย) admins filter on.
+            .filter(s => !['paid', 'awaiting_payment', 'cancelled', 'refund_confirmed'].includes(s.value))
             .map(s => (
               <button
                 key={s.value}
