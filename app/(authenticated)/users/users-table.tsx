@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { toggleUserApproval, updateUserRole, deleteUser, updateUserModules, updateUserProfile } from './actions'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
@@ -59,23 +60,65 @@ function ModuleDropdown({
     getGroupLabel: (key: string) => string
 }) {
     const [open, setOpen] = useState(false)
-    const ref = useRef<HTMLDivElement>(null)
+    const [mounted, setMounted] = useState(false)
+    // Anchor point captured from the trigger's bounding rect when the dropdown
+    // opens. We render the panel via portal to escape the table's `overflow-x-auto`
+    // wrapper (which would otherwise clip the menu to the cell boundary).
+    const [anchor, setAnchor] = useState<{ top: number; left: number; width: number } | null>(null)
+    const buttonRef = useRef<HTMLButtonElement>(null)
+    const panelRef = useRef<HTMLDivElement>(null)
 
+    useEffect(() => { setMounted(true) }, [])
+
+    // Outside click — must check both the trigger AND the portal'd panel
+    // because they're not DOM siblings anymore.
     useEffect(() => {
+        if (!open) return
         const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+            const t = e.target as Node
+            if (
+                buttonRef.current && !buttonRef.current.contains(t) &&
+                panelRef.current && !panelRef.current.contains(t)
+            ) setOpen(false)
         }
         document.addEventListener('mousedown', handler)
         return () => document.removeEventListener('mousedown', handler)
-    }, [])
+    }, [open])
+
+    // Close on outer scroll/resize — but NOT when the user is scrolling
+    // inside the dropdown's own list. Capture phase catches every scroll
+    // event so we filter by target before closing.
+    useEffect(() => {
+        if (!open) return
+        const closeOnScroll = (e: Event) => {
+            if (panelRef.current && panelRef.current.contains(e.target as Node)) return
+            setOpen(false)
+        }
+        const closeOnResize = () => setOpen(false)
+        window.addEventListener('scroll', closeOnScroll, true)
+        window.addEventListener('resize', closeOnResize)
+        return () => {
+            window.removeEventListener('scroll', closeOnScroll, true)
+            window.removeEventListener('resize', closeOnResize)
+        }
+    }, [open])
+
+    function handleToggle() {
+        if (open) { setOpen(false); return }
+        const rect = buttonRef.current?.getBoundingClientRect()
+        if (!rect) return
+        setAnchor({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+        setOpen(true)
+    }
 
     const count = user.allowed_modules.length
     const isLoading = loadingId === user.id
 
     return (
-        <div ref={ref} className="relative">
+        <>
             <button
-                onClick={() => setOpen(!open)}
+                ref={buttonRef}
+                onClick={handleToggle}
                 disabled={isLoading}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors min-w-[140px] disabled:opacity-50"
             >
@@ -91,8 +134,12 @@ function ModuleDropdown({
                 <ChevronDown className={`h-3.5 w-3.5 text-zinc-400 transition-transform ${open ? 'rotate-180' : ''}`} />
             </button>
 
-            {open && (
-                <div className="absolute z-50 top-full left-0 mt-1 w-52 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl overflow-hidden">
+            {mounted && open && anchor && createPortal(
+                <div
+                    ref={panelRef}
+                    style={{ top: anchor.top, left: anchor.left, minWidth: Math.max(208, anchor.width) }}
+                    className="fixed z-[100] w-52 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl overflow-hidden"
+                >
                     <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-100 dark:border-zinc-800">
                         สิทธิ์การเข้าถึง
                     </div>
@@ -119,9 +166,10 @@ function ModuleDropdown({
                             )
                         })}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
-        </div>
+        </>
     )
 }
 
