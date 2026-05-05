@@ -4,6 +4,8 @@ import SessionTimeout from '@/components/session-timeout'
 import ProfileCompletionChecker from '@/components/profile-completion-checker'
 import NotificationBell from '@/components/notification-bell'
 import NotificationToastContainer from '@/components/notification-toast'
+import LicenseBanner from '@/components/license-banner'
+import { getLicenseStatus } from '@/lib/license'
 import { getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
 
@@ -59,9 +61,12 @@ export default async function AuthenticatedLayout({
     }
   }
 
+  const license = getLicenseStatus()
+  const licenseExpiresAt = license.expiresAt ? license.expiresAt.toISOString() : null
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full flex" suppressHydrationWarning>
-      <Sidebar role={role} allowedModules={allowedModules} />
+      <Sidebar role={role} allowedModules={allowedModules} licenseExpiresAt={licenseExpiresAt} />
       <SessionTimeout />
       {/* Notification Bell — fixed top-right */}
       <div className="fixed top-3 right-4 z-50 hidden md:block">
@@ -71,6 +76,7 @@ export default async function AuthenticatedLayout({
       <NotificationToastContainer />
       <div className="flex-1 flex flex-col min-h-screen min-w-0 pt-14 md:pt-0">
         <main className="flex-1 p-4 md:p-6 w-full">
+          <LicenseBanner />
           <ProfileCompletionChecker missingFields={missingFields} />
           <KpiLocaleWrapper>
             {children}
