@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getLicenseStatus, getExpiredRedirectUrl } from '@/lib/license'
 
 // Module-route mapping (inlined to avoid importing components in edge runtime)
 const MODULE_ROUTES: Record<string, string[]> = {
@@ -70,6 +71,24 @@ async function verifySessionTokenEdge(token: string, secret: string): Promise<{ 
 }
 
 export async function proxy(request: NextRequest) {
+  // License gate — runs before auth so an expired instance is fully locked,
+  // including the login page. Renewal = update LICENSE_EXPIRES_AT in Railway
+  // env and redeploy. Fail-closed: if env is missing/malformed, treat as expired.
+  const license = getLicenseStatus()
+  if (license.expired) {
+    const target = getExpiredRedirectUrl()
+    try {
+      const t = new URL(target)
+      // Don't redirect into ourselves — would cause an infinite loop.
+      if (t.origin !== request.nextUrl.origin) {
+        return NextResponse.redirect(target, 307)
+      }
+    } catch {
+      // Fall through if the redirect URL is malformed — better to serve the
+      // app than leave the user stranded with a broken config.
+    }
+  }
+
   const sessionToken = request.cookies.get('session_token')?.value
   const legacyUserId = request.cookies.get('session_user_id')?.value
   const sessionId = request.cookies.get('session_id')?.value

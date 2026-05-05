@@ -13,6 +13,7 @@ import { logout } from '@/app/login/actions'
 import { useLanguage } from '@/contexts/language-context'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import NotificationBell from '@/components/notification-bell'
+import LicenseCountdownChip from '@/components/license-countdown-chip'
 import { NAV_GROUPS, type NavGroup } from '@/lib/nav-config'
 
 // Module accent colors. `bar` is the solid-color sliver shown to the left of
@@ -37,6 +38,8 @@ const moduleAccents: Record<string, { color: string; bg: string; activeBg: strin
 interface SidebarProps {
     role?: string
     allowedModules?: string[]
+    /** ISO 8601 license expiry from server. null when env not configured. */
+    licenseExpiresAt?: string | null
 }
 
 // ============================================================================
@@ -133,7 +136,7 @@ function SidebarGroup({
 // ============================================================================
 // Main Sidebar Component
 // ============================================================================
-export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarProps) {
+export default function Sidebar({ role, allowedModules = ['stock'], licenseExpiresAt = null }: SidebarProps) {
     const { t } = useLanguage()
     const pathname = usePathname()
     const [collapsed, setCollapsed] = useState(false)
@@ -245,6 +248,12 @@ export default function Sidebar({ role, allowedModules = ['stock'] }: SidebarPro
                 How-to grouped above utility row (lang + collapse + logout). */}
             <div className={`relative shrink-0 pt-3 pb-3 ${collapsed && !isMobile ? 'px-1.5' : 'px-3'} space-y-0.5`}>
                 <div className="absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-zinc-200 to-transparent dark:via-zinc-800" />
+
+                {/* License countdown — hidden when desktop sidebar is collapsed
+                    (rail is w-0 anyway); shown in mobile drawer always */}
+                {(!collapsed || isMobile) && (
+                    <LicenseCountdownChip expiresAtIso={licenseExpiresAt} />
+                )}
 
                 {/* My Profile */}
                 <Link
