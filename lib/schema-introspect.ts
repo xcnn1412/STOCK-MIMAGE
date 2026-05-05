@@ -1,9 +1,14 @@
 /**
- * Schema introspection helpers — used by the /api/schema/* endpoints to
- * report public-schema metadata for drift detection across SaaS instances.
+ * Schema introspection — wraps the `public.get_schema_summary()` RPC.
  *
- * Uses the service-role client to query information_schema. Returns plain
- * shapes (no DB types) so the API responses are easy to JSON-serialize.
+ * We can't query `information_schema` directly via supabase-js because
+ * PostgREST only exposes a whitelist of schemas (public / storage /
+ * graphql_public). The RPC keeps the call inside `public` while the
+ * function body (SECURITY DEFINER) does the cross-schema reads.
+ *
+ * The `get_schema_summary()` function is created by the migration file
+ * supabase/migrations/20260505_add_schema_introspect_rpc.sql — apply it
+ * on each DB (master + every instance) before /checkupdate will work.
  */
 
 import { createServiceClient } from './supabase-server'
@@ -30,60 +35,27 @@ export interface SchemaSummary {
 
 export async function readPublicSchema(): Promise<SchemaSummary> {
   const supabase = createServiceClient()
+  const { data, error } = await supabase.rpc('get_schema_summary')
 
-  // Service role is required — anon/authenticated cannot read information_schema
-  // because Supabase's PostgREST setup restricts non-public schemas by default.
-  const [colRes, idxRes, trigRes, fnRes] = await Promise.all([
-    supabase.schema('information_schema' as never)
-      .from('columns')
-      .select('table_name, column_name, data_type, is_nullable, ordinal_position')
-      .eq('table_schema', 'public')
-      .order('table_name', { ascending: true })
-      .order('ordinal_position', { ascending: true })
-      .returns<{ table_name: string; column_name: string; data_type: string; is_nullable: string; ordinal_position: number }[]>(),
+  if (error) {
+    // Friendlier hint when the helper hasn't been installed yet.
+    if (error.message.includes('Could not find') || error.code === 'PGRST202') {
+      throw new Error(
+        'get_schema_summary() RPC not found on this database. Apply ' +
+        'supabase/migrations/20260505_add_schema_introspect_rpc.sql first.'
+      )
+    }
+    throw new Error(error.message)
+  }
 
-    // pg_indexes lives in pg_catalog
-    supabase.schema('pg_catalog' as never)
-      .from('pg_indexes')
-      .select('tablename, indexname')
-      .eq('schemaname', 'public')
-      .order('tablename', { ascending: true })
-      .order('indexname', { ascending: true })
-      .returns<{ tablename: string; indexname: string }[]>(),
-
-    supabase.schema('information_schema' as never)
-      .from('triggers')
-      .select('event_object_table, trigger_name')
-      .eq('trigger_schema', 'public')
-      .order('event_object_table', { ascending: true })
-      .order('trigger_name', { ascending: true })
-      .returns<{ event_object_table: string; trigger_name: string }[]>(),
-
-    supabase.schema('information_schema' as never)
-      .from('routines')
-      .select('routine_name')
-      .eq('routine_schema', 'public')
-      .eq('routine_type', 'FUNCTION')
-      .order('routine_name', { ascending: true })
-      .returns<{ routine_name: string }[]>(),
-  ])
-
-  if (colRes.error) throw new Error(`columns query: ${colRes.error.message}`)
-  if (idxRes.error) throw new Error(`indexes query: ${idxRes.error.message}`)
-  if (trigRes.error) throw new Error(`triggers query: ${trigRes.error.message}`)
-  if (fnRes.error) throw new Error(`functions query: ${fnRes.error.message}`)
-
+  // Defensive defaults — the RPC always returns arrays but we coerce
+  // in case a future migration ever changes its shape.
+  const d = (data ?? {}) as Partial<SchemaSummary>
   return {
-    columns: (colRes.data ?? []).map(r => ({
-      table: r.table_name,
-      name: r.column_name,
-      type: r.data_type,
-      nullable: r.is_nullable === 'YES',
-      ordinal: r.ordinal_position,
-    })),
-    indexes: (idxRes.data ?? []).map(r => ({ table: r.tablename, name: r.indexname })),
-    triggers: (trigRes.data ?? []).map(r => ({ table: r.event_object_table, name: r.trigger_name })),
-    functions: (fnRes.data ?? []).map(r => ({ name: r.routine_name })),
+    columns:   d.columns   ?? [],
+    indexes:   d.indexes   ?? [],
+    triggers:  d.triggers  ?? [],
+    functions: d.functions ?? [],
   }
 }
 
