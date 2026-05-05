@@ -582,6 +582,12 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             labelEn: 'Tax invoice (file/number)',
             done: ck.hasTaxInvoice,
             required: ck.taxInvoiceRequired,
+            // Surface the actual invoice numbers so the checklist row doubles
+            // as a quick reference — admins don't have to scroll to the Tax
+            // Invoices section just to read off a number.
+            chips: (claim.tax_invoice_numbers || [])
+              .map(n => (n || '').trim())
+              .filter(Boolean),
           },
         ]
         if (ck.refundRequired) {
@@ -659,6 +665,21 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     </p>
                     {it.note && (
                       <p className="text-[10px] text-zinc-400 mt-0.5">{it.note}</p>
+                    )}
+                    {/* Inline chips — currently used by tax_invoice to show
+                        the actual invoice numbers right in the checklist. */}
+                    {('chips' in it) && it.chips && it.chips.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1 mt-1">
+                        {it.chips.map((c, i) => (
+                          <span
+                            key={i}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-[10px] font-mono text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60"
+                          >
+                            <Hash className="h-2.5 w-2.5 opacity-70" />
+                            {c}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
