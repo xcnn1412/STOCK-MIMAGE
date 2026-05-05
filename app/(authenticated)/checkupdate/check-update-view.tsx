@@ -5,8 +5,11 @@ import { useRouter } from 'next/navigation'
 import {
   CheckCircle2, AlertCircle, RefreshCw, Database, GitBranch,
   ChevronDown, ChevronRight, FileText, Server, Sparkles,
+  ExternalLink, Check, Clock,
 } from 'lucide-react'
 import type { SchemaSummary } from '@/lib/schema-introspect'
+import type { AppliedMigration } from './actions'
+import { markMigrationApplied } from './actions'
 
 interface FingerprintResponse {
   fingerprint: string
@@ -28,6 +31,8 @@ export default function CheckUpdateView({
   masterFingerprint,
   masterManifest,
   masterError,
+  appliedMigrations,
+  trackingBootstrapped,
 }: {
   masterApiUrl: string
   localSchema: SchemaSummary | null
@@ -36,6 +41,8 @@ export default function CheckUpdateView({
   masterFingerprint: FingerprintResponse | null
   masterManifest: ManifestResponse | null
   masterError: string | null
+  appliedMigrations: AppliedMigration[]
+  trackingBootstrapped: boolean
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -54,6 +61,17 @@ export default function CheckUpdateView({
     localSchema.columns.forEach(c => m.set(c.table, (m.get(c.table) ?? 0) + 1))
     return m
   }, [localSchema])
+
+  // Pending migrations = manifest items master has that aren't recorded in
+  // local _app_migrations. Drives the "what to apply next" panel.
+  const appliedSet = useMemo(
+    () => new Set(appliedMigrations.map(m => m.filename)),
+    [appliedMigrations]
+  )
+  const pendingMigrations = useMemo(() => {
+    if (!masterManifest) return []
+    return masterManifest.items.filter(it => !appliedSet.has(it.filename))
+  }, [masterManifest, appliedSet])
 
   function refresh() {
     startTransition(() => router.refresh())
@@ -170,6 +188,105 @@ export default function CheckUpdateView({
           ]}
         />
       </div>
+
+      {/* ══════════════ PENDING MIGRATIONS ══════════════ */}
+      {!trackingBootstrapped ? (
+        <div className="rounded-2xl border-2 border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/10 p-5">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-2">
+              <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                Tracking ยังไม่ถูก bootstrap บน instance นี้
+              </p>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                ตาราง <code className="px-1 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 font-mono text-[11px]">_app_migrations</code> ยังไม่ถูกสร้าง — apply
+                migration <code className="px-1 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 font-mono text-[11px]">20260506_create_app_migrations.sql</code> ก่อน
+                เพื่อเริ่มใช้ pending-migration tracking
+              </p>
+              {masterApiUrl && (
+                <a
+                  href={`${masterApiUrl}/api/migrations/20260506_create_app_migrations.sql`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 underline decoration-dotted hover:decoration-solid"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  เปิด SQL ของ migration นี้
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : pendingMigrations.length > 0 && masterManifest ? (
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-zinc-100 dark:border-zinc-800/60 bg-amber-50/40 dark:bg-amber-950/10">
+            <div className="flex items-center gap-2.5">
+              <Clock className="h-4 w-4 text-amber-500" />
+              <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                Pending migrations
+                <span className="ml-2 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white tabular-nums">
+                  {pendingMigrations.length}
+                </span>
+              </p>
+            </div>
+            <p className="text-[10px] text-zinc-500 dark:text-zinc-400 hidden sm:block">
+              copy SQL → run ใน Studio → กด &quot;Mark applied&quot;
+            </p>
+          </div>
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {pendingMigrations.map(it => (
+              <li key={it.filename} className="px-5 py-3 flex items-center gap-3 hover:bg-zinc-50/60 dark:hover:bg-zinc-800/40 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-mono font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                    {it.filename}
+                  </p>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    md5: <span className="font-mono">{it.checksum.slice(0, 10)}…</span>
+                    <span className="mx-1.5">·</span>
+                    <span className="font-mono tabular-nums">{it.size}b</span>
+                  </p>
+                </div>
+                {/* Open SQL — pops master endpoint in a new tab so admin can
+                    copy-paste into instance Studio */}
+                <a
+                  href={`${masterApiUrl}/api/migrations/${it.filename}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Open SQL
+                </a>
+                {/* Mark applied — server action insert into _app_migrations */}
+                <form action={markMigrationApplied}>
+                  <input type="hidden" name="filename" value={it.filename} />
+                  <input type="hidden" name="checksum" value={it.checksum} />
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-emerald-600 dark:bg-emerald-500 hover:bg-emerald-700 dark:hover:bg-emerald-600 transition-colors active:scale-95"
+                  >
+                    <Check className="h-3 w-3" />
+                    Mark applied
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+          <div className="px-5 py-2.5 text-[10px] text-zinc-400 dark:text-zinc-500 bg-zinc-50/40 dark:bg-zinc-900/40 border-t border-zinc-100 dark:border-zinc-800/60">
+            💡 Mark applied จะแค่ <em>บันทึก</em> ว่า apply แล้ว — คุณต้อง run SQL จริงใน Supabase Studio ของ instance ก่อน ไม่งั้น tracking กับ DB จะไม่ตรง
+          </div>
+        </div>
+      ) : trackingBootstrapped && masterManifest && pendingMigrations.length === 0 ? (
+        <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/10 px-5 py-3.5 flex items-center gap-2.5">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+            ทุก migration ถูก apply แล้ว
+            <span className="ml-2 text-[11px] font-normal text-emerald-600/70 dark:text-emerald-400/70">
+              ({appliedMigrations.length} files tracked)
+            </span>
+          </p>
+        </div>
+      ) : null}
 
       {/* ══════════════ MIGRATIONS MANIFEST ══════════════ */}
       {masterManifest && (

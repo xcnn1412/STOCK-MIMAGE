@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { readPublicSchema, computeFingerprint, type SchemaSummary } from '@/lib/schema-introspect'
+import { readPublicSchema, computeFingerprint } from '@/lib/schema-introspect'
+import { getAppliedMigrations, type AppliedMigration } from './actions'
 import CheckUpdateView from './check-update-view'
 
 export const metadata = { title: 'Schema Sync Check' }
@@ -25,37 +26,46 @@ export default async function CheckUpdatePage() {
 
   const masterApiUrl = (process.env.MASTER_API_URL || '').replace(/\/$/, '')
 
-  // 1. Read local schema upfront — service role on this instance.
-  let local: { schema: SchemaSummary; fingerprint: string } | null = null
-  let localError: string | null = null
-  try {
-    const schema = await readPublicSchema()
-    local = { schema, fingerprint: computeFingerprint(schema) }
-  } catch (e) {
-    localError = e instanceof Error ? e.message : String(e)
-  }
-
-  // 2. Fetch master's fingerprint + migration manifest in parallel.
-  let masterFp: FingerprintResponse | null = null
-  let masterManifest: ManifestResponse | null = null
-  let masterError: string | null = null
-
-  if (!masterApiUrl) {
-    masterError = 'MASTER_API_URL is not configured. Set it to the master site URL (e.g. https://master.example.com) in this instance\'s env.'
-  } else {
-    try {
+  // 1. Read local schema + applied-migration log + master metadata in parallel.
+  //    Done concurrently so first paint isn't waiting on the slowest leg.
+  const [localResult, appliedResult, masterRemote] = await Promise.allSettled([
+    (async () => {
+      const schema = await readPublicSchema()
+      return { schema, fingerprint: computeFingerprint(schema) }
+    })(),
+    getAppliedMigrations(),
+    (async () => {
+      if (!masterApiUrl) {
+        throw new Error(
+          'MASTER_API_URL is not configured. Set it to the master site URL (e.g. https://master.example.com) in this instance\'s env.'
+        )
+      }
       const [fpRes, manRes] = await Promise.all([
         fetch(`${masterApiUrl}/api/schema/fingerprint`, { cache: 'no-store' }),
         fetch(`${masterApiUrl}/api/migrations/list`, { cache: 'no-store' }),
       ])
       if (!fpRes.ok) throw new Error(`fingerprint: HTTP ${fpRes.status}`)
       if (!manRes.ok) throw new Error(`manifest: HTTP ${manRes.status}`)
-      masterFp = await fpRes.json()
-      masterManifest = await manRes.json()
-    } catch (e) {
-      masterError = e instanceof Error ? e.message : String(e)
-    }
-  }
+      const fp: FingerprintResponse = await fpRes.json()
+      const man: ManifestResponse = await manRes.json()
+      return { fp, man }
+    })(),
+  ])
+
+  const local = localResult.status === 'fulfilled' ? localResult.value : null
+  const localError = localResult.status === 'rejected'
+    ? (localResult.reason instanceof Error ? localResult.reason.message : String(localResult.reason))
+    : null
+
+  // appliedResult always resolves (errors are caught inside getAppliedMigrations).
+  const applied: AppliedMigration[] = appliedResult.status === 'fulfilled' ? appliedResult.value.data : []
+  const trackingBootstrapped = appliedResult.status === 'fulfilled' ? appliedResult.value.bootstrapped : false
+
+  const masterFp = masterRemote.status === 'fulfilled' ? masterRemote.value.fp : null
+  const masterManifest = masterRemote.status === 'fulfilled' ? masterRemote.value.man : null
+  const masterError = masterRemote.status === 'rejected'
+    ? (masterRemote.reason instanceof Error ? masterRemote.reason.message : String(masterRemote.reason))
+    : null
 
   return (
     <CheckUpdateView
@@ -66,6 +76,8 @@ export default async function CheckUpdatePage() {
       masterFingerprint={masterFp}
       masterManifest={masterManifest}
       masterError={masterError}
+      appliedMigrations={applied}
+      trackingBootstrapped={trackingBootstrapped}
     />
   )
 }
