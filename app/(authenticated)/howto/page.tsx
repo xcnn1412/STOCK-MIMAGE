@@ -8,5 +8,5 @@ export const metadata = {
 }
 
 export default function HowtoPage() {
-  return <HowtoView />
+  return <HowtoView view="landing" />
 }

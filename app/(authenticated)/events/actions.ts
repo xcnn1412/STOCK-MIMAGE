@@ -11,8 +11,12 @@ import type { ActionState, KitContent, Item, Database } from '@/types'
 export async function createEvent(prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
+  const role = cookieStore.get('session_role')?.value || 'staff'
   if (!userId) {
       return { error: 'Unauthorized: No active session' }
+  }
+  if (role !== 'admin') {
+      return { error: 'เฉพาะ admin เท่านั้นที่สร้างอีเวนต์ได้' }
   }
 
   const name = formData.get('name') as string
@@ -136,7 +140,9 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
 export async function linkEventToCrm(eventId: string, leadId: string) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
+  const role = cookieStore.get('session_role')?.value || 'staff'
   if (!userId) return { error: 'Unauthorized' }
+  if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
   const supabase = createServiceClient()
 
@@ -164,7 +170,9 @@ export async function linkEventToCrm(eventId: string, leadId: string) {
 export async function unlinkEventFromCrm(eventId: string) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
+  const role = cookieStore.get('session_role')?.value || 'staff'
   if (!userId) return { error: 'Unauthorized' }
+  if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
   const supabase = createServiceClient()
 
@@ -196,8 +204,12 @@ export async function unlinkEventFromCrm(eventId: string) {
 export async function updateEvent(id: string, prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
+  const role = cookieStore.get('session_role')?.value || 'staff'
   if (!userId) {
       return { error: 'Unauthorized: No active session' }
+  }
+  if (role !== 'admin') {
+      return { error: 'เฉพาะ admin เท่านั้นที่แก้ไขอีเวนต์ได้' }
   }
 
   const name = formData.get('name') as string

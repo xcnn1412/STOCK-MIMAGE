@@ -1,5 +1,6 @@
+import { cookies } from 'next/headers'
 import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import EditEventForm from './edit-event-form'
 import { getCrmSettings } from '../../../crm/actions'
 
@@ -8,6 +9,10 @@ import type { Kit } from '@/types'
 export const revalidate = 0
 
 export default async function EditEventPage(props: { params: Promise<{ id: string }> }) {
+  const cookieStore = await cookies()
+  const role = cookieStore.get('session_role')?.value || 'staff'
+  if (role !== 'admin') redirect('/events')
+
   const params = await props.params;
   const { data: event } = await supabase.from('events').select('*').eq('id', params.id).single()
   

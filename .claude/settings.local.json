@@ -3,7 +3,8 @@
     "allow": [
       "Bash(ls -la /c/Users/User/Desktop/software/STOCK-MIMAGE/next.*)",
       "Bash(npm run:*)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(npx tsc *)"
     ]
   }
 }
