@@ -9,7 +9,7 @@ import { useLanguage } from '@/contexts/language-context'
 import EventStatusBadge from './event-status-badge'
 import type { Event } from '@/types'
 
-export default function EventsView({ events }: { events: Event[] }) {
+export default function EventsView({ events, isAdmin = false }: { events: Event[]; isAdmin?: boolean }) {
   const { t, lang } = useLanguage()
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
@@ -42,12 +42,14 @@ export default function EventsView({ events }: { events: Event[] }) {
                 {lang === 'th' ? 'ปฏิทิน' : 'Calendar'}
               </Button>
             </Link>
-            <Link href="/events/new">
-              <Button size="sm" className="bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900">
-                <Plus className="mr-2 h-4 w-4" />
-                {t.events.createEvent}
-              </Button>
-            </Link>
+            {isAdmin && (
+              <Link href="/events/new">
+                <Button size="sm" className="bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900">
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t.events.createEvent}
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
         
@@ -154,16 +156,18 @@ export default function EventsView({ events }: { events: Event[] }) {
                   Kits
                 </Button>
               </Link>
-              <Link href={`/events/${event.id}/edit`} className="flex-1">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="w-full min-h-[44px] border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-medium"
-                >
-                  <Edit3 className="w-4 h-4 mr-2" />
-                  Edit
-                </Button>
-              </Link>
+              {isAdmin && (
+                <Link href={`/events/${event.id}/edit`} className="flex-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full min-h-[44px] border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-medium"
+                  >
+                    <Edit3 className="w-4 h-4 mr-2" />
+                    Edit
+                  </Button>
+                </Link>
+              )}
               <Link href={`/events/${event.id}/return`}>
                 <Button 
                   size="sm" 
@@ -186,34 +190,38 @@ export default function EventsView({ events }: { events: Event[] }) {
                 {lang === 'th' ? 'ยังไม่มีอีเว้นท์' : 'No Events Yet'}
               </h3>
               <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6 max-w-sm mx-auto">
-                {lang === 'th' 
-                  ? 'เริ่มสร้างอีเว้นท์แรกของคุณ'
-                  : 'Create your first event to get started'}
+                {lang === 'th'
+                  ? (isAdmin ? 'เริ่มสร้างอีเว้นท์แรกของคุณ' : 'ยังไม่มีอีเว้นท์ที่เปิดอยู่')
+                  : (isAdmin ? 'Create your first event to get started' : 'No events have been created yet')}
               </p>
-              <Link href="/events/new">
-                <Button className="bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900">
-                  <Plus className="mr-2 h-4 w-4" />
-                  {t.events.createEvent}
-                </Button>
-              </Link>
+              {isAdmin && (
+                <Link href="/events/new">
+                  <Button className="bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900">
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t.events.createEvent}
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Mobile FAB - Create Event */}
-      <Link 
-        href="/events/new" 
-        className="md:hidden fixed bottom-6 right-6 z-50"
-      >
-        <Button 
-          size="lg" 
-          className="h-14 w-14 rounded-full shadow-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900"
+      {/* Mobile FAB - Create Event (admin only) */}
+      {isAdmin && (
+        <Link
+          href="/events/new"
+          className="md:hidden fixed bottom-6 right-6 z-50"
         >
-          <Plus className="h-6 w-6" />
-          <span className="sr-only">{t.events.createEvent}</span>
-        </Button>
-      </Link>
+          <Button
+            size="lg"
+            className="h-14 w-14 rounded-full shadow-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900"
+          >
+            <Plus className="h-6 w-6" />
+            <span className="sr-only">{t.events.createEvent}</span>
+          </Button>
+        </Link>
+      )}
     </div>
   )
 }

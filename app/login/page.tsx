@@ -72,7 +72,7 @@ export default function LoginPage() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-900 p-4" suppressHydrationWarning>
+        <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-900 p-4" suppressHydrationWarning>
             <Card className="w-full max-w-md shadow-lg border-zinc-200 dark:border-zinc-800">
                 <CardHeader className="space-y-1 pb-2">
                     <div className="flex items-center justify-center mb-2">
@@ -84,7 +84,7 @@ export default function LoginPage() {
                     </div>
                     <CardTitle className="text-2xl font-bold tracking-tight text-center">Event Inventory</CardTitle>
                     <CardDescription className="text-center">
-                        Managed by Image Automat
+                        Managed by RubKianCode Co Ltd
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -271,6 +271,14 @@ export default function LoginPage() {
                     </Tabs>
                 </CardContent>
             </Card>
+            <a
+                href="https://www.rubkiancode.com/service"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 transition-colors underline-offset-4 hover:underline"
+            >
+                บริการของเรา · www.rubkiancode.com/service
+            </a>
         </div>
     )
 }

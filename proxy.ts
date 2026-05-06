@@ -196,9 +196,10 @@ export const config = {
      * - api (API routes)
      * - _next/static (static files)
      * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - images (public images)
+     * - any path containing a dot (static assets like .svg, .png, .ico,
+     *   .woff, .mp3, etc. served from /public — without this, requests
+     *   like /icon/officehub.svg get auth-redirected to /login HTML)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|images).*)',
+    '/((?!api|_next/static|_next/image|.*\\..*).*)',
   ],
 }
