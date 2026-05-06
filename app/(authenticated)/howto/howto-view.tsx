@@ -14,9 +14,10 @@ import {
   Package, ClipboardList, MessageCircle, Smile, Paperclip,
   QrCode, Boxes, Hammer, AlertTriangle, ScrollText, Printer, ArrowDownToLine, ArrowUpFromLine,
   Target, Award, Trophy, Repeat, Coins, Gauge, MessagesSquare,
+  Shield, Activity, KeyRound, UserX, Globe, Network,
 } from 'lucide-react'
 
-export type HowtoViewType = 'landing' | 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'checkin'
+export type HowtoViewType = 'landing' | 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin'
 
 export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType } = {}) {
   const { locale } = useLocale()
@@ -3548,12 +3549,357 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
       )}
 
       {/* ════════════════════════════════════════════════════════════════
+          MODULE: SECURITY
+          ════════════════════════════════════════════════════════════════ */}
+      {view === 'security' && (
+      <section className="space-y-6">
+        <ModuleHero mod={MODULES[8]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[8]} isEn={isEn} />
+
+        {/* ── Intro ───────────────────────────────────────────────── */}
+        <div id="security-intro" className="scroll-mt-6">
+          <div className="rounded-xl border-2 border-red-200 dark:border-red-900 bg-gradient-to-br from-red-50 to-white dark:from-red-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-red-600 text-white">
+                <Shield className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-red-900 dark:text-red-200">
+                  {isEn ? 'Security — auth control center' : 'Security — ศูนย์ควบคุมความปลอดภัย'}
+                </p>
+                <p className="text-[11px] text-red-700 dark:text-red-400">
+                  {isEn
+                    ? 'Monitor login activity, locked accounts, active sessions, and IP rules in real-time.'
+                    : 'ติดตามการ login · บัญชีที่โดนล็อก · session ที่ active · กฎ IP แบบเรียลไทม์'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
+              <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                {isEn
+                  ? 'Admin only. The page redirects non-admin to /dashboard. Every action (unlock, force-logout, IP rule change) is gated server-side and audit-logged.'
+                  : 'admin เท่านั้น — user ทั่วไปจะถูก redirect ไป /dashboard และทุกการกระทำ (unlock / force logout / แก้ IP rule) ถูกตรวจสิทธิ์ที่ server + บันทึก audit log ครบ'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Dashboard overview ──────────────────────────────────── */}
+        <div id="security-dashboard" className="scroll-mt-6">
+          <SectionHeader
+            icon={<BarChart3 className="h-4 w-4" />}
+            title={isEn ? 'Dashboard — what each card shows' : 'Dashboard — แต่ละการ์ดแสดงอะไร'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="📊 KPI 2 ใบ"
+              titleEn="📊 KPI cards"
+              lines={isEn
+                ? [
+                    'Today\'s logins (count)',
+                    'This week\'s logins (count)',
+                  ]
+                : [
+                    'login วันนี้ (จำนวน)',
+                    'login สัปดาห์นี้ (จำนวน)',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="🔐 4 sections"
+              titleEn="🔐 4 main sections"
+              lines={isEn
+                ? [
+                    'Active sessions — users currently online',
+                    'Locked accounts — auto-locked after 10 fails',
+                    'IP rules — block / allow list',
+                    'Security events timeline — last 50 events',
+                  ]
+                : [
+                    'Active sessions — user ที่กำลัง online',
+                    'Locked accounts — บัญชีโดนล็อกอัตโนมัติหลัง fail 10 ครั้ง',
+                    'IP rules — กฎ block / allow',
+                    'Security events timeline — 50 event ล่าสุด',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Account lockout ─────────────────────────────────────── */}
+        <div id="security-lockout" className="scroll-mt-6">
+          <SectionHeader
+            icon={<UserX className="h-4 w-4" />}
+            title={isEn ? 'Account lockout — auto-protection' : 'บัญชีโดนล็อกอัตโนมัติ'}
+            color="rose"
+          />
+          <FlowchartBox
+            title={isEn ? 'Lockout flow' : 'Flow การล็อกบัญชี'}
+            color="rose"
+          >
+            <FlowNode variant="user"  emoji="🔑" title={isEn ? 'User enters wrong PIN' : 'user กรอก PIN ผิด'} />
+            <FlowArrow label={isEn ? 'fail counter increments' : 'นับ fail เพิ่ม'} />
+            <FlowNode variant="decision" emoji="🔢" title={isEn ? 'Reach 10 failed attempts?' : 'ครบ 10 ครั้งหรือยัง?'} />
+            <FlowArrow label={isEn ? 'yes' : 'ครบ'} />
+            <FlowNode variant="error" emoji="🚫" title={isEn ? 'Account auto-locked for 30 min' : 'บัญชีโดนล็อก 30 นาทีอัตโนมัติ'} subtitle={isEn ? 'profiles.locked_until = now + 30min' : 'profiles.locked_until = now + 30min'} tag="ACCOUNT_LOCKED" />
+            <FlowArrow label={isEn ? 'or admin can unlock now' : 'หรือ admin ปลดล็อกได้เลย'} />
+            <FlowNode variant="admin" emoji="🔓" title={isEn ? 'Admin: click "Unlock" on the row' : 'Admin: กดปุ่ม "Unlock" ที่แถวนั้น'} subtitle={isEn ? 'resets failed_login_attempts = 0, locked_until = null' : 'reset failed_login_attempts = 0, locked_until = null'} tag="ACCOUNT_UNLOCKED" />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="✅" title={isEn ? 'User can log in immediately' : 'user เข้าระบบได้ทันที'} />
+          </FlowchartBox>
+          <div className="mt-3 flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-800 dark:text-amber-300">
+              {isEn
+                ? 'Locked users see a countdown timer on the login screen. Without admin intervention, the lock auto-releases after 30 minutes.'
+                : 'user ที่โดนล็อกจะเห็นนาฬิกานับถอยหลังที่หน้า login — ถ้าไม่มี admin ปลด ระบบจะปลดเองอัตโนมัติหลัง 30 นาที'}
+            </p>
+          </div>
+        </div>
+
+        {/* ── Force logout ────────────────────────────────────────── */}
+        <div id="security-force-logout" className="scroll-mt-6">
+          <SectionHeader
+            icon={<LogOut className="h-4 w-4" />}
+            title={isEn ? 'Force logout — kill an active session' : 'Force logout — ตัด session ที่ active'}
+            color="rose"
+          />
+          <div className="rounded-xl border-2 border-red-200 dark:border-red-900 bg-red-50/40 dark:bg-red-950/20 p-4 space-y-2">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'In the Active Sessions table, click "Logout" on a row to immediately kill that user\'s session. Useful when a device is lost, a session looks compromised, or you suspect credential theft.'
+                : 'ในตาราง Active Sessions กดปุ่ม "Logout" ที่แถวของ user คนนั้น → ตัด session ทันที — ใช้กรณีอุปกรณ์หาย / session ดูแปลก / สงสัยว่ารหัสรั่ว'}
+            </p>
+            <ul className="text-xs text-zinc-700 dark:text-zinc-300 space-y-1">
+              <li className="flex items-start gap-2"><span className="text-red-500">•</span><span>{isEn ? 'Just clears profiles.active_session_id — no token revocation needed' : 'เคลียร์ profiles.active_session_id เฉยๆ ไม่ต้อง revoke token'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-red-500">•</span><span>{isEn ? 'User is asked to re-login on their next request' : 'user ต้อง login ใหม่เมื่อ request ครั้งถัดไป'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-red-500">•</span><span>{isEn ? 'Action is logged with admin id + target user id' : 'log ไว้ admin id + target user id'}</span></li>
+            </ul>
+          </div>
+        </div>
+
+        {/* ── IP rules ────────────────────────────────────────────── */}
+        <div id="security-ip-rules" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Network className="h-4 w-4" />}
+            title={isEn ? 'IP rules — block / allow' : 'IP rules — block / allow'}
+            color="rose"
+          />
+          <div className="rounded-xl border-2 border-red-200 dark:border-red-900 bg-gradient-to-br from-red-50 to-white dark:from-red-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Add IP-level rules that fire BEFORE credential check — stops brute-force at the gate. Useful for blocking attacker IPs immediately or allowlisting trusted office networks.'
+                : 'เพิ่มกฎระดับ IP ที่ทำงาน "ก่อน" ตรวจ password — กัน brute-force ตั้งแต่ประตู เหมาะกับการ block IP ที่โจมตี หรือ allowlist เครือข่ายออฟฟิศ'}
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="rounded-xl border-2 border-red-200 dark:border-red-900 bg-red-50/60 dark:bg-red-950/30 p-3 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Ban className="h-4 w-4 text-red-600 dark:text-red-400" />
+                  <p className="text-sm font-bold text-red-900 dark:text-red-200">{isEn ? 'Block' : 'Block (ห้าม)'}</p>
+                </div>
+                <p className="text-xs text-red-800 dark:text-red-300 leading-relaxed">
+                  {isEn
+                    ? 'Login from this IP is rejected before credential check. Logged as LOGIN_BLOCKED_IP.'
+                    : 'login จาก IP นี้จะถูกปฏิเสธก่อนตรวจรหัสผ่าน — log เป็น LOGIN_BLOCKED_IP'}
+                </p>
+              </div>
+              <div className="rounded-xl border-2 border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/30 p-3 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  <p className="text-sm font-bold text-emerald-900 dark:text-emerald-200">{isEn ? 'Allow' : 'Allow (อนุญาต)'}</p>
+                </div>
+                <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                  {isEn
+                    ? 'Trusted network (e.g., office Wi-Fi) — bypass rate-limit + lockout for these IPs.'
+                    : 'เครือข่ายที่เชื่อถือได้ (เช่น Wi-Fi ออฟฟิศ) — ข้าม rate-limit + lockout สำหรับ IP นี้'}
+                </p>
+              </div>
+            </div>
+
+            <ul className="text-xs text-zinc-700 dark:text-zinc-300 space-y-1">
+              <li className="flex items-start gap-2"><span className="text-red-500">•</span><span>{isEn ? 'IPv4 + IPv6 supported · format validated before insert' : 'รองรับ IPv4 + IPv6 · ระบบ validate format ก่อนบันทึก'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-red-500">•</span><span>{isEn ? 'Optional expiry date — temp rules auto-expire' : 'ตั้งวันหมดอายุได้ — rule ชั่วคราวจะ expire เอง'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-red-500">•</span><span>{isEn ? 'Add reason text — visible to whoever reviews later' : 'ใส่เหตุผลได้ — คนตรวจในอนาคตจะเห็น'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-red-500">•</span><span>{isEn ? 'Delete with the trash icon — IP_RULE_DELETED logged' : 'ลบด้วยไอคอนถังขยะ → log เป็น IP_RULE_DELETED'}</span></li>
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Audit trail / events timeline ───────────────────────── */}
+        <div id="security-audit" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Activity className="h-4 w-4" />}
+            title={isEn ? 'Security events timeline — last 50' : 'Timeline เหตุการณ์ — 50 ล่าสุด'}
+            color="rose"
+          />
+          <div className="rounded-xl border-2 border-red-200 dark:border-red-900 bg-red-50/40 dark:bg-red-950/20 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Every action that touches authentication or session state is logged in activity_logs and surfaced here — with IP address, user agent, and geolocation extracted from request headers.'
+                : 'ทุก action ที่แตะ auth หรือ session ถูก log ใน activity_logs และโผล่บนหน้านี้ พร้อม IP / user agent / location ที่ดึงจาก request header'}
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px]">
+              {[
+                'LOGIN', 'LOGOUT', 'REGISTER',
+                'ACCOUNT_LOCKED', 'ACCOUNT_UNLOCKED', 'LOGIN_BLOCKED_IP',
+                'IP_RULE_CREATED', 'IP_RULE_DELETED', 'SESSION_TIMEOUT',
+              ].map(action => (
+                <code key={action} className="block px-2 py-1 rounded bg-white dark:bg-zinc-900 border border-red-200/60 dark:border-red-900/40 text-red-700 dark:text-red-400 font-mono">{action}</code>
+              ))}
+            </div>
+            <div className="rounded-lg border border-red-200/60 dark:border-red-900/40 bg-white dark:bg-zinc-900 p-3">
+              <p className="text-[11px] font-bold text-red-700 dark:text-red-300 uppercase tracking-wider mb-1.5">
+                {isEn ? 'Geolocation source' : 'แหล่ง geolocation'}
+              </p>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                {isEn
+                  ? 'Latitude/longitude come from Vercel/Cloudflare request headers (no external API call). Accuracy is country/city-level — not pinpoint.'
+                  : 'latitude / longitude ดึงจาก header ของ Vercel / Cloudflare (ไม่ได้เรียก API นอก) — ความแม่นยำระดับประเทศ/เมือง ไม่ใช่ pinpoint'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Linked modules ──────────────────────────────────────── */}
+        <div id="security-linked" className="scroll-mt-6">
+          <SectionHeader
+            icon={<GitBranch className="h-4 w-4" />}
+            title={isEn ? 'Linked modules' : 'ผูกกับโมดูลอื่น'}
+            color="rose"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="🔑 ระบบ login"
+              titleEn="🔑 Login system"
+              lines={isEn
+                ? [
+                    'Pulls from login_logs (with selfie URL + GPS)',
+                    'IP block check runs BEFORE credentials',
+                    'Rate-limit fires on too-many attempts',
+                    'Auto-locks after 10 failed PIN attempts',
+                  ]
+                : [
+                    'ดึงข้อมูลจาก login_logs (มี selfie + GPS)',
+                    'ตรวจ IP block ก่อนตรวจรหัส',
+                    'rate-limit ทำงานเมื่อกรอกบ่อยเกิน',
+                    'ล็อกอัตโนมัติเมื่อ fail 10 ครั้ง',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="👥 จัดการ user"
+              titleEn="👥 User management"
+              lines={isEn
+                ? [
+                    'unlockUser + forceLogout update profiles',
+                    'Revalidates /users + /security on change',
+                    'Role checked server-side every action',
+                    'Audit-logged via logActivity()',
+                  ]
+                : [
+                    'unlockUser + forceLogout อัปเดต profiles',
+                    'revalidate /users + /security ทุกครั้งที่แก้',
+                    'ตรวจ role ที่ server ทุก action',
+                    'log ทุกอย่างผ่าน logActivity()',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Tips ────────────────────────────────────────────────── */}
+        <div id="security-tips" className="scroll-mt-6">
+          <SectionHeader
+            icon={<AlertCircle className="h-4 w-4" />}
+            title={isEn ? 'Tips & gotchas' : 'เคล็ดลับและข้อควรรู้'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard
+              tone="emerald"
+              icon={<KeyRound className="h-4 w-4" />}
+              titleTh="🔑 30-min auto-unlock"
+              titleEn="🔑 30-min auto-unlock"
+              descTh="ถ้าไม่อยากปลดเอง รอ 30 นาที ระบบปลดให้อัตโนมัติ — ใช้กับเคสที่ user ลืม PIN"
+              descEn="If you don't want to manually unlock, the lock auto-releases after 30 minutes — fine for forgot-PIN cases."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="sky"
+              icon={<Globe className="h-4 w-4" />}
+              titleTh="🌐 Allowlist เครือข่ายออฟฟิศ"
+              titleEn="🌐 Allowlist office network"
+              descTh="เพิ่ม IP ออฟฟิศเป็น Allow rule — bypass rate-limit + lockout เพื่อให้ทีมไม่โดนล็อกตอนพิมพ์ผิด"
+              descEn="Add the office IP as an Allow rule — bypasses rate-limit + lockout so the team doesn't get locked out from typos."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="amber"
+              icon={<Clock className="h-4 w-4" />}
+              titleTh="⏰ Block แบบ expiry"
+              titleEn="⏰ Temp blocks expire"
+              descTh="ถ้า block IP เพราะโจมตีรอบเดียว ตั้ง expires_at เป็น 24h — กัน block ค้างหลังจากภัยหายไปแล้ว"
+              descEn="One-off attack? Set expires_at to 24h — avoids stale rules sticking around after the threat is gone."
+              isEn={isEn}
+            />
+            <TipCard
+              tone="violet"
+              icon={<MapPin className="h-4 w-4" />}
+              titleTh="📍 Location ใช้ดูแนวโน้ม"
+              titleEn="📍 Location is rough"
+              descTh="ความแม่นยำระดับเมือง — ใช้ดูว่า login จากต่างประเทศไหม ไม่ใช่ ตำแหน่งจริงระดับบ้าน"
+              descEn="City-level only — use it to spot foreign-country logins, not for street-level accuracy."
+              isEn={isEn}
+            />
+          </div>
+        </div>
+
+        {/* ── Permissions ─────────────────────────────────────────── */}
+        <div id="security-permissions" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ShieldAlert className="h-4 w-4" />}
+            title={isEn ? 'Permissions' : 'สิทธิ์การใช้งาน'}
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Action' : 'การกระทำ'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">{isEn ? 'User' : 'User'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">Admin</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900 text-sm">
+                <PermissionRow label={isEn ? 'Open /security' : 'เข้าหน้า /security'}                             owner="—" other="no" admin="yes" adminNote={isEn ? 'redirect non-admin' : 'redirect ถ้าไม่ใช่ admin'} />
+                <PermissionRow label={isEn ? 'View KPI / sessions / events / IP rules' : 'ดู KPI / sessions / events / IP rules'} owner="—" other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Unlock locked account' : 'ปลดล็อกบัญชี'}                             owner="—" other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Force-logout active session' : 'Force logout session'}                owner="—" other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Create / delete IP rule' : 'สร้าง / ลบ IP rule'}                       owner="—" other="no" admin="yes" />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Menu shortcuts ──────────────────────────────────────── */}
+        <div id="security-menu" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ExternalLink className="h-4 w-4" />}
+            title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/security" labelEn="Security dashboard (admin)" labelTh="Security dashboard (admin)" />
+            <MenuLink href="/users"    labelEn="User management (admin)"    labelTh="จัดการ user (admin)" />
+          </div>
+        </div>
+
+      </section>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
           MODULE: CHECK-IN
           ════════════════════════════════════════════════════════════════ */}
       {view === 'checkin' && (
       <section className="space-y-6">
-        <ModuleHero mod={MODULES[8]} isEn={isEn} backHref="/howto" />
-        <ModuleSubToc mod={MODULES[8]} isEn={isEn} />
+        <ModuleHero mod={MODULES[9]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[9]} isEn={isEn} />
 
         {/* ── Overview ─────────────────────────────────────────────── */}
         <div id="checkin-overview" className="scroll-mt-6">
@@ -4378,7 +4724,7 @@ function TipCard({
 // Module library — config-driven so adding a new module = 1 entry
 // ─────────────────────────────────────────────────────────────────────
 
-type ModuleAccent = 'emerald' | 'sky' | 'violet' | 'amber' | 'rose' | 'zinc' | 'cyan' | 'teal' | 'indigo'
+type ModuleAccent = 'emerald' | 'sky' | 'violet' | 'amber' | 'rose' | 'zinc' | 'cyan' | 'teal' | 'indigo' | 'red'
 
 interface ModuleSubItem { id: string; titleTh: string; titleEn: string }
 interface ModuleSubGroup {
@@ -4389,7 +4735,7 @@ interface ModuleSubGroup {
 interface ModuleConfig {
   id: string                    // anchor id used inside a module page (e.g. "mod-overview")
   /** URL slug — module is reachable at /howto/{slug} */
-  slug: 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'checkin'
+  slug: 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin'
   accent: ModuleAccent
   Icon: typeof BookOpen
   titleTh: string
@@ -4786,6 +5132,53 @@ const MODULES: ModuleConfig[] = [
     ],
   },
   {
+    id: 'mod-security',
+    slug: 'security',
+    accent: 'red',
+    Icon: Shield,
+    titleTh: 'Security — ความปลอดภัย',
+    titleEn: 'Security — Auth Control Center',
+    descTh: 'ติดตาม login · บัญชีโดนล็อก · session ที่ active · กฎ IP block/allow',
+    descEn: 'Monitor logins · locked accounts · active sessions · IP block/allow rules.',
+    badge: { th: 'admin only', en: 'Admin only', tone: 'new' },
+    groups: [
+      {
+        titleTh: 'เริ่มต้น',
+        titleEn: 'Get started',
+        items: [
+          { id: 'security-intro',     titleTh: 'ภาพรวม',         titleEn: 'Overview' },
+          { id: 'security-dashboard', titleTh: 'Dashboard',      titleEn: 'Dashboard' },
+        ],
+      },
+      {
+        titleTh: 'การกระทำ',
+        titleEn: 'Actions',
+        items: [
+          { id: 'security-lockout',      titleTh: 'บัญชีโดนล็อก',     titleEn: 'Account lockout' },
+          { id: 'security-force-logout', titleTh: 'Force logout',     titleEn: 'Force logout' },
+          { id: 'security-ip-rules',     titleTh: 'IP rules',         titleEn: 'IP rules' },
+        ],
+      },
+      {
+        titleTh: 'ตรวจสอบ',
+        titleEn: 'Audit',
+        items: [
+          { id: 'security-audit',  titleTh: 'Timeline เหตุการณ์', titleEn: 'Events timeline' },
+          { id: 'security-linked', titleTh: 'ผูกกับโมดูลอื่น',     titleEn: 'Linked modules' },
+          { id: 'security-tips',   titleTh: 'เคล็ดลับ',           titleEn: 'Tips & gotchas' },
+        ],
+      },
+      {
+        titleTh: 'อ้างอิง',
+        titleEn: 'Reference',
+        items: [
+          { id: 'security-permissions', titleTh: 'สิทธิ์การใช้งาน', titleEn: 'Permissions' },
+          { id: 'security-menu',        titleTh: 'เมนูทั้งหมด',     titleEn: 'Menu shortcuts' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'mod-checkin',
     slug: 'checkin',
     accent: 'sky',
@@ -4959,6 +5352,19 @@ const accentClasses: Record<ModuleAccent, {
     heroBorder: 'border-indigo-200 dark:border-indigo-900/50',
     groupTitle: 'text-indigo-700 dark:text-indigo-400',
     badgeNew:   'bg-indigo-500 text-white',
+  },
+  red: {
+    cardBorder: 'border-red-200 dark:border-red-900/50',
+    cardBg:     'bg-gradient-to-br from-red-50 to-white dark:from-red-950/20 dark:to-zinc-900',
+    cardHover:  'hover:border-red-300 hover:shadow-md hover:shadow-red-500/10',
+    iconBox:    'bg-red-100 dark:bg-red-900/40',
+    iconText:   'text-red-600 dark:text-red-400',
+    titleText:  'text-red-900 dark:text-red-200',
+    pillBg:     'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50',
+    heroBg:     'bg-gradient-to-r from-red-500/10 via-red-50 to-white dark:from-red-900/30 dark:via-red-950/20 dark:to-zinc-900',
+    heroBorder: 'border-red-200 dark:border-red-900/50',
+    groupTitle: 'text-red-700 dark:text-red-400',
+    badgeNew:   'bg-red-500 text-white',
   },
 }
 
