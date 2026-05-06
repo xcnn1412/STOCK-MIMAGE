@@ -11,9 +11,12 @@ import {
   CalendarDays, Heart, Plane, Briefcase, ShieldCheck,
   LayoutDashboard, Users, BarChart3, AtSign, TrendingUp, Tag, Phone, MessageSquare,
   CreditCard, Calendar, Trash2, Download, Search, Filter, Bot, FolderArchive,
+  Package, ClipboardList, MessageCircle, Smile, Paperclip,
+  QrCode, Boxes, Hammer, AlertTriangle, ScrollText, Printer, ArrowDownToLine, ArrowUpFromLine,
+  Target, Award, Trophy, Repeat, Coins, Gauge, MessagesSquare,
 } from 'lucide-react'
 
-export type HowtoViewType = 'landing' | 'overview' | 'crm' | 'finance' | 'checkin'
+export type HowtoViewType = 'landing' | 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'checkin'
 
 export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType } = {}) {
   const { locale } = useLocale()
@@ -1147,12 +1150,1222 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
       )}
 
       {/* ════════════════════════════════════════════════════════════════
+          MODULE: EVENTS
+          ════════════════════════════════════════════════════════════════ */}
+      {view === 'events' && (
+      <section className="space-y-6">
+        <ModuleHero mod={MODULES[2]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[2]} isEn={isEn} />
+
+        {/* ── Intro ───────────────────────────────────────────────── */}
+        <div id="events-intro" className="scroll-mt-6">
+          <div className="rounded-xl border-2 border-cyan-200 dark:border-cyan-900 bg-gradient-to-br from-cyan-50 to-white dark:from-cyan-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-cyan-600 text-white">
+                <CalendarDays className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-cyan-900 dark:text-cyan-200">
+                  {isEn ? 'Events — client jobs in motion' : 'Events — งานลูกค้าที่กำลังทำ'}
+                </p>
+                <p className="text-[11px] text-cyan-700 dark:text-cyan-400">
+                  {isEn
+                    ? 'Each event is a real client job — link kits, staff, and check-ins to it.'
+                    : 'แต่ละ event = งานลูกค้าจริง — ผูกชุดอุปกรณ์ ทีมงาน และเช็คอิน เข้าด้วยกัน'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
+              <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                {isEn
+                  ? 'Create / Edit are admin-only — gated server-side, page-level, and UI-level. Other actions (view list, kit check, return) are open to all staff.'
+                  : 'สร้าง / แก้ไข สำหรับ admin เท่านั้น — กันทั้ง server action / หน้า / ปุ่ม UI ส่วนการกระทำอื่น (ดูรายการ, ตรวจของ, เช็คคืน) staff ทุกคนทำได้'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── End-to-end workflow ─────────────────────────────────── */}
+        <div id="events-flow" className="scroll-mt-6 space-y-4">
+          <SectionHeader
+            icon={<GitBranch className="h-4 w-4" />}
+            title={isEn ? 'End-to-end workflow' : 'Flow ทั้งหมดของ event'}
+            color="emerald"
+          />
+          <div className="flex flex-wrap items-center gap-2 text-[10px] p-2.5 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <span className="font-semibold text-zinc-500 uppercase tracking-wider">{isEn ? 'Legend' : 'สัญลักษณ์'}:</span>
+            <LegendDot variant="user"    label={isEn ? 'Anyone' : 'ทุกคน'} />
+            <LegendDot variant="admin"   label="Admin" />
+            <LegendDot variant="decision" label={isEn ? 'Choice' : 'ทางเลือก'} />
+            <LegendDot variant="success" label={isEn ? 'Done' : 'เสร็จ'} />
+          </div>
+          <FlowchartBox
+            title={isEn ? 'From booking to closure' : 'จากปิดดีลจนคืนของ'}
+            color="sky"
+          >
+            <FlowNode variant="start" emoji="🤝" title={isEn ? 'CRM lead = accepted' : 'CRM lead = accepted'} subtitle="/crm" />
+            <FlowArrow />
+            <FlowNode variant="admin" emoji="🎯" title={isEn ? 'Admin: create event from lead' : 'Admin: สร้าง event จาก lead'} subtitle="/events/new?from_crm={leadId}" tag={isEn ? 'prefilled' : 'pre-fill'} />
+            <FlowArrow label={isEn ? 'or manual' : 'หรือสร้างเอง'} />
+            <FlowNode variant="admin" emoji="🛠" title={isEn ? 'Assign kits + staff (by role)' : 'ผูกชุดอุปกรณ์ + ทีม (ตาม role)'} subtitle={isEn ? 'kits.event_id = event.id · event_staff junction' : 'kits.event_id = event.id · event_staff junction'} />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="✅" title={isEn ? 'Check-kits before going on-site' : 'ตรวจของก่อนไปหน้างาน'} subtitle="/events/[id]/check-kits" />
+            <FlowArrow label={isEn ? 'on event day' : 'ถึงวันงาน'} />
+            <FlowNode variant="user" emoji="📍" title={isEn ? 'Staff: on-site check-in' : 'Staff: เช็คอินหน้างาน'} subtitle="/check-in (type: on-site)" tag={isEn ? 'auto expense claim' : 'สร้างใบเบิกอัตโนมัติ'} />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="📷" title={isEn ? 'Return checklist + closure photos' : 'เช็คคืนของ + ถ่ายรูปปิดงาน'} subtitle="/events/[id]/return" />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="📦" title={isEn ? 'Snapshot saved → event deleted' : 'เก็บ snapshot → event ถูกลบ'} subtitle="/events/event-closures" tag={isEn ? '60 days retention' : 'เก็บ 60 วัน'} />
+          </FlowchartBox>
+        </div>
+
+        {/* ── Create / Edit ──────────────────────────────────────── */}
+        <div id="events-create" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Edit3 className="h-4 w-4" />}
+            title={isEn ? 'Create / edit event (admin)' : 'สร้าง / แก้ไข event (admin)'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Create from CRM (recommended)' : 'สร้างจาก CRM (แนะนำ)'}
+              steps={isEn ? [
+                { n: 1, label: 'Open accepted lead at /crm/[id]', tag: null },
+                { n: 2, label: 'Click "Create Event"', tag: null },
+                { n: 3, label: 'System pre-fills name, date, location, staff with roles, VAT/WHT', tag: 'prefill' },
+                { n: 4, label: 'Pick kits to assign', tag: null },
+                { n: 5, label: 'Save → events.crm_lead_id linked + crm_lead_staff synced', tag: 'bidirectional link' },
+              ] : [
+                { n: 1, label: 'เปิด lead ที่ accepted แล้วที่ /crm/[id]', tag: null },
+                { n: 2, label: 'กดปุ่ม "สร้าง Event"', tag: null },
+                { n: 3, label: 'ระบบ pre-fill ชื่อ / วันที่ / สถานที่ / ทีมพร้อม role / VAT-WHT', tag: 'prefill' },
+                { n: 4, label: 'เลือกชุดอุปกรณ์ (kits) ที่จะใช้', tag: null },
+                { n: 5, label: 'บันทึก → events.crm_lead_id ถูกผูก + crm_lead_staff sync', tag: 'ผูกสองทาง' },
+              ]}
+            />
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Create manually' : 'สร้างเอง (ไม่ใช้ CRM)'}
+              steps={isEn ? [
+                { n: 1, label: 'Go to /events/new (admin only)', tag: null },
+                { n: 2, label: 'Fill name, location, event_date', tag: null },
+                { n: 3, label: 'Pick staff by role (sale / graphic / photographer / …)', tag: 'event_staff junction' },
+                { n: 4, label: 'Pick kits to assign', tag: null },
+                { n: 5, label: 'Save', tag: null },
+              ] : [
+                { n: 1, label: 'ไปหน้า /events/new (admin เท่านั้น)', tag: null },
+                { n: 2, label: 'กรอกชื่อ / สถานที่ / วันที่งาน', tag: null },
+                { n: 3, label: 'เลือกทีมตาม role (sale / graphic / photographer / …)', tag: 'event_staff junction' },
+                { n: 4, label: 'เลือก kits ที่จะใช้', tag: null },
+                { n: 5, label: 'บันทึก', tag: null },
+              ]}
+            />
+          </div>
+          <div className="mt-3 flex items-start gap-2 p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg">
+            <span className="text-lg leading-none">💡</span>
+            <div className="text-xs text-amber-900 dark:text-amber-200">
+              <p className="font-semibold mb-1">{isEn ? 'Edit caveat' : 'ข้อควรรู้ตอนแก้ไข'}</p>
+              <p className="text-amber-800 dark:text-amber-300 leading-relaxed">
+                {isEn
+                  ? 'When editing kit assignments, items currently in_use are reset to available before re-assigning. If you swap kits mid-event, expect items to flicker through "available" briefly — this is intentional, not a bug.'
+                  : 'ตอนแก้รายการ kits ระบบจะ reset item ที่ in_use กลับเป็น available ก่อน แล้วค่อยผูกใหม่ — ถ้าเปลี่ยน kit ระหว่างงาน item จะกลับเป็น available ชั่วคราว เป็น behavior ที่ตั้งใจ'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Check-kits ──────────────────────────────────────────── */}
+        <div id="events-check-kits" className="scroll-mt-6">
+          <SectionHeader
+            icon={<CheckCircle2 className="h-4 w-4" />}
+            title={isEn ? 'Check-kits — verify before on-site' : 'ตรวจของก่อนไปหน้างาน'}
+            color="emerald"
+          />
+          <div className="rounded-xl border-2 border-cyan-200 dark:border-cyan-900 bg-cyan-50/40 dark:bg-cyan-950/20 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Open /events/[id]/check-kits to see every kit attached to this event. Click a kit → opens /kits/[id]/check?eventId=… — bulk-checkout all items at once with a click.'
+                : 'เปิด /events/[id]/check-kits เพื่อดูชุดอุปกรณ์ทุก kit ที่ผูกกับ event นี้ — คลิก kit ใดก็ได้จะพาไป /kits/[id]/check?eventId=… ให้กด checkout ครบทุก item ในชุดด้วยคลิกเดียว'}
+            </p>
+            <ul className="space-y-1.5 text-xs text-zinc-700 dark:text-zinc-300">
+              <li className="flex items-start gap-2"><span className="text-cyan-500">•</span><span>{isEn ? 'Available to all staff (not admin-only)' : 'staff ทุกคนเข้าได้ (ไม่ admin-only)'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-cyan-500">•</span><span>{isEn ? 'Checkout marks items.status = in_use' : 'Checkout จะ set items.status = in_use'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-cyan-500">•</span><span>{isEn ? 'Each item logged with timestamp + actor' : 'ทุก item ถูก log เวลา + ผู้กระทำ'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-cyan-500">•</span><span>{isEn ? 'Kit detail page shows photos for visual confirmation' : 'หน้า kit detail แสดงรูป item ช่วย confirm ก่อนหยิบ'}</span></li>
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Return / closure ────────────────────────────────────── */}
+        <div id="events-return" className="scroll-mt-6">
+          <SectionHeader
+            icon={<FolderArchive className="h-4 w-4" />}
+            title={isEn ? 'Return checklist + closure' : 'เช็คคืนของ + ปิดงาน'}
+            color="emerald"
+          />
+          <div className="rounded-xl border-2 border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20 p-4 space-y-3">
+            <p className="text-xs text-emerald-900 dark:text-emerald-200 leading-relaxed">
+              {isEn
+                ? 'When the event is over, /events/[id]/return is the single screen that closes everything. For each item, pick a condition; attach up to 15 closure photos; submit.'
+                : 'งานเสร็จแล้วใช้ /events/[id]/return ปิดงานในหน้าเดียว — เลือกสภาพ item แต่ละชิ้น แนบรูปได้สูงสุด 15 รูป กดบันทึก'}
+            </p>
+
+            <div className="overflow-x-auto rounded-xl border border-emerald-200/60 dark:border-emerald-900/40 bg-white dark:bg-zinc-900">
+              <table className="w-full text-sm">
+                <thead className="bg-emerald-50 dark:bg-emerald-950/30 text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                  <tr>
+                    <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Pick condition' : 'เลือกสภาพ'}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Item status becomes' : 'item.status จะเป็น'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 text-zinc-700 dark:text-zinc-300">
+                  <tr><td className="px-3 py-2 text-xs">✓ {isEn ? 'Good' : 'ของดี'}</td><td className="px-3 py-2 text-xs"><code className="font-mono text-emerald-600">available</code></td></tr>
+                  <tr><td className="px-3 py-2 text-xs">⚠ {isEn ? 'Damaged' : 'เสียหาย'}</td><td className="px-3 py-2 text-xs"><code className="font-mono text-amber-600">maintenance</code></td></tr>
+                  <tr><td className="px-3 py-2 text-xs">❌ {isEn ? 'Lost' : 'หาย'}</td><td className="px-3 py-2 text-xs"><code className="font-mono text-red-600">lost</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="rounded-lg border border-emerald-200/60 dark:border-emerald-900/40 bg-white dark:bg-zinc-900 p-3">
+              <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mb-2">
+                {isEn ? 'What submit does' : 'ตอนกดบันทึก ระบบทำอะไรบ้าง'}
+              </p>
+              <ol className="space-y-1 text-xs text-zinc-700 dark:text-zinc-300 list-decimal list-inside">
+                <li>{isEn ? 'Snapshot kits + items + photos → event_closures.kits_snapshot' : 'เก็บ snapshot ชุด kit + item + รูป → event_closures.kits_snapshot'}</li>
+                <li>{isEn ? 'Batch update each item.status by condition picked' : 'อัปเดต items.status ทุกตัวตามสภาพที่เลือก (batch)'}</li>
+                <li>{isEn ? 'Release all kits — kits.event_id = null' : 'ปลด kit ทั้งหมด — kits.event_id = null'}</li>
+                <li>{isEn ? 'Delete the event row entirely' : 'ลบ event row นี้ทิ้ง'}</li>
+                <li>{isEn ? 'Clear crm_leads.event_id back-pointer (if linked)' : 'เคลียร์ crm_leads.event_id (ถ้าเคยผูก)'}</li>
+              </ol>
+            </div>
+
+            <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                {isEn
+                  ? 'The event is permanently deleted after submit — only the closure snapshot remains. Closures older than 60 days are auto-cleaned (records + photos).'
+                  : 'event row จะถูกลบถาวรทันทีหลังบันทึก — เหลือแค่ snapshot ใน event_closures เท่านั้น และ closure ที่เก่ากว่า 60 วันจะถูกลบอัตโนมัติ (record + รูป)'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Calendar ────────────────────────────────────────────── */}
+        <div id="events-calendar" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Calendar className="h-4 w-4" />}
+            title={isEn ? 'Calendar — /events/calendar' : 'ปฏิทิน — /events/calendar'}
+            color="emerald"
+          />
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3">
+            {isEn
+              ? 'A month/week calendar showing all active events plus closed events from event_closures. Useful for spotting busy weeks and looking back at past jobs.'
+              : 'ปฏิทินรายเดือน/สัปดาห์ รวมทั้ง event ที่ active และ event ที่ปิดแล้วจาก event_closures — ใช้ดูสัปดาห์ที่งานเยอะ + ย้อนดูงานเก่า'}
+          </p>
+        </div>
+
+        {/* ── Closures archive ────────────────────────────────────── */}
+        <div id="events-closures" className="scroll-mt-6">
+          <SectionHeader
+            icon={<History className="h-4 w-4" />}
+            title={isEn ? 'Closures archive — /events/event-closures' : 'คลังงานที่ปิดแล้ว — /events/event-closures'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="📦 มีอะไรบ้าง"
+              titleEn="📦 What's in here"
+              lines={isEn
+                ? [
+                    'Every closed event with date + name + location',
+                    'Snapshot of kits & items at closure time',
+                    'Closure photos (15 max per closure)',
+                    'Who closed it (closed_by)',
+                  ]
+                : [
+                    'ทุก event ที่ปิดแล้ว พร้อมวันที่ + ชื่อ + สถานที่',
+                    'snapshot ของ kit + item ตอนปิด',
+                    'รูป closure (สูงสุด 15 รูป/งาน)',
+                    'ผู้ปิดงาน (closed_by)',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="🧹 60-day auto-clean"
+              titleEn="🧹 60-day auto-clean"
+              lines={isEn
+                ? [
+                    'Closures older than 60 days are auto-deleted',
+                    'Storage photos in event_closures bucket also deleted',
+                    'Export anything you want to keep before then',
+                  ]
+                : [
+                    'closure ที่เก่ากว่า 60 วันถูกลบอัตโนมัติ',
+                    'รูปใน bucket event_closures ก็ถูกลบ',
+                    'อยากเก็บอะไรไว้ → export ก่อนครบ 60 วัน',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Permissions ─────────────────────────────────────────── */}
+        <div id="events-permissions" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ShieldAlert className="h-4 w-4" />}
+            title={isEn ? 'Permissions' : 'สิทธิ์การใช้งาน'}
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Action' : 'การกระทำ'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">{isEn ? 'Staff' : 'staff'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">Admin</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900 text-sm">
+                <PermissionRow label={isEn ? 'View list / calendar / closures' : 'ดูรายการ / ปฏิทิน / closures'} owner="yes" other="yes" admin="yes" />
+                <PermissionRow label={isEn ? 'Create event' : 'สร้าง event'} owner="no" other="no" admin="yes" adminNote={isEn ? 'gated 3 layers' : 'กัน 3 ชั้น'} />
+                <PermissionRow label={isEn ? 'Edit event' : 'แก้ไข event'} owner="no" other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Link / unlink CRM' : 'ผูก / ปลด CRM'} owner="no" other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Check-kits before on-site' : 'ตรวจของก่อน on-site'} owner="yes" other="yes" admin="yes" />
+                <PermissionRow label={isEn ? 'Submit return / closure' : 'เช็คคืน / ปิดงาน'} owner="yes" other="yes" admin="yes" />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Linked modules ──────────────────────────────────────── */}
+        <div id="events-linked" className="scroll-mt-6">
+          <SectionHeader
+            icon={<GitBranch className="h-4 w-4" />}
+            title={isEn ? 'Linked modules' : 'ผูกกับโมดูลอื่น'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock titleTh="🤝 CRM" titleEn="🤝 CRM" lines={isEn ? ['Lead → event prefill (one-click)', 'crm_leads.event_id ↔ events.crm_lead_id', 'Staff sync via crm_lead_staff'] : ['Lead → event pre-fill ปุ่มเดียว', 'crm_leads.event_id ↔ events.crm_lead_id', 'ทีม sync ผ่าน crm_lead_staff']} />
+            <FeatureBlock titleTh="📍 Check-in" titleEn="📍 Check-in" lines={isEn ? ['On-site session picks an event from today', 'sessions.event_id stamped', 'Auto-creates expense claim on checkout'] : ['session on-site เลือก event ของวันนี้', 'sessions.event_id ถูก stamp', 'ตอน checkout สร้างใบเบิกอัตโนมัติ']} />
+            <FeatureBlock titleTh="📦 Stock / Kits" titleEn="📦 Stock / Kits" lines={isEn ? ['kits.event_id = event.id when assigned', 'Items flip to in_use on checkout', 'Items flip back via return checklist'] : ['kits.event_id = event.id เมื่อผูก', 'item เปลี่ยนเป็น in_use ตอน checkout', 'item เปลี่ยนกลับผ่าน return checklist']} />
+            <FeatureBlock titleTh="💰 Costs / Finance" titleEn="💰 Costs / Finance" lines={isEn ? ['job_cost_events.source_event_id (nullable)', 'expense_claims tied via job_event_id', 'VAT / WHT inherited from CRM lead'] : ['job_cost_events.source_event_id (ไม่บังคับ)', 'ใบเบิกผูกผ่าน job_event_id', 'VAT / WHT ตามที่ตั้งใน CRM lead']} />
+          </div>
+        </div>
+
+        {/* ── Menu shortcuts ──────────────────────────────────────── */}
+        <div id="events-menu" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ExternalLink className="h-4 w-4" />}
+            title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/events"                 labelEn="Events list"                  labelTh="รายการ events" />
+            <MenuLink href="/events/new"             labelEn="Create event (admin)"         labelTh="สร้าง event (admin)" />
+            <MenuLink href="/events/calendar"        labelEn="Calendar view"                labelTh="ปฏิทิน" />
+            <MenuLink href="/events/event-closures"  labelEn="Closed events archive"        labelTh="คลังงานที่ปิดแล้ว" />
+          </div>
+        </div>
+
+      </section>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          MODULE: JOBS
+          ════════════════════════════════════════════════════════════════ */}
+      {view === 'jobs' && (
+      <section className="space-y-6">
+        <ModuleHero mod={MODULES[3]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[3]} isEn={isEn} />
+
+        {/* ── Intro ───────────────────────────────────────────────── */}
+        <div id="jobs-intro" className="scroll-mt-6">
+          <div className="rounded-xl border-2 border-amber-200 dark:border-amber-900 bg-gradient-to-br from-amber-50 to-white dark:from-amber-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-amber-600 text-white">
+                <Briefcase className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                  {isEn ? 'Jobs — work tickets for the team' : 'Jobs — งานที่ทีมต้องทำ'}
+                </p>
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  {isEn
+                    ? 'Two boards: shared system board (graphic + on-site) and your private board (my-job).'
+                    : 'มี 2 บอร์ด — บอร์ดทีม (graphic + on-site) และบอร์ดส่วนตัวของคุณ (my-job)'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── System board ────────────────────────────────────────── */}
+        <div id="jobs-system" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Layout className="h-4 w-4" />}
+            title={isEn ? 'System board — /jobs (Kanban for the team)' : 'บอร์ดทีม — /jobs (Kanban)'}
+            color="amber"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TypeCard
+              emoji="🎨"
+              title={isEn ? 'Graphic jobs' : 'งาน Graphic'}
+              subtitle="job_type: graphic"
+              desc={isEn ? 'Design tasks. Statuses configurable per studio (e.g. pending → in_progress → review → done).' : 'งานออกแบบ — สถานะแก้ใน /jobs/settings ได้ (ตัวอย่าง: pending → in_progress → review → done)'}
+              receipt={isEn ? 'Drag to move' : 'ลากย้าย'}
+              receiptColor="amber"
+            />
+            <TypeCard
+              emoji="📍"
+              title={isEn ? 'On-site jobs' : 'งาน On-site'}
+              subtitle="job_type: onsite"
+              desc={isEn ? 'Field jobs (event prep, setup, dispatch). Pulls customer + event date/location from CRM.' : 'งานหน้างาน (เตรียมอีเวนต์ / setup / dispatch) — ดึง customer + วันที่ / สถานที่ จาก CRM'}
+              receipt={isEn ? 'Linked to CRM' : 'ผูกกับ CRM'}
+              receiptColor="emerald"
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="🃏 บนการ์ด"
+              titleEn="🃏 On each card"
+              lines={isEn ? ['Title · customer · due date', 'Assigned avatars (multi-user)', 'Tag chips · priority badge', 'Hover → drag handle visible'] : ['ชื่อ · ลูกค้า · ครบกำหนด', 'avatar ทีม (หลายคน)', 'tag chips · ป้าย priority', 'hover เพื่อเห็น drag handle']}
+            />
+            <FeatureBlock
+              titleTh="🚚 ลากย้าย"
+              titleEn="🚚 Drag-drop"
+              lines={isEn ? ['Drag card across status columns', 'Optimistic UI — reverts on error', 'Logs activity + notifies team', 'Status set defined in /jobs/settings'] : ['ลากการ์ดข้ามคอลัมน์', 'Optimistic UI — ถ้า error ระบบ revert ให้', 'log activity + แจ้งทีม', 'ชุดสถานะตั้งใน /jobs/settings']}
+            />
+          </div>
+        </div>
+
+        {/* ── My-Job (personal) ───────────────────────────────────── */}
+        <div id="jobs-my-job" className="scroll-mt-6">
+          <SectionHeader
+            icon={<User className="h-4 w-4" />}
+            title={isEn ? 'My Job — your private board (/jobs/my-job)' : 'บอร์ดส่วนตัว — /jobs/my-job'}
+            color="amber"
+          />
+          <div className="rounded-xl border-2 border-amber-200 dark:border-amber-900 bg-amber-50/40 dark:bg-amber-950/20 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Your own task board, separate from the system board. Two pipelines: Personal (life stuff) and Work. Only you can see your own; admin can spy via /jobs/admin-job?user={id}.'
+                : 'บอร์ดงานของคุณเอง แยกจากบอร์ดทีม — มี 2 pipeline: Personal (เรื่องส่วนตัว) และ Work — คนอื่นมองไม่เห็น admin ดูได้ผ่าน /jobs/admin-job?user={id}'}
+            </p>
+            <ul className="space-y-1.5 text-xs text-zinc-700 dark:text-zinc-300">
+              <li className="flex items-start gap-2"><span className="text-amber-500">•</span><span>{isEn ? 'Customize your own statuses in /jobs/my-job/settings' : 'ตั้งสถานะของตัวเองได้ใน /jobs/my-job/settings'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-amber-500">•</span><span>{isEn ? 'Drag-drop, tags, priority — same as the system board' : 'ลากย้าย / tag / priority — เหมือนบอร์ดทีม'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-amber-500">•</span><span>{isEn ? 'No notifications go out (private)' : 'ไม่มีการแจ้งเตือน (เป็นส่วนตัว)'}</span></li>
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Tickets ─────────────────────────────────────────────── */}
+        <div id="jobs-tickets" className="scroll-mt-6">
+          <SectionHeader
+            icon={<MessageCircle className="h-4 w-4" />}
+            title={isEn ? 'Tickets — internal support requests' : 'Tickets — คำขอภายในทีม'}
+            color="amber"
+          />
+          <div className="rounded-xl border-2 border-amber-200 dark:border-amber-900 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 p-4 space-y-3">
+            <p className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+              {isEn
+                ? 'A separate tab in /jobs (Tickets switch) for internal staff requests/issues. Has its own Kanban with category, priority, threaded replies, emoji reactions, and file attachments (≤50MB).'
+                : 'แท็บ Tickets ภายใน /jobs สำหรับคำขอ / ปัญหาภายในทีม — มี Kanban ของตัวเอง พร้อม category / priority / reply เป็น thread / emoji reaction / แนบไฟล์ ≤50MB'}
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FeatureBlock
+                titleTh="🧵 thread reply"
+                titleEn="🧵 Threaded replies"
+                lines={isEn
+                  ? [
+                      'Reply textarea with @mention',
+                      'First reply auto-advances open → answered',
+                      'All replies notify creator + assignees',
+                      '@mentions also notify the tagged user',
+                    ]
+                  : [
+                      'reply textarea + @mention',
+                      'reply แรกเปลี่ยน open → answered อัตโนมัติ',
+                      'ทุก reply แจ้ง creator + assignees',
+                      '@mention แจ้งคนที่ถูก tag ด้วย',
+                    ]}
+              />
+              <FeatureBlock
+                titleTh="😀 reaction + แนบไฟล์"
+                titleEn="😀 Reactions + files"
+                lines={isEn
+                  ? [
+                      'React with native or custom emoji',
+                      'Attach PDF / images / docs ≤50MB',
+                      'Auto desired_outcome field for outcome capture',
+                      'Closed → closed_at stamped',
+                    ]
+                  : [
+                      'react ด้วย emoji ปกติ หรือ custom',
+                      'แนบ PDF / รูป / เอกสาร ≤50MB',
+                      'มีช่อง desired_outcome เก็บผลลัพธ์ที่อยาก',
+                      'ปิด ticket → stamp closed_at',
+                    ]}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Bulk-create from CRM ────────────────────────────────── */}
+        <div id="jobs-from-crm" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Sparkles className="h-4 w-4" />}
+            title={isEn ? 'Bulk-create from CRM lead' : 'สร้าง 2 jobs จาก CRM lead'}
+            color="amber"
+          />
+          <div className="rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50/40 dark:bg-amber-950/10 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'On the CRM lead detail page, click "Create jobs" → spawns 2 linked jobs at once: 1 graphic + 1 on-site. Both pre-filled with customer name, event date/location, and team assignments from the lead.'
+                : 'ที่หน้า CRM lead detail กดปุ่ม "Create jobs" → ระบบสร้าง 2 job พร้อมกัน: graphic 1 + onsite 1 — ทั้งคู่ pre-fill ลูกค้า / วันที่ / สถานที่ / ทีม จาก lead'}
+            </p>
+          </div>
+        </div>
+
+        {/* ── Archive + Report ────────────────────────────────────── */}
+        <div id="jobs-archive-report" className="scroll-mt-6">
+          <SectionHeader
+            icon={<BarChart3 className="h-4 w-4" />}
+            title={isEn ? 'Archive + report' : 'archive + report'}
+            color="amber"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="📦 /jobs/archive"
+              titleEn="📦 /jobs/archive"
+              lines={isEn
+                ? [
+                    'Archived jobs + tickets (soft-delete)',
+                    'Restore button puts the card back in its original column',
+                    'Search + filter by date / type / customer',
+                  ]
+                : [
+                    'job + ticket ที่ archive แล้ว (soft-delete)',
+                    'restore = การ์ดกลับไปอยู่คอลัมน์เดิม',
+                    'ค้น + filter วันที่ / ประเภท / ลูกค้า',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="📊 /jobs/report"
+              titleEn="📊 /jobs/report"
+              lines={isEn
+                ? [
+                    'Monthly trend (tickets opened / closed)',
+                    'Breakdown by category and priority',
+                    'Avg resolution time',
+                    'Top creators / responders',
+                  ]
+                : [
+                    'แนวโน้มรายเดือน (ticket เปิด / ปิด)',
+                    'แยกตาม category + priority',
+                    'เวลาเฉลี่ยที่แก้สำเร็จ',
+                    'ผู้สร้าง / ผู้ตอบ ยอดสูงสุด',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Notifications ───────────────────────────────────────── */}
+        <div id="jobs-notifications" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Bell className="h-4 w-4" />}
+            title={isEn ? 'Notifications the system sends' : 'การแจ้งเตือนที่ระบบส่ง'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <NotifRow emoji="📌" code="job_assigned"          labelTh="ถูกมอบหมาย job"          labelEn="Job assigned to you"          toTh="คนที่ถูก assign"  toEn="New assignees"           isEn={isEn} />
+            <NotifRow emoji="🔁" code="job_status_changed"    labelTh="status เปลี่ยน"          labelEn="Job status changed"           toTh="ทีม + creator"     toEn="Assigned + creator"      isEn={isEn} />
+            <NotifRow emoji="@"  code="job_mentioned"         labelTh="ถูก @mention ใน job"     labelEn="@mentioned in job"            toTh="คนที่ถูก @"        toEn="Mentioned user"          isEn={isEn} />
+            <NotifRow emoji="💬" code="job_comment"           labelTh="comment ใหม่บน job"      labelEn="New comment on job"           toTh="ทีม + creator"     toEn="Assigned + creator"      isEn={isEn} />
+            <NotifRow emoji="🔄" code="ticket_status_changed" labelTh="status ticket เปลี่ยน"   labelEn="Ticket status changed"        toTh="ทีม + creator"     toEn="Assigned + creator"      isEn={isEn} />
+            <NotifRow emoji="↩️" code="ticket_reply"          labelTh="reply ใหม่บน ticket"     labelEn="New ticket reply"             toTh="participants"      toEn="Participants + @-tagged" isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Permissions ─────────────────────────────────────────── */}
+        <div id="jobs-permissions" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ShieldAlert className="h-4 w-4" />}
+            title={isEn ? 'Permissions' : 'สิทธิ์การใช้งาน'}
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Action' : 'การกระทำ'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">{isEn ? 'User' : 'User'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">Admin</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900 text-sm">
+                <PermissionRow label={isEn ? 'View system board' : 'ดูบอร์ดทีม'}                       owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Create / move / comment on system jobs' : 'สร้าง / ย้าย / comment บอร์ดทีม'} owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'My-Job board (private)' : 'บอร์ดส่วนตัว my-job'}        owner="yes" other="no"  admin="yes" adminNote={isEn ? 'spy via admin-job' : 'ดูคนอื่นได้ผ่าน admin-job'} />
+                <PermissionRow label={isEn ? 'Tickets — create / reply / react' : 'Tickets — สร้าง / reply / react'}        owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Archive / restore jobs' : 'archive / restore jobs'}      owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Reports' : 'รายงาน'}                                     owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Settings — types / statuses / emoji / checklists' : 'Settings — ชนิด / สถานะ / emoji / checklist'} owner="no" other="no" admin="yes" />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Menu shortcuts ──────────────────────────────────────── */}
+        <div id="jobs-menu" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ExternalLink className="h-4 w-4" />}
+            title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/jobs"                  labelEn="Team Kanban"                labelTh="บอร์ดทีม Kanban" />
+            <MenuLink href="/jobs/my-job"           labelEn="My Job (private)"           labelTh="บอร์ดส่วนตัวของฉัน" />
+            <MenuLink href="/jobs/admin-job"        labelEn="Admin: any user's board"    labelTh="admin: ดูบอร์ดของคนอื่น" />
+            <MenuLink href="/jobs/archive"          labelEn="Archive"                    labelTh="archive" />
+            <MenuLink href="/jobs/report"           labelEn="Ticket report"              labelTh="รายงาน ticket" />
+            <MenuLink href="/jobs/settings"         labelEn="Settings (admin)"           labelTh="ตั้งค่า (admin)" />
+          </div>
+        </div>
+
+      </section>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          MODULE: STOCK
+          ════════════════════════════════════════════════════════════════ */}
+      {view === 'stock' && (
+      <section className="space-y-6">
+        <ModuleHero mod={MODULES[4]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[4]} isEn={isEn} />
+
+        {/* ── Intro ───────────────────────────────────────────────── */}
+        <div id="stock-intro" className="scroll-mt-6">
+          <div className="rounded-xl border-2 border-zinc-200 dark:border-zinc-700 bg-gradient-to-br from-zinc-50 to-white dark:from-zinc-900 dark:to-zinc-950 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-zinc-700 dark:bg-zinc-600 text-white">
+                <Package className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                  {isEn ? 'Stock — physical inventory' : 'Stock — คลังอุปกรณ์จริง'}
+                </p>
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                  {isEn
+                    ? 'Items (single units), kits (bundles for events), and templates (reusable kit recipes).'
+                    : 'items (อุปกรณ์ทีละชิ้น) · kits (ชุดสำหรับงาน) · templates (สูตร kit ที่กลับมาใช้ใหม่ได้)'}
+                </p>
+              </div>
+            </div>
+            <ul className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+              <NewItem icon={<Boxes className="h-3.5 w-3.5" />}        titleTh="📋 items"          titleEn="📋 items"          descTh="อุปกรณ์ทีละชิ้น มี serial / รูป / สถานะ"     descEn="Single units with serial / photos / status"   isEn={isEn} />
+              <NewItem icon={<Package className="h-3.5 w-3.5" />}      titleTh="🎁 kits"           titleEn="🎁 kits"           descTh="ชุดที่จับไปงาน — ผูกกับ event"               descEn="Bundles dispatched to events"                  isEn={isEn} />
+              <NewItem icon={<ClipboardList className="h-3.5 w-3.5" />}titleTh="📝 templates"      titleEn="📝 templates"      descTh="example-kits — สูตรไว้ clone หรือ checklist"  descEn="example-kits — recipe to clone or checklist"   isEn={isEn} />
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Item statuses ───────────────────────────────────────── */}
+        <div id="stock-statuses" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Layout className="h-4 w-4" />}
+            title={isEn ? '7 item statuses' : '7 สถานะของ item'}
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Status' : 'สถานะ'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Meaning' : 'ความหมาย'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
+                <StatusRow emoji="✅" color="#22c55e" label={isEn ? 'available' : 'พร้อมใช้'}     code="available"     meaning={isEn ? 'In stock, ready to assign to a kit' : 'อยู่ในคลัง พร้อมผูกเข้า kit'} />
+                <StatusRow emoji="🚚" color="#0ea5e9" label={isEn ? 'in_use' : 'กำลังใช้งาน'}    code="in_use"        meaning={isEn ? 'Currently dispatched to an active event' : 'อยู่ในงานที่ active ตอนนี้'} />
+                <StatusRow emoji="🛠"  color="#f59e0b" label={isEn ? 'maintenance' : 'ซ่อมบำรุง'} code="maintenance"   meaning={isEn ? 'Damaged or scheduled for repair' : 'เสียหาย หรือเตรียมซ่อม'} />
+                <StatusRow emoji="❌" color="#ef4444" label={isEn ? 'lost' : 'หาย'}              code="lost"          meaning={isEn ? 'Reported missing' : 'แจ้งว่าหาย'} />
+                <StatusRow emoji="💥" color="#dc2626" label={isEn ? 'damaged' : 'เสียหายหนัก'}    code="damaged"       meaning={isEn ? 'Beyond quick repair' : 'ซ่อมไม่ไหวแล้ว'} />
+                <StatusRow emoji="🛒" color="#8b5cf6" label={isEn ? 'purchasing' : 'กำลังจัดซื้อ'} code="purchasing"   meaning={isEn ? 'On order, not yet delivered' : 'สั่งแล้วแต่ยังไม่มาถึง'} />
+                <StatusRow emoji="🚫" color="#94a3b8" label={isEn ? 'out_of_stock' : 'ของหมด'}    code="out_of_stock"  meaning={isEn ? 'Depleted, none in stock' : 'หมดสต๊อก'} />
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-800 dark:text-amber-300">
+              {isEn
+                ? 'Statuses move automatically: kit checkout → in_use; return checklist → available / maintenance / lost. You only set them by hand for special cases (purchasing, out_of_stock, damaged).'
+                : 'สถานะส่วนใหญ่เปลี่ยนอัตโนมัติ — checkout kit → in_use ; เช็คคืนของ → available / maintenance / lost ส่วนที่ต้องตั้งเองคือกรณีพิเศษ (purchasing, out_of_stock, damaged)'}
+            </p>
+          </div>
+        </div>
+
+        {/* ── Kit lifecycle ───────────────────────────────────────── */}
+        <div id="stock-kit-lifecycle" className="scroll-mt-6">
+          <SectionHeader
+            icon={<GitBranch className="h-4 w-4" />}
+            title={isEn ? 'Kit lifecycle' : 'วงจรชีวิตของ kit'}
+            color="emerald"
+          />
+          <FlowchartBox
+            title={isEn ? 'Create → deploy → return → reuse' : 'สร้าง → ส่งงาน → คืน → ใช้ซ้ำ'}
+            color="sky"
+          >
+            <FlowNode variant="user"  emoji="🆕" title={isEn ? 'Create kit at /kits/new' : 'สร้าง kit ที่ /kits/new'} subtitle={isEn ? 'name + description, no items yet' : 'ใส่ชื่อ + description, ยังไม่มี item'} tag="event_id = null" />
+            <FlowArrow />
+            <FlowNode variant="user"  emoji="➕" title={isEn ? 'Add items at /kits/[id]' : 'เพิ่ม item ที่ /kits/[id]'} subtitle={isEn ? 'one item per kit (no duplicates)' : 'item ละ kit (ห้ามซ้ำ)'} />
+            <FlowArrow />
+            <FlowNode variant="admin" emoji="🎯" title={isEn ? 'Assigned to event (via /events/new or edit)' : 'ผูกกับ event (สร้าง / แก้ event)'} tag="kits.event_id = event.id" />
+            <FlowArrow />
+            <FlowNode variant="user"  emoji="✅" title={isEn ? 'Check-out at /kits/[id]/check' : 'check-out ที่ /kits/[id]/check'} subtitle={isEn ? 'bulk-mark all selected as in_use' : 'กดทีเดียว set in_use ทุก item ที่เลือก'} />
+            <FlowArrow label={isEn ? 'event runs' : 'งานดำเนิน...'} />
+            <FlowNode variant="user"  emoji="🔁" title={isEn ? 'Check-in at /kits/[id]/check' : 'check-in ที่ /kits/[id]/check'} subtitle={isEn ? 'pick condition per item: good / damaged / lost' : 'เลือกสภาพ item: good / damaged / lost'} />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="🆓" title={isEn ? 'Released — back in pool' : 'ปลดล็อก — กลับเข้าคลัง'} subtitle={isEn ? 'kits.event_id = null when event return is submitted' : 'kits.event_id = null เมื่อปิดงาน'} tag={isEn ? 'reusable' : 'พร้อมใช้ใหม่'} />
+          </FlowchartBox>
+        </div>
+
+        {/* ── Check-out / Check-in ────────────────────────────────── */}
+        <div id="stock-check" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ArrowDownToLine className="h-4 w-4" />}
+            title={isEn ? 'Check-out & check-in — /kits/[id]/check' : 'Check-out + check-in — /kits/[id]/check'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-xl border-2 border-sky-200 dark:border-sky-900 bg-sky-50/40 dark:bg-sky-950/20 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <ArrowUpFromLine className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+                <p className="text-sm font-bold text-sky-900 dark:text-sky-200">{isEn ? 'Check-out' : 'Check-out (เบิกของ)'}</p>
+              </div>
+              <ul className="space-y-1 text-xs text-zinc-700 dark:text-zinc-300">
+                <li className="flex items-start gap-2"><span className="text-sky-500">•</span><span>{isEn ? 'Pick the event from dropdown' : 'เลือก event จาก dropdown'}</span></li>
+                <li className="flex items-start gap-2"><span className="text-sky-500">•</span><span>{isEn ? 'Multi-select items via checkboxes' : 'กา ☑ item ที่จะเบิก (เลือกได้หลายอัน)'}</span></li>
+                <li className="flex items-start gap-2"><span className="text-sky-500">•</span><span>{isEn ? 'Click "Checkout" → all flip to in_use' : 'กด "Checkout" → ทุก item ที่เลือกกลายเป็น in_use'}</span></li>
+                <li className="flex items-start gap-2"><span className="text-sky-500">•</span><span>{isEn ? 'Each item logged with timestamp + actor' : 'ทุก item ถูก log เวลา + ผู้กระทำ'}</span></li>
+              </ul>
+            </div>
+            <div className="rounded-xl border-2 border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <ArrowDownToLine className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <p className="text-sm font-bold text-emerald-900 dark:text-emerald-200">{isEn ? 'Check-in' : 'Check-in (คืนของ)'}</p>
+              </div>
+              <ul className="space-y-1 text-xs text-zinc-700 dark:text-zinc-300">
+                <li className="flex items-start gap-2"><span className="text-emerald-500">•</span><span>{isEn ? 'Per-item: pick condition (good / damaged / lost)' : 'ของแต่ละชิ้น: เลือกสภาพ (good / damaged / lost)'}</span></li>
+                <li className="flex items-start gap-2"><span className="text-emerald-500">•</span><span>{isEn ? 'good → available · damaged → maintenance · lost → lost' : 'good → available · damaged → maintenance · lost → lost'}</span></li>
+                <li className="flex items-start gap-2"><span className="text-emerald-500">•</span><span>{isEn ? 'Logs the condition per item for audit' : 'log สภาพของแต่ละ item เก็บไว้ audit'}</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* ── QR Print ────────────────────────────────────────────── */}
+        <div id="stock-qr" className="scroll-mt-6">
+          <SectionHeader
+            icon={<QrCode className="h-4 w-4" />}
+            title={isEn ? 'QR print — /kits/[id]/print' : 'พิมพ์ QR — /kits/[id]/print'}
+            color="emerald"
+          />
+          <div className="rounded-xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-2">
+            <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Generate a 450×450px white card with kit name + QR. Download as PNG → print and stick on the case. On-site, scan with phone → opens /kits/[id]/check straight to the action.'
+                : 'สร้างการ์ดขาว 450×450px มีชื่อ kit + QR — download เป็น PNG ไปติดที่กล่องเครื่อง หน้างานสแกนด้วยมือถือ → เปิด /kits/[id]/check ไปทำงานต่อทันที'}
+            </p>
+            <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1">
+              <li className="flex items-start gap-2"><Printer className="h-3.5 w-3.5 text-zinc-400 shrink-0 mt-0.5" /><span>{isEn ? 'Click Download → PNG file in your downloads folder' : 'กด Download → ได้ไฟล์ PNG ใน Downloads'}</span></li>
+              <li className="flex items-start gap-2"><QrCode className="h-3.5 w-3.5 text-zinc-400 shrink-0 mt-0.5" /><span>{isEn ? 'QR encodes /kits/[id]/check?eventId=… (or just /kits/[id]/check)' : 'QR ฝัง URL /kits/[id]/check?eventId=… (หรือแค่ /kits/[id]/check)'}</span></li>
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Templates / example-kits ────────────────────────────── */}
+        <div id="stock-templates" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ClipboardList className="h-4 w-4" />}
+            title={isEn ? 'Templates — /example-kits' : 'Templates — /example-kits'}
+            color="emerald"
+          />
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Templates are kit recipes — a list of item names + quantities (decoupled from the items table). Use them to plan packing without locking actual items, or as a checklist before the event.'
+                : 'template = สูตร kit — มีรายการ "ชื่อ item + จำนวน" (ไม่ผูกกับตาราง items จริง) ใช้วางแผนแพ็กของโดยไม่ต้องล็อก item จริง หรือเป็น checklist ก่อนงาน'}
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FeatureBlock
+                titleTh="📋 type: example"
+                titleEn="📋 type: example"
+                lines={isEn
+                  ? [
+                      'Plain item list (name + qty)',
+                      'Use as a packing reference',
+                      'Currently no auto-clone-to-kit (manual create kit + add items)',
+                    ]
+                  : [
+                      'ลิสต์ item (ชื่อ + จำนวน) เฉยๆ',
+                      'ใช้เป็น reference ตอนแพ็ก',
+                      'ยังไม่มีปุ่ม clone อัตโนมัติ — สร้าง kit เอง + เพิ่ม item ตามลิสต์',
+                    ]}
+              />
+              <FeatureBlock
+                titleTh="✅ type: checklist"
+                titleEn="✅ type: checklist"
+                lines={isEn
+                  ? [
+                      'Each item has 3 states: none / in-progress / ready',
+                      'Mark as you pack — visible to whole team',
+                      'Useful as pre-event prep checklist',
+                    ]
+                  : [
+                      'แต่ละ item มี 3 สถานะ: none / in-progress / ready',
+                      'mark ระหว่างแพ็ก ทีมมองเห็น',
+                      'ใช้เป็น checklist ก่อนงาน',
+                    ]}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Stock dashboard ─────────────────────────────────────── */}
+        <div id="stock-dashboard" className="scroll-mt-6">
+          <SectionHeader
+            icon={<BarChart3 className="h-4 w-4" />}
+            title={isEn ? 'Stock dashboard — /stock/dashboard' : 'Stock dashboard — /stock/dashboard'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="💰 KPI cards"
+              titleEn="💰 KPI cards"
+              lines={isEn
+                ? [
+                    'Total inventory value (Σ items.price)',
+                    'Items in_use (count)',
+                    'Active kits (kits with event_id)',
+                    'Active users (profile count)',
+                  ]
+                : [
+                    'มูลค่าสต๊อกรวม (Σ items.price)',
+                    'จำนวน item ที่ in_use',
+                    'kits ที่ active (มี event_id)',
+                    'จำนวน user ที่มี',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="🚨 Alerts + active deployments"
+              titleEn="🚨 Alerts + active deployments"
+              lines={isEn
+                ? [
+                    'Red banner if any item is maintenance / damaged / lost',
+                    'Active deployments table — kit · event · date · "Track" button',
+                    'Templates table preview',
+                    '4 quick-access cards',
+                  ]
+                : [
+                    'แถบแดงถ้ามี item maintenance / damaged / lost',
+                    'ตาราง active deployments — kit · event · วัน · ปุ่ม "Track"',
+                    'ตัวอย่าง template',
+                    '4 quick-access cards',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Logs (admin) ────────────────────────────────────────── */}
+        <div id="stock-logs" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ScrollText className="h-4 w-4" />}
+            title={isEn ? 'Activity log — /logs (admin)' : 'Activity log — /logs (admin)'}
+            color="emerald"
+          />
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3">
+            {isEn
+              ? 'Captures every CREATE / UPDATE / DELETE on items and kits, plus checkout/checkin actions. Filter by user, action type, and timestamp; expand a row to see full diff (old → new).'
+              : 'เก็บทุก CREATE / UPDATE / DELETE บน items + kits และการ checkout/checkin — filter ตาม user / action / เวลา กดดูแถวแบบ expand จะเห็น diff เต็ม (old → new)'}
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px]">
+            {[
+              'CREATE_ITEM', 'UPDATE_ITEM', 'DELETE_ITEM',
+              'CREATE_KIT', 'UPDATE_KIT', 'DELETE_KIT',
+              'ADD_KIT_ITEM', 'REMOVE_KIT_ITEM', 'UPDATE_KIT_ITEM',
+              'CREATE_TEMPLATE', 'DELETE_TEMPLATE', 'CHECKOUT/CHECKIN',
+            ].map(action => (
+              <code key={action} className="block px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-mono">{action}</code>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Permissions ─────────────────────────────────────────── */}
+        <div id="stock-permissions" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ShieldAlert className="h-4 w-4" />}
+            title={isEn ? 'Permissions' : 'สิทธิ์การใช้งาน'}
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Action' : 'การกระทำ'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">{isEn ? 'User' : 'User'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">Admin</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900 text-sm">
+                <PermissionRow label={isEn ? 'View items / kits / dashboard / templates' : 'ดู items / kits / dashboard / templates'} owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Create / edit / delete item' : 'สร้าง / แก้ / ลบ item'} owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Create / edit / delete kit' : 'สร้าง / แก้ / ลบ kit'} owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Manage templates' : 'จัดการ template'} owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Check-out / check-in' : 'check-out / check-in'} owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'View activity log /logs' : 'ดู activity log /logs'} owner="no" other="—" admin="yes" />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Menu shortcuts ──────────────────────────────────────── */}
+        <div id="stock-menu" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ExternalLink className="h-4 w-4" />}
+            title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/items"             labelEn="All items"                   labelTh="รายการ items ทั้งหมด" />
+            <MenuLink href="/items/new"         labelEn="Create item"                 labelTh="สร้าง item" />
+            <MenuLink href="/kits"              labelEn="All kits"                    labelTh="รายการ kits ทั้งหมด" />
+            <MenuLink href="/kits/new"          labelEn="Create kit"                  labelTh="สร้าง kit" />
+            <MenuLink href="/example-kits"      labelEn="Templates"                   labelTh="Templates" />
+            <MenuLink href="/stock/dashboard"   labelEn="Stock dashboard"             labelTh="แดชบอร์ดคลัง" />
+            <MenuLink href="/logs"              labelEn="Activity log (admin)"        labelTh="Activity log (admin)" />
+          </div>
+        </div>
+
+      </section>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          MODULE: COSTS
+          ════════════════════════════════════════════════════════════════ */}
+      {view === 'costs' && (
+      <section className="space-y-6">
+        <ModuleHero mod={MODULES[5]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[5]} isEn={isEn} />
+
+        {/* ── Intro ───────────────────────────────────────────────── */}
+        <div id="costs-intro" className="scroll-mt-6">
+          <div className="rounded-xl border-2 border-teal-200 dark:border-teal-900 bg-gradient-to-br from-teal-50 to-white dark:from-teal-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-teal-600 text-white">
+                <Coins className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-teal-900 dark:text-teal-200">
+                  {isEn ? 'Costs — profitability ledger per event' : 'Costs — บัญชีกำไร/ขาดทุนต่อ event'}
+                </p>
+                <p className="text-[11px] text-teal-700 dark:text-teal-400">
+                  {isEn
+                    ? 'A separate ledger that tracks revenue + cost line items per event so you can see margin at a glance.'
+                    : 'บัญชีแยกเก็บ revenue + รายการต้นทุนต่อ event — ดูกำไร/ขาดทุนของแต่ละงานได้ทันที'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                {isEn
+                  ? 'Costs ≠ Finance. Finance = expense claims (who reimburses what). Costs = post-event ledger (revenue vs total cost). Each Finance claim of type "event" is auto-tied here via job_event_id.'
+                  : 'Costs ≠ Finance — Finance คือใบเบิก (ใครเบิกอะไร) ส่วน Costs คือบัญชีหลังจบงาน (รายได้ vs ต้นทุนรวม) ใบเบิก type=event จะผูกเข้ามาที่นี่อัตโนมัติผ่าน job_event_id'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Workflow ────────────────────────────────────────────── */}
+        <div id="costs-flow" className="scroll-mt-6 space-y-4">
+          <SectionHeader
+            icon={<GitBranch className="h-4 w-4" />}
+            title={isEn ? 'Workflow' : 'Flow ทำงาน'}
+            color="emerald"
+          />
+          <FlowchartBox
+            title={isEn ? 'From event → cost ledger → reports' : 'จาก event → ledger → รายงาน'}
+            color="sky"
+          >
+            <FlowNode variant="start" emoji="🎬" title={isEn ? 'Event closed (return submitted)' : 'event ปิดแล้ว (กดเช็คคืน)'} subtitle="/events/[id]/return" />
+            <FlowArrow label={isEn ? 'or import manually' : 'หรือ import เอง'} />
+            <FlowNode variant="admin" emoji="📥" title={isEn ? 'Admin imports to /costs/import' : 'Admin import ที่ /costs/import'} subtitle={isEn ? '4-tier CRM auto-match' : 'จับคู่ CRM แบบ 4 ชั้น'} />
+            <FlowArrow />
+            <FlowNode variant="admin" emoji="💰" title={isEn ? 'Revenue + VAT/WHT pre-filled from CRM' : 'Revenue + VAT/WHT pre-fill จาก CRM'} tag="job_cost_events" />
+            <FlowArrow />
+            <FlowNode variant="admin" emoji="🧾" title={isEn ? 'Add cost line items by category' : 'ใส่รายการต้นทุน แยกหมวด'} subtitle={isEn ? 'staff / travel / equipment / food / venue / marketing / other' : 'staff / เดินทาง / อุปกรณ์ / อาหาร / สถานที่ / การตลาด / อื่นๆ'} />
+            <FlowArrow label={isEn ? 'finance claims auto-tie via job_event_id' : 'ใบเบิก finance ผูกอัตโนมัติผ่าน job_event_id'} />
+            <FlowNode variant="user" emoji="📊" title={isEn ? 'Dashboard / reports show margin %' : 'Dashboard / รายงาน แสดง margin %'} subtitle="/costs/dashboard · /costs/reports" />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="📥" title={isEn ? 'Export to Excel for accounting' : 'Export Excel ส่งบัญชี'} subtitle="/costs/download" />
+          </FlowchartBox>
+        </div>
+
+        {/* ── Import + 4-tier matching ────────────────────────────── */}
+        <div id="costs-import" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ArrowDownToLine className="h-4 w-4" />}
+            title={isEn ? 'Import — 4-tier CRM matching' : 'Import — จับคู่ CRM 4 ชั้น'}
+            color="emerald"
+          />
+          <div className="rounded-xl border-2 border-teal-200 dark:border-teal-900 bg-teal-50/40 dark:bg-teal-950/20 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Importing an event from /costs/import (or its closure record) auto-fills revenue + VAT/WHT by matching to a CRM lead. Matching tries 4 tiers in order — stops at first hit.'
+                : 'import event จาก /costs/import (หรือจาก event_closures) ระบบจะ pre-fill revenue + VAT/WHT โดยจับคู่กับ CRM lead — ลองทีละ tier ตามลำดับ หยุดที่ tier แรกที่เจอ'}
+            </p>
+            <ol className="space-y-2 text-xs text-zinc-700 dark:text-zinc-300 list-decimal list-inside">
+              <li><span className="font-semibold text-teal-700 dark:text-teal-400">{isEn ? 'Tier 1 — explicit linked_lead_id' : 'Tier 1 — linked_lead_id ที่ผูกชัดอยู่แล้ว'}</span></li>
+              <li><span className="font-semibold text-teal-700 dark:text-teal-400">{isEn ? 'Tier 2 — CRM lead\'s event_id matches' : 'Tier 2 — CRM lead.event_id ตรงกัน'}</span></li>
+              <li><span className="font-semibold text-teal-700 dark:text-teal-400">{isEn ? 'Tier 3 — source_event_id back-pointer' : 'Tier 3 — source_event_id ตรงกัน'}</span></li>
+              <li><span className="font-semibold text-teal-700 dark:text-teal-400">{isEn ? 'Tier 4 — fuzzy date + name match' : 'Tier 4 — fuzzy match วันที่ + ชื่อ'}</span></li>
+            </ol>
+            <div className="flex items-start gap-2 p-2.5 bg-white dark:bg-zinc-900 border border-teal-200 dark:border-teal-900 rounded-lg">
+              <span className="text-base">💡</span>
+              <p className="text-[11px] text-teal-900 dark:text-teal-200">
+                {isEn
+                  ? 'Already imported and revenue is 0? Use "Bulk Sync" on /costs/dashboard — re-runs the 4-tier match across every zero-revenue event in one click.'
+                  : 'import ไปแล้วแต่ revenue = 0? กดปุ่ม "Bulk Sync" ที่ /costs/dashboard — ระบบจะลองจับคู่ใหม่ทั้งหมดในคลิกเดียว'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Revenue + VAT/WHT ──────────────────────────────────── */}
+        <div id="costs-revenue" className="scroll-mt-6">
+          <SectionHeader
+            icon={<CircleDollarSign className="h-4 w-4" />}
+            title={isEn ? 'Revenue + VAT / WHT' : 'Revenue + VAT / WHT'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="💰 ฝั่งรายได้"
+              titleEn="💰 Revenue side"
+              lines={isEn
+                ? [
+                    'revenue (the net selling price)',
+                    'revenue_vat_mode: none | included | excluded',
+                    'revenue_wht_rate: 0 — 5%',
+                    'System computes baseAmount, vatAmount, netReceivable',
+                  ]
+                : [
+                    'revenue (ราคาขายสุทธิ)',
+                    'revenue_vat_mode: ไม่มี | รวม | แยก',
+                    'revenue_wht_rate: 0 — 5%',
+                    'ระบบคำนวณ baseAmount / vatAmount / netReceivable ให้',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="🧾 ฝั่งต้นทุน"
+              titleEn="🧾 Cost side"
+              lines={isEn
+                ? [
+                    'Each cost item has its own vat_mode + WHT rate',
+                    'System computes net payable per item',
+                    'Dashboard shows VAT receivable vs VAT payable',
+                    'Net tax liability surfaces automatically',
+                  ]
+                : [
+                    'cost item แต่ละแถวมี vat_mode + WHT ของตัวเอง',
+                    'ระบบคำนวณ net payable ต่อรายการ',
+                    'Dashboard แสดง VAT รับ vs VAT จ่าย',
+                    'ภาษีสุทธิที่ต้องส่งโผล่อัตโนมัติ',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Cost categories ────────────────────────────────────── */}
+        <div id="costs-categories" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Tag className="h-4 w-4" />}
+            title={isEn ? 'Cost categories — 7 buckets' : 'หมวดต้นทุน — 7 หมวด'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <NewItem icon={<Users className="h-3.5 w-3.5" />}        titleTh="👥 staff"      titleEn="👥 staff"      descTh="ค่าตัวทีม"           descEn="Team fees"            isEn={isEn} />
+            <NewItem icon={<Plane className="h-3.5 w-3.5" />}        titleTh="✈️ travel"     titleEn="✈️ travel"     descTh="เดินทาง / ที่พัก"     descEn="Travel + lodging"     isEn={isEn} />
+            <NewItem icon={<Hammer className="h-3.5 w-3.5" />}       titleTh="🛠 equipment" titleEn="🛠 equipment"  descTh="อุปกรณ์ / เช่าเครื่อง" descEn="Equipment + rentals" isEn={isEn} />
+            <NewItem icon={<Heart className="h-3.5 w-3.5" />}        titleTh="🍱 food"       titleEn="🍱 food"       descTh="อาหาร / น้ำ"          descEn="Food + drinks"        isEn={isEn} />
+            <NewItem icon={<MapPin className="h-3.5 w-3.5" />}       titleTh="🏛 venue"      titleEn="🏛 venue"      descTh="ค่าสถานที่"           descEn="Venue fees"           isEn={isEn} />
+            <NewItem icon={<Sparkles className="h-3.5 w-3.5" />}     titleTh="📣 marketing"  titleEn="📣 marketing"  descTh="โฆษณา / โปรโมต"        descEn="Ads + promo"          isEn={isEn} />
+            <NewItem icon={<Boxes className="h-3.5 w-3.5" />}        titleTh="📦 other"      titleEn="📦 other"      descTh="อื่นๆ"                 descEn="Other costs"          isEn={isEn} />
+          </div>
+          <p className="mt-3 text-[11px] text-zinc-500 dark:text-zinc-400">
+            {isEn
+              ? 'Categories pull from the finance_categories table (configurable in Finance settings) with the 7 above as fallback.'
+              : 'รายชื่อหมวดดึงจาก finance_categories (แก้ใน Finance settings ได้) — ถ้าไม่มีก็ใช้ 7 หมวดข้างต้นเป็น fallback'}
+          </p>
+        </div>
+
+        {/* ── Linked claims ──────────────────────────────────────── */}
+        <div id="costs-linked-claims" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Receipt className="h-4 w-4" />}
+            title={isEn ? 'Linked Finance claims' : 'ใบเบิก Finance ที่ผูกอยู่'}
+            color="emerald"
+          />
+          <div className="rounded-xl border-2 border-teal-200 dark:border-teal-900 bg-teal-50/40 dark:bg-teal-950/20 p-4 space-y-2">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'On the cost event detail page (/costs/events/[id]) you see every Finance claim where claim_type = "event" + job_event_id matches. The system can also recreate a cost line item directly from an approved claim.'
+                : 'หน้า cost event detail (/costs/events/[id]) จะแสดงใบเบิก Finance ทุกใบที่ claim_type = "event" และ job_event_id ตรงกัน — กด recreate cost line item จากใบเบิกที่อนุมัติแล้วได้'}
+            </p>
+            <ul className="text-xs text-zinc-700 dark:text-zinc-300 space-y-1">
+              <li className="flex items-start gap-2"><span className="text-teal-500">•</span><span>{isEn ? 'Auto-link source: check-in on-site checkout creates the claim with job_event_id pre-set' : 'แหล่งหลัก: ตอนเช็คเอาต์ on-site session ระบบสร้างใบเบิก + ใส่ job_event_id ให้'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-teal-500">•</span><span>{isEn ? 'Manual link: claim form has an "Event" dropdown' : 'ใส่เอง: ฟอร์มใบเบิกมี dropdown "Event" ให้เลือก'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-teal-500">•</span><span>{isEn ? 'recreateCostItemFromClaim turns approved claims into cost items in this ledger' : 'recreateCostItemFromClaim เปลี่ยนใบเบิกที่อนุมัติแล้วเป็น cost item ใน ledger นี้'}</span></li>
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Dashboard ──────────────────────────────────────────── */}
+        <div id="costs-dashboard" className="scroll-mt-6">
+          <SectionHeader
+            icon={<BarChart3 className="h-4 w-4" />}
+            title={isEn ? 'Dashboard — /costs/dashboard' : 'Dashboard — /costs/dashboard'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="📊 KPI cards"
+              titleEn="📊 KPI cards"
+              lines={isEn
+                ? [
+                    'Total revenue / cost / profit / margin %',
+                    'Avg revenue per event',
+                    'Total events imported',
+                    'Sync status (events missing revenue)',
+                  ]
+                : [
+                    'รายได้รวม / ต้นทุนรวม / กำไร / margin %',
+                    'รายได้เฉลี่ยต่อ event',
+                    'จำนวน event ที่ import',
+                    'สถานะ sync (event ที่ revenue = 0)',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="📈 ภาพละเอียด"
+              titleEn="📈 Drill-downs"
+              lines={isEn
+                ? [
+                    'Cost breakdown pie by category',
+                    'Top 5 / Bottom 5 events by profit',
+                    'Staff cost headcount overview',
+                    '"Bulk Sync" button to refresh CRM matches',
+                  ]
+                : [
+                    'pie chart ต้นทุนแยกหมวด',
+                    'Top 5 / Bottom 5 event ตามกำไร',
+                    'สรุปต้นทุนค่าตัว staff',
+                    'ปุ่ม "Bulk Sync" จับคู่ CRM ใหม่ทั้งหมด',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Reports + download ─────────────────────────────────── */}
+        <div id="costs-reports" className="scroll-mt-6">
+          <SectionHeader
+            icon={<FileSpreadsheet className="h-4 w-4" />}
+            title={isEn ? 'Reports + download' : 'รายงาน + Export'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="📋 /costs/reports"
+              titleEn="📋 /costs/reports"
+              lines={isEn
+                ? [
+                    'Month + search filters',
+                    'Per-event row: revenue / cost / profit / margin',
+                    'Tax breakdown (revenue VAT/WHT, cost VAT/WHT)',
+                    'Staff presence + import source visible',
+                  ]
+                : [
+                    'filter เดือน + ค้นหา',
+                    'แต่ละแถว: รายได้ / ต้นทุน / กำไร / margin',
+                    'แยกภาษี (revenue VAT/WHT, cost VAT/WHT)',
+                    'แสดง staff ที่อยู่ในงาน + แหล่ง import',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="📥 /costs/download"
+              titleEn="📥 /costs/download"
+              lines={isEn
+                ? [
+                    'Export cost events + line items to Excel',
+                    'Batch processing for large lists',
+                    'Use as cover sheet before sending accounting',
+                  ]
+                : [
+                    'export cost events + รายการต้นทุน → Excel',
+                    'batch processing รองรับลิสต์ใหญ่',
+                    'ใช้เป็นใบปะหน้าก่อนส่งบัญชี',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Permissions ─────────────────────────────────────────── */}
+        <div id="costs-permissions" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ShieldAlert className="h-4 w-4" />}
+            title={isEn ? 'Permissions' : 'สิทธิ์การใช้งาน'}
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Action' : 'การกระทำ'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">{isEn ? 'User' : 'User'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">Admin</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900 text-sm">
+                <PermissionRow label={isEn ? 'View dashboard / reports / event detail' : 'ดู dashboard / reports / detail'} owner="yes" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Import event' : 'Import event'} owner="no" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Edit revenue / VAT / WHT' : 'แก้ revenue / VAT / WHT'} owner="no" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Add / edit / delete cost items' : 'เพิ่ม / แก้ / ลบ cost item'} owner="no" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Bulk Sync revenue from CRM' : 'Bulk Sync revenue จาก CRM'} owner="no" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Link / unlink CRM lead' : 'ผูก / ปลด CRM lead'} owner="no" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Delete cost event' : 'ลบ cost event'} owner="no" other="—" admin="yes" />
+                <PermissionRow label={isEn ? 'Export Excel' : 'Export Excel'} owner="no" other="—" admin="yes" />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Menu shortcuts ──────────────────────────────────────── */}
+        <div id="costs-menu" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ExternalLink className="h-4 w-4" />}
+            title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/costs/dashboard" labelEn="Dashboard"               labelTh="แดชบอร์ด" />
+            <MenuLink href="/costs/events"    labelEn="All cost events"         labelTh="cost events ทั้งหมด" />
+            <MenuLink href="/costs/import"    labelEn="Import from events"       labelTh="Import จาก events" />
+            <MenuLink href="/costs/reports"   labelEn="Reports (filter + tax)"   labelTh="รายงาน (filter + ภาษี)" />
+            <MenuLink href="/costs/download"  labelEn="Export Excel"             labelTh="Export Excel" />
+          </div>
+        </div>
+
+      </section>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
           MODULE: FINANCE
           ════════════════════════════════════════════════════════════════ */}
       {view === 'finance' && (
       <section className="space-y-6">
-        <ModuleHero mod={MODULES[2]} isEn={isEn} backHref="/howto" />
-        <ModuleSubToc mod={MODULES[2]} isEn={isEn} />
+        <ModuleHero mod={MODULES[6]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[6]} isEn={isEn} />
 
         {/* ── What's new (Apr 2026) ───────────────────────────────── */}
         <div id="finance-whats-new" className="scroll-mt-6">
@@ -2023,12 +3236,324 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
       )}
 
       {/* ════════════════════════════════════════════════════════════════
+          MODULE: KPI
+          ════════════════════════════════════════════════════════════════ */}
+      {view === 'kpi' && (
+      <section className="space-y-6">
+        <ModuleHero mod={MODULES[7]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[7]} isEn={isEn} />
+
+        {/* ── Intro ───────────────────────────────────────────────── */}
+        <div id="kpi-intro" className="scroll-mt-6">
+          <div className="rounded-xl border-2 border-indigo-200 dark:border-indigo-900 bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-indigo-600 text-white">
+                <Target className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-indigo-900 dark:text-indigo-200">
+                  {isEn ? 'KPI — performance management' : 'KPI — บริหารผลงาน'}
+                </p>
+                <p className="text-[11px] text-indigo-700 dark:text-indigo-400">
+                  {isEn
+                    ? 'Admin sets targets per person/period, staff submit actuals; system computes achievement % + weighted scores.'
+                    : 'admin ตั้งเป้าให้แต่ละคน/ช่วงเวลา · staff ส่งผลจริง · ระบบคำนวณ achievement % + คะแนนถ่วงน้ำหนัก'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                {isEn
+                  ? 'Currently the actuals are submitted manually (not auto-pulled from CRM/Events/Finance). Staff types in their own number; admin can also enter on their behalf.'
+                  : 'ตอนนี้ค่า actual ใส่เองด้วยมือ (ยังไม่ดึงอัตโนมัติจาก CRM/Events/Finance) — staff กรอกของตัวเอง admin ก็กรอกแทนได้'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 3 modes ─────────────────────────────────────────────── */}
+        <div id="kpi-modes" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Layout className="h-4 w-4" />}
+            title={isEn ? '3 template modes' : '3 โหมดของ template'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <TypeCard
+              emoji="✅"
+              title={isEn ? 'Task' : 'Task (ทำหรือไม่ทำ)'}
+              subtitle="mode: task"
+              desc={isEn ? 'Boolean / count of tasks done. Target = "should hit X actions per period".' : 'จำนวนงานที่ทำ — target = "ต้องทำให้ได้ X ครั้งต่อรอบ"'}
+              receipt={isEn ? 'count' : 'นับจำนวน'}
+              receiptColor="amber"
+            />
+            <TypeCard
+              emoji="💰"
+              title={isEn ? 'Sales' : 'Sales (ยอดขาย)'}
+              subtitle="mode: sales"
+              desc={isEn ? 'Deal count or revenue. Target = "close X deals" or "X baht in sales".' : 'จำนวนดีล หรือยอดขาย — target = "ปิด X ดีล" หรือ "ยอดขาย X บาท"'}
+              receipt={isEn ? 'amount or count' : 'ยอด หรือ จำนวน'}
+              receiptColor="emerald"
+            />
+            <TypeCard
+              emoji="📉"
+              title={isEn ? 'Cost reduction' : 'ลดต้นทุน'}
+              subtitle="mode: cost_reduction"
+              desc={isEn ? 'Savings achieved. Target = "reduce cost by X%".' : 'ลดต้นทุน — target = "ลดได้ X %"'}
+              receipt={isEn ? 'saving %' : '% ที่ลดได้'}
+              receiptColor="emerald"
+            />
+          </div>
+        </div>
+
+        {/* ── Workflow ────────────────────────────────────────────── */}
+        <div id="kpi-flow" className="scroll-mt-6 space-y-4">
+          <SectionHeader
+            icon={<GitBranch className="h-4 w-4" />}
+            title={isEn ? 'Workflow' : 'Flow ทำงาน'}
+            color="emerald"
+          />
+          <FlowchartBox
+            title={isEn ? 'Template → assign → evaluate → score' : 'Template → กำหนดให้คน → ประเมิน → คะแนน'}
+            color="purple"
+          >
+            <FlowNode variant="admin" emoji="📋" title={isEn ? 'Admin creates template' : 'Admin สร้าง template'} subtitle="/kpi/templates" tag={isEn ? 'mode + default target' : 'mode + target'} />
+            <FlowArrow />
+            <FlowNode variant="admin" emoji="🎯" title={isEn ? 'Assign to staff with cycle + weight' : 'กำหนดให้ staff พร้อม cycle + weight'} subtitle="/kpi/assignments" tag="weight 0–100%" />
+            <FlowArrow label={isEn ? 'period runs (week / month / year)' : 'รอบ active (สัปดาห์ / เดือน / ปี)'} />
+            <FlowNode variant="user" emoji="📝" title={isEn ? 'Staff submits actual via dashboard' : 'staff กรอกผลจริงในหน้า dashboard'} subtitle="/kpi/dashboard" />
+            <FlowArrow label={isEn ? 'or admin submits' : 'หรือ admin ใส่ให้'} />
+            <FlowNode variant="admin" emoji="🧮" title={isEn ? 'Auto-compute achievement % + score' : 'ระบบคำนวณ achievement % + คะแนน'} subtitle={isEn ? 'achievement = actual ÷ target × 100 · score = clamp(0, 100)' : 'achievement = actual ÷ target × 100 · score = clamp(0, 100)'} />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="🏆" title={isEn ? 'Weighted score on leaderboard' : 'คะแนนถ่วงน้ำหนักขึ้น leaderboard'} subtitle={isEn ? 'Σ(achievement × weight) ÷ Σ(weight)' : 'Σ(achievement × weight) ÷ Σ(weight)'} />
+          </FlowchartBox>
+        </div>
+
+        {/* ── Cycles ──────────────────────────────────────────────── */}
+        <div id="kpi-cycles" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Repeat className="h-4 w-4" />}
+            title={isEn ? 'Cycles — weekly / monthly / yearly' : 'รอบเวลา — สัปดาห์ / เดือน / ปี'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <FeatureBlock titleTh="📅 weekly"  titleEn="📅 weekly"  lines={isEn ? ['Resets every Friday',           'Use for high-frequency targets']     : ['reset ทุกวันศุกร์',           'ใช้กับเป้าที่ทำบ่อยๆ']} />
+            <FeatureBlock titleTh="🗓 monthly" titleEn="🗓 monthly" lines={isEn ? ['Resets on the 25th',             'Default for most KPIs (sales, tasks)'] : ['reset ทุกวันที่ 25 ของเดือน', 'ใช้เป็น default สำหรับ KPI ส่วนใหญ่']} />
+            <FeatureBlock titleTh="📆 yearly"  titleEn="📆 yearly"  lines={isEn ? ['Resets at year-end',             'Long-term goals + bonus calc']        : ['reset สิ้นปี',                'เป้าระยะยาว + คำนวณ bonus']} />
+          </div>
+          <p className="mt-3 text-[11px] text-zinc-500 dark:text-zinc-400">
+            {isEn
+              ? 'Period model: 1 assignment = 1 staff + 1 KPI + 1 full period (period_start → period_end). Multiple submissions in the same period are summed.'
+              : 'รูปแบบ: 1 assignment = 1 staff + 1 KPI + 1 รอบเต็ม (period_start → period_end) — ถ้า submit หลายครั้งในรอบเดียวระบบบวกให้'}
+          </p>
+        </div>
+
+        {/* ── Scoring formula ─────────────────────────────────────── */}
+        <div id="kpi-scoring" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Gauge className="h-4 w-4" />}
+            title={isEn ? 'Scoring formula' : 'สูตรคำนวณคะแนน'}
+            color="emerald"
+          />
+          <div className="rounded-xl border-2 border-indigo-200 dark:border-indigo-900 bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <div className="rounded-lg border border-indigo-200/60 dark:border-indigo-900/40 bg-white dark:bg-zinc-900 p-3 space-y-2 text-xs font-mono text-zinc-700 dark:text-zinc-300">
+              <p><span className="text-indigo-600 dark:text-indigo-400">difference</span> = actual − target</p>
+              <p><span className="text-indigo-600 dark:text-indigo-400">achievement_pct</span> = (actual ÷ target) × 100</p>
+              <p><span className="text-indigo-600 dark:text-indigo-400">score</span> = clamp(round(achievement_pct), 0, 100)</p>
+              <p className="pt-2 border-t border-zinc-200 dark:border-zinc-800"><span className="text-indigo-600 dark:text-indigo-400">weighted_score</span> = Σ(achievement_pct × weight) ÷ Σ(weight)</p>
+            </div>
+            <ul className="space-y-1 text-xs text-zinc-700 dark:text-zinc-300">
+              <li className="flex items-start gap-2"><span className="text-indigo-500">•</span><span>{isEn ? 'Score is capped at 100 — over-achievement still counts as 100' : 'คะแนนสูงสุด 100 — ทำเกินเป้าก็ได้ 100 (ไม่ทบ)'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-indigo-500">•</span><span>{isEn ? 'Color coding: ≥100% green · 70-100% orange · <70% red' : 'สีตามคะแนน: ≥100% เขียว · 70-100% ส้ม · <70% แดง'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-indigo-500">•</span><span>{isEn ? 'Weighted score lets you fairly compare roles (e.g., sales 60% vs support 40%)' : 'คะแนนถ่วงน้ำหนักทำให้เทียบบทบาทต่างกันได้ (เช่น sales 60% vs support 40%)'}</span></li>
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Self-evaluation ─────────────────────────────────────── */}
+        <div id="kpi-self-eval" className="scroll-mt-6">
+          <SectionHeader
+            icon={<User className="h-4 w-4" />}
+            title={isEn ? 'Self-evaluation — staff dashboard' : 'ประเมินตัวเอง — dashboard ของ staff'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <RoleCard
+              role="user"
+              title={isEn ? 'How staff submit' : 'staff ส่งผลยังไง'}
+              steps={isEn ? [
+                { n: 1, label: 'Open /kpi/dashboard — see your assigned KPIs as cards', tag: null },
+                { n: 2, label: 'Each card shows target / current actual / achievement %', tag: null },
+                { n: 3, label: 'Click "ประเมิน" — modal opens with auto-preview', tag: null },
+                { n: 4, label: 'Enter actual_value + optional comment + submit', tag: null },
+                { n: 5, label: 'Score updates immediately + admin gets notification', tag: null },
+              ] : [
+                { n: 1, label: 'เปิด /kpi/dashboard เห็น KPI ของตัวเองเป็น card', tag: null },
+                { n: 2, label: 'แต่ละ card บอก target / actual / achievement %', tag: null },
+                { n: 3, label: 'กด "ประเมิน" → modal เปิดพร้อม preview', tag: null },
+                { n: 4, label: 'ใส่ค่า actual + comment (ไม่บังคับ) แล้วส่ง', tag: null },
+                { n: 5, label: 'คะแนนอัปเดตทันที + admin ได้แจ้งเตือน', tag: null },
+              ]}
+            />
+            <FeatureBlock
+              titleTh="🎯 ตัวการ์ด"
+              titleEn="🎯 What's on each card"
+              lines={isEn
+                ? [
+                    'Target value + unit',
+                    'Current actual (sum of all submissions in period)',
+                    'Achievement % gauge ring (color-coded)',
+                    'Submission history within the period',
+                    'Comment thread (admin can reply)',
+                  ]
+                : [
+                    'ค่า target + หน่วย',
+                    'actual ปัจจุบัน (ผลรวมของทุก submission ในรอบ)',
+                    'gauge ring แสดง achievement % (สี)',
+                    'ประวัติ submission ในรอบนี้',
+                    'thread comment (admin reply ได้)',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Reports ─────────────────────────────────────────────── */}
+        <div id="kpi-reports" className="scroll-mt-6">
+          <SectionHeader
+            icon={<BarChart3 className="h-4 w-4" />}
+            title={isEn ? 'Reports — /kpi/reports' : 'รายงาน — /kpi/reports'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="🔍 ตัวกรอง"
+              titleEn="🔍 Filters"
+              lines={isEn
+                ? [
+                    'Employee (admin-only — sees all)',
+                    'Department',
+                    'Specific KPI',
+                    'Month (from period_start)',
+                  ]
+                : [
+                    'พนักงาน (admin เห็นทุกคน)',
+                    'แผนก',
+                    'KPI เฉพาะ',
+                    'เดือน (อิง period_start)',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="📊 ผลลัพธ์"
+              titleEn="📊 Output"
+              lines={isEn
+                ? [
+                    'Summary stats: weighted avg score / achievement %',
+                    'Bar chart: target vs actual',
+                    'Trend chart: achievement % over time',
+                    'User ranking with medals (top 3)',
+                    'Detail table per evaluation + comment popover',
+                  ]
+                : [
+                    'สรุป: คะแนนถ่วงน้ำหนักเฉลี่ย / achievement %',
+                    'bar chart: target vs actual',
+                    'trend chart: achievement % ตามเวลา',
+                    'อันดับพนักงานพร้อมเหรียญ (top 3)',
+                    'ตาราง detail ต่อ evaluation + popover comment',
+                  ]}
+            />
+          </div>
+        </div>
+
+        {/* ── Feedback timeline ───────────────────────────────────── */}
+        <div id="kpi-feedback" className="scroll-mt-6">
+          <SectionHeader
+            icon={<MessagesSquare className="h-4 w-4" />}
+            title={isEn ? 'Feedback timeline — reply on evaluations' : 'Feedback timeline — reply ต่อ evaluation'}
+            color="emerald"
+          />
+          <div className="rounded-xl border-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-4 space-y-2">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'Each evaluation can have a thread of replies — useful for coaching, asking for context, or recording follow-up actions. All participants get notified on new replies.'
+                : 'แต่ละ evaluation มี thread reply ได้ — ใช้ coaching ขอ context หรือบันทึก follow-up · ทุกคนใน thread ได้แจ้งเตือนเมื่อมี reply ใหม่'}
+            </p>
+            <ul className="text-xs text-zinc-700 dark:text-zinc-300 space-y-1">
+              <li className="flex items-start gap-2"><span className="text-indigo-500">•</span><span>{isEn ? 'Admin can drop coaching notes per evaluation' : 'admin ใส่ note coaching ต่อ evaluation ได้'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-indigo-500">•</span><span>{isEn ? 'Staff can reply to clarify or push back' : 'staff reply กลับเพื่อเคลียร์หรือโต้แย้ง'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-indigo-500">•</span><span>{isEn ? '@mention with notification' : '@mention มี notification'}</span></li>
+            </ul>
+          </div>
+        </div>
+
+        {/* ── Notifications ───────────────────────────────────────── */}
+        <div id="kpi-notifications" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Bell className="h-4 w-4" />}
+            title={isEn ? 'Notifications the system sends' : 'การแจ้งเตือนที่ระบบส่ง'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <NotifRow emoji="🎯" code="kpi_evaluated"        labelTh="ถูกประเมิน KPI"            labelEn="Your KPI was evaluated"   toTh="staff ที่ถูกประเมิน" toEn="Evaluated staff" isEn={isEn} />
+            <NotifRow emoji="📝" code="kpi_self_evaluated"   labelTh="staff ส่ง self-eval"        labelEn="Staff self-evaluated"     toTh="admin"                toEn="Admin"           isEn={isEn} />
+            <NotifRow emoji="💬" code="kpi_evaluation_reply" labelTh="reply ใหม่ใน evaluation"    labelEn="New reply on evaluation"  toTh="participants"         toEn="Participants"    isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Permissions ─────────────────────────────────────────── */}
+        <div id="kpi-permissions" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ShieldAlert className="h-4 w-4" />}
+            title={isEn ? 'Permissions' : 'สิทธิ์การใช้งาน'}
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Action' : 'การกระทำ'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">{isEn ? 'Staff' : 'staff'}</th>
+                  <th className="px-3 py-2.5 text-center font-semibold">Admin</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900 text-sm">
+                <PermissionRow label={isEn ? 'View own dashboard + own reports' : 'ดู dashboard + report ของตัวเอง'} owner="yes" other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Self-evaluate (submit own actual)' : 'ส่งผลของตัวเอง'}                  owner="yes" other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Reply on own evaluation thread' : 'reply ใน thread ของตัวเอง'}         owner="yes" other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'View / filter all employees' : 'ดู / filter พนักงานทุกคน'}              owner="no"  other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Create / edit templates' : 'สร้าง / แก้ template'}                       owner="no"  other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Assign KPI to staff' : 'กำหนด KPI ให้ staff'}                            owner="no"  other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Evaluate any staff (enter actuals)' : 'ประเมินใครก็ได้ (กรอก actual)'} owner="no"  other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Delete evaluations' : 'ลบ evaluation'}                                    owner="no"  other="no" admin="yes" />
+                <PermissionRow label={isEn ? 'Export all data (CSV / Excel / JSON)' : 'export ทั้งหมด (CSV / Excel / JSON)'} owner="no" other="no" admin="yes" adminNote={isEn ? 'staff exports own only' : 'staff export ของตัวเองได้'} />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Menu shortcuts ──────────────────────────────────────── */}
+        <div id="kpi-menu" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ExternalLink className="h-4 w-4" />}
+            title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/kpi/dashboard"   labelEn="Dashboard (self-eval)"     labelTh="Dashboard (ประเมินตัวเอง)" />
+            <MenuLink href="/kpi/templates"   labelEn="Templates (admin)"          labelTh="Template (admin)" />
+            <MenuLink href="/kpi/assignments" labelEn="Assignments (admin)"        labelTh="กำหนด KPI (admin)" />
+            <MenuLink href="/kpi/evaluate"    labelEn="Evaluate staff (admin)"     labelTh="ประเมิน staff (admin)" />
+            <MenuLink href="/kpi/reports"     labelEn="Reports + leaderboard"      labelTh="รายงาน + leaderboard" />
+            <MenuLink href="/kpi/download"    labelEn="Export CSV / Excel / JSON"  labelTh="export CSV / Excel / JSON" />
+          </div>
+        </div>
+
+      </section>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
           MODULE: CHECK-IN
           ════════════════════════════════════════════════════════════════ */}
       {view === 'checkin' && (
       <section className="space-y-6">
-        <ModuleHero mod={MODULES[3]} isEn={isEn} backHref="/howto" />
-        <ModuleSubToc mod={MODULES[3]} isEn={isEn} />
+        <ModuleHero mod={MODULES[8]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[8]} isEn={isEn} />
 
         {/* ── Overview ─────────────────────────────────────────────── */}
         <div id="checkin-overview" className="scroll-mt-6">
@@ -2853,7 +4378,7 @@ function TipCard({
 // Module library — config-driven so adding a new module = 1 entry
 // ─────────────────────────────────────────────────────────────────────
 
-type ModuleAccent = 'emerald' | 'sky' | 'violet' | 'amber' | 'rose' | 'zinc'
+type ModuleAccent = 'emerald' | 'sky' | 'violet' | 'amber' | 'rose' | 'zinc' | 'cyan' | 'teal' | 'indigo'
 
 interface ModuleSubItem { id: string; titleTh: string; titleEn: string }
 interface ModuleSubGroup {
@@ -2864,7 +4389,7 @@ interface ModuleSubGroup {
 interface ModuleConfig {
   id: string                    // anchor id used inside a module page (e.g. "mod-overview")
   /** URL slug — module is reachable at /howto/{slug} */
-  slug: 'overview' | 'crm' | 'finance' | 'checkin'
+  slug: 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'checkin'
   accent: ModuleAccent
   Icon: typeof BookOpen
   titleTh: string
@@ -2979,6 +4504,185 @@ const MODULES: ModuleConfig[] = [
     ],
   },
   {
+    id: 'mod-events',
+    slug: 'events',
+    accent: 'cyan',
+    Icon: CalendarDays,
+    titleTh: 'Events — งานลูกค้า',
+    titleEn: 'Events — Client Jobs',
+    descTh: 'จัดการงานลูกค้าครบวงจร — ตรวจของ, on-site, เช็คคืน, ปิดงาน',
+    descEn: 'End-to-end client job management — kit check, on-site, return, closure.',
+    badge: { th: 'admin สร้าง/แก้', en: 'Admin create/edit', tone: 'new' },
+    groups: [
+      {
+        titleTh: 'เริ่มต้น',
+        titleEn: 'Get started',
+        items: [
+          { id: 'events-intro', titleTh: 'ภาพรวม',                 titleEn: 'Overview' },
+          { id: 'events-flow',  titleTh: 'Flow ทั้งหมด',           titleEn: 'End-to-end flow' },
+        ],
+      },
+      {
+        titleTh: 'ฟลูว์งาน',
+        titleEn: 'Workflow',
+        items: [
+          { id: 'events-create',     titleTh: 'สร้าง / แก้ event',          titleEn: 'Create / edit' },
+          { id: 'events-check-kits', titleTh: 'ตรวจของก่อน on-site',        titleEn: 'Check-kits' },
+          { id: 'events-return',     titleTh: 'เช็คคืน + ปิดงาน',           titleEn: 'Return + closure' },
+        ],
+      },
+      {
+        titleTh: 'เครื่องมือ',
+        titleEn: 'Tools',
+        items: [
+          { id: 'events-calendar', titleTh: 'ปฏิทิน',           titleEn: 'Calendar' },
+          { id: 'events-closures', titleTh: 'งานที่ปิดแล้ว',    titleEn: 'Closures archive' },
+        ],
+      },
+      {
+        titleTh: 'อ้างอิง',
+        titleEn: 'Reference',
+        items: [
+          { id: 'events-permissions', titleTh: 'สิทธิ์การใช้งาน', titleEn: 'Permissions' },
+          { id: 'events-linked',      titleTh: 'ผูกกับโมดูลอื่น',  titleEn: 'Linked modules' },
+          { id: 'events-menu',        titleTh: 'เมนูทั้งหมด',      titleEn: 'Menu shortcuts' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'mod-jobs',
+    slug: 'jobs',
+    accent: 'amber',
+    Icon: Briefcase,
+    titleTh: 'Jobs — งานทีม + tickets',
+    titleEn: 'Jobs — Team Tasks + Tickets',
+    descTh: 'Kanban งานทีม (graphic + on-site) · บอร์ดส่วนตัว · ระบบ ticket ภายใน',
+    descEn: 'Team Kanban (graphic + on-site) · personal board · internal tickets.',
+    badge: { th: 'ฟีเจอร์ใหม่', en: 'NEW', tone: 'new' },
+    groups: [
+      {
+        titleTh: 'เริ่มต้น',
+        titleEn: 'Get started',
+        items: [
+          { id: 'jobs-intro',  titleTh: 'ภาพรวม',                titleEn: 'Overview' },
+          { id: 'jobs-system', titleTh: 'บอร์ดทีม Kanban',        titleEn: 'System board' },
+          { id: 'jobs-my-job', titleTh: 'บอร์ดส่วนตัว',           titleEn: 'My-Job board' },
+        ],
+      },
+      {
+        titleTh: 'ฟีเจอร์',
+        titleEn: 'Features',
+        items: [
+          { id: 'jobs-tickets',         titleTh: 'Tickets ภายใน',          titleEn: 'Tickets' },
+          { id: 'jobs-from-crm',        titleTh: 'สร้าง 2 jobs จาก CRM',    titleEn: 'Bulk-create from CRM' },
+          { id: 'jobs-archive-report',  titleTh: 'archive + report',       titleEn: 'Archive + report' },
+        ],
+      },
+      {
+        titleTh: 'อ้างอิง',
+        titleEn: 'Reference',
+        items: [
+          { id: 'jobs-notifications', titleTh: 'การแจ้งเตือน',     titleEn: 'Notifications' },
+          { id: 'jobs-permissions',   titleTh: 'สิทธิ์การใช้งาน',  titleEn: 'Permissions' },
+          { id: 'jobs-menu',          titleTh: 'เมนูทั้งหมด',      titleEn: 'Menu shortcuts' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'mod-stock',
+    slug: 'stock',
+    accent: 'zinc',
+    Icon: Package,
+    titleTh: 'Stock — คลังอุปกรณ์',
+    titleEn: 'Stock — Inventory',
+    descTh: 'items · kits · templates · dashboard · QR · activity log',
+    descEn: 'items · kits · templates · dashboard · QR · activity log',
+    groups: [
+      {
+        titleTh: 'เริ่มต้น',
+        titleEn: 'Get started',
+        items: [
+          { id: 'stock-intro',    titleTh: 'ภาพรวม',          titleEn: 'Overview' },
+          { id: 'stock-statuses', titleTh: '7 สถานะ item',     titleEn: '7 item statuses' },
+        ],
+      },
+      {
+        titleTh: 'ฟลูว์งาน',
+        titleEn: 'Workflow',
+        items: [
+          { id: 'stock-kit-lifecycle', titleTh: 'วงจรชีวิต kit',    titleEn: 'Kit lifecycle' },
+          { id: 'stock-check',         titleTh: 'check-out / -in',  titleEn: 'Check-out / check-in' },
+          { id: 'stock-qr',            titleTh: 'พิมพ์ QR',         titleEn: 'QR print' },
+          { id: 'stock-templates',     titleTh: 'Templates',        titleEn: 'Templates' },
+        ],
+      },
+      {
+        titleTh: 'รายงาน',
+        titleEn: 'Reports',
+        items: [
+          { id: 'stock-dashboard', titleTh: 'Stock dashboard',  titleEn: 'Stock dashboard' },
+          { id: 'stock-logs',      titleTh: 'Activity log',     titleEn: 'Activity log' },
+        ],
+      },
+      {
+        titleTh: 'อ้างอิง',
+        titleEn: 'Reference',
+        items: [
+          { id: 'stock-permissions', titleTh: 'สิทธิ์การใช้งาน', titleEn: 'Permissions' },
+          { id: 'stock-menu',        titleTh: 'เมนูทั้งหมด',     titleEn: 'Menu shortcuts' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'mod-costs',
+    slug: 'costs',
+    accent: 'teal',
+    Icon: Coins,
+    titleTh: 'Costs — บัญชีกำไร/ขาดทุนต่อ event',
+    titleEn: 'Costs — Per-event Profitability Ledger',
+    descTh: 'เก็บ revenue + ต้นทุนรายหมวด ต่อ event · จับคู่ CRM อัตโนมัติ · ผูกใบเบิก Finance',
+    descEn: 'Revenue + cost line items per event · auto CRM matching · linked Finance claims.',
+    groups: [
+      {
+        titleTh: 'เริ่มต้น',
+        titleEn: 'Get started',
+        items: [
+          { id: 'costs-intro', titleTh: 'ภาพรวม',          titleEn: 'Overview' },
+          { id: 'costs-flow',  titleTh: 'Flow ทำงาน',     titleEn: 'Workflow' },
+        ],
+      },
+      {
+        titleTh: 'เนื้อหา',
+        titleEn: 'Core',
+        items: [
+          { id: 'costs-import',         titleTh: 'Import + จับคู่ CRM', titleEn: 'Import + CRM matching' },
+          { id: 'costs-revenue',        titleTh: 'Revenue + VAT/WHT',   titleEn: 'Revenue + VAT/WHT' },
+          { id: 'costs-categories',     titleTh: 'หมวดต้นทุน',          titleEn: 'Cost categories' },
+          { id: 'costs-linked-claims',  titleTh: 'ใบเบิก Finance ที่ผูก', titleEn: 'Linked claims' },
+        ],
+      },
+      {
+        titleTh: 'รายงาน',
+        titleEn: 'Reports',
+        items: [
+          { id: 'costs-dashboard', titleTh: 'Dashboard',          titleEn: 'Dashboard' },
+          { id: 'costs-reports',   titleTh: 'รายงาน + Export',    titleEn: 'Reports + Export' },
+        ],
+      },
+      {
+        titleTh: 'อ้างอิง',
+        titleEn: 'Reference',
+        items: [
+          { id: 'costs-permissions', titleTh: 'สิทธิ์การใช้งาน', titleEn: 'Permissions' },
+          { id: 'costs-menu',        titleTh: 'เมนูทั้งหมด',     titleEn: 'Menu shortcuts' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'mod-finance',
     slug: 'finance',
     accent: 'emerald',
@@ -3030,6 +4734,53 @@ const MODULES: ModuleConfig[] = [
           { id: 'finance-permissions',   titleTh: 'สิทธิ์การใช้งาน', titleEn: 'Permissions' },
           { id: 'finance-notifications', titleTh: 'การแจ้งเตือน',   titleEn: 'Notifications' },
           { id: 'finance-menu',          titleTh: 'เมนูทั้งหมด',     titleEn: 'Menu shortcuts' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'mod-kpi',
+    slug: 'kpi',
+    accent: 'indigo',
+    Icon: Target,
+    titleTh: 'KPI — บริหารผลงาน',
+    titleEn: 'KPI — Performance Management',
+    descTh: 'ตั้งเป้า / รับผลจริง / คำนวณคะแนน — leaderboard + reports + feedback timeline',
+    descEn: 'Set targets / submit actuals / compute scores — leaderboard + reports + feedback timeline.',
+    groups: [
+      {
+        titleTh: 'เริ่มต้น',
+        titleEn: 'Get started',
+        items: [
+          { id: 'kpi-intro', titleTh: 'ภาพรวม',          titleEn: 'Overview' },
+          { id: 'kpi-modes', titleTh: '3 โหมด template',  titleEn: '3 modes' },
+          { id: 'kpi-flow',  titleTh: 'Flow ทำงาน',      titleEn: 'Workflow' },
+        ],
+      },
+      {
+        titleTh: 'การคำนวณ',
+        titleEn: 'Mechanics',
+        items: [
+          { id: 'kpi-cycles',    titleTh: 'รอบเวลา',         titleEn: 'Cycles' },
+          { id: 'kpi-scoring',   titleTh: 'สูตรคำนวณคะแนน', titleEn: 'Scoring formula' },
+          { id: 'kpi-self-eval', titleTh: 'ประเมินตัวเอง',   titleEn: 'Self-evaluation' },
+        ],
+      },
+      {
+        titleTh: 'รายงาน',
+        titleEn: 'Reports',
+        items: [
+          { id: 'kpi-reports',  titleTh: 'รายงาน + leaderboard', titleEn: 'Reports + leaderboard' },
+          { id: 'kpi-feedback', titleTh: 'Feedback timeline',     titleEn: 'Feedback timeline' },
+        ],
+      },
+      {
+        titleTh: 'อ้างอิง',
+        titleEn: 'Reference',
+        items: [
+          { id: 'kpi-notifications', titleTh: 'การแจ้งเตือน',    titleEn: 'Notifications' },
+          { id: 'kpi-permissions',   titleTh: 'สิทธิ์การใช้งาน', titleEn: 'Permissions' },
+          { id: 'kpi-menu',          titleTh: 'เมนูทั้งหมด',     titleEn: 'Menu shortcuts' },
         ],
       },
     ],
@@ -3169,6 +4920,45 @@ const accentClasses: Record<ModuleAccent, {
     heroBorder: 'border-zinc-200 dark:border-zinc-800',
     groupTitle: 'text-zinc-700 dark:text-zinc-400',
     badgeNew:   'bg-zinc-500 text-white',
+  },
+  cyan: {
+    cardBorder: 'border-cyan-200 dark:border-cyan-900/50',
+    cardBg:     'bg-gradient-to-br from-cyan-50 to-white dark:from-cyan-950/20 dark:to-zinc-900',
+    cardHover:  'hover:border-cyan-300 hover:shadow-md hover:shadow-cyan-500/10',
+    iconBox:    'bg-cyan-100 dark:bg-cyan-900/40',
+    iconText:   'text-cyan-600 dark:text-cyan-400',
+    titleText:  'text-cyan-900 dark:text-cyan-200',
+    pillBg:     'text-cyan-700 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/30 hover:bg-cyan-100 dark:hover:bg-cyan-950/50',
+    heroBg:     'bg-gradient-to-r from-cyan-500/10 via-cyan-50 to-white dark:from-cyan-900/30 dark:via-cyan-950/20 dark:to-zinc-900',
+    heroBorder: 'border-cyan-200 dark:border-cyan-900/50',
+    groupTitle: 'text-cyan-700 dark:text-cyan-400',
+    badgeNew:   'bg-cyan-500 text-white',
+  },
+  teal: {
+    cardBorder: 'border-teal-200 dark:border-teal-900/50',
+    cardBg:     'bg-gradient-to-br from-teal-50 to-white dark:from-teal-950/20 dark:to-zinc-900',
+    cardHover:  'hover:border-teal-300 hover:shadow-md hover:shadow-teal-500/10',
+    iconBox:    'bg-teal-100 dark:bg-teal-900/40',
+    iconText:   'text-teal-600 dark:text-teal-400',
+    titleText:  'text-teal-900 dark:text-teal-200',
+    pillBg:     'text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/30 hover:bg-teal-100 dark:hover:bg-teal-950/50',
+    heroBg:     'bg-gradient-to-r from-teal-500/10 via-teal-50 to-white dark:from-teal-900/30 dark:via-teal-950/20 dark:to-zinc-900',
+    heroBorder: 'border-teal-200 dark:border-teal-900/50',
+    groupTitle: 'text-teal-700 dark:text-teal-400',
+    badgeNew:   'bg-teal-500 text-white',
+  },
+  indigo: {
+    cardBorder: 'border-indigo-200 dark:border-indigo-900/50',
+    cardBg:     'bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-950/20 dark:to-zinc-900',
+    cardHover:  'hover:border-indigo-300 hover:shadow-md hover:shadow-indigo-500/10',
+    iconBox:    'bg-indigo-100 dark:bg-indigo-900/40',
+    iconText:   'text-indigo-600 dark:text-indigo-400',
+    titleText:  'text-indigo-900 dark:text-indigo-200',
+    pillBg:     'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-950/50',
+    heroBg:     'bg-gradient-to-r from-indigo-500/10 via-indigo-50 to-white dark:from-indigo-900/30 dark:via-indigo-950/20 dark:to-zinc-900',
+    heroBorder: 'border-indigo-200 dark:border-indigo-900/50',
+    groupTitle: 'text-indigo-700 dark:text-indigo-400',
+    badgeNew:   'bg-indigo-500 text-white',
   },
 }
 
