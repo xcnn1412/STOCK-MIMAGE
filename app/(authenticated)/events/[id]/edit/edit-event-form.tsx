@@ -16,6 +16,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from "@/lib/utils"
 import Link from 'next/link'
 import { useLanguage } from '@/contexts/language-context'
+import EventsLogSheet, { type EventLog } from '../../events-log-sheet'
 import type { Event, Kit } from '@/types'
 
 interface Profile {
@@ -52,6 +53,7 @@ export default function EditEventForm({
   staffAssignments: initialStaffAssignments = [],
   staffRoles = [],
   crmLeads = [],
+  logs = [],
 }: {
   event: Event
   availableKits: Kit[]
@@ -60,6 +62,7 @@ export default function EditEventForm({
   staffAssignments?: StaffAssignment[]
   staffRoles?: StaffRole[]
   crmLeads?: CrmLead[]
+  logs?: EventLog[]
 }) {
   const { t, lang } = useLanguage()
   const locale = lang || 'th'
@@ -136,13 +139,14 @@ export default function EditEventForm({
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <Link href="/events">
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <h2 className="text-3xl font-bold tracking-tight">{t.events.editTitle}</h2>
+        <h2 className="text-2xl md:text-3xl font-bold tracking-tight flex-1 min-w-0 truncate">{t.events.editTitle}</h2>
+        <EventsLogSheet logs={logs} />
       </div>
 
       <Card>

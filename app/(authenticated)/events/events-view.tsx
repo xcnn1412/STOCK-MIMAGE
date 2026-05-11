@@ -7,9 +7,18 @@ import Link from 'next/link'
 import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
 import EventStatusBadge from './event-status-badge'
+import EventsLogSheet, { type EventLog } from './events-log-sheet'
 import type { Event } from '@/types'
 
-export default function EventsView({ events, isAdmin = false }: { events: Event[]; isAdmin?: boolean }) {
+export default function EventsView({
+  events,
+  isAdmin = false,
+  logs = [],
+}: {
+  events: Event[]
+  isAdmin?: boolean
+  logs?: EventLog[]
+}) {
   const { t, lang } = useLanguage()
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
@@ -42,6 +51,7 @@ export default function EventsView({ events, isAdmin = false }: { events: Event[
                 {lang === 'th' ? 'ปฏิทิน' : 'Calendar'}
               </Button>
             </Link>
+            <EventsLogSheet logs={logs} />
             {isAdmin && (
               <Link href="/events/new">
                 <Button size="sm" className="bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900">
@@ -52,17 +62,22 @@ export default function EventsView({ events, isAdmin = false }: { events: Event[
             )}
           </div>
         </div>
-        
-        {/* Sort Button - Compact on mobile */}
-        <Button 
-          variant="outline" 
-          size="sm"
-          onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-          className="w-fit border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-        >
-          <ArrowUpDown className="mr-2 h-4 w-4" />
-          {t.events.sortDate}
-        </Button>
+
+        {/* Sort + History Buttons - Compact on mobile */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+            className="w-fit border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            {t.events.sortDate}
+          </Button>
+          <div className="md:hidden">
+            <EventsLogSheet logs={logs} />
+          </div>
+        </div>
       </div>
 
       {/* Stats Summary - Enhanced Mobile */}

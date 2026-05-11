@@ -3,6 +3,7 @@ import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-
 import { notFound, redirect } from 'next/navigation'
 import EditEventForm from './edit-event-form'
 import { getCrmSettings } from '../../../crm/actions'
+import type { EventLog } from '../../events-log-sheet'
 
 import type { Kit } from '@/types'
 
@@ -108,6 +109,29 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
     .select('id, customer_name, event_date, package_name')
     .order('created_at', { ascending: false })
 
+  // 7. Fetch logs specific to this event
+  const { data: rawLogs } = await serviceClient
+    .from('activity_logs')
+    .select(`
+      id,
+      action_type,
+      details,
+      created_at,
+      user:user_id (full_name, role)
+    `)
+    .in('action_type', ['CREATE_EVENT', 'UPDATE_EVENT', 'DELETE_EVENT', 'LINK_EVENT_TO_CRM', 'UNLINK_EVENT_FROM_CRM'])
+    .order('created_at', { ascending: false })
+    .limit(500)
+
+  const eventLogs = (rawLogs || []).filter((log: any) => {
+    const d = log.details || {}
+    if (log.action_type === 'UPDATE_EVENT') return d.id === event.id
+    if (log.action_type === 'DELETE_EVENT') return d.eventId === event.id
+    if (log.action_type === 'LINK_EVENT_TO_CRM' || log.action_type === 'UNLINK_EVENT_FROM_CRM') return d.eventId === event.id
+    if (log.action_type === 'CREATE_EVENT') return d.name === event.name
+    return false
+  }) as unknown as EventLog[]
+
   return (
     <EditEventForm
       event={event}
@@ -117,6 +141,7 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
       staffAssignments={staffAssignments}
       staffRoles={staffRoles as any[]}
       crmLeads={(crmLeads || []).map(l => ({ id: l.id, customer_name: l.customer_name, event_date: l.event_date, package_name: l.package_name }))}
+      logs={eventLogs}
     />
   )
 }

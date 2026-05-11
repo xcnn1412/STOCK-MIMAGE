@@ -223,12 +223,48 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 
   const supabase = createServiceClient()
 
+  // === Capture BEFORE state for change tracking ===
+  const { data: oldEvent } = await supabase
+      .from('events')
+      .select('name, location, staff, seller, crm_lead_id')
+      .eq('id', id)
+      .single()
+
+  const { data: oldKitsRaw } = await supabase
+      .from('kits')
+      .select('id, name')
+      .eq('event_id', id)
+  const oldKits = (oldKitsRaw || []) as { id: string; name: string }[]
+
+  let oldStaff: { user_id: string; full_name: string; role: string }[] = []
+  if (oldEvent?.crm_lead_id) {
+      const { data: rows } = await supabase
+          .from('crm_lead_staff')
+          .select('user_id, role, profiles:user_id(full_name)')
+          .eq('lead_id', oldEvent.crm_lead_id)
+      oldStaff = ((rows || []) as any[]).map((s: any) => ({
+          user_id: s.user_id,
+          full_name: s.profiles?.full_name || '',
+          role: s.role,
+      }))
+  } else {
+      const { data: rows } = await supabase
+          .from('event_staff')
+          .select('user_id, role, profiles:user_id(full_name)')
+          .eq('event_id', id)
+      oldStaff = ((rows || []) as any[]).map((s: any) => ({
+          user_id: s.user_id,
+          full_name: s.profiles?.full_name || '',
+          role: s.role,
+      }))
+  }
+
   // 1. Update basic info
   const { error: updateError } = await supabase
       .from('events')
       .update({ name, location, staff, seller })
       .eq('id', id)
-  
+
   if (updateError) return { error: 'Failed to update event details' }
 
   // 2. Sync Kits
@@ -337,11 +373,81 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
     }
   }
 
-  await logActivity('UPDATE_EVENT', { 
-      id, 
-      name, 
-      kitIds: selectedKitIds 
-  }, undefined)
+  // === Compute diff for activity log ===
+  const fieldChanges: Record<string, { from: string | null; to: string | null }> = {}
+  if ((oldEvent?.name || '') !== (name || '')) {
+      fieldChanges.name = { from: oldEvent?.name || null, to: name || null }
+  }
+  if ((oldEvent?.location || '') !== (location || '')) {
+      fieldChanges.location = { from: oldEvent?.location || null, to: location || null }
+  }
+  if ((oldEvent?.staff || '') !== (staff || '')) {
+      fieldChanges.staff = { from: oldEvent?.staff || null, to: staff || null }
+  }
+  if ((oldEvent?.seller || '') !== (seller || '')) {
+      fieldChanges.seller = { from: oldEvent?.seller || null, to: seller || null }
+  }
+
+  // Kit diff
+  const oldKitIdSet = new Set(oldKits.map(k => k.id))
+  const newKitIdSet = new Set(selectedKitIds)
+  const oldKitMap = new Map(oldKits.map(k => [k.id, k.name]))
+  const addedKitIds = selectedKitIds.filter(kid => !oldKitIdSet.has(kid))
+  const removedKitIds = oldKits.filter(k => !newKitIdSet.has(k.id)).map(k => k.id)
+
+  let addedKits: { id: string; name: string }[] = []
+  if (addedKitIds.length > 0) {
+      const { data: addedKitsData } = await supabase
+          .from('kits')
+          .select('id, name')
+          .in('id', addedKitIds)
+      addedKits = (addedKitsData || []) as { id: string; name: string }[]
+  }
+  const removedKits = removedKitIds.map(kid => ({
+      id: kid,
+      name: oldKitMap.get(kid) || kid,
+  }))
+
+  // Staff diff
+  let addedStaff: { user_id: string; full_name: string; role: string }[] = []
+  let removedStaff: { user_id: string; full_name: string; role: string }[] = []
+  const staffAssignmentsRaw = formData.get('staff_assignments') as string
+  if (staffAssignmentsRaw) {
+      try {
+          const newStaff = JSON.parse(staffAssignmentsRaw) as { user_id: string; role: string }[]
+          const oldStaffKeys = new Set(oldStaff.map(s => `${s.user_id}::${s.role}`))
+          const newStaffKeys = new Set(newStaff.map(s => `${s.user_id}::${s.role}`))
+
+          const addedRaw = newStaff.filter(s => !oldStaffKeys.has(`${s.user_id}::${s.role}`))
+          removedStaff = oldStaff.filter(s => !newStaffKeys.has(`${s.user_id}::${s.role}`))
+
+          if (addedRaw.length > 0) {
+              const { data: profileRows } = await supabase
+                  .from('profiles')
+                  .select('id, full_name')
+                  .in('id', addedRaw.map(s => s.user_id))
+              const profMap = new Map(((profileRows || []) as any[]).map((p: any) => [p.id, p.full_name || '']))
+              addedStaff = addedRaw.map(s => ({
+                  user_id: s.user_id,
+                  full_name: profMap.get(s.user_id) || '',
+                  role: s.role,
+              }))
+          }
+      } catch (e) {
+          console.error('Compute staff diff error:', e)
+      }
+  }
+
+  const logDetails: Record<string, any> = { id, name, kitIds: selectedKitIds }
+  if (Object.keys(fieldChanges).length > 0) logDetails.changes = fieldChanges
+  if (addedKits.length > 0 || removedKits.length > 0) {
+      logDetails.kits = { added: addedKits, removed: removedKits }
+  }
+  if (addedStaff.length > 0 || removedStaff.length > 0) {
+      logDetails.staff_assignments = { added: addedStaff, removed: removedStaff }
+  }
+
+  await logActivity('UPDATE_EVENT', logDetails, undefined)
 
   revalidatePath('/events')
   revalidatePath(`/events/${id}/edit`)
