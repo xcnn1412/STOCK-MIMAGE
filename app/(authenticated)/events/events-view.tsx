@@ -1,13 +1,26 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import Link from 'next/link'
-import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar } from "lucide-react"
+import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar, Trash2, Loader2 } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
 import EventStatusBadge from './event-status-badge'
 import EventsLogSheet, { type EventLog } from './events-log-sheet'
+import { deleteEvent } from './actions'
 import type { Event } from '@/types'
 
 export default function EventsView({
@@ -20,7 +33,23 @@ export default function EventsView({
   logs?: EventLog[]
 }) {
   const { t, lang } = useLanguage()
+  const router = useRouter()
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [isDeleting, startDelete] = useTransition()
+
+  const handleDelete = (id: string) => {
+    setDeletingId(id)
+    startDelete(async () => {
+      const result = await deleteEvent(id)
+      if (result?.error) {
+        alert(result.error)
+      } else {
+        router.refresh()
+      }
+      setDeletingId(null)
+    })
+  }
 
   const sortedEvents = [...events].sort((a, b) => {
     const dateA = new Date(a.event_date).getTime()
@@ -184,14 +213,51 @@ export default function EventsView({
                 </Link>
               )}
               <Link href={`/events/${event.id}/return`}>
-                <Button 
-                  size="sm" 
+                <Button
+                  size="sm"
                   className="min-h-[44px] min-w-[44px] bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900"
                 >
                   <CheckCircle className="w-4 h-4" />
                   <span className="sr-only">{t.events.finalizeJob}</span>
                 </Button>
               </Link>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-h-[44px] min-w-[44px] border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                    disabled={isDeleting && deletingId === event.id}
+                  >
+                    {isDeleting && deletingId === event.id
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Trash2 className="w-4 h-4" />}
+                    <span className="sr-only">{t.events.delete}</span>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t.events.delete}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {lang === 'th'
+                        ? `ต้องการลบอีเวนต์ "${event.name}" หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้ — กระเป๋าที่ผูกกับอีเวนต์จะถูกปลดออก`
+                        : `Delete event "${event.name}"? This cannot be undone — assigned kits will be released.`}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t.common.cancel}</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={(e) => {
+                        e.preventDefault()
+                        handleDelete(event.id)
+                      }}
+                      className="bg-red-600 hover:bg-red-700 text-white border-none"
+                    >
+                      {t.common.delete}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </CardFooter>
           </Card>
         ))}

@@ -461,6 +461,82 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 }
 
 
+export async function deleteEvent(eventId: string) {
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
+    if (!userId) {
+        return { error: 'Unauthorized: No active session' }
+    }
+
+    const supabase = createServiceClient()
+
+    const { data: event } = await supabase
+        .from('events')
+        .select('name, crm_lead_id')
+        .eq('id', eventId)
+        .single()
+
+    // Reset items currently in_use via this event's kits back to available
+    const { data: kitsToRelease } = await supabase
+        .from('kits')
+        .select(`id, kit_contents(item_id)`)
+        .eq('event_id', eventId)
+
+    if (kitsToRelease && kitsToRelease.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const itemIds = kitsToRelease
+            .flatMap(kit => (kit.kit_contents as any)?.map((kc: any) => kc.item_id) || [])
+            .filter(Boolean)
+
+        if (itemIds.length > 0) {
+            await supabase
+                .from('items')
+                .update({ status: 'available' })
+                .in('id', itemIds)
+                .eq('status', 'in_use')
+        }
+    }
+
+    // Release kits
+    await supabase
+        .from('kits')
+        .update({ event_id: null })
+        .eq('event_id', eventId)
+
+    // Clear CRM lead reference
+    await supabase
+        .from('crm_leads')
+        .update({ event_id: null })
+        .eq('event_id', eventId)
+
+    const { error } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', eventId)
+
+    if (error) {
+        console.error('Delete event failed', error)
+        return { error: 'Failed to delete event' }
+    }
+
+    await logActivity('DELETE_EVENT', {
+        eventId,
+        name: event?.name || 'Unknown Event',
+        reason: 'manual',
+    }, undefined)
+
+    revalidatePath('/events')
+    revalidatePath('/items')
+    revalidatePath('/kits')
+    if (event?.crm_lead_id) {
+        revalidatePath('/crm')
+        revalidatePath(`/crm/${event.crm_lead_id}`)
+    }
+
+    return { success: true }
+}
+
+
 export async function processEventReturn(eventId: string, itemStatuses: { itemId: string, status: string }[], imageUrls: string[] = []) {
      const cookieStore = await cookies()
      const userId = cookieStore.get('session_user_id')?.value
