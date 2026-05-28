@@ -628,6 +628,7 @@ export interface Database {
           revenue_vat_mode: string
           revenue_wht_rate: number
           status: string
+          phase: string | null
           notes: string | null
           imported_by: string | null
           created_at: string
@@ -644,6 +645,7 @@ export interface Database {
           revenue_vat_mode?: string
           revenue_wht_rate?: number
           status?: string
+          phase?: string | null
           notes?: string | null
           imported_by?: string | null
           created_at?: string
@@ -660,6 +662,7 @@ export interface Database {
           revenue_vat_mode?: string
           revenue_wht_rate?: number
           status?: string
+          phase?: string | null
           notes?: string | null
           imported_by?: string | null
           created_at?: string

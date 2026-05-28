@@ -29,8 +29,9 @@ import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
   archiveLead, unarchiveLead, getLead, saveAllInstallments,
   uploadPaymentProof, deletePaymentProof, checkEventDateConflicts,
-  addLeadStaff, removeLeadStaff,
+  addLeadStaff, removeLeadStaff, setJobCostEventPhase,
 } from '../actions'
+import { EVENT_PHASES, getPhaseLabel } from '../event-phases'
 import type { StaffAssignment } from '@/types/database.types'
 import { createJobsFromLead, getJobsByLeadId } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
@@ -65,6 +66,7 @@ interface LeadDetailProps {
     event_date: string | null
     event_location: string | null
     status: string | null
+    phase: string | null
     revenue: number | null
     created_at: string
   }>
@@ -666,27 +668,57 @@ export default function LeadDetail({ lead, activities, settings, users, installm
               </span>
             </div>
             <div className="space-y-1.5">
-              {jobCostEvents.map(ev => (
-                <Link
-                  key={ev.id}
-                  href={`/costs/events/${ev.id}`}
-                  className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-emerald-300 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/10 transition-colors"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{ev.event_name}</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {ev.event_date ? new Date(ev.event_date).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB') : '—'}
-                      {ev.event_location && ` • ${ev.event_location}`}
-                    </p>
+              {jobCostEvents.map(ev => {
+                const phaseCfg = EVENT_PHASES.find(p => p.value === ev.phase)
+                return (
+                  <div
+                    key={ev.id}
+                    className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-emerald-300 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/10 transition-colors"
+                  >
+                    <Link href={`/costs/events/${ev.id}`} className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{ev.event_name}</p>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {ev.event_date ? new Date(ev.event_date).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB') : '—'}
+                        {ev.event_location && ` • ${ev.event_location}`}
+                      </p>
+                    </Link>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Select
+                        value={ev.phase || 'none'}
+                        onValueChange={async (v) => {
+                          await setJobCostEventPhase(ev.id, v === 'none' ? null : v)
+                          router.refresh()
+                        }}
+                      >
+                        <SelectTrigger className="h-7 text-[11px] w-auto min-w-[100px] gap-1 border-dashed">
+                          {phaseCfg ? (
+                            <span className="inline-flex items-center gap-1">
+                              <span>{phaseCfg.icon}</span>
+                              <span>{getPhaseLabel(ev.phase, locale === 'en')}</span>
+                            </span>
+                          ) : (
+                            <span className="text-zinc-400">{locale === 'th' ? 'เลือก phase' : 'Set phase'}</span>
+                          )}
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">{locale === 'th' ? '— ไม่ระบุ —' : '— None —'}</SelectItem>
+                          {EVENT_PHASES.map(p => (
+                            <SelectItem key={p.value} value={p.value}>
+                              {p.icon} {locale === 'th' ? p.labelTh : p.labelEn}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {ev.status && (
+                        <Badge variant="outline" className="text-[10px]">{ev.status}</Badge>
+                      )}
+                      <Link href={`/costs/events/${ev.id}`}>
+                        <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
+                      </Link>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {ev.status && (
-                      <Badge variant="outline" className="text-[10px]">{ev.status}</Badge>
-                    )}
-                    <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
-                  </div>
-                </Link>
-              ))}
+                )
+              })}
             </div>
           </CardContent>
         </Card>

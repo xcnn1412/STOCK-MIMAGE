@@ -207,12 +207,37 @@ export async function getLead(id: string) {
   return { data }
 }
 
+// Update the phase classifier on a job_cost_events row. Lead detail page allows inline editing.
+export async function setJobCostEventPhase(jobEventId: string, phase: string | null) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const allowedPhases = ['setup', 'main', 'teardown', 'delivery', 'other']
+  const phaseValue = phase && allowedPhases.includes(phase) ? phase : null
+
+  const supabase = createServiceClient()
+  const { data: row, error } = await supabase
+    .from('job_cost_events')
+    .update({ phase: phaseValue })
+    .eq('id', jobEventId)
+    .select('linked_lead_id')
+    .single()
+
+  if (error) return { error: error.message }
+
+  if (row?.linked_lead_id) {
+    revalidatePath(`/crm/${row.linked_lead_id}`)
+  }
+  revalidatePath(`/costs/events/${jobEventId}`)
+  return { success: true }
+}
+
 // Fetch all job_cost_events linked to this lead (1 lead → N events: setup / main / teardown / delivery / etc.)
 export async function getLeadJobCostEvents(leadId: string) {
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('job_cost_events')
-    .select('id, event_name, event_date, event_location, status, revenue, created_at')
+    .select('id, event_name, event_date, event_location, status, phase, revenue, created_at')
     .eq('linked_lead_id', leadId)
     .order('event_date', { ascending: true, nullsFirst: false })
 
@@ -579,7 +604,7 @@ export async function createActivity(leadId: string, formData: FormData) {
 // เปิดอีเวนต์จาก CRM Lead
 // ============================================================================
 
-export async function createEventFromLead(leadId: string) {
+export async function createEventFromLead(leadId: string, phase?: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
@@ -597,11 +622,19 @@ export async function createEventFromLead(leadId: string) {
   // 1 CRM lead can be linked to multiple job_cost_events (setup / main / teardown / delivery / etc.)
   // crm_leads.event_id holds the *primary* job_cost_events; subsequent ones link via job_cost_events.linked_lead_id only.
 
+  const allowedPhases = ['setup', 'main', 'teardown', 'delivery', 'other']
+  const phaseValue = phase && allowedPhases.includes(phase) ? phase : null
+
+  // Build a descriptive name that hints at the phase
+  const phaseSuffix = phaseValue && phaseValue !== 'main'
+    ? ({ setup: ' [Setup]', teardown: ' [Teardown]', delivery: ' [Delivery]', other: ' [Other]' } as Record<string, string>)[phaseValue] || ''
+    : ''
+
   // Create job_cost_events (linked to lead via linked_lead_id)
   const { data: event, error: eventErr } = await supabase
     .from('job_cost_events')
     .insert({
-      event_name: `${lead.customer_name} — ${lead.package_name || 'N/A'}`,
+      event_name: `${lead.customer_name} — ${lead.package_name || 'N/A'}${phaseSuffix}`,
       event_date: lead.event_date,
       event_location: lead.event_location,
       staff: null,
@@ -610,6 +643,7 @@ export async function createEventFromLead(leadId: string) {
       revenue_wht_rate: Number(lead.wht_rate || 0),
       linked_lead_id: leadId,
       status: 'draft',
+      phase: phaseValue,
       notes: lead.notes,
       imported_by: userId,
     })
