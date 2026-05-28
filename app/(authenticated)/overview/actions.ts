@@ -24,10 +24,10 @@ export async function getOverviewData() {
     checkinsResult,
     profilesResult,
   ] = await Promise.all([
-    // 1) All job_cost_events
+    // 1) All job_cost_events (linked_lead_id is the reverse FK to crm_leads)
     supabase
       .from('job_cost_events')
-      .select('id, source_event_id, event_name, event_date, event_location, staff, revenue, seller, status, notes, revenue_vat_mode, revenue_wht_rate, created_at')
+      .select('id, source_event_id, event_name, event_date, event_location, staff, revenue, seller, status, notes, revenue_vat_mode, revenue_wht_rate, linked_lead_id, created_at')
       .order('event_date', { ascending: false }),
 
     // 2) All cost items
@@ -35,10 +35,10 @@ export async function getOverviewData() {
       .from('job_cost_items')
       .select('id, job_event_id, category, description, amount, title, unit_price, quantity, vat_mode, include_vat, withholding_tax_rate, cost_date'),
 
-    // 3) CRM leads (linked to events via event_id)
+    // 3) CRM leads — joined to job_cost_events via job_cost_events.linked_lead_id
     supabase
       .from('crm_leads')
-      .select('id, event_id, customer_name, confirmed_price, quoted_price, assigned_sales, assigned_graphics, assigned_staff, package_name, status, event_date, event_location, vat_mode, wht_rate'),
+      .select('id, customer_name, confirmed_price, quoted_price, assigned_sales, assigned_graphics, assigned_staff, package_name, status, event_date, event_location, vat_mode, wht_rate'),
 
     // 4) Expense claims linked to events
     supabase

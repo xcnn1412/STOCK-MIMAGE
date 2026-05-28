@@ -23,13 +23,14 @@ interface JobEvent {
   staff: string | null; revenue: number | null; seller: string | null
   status: string | null
   revenue_vat_mode: string | null; revenue_wht_rate: number | null
+  linked_lead_id: string | null
 }
 interface CostItem {
   id: string; job_event_id: string; category: string
   description: string | null; amount: number; title: string | null
 }
 interface Lead {
-  id: string; event_id: string | null; customer_name: string
+  id: string; customer_name: string
   confirmed_price: number | null; quoted_price: number | null
   assigned_sales: string[] | null; assigned_graphics: string[] | null
   assigned_staff: string[] | null; package_name: string | null; status: string
@@ -198,8 +199,10 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       }
     })
 
+    // Lead lookup is keyed by lead.id; each job_cost_events references it via linked_lead_id.
+    // A single lead may map to multiple job events (sub-events: setup/main/teardown/etc.).
     const leadMap = new Map<string, Lead>()
-    data.leads.forEach(l => { if (l.event_id) leadMap.set(l.event_id, l) })
+    data.leads.forEach(l => { leadMap.set(l.id, l) })
 
     const checkinByEvent = new Map<string, { count: number; uniqueUsers: Set<string>; totalHours: number }>()
     data.checkins.forEach(c => {
@@ -227,7 +230,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       const revenue = Number(je.revenue || 0)
       const costData = costMap.get(je.id) || { total: 0, byCategory: {} }
       const expData = expenseMap.get(je.id) || { total: 0, count: 0, byStatus: {}, paid: 0 }
-      const lead = leadMap.get(je.id)
+      const lead = je.linked_lead_id ? leadMap.get(je.linked_lead_id) : undefined
       const ci = checkinByJobEvent.get(je.id) || { count: 0, uniqueStaff: 0, totalHours: 0 }
       const confirmedPrice = Number(lead?.confirmed_price || 0)
       const quotedPrice = Number(lead?.quoted_price || 0)

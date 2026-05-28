@@ -101,7 +101,6 @@ export interface CrmLead {
   wht_rate: number // 0 | 1 | 2 | 3 | 5
   quotation_ref: string | null
   notes: string | null
-  event_id: string | null
   tags: string[]
   archived_at: string | null
   assigned_sales: string[]

@@ -111,14 +111,8 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
       kitIds 
   }, undefined)
 
-  // If created from CRM, link the event back to the CRM lead
+  // If created from CRM, just log activity — link is established via events.crm_lead_id in the insert above.
   if (fromCrm) {
-    await supabase
-      .from('crm_leads')
-      .update({ event_id: event.id, updated_at: new Date().toISOString() })
-      .eq('id', fromCrm)
-    
-    // Log activity on the CRM lead
     const cookieStore2 = await cookies()
     const uid = cookieStore2.get('session_user_id')?.value
     await supabase.from('crm_activities').insert({
@@ -127,6 +121,7 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
       activity_type: 'note',
       description: `เปิดอีเวนต์แล้ว: ${name}`,
     })
+    await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', fromCrm)
 
     revalidatePath('/crm')
     revalidatePath(`/crm/${fromCrm}`)
@@ -150,7 +145,6 @@ export async function linkEventToCrm(eventId: string, leadId: string) {
   const supabase = createServiceClient()
 
   // Set events.crm_lead_id (1 lead can have many operational events: setup / main / teardown / etc.)
-  // We do NOT write crm_leads.event_id here — that column FK references job_cost_events(id), not events(id).
   const { error: e1 } = await supabase
     .from('events')
     .update({ crm_lead_id: leadId })
@@ -178,7 +172,6 @@ export async function unlinkEventFromCrm(eventId: string) {
   const { data: event } = await supabase.from('events').select('crm_lead_id').eq('id', eventId).single()
   const leadId = event?.crm_lead_id
 
-  // Clear events.crm_lead_id only — crm_leads.event_id refers to job_cost_events, not events.
   await supabase.from('events').update({ crm_lead_id: null }).eq('id', eventId)
 
   await logActivity('UNLINK_EVENT_FROM_CRM', { eventId, leadId })

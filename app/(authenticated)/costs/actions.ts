@@ -117,7 +117,6 @@ export async function importEventFromStock(eventId: string) {
   let linkedLeadId: string | null = null
 
   // 1. หา CRM lead ผ่าน events.crm_lead_id (reverse lookup)
-  //    เดิม query crm_leads.event_id แต่คอลัมน์นั้น FK ไป job_cost_events ไม่ใช่ events — ใช้ไม่ได้
   const leadIdFromEvent = (event as { crm_lead_id?: string | null }).crm_lead_id || null
   if (leadIdFromEvent) {
     const { data: leadByEventLink } = await supabase
@@ -187,15 +186,7 @@ export async function importEventFromStock(eventId: string) {
     .single()
 
   if (insertErr) return { error: 'เกิดข้อผิดพลาดในการนำเข้า' }
-
-  // ถ้า link ได้ ให้ update CRM lead.event_id ด้วย (bidirectional link)
-  if (linkedLeadId && created?.id) {
-    await supabase
-      .from('crm_leads')
-      .update({ event_id: created.id })
-      .eq('id', linkedLeadId)
-      .is('event_id', null)
-  }
+  // Link to lead is established via job_cost_events.linked_lead_id (set in the insert above).
 
   await logActivity('IMPORT_EVENT_TO_COSTS', {
     eventId,

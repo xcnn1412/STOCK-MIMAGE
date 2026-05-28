@@ -794,7 +794,7 @@ export async function createEventFromLead(leadId: string, phase?: string) {
   if (leadErr || !lead) return { error: 'ไม่พบข้อมูล Lead' }
 
   // 1 CRM lead can be linked to multiple job_cost_events (setup / main / teardown / delivery / etc.)
-  // crm_leads.event_id holds the *primary* job_cost_events; subsequent ones link via job_cost_events.linked_lead_id only.
+  // Reverse FK is job_cost_events.linked_lead_id.
 
   const allowedPhases = ['setup', 'main', 'teardown', 'delivery', 'other']
   const phaseValue = phase && allowedPhases.includes(phase) ? phase : null
@@ -826,12 +826,8 @@ export async function createEventFromLead(leadId: string, phase?: string) {
 
   if (eventErr || !event) return { error: eventErr?.message || 'สร้าง Event ไม่สำเร็จ' }
 
-  // Mark this as the lead's primary job_cost_events only if none is set yet
-  await supabase
-    .from('crm_leads')
-    .update({ event_id: event.id, updated_at: new Date().toISOString() })
-    .eq('id', leadId)
-    .is('event_id', null)
+  // The link is via job_cost_events.linked_lead_id set in the insert above (1 lead → N events).
+  await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', leadId)
 
   // Log activity
   await supabase.from('crm_activities').insert({
@@ -1172,15 +1168,15 @@ async function syncLeadStaffArrays(supabase: any, leadId: string) {
     updated_at: new Date().toISOString()
   }).eq('id', leadId)
 
-  // Sync to linked event (if any exists) to avoid ghost Resurrection on empty event edit fallback
-  const { data: leadData } = await supabase.from('crm_leads').select('event_id').eq('id', leadId).single()
-  if (leadData?.event_id) {
+  // Sync to all linked operational events (1 lead → N events) so the events edit form doesn't show stale staff
+  const { data: linkedOpEvents } = await supabase.from('events').select('id').eq('crm_lead_id', leadId)
+  if (linkedOpEvents && linkedOpEvents.length > 0) {
     const sellerStr = staffData.filter((a: any) => a.role === 'sale').map((a: any) => a.profiles?.full_name || '').filter(Boolean).join(', ')
     const staffStr = staffData.filter((a: any) => a.role !== 'sale').map((a: any) => a.profiles?.full_name || '').filter(Boolean).join(', ')
     await supabase.from('events').update({
       seller: sellerStr || null,
       staff: staffStr || null,
-    }).eq('id', leadData.event_id)
+    }).in('id', linkedOpEvents.map((e: { id: string }) => e.id))
   }
 }
 

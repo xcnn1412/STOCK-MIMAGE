@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
-  archiveLead, unarchiveLead, getLead, saveAllInstallments,
+  archiveLead, unarchiveLead, saveAllInstallments,
   uploadPaymentProof, deletePaymentProof, checkEventDateConflicts,
   addLeadStaff, removeLeadStaff, setJobCostEventPhase,
   type LeadCostSummary, type LinkedLeadEvent,
@@ -350,13 +350,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
 
   const handleOpenEvent = async () => {
     setLoading(true)
-    // Re-check from server to prevent stale data
-    const { data: freshLead } = await getLead(lead.id)
-    if (freshLead?.event_id) {
-      const proceed = confirm('Lead นี้เปิดอีเวนต์แล้ว ต้องการสร้างอีเวนต์ใหม่หรือไม่?')
+    // Soft warning if this lead already has linked events — user may want to add another sub-event (setup/teardown/etc.)
+    if (linkedEvents.length > 0) {
+      const proceed = confirm(`Lead นี้มี ${linkedEvents.length} อีเวนต์ผูกอยู่แล้ว ต้องการเพิ่มอีเวนต์ใหม่หรือไม่?`)
       if (!proceed) {
         setLoading(false)
-        router.refresh()
         return
       }
     }
