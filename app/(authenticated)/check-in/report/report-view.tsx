@@ -8,7 +8,7 @@ import {
   TrendingUp, BarChart3, UserCheck, AlertTriangle, Download,
   ChevronDown, ChevronRight, Eye, Search, Filter, X,
   Settings, Timer, Zap, LayoutDashboard, Table2, ExternalLink, Navigation, Trash2,
-  Wand2, Edit3
+  Wand2, Edit3, AlertCircle
 } from 'lucide-react'
 import {
   getCheckinReportData, updateStaffWorkSettings, adminDeleteCheckin,
@@ -110,13 +110,15 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
   const [savingEdit, setSavingEdit] = useState(false)
   const [backfilling, setBackfilling] = useState(false)
   const [backfillResult, setBackfillResult] = useState<{
-    fixed: number; skippedNoMatch: number; skippedAmbiguous: number; alreadyLinked: number
+    fixed: number; fixedByExpense: number; fixedByDate: number
+    skippedNoMatch: number; skippedAmbiguous: number; alreadyLinked: number
   } | null>(null)
   const [startDate, setStartDate] = useState(defaultStart)
   const [endDate, setEndDate] = useState(defaultEnd)
   const [loading, setLoading] = useState(false)
   const [staffFilter, setStaffFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
+  const [unlinkedOnly, setUnlinkedOnly] = useState(false)
   const [expandedStaff, setExpandedStaff] = useState<Set<string>>(new Set())
   const [showPhotoLightbox, setShowPhotoLightbox] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -179,6 +181,8 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
       } else {
         setBackfillResult({
           fixed: result.fixed,
+          fixedByExpense: result.fixedByExpense,
+          fixedByDate: result.fixedByDate,
           skippedNoMatch: result.skippedNoMatch,
           skippedAmbiguous: result.skippedAmbiguous,
           alreadyLinked: result.alreadyLinked,
@@ -235,10 +239,16 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
 
   // ─── Computed Stats ────────────────────────────────────────
 
+  // An onsite check-in is "unlinked" when it has no resolvable event —
+  // neither a real events FK nor a hydrated virtual event from [ref:...].
+  const isUnlinked = (r: CheckinRecord) => r.check_type === 'onsite' && !r.events
+  const unlinkedCount = useMemo(() => records.filter(isUnlinked).length, [records])
+
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
       if (staffFilter !== 'all' && r.user_id !== staffFilter) return false
       if (typeFilter !== 'all' && r.check_type !== typeFilter) return false
+      if (unlinkedOnly && !isUnlinked(r)) return false
       if (searchQuery) {
         const name = r.profiles?.full_name?.toLowerCase() || ''
         const nick = r.profiles?.nickname?.toLowerCase() || ''
@@ -247,7 +257,7 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
       }
       return true
     })
-  }, [records, staffFilter, typeFilter, searchQuery])
+  }, [records, staffFilter, typeFilter, unlinkedOnly, searchQuery])
 
   const overviewStats = useMemo(() => {
     const uniqueDays = new Set(filteredRecords.map(r => new Date(r.checked_in_at).toISOString().split('T')[0]))
@@ -405,8 +415,10 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
           <div className="flex-1 text-sm">
             <div className="font-bold text-emerald-900 dark:text-emerald-100 mb-1">ผลการ link อีเวนต์ย้อนหลัง</div>
             <div className="text-emerald-800 dark:text-emerald-200 space-y-0.5">
-              <div>· Link สำเร็จ: <span className="font-bold">{backfillResult.fixed}</span> รายการ</div>
-              <div>· ไม่พบ closure ที่ตรงวัน: <span className="font-bold">{backfillResult.skippedNoMatch}</span> รายการ (ใช้ปุ่มแก้รายตัว)</div>
+              <div>· Link สำเร็จรวม: <span className="font-bold">{backfillResult.fixed}</span> รายการ</div>
+              <div className="pl-3 text-emerald-700 dark:text-emerald-300">↳ จากใบเบิก (แม่นยำ): <span className="font-bold">{backfillResult.fixedByExpense}</span></div>
+              <div className="pl-3 text-emerald-700 dark:text-emerald-300">↳ จาก closure ตรงวัน (heuristic): <span className="font-bold">{backfillResult.fixedByDate}</span></div>
+              <div>· ไม่พบที่จับคู่ได้: <span className="font-bold">{backfillResult.skippedNoMatch}</span> รายการ (ใช้ปุ่มแก้รายตัว)</div>
               <div>· มี closure ตรงวันมากกว่า 1 รายการ (กำกวม): <span className="font-bold">{backfillResult.skippedAmbiguous}</span> รายการ</div>
               <div>· มี link อยู่แล้ว ข้ามไป: <span className="font-bold">{backfillResult.alreadyLinked}</span> รายการ</div>
             </div>
@@ -493,8 +505,18 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
               <Home className="h-3.5 w-3.5" /> WFH
             </button>
           </div>
-          {(staffFilter !== 'all' || typeFilter !== 'all' || searchQuery) && (
-            <button onClick={() => { setStaffFilter('all'); setTypeFilter('all'); setSearchQuery('') }}
+          {unlinkedCount > 0 && (
+            <button onClick={() => setUnlinkedOnly(v => !v)}
+              title="กรองเฉพาะ check-in ประเภท ไปหน้างาน ที่ยังไม่มีอีเวนต์ผูกไว้"
+              className={`h-9 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all border ${unlinkedOnly
+                ? 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/50 shadow-sm'
+                : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-700 dark:hover:text-amber-300'}`}>
+              <AlertCircle className="h-3.5 w-3.5" /> ยังไม่ link อีเวนต์
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-bold tabular-nums">{unlinkedCount}</span>
+            </button>
+          )}
+          {(staffFilter !== 'all' || typeFilter !== 'all' || searchQuery || unlinkedOnly) && (
+            <button onClick={() => { setStaffFilter('all'); setTypeFilter('all'); setSearchQuery(''); setUnlinkedOnly(false) }}
               className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex items-center gap-1">
               <X className="h-3 w-3" /> ล้างตัวกรอง
             </button>
@@ -925,6 +947,11 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
                                       </div>
                                     )}
                                   </div>
+                                ) : isUnlinked(r) ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/50"
+                                        title="ไปหน้างานแต่ไม่มีอีเวนต์ผูกไว้ — กดปุ่ม &quot;แก้ไขอีเวนต์&quot; เพื่อระบุ">
+                                    <AlertCircle className="h-3 w-3" /> ยังไม่ link
+                                  </span>
                                 ) : (
                                   <span className="text-zinc-300 dark:text-zinc-600 text-xs">—</span>
                                 )}

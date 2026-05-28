@@ -1184,25 +1184,36 @@ export async function adminUpdateCheckinEvent(checkinId: string, rawEventRef: st
   return { success: true }
 }
 
-// ─── Backfill: Heuristic re-link of orphaned onsite check-ins (Admin Only) ──
+// ─── Backfill: Recover event links for orphaned onsite check-ins (Admin Only)
 //
-// For onsite check-ins where event_id is null and there's no existing
-// [ref:...] marker, try to match by Bangkok-date against event_closures.
-// If a unique closure exists for that date, write its ref into `note` so
-// the report fetcher can hydrate it. Skips when 0 or >1 closures match,
-// leaving those rows for manual edit.
+// Two-phase strategy:
+//
+//   Phase 1 (exact, preferred): match via `expense_claims.from_checkin_id`.
+//     When the user originally checked out on-site, autoCreateExpenseFromCheckin
+//     wrote a row in expense_claims linking the checkin to a job_cost_events
+//     row. That link survives even when the original `events` row is later
+//     deleted. We resolve back to the real events.id via jce.source_event_id
+//     when present (set event_id directly), or fall back to a [ref:jce:UUID]
+//     marker so the report fetcher still surfaces the event name.
+//
+//   Phase 2 (heuristic, fallback): for check-ins still orphaned, match by
+//     Bangkok-date against event_closures. If a unique closure exists for
+//     that date, write [ref:closure:UUID] into note. Skip 0-match and
+//     ambiguous (>1) cases — those need the manual edit UI.
 
 export async function backfillCheckinEvents(): Promise<{
   fixed: number
+  fixedByExpense: number
+  fixedByDate: number
   skippedNoMatch: number
   skippedAmbiguous: number
   alreadyLinked: number
   error?: string
 }> {
+  const empty = { fixed: 0, fixedByExpense: 0, fixedByDate: 0, skippedNoMatch: 0, skippedAmbiguous: 0, alreadyLinked: 0 }
+
   const { role } = await getSession()
-  if (role !== 'admin') {
-    return { fixed: 0, skippedNoMatch: 0, skippedAmbiguous: 0, alreadyLinked: 0, error: 'ไม่มีสิทธิ์' }
-  }
+  if (role !== 'admin') return { ...empty, error: 'ไม่มีสิทธิ์' }
 
   const supabase = createServiceClient()
 
@@ -1214,74 +1225,130 @@ export async function backfillCheckinEvents(): Promise<{
 
   if (fetchErr) {
     console.error('Backfill fetch error:', fetchErr)
-    return { fixed: 0, skippedNoMatch: 0, skippedAmbiguous: 0, alreadyLinked: 0, error: 'ดึงข้อมูลไม่สำเร็จ' }
+    return { ...empty, error: 'ดึงข้อมูลไม่สำเร็จ' }
   }
 
-  if (!candidates || candidates.length === 0) {
-    return { fixed: 0, skippedNoMatch: 0, skippedAmbiguous: 0, alreadyLinked: 0 }
-  }
+  if (!candidates || candidates.length === 0) return empty
 
   const REF_RE = /\[ref:(closure|jce):[0-9a-fA-F-]{36}\]/
-  const BANGKOK_OFFSET = 7 * 60 * 60 * 1000
 
   const alreadyLinked = candidates.filter(c => c.note && REF_RE.test(c.note)).length
-  const toMatch = candidates.filter(c => !c.note || !REF_RE.test(c.note))
+  let remaining = candidates.filter(c => !c.note || !REF_RE.test(c.note))
 
-  if (toMatch.length === 0) {
-    return { fixed: 0, skippedNoMatch: 0, skippedAmbiguous: 0, alreadyLinked }
-  }
+  if (remaining.length === 0) return { ...empty, alreadyLinked }
 
-  const bangkokDate = (iso: string) =>
-    new Date(new Date(iso).getTime() + BANGKOK_OFFSET).toISOString().split('T')[0]
-
-  const dates = Array.from(new Set(toMatch.map(c => bangkokDate(c.checked_in_at))))
-  const minDate = dates.reduce((a, b) => (a < b ? a : b))
-  const maxDate = dates.reduce((a, b) => (a > b ? a : b))
-  const rangeStartISO = new Date(`${minDate}T00:00:00+07:00`).toISOString()
-  const rangeEndISO = new Date(`${maxDate}T23:59:59+07:00`).toISOString()
-
-  const { data: closures } = await supabase
-    .from('event_closures')
-    .select('id, event_date')
-    .gte('event_date', rangeStartISO)
-    .lte('event_date', rangeEndISO)
-
-  const closureByDate = new Map<string, string[]>()
-  closures?.forEach(c => {
-    if (!c.event_date) return
-    const d = bangkokDate(c.event_date)
-    if (!closureByDate.has(d)) closureByDate.set(d, [])
-    closureByDate.get(d)!.push(c.id)
-  })
-
-  let fixed = 0
+  let fixedByExpense = 0
+  let fixedByDate = 0
   let skippedNoMatch = 0
   let skippedAmbiguous = 0
 
-  for (const c of toMatch) {
-    const d = bangkokDate(c.checked_in_at)
-    const matches = closureByDate.get(d) || []
+  // ─── Phase 1: expense_claims.from_checkin_id → job_cost_events ──────────
+  const checkinIds = remaining.map(c => c.id)
+  const { data: expenses } = await supabase
+    .from('expense_claims')
+    .select('from_checkin_id, job_event_id')
+    .in('from_checkin_id', checkinIds)
+    .not('job_event_id', 'is', null)
 
-    if (matches.length === 1) {
-      const refTag = `[ref:closure:${matches[0]}]`
-      const newNote = c.note ? `${c.note} ${refTag}` : refTag
-      const { error: updErr } = await supabase
-        .from('staff_checkins')
-        .update({ note: newNote })
-        .eq('id', c.id)
-      if (updErr) {
-        console.error('Backfill update error:', updErr)
+  const expenseByCheckin = new Map<string, string>() // checkinId → job_event_id
+  expenses?.forEach(e => {
+    if (e.from_checkin_id && e.job_event_id && !expenseByCheckin.has(e.from_checkin_id)) {
+      expenseByCheckin.set(e.from_checkin_id, e.job_event_id)
+    }
+  })
+
+  if (expenseByCheckin.size > 0) {
+    const jobEventIds = Array.from(new Set(Array.from(expenseByCheckin.values())))
+    const { data: jceRows } = await supabase
+      .from('job_cost_events')
+      .select('id, source_event_id')
+      .in('id', jobEventIds)
+
+    const jceSourceMap = new Map<string, string | null>()
+    jceRows?.forEach(j => jceSourceMap.set(j.id, j.source_event_id))
+
+    const stillRemaining: typeof remaining = []
+    for (const c of remaining) {
+      const jobEventId = expenseByCheckin.get(c.id)
+      if (!jobEventId) { stillRemaining.push(c); continue }
+
+      const sourceEventId = jceSourceMap.get(jobEventId)
+      if (sourceEventId) {
+        // Original events row still exists — restore the real FK.
+        const { error: updErr } = await supabase
+          .from('staff_checkins')
+          .update({ event_id: sourceEventId })
+          .eq('id', c.id)
+        if (updErr) { console.error('Phase1 update error:', updErr); stillRemaining.push(c); continue }
+      } else {
+        // events row deleted but job_cost_events snapshot remains — write a jce ref.
+        const refTag = `[ref:jce:${jobEventId}]`
+        const newNote = c.note ? `${c.note} ${refTag}` : refTag
+        const { error: updErr } = await supabase
+          .from('staff_checkins')
+          .update({ note: newNote })
+          .eq('id', c.id)
+        if (updErr) { console.error('Phase1 note error:', updErr); stillRemaining.push(c); continue }
+      }
+      fixedByExpense++
+    }
+    remaining = stillRemaining
+  }
+
+  // ─── Phase 2: closure-date heuristic for whatever's left ────────────────
+  if (remaining.length > 0) {
+    const BANGKOK_OFFSET = 7 * 60 * 60 * 1000
+    const bangkokDate = (iso: string) =>
+      new Date(new Date(iso).getTime() + BANGKOK_OFFSET).toISOString().split('T')[0]
+
+    const dates = Array.from(new Set(remaining.map(c => bangkokDate(c.checked_in_at))))
+    const minDate = dates.reduce((a, b) => (a < b ? a : b))
+    const maxDate = dates.reduce((a, b) => (a > b ? a : b))
+    const rangeStartISO = new Date(`${minDate}T00:00:00+07:00`).toISOString()
+    const rangeEndISO = new Date(`${maxDate}T23:59:59+07:00`).toISOString()
+
+    const { data: closures } = await supabase
+      .from('event_closures')
+      .select('id, event_date')
+      .gte('event_date', rangeStartISO)
+      .lte('event_date', rangeEndISO)
+
+    const closureByDate = new Map<string, string[]>()
+    closures?.forEach(c => {
+      if (!c.event_date) return
+      const d = bangkokDate(c.event_date)
+      if (!closureByDate.has(d)) closureByDate.set(d, [])
+      closureByDate.get(d)!.push(c.id)
+    })
+
+    for (const c of remaining) {
+      const d = bangkokDate(c.checked_in_at)
+      const matches = closureByDate.get(d) || []
+
+      if (matches.length === 1) {
+        const refTag = `[ref:closure:${matches[0]}]`
+        const newNote = c.note ? `${c.note} ${refTag}` : refTag
+        const { error: updErr } = await supabase
+          .from('staff_checkins')
+          .update({ note: newNote })
+          .eq('id', c.id)
+        if (updErr) { console.error('Phase2 update error:', updErr); skippedNoMatch++ }
+        else fixedByDate++
+      } else if (matches.length === 0) {
         skippedNoMatch++
       } else {
-        fixed++
+        skippedAmbiguous++
       }
-    } else if (matches.length === 0) {
-      skippedNoMatch++
-    } else {
-      skippedAmbiguous++
     }
   }
 
   revalidatePath('/check-in/report')
-  return { fixed, skippedNoMatch, skippedAmbiguous, alreadyLinked }
+  return {
+    fixed: fixedByExpense + fixedByDate,
+    fixedByExpense,
+    fixedByDate,
+    skippedNoMatch,
+    skippedAmbiguous,
+    alreadyLinked,
+  }
 }
