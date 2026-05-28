@@ -23,15 +23,17 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
   const location = formData.get('location') as string
   const staff = formData.get('staff') as string
   const seller = formData.get('seller') as string
-  const kitIds = formData.getAll('kits') as string[] 
+  const kitIds = formData.getAll('kits') as string[]
   const fromCrm = formData.get('from_crm') as string | null
-  
+  const phaseRaw = formData.get('phase') as string | null
+  const phase = phaseRaw && ['setup', 'main', 'teardown', 'delivery', 'other'].includes(phaseRaw) ? phaseRaw : null
+
   if (!name) {
       return { error: 'Event name is required' }
   }
 
   const supabase = createServiceClient()
-  
+
   const { data: event, error: eventError } = await supabase
       .from('events')
       .insert({
@@ -41,6 +43,7 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
           seller,
           event_date: formData.get('event_date') as string || new Date().toISOString(),
           crm_lead_id: fromCrm || null,
+          phase,
       })
       .select()
       .single()
@@ -203,8 +206,10 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   const location = formData.get('location') as string
   const staff = formData.get('staff') as string
   const seller = formData.get('seller') as string
+  const phaseRaw = formData.get('phase') as string | null
+  const phase = phaseRaw && ['setup', 'main', 'teardown', 'delivery', 'other'].includes(phaseRaw) ? phaseRaw : null
   // These are the kits that SHOULD be assigned now
-  const selectedKitIds = formData.getAll('kits') as string[] 
+  const selectedKitIds = formData.getAll('kits') as string[]
 
   if (!name) return { error: 'Event name is required' }
 
@@ -249,7 +254,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   // 1. Update basic info
   const { error: updateError } = await supabase
       .from('events')
-      .update({ name, location, staff, seller })
+      .update({ name, location, staff, seller, phase })
       .eq('id', id)
 
   if (updateError) return { error: 'Failed to update event details' }

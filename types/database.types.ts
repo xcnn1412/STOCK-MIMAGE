@@ -81,6 +81,7 @@ export interface Database {
           staff: string | null
           event_date: string
           status: string | null
+          phase: string | null
           created_at: string
         }
         Insert: {
@@ -90,6 +91,7 @@ export interface Database {
           staff?: string | null
           event_date?: string
           status?: string | null
+          phase?: string | null
           created_at?: string
         }
         Update: {
@@ -99,6 +101,7 @@ export interface Database {
           staff?: string | null
           event_date?: string
           status?: string | null
+          phase?: string | null
           created_at?: string
         }
         Relationships: []

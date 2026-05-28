@@ -166,7 +166,7 @@ export async function importEventFromStock(eventId: string) {
     }
   }
 
-  // สร้าง job_cost_event
+  // สร้าง job_cost_event — carry over the phase classifier set on the operational event
   const { data: created, error: insertErr } = await supabase
     .from('job_cost_events')
     .insert({
@@ -180,6 +180,7 @@ export async function importEventFromStock(eventId: string) {
       revenue_vat_mode: revenueVatMode,
       revenue_wht_rate: revenueWhtRate,
       linked_lead_id: linkedLeadId,
+      phase: (event as { phase?: string | null }).phase ?? null,
       imported_by: userId,
     })
     .select('id')

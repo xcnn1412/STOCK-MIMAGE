@@ -18,6 +18,7 @@ import Link from 'next/link'
 import { useLanguage } from '@/contexts/language-context'
 import EventsLogSheet, { type EventLog } from '../../events-log-sheet'
 import type { Event, Kit } from '@/types'
+import { EVENT_PHASES } from '../../../crm/event-phases'
 
 interface Profile {
   id: string
@@ -96,6 +97,9 @@ export default function EditEventForm({
   const [assignments, setAssignments] = useState<StaffAssignment[]>(initialStaffAssignments)
   const [selectUser, setSelectUser] = useState('')
   const [selectRole, setSelectRole] = useState('')
+
+  // Event phase (sub-event classification)
+  const [phase, setPhase] = useState<string>((event as { phase?: string | null }).phase || 'main')
 
   // Clean valid assigned kit IDs
   const initialChecked = new Set(assignedKitIds)
@@ -283,6 +287,29 @@ export default function EditEventForm({
             <div className="space-y-2">
               <Label htmlFor="location">{t.events.fields.location}</Label>
               <Input id="location" name="location" defaultValue={event.location || ''} />
+            </div>
+
+            {/* Event Phase */}
+            <div className="space-y-2">
+              <Label htmlFor="phase">
+                {locale === 'th' ? 'ประเภทของอีเวนต์ (Phase)' : 'Event Phase'}
+              </Label>
+              <input type="hidden" name="phase" value={phase} />
+              <Select value={phase} onValueChange={setPhase}>
+                <SelectTrigger id="phase" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {EVENT_PHASES.map(p => (
+                    <SelectItem key={p.value} value={p.value}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>{p.icon}</span>
+                        <span>{locale === 'th' ? p.labelTh : p.labelEn}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* ===== Staff & Roles (Junction Table) ===== */}

@@ -14,6 +14,7 @@ import { ArrowLeft, Loader2, Users, Info, X, Plus } from "lucide-react"
 import Link from 'next/link'
 import { ThaiDatePicker } from '@/components/thai-date-picker'
 import { useLanguage } from '@/contexts/language-context'
+import { EVENT_PHASES } from '../../crm/event-phases'
 
 interface Profile {
   id: string
@@ -65,6 +66,9 @@ export default function CreateEventForm({
   )
   const [selectUser, setSelectUser] = useState('')
   const [selectRole, setSelectRole] = useState('')
+
+  // Event phase — defaults to 'main'; user can pick setup / teardown / delivery / other for sub-events
+  const [phase, setPhase] = useState<string>('main')
 
   const addAssignment = () => {
     if (!selectUser || !selectRole) return
@@ -121,6 +125,8 @@ export default function CreateEventForm({
           <input type="hidden" name="staff_assignments" value={JSON.stringify(assignments)} />
           {/* Backward compat: staff as comma-joined names */}
           <input type="hidden" name="staff" value={assignments.map(a => a.full_name).join(', ')} />
+          {/* Event phase (carried to job_cost_events on import) */}
+          <input type="hidden" name="phase" value={phase} />
 
           <CardContent className="space-y-6">
             {/* CRM prefill banner */}
@@ -149,6 +155,33 @@ export default function CreateEventForm({
             <div className="space-y-2">
               <Label htmlFor="event_date">{t.events.fields.date}</Label>
               <ThaiDatePicker name="event_date" defaultValue={prefill?.eventDate ? new Date(prefill.eventDate) : undefined} />
+            </div>
+
+            {/* Event Phase — for sub-event classification (setup/main/teardown/delivery) */}
+            <div className="space-y-2">
+              <Label htmlFor="phase">
+                {locale === 'th' ? 'ประเภทของอีเวนต์ (Phase)' : 'Event Phase'}
+              </Label>
+              <Select value={phase} onValueChange={setPhase}>
+                <SelectTrigger id="phase" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {EVENT_PHASES.map(p => (
+                    <SelectItem key={p.value} value={p.value}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>{p.icon}</span>
+                        <span>{locale === 'th' ? p.labelTh : p.labelEn}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-zinc-400">
+                {locale === 'th'
+                  ? 'เลือก "วันงาน" สำหรับงานหลัก / "เซ็ตอัพ" / "รื้อถอน" สำหรับงานช่วงก่อนหลัง'
+                  : 'Pick "Main" for the main event day; use Setup/Teardown for prep/break-down sub-events'}
+              </p>
             </div>
 
             {/* ===== Staff & Roles (Junction Table) ===== */}
