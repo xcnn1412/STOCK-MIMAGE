@@ -422,10 +422,10 @@ export default function CheckInView({
               ) : null}
             </div>
           </div>
-          <Link href="/check-in/history"
+          <Link href="/check-in/report"
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all duration-200 border border-white/10 shrink-0"
           >
-            <History className="h-3.5 w-3.5" /> ประวัติ
+            <History className="h-3.5 w-3.5" /> รายงาน
           </Link>
         </div>
       </div>

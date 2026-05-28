@@ -7,9 +7,14 @@ import {
   ArrowLeft, Calendar, Clock, Users, Building2, MapPin, Home,
   TrendingUp, BarChart3, UserCheck, AlertTriangle, Download,
   ChevronDown, ChevronRight, Eye, Search, Filter, X,
-  Settings, Timer, Zap, LayoutDashboard, Table2, ExternalLink, Navigation, Trash2
+  Settings, Timer, Zap, LayoutDashboard, Table2, ExternalLink, Navigation, Trash2,
+  Wand2, Edit3
 } from 'lucide-react'
-import { getCheckinReportData, updateStaffWorkSettings, adminDeleteCheckin } from '../actions'
+import {
+  getCheckinReportData, updateStaffWorkSettings, adminDeleteCheckin,
+  adminUpdateCheckinEvent, backfillCheckinEvents, updateMyCheckinEvent,
+} from '../actions'
+import EventSelectCombobox from '../../finance/new/event-select-combobox'
 
 // ─── Types ─────────────────────────────────────────────────
 interface CheckinRecord {
@@ -38,11 +43,22 @@ interface StaffMember {
   ot_threshold: number | null
 }
 
+interface EventOption {
+  id: string
+  event_name: string
+  event_date: string | null
+  event_location: string | null
+  status: string
+}
+
 interface Props {
   initialRecords: CheckinRecord[]
   staff: StaffMember[]
+  allEvents: EventOption[]
   defaultStart: string
   defaultEnd: string
+  isAdmin: boolean
+  currentUserId: string
 }
 
 const TYPE_LABELS: Record<string, string> = { office: 'เข้าออฟฟิศ', onsite: 'ไปหน้างาน', remote: 'WFH' }
@@ -86,9 +102,16 @@ function getCheckinHour(checkedInAt: string): number {
 
 // ─── Main Component ────────────────────────────────────────
 
-export default function CheckinReportView({ initialRecords, staff, defaultStart, defaultEnd }: Props) {
+export default function CheckinReportView({ initialRecords, staff, allEvents, defaultStart, defaultEnd, isAdmin, currentUserId }: Props) {
   const router = useRouter()
   const [records, setRecords] = useState<CheckinRecord[]>(initialRecords)
+  const [editingCheckin, setEditingCheckin] = useState<CheckinRecord | null>(null)
+  const [editingEventRef, setEditingEventRef] = useState<string>('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillResult, setBackfillResult] = useState<{
+    fixed: number; skippedNoMatch: number; skippedAmbiguous: number; alreadyLinked: number
+  } | null>(null)
   const [startDate, setStartDate] = useState(defaultStart)
   const [endDate, setEndDate] = useState(defaultEnd)
   const [loading, setLoading] = useState(false)
@@ -139,6 +162,76 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
     }
     setLoading(false)
   }, [startDate, endDate])
+
+  const refreshRecords = useCallback(async () => {
+    const data = await getCheckinReportData(startDate, endDate)
+    setRecords(data.records as unknown as CheckinRecord[])
+  }, [startDate, endDate])
+
+  async function handleBackfill() {
+    if (!confirm('ระบบจะค้นหาอีเวนต์ที่ปิดงานในวันเดียวกันกับ check-in ที่ไม่มีอีเวนต์ — เฉพาะที่จับคู่ได้แบบไม่กำกวมจะถูก link อัตโนมัติ ดำเนินการต่อ?')) return
+    setBackfilling(true)
+    setBackfillResult(null)
+    try {
+      const result = await backfillCheckinEvents()
+      if ('error' in result && result.error) {
+        alert(result.error)
+      } else {
+        setBackfillResult({
+          fixed: result.fixed,
+          skippedNoMatch: result.skippedNoMatch,
+          skippedAmbiguous: result.skippedAmbiguous,
+          alreadyLinked: result.alreadyLinked,
+        })
+        if (result.fixed > 0) await refreshRecords()
+      }
+    } catch (e) {
+      console.error('Backfill error:', e)
+      alert('เกิดข้อผิดพลาด')
+    }
+    setBackfilling(false)
+  }
+
+  function openEditCheckin(r: CheckinRecord) {
+    setEditingCheckin(r)
+    // Pre-fill the picker with the current event reference, if any.
+    const currentEv = r.events
+    if (currentEv?.id) {
+      if (currentEv.id.startsWith('closure:') || currentEv.id.startsWith('jce:')) {
+        // Virtual events from hydrated refs already carry the prefix in our pipeline,
+        // but the EventSelectCombobox expects the dropdown's raw IDs (job_cost_events
+        // rows use the bare UUID). Strip jce: prefix; keep closure: as-is.
+        setEditingEventRef(currentEv.id.startsWith('jce:') ? currentEv.id.replace('jce:', '') : currentEv.id)
+      } else if (r.event_id) {
+        // Real events row — combobox uses `stock:UUID` for these.
+        setEditingEventRef(`stock:${r.event_id}`)
+      } else {
+        setEditingEventRef('')
+      }
+    } else {
+      setEditingEventRef('')
+    }
+  }
+
+  async function handleSaveEdit() {
+    if (!editingCheckin) return
+    setSavingEdit(true)
+    try {
+      const action = isAdmin ? adminUpdateCheckinEvent : updateMyCheckinEvent
+      const result = await action(editingCheckin.id, editingEventRef || null)
+      if (result.error) {
+        alert(result.error)
+      } else {
+        await refreshRecords()
+        setEditingCheckin(null)
+        setEditingEventRef('')
+      }
+    } catch (e) {
+      console.error('Edit checkin event error:', e)
+      alert('เกิดข้อผิดพลาด')
+    }
+    setSavingEdit(false)
+  }
 
   // ─── Computed Stats ────────────────────────────────────────
 
@@ -283,16 +376,47 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
           </Link>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-              รายงาน Check-in
+              {isAdmin ? 'รายงาน Check-in' : 'รายงานของฉัน'}
             </h1>
-            <p className="text-sm text-zinc-400 dark:text-zinc-500">HR Report · Admin Only</p>
+            <p className="text-sm text-zinc-400 dark:text-zinc-500">
+              {isAdmin ? 'HR Report · Admin Only' : 'ประวัติ Check-in รูปแบบตาราง'}
+            </p>
           </div>
         </div>
-        <button onClick={exportExcel}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors shadow-sm active:scale-[0.98]">
-          <Download className="h-4 w-4" /> Export Excel
-        </button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button onClick={handleBackfill} disabled={backfilling}
+              title="ค้นหาและ link อีเวนต์ที่ปิดงานกับ check-in ที่ไม่มีอีเวนต์ (อัตโนมัติเมื่อจับคู่ได้ไม่กำกวม)"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 text-sm font-semibold hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 transition-colors active:scale-[0.98]">
+              <Wand2 className="h-4 w-4" /> {backfilling ? 'กำลังค้นหา...' : 'Link อีเวนต์ย้อนหลัง'}
+            </button>
+          )}
+          <button onClick={exportExcel}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors shadow-sm active:scale-[0.98]">
+            <Download className="h-4 w-4" /> Export Excel
+          </button>
+        </div>
       </div>
+
+      {/* Backfill Result Banner */}
+      {backfillResult && (
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-xl p-4 flex items-start gap-3">
+          <Wand2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm">
+            <div className="font-bold text-emerald-900 dark:text-emerald-100 mb-1">ผลการ link อีเวนต์ย้อนหลัง</div>
+            <div className="text-emerald-800 dark:text-emerald-200 space-y-0.5">
+              <div>· Link สำเร็จ: <span className="font-bold">{backfillResult.fixed}</span> รายการ</div>
+              <div>· ไม่พบ closure ที่ตรงวัน: <span className="font-bold">{backfillResult.skippedNoMatch}</span> รายการ (ใช้ปุ่มแก้รายตัว)</div>
+              <div>· มี closure ตรงวันมากกว่า 1 รายการ (กำกวม): <span className="font-bold">{backfillResult.skippedAmbiguous}</span> รายการ</div>
+              <div>· มี link อยู่แล้ว ข้ามไป: <span className="font-bold">{backfillResult.alreadyLinked}</span> รายการ</div>
+            </div>
+          </div>
+          <button onClick={() => setBackfillResult(null)}
+            className="h-7 w-7 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 flex items-center justify-center transition-colors shrink-0">
+            <X className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-300" />
+          </button>
+        </div>
+      )}
 
       {/* Tab Switcher */}
       <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl w-fit">
@@ -335,19 +459,23 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
 
         {/* Filters row */}
         <div className="flex flex-wrap gap-2 items-center">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
-            <input type="text" placeholder="ค้นหาชื่อ..." value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="h-9 pl-8 pr-3 w-[160px] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900/10" />
-          </div>
-          <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)}
-            className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none">
-            <option value="all">ทุกคน</option>
-            {staff.map(s => (
-              <option key={s.id} value={s.id}>{s.full_name || s.nickname || s.id.slice(0, 8)}</option>
-            ))}
-          </select>
+          {isAdmin && (
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
+              <input type="text" placeholder="ค้นหาชื่อ..." value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="h-9 pl-8 pr-3 w-[160px] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900/10" />
+            </div>
+          )}
+          {isAdmin && (
+            <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)}
+              className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none">
+              <option value="all">ทุกคน</option>
+              {staff.map(s => (
+                <option key={s.id} value={s.id}>{s.full_name || s.nickname || s.id.slice(0, 8)}</option>
+              ))}
+            </select>
+          )}
           {/* Explicit Type Tabs (Separated visual design for Office/Onsite clarity) */}
           <div className="flex bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-lg">
             <button onClick={() => setTypeFilter('all')}
@@ -454,7 +582,8 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
       {/* ═══════════════ TABLE VIEW ════════════════ */}
       {viewMode === 'table' && (
       <>
-      {/* ─── Work Settings Panel ──────────────────────────────── */}
+      {/* ─── Work Settings Panel (admin only) ──────────────────── */}
+      {isAdmin && (
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 overflow-hidden">
         <button onClick={() => setShowSettings(!showSettings)}
           className="w-full flex items-center gap-2.5 p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors text-left">
@@ -505,6 +634,7 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
           </div>
         )}
       </div>
+      )}
 
       {/* ─── Work Hours Summary Table ─────────────────────────── */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 overflow-hidden">
@@ -561,12 +691,16 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                       </div>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button onClick={() => setEditingStaffId(member.userId)}
-                        className={`text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${hasCustom
-                          ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300'
-                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'}`}>
-                        {hasCustom ? `${effHours}ชม.` : 'Global'}
-                      </button>
+                      {isAdmin ? (
+                        <button onClick={() => setEditingStaffId(member.userId)}
+                          className={`text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${hasCustom
+                            ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300'
+                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'}`}>
+                          {hasCustom ? `${effHours}ชม.` : 'Global'}
+                        </button>
+                      ) : (
+                        <span className="text-[10px] font-bold text-zinc-400">{effHours}ชม.</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center font-mono text-zinc-700 dark:text-zinc-300 font-medium">{member.uniqueDays}</td>
                     <td className="px-4 py-3 text-center font-mono text-zinc-700 dark:text-zinc-300 font-bold">{member.totalHours.toFixed(1)}</td>
@@ -824,23 +958,36 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                                 {r.note || '—'}
                               </td>
                               <td className="px-4 py-2.5 text-center">
-                                <button
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    const name = r.profiles?.full_name || r.profiles?.nickname || 'ไม่ทราบ'
-                                    if (!confirm(`ลบ Check-in ของ "${name}" วันที่ ${formatDate(r.checked_in_at)}?\nจะไม่สามารถกู้คืนได้`)) return
-                                    const result = await adminDeleteCheckin(r.id)
-                                    if (result.error) {
-                                      alert(result.error)
-                                    } else {
-                                      setRecords(prev => prev.filter(rec => rec.id !== r.id))
-                                    }
-                                  }}
-                                  className="h-7 w-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                                  title="ลบ Check-in"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
+                                <div className="flex items-center justify-center gap-0.5">
+                                  {r.check_type === 'onsite' && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); openEditCheckin(r) }}
+                                      className="h-7 w-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+                                      title="แก้ไขอีเวนต์"
+                                    >
+                                      <Edit3 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  {isAdmin && (
+                                    <button
+                                      onClick={async (e) => {
+                                        e.stopPropagation()
+                                        const name = r.profiles?.full_name || r.profiles?.nickname || 'ไม่ทราบ'
+                                        if (!confirm(`ลบ Check-in ของ "${name}" วันที่ ${formatDate(r.checked_in_at)}?\nจะไม่สามารถกู้คืนได้`)) return
+                                        const result = await adminDeleteCheckin(r.id)
+                                        if (result.error) {
+                                          alert(result.error)
+                                        } else {
+                                          setRecords(prev => prev.filter(rec => rec.id !== r.id))
+                                        }
+                                      }}
+                                      className="h-7 w-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                      title="ลบ Check-in"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           )
@@ -1056,6 +1203,69 @@ export default function CheckinReportView({ initialRecords, staff, defaultStart,
                   </div>
                 </a>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Event Modal */}
+      {editingCheckin && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => { if (!savingEdit) { setEditingCheckin(null); setEditingEventRef('') } }}>
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-md"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-zinc-100 dark:border-zinc-800">
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">แก้ไขอีเวนต์ของ Check-in</h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {editingCheckin.profiles?.full_name || editingCheckin.profiles?.nickname || '—'} · {formatDate(editingCheckin.checked_in_at)} {formatTime(editingCheckin.checked_in_at)}
+                </p>
+              </div>
+              <button onClick={() => { setEditingCheckin(null); setEditingEventRef('') }}
+                disabled={savingEdit}
+                className="h-8 w-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors disabled:opacity-40">
+                <X className="h-4 w-4 text-zinc-500" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5" /> เลือกอีเวนต์
+              </label>
+              <EventSelectCombobox events={allEvents} value={editingEventRef} onChange={setEditingEventRef} />
+              <p className="text-[10px] text-zinc-400">
+                เลือกจากรายการ events ที่เปิดอยู่, event_closures (อีเวนต์ที่ปิดไปแล้ว), หรือ job_cost_events — ระบบจะ resolve เป็น event_id หรือเก็บ ref ใน note ให้อัตโนมัติ
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 p-5 pt-0">
+              {(editingCheckin.event_id || editingCheckin.events) && (
+                <button
+                  disabled={savingEdit}
+                  onClick={async () => {
+                    if (!confirm('ลบการ link อีเวนต์ของ check-in นี้?')) return
+                    setSavingEdit(true)
+                    const result = await (isAdmin ? adminUpdateCheckinEvent : updateMyCheckinEvent)(editingCheckin.id, null)
+                    if (result.error) alert(result.error)
+                    else { await refreshRecords(); setEditingCheckin(null); setEditingEventRef('') }
+                    setSavingEdit(false)
+                  }}
+                  className="h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40">
+                  ลบ link
+                </button>
+              )}
+              <div className="flex-1" />
+              <button onClick={() => { setEditingCheckin(null); setEditingEventRef('') }}
+                disabled={savingEdit}
+                className="h-10 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40">
+                ยกเลิก
+              </button>
+              <button
+                disabled={savingEdit || !editingEventRef}
+                onClick={handleSaveEdit}
+                className="h-10 px-5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-40 transition-colors active:scale-[0.98]">
+                {savingEdit ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
             </div>
           </div>
         </div>

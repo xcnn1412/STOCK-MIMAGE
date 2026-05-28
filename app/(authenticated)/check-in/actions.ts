@@ -192,13 +192,18 @@ export async function adminCheckIn(formData: FormData) {
     }
   }
 
-  // Resolve event_id from prefixed format (stock:uuid, closure:uuid, or raw uuid)
+  // Resolve event_id from prefixed format (stock:uuid, closure:uuid, or raw uuid).
+  // When the source can't be FK'd to events (closure / cost-event-without-source),
+  // we keep the original ref in `note` as `[ref:closure:UUID]` or `[ref:jce:UUID]`
+  // so the report fetcher can still resolve the event name later.
   let resolvedEventId: string | null = null
+  let sourceRefTag: string | null = null
   if (checkType === 'onsite' && rawEventId) {
     if (rawEventId.startsWith('stock:')) {
       resolvedEventId = rawEventId.replace('stock:', '')
     } else if (rawEventId.startsWith('closure:')) {
       resolvedEventId = null // closure records don't FK to events
+      sourceRefTag = `[ref:${rawEventId}]` // [ref:closure:UUID]
     } else {
       // job_cost_events ID — lookup source_event_id
       const { data: jce } = await supabase
@@ -207,8 +212,14 @@ export async function adminCheckIn(formData: FormData) {
         .eq('id', rawEventId)
         .single()
       resolvedEventId = jce?.source_event_id || null
+      if (!resolvedEventId) {
+        sourceRefTag = `[ref:jce:${rawEventId}]`
+      }
     }
   }
+
+  const baseNote = note ? `[Admin] ${note}` : `[Admin] สร้างโดย Admin`
+  const finalNote = sourceRefTag ? `${baseNote} ${sourceRefTag}` : baseNote
 
   const { data: inserted, error } = await supabase
     .from('staff_checkins')
@@ -218,7 +229,7 @@ export async function adminCheckIn(formData: FormData) {
       event_id: resolvedEventId,
       checked_in_at: checkedInAt,
       checked_out_at: checkedOutAt,
-      note: note ? `[Admin] ${note}` : `[Admin] สร้างโดย Admin`,
+      note: finalNote,
     })
     .select('id')
     .single()
@@ -663,6 +674,68 @@ export async function getTodayCheckins() {
   return merged
 }
 
+// ─── Shared helper: hydrate [ref:closure:UUID] / [ref:jce:UUID] markers ──────
+//
+// For records whose event FK is null but the original source was preserved as
+// a tag in `note`, look up the corresponding closure/job_cost_events row and
+// inject it back as a virtual `events: { id, name }` field. Also strips the
+// `[ref:...]` marker from the displayed note so the UI doesn't show it.
+
+const REF_TAG_RE = /\[ref:(closure|jce):([0-9a-fA-F-]{36})\]/
+
+async function hydrateCheckinRefs<
+  T extends { id: string; event_id: string | null; note: string | null; events?: { id: string; name: string } | null }
+>(
+  records: T[],
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<T[]> {
+  if (records.length === 0) return records
+
+  const refMap = new Map<string, { kind: 'closure' | 'jce'; refId: string }>()
+  records.forEach(r => {
+    if (r.event_id) return
+    const m = r.note ? r.note.match(REF_TAG_RE) : null
+    if (m) refMap.set(r.id, { kind: m[1] as 'closure' | 'jce', refId: m[2] })
+  })
+  if (refMap.size === 0) return records
+
+  const closureIds = Array.from(new Set(
+    Array.from(refMap.values()).filter(v => v.kind === 'closure').map(v => v.refId)
+  ))
+  const jceIds = Array.from(new Set(
+    Array.from(refMap.values()).filter(v => v.kind === 'jce').map(v => v.refId)
+  ))
+
+  const [{ data: closureRows }, { data: jceRows }] = await Promise.all([
+    closureIds.length > 0
+      ? supabase.from('event_closures').select('id, event_name').in('id', closureIds)
+      : Promise.resolve({ data: [] as { id: string; event_name: string }[] }),
+    jceIds.length > 0
+      ? supabase.from('job_cost_events').select('id, event_name').in('id', jceIds)
+      : Promise.resolve({ data: [] as { id: string; event_name: string }[] }),
+  ])
+
+  const closureMap = new Map(closureRows?.map(c => [c.id, c.event_name]) || [])
+  const jceMap = new Map(jceRows?.map(j => [j.id, j.event_name]) || [])
+
+  return records.map(r => {
+    const ref = refMap.get(r.id)
+    if (!ref) return r
+    let virtualEvent: { id: string; name: string } | null = null
+    if (ref.kind === 'closure') {
+      const name = closureMap.get(ref.refId)
+      if (name) virtualEvent = { id: `closure:${ref.refId}`, name }
+    } else {
+      const name = jceMap.get(ref.refId)
+      if (name) virtualEvent = { id: `jce:${ref.refId}`, name }
+    }
+    const cleanedNote = r.note
+      ? (r.note.replace(REF_TAG_RE, '').replace(/\s+$/, '').trim() || null)
+      : null
+    return { ...r, events: r.events || virtualEvent, note: cleanedNote }
+  })
+}
+
 export async function getMyCheckinHistory(limit = 30) {
   const { userId } = await getSession()
   if (!userId) return []
@@ -681,7 +754,8 @@ export async function getMyCheckinHistory(limit = 30) {
     return []
   }
 
-  return data || []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return await hydrateCheckinRefs((data || []) as any[], supabase) as any
 }
 
 export async function getTodayEvents() {
@@ -778,35 +852,84 @@ export async function getStaffList() {
 // ─── Report Data (Admin Only) ─────────────────────────────
 
 export async function getCheckinReportData(startDate: string, endDate: string) {
-  const { role } = await getSession()
-  if (role !== 'admin') return { records: [], staff: [] }
+  const { userId, role } = await getSession()
+  if (!userId) return { records: [], staff: [] }
+  const isAdmin = role === 'admin'
 
   const supabase = createServiceClient()
 
   const startISO = new Date(`${startDate}T00:00:00+07:00`).toISOString()
   const endISO = new Date(`${endDate}T23:59:59+07:00`).toISOString()
 
-  const [recordsResult, staffResult] = await Promise.all([
-    supabase
-      .from('staff_checkins')
-      .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, checkout_photo_url, event_id, events:event_id(id, name, crm_lead_id), profiles:user_id(id, full_name, nickname)')
-      .gte('checked_in_at', startISO)
-      .lte('checked_in_at', endISO)
-      .order('checked_in_at', { ascending: true }),
-    supabase
-      .from('profiles')
-      .select('id, full_name, nickname, standard_hours, late_hour, late_minute, ot_threshold')
-      .order('full_name'),
-  ])
+  // Non-admins see only their own records; admins see everyone's.
+  let recordsQuery = supabase
+    .from('staff_checkins')
+    .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, checkout_photo_url, event_id, events:event_id(id, name, crm_lead_id), profiles:user_id(id, full_name, nickname)')
+    .gte('checked_in_at', startISO)
+    .lte('checked_in_at', endISO)
+    .order('checked_in_at', { ascending: true })
+  if (!isAdmin) recordsQuery = recordsQuery.eq('user_id', userId)
+
+  // Non-admins only need their own profile for the staff list (used for the
+  // per-staff breakdown row).
+  let staffQuery = supabase
+    .from('profiles')
+    .select('id, full_name, nickname, standard_hours, late_hour, late_minute, ot_threshold')
+    .order('full_name')
+  if (!isAdmin) staffQuery = staffQuery.eq('id', userId)
+
+  const [recordsResult, staffResult] = await Promise.all([recordsQuery, staffQuery])
 
   const records = recordsResult.data || []
   if (records.length === 0) return { records: [], staff: staffResult.data || [] }
 
+  // Parse [ref:closure:UUID] / [ref:jce:UUID] tags out of `note` for records
+  // whose event FK was nulled at write time (admin picked a closure / a
+  // job_cost_events row that had no source_event_id). These tags let us
+  // hydrate the event name back as a "virtual event" for display.
+  const REF_RE = /\[ref:(closure|jce):([0-9a-fA-F-]{36})\]/
+  const noteRefs = new Map<string, { kind: 'closure' | 'jce'; refId: string }>()
+  records.forEach(r => {
+    if (r.event_id) return // real event FK takes precedence
+    const m = r.note ? r.note.match(REF_RE) : null
+    if (m) noteRefs.set(r.id, { kind: m[1] as 'closure' | 'jce', refId: m[2] })
+  })
+
+  const closureIds = Array.from(new Set(
+    Array.from(noteRefs.values()).filter(v => v.kind === 'closure').map(v => v.refId)
+  ))
+  const jceIds = Array.from(new Set(
+    Array.from(noteRefs.values()).filter(v => v.kind === 'jce').map(v => v.refId)
+  ))
+
   const eventIds = Array.from(new Set(records.map(r => r.event_id).filter(Boolean))) as string[]
+
+  const [
+    { data: closureRows },
+    { data: jceRows },
+  ] = await Promise.all([
+    closureIds.length > 0
+      ? supabase.from('event_closures').select('id, event_name').in('id', closureIds)
+      : Promise.resolve({ data: [] as { id: string; event_name: string }[] }),
+    jceIds.length > 0
+      ? supabase.from('job_cost_events').select('id, event_name, source_event_id').in('id', jceIds)
+      : Promise.resolve({ data: [] as { id: string; event_name: string; source_event_id: string | null }[] }),
+  ])
+
+  const closureMap = new Map<string, string>()
+  closureRows?.forEach(c => closureMap.set(c.id, c.event_name))
+  const jceMap = new Map<string, { name: string; sourceEventId: string | null }>()
+  jceRows?.forEach(j => jceMap.set(j.id, { name: j.event_name, sourceEventId: j.source_event_id }))
+
+  // jce rows may carry a source_event_id we can use for role lookup (event_staff /
+  // crm_lead_staff). Add those to eventIds so the staff-role join below finds them.
+  jceRows?.forEach(j => { if (j.source_event_id) eventIds.push(j.source_event_id) })
+  const dedupedEventIds = Array.from(new Set(eventIds))
+
   const leadIds = Array.from(new Set(records.map(r => (r.events as any)?.crm_lead_id).filter(Boolean))) as string[]
 
   const [{ data: eStaff }, { data: cStaff }, { data: settingsData }] = await Promise.all([
-    eventIds.length > 0 ? supabase.from('event_staff').select('event_id, user_id, role').in('event_id', eventIds) : { data: [] },
+    dedupedEventIds.length > 0 ? supabase.from('event_staff').select('event_id, user_id, role').in('event_id', dedupedEventIds) : { data: [] },
     leadIds.length > 0 ? supabase.from('crm_lead_staff').select('lead_id, user_id, role').in('lead_id', leadIds) : { data: [] },
     supabase.from('crm_settings').select('value, label_th, color').eq('category', 'staff_role')
   ])
@@ -832,8 +955,34 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
 
   const mappedRecords = records.map(r => {
     const rolesSet = new Set<string>()
-    if (r.event_id) {
-      const eKey = `${r.event_id}_${r.user_id}`
+    // Effective event_id for role lookup — falls back to the jce ref's
+    // source_event_id when the FK was nulled at write time.
+    let effectiveEventId: string | null = r.event_id
+    let virtualEvent: { id: string; name: string } | null = null
+    let displayNote: string | null = r.note
+
+    if (!r.event_id) {
+      const ref = noteRefs.get(r.id)
+      if (ref) {
+        if (ref.kind === 'closure') {
+          const name = closureMap.get(ref.refId)
+          if (name) virtualEvent = { id: `closure:${ref.refId}`, name }
+        } else {
+          const jce = jceMap.get(ref.refId)
+          if (jce) {
+            virtualEvent = { id: `jce:${ref.refId}`, name: jce.name }
+            if (jce.sourceEventId) effectiveEventId = jce.sourceEventId
+          }
+        }
+        // Strip the marker so the UI/Export shows a clean note.
+        if (displayNote) {
+          displayNote = displayNote.replace(REF_RE, '').replace(/\s+$/, '').trim() || null
+        }
+      }
+    }
+
+    if (effectiveEventId) {
+      const eKey = `${effectiveEventId}_${r.user_id}`
       if (eRoleMap.has(eKey)) eRoleMap.get(eKey)!.forEach(role => rolesSet.add(role))
 
       const leadId = (r.events as any)?.crm_lead_id
@@ -849,13 +998,85 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
       color: roleMap[role]?.color || '#6b7280'
     }))
 
-    return { ...r, assigned_roles }
+    const events = r.events || virtualEvent
+    return { ...r, events, note: displayNote, assigned_roles }
   })
 
   return {
     records: mappedRecords,
     staff: staffResult.data || [],
   }
+}
+
+// ─── User: Update event of own check-in ─────────────────
+//
+// Mirrors adminUpdateCheckinEvent but scoped to the caller's own records.
+// Ownership is enforced by matching staff_checkins.user_id against the
+// session's userId — both in the SELECT (to fetch the existing row) and
+// in the UPDATE's WHERE clause (defense in depth).
+
+export async function updateMyCheckinEvent(checkinId: string, rawEventRef: string | null) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+  if (!checkinId) return { error: 'ไม่พบ record' }
+
+  const supabase = createServiceClient()
+
+  const { data: existing } = await supabase
+    .from('staff_checkins')
+    .select('id, user_id, note, check_type')
+    .eq('id', checkinId)
+    .eq('user_id', userId)
+    .single()
+
+  if (!existing) return { error: 'ไม่พบ record หรือไม่ใช่ของคุณ' }
+  if (existing.check_type !== 'onsite') {
+    return { error: 'แก้ไขอีเวนต์ได้เฉพาะ Check-in ประเภท "ไปหน้างาน" เท่านั้น' }
+  }
+
+  const REF_GLOBAL = /\s*\[ref:(closure|jce):[0-9a-fA-F-]{36}\]/g
+  let cleanedNote: string | null = existing.note
+    ? existing.note.replace(REF_GLOBAL, '').trim()
+    : null
+  if (cleanedNote === '') cleanedNote = null
+
+  let newEventId: string | null = null
+  let refTag: string | null = null
+
+  if (rawEventRef) {
+    if (rawEventRef.startsWith('stock:')) {
+      newEventId = rawEventRef.replace('stock:', '')
+    } else if (rawEventRef.startsWith('closure:')) {
+      refTag = `[ref:${rawEventRef}]`
+    } else {
+      const { data: jce } = await supabase
+        .from('job_cost_events')
+        .select('source_event_id')
+        .eq('id', rawEventRef)
+        .single()
+      newEventId = jce?.source_event_id || null
+      if (!newEventId) refTag = `[ref:jce:${rawEventRef}]`
+    }
+  }
+
+  const finalNote = refTag
+    ? (cleanedNote ? `${cleanedNote} ${refTag}` : refTag)
+    : cleanedNote
+
+  const { error } = await supabase
+    .from('staff_checkins')
+    .update({ event_id: newEventId, note: finalNote })
+    .eq('id', checkinId)
+    .eq('user_id', userId)
+
+  if (error) {
+    console.error('Update my checkin event error:', error)
+    return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+  }
+
+  revalidatePath('/check-in')
+  revalidatePath('/check-in/history')
+  return { success: true }
 }
 
 // ─── Update Staff Work Settings (Admin Only) ──────────────
@@ -891,4 +1112,176 @@ export async function updateStaffWorkSettings(
 
   revalidatePath('/check-in/report')
   return { success: true }
+}
+
+// ─── Manual: Re-link an onsite check-in to an event (Admin Only) ──────
+//
+// Accepts the same prefixed-ID format that the admin check-in form uses
+// (stock:UUID / closure:UUID / raw job_cost_events.UUID / empty to clear).
+// Mirrors the resolution logic in adminCheckIn — when the source can't be
+// FK'd to events.id, the original ref is preserved in `note` via the
+// `[ref:closure:UUID]` or `[ref:jce:UUID]` marker so the report fetcher
+// can hydrate it back as a virtual event.
+
+export async function adminUpdateCheckinEvent(checkinId: string, rawEventRef: string | null) {
+  const { role } = await getSession()
+  if (role !== 'admin') return { error: 'ไม่มีสิทธิ์' }
+
+  if (!checkinId) return { error: 'ไม่พบ record' }
+
+  const supabase = createServiceClient()
+
+  const { data: existing } = await supabase
+    .from('staff_checkins')
+    .select('id, note')
+    .eq('id', checkinId)
+    .single()
+
+  if (!existing) return { error: 'ไม่พบ record' }
+
+  // Strip any existing [ref:...] tag from the note before recomputing.
+  const REF_GLOBAL = /\s*\[ref:(closure|jce):[0-9a-fA-F-]{36}\]/g
+  let cleanedNote: string | null = existing.note
+    ? existing.note.replace(REF_GLOBAL, '').trim()
+    : null
+  if (cleanedNote === '') cleanedNote = null
+
+  let newEventId: string | null = null
+  let refTag: string | null = null
+
+  if (rawEventRef) {
+    if (rawEventRef.startsWith('stock:')) {
+      newEventId = rawEventRef.replace('stock:', '')
+    } else if (rawEventRef.startsWith('closure:')) {
+      refTag = `[ref:${rawEventRef}]`
+    } else {
+      // job_cost_events ID — resolve to source_event_id when possible
+      const { data: jce } = await supabase
+        .from('job_cost_events')
+        .select('source_event_id')
+        .eq('id', rawEventRef)
+        .single()
+      newEventId = jce?.source_event_id || null
+      if (!newEventId) refTag = `[ref:jce:${rawEventRef}]`
+    }
+  }
+
+  const finalNote = refTag
+    ? (cleanedNote ? `${cleanedNote} ${refTag}` : refTag)
+    : cleanedNote
+
+  const { error } = await supabase
+    .from('staff_checkins')
+    .update({ event_id: newEventId, note: finalNote })
+    .eq('id', checkinId)
+
+  if (error) {
+    console.error('Update checkin event error:', error)
+    return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+  }
+
+  revalidatePath('/check-in/report')
+  return { success: true }
+}
+
+// ─── Backfill: Heuristic re-link of orphaned onsite check-ins (Admin Only) ──
+//
+// For onsite check-ins where event_id is null and there's no existing
+// [ref:...] marker, try to match by Bangkok-date against event_closures.
+// If a unique closure exists for that date, write its ref into `note` so
+// the report fetcher can hydrate it. Skips when 0 or >1 closures match,
+// leaving those rows for manual edit.
+
+export async function backfillCheckinEvents(): Promise<{
+  fixed: number
+  skippedNoMatch: number
+  skippedAmbiguous: number
+  alreadyLinked: number
+  error?: string
+}> {
+  const { role } = await getSession()
+  if (role !== 'admin') {
+    return { fixed: 0, skippedNoMatch: 0, skippedAmbiguous: 0, alreadyLinked: 0, error: 'ไม่มีสิทธิ์' }
+  }
+
+  const supabase = createServiceClient()
+
+  const { data: candidates, error: fetchErr } = await supabase
+    .from('staff_checkins')
+    .select('id, user_id, checked_in_at, note')
+    .eq('check_type', 'onsite')
+    .is('event_id', null)
+
+  if (fetchErr) {
+    console.error('Backfill fetch error:', fetchErr)
+    return { fixed: 0, skippedNoMatch: 0, skippedAmbiguous: 0, alreadyLinked: 0, error: 'ดึงข้อมูลไม่สำเร็จ' }
+  }
+
+  if (!candidates || candidates.length === 0) {
+    return { fixed: 0, skippedNoMatch: 0, skippedAmbiguous: 0, alreadyLinked: 0 }
+  }
+
+  const REF_RE = /\[ref:(closure|jce):[0-9a-fA-F-]{36}\]/
+  const BANGKOK_OFFSET = 7 * 60 * 60 * 1000
+
+  const alreadyLinked = candidates.filter(c => c.note && REF_RE.test(c.note)).length
+  const toMatch = candidates.filter(c => !c.note || !REF_RE.test(c.note))
+
+  if (toMatch.length === 0) {
+    return { fixed: 0, skippedNoMatch: 0, skippedAmbiguous: 0, alreadyLinked }
+  }
+
+  const bangkokDate = (iso: string) =>
+    new Date(new Date(iso).getTime() + BANGKOK_OFFSET).toISOString().split('T')[0]
+
+  const dates = Array.from(new Set(toMatch.map(c => bangkokDate(c.checked_in_at))))
+  const minDate = dates.reduce((a, b) => (a < b ? a : b))
+  const maxDate = dates.reduce((a, b) => (a > b ? a : b))
+  const rangeStartISO = new Date(`${minDate}T00:00:00+07:00`).toISOString()
+  const rangeEndISO = new Date(`${maxDate}T23:59:59+07:00`).toISOString()
+
+  const { data: closures } = await supabase
+    .from('event_closures')
+    .select('id, event_date')
+    .gte('event_date', rangeStartISO)
+    .lte('event_date', rangeEndISO)
+
+  const closureByDate = new Map<string, string[]>()
+  closures?.forEach(c => {
+    if (!c.event_date) return
+    const d = bangkokDate(c.event_date)
+    if (!closureByDate.has(d)) closureByDate.set(d, [])
+    closureByDate.get(d)!.push(c.id)
+  })
+
+  let fixed = 0
+  let skippedNoMatch = 0
+  let skippedAmbiguous = 0
+
+  for (const c of toMatch) {
+    const d = bangkokDate(c.checked_in_at)
+    const matches = closureByDate.get(d) || []
+
+    if (matches.length === 1) {
+      const refTag = `[ref:closure:${matches[0]}]`
+      const newNote = c.note ? `${c.note} ${refTag}` : refTag
+      const { error: updErr } = await supabase
+        .from('staff_checkins')
+        .update({ note: newNote })
+        .eq('id', c.id)
+      if (updErr) {
+        console.error('Backfill update error:', updErr)
+        skippedNoMatch++
+      } else {
+        fixed++
+      }
+    } else if (matches.length === 0) {
+      skippedNoMatch++
+    } else {
+      skippedAmbiguous++
+    }
+  }
+
+  revalidatePath('/check-in/report')
+  return { fixed, skippedNoMatch, skippedAmbiguous, alreadyLinked }
 }
