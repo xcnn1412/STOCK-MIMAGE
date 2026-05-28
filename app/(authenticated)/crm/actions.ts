@@ -232,17 +232,191 @@ export async function setJobCostEventPhase(jobEventId: string, phase: string | n
   return { success: true }
 }
 
-// Fetch all job_cost_events linked to this lead (1 lead → N events: setup / main / teardown / delivery / etc.)
-export async function getLeadJobCostEvents(leadId: string) {
-  const supabase = createServiceClient()
-  const { data, error } = await supabase
-    .from('job_cost_events')
-    .select('id, event_name, event_date, event_location, status, phase, revenue, created_at')
-    .eq('linked_lead_id', leadId)
-    .order('event_date', { ascending: true, nullsFirst: false })
+// ============================================================================
+// Lead Cost Summary — aggregate expense claims across all job_cost_events for a lead
+// Revenue is read from crm_leads.confirmed_price (single source of truth at the lead level).
+// Cost = sum of expense_claims.amount across all linked job_cost_events,
+// excluding rejected/cancelled claims. Advance claims that are refund_confirmed
+// use actual_spent_amount when available.
+// ============================================================================
 
-  if (error) return { error: error.message, data: [] }
-  return { data: data || [] }
+export interface LeadCostSummary {
+  revenue: number
+  totalClaimed: number          // claims that count toward cost (excluding rejected/cancelled)
+  totalPaid: number             // actually paid out (paid status, plus refund_confirmed using actual_spent_amount)
+  totalPending: number          // everything between submit and paid
+  claimCount: number
+  byPhase: Record<string, { count: number; amount: number }>
+  byStatus: Record<string, { count: number; amount: number }>
+}
+
+export async function getLeadCostSummary(leadId: string): Promise<LeadCostSummary> {
+  const supabase = createServiceClient()
+
+  // 1. Get revenue from the lead
+  const { data: lead } = await supabase
+    .from('crm_leads')
+    .select('confirmed_price, quoted_price')
+    .eq('id', leadId)
+    .single()
+  const revenue = Number(lead?.confirmed_price || lead?.quoted_price || 0)
+
+  // 2. Get all job_cost_events for this lead, including phase
+  const { data: jobEvents } = await supabase
+    .from('job_cost_events')
+    .select('id, phase')
+    .eq('linked_lead_id', leadId)
+
+  const jobEventIds = (jobEvents || []).map(e => e.id)
+  const phaseByEventId = new Map<string, string | null>(
+    (jobEvents || []).map(e => [e.id, e.phase ?? null])
+  )
+
+  if (jobEventIds.length === 0) {
+    return {
+      revenue,
+      totalClaimed: 0,
+      totalPaid: 0,
+      totalPending: 0,
+      claimCount: 0,
+      byPhase: {},
+      byStatus: {},
+    }
+  }
+
+  // 3. Fetch all expense claims for those job_cost_events
+  const { data: claims } = await supabase
+    .from('expense_claims')
+    .select('id, job_event_id, claim_type, status, amount, actual_spent_amount')
+    .in('job_event_id', jobEventIds)
+
+  let totalClaimed = 0
+  let totalPaid = 0
+  let totalPending = 0
+  const byPhase: Record<string, { count: number; amount: number }> = {}
+  const byStatus: Record<string, { count: number; amount: number }> = {}
+
+  for (const c of (claims || [])) {
+    if (c.status === 'rejected' || c.status === 'cancelled') continue
+
+    // For settled advance claims, the actual cost is what was spent
+    const effectiveAmount = c.claim_type === 'advance' && c.status === 'refund_confirmed' && c.actual_spent_amount != null
+      ? Number(c.actual_spent_amount)
+      : Number(c.amount || 0)
+
+    totalClaimed += effectiveAmount
+
+    if (c.status === 'paid' || c.status === 'refund_confirmed') {
+      totalPaid += effectiveAmount
+    } else {
+      totalPending += effectiveAmount
+    }
+
+    const phaseKey = (c.job_event_id ? phaseByEventId.get(c.job_event_id) : null) || 'unphased'
+    byPhase[phaseKey] = byPhase[phaseKey] || { count: 0, amount: 0 }
+    byPhase[phaseKey].count++
+    byPhase[phaseKey].amount += effectiveAmount
+
+    const statusKey = c.status || 'unknown'
+    byStatus[statusKey] = byStatus[statusKey] || { count: 0, amount: 0 }
+    byStatus[statusKey].count++
+    byStatus[statusKey].amount += effectiveAmount
+  }
+
+  return {
+    revenue,
+    totalClaimed,
+    totalPaid,
+    totalPending,
+    claimCount: (claims || []).filter(c => c.status !== 'rejected' && c.status !== 'cancelled').length,
+    byPhase,
+    byStatus,
+  }
+}
+
+// Unified linked event row exposed to the lead detail UI.
+// Combines operational events (`events` table) and financial events (`job_cost_events` table),
+// merged so a single operational event imported to costs appears once with both ids.
+export interface LinkedLeadEvent {
+  // Identity — exactly one of these will always be set; both set means the operational event
+  // has been imported to costs and we know about both records.
+  operationalId: string | null  // events.id
+  costId: string | null         // job_cost_events.id
+
+  name: string
+  date: string | null
+  location: string | null
+  status: string | null
+  phase: string | null          // only meaningful when costId is set
+}
+
+// Fetch ALL events linked to this lead, from BOTH tables, merged.
+// 1 lead → N events of any kind (operational-only, cost-only, or both).
+export async function getLeadEvents(leadId: string): Promise<{ data: LinkedLeadEvent[]; error?: string }> {
+  const supabase = createServiceClient()
+
+  const [opRes, costRes] = await Promise.all([
+    supabase
+      .from('events')
+      .select('id, name, event_date, location, status')
+      .eq('crm_lead_id', leadId),
+    supabase
+      .from('job_cost_events')
+      .select('id, event_name, event_date, event_location, status, phase, source_event_id, created_at')
+      .eq('linked_lead_id', leadId),
+  ])
+
+  if (opRes.error && costRes.error) {
+    return { data: [], error: opRes.error.message }
+  }
+
+  // Build merged list. Key by operational event id when possible so import-pairs collapse to one row.
+  const merged = new Map<string, LinkedLeadEvent>()
+  for (const op of (opRes.data || [])) {
+    merged.set(`op:${op.id}`, {
+      operationalId: op.id,
+      costId: null,
+      name: op.name,
+      date: op.event_date,
+      location: op.location,
+      status: op.status,
+      phase: null,
+    })
+  }
+  for (const c of (costRes.data || [])) {
+    const opKey = c.source_event_id ? `op:${c.source_event_id}` : null
+    if (opKey && merged.has(opKey)) {
+      // Pair: enrich the existing operational row with cost info
+      const row = merged.get(opKey)!
+      row.costId = c.id
+      row.phase = c.phase ?? null
+      // Cost row often has more authoritative naming/location
+      row.name = c.event_name || row.name
+      row.date = c.event_date || row.date
+      row.location = c.event_location || row.location
+      row.status = c.status || row.status
+    } else {
+      // Cost-only event (no operational counterpart)
+      merged.set(`cost:${c.id}`, {
+        operationalId: null,
+        costId: c.id,
+        name: c.event_name,
+        date: c.event_date,
+        location: c.event_location,
+        status: c.status,
+        phase: c.phase ?? null,
+      })
+    }
+  }
+
+  const list = Array.from(merged.values()).sort((a, b) => {
+    if (!a.date && !b.date) return 0
+    if (!a.date) return 1
+    if (!b.date) return -1
+    return a.date.localeCompare(b.date)
+  })
+
+  return { data: list }
 }
 
 export async function createLead(formData: FormData) {

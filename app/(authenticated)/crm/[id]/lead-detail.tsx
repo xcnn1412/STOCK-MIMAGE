@@ -30,8 +30,10 @@ import {
   archiveLead, unarchiveLead, getLead, saveAllInstallments,
   uploadPaymentProof, deletePaymentProof, checkEventDateConflicts,
   addLeadStaff, removeLeadStaff, setJobCostEventPhase,
+  type LeadCostSummary, type LinkedLeadEvent,
 } from '../actions'
 import { EVENT_PHASES, getPhaseLabel } from '../event-phases'
+import { getClaimStatusLabel, getClaimStatusColor } from '../../costs/types'
 import type { StaffAssignment } from '@/types/database.types'
 import { createJobsFromLead, getJobsByLeadId } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
@@ -60,19 +62,11 @@ interface LeadDetailProps {
   users: SystemUser[]
   installments: LeadInstallment[]
   staffAssignments: StaffAssignment[]
-  jobCostEvents?: Array<{
-    id: string
-    event_name: string
-    event_date: string | null
-    event_location: string | null
-    status: string | null
-    phase: string | null
-    revenue: number | null
-    created_at: string
-  }>
+  linkedEvents?: LinkedLeadEvent[]
+  costSummary?: LeadCostSummary
 }
 
-export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, staffAssignments: initialStaffAssignments, jobCostEvents = [] }: LeadDetailProps) {
+export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, staffAssignments: initialStaffAssignments, linkedEvents = [], costSummary }: LeadDetailProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.detail
@@ -624,7 +618,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
           {lead.status === 'accepted' && (
             <Button onClick={handleOpenEvent} disabled={loading} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white">
               <ExternalLink className="h-4 w-4 mr-1.5" />
-              {jobCostEvents.length > 0
+              {linkedEvents.length > 0
                 ? (locale === 'th' ? 'เพิ่มอีเวนต์' : 'Add Event')
                 : tc.openEvent}
             </Button>
@@ -657,62 +651,219 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         </div>
       </div>
 
+      {/* Cost Summary — Revenue (from lead) vs. Cost (claims across all linked events) */}
+      {costSummary && (costSummary.claimCount > 0 || costSummary.revenue > 0) && (
+        <Card>
+          <CardContent className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-zinc-500">
+                {locale === 'th' ? 'สรุปต้นทุน — กำไรขั้นต้น' : 'Cost Summary — Gross P&L'}
+              </span>
+              <span className="text-[10px] text-zinc-400">
+                {costSummary.claimCount} {locale === 'th' ? 'รายการเบิก' : 'claims'}
+                {' • '}
+                {linkedEvents.length} {locale === 'th' ? 'อีเวนต์' : 'events'}
+              </span>
+            </div>
+
+            {/* Top row: Revenue / Cost / Gross Profit */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/10 p-2.5 sm:p-3">
+                <p className="text-[10px] uppercase tracking-wider text-emerald-600/70 dark:text-emerald-400/70 font-semibold">
+                  {locale === 'th' ? 'รายได้' : 'Revenue'}
+                </p>
+                <p className="text-lg sm:text-xl font-bold text-emerald-700 dark:text-emerald-300 mt-1">
+                  ฿{costSummary.revenue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50/40 dark:bg-rose-950/10 p-2.5 sm:p-3">
+                <p className="text-[10px] uppercase tracking-wider text-rose-600/70 dark:text-rose-400/70 font-semibold">
+                  {locale === 'th' ? 'ต้นทุน' : 'Cost'}
+                </p>
+                <p className="text-lg sm:text-xl font-bold text-rose-700 dark:text-rose-300 mt-1">
+                  ฿{costSummary.totalClaimed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                </p>
+                {costSummary.totalPending > 0 && (
+                  <p className="text-[10px] text-zinc-500 mt-0.5">
+                    {locale === 'th' ? 'รอจ่าย' : 'pending'} ฿{costSummary.totalPending.toLocaleString()}
+                  </p>
+                )}
+              </div>
+              {(() => {
+                const profit = costSummary.revenue - costSummary.totalClaimed
+                const positive = profit >= 0
+                return (
+                  <div className={`rounded-lg border p-2.5 sm:p-3 ${positive
+                    ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-100/50 dark:bg-emerald-950/20'
+                    : 'border-rose-300 dark:border-rose-700 bg-rose-100/50 dark:bg-rose-950/20'
+                  }`}>
+                    <p className={`text-[10px] uppercase tracking-wider font-semibold ${positive
+                      ? 'text-emerald-700/70 dark:text-emerald-300/70'
+                      : 'text-rose-700/70 dark:text-rose-300/70'
+                    }`}>
+                      {locale === 'th' ? 'กำไรขั้นต้น' : 'Gross Profit'}
+                    </p>
+                    <p className={`text-lg sm:text-xl font-bold mt-1 ${positive
+                      ? 'text-emerald-700 dark:text-emerald-300'
+                      : 'text-rose-700 dark:text-rose-300'
+                    }`}>
+                      {positive ? '' : '−'}฿{Math.abs(profit).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    </p>
+                    {costSummary.revenue > 0 && (
+                      <p className="text-[10px] text-zinc-500 mt-0.5">
+                        {((profit / costSummary.revenue) * 100).toFixed(1)}%
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Phase breakdown */}
+            {Object.keys(costSummary.byPhase).length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold mb-1.5">
+                  {locale === 'th' ? 'แยกตาม Phase' : 'By Phase'}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {EVENT_PHASES.concat([{ value: 'unphased' as any, labelTh: 'ไม่ระบุ', labelEn: 'Unphased', color: 'zinc', icon: '•' }])
+                    .filter(p => costSummary.byPhase[p.value])
+                    .map(p => {
+                      const data = costSummary.byPhase[p.value]
+                      return (
+                        <div key={p.value} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
+                          <span className="text-xs">{p.icon}</span>
+                          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                            {locale === 'th' ? p.labelTh : p.labelEn}
+                          </span>
+                          <span className="text-xs text-zinc-400">×{data.count}</span>
+                          <span className="text-xs font-mono font-semibold text-rose-600 dark:text-rose-400">
+                            ฿{data.amount.toLocaleString()}
+                          </span>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* Status breakdown */}
+            {Object.keys(costSummary.byStatus).length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold mb-1.5">
+                  {locale === 'th' ? 'แยกตามสถานะใบเบิก' : 'By Status'}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(costSummary.byStatus)
+                    .sort((a, b) => b[1].amount - a[1].amount)
+                    .map(([statusKey, data]) => {
+                      const color = getClaimStatusColor(statusKey)
+                      return (
+                        <div
+                          key={statusKey}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs"
+                          style={{ borderColor: `${color}40`, backgroundColor: `${color}10` }}
+                        >
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                          <span className="font-medium" style={{ color }}>
+                            {getClaimStatusLabel(statusKey, locale === 'th' ? 'th' : 'en')}
+                          </span>
+                          <span className="text-zinc-400">×{data.count}</span>
+                          <span className="font-mono font-semibold text-zinc-700 dark:text-zinc-300">
+                            ฿{data.amount.toLocaleString()}
+                          </span>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Linked Events List (1 lead → N events: setup / main / teardown / delivery / etc.) */}
-      {jobCostEvents.length > 0 && (
+      {linkedEvents.length > 0 && (
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-medium text-zinc-500">
                 {locale === 'th' ? 'อีเวนต์ที่เชื่อมต่อ' : 'Linked Events'}
-                <span className="ml-1.5 text-xs text-zinc-400">({jobCostEvents.length})</span>
+                <span className="ml-1.5 text-xs text-zinc-400">({linkedEvents.length})</span>
               </span>
             </div>
             <div className="space-y-1.5">
-              {jobCostEvents.map(ev => {
+              {linkedEvents.map(ev => {
                 const phaseCfg = EVENT_PHASES.find(p => p.value === ev.phase)
+                // Prefer linking to the cost-side detail (which shows claims/financials); fall back to operational event edit
+                const detailHref = ev.costId
+                  ? `/costs/events/${ev.costId}`
+                  : ev.operationalId
+                    ? `/events/${ev.operationalId}/edit`
+                    : '#'
+                const rowKey = ev.costId || ev.operationalId || `${ev.name}-${ev.date}`
+                const importedToCosts = Boolean(ev.costId)
                 return (
                   <div
-                    key={ev.id}
+                    key={rowKey}
                     className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-emerald-300 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/10 transition-colors"
                   >
-                    <Link href={`/costs/events/${ev.id}`} className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{ev.event_name}</p>
+                    <Link href={detailHref} className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{ev.name}</p>
                       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                        {ev.event_date ? new Date(ev.event_date).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB') : '—'}
-                        {ev.event_location && ` • ${ev.event_location}`}
+                        {ev.date ? new Date(ev.date).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB') : '—'}
+                        {ev.location && ` • ${ev.location}`}
                       </p>
                     </Link>
                     <div className="flex items-center gap-2 shrink-0">
-                      <Select
-                        value={ev.phase || 'none'}
-                        onValueChange={async (v) => {
-                          await setJobCostEventPhase(ev.id, v === 'none' ? null : v)
-                          router.refresh()
-                        }}
-                      >
-                        <SelectTrigger className="h-7 text-[11px] w-auto min-w-[100px] gap-1 border-dashed">
-                          {phaseCfg ? (
-                            <span className="inline-flex items-center gap-1">
-                              <span>{phaseCfg.icon}</span>
-                              <span>{getPhaseLabel(ev.phase, locale === 'en')}</span>
-                            </span>
-                          ) : (
-                            <span className="text-zinc-400">{locale === 'th' ? 'เลือก phase' : 'Set phase'}</span>
-                          )}
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">{locale === 'th' ? '— ไม่ระบุ —' : '— None —'}</SelectItem>
-                          {EVENT_PHASES.map(p => (
-                            <SelectItem key={p.value} value={p.value}>
-                              {p.icon} {locale === 'th' ? p.labelTh : p.labelEn}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {importedToCosts && ev.costId ? (
+                        <Select
+                          value={ev.phase || 'none'}
+                          onValueChange={(v) => {
+                            (async () => {
+                              const res = await setJobCostEventPhase(ev.costId!, v === 'none' ? null : v)
+                              if (res?.error) {
+                                toast.error(res.error)
+                              } else {
+                                toast.success(locale === 'th' ? 'อัปเดต phase แล้ว' : 'Phase updated')
+                                router.refresh()
+                              }
+                            })()
+                          }}
+                        >
+                          <SelectTrigger className="h-7 text-[11px] w-auto min-w-[110px] gap-1 border-dashed">
+                            <SelectValue placeholder={locale === 'th' ? 'เลือก phase' : 'Set phase'}>
+                              {phaseCfg ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <span>{phaseCfg.icon}</span>
+                                  <span>{locale === 'th' ? phaseCfg.labelTh : phaseCfg.labelEn}</span>
+                                </span>
+                              ) : (
+                                <span className="text-zinc-400">{locale === 'th' ? 'เลือก phase' : 'Set phase'}</span>
+                              )}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">{locale === 'th' ? '— ไม่ระบุ —' : '— None —'}</SelectItem>
+                            {EVENT_PHASES.map(p => (
+                              <SelectItem key={p.value} value={p.value}>
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span>{p.icon}</span>
+                                  <span>{locale === 'th' ? p.labelTh : p.labelEn}</span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-800">
+                          {locale === 'th' ? 'ยังไม่นำเข้า Costs' : 'Not imported'}
+                        </Badge>
+                      )}
                       {ev.status && (
                         <Badge variant="outline" className="text-[10px]">{ev.status}</Badge>
                       )}
-                      <Link href={`/costs/events/${ev.id}`}>
+                      <Link href={detailHref}>
                         <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
                       </Link>
                     </div>
