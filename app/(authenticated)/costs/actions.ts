@@ -116,19 +116,23 @@ export async function importEventFromStock(eventId: string) {
   let revenueWhtRate = 0
   let linkedLeadId: string | null = null
 
-  // 1. หา CRM lead ที่ link ด้วย event_id (events table)
-  const { data: leadByEventId } = await supabase
-    .from('crm_leads')
-    .select('id, confirmed_price, quoted_price, vat_mode, wht_rate')
-    .eq('event_id', eventId)
-    .maybeSingle()
+  // 1. หา CRM lead ผ่าน events.crm_lead_id (reverse lookup)
+  //    เดิม query crm_leads.event_id แต่คอลัมน์นั้น FK ไป job_cost_events ไม่ใช่ events — ใช้ไม่ได้
+  const leadIdFromEvent = (event as { crm_lead_id?: string | null }).crm_lead_id || null
+  if (leadIdFromEvent) {
+    const { data: leadByEventLink } = await supabase
+      .from('crm_leads')
+      .select('id, confirmed_price, quoted_price, vat_mode, wht_rate')
+      .eq('id', leadIdFromEvent)
+      .maybeSingle()
 
-  if (leadByEventId && (Number(leadByEventId.confirmed_price) > 0 || Number(leadByEventId.quoted_price) > 0)) {
-    revenue = Number(leadByEventId.confirmed_price || leadByEventId.quoted_price || 0)
-    revenueVatMode = leadByEventId.vat_mode || 'none'
-    revenueWhtRate = Number(leadByEventId.wht_rate || 0)
-    linkedLeadId = leadByEventId.id
-    revenueSource = 'crm_lead_event_id'
+    if (leadByEventLink && (Number(leadByEventLink.confirmed_price) > 0 || Number(leadByEventLink.quoted_price) > 0)) {
+      revenue = Number(leadByEventLink.confirmed_price || leadByEventLink.quoted_price || 0)
+      revenueVatMode = leadByEventLink.vat_mode || 'none'
+      revenueWhtRate = Number(leadByEventLink.wht_rate || 0)
+      linkedLeadId = leadByEventLink.id
+      revenueSource = 'events_crm_lead_id'
+    }
   }
 
   // 2. ถ้ายัง 0 → ลอง match ด้วย event_date + name scoring

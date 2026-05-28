@@ -146,18 +146,13 @@ export async function linkEventToCrm(eventId: string, leadId: string) {
 
   const supabase = createServiceClient()
 
-  // Set events.crm_lead_id
+  // Set events.crm_lead_id (1 lead can have many operational events: setup / main / teardown / etc.)
+  // We do NOT write crm_leads.event_id here — that column FK references job_cost_events(id), not events(id).
   const { error: e1 } = await supabase
     .from('events')
     .update({ crm_lead_id: leadId })
     .eq('id', eventId)
   if (e1) return { error: e1.message }
-
-  // Set crm_leads.event_id
-  await supabase
-    .from('crm_leads')
-    .update({ event_id: eventId, updated_at: new Date().toISOString() })
-    .eq('id', leadId)
 
   await logActivity('LINK_EVENT_TO_CRM', { eventId, leadId })
   revalidatePath('/events')
@@ -180,16 +175,8 @@ export async function unlinkEventFromCrm(eventId: string) {
   const { data: event } = await supabase.from('events').select('crm_lead_id').eq('id', eventId).single()
   const leadId = event?.crm_lead_id
 
-  // Clear events.crm_lead_id
+  // Clear events.crm_lead_id only — crm_leads.event_id refers to job_cost_events, not events.
   await supabase.from('events').update({ crm_lead_id: null }).eq('id', eventId)
-
-  // Clear crm_leads.event_id  
-  if (leadId) {
-    await supabase
-      .from('crm_leads')
-      .update({ event_id: null, updated_at: new Date().toISOString() })
-      .eq('id', leadId)
-  }
 
   await logActivity('UNLINK_EVENT_FROM_CRM', { eventId, leadId })
   revalidatePath('/events')

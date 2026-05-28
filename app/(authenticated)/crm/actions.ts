@@ -207,6 +207,19 @@ export async function getLead(id: string) {
   return { data }
 }
 
+// Fetch all job_cost_events linked to this lead (1 lead → N events: setup / main / teardown / delivery / etc.)
+export async function getLeadJobCostEvents(leadId: string) {
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('job_cost_events')
+    .select('id, event_name, event_date, event_location, status, revenue, created_at')
+    .eq('linked_lead_id', leadId)
+    .order('event_date', { ascending: true, nullsFirst: false })
+
+  if (error) return { error: error.message, data: [] }
+  return { data: data || [] }
+}
+
 export async function createLead(formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
@@ -580,9 +593,11 @@ export async function createEventFromLead(leadId: string) {
     .single()
 
   if (leadErr || !lead) return { error: 'ไม่พบข้อมูล Lead' }
-  if (lead.event_id) return { error: 'Lead นี้เปิดอีเวนต์แล้ว' }
 
-  // Create job_cost_events (with bidirectional link)
+  // 1 CRM lead can be linked to multiple job_cost_events (setup / main / teardown / delivery / etc.)
+  // crm_leads.event_id holds the *primary* job_cost_events; subsequent ones link via job_cost_events.linked_lead_id only.
+
+  // Create job_cost_events (linked to lead via linked_lead_id)
   const { data: event, error: eventErr } = await supabase
     .from('job_cost_events')
     .insert({
@@ -603,11 +618,12 @@ export async function createEventFromLead(leadId: string) {
 
   if (eventErr || !event) return { error: eventErr?.message || 'สร้าง Event ไม่สำเร็จ' }
 
-  // Update lead with event_id
+  // Mark this as the lead's primary job_cost_events only if none is set yet
   await supabase
     .from('crm_leads')
     .update({ event_id: event.id, updated_at: new Date().toISOString() })
     .eq('id', leadId)
+    .is('event_id', null)
 
   // Log activity
   await supabase.from('crm_activities').insert({
