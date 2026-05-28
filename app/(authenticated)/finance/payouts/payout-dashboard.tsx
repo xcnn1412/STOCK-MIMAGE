@@ -11,6 +11,7 @@ import type { FinanceCategory } from '../settings-actions'
 import { markAsPaid, markAsPendingMonthEnd } from '../actions'
 import { FundingBadge, ChecklistBadges } from '../doc-badges'
 import { useConfirm } from '../use-confirm'
+import { DateRangeFilter } from '@/components/date-range-filter'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -31,7 +32,12 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-type TimeFilter = 'all' | 'today' | 'week' | 'month'
+function fmtShortDate(iso: string | null | undefined, isEn: boolean): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString(isEn ? 'en-US' : 'th-TH', { day: '2-digit', month: 'short' })
+}
 
 export default function PayoutDashboard({ claims, categories }: { claims: ExpenseClaim[]; categories: FinanceCategory[] }) {
   const { locale } = useLocale()
@@ -39,8 +45,8 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
   const router = useRouter()
   const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
 
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('all')
-  const [monthYearFilter, setMonthYearFilter] = useState<string>('') // YYYY-MM format
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [personFilter, setPersonFilter] = useState<string>('all')
   const [eventFilter, setEventFilter] = useState<string>('all')
   const [claimTypeFilter, setClaimTypeFilter] = useState<string>('all')
@@ -120,26 +126,13 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
 
   // Filter claims
   const filtered = useMemo(() => {
-    const now = new Date()
     return claims.filter(c => {
-      // Time filter
-      if (timeFilter !== 'all') {
-        const d = new Date(c.expense_date)
-        if (timeFilter === 'today') {
-          if (d.toDateString() !== now.toDateString()) return false
-        } else if (timeFilter === 'week') {
-          const weekAgo = new Date(now)
-          weekAgo.setDate(weekAgo.getDate() - 7)
-          if (d < weekAgo) return false
-        } else if (timeFilter === 'month') {
-          if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false
-        }
-      }
-      // Month/Year filter
-      if (monthYearFilter) {
-        const [fy, fm] = monthYearFilter.split('-').map(Number)
-        const d = new Date(c.expense_date)
-        if (d.getFullYear() !== fy || d.getMonth() + 1 !== fm) return false
+      // Date range filter (by expense_date)
+      if (dateFrom || dateTo) {
+        const day = (c.expense_date || '').slice(0, 10)
+        if (!day) return false
+        if (dateFrom && day < dateFrom) return false
+        if (dateTo && day > dateTo) return false
       }
       // Person filter
       if (personFilter !== 'all' && c.submitted_by !== personFilter) return false
@@ -171,7 +164,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
       }
       return true
     })
-  }, [claims, timeFilter, monthYearFilter, personFilter, eventFilter, claimTypeFilter, categoryFilter, amountRange, searchQuery])
+  }, [claims, dateFrom, dateTo, personFilter, eventFilter, claimTypeFilter, categoryFilter, amountRange, searchQuery])
 
   // Group by person for payout view
   const groupedByPerson = useMemo(() => {
@@ -247,21 +240,15 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
           />
         </div>
 
-        {/* Time */}
-        <select value={timeFilter} onChange={e => { setTimeFilter(e.target.value as TimeFilter); if (e.target.value !== 'all') setMonthYearFilter('') }} className={`${selectCls} flex-1 sm:flex-none`}>
-          <option value="all">{isEn ? 'All Time' : 'ทุกช่วงเวลา'}</option>
-          <option value="today">{isEn ? 'Today' : 'วันนี้'}</option>
-          <option value="week">{isEn ? 'This Week' : 'สัปดาห์นี้'}</option>
-          <option value="month">{isEn ? 'This Month' : 'เดือนนี้'}</option>
-        </select>
-
-        {/* Month/Year Picker */}
-        <input
-          type="month"
-          value={monthYearFilter}
-          onChange={e => { setMonthYearFilter(e.target.value); if (e.target.value) setTimeFilter('all') }}
-          className={`${selectCls} flex-1 sm:flex-none sm:w-[160px] ${!monthYearFilter ? 'text-zinc-400' : ''}`}
-          placeholder={isEn ? 'Month/Year' : 'เดือน/ปี'}
+        {/* Date Range */}
+        <DateRangeFilter
+          icon={<Calendar className="h-3.5 w-3.5" />}
+          labelTh="ช่วงเวลา"
+          labelEn="Period"
+          from={dateFrom}
+          to={dateTo}
+          onChange={(f, t) => { setDateFrom(f); setDateTo(t) }}
+          locale={locale}
         />
 
         {/* Person */}
@@ -422,8 +409,9 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
 
                 {/* Claims — Desktop Table */}
                 <div className="hidden md:block divide-y divide-zinc-100 dark:divide-zinc-800">
-                  <div className="grid grid-cols-16 gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold bg-zinc-50/50 dark:bg-zinc-800/20">
+                  <div className="grid grid-cols-17 gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-zinc-400 font-semibold bg-zinc-50/50 dark:bg-zinc-800/20">
                     <div className="col-span-2">{isEn ? 'Claim No.' : 'เลขที่'}</div>
+                    <div className="col-span-1">{isEn ? 'Date' : 'วันที่'}</div>
                     <div className="col-span-2">{isEn ? 'Title' : 'หัวข้อ'}</div>
                     <div className="col-span-2">{isEn ? 'Bank' : 'ธนาคาร'}</div>
                     <div className="col-span-2">{isEn ? 'Account No.' : 'เลขที่บัญชี'}</div>
@@ -438,7 +426,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                     const amt = c.amount || 0
                     const ck = getClaimChecklist(c)
                     return (
-                      <div key={c.id} className={`grid grid-cols-16 gap-2 px-4 py-2.5 items-center text-sm transition-colors ${
+                      <div key={c.id} className={`grid grid-cols-17 gap-2 px-4 py-2.5 items-center text-sm transition-colors ${
                         ck.isComplete
                           ? 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30'
                           : 'bg-amber-50/40 dark:bg-amber-950/10 hover:bg-amber-50/70 dark:hover:bg-amber-950/20'
@@ -446,6 +434,9 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                         <div className="col-span-2 space-y-1">
                           <div className="text-xs font-mono text-zinc-500">{c.claim_number}</div>
                           <FundingBadge claim={c} isEn={isEn} size="xs" />
+                        </div>
+                        <div className="col-span-1 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                          {fmtShortDate(c.expense_date, isEn)}
                         </div>
                         <div className="col-span-2 min-w-0">
                           <p className="truncate font-medium text-zinc-900 dark:text-zinc-100">{c.title}</p>
@@ -509,8 +500,8 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                     )
                   })}
                   {/* Group subtotal — desktop */}
-                  <div className="grid grid-cols-16 gap-2 px-4 py-2.5 items-center text-sm bg-emerald-50/50 dark:bg-emerald-950/10 font-semibold">
-                    <div className="col-span-10 text-zinc-500">{isEn ? 'Subtotal' : 'รวม'} — {group.name}</div>
+                  <div className="grid grid-cols-17 gap-2 px-4 py-2.5 items-center text-sm bg-emerald-50/50 dark:bg-emerald-950/10 font-semibold">
+                    <div className="col-span-11 text-zinc-500">{isEn ? 'Subtotal' : 'รวม'} — {group.name}</div>
                     <div className="col-span-1 text-right font-mono text-zinc-600">฿{groupTotal.toLocaleString()}</div>
                     <div className="col-span-1 text-right font-mono text-purple-500 text-xs">
                       {groupWht > 0 ? `−${fmtDec(groupWht)}` : '—'}
@@ -532,7 +523,10 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                         {/* Row 1: claim number + title */}
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="text-[10px] font-mono text-zinc-400">{c.claim_number}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-[10px] font-mono text-zinc-400">{c.claim_number}</p>
+                              <p className="text-[10px] text-zinc-500 dark:text-zinc-400">• {fmtShortDate(c.expense_date, isEn)}</p>
+                            </div>
                             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{c.title}</p>
                             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                               <FundingBadge claim={c} isEn={isEn} size="xs" />

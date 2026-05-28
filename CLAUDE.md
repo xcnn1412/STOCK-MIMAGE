@@ -5,14 +5,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev      # Next.js dev server → http://localhost:3000
-npm run build    # Production build (Turbopack)
+npm run dev      # Next.js dev server → http://localhost:3000 (Turbopack by default in Next 15+)
+npm run build    # Production build (plain `next build` — no --turbopack flag is passed)
 npm run start    # Run the production build
 npm run lint     # ESLint (next/core-web-vitals + next/typescript)
 npx tsc --noEmit # Type-check without emitting (no test runner is configured)
 ```
 
 There is no test suite. `.env.local` must contain `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET`, `LICENSE_EXPIRES_AT`, and `LICENSE_EXPIRED_REDIRECT_URL`. `next.config.ts` sets `typescript.ignoreBuildErrors: true` — this is a deliberate workaround for OOM on Windows, **not** a license to merge code with TS errors; always validate with `npx tsc --noEmit`.
+
+One-off operational scripts live in `scripts/` (e.g., `create-admin.js`, `hash-existing-pins.ts`, `revert-rls.ts`, `seed-advance-test.ts`). They are not wired to `package.json` — invoke them directly via `node` / `tsx` as needed.
 
 ## Stack
 
@@ -29,6 +31,8 @@ The Next.js middleware file is named `proxy.ts` and exports `proxy(request)` (ma
 3. **Module gate** — maps the path to a `ModuleKey` via the inlined `MODULE_ROUTES` table and checks `profiles.allowed_modules`. The `admin` key additionally requires `session_role === 'admin'`.
 
 `MODULE_ROUTES` in `proxy.ts` is **duplicated** from `lib/nav-config.ts` because the middleware runs in the Edge runtime and cannot import the lucide-react icons used in nav-config. **If you add a route to a module, update both.**
+
+⚠️ **`MODULE_ROUTES` is currently a strict subset of `NAV_GROUPS`** — it only covers `stock`, `events`, `kpi`, `costs`, `crm`, `finance`, and `admin`. The `overview`, `jobs`, and `checkin` modules exist in `nav-config.ts` (and therefore hide from the sidebar for users who lack the module) but their URLs (`/overview*`, `/jobs*`, `/check-in*`) are **not** enforced by the proxy. Any authenticated user can reach them by typing the URL. If you need real route-level enforcement for those, add them to `MODULE_ROUTES` and/or guard inside the route's `page.tsx`.
 
 ### Authentication has two parallel cookie systems
 
@@ -89,6 +93,10 @@ CRM leads can spawn Events (`crm_lead_id` FK) and Jobs (`CREATE_JOBS_FROM_LEAD`)
 ### Database conventions
 
 Supabase types are generated to `types/database.types.ts` and re-exported from `types/index.ts`. The repo accumulates **two flavors of SQL files**: ad-hoc patches at the repo root (`add_*.sql`, `create_*.sql`, `update_*.sql` — historical) and proper migrations in `supabase/migrations/` (datestamped, current convention). New schema changes go in `supabase/migrations/` only; the root-level SQL files are kept for reference.
+
+### Module-specific design docs
+
+Several module-level design/spec markdowns live at the repo root (`Finance.md`, `KPI.md`, `job.md`, `jobs.md`, `notification.md`, `ACCESS_CONTROL.md`, `SECURITY_REPORT.md`, `PROJECT_ANALYSIS.md`). They are not part of the build; treat them as the closest thing to per-module requirements docs when changing those modules.
 
 ### Security headers
 
