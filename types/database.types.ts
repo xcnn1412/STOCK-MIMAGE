@@ -632,6 +632,7 @@ export interface Database {
           revenue_wht_rate: number
           status: string
           phase: string | null
+          linked_lead_id: string | null
           notes: string | null
           imported_by: string | null
           created_at: string
@@ -649,6 +650,7 @@ export interface Database {
           revenue_wht_rate?: number
           status?: string
           phase?: string | null
+          linked_lead_id?: string | null
           notes?: string | null
           imported_by?: string | null
           created_at?: string
@@ -666,6 +668,7 @@ export interface Database {
           revenue_wht_rate?: number
           status?: string
           phase?: string | null
+          linked_lead_id?: string | null
           notes?: string | null
           imported_by?: string | null
           created_at?: string

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import { createNotifications } from '@/lib/notifications'
+import { claimEffectiveAmount, summarizeClaims } from '@/app/(authenticated)/costs/lib/crm-cost-grouping'
 
 
 
@@ -240,6 +241,17 @@ export async function setJobCostEventPhase(jobEventId: string, phase: string | n
 // use actual_spent_amount when available.
 // ============================================================================
 
+export interface LeadEventCost {
+  eventId: string
+  name: string
+  date: string | null
+  phase: string | null
+  count: number                 // claims on this event (excl. rejected/cancelled)
+  amount: number                // total claimed (effective) on this event
+  paid: number
+  pending: number
+}
+
 export interface LeadCostSummary {
   revenue: number
   totalClaimed: number          // claims that count toward cost (excluding rejected/cancelled)
@@ -248,6 +260,7 @@ export interface LeadCostSummary {
   claimCount: number
   byPhase: Record<string, { count: number; amount: number }>
   byStatus: Record<string, { count: number; amount: number }>
+  byEvent: LeadEventCost[]      // per-event cost breakdown (every linked cost event, incl. zero-claim ones)
 }
 
 export async function getLeadCostSummary(leadId: string): Promise<LeadCostSummary> {
@@ -261,16 +274,31 @@ export async function getLeadCostSummary(leadId: string): Promise<LeadCostSummar
     .single()
   const revenue = Number(lead?.confirmed_price || lead?.quoted_price || 0)
 
-  // 2. Get all job_cost_events for this lead, including phase
+  // 2. Get all job_cost_events for this lead, including phase + name/date for per-event breakdown
   const { data: jobEvents } = await supabase
     .from('job_cost_events')
-    .select('id, phase')
+    .select('id, phase, event_name, event_date')
     .eq('linked_lead_id', leadId)
 
   const jobEventIds = (jobEvents || []).map(e => e.id)
   const phaseByEventId = new Map<string, string | null>(
     (jobEvents || []).map(e => [e.id, e.phase ?? null])
   )
+
+  // Per-event breakdown — initialized from ALL linked cost events so zero-claim events still show.
+  const byEventMap = new Map<string, LeadEventCost>()
+  for (const e of (jobEvents || [])) {
+    byEventMap.set(e.id, {
+      eventId: e.id,
+      name: e.event_name,
+      date: e.event_date ?? null,
+      phase: e.phase ?? null,
+      count: 0,
+      amount: 0,
+      paid: 0,
+      pending: 0,
+    })
+  }
 
   if (jobEventIds.length === 0) {
     return {
@@ -281,6 +309,7 @@ export async function getLeadCostSummary(leadId: string): Promise<LeadCostSummar
       claimCount: 0,
       byPhase: {},
       byStatus: {},
+      byEvent: [],
     }
   }
 
@@ -290,47 +319,40 @@ export async function getLeadCostSummary(leadId: string): Promise<LeadCostSummar
     .select('id, job_event_id, claim_type, status, amount, actual_spent_amount')
     .in('job_event_id', jobEventIds)
 
-  let totalClaimed = 0
-  let totalPaid = 0
-  let totalPending = 0
-  const byPhase: Record<string, { count: number; amount: number }> = {}
-  const byStatus: Record<string, { count: number; amount: number }> = {}
+  // Totals + byStatus are the shared, costs-module-wide claim aggregation.
+  const summary = summarizeClaims(claims || [])
 
+  // byPhase + byEvent need the event join, so they stay local to this action.
+  const byPhase: Record<string, { count: number; amount: number }> = {}
   for (const c of (claims || [])) {
     if (c.status === 'rejected' || c.status === 'cancelled') continue
-
-    // For settled advance claims, the actual cost is what was spent
-    const effectiveAmount = c.claim_type === 'advance' && c.status === 'refund_confirmed' && c.actual_spent_amount != null
-      ? Number(c.actual_spent_amount)
-      : Number(c.amount || 0)
-
-    totalClaimed += effectiveAmount
-
-    if (c.status === 'paid' || c.status === 'refund_confirmed') {
-      totalPaid += effectiveAmount
-    } else {
-      totalPending += effectiveAmount
-    }
-
+    const effectiveAmount = claimEffectiveAmount(c)
     const phaseKey = (c.job_event_id ? phaseByEventId.get(c.job_event_id) : null) || 'unphased'
     byPhase[phaseKey] = byPhase[phaseKey] || { count: 0, amount: 0 }
     byPhase[phaseKey].count++
     byPhase[phaseKey].amount += effectiveAmount
 
-    const statusKey = c.status || 'unknown'
-    byStatus[statusKey] = byStatus[statusKey] || { count: 0, amount: 0 }
-    byStatus[statusKey].count++
-    byStatus[statusKey].amount += effectiveAmount
+    const ev = c.job_event_id ? byEventMap.get(c.job_event_id) : undefined
+    if (ev) {
+      ev.count++
+      ev.amount += effectiveAmount
+      if (c.status === 'paid' || c.status === 'refund_confirmed') ev.paid += effectiveAmount
+      else ev.pending += effectiveAmount
+    }
   }
+
+  // Sort: events with the most cost first; zero-claim events fall to the bottom.
+  const byEvent = Array.from(byEventMap.values()).sort((a, b) => b.amount - a.amount)
 
   return {
     revenue,
-    totalClaimed,
-    totalPaid,
-    totalPending,
-    claimCount: (claims || []).filter(c => c.status !== 'rejected' && c.status !== 'cancelled').length,
+    totalClaimed: summary.totalClaimed,
+    totalPaid: summary.totalPaid,
+    totalPending: summary.totalPending,
+    claimCount: summary.claimCount,
     byPhase,
-    byStatus,
+    byStatus: summary.byStatus,
+    byEvent,
   }
 }
 

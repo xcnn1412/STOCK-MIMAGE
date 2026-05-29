@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import {
   DollarSign, TrendingUp, TrendingDown, BarChart3, CalendarDays, RefreshCw,
   AlertTriangle, Layers, ArrowUpRight, ArrowDownRight, Trophy, AlertCircle,
-  PieChart, ChevronRight, CheckCircle2, CircleAlert, Users
+  PieChart, ChevronRight, CheckCircle2, CircleAlert, Users, Building2
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -14,6 +14,8 @@ import { useLocale } from '@/lib/i18n/context'
 import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 import { bulkSyncRevenueFromCRM } from '../actions'
+import { attributeRevenue } from '../lib/revenue-attribution'
+import { buildCrmCostGroups, type LeadLite, type ClaimLite, type EventLite } from '../lib/crm-cost-grouping'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
 
@@ -24,16 +26,17 @@ const fmtCompact = (n: number) => {
   return fmt(n)
 }
 
-export default function DashboardView({ jobEvents, categories }: { jobEvents: JobEventWithItems[]; categories: FinanceCategory[] }) {
+export default function DashboardView({ jobEvents, categories, leads, claims }: { jobEvents: JobEventWithItems[]; categories: FinanceCategory[]; leads: LeadLite[]; claims: ClaimLite[] }) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
   const router = useRouter()
 
-  // CRM Sync state
+  // CRM Sync state — these stay on STORED revenue (drive the sync banner / data health).
   const missingRevenueCount = jobEvents.filter(e => !e.revenue || e.revenue === 0).length
   const hasRevenueCount = jobEvents.length - missingRevenueCount
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<{ syncedCount: number; skippedCount: number } | null>(null)
+  const [groupMode, setGroupMode] = useState<'event' | 'crm'>('event')
 
   const handleBulkSync = async () => {
     setSyncing(true)
@@ -53,25 +56,73 @@ export default function DashboardView({ jobEvents, categories }: { jobEvents: Jo
     }
   }
 
-  // ── Aggregated Data ──
+  // ── Revenue attribution (single-source per CRM lead) ──
+  const leadsById = useMemo(() => {
+    const m = new Map<string, LeadLite>()
+    for (const l of leads) m.set(l.id, l)
+    return m
+  }, [leads])
+
+  const attributedRevenueById = useMemo(() => {
+    const leadPriceById = new Map<string, number>()
+    for (const [id, l] of leadsById) leadPriceById.set(id, Number(l.confirmed_price || l.quoted_price || 0))
+    return attributeRevenue(jobEvents, leadPriceById)
+  }, [jobEvents, leadsById])
+
+  // ── Aggregated Data — revenue is the ATTRIBUTED (deduped) value ──
   const eventData = useMemo(() => jobEvents.map(event => {
     const items = event.job_cost_items || []
     const totalCost = items.reduce((s, item) => s + (item.amount || 0), 0)
-    const revenue = event.revenue || 0
+    const revenue = attributedRevenueById.get(event.id) || 0
     const profit = revenue - totalCost
     const margin = revenue > 0 ? (profit / revenue) * 100 : 0
-    return { ...event, totalCost, profit, margin, hasRevenue: revenue > 0, hasStaffCost: items.some(i => i.category === 'staff') }
-  }), [jobEvents])
+    // `revenue` MUST come after `...event` to override the raw stored revenue (deduped value).
+    return { ...event, revenue, totalCost, profit, margin, hasRevenue: revenue > 0, hasStaffCost: items.some(i => i.category === 'staff') }
+  }), [jobEvents, attributedRevenueById])
 
   const totalRevenue = eventData.reduce((s, e) => s + (e.revenue || 0), 0)
   const totalCost = eventData.reduce((s, e) => s + e.totalCost, 0)
   const totalProfit = totalRevenue - totalCost
   const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
   const isProfitable = totalProfit >= 0
-  const avgRevenuePerEvent = hasRevenueCount > 0 ? totalRevenue / hasRevenueCount : 0
+  // Average is per revenue-bearing source (deduped), not per raw event row.
+  const revenueBearingCount = eventData.filter(e => e.revenue > 0).length
+  const avgRevenuePerEvent = revenueBearingCount > 0 ? totalRevenue / revenueBearingCount : 0
   const hasStaffCount = eventData.filter(e => e.hasStaffCost).length
   const noStaffCount = eventData.length - hasStaffCount
   const totalStaffCost = jobEvents.reduce((s, e) => s + (e.job_cost_items || []).filter(i => i.category === 'staff').reduce((ss, i) => ss + (i.amount || 0), 0), 0)
+
+  // ── CRM groups + unified ranking items (drives the two list sections) ──
+  const crmGroups = useMemo(
+    () => buildCrmCostGroups(jobEvents as unknown as EventLite[], leadsById, claims),
+    [jobEvents, leadsById, claims]
+  )
+
+  type RankItem = { key: string; name: string; href: string; revenue: number; totalCost: number; profit: number }
+  const rankItems: RankItem[] = useMemo(() => {
+    if (groupMode === 'crm') {
+      return crmGroups.map(g => ({
+        key: g.key,
+        name: g.customerName || (isEn ? 'Untitled' : 'ไม่มีชื่อ'),
+        href: g.leadId ? `/crm/${g.leadId}` : `/costs/events/${g.primaryEventId}`,
+        revenue: g.revenue,
+        totalCost: g.totalCost,
+        profit: g.profit,
+      }))
+    }
+    return eventData.map(e => ({
+      key: e.id,
+      name: e.event_name,
+      href: `/costs/events/${e.id}`,
+      revenue: e.revenue || 0,
+      totalCost: e.totalCost,
+      profit: e.profit,
+    }))
+  }, [groupMode, crmGroups, eventData, isEn])
+
+  const itemsWithRevenue = rankItems.filter(i => i.revenue > 0)
+  const topItems = [...itemsWithRevenue].sort((a, b) => b.profit - a.profit).slice(0, 5)
+  const bottomItems = [...itemsWithRevenue].sort((a, b) => a.profit - b.profit).slice(0, 5)
 
   // Cost by category
   const costByCategory = useMemo(() => {
@@ -94,11 +145,6 @@ export default function DashboardView({ jobEvents, categories }: { jobEvents: Jo
       })
       .sort((a, b) => b.amount - a.amount)
   }, [jobEvents, categories, totalCost, isEn])
-
-  // Top & bottom events by profit
-  const eventsWithRevenue = eventData.filter(e => e.hasRevenue)
-  const topEvents = [...eventsWithRevenue].sort((a, b) => b.profit - a.profit).slice(0, 5)
-  const bottomEvents = [...eventsWithRevenue].sort((a, b) => a.profit - b.profit).slice(0, 5)
 
   // Monthly summary
   const monthlyData = useMemo(() => {
@@ -128,12 +174,39 @@ export default function DashboardView({ jobEvents, categories }: { jobEvents: Jo
               : `${jobEvents.length} งาน • ${hasRevenueCount} มีราคาขาย`}
           </p>
         </div>
-        <Link href="/costs/events">
-          <Button variant="outline" size="sm" className="text-xs">
-            {isEn ? 'View All Events' : 'ดูรายการทั้งหมด'}
-            <ChevronRight className="h-3.5 w-3.5 ml-1" />
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {/* Ranking view mode: per-event vs combined per CRM */}
+          <div className="inline-flex items-center rounded-lg border border-zinc-200 dark:border-zinc-700 p-0.5 bg-zinc-50 dark:bg-zinc-900">
+            <button
+              onClick={() => setGroupMode('event')}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                groupMode === 'event'
+                  ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+              }`}
+            >
+              <Layers className="h-3.5 w-3.5" />
+              {isEn ? 'By Event' : 'ตามงาน'}
+            </button>
+            <button
+              onClick={() => setGroupMode('crm')}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                groupMode === 'crm'
+                  ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+              }`}
+            >
+              <Building2 className="h-3.5 w-3.5" />
+              {isEn ? 'By CRM' : 'ตาม CRM'}
+            </button>
+          </div>
+          <Link href="/costs/events">
+            <Button variant="outline" size="sm" className="text-xs">
+              {isEn ? 'View All Events' : 'ดูรายการทั้งหมด'}
+              <ChevronRight className="h-3.5 w-3.5 ml-1" />
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* CRM Sync Warning Banner */}
@@ -456,13 +529,15 @@ export default function DashboardView({ jobEvents, categories }: { jobEvents: Jo
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Trophy className="h-4 w-4 text-amber-500" />
-              {isEn ? 'Event Performance Ranking' : 'อันดับงานตามกำไร'}
+              {groupMode === 'crm'
+                ? (isEn ? 'CRM Performance Ranking' : 'อันดับ CRM ตามกำไร')
+                : (isEn ? 'Event Performance Ranking' : 'อันดับงานตามกำไร')}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            {eventsWithRevenue.length === 0 ? (
+            {itemsWithRevenue.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
-                {isEn ? 'No events with revenue data' : 'ยังไม่มีงานที่มีราคาขาย'}
+                {isEn ? 'No data with revenue' : 'ยังไม่มีรายการที่มีราคาขาย'}
               </p>
             ) : (
               <div className="space-y-4">
@@ -473,15 +548,15 @@ export default function DashboardView({ jobEvents, categories }: { jobEvents: Jo
                     {isEn ? 'Top Profit' : 'กำไรสูงสุด'}
                   </p>
                   <div className="space-y-1.5">
-                    {topEvents.slice(0, 3).map((event, i) => (
-                      <Link key={event.id} href={`/costs/events/${event.id}`} className="block group">
+                    {topItems.slice(0, 3).map((item, i) => (
+                      <Link key={item.key} href={item.href} className="block group">
                         <div className="flex items-center gap-3 py-1.5 px-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                           <span className="text-xs font-bold text-zinc-400 w-5">{i + 1}</span>
                           <span className="flex-1 text-sm font-medium truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-                            {event.event_name}
+                            {item.name}
                           </span>
                           <span className="text-sm font-bold font-mono text-emerald-600 dark:text-emerald-400 shrink-0">
-                            +฿{fmtCompact(event.profit)}
+                            +฿{fmtCompact(item.profit)}
                           </span>
                         </div>
                       </Link>
@@ -492,22 +567,22 @@ export default function DashboardView({ jobEvents, categories }: { jobEvents: Jo
                 <div className="border-t border-zinc-100 dark:border-zinc-800" />
 
                 {/* Bottom performers */}
-                {bottomEvents.some(e => e.profit < 0) && (
+                {bottomItems.some(i => i.profit < 0) && (
                   <div>
                     <p className="text-[10px] font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1">
                       <ArrowDownRight className="h-3 w-3" />
                       {isEn ? 'Lowest Profit' : 'กำไรต่ำสุด'}
                     </p>
                     <div className="space-y-1.5">
-                      {bottomEvents.filter(e => e.profit < 0).slice(0, 3).map((event, i) => (
-                        <Link key={event.id} href={`/costs/events/${event.id}`} className="block group">
+                      {bottomItems.filter(i => i.profit < 0).slice(0, 3).map((item) => (
+                        <Link key={item.key} href={item.href} className="block group">
                           <div className="flex items-center gap-3 py-1.5 px-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                             <span className="text-xs font-bold text-zinc-400 w-5">↓</span>
                             <span className="flex-1 text-sm font-medium truncate group-hover:text-red-500 transition-colors">
-                              {event.event_name}
+                              {item.name}
                             </span>
                             <span className="text-sm font-bold font-mono text-red-500 dark:text-red-400 shrink-0">
-                              ฿{fmtCompact(event.profit)}
+                              ฿{fmtCompact(item.profit)}
                             </span>
                           </div>
                         </Link>
@@ -575,10 +650,12 @@ export default function DashboardView({ jobEvents, categories }: { jobEvents: Jo
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <BarChart3 className="h-4 w-4 text-blue-500" />
-              {isEn ? 'Revenue vs Cost per Event' : 'ราคาขาย vs ต้นทุน แต่ละงาน'}
+              {groupMode === 'crm'
+                ? (isEn ? 'Revenue vs Cost per CRM' : 'รายได้ vs ต้นทุน แต่ละ CRM')
+                : (isEn ? 'Revenue vs Cost per Event' : 'ราคาขาย vs ต้นทุน แต่ละงาน')}
             </CardTitle>
             <span className="text-[10px] text-muted-foreground">
-              {isEn ? `Showing ${Math.min(eventData.length, 15)} of ${eventData.length}` : `แสดง ${Math.min(eventData.length, 15)} จาก ${eventData.length}`}
+              {isEn ? `Showing ${Math.min(rankItems.length, 15)} of ${rankItems.length}` : `แสดง ${Math.min(rankItems.length, 15)} จาก ${rankItems.length}`}
             </span>
           </div>
         </CardHeader>
@@ -589,23 +666,23 @@ export default function DashboardView({ jobEvents, categories }: { jobEvents: Jo
             </p>
           ) : (
             <div className="space-y-2.5">
-              {eventData.slice(0, 15).map(event => {
-                const maxVal = Math.max(event.revenue || 0, event.totalCost, 1)
-                const revPct = ((event.revenue || 0) / maxVal) * 100
-                const costPct = (event.totalCost / maxVal) * 100
+              {rankItems.slice(0, 15).map(item => {
+                const maxVal = Math.max(item.revenue || 0, item.totalCost, 1)
+                const revPct = ((item.revenue || 0) / maxVal) * 100
+                const costPct = (item.totalCost / maxVal) * 100
                 return (
-                  <Link key={event.id} href={`/costs/events/${event.id}`} className="block group">
+                  <Link key={item.key} href={item.href} className="block group">
                     <div className="space-y-1.5">
                       <div className="flex items-baseline justify-between gap-3">
                         <span className="text-sm font-medium truncate max-w-[50%] group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                          {event.event_name}
+                          {item.name}
                         </span>
                         <div className="flex items-center gap-3 text-xs shrink-0">
-                          <span className="font-mono text-blue-600 dark:text-blue-400">฿{fmtCompact(event.revenue || 0)}</span>
+                          <span className="font-mono text-blue-600 dark:text-blue-400">฿{fmtCompact(item.revenue || 0)}</span>
                           <span className="text-zinc-300 dark:text-zinc-600">|</span>
-                          <span className="font-mono text-red-500 dark:text-red-400">฿{fmtCompact(event.totalCost)}</span>
-                          <span className={`font-mono font-bold ${event.profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-                            {event.profit >= 0 ? '+' : ''}฿{fmtCompact(event.profit)}
+                          <span className="font-mono text-red-500 dark:text-red-400">฿{fmtCompact(item.totalCost)}</span>
+                          <span className={`font-mono font-bold ${item.profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                            {item.profit >= 0 ? '+' : ''}฿{fmtCompact(item.profit)}
                           </span>
                         </div>
                       </div>

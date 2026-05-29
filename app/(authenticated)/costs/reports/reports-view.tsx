@@ -13,6 +13,7 @@ import { useLocale } from '@/lib/i18n/context'
 import { getCategoryColor } from '../types'
 import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
 import CostSummaryDashboard from '../components/cost-summary-dashboard'
+import { attributeRevenue } from '../lib/revenue-attribution'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
@@ -89,15 +90,19 @@ export default function ReportsView({
         return eventMonth === selectedMonth
       })
 
+  // Single-source revenue per CRM lead (deduped within the filtered set).
+  const attributedRevenueById = attributeRevenue(filteredEvents)
+
   // Prepare data
   const rows = filteredEvents.map(event => {
     const items = event.job_cost_items || []
     const totalCost = items.reduce((s, item) => s + (item.amount || 0), 0)
 
-    // Revenue tax calculation
+    // Revenue tax calculation (on the attributed, deduped revenue)
+    const attributedRevenue = attributedRevenueById.get(event.id) ?? (event.revenue || 0)
     const revVatMode = event.revenue_vat_mode || 'none'
     const revWhtRate = event.revenue_wht_rate || 0
-    const revTax = calcTax(event.revenue || 0, revVatMode, revWhtRate)
+    const revTax = calcTax(attributedRevenue, revVatMode, revWhtRate)
 
     const profit = revTax.netPayable - totalCost
     const margin = revTax.netPayable ? (profit / revTax.netPayable) * 100 : 0
@@ -118,7 +123,7 @@ export default function ReportsView({
       catCosts[item.category] = (catCosts[item.category] || 0) + (item.amount || 0)
     })
 
-    return { ...event, totalCost, profit, margin, catCosts, eventWht, eventVat, revTax }
+    return { ...event, attributedRevenue, totalCost, profit, margin, catCosts, eventWht, eventVat, revTax }
   })
 
   // Top categories across filtered events
@@ -131,7 +136,7 @@ export default function ReportsView({
   const sortedCats = Object.entries(globalCatCosts).sort((a, b) => b[1] - a[1])
 
   // Summary totals
-  const totalRevenue = rows.reduce((s, r) => s + (r.revenue || 0), 0)
+  const totalRevenue = rows.reduce((s, r) => s + (r.attributedRevenue || 0), 0)
   const totalCostAll = rows.reduce((s, r) => s + r.totalCost, 0)
   const totalNetRevenue = rows.reduce((s, r) => s + r.revTax.netPayable, 0)
 
@@ -388,7 +393,7 @@ export default function ReportsView({
                           <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-mono">฿{fmt(row.revenue || 0)}</TableCell>
+                      <TableCell className="text-right font-mono">฿{fmt(row.attributedRevenue || 0)}</TableCell>
                       <TableCell className="text-right font-mono">฿{fmt(row.totalCost)}</TableCell>
                       <TableCell className="text-right font-mono text-zinc-700 dark:text-zinc-300">{row.eventWht > 0 ? `฿${fmtDec(row.eventWht)}` : '-'}</TableCell>
                       <TableCell className="text-right font-mono text-zinc-700 dark:text-zinc-300">{row.eventVat > 0 ? `฿${fmtDec(row.eventVat)}` : '-'}</TableCell>

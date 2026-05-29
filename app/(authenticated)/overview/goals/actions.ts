@@ -2,6 +2,7 @@
 
 import { createServiceClient } from '@/lib/supabase-server'
 import { cookies } from 'next/headers'
+import { attributeRevenue } from '@/app/(authenticated)/costs/lib/revenue-attribution'
 
 async function getSession() {
   const cookieStore = await cookies()
@@ -69,7 +70,7 @@ export async function getGoalsWithActuals(fiscalYear?: number) {
   const [eventsResult, costItemsResult] = await Promise.all([
     supabase
       .from('job_cost_events')
-      .select('id, revenue, status, event_date')
+      .select('id, revenue, status, event_date, linked_lead_id, phase')
       .gte('event_date', startDate)
       .lte('event_date', endDate),
     supabase
@@ -83,8 +84,10 @@ export async function getGoalsWithActuals(fiscalYear?: number) {
   // Build event IDs in range
   const eventIds = new Set(events.map(e => e.id))
 
-  // Calculate actuals
-  const totalRevenue = events.reduce((sum, e) => sum + Number(e.revenue || 0), 0)
+  // Calculate actuals — revenue single-sourced per CRM lead (no double-count
+  // when a lead has multiple linked events within the fiscal year).
+  const attributedRevenueById = attributeRevenue(events)
+  const totalRevenue = events.reduce((sum, e) => sum + (attributedRevenueById.get(e.id) ?? Number(e.revenue || 0)), 0)
   const totalJobs = events.length
   const totalCost = costItems
     .filter(c => eventIds.has(c.job_event_id))

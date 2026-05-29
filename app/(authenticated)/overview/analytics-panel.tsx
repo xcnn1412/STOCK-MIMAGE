@@ -9,6 +9,7 @@ import {
   ResponsiveContainer, ComposedChart, BarChart, LineChart,
   Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
+import { attributeRevenue } from '@/app/(authenticated)/costs/lib/revenue-attribution'
 
 // ─── Types (mirror overview-view.tsx) ────────────────────────
 
@@ -18,6 +19,7 @@ interface JobEvent {
   staff: string | null; revenue: number | null; seller: string | null
   status: string | null
   revenue_vat_mode: string | null; revenue_wht_rate: number | null
+  linked_lead_id: string | null; phase: string | null
 }
 interface CostItem {
   id: string; job_event_id: string; category: string
@@ -122,6 +124,9 @@ function buildYearRollup(data: OverviewData, year: number): YearRollup {
   // Index events by id → month for joining cost items
   const eventMonthMap = new Map<string, number | null>()
 
+  // Single-source revenue per CRM lead (attribute to one primary event, others 0).
+  const attributedRevenueById = attributeRevenue(data.jobEvents)
+
   // 1) Revenue from job_cost_events (bucket by event_date)
   data.jobEvents.forEach(je => {
     if (!je.event_date) { eventMonthMap.set(je.id, null); return }
@@ -130,7 +135,7 @@ function buildYearRollup(data: OverviewData, year: number): YearRollup {
     const m = d.getMonth()
     eventMonthMap.set(je.id, m)
     const bucket = months[m]
-    const revenue = Number(je.revenue || 0)
+    const revenue = attributedRevenueById.get(je.id) ?? Number(je.revenue || 0)
     if (revenue > 0) {
       const t = calcTax(revenue, je.revenue_vat_mode, je.revenue_wht_rate)
       bucket.revenueGross += revenue

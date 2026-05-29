@@ -6,12 +6,17 @@ import { Download, FileSpreadsheet, FileJson } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
+import { attributeRevenue } from '../lib/revenue-attribution'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
 
 export default function DownloadView({ jobEvents, categories }: { jobEvents: JobEventWithItems[]; categories: FinanceCategory[] }) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
+
+  // Revenue is single-sourced per CRM lead so exported sums don't double-count.
+  const attributedRevenueById = attributeRevenue(jobEvents)
+  const revOf = (event: JobEventWithItems) => attributedRevenueById.get(event.id) ?? Number(event.revenue || 0)
 
   const downloadCSV = () => {
     // Build CSV rows
@@ -24,8 +29,9 @@ export default function DownloadView({ jobEvents, categories }: { jobEvents: Job
     const rows: string[][] = []
     jobEvents.forEach(event => {
       const totalCost = (event.job_cost_items || []).reduce((s, i) => s + (i.amount || 0), 0)
-      const profit = (event.revenue || 0) - totalCost
-      const margin = event.revenue ? ((profit / event.revenue) * 100).toFixed(1) : '0'
+      const revenue = revOf(event)
+      const profit = revenue - totalCost
+      const margin = revenue ? ((profit / revenue) * 100).toFixed(1) : '0'
 
       if (event.job_cost_items?.length) {
         event.job_cost_items.forEach((item, idx) => {
@@ -34,7 +40,7 @@ export default function DownloadView({ jobEvents, categories }: { jobEvents: Job
             idx === 0 ? event.event_name : '',
             idx === 0 ? (event.event_date || '') : '',
             idx === 0 ? (event.event_location || '') : '',
-            idx === 0 ? String(event.revenue || 0) : '',
+            idx === 0 ? String(revenue) : '',
             catInfo?.label_th || item.category,
             item.description || '',
             String(item.amount || 0),
@@ -50,9 +56,9 @@ export default function DownloadView({ jobEvents, categories }: { jobEvents: Job
           event.event_name,
           event.event_date || '',
           event.event_location || '',
-          String(event.revenue || 0),
+          String(revenue),
           '', '', '', '', '',
-          '0', String(-(event.revenue || 0)), event.revenue ? '-100.0' : '0',
+          '0', String(-revenue), revenue ? '-100.0' : '0',
         ])
       }
     })
@@ -70,14 +76,15 @@ export default function DownloadView({ jobEvents, categories }: { jobEvents: Job
   const downloadJSON = () => {
     const data = jobEvents.map(event => {
       const totalCost = (event.job_cost_items || []).reduce((s, i) => s + (i.amount || 0), 0)
+      const revenue = revOf(event)
       return {
         event_name: event.event_name,
         event_date: event.event_date,
         event_location: event.event_location,
-        revenue: event.revenue,
+        revenue,
         total_cost: totalCost,
-        profit: (event.revenue || 0) - totalCost,
-        margin_pct: event.revenue ? (((event.revenue - totalCost) / event.revenue) * 100).toFixed(1) : 0,
+        profit: revenue - totalCost,
+        margin_pct: revenue ? (((revenue - totalCost) / revenue) * 100).toFixed(1) : 0,
         cost_items: (event.job_cost_items || []).map(item => ({
           category: item.category,
           description: item.description,

@@ -111,7 +111,9 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
       kitIds 
   }, undefined)
 
-  // If created from CRM, just log activity — link is established via events.crm_lead_id in the insert above.
+  // If created from CRM, log activity (link is via events.crm_lead_id above) and
+  // auto-create the paired cost event so it shows in the lead's combined cost
+  // summary without a manual "Import to Costs" step.
   if (fromCrm) {
     const cookieStore2 = await cookies()
     const uid = cookieStore2.get('session_user_id')?.value
@@ -123,8 +125,65 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
     })
     await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', fromCrm)
 
+    // Auto-create paired job_cost_events (mirrors importEventFromStock, but we
+    // already know the lead, so we read its revenue/tax directly).
+    // Best-effort: a failure here must NOT block event creation.
+    try {
+      const { data: existingCost } = await supabase
+        .from('job_cost_events')
+        .select('id')
+        .eq('source_event_id', event.id)
+        .maybeSingle()
+
+      if (!existingCost) {
+        const { data: lead } = await supabase
+          .from('crm_leads')
+          .select('confirmed_price, quoted_price, vat_mode, wht_rate')
+          .eq('id', fromCrm)
+          .maybeSingle()
+
+        const revenue = Number(lead?.confirmed_price || lead?.quoted_price || 0)
+
+        const { data: costEvent, error: costErr } = await supabase
+          .from('job_cost_events')
+          .insert({
+            source_event_id: event.id,
+            event_name: name,
+            event_date: event.event_date,
+            event_location: location,
+            staff,
+            seller,
+            revenue,
+            revenue_vat_mode: lead?.vat_mode || 'none',
+            revenue_wht_rate: Number(lead?.wht_rate || 0),
+            linked_lead_id: fromCrm,
+            phase,
+            status: 'draft',
+            imported_by: userId,
+          })
+          .select('id')
+          .single()
+
+        if (costEvent && !costErr) {
+          await logActivity('IMPORT_EVENT_TO_COSTS', {
+            eventId: event.id,
+            jobEventId: costEvent.id,
+            eventName: name,
+            revenue,
+            revenueSource: 'auto_from_crm_event',
+            linkedLeadId: fromCrm,
+            auto: true,
+          }, undefined)
+        }
+      }
+    } catch (e) {
+      console.error('Auto-create cost event from CRM error:', e)
+    }
+
     revalidatePath('/crm')
     revalidatePath(`/crm/${fromCrm}`)
+    revalidatePath('/costs/events')
+    revalidatePath('/costs/dashboard')
   }
 
   revalidatePath('/events')

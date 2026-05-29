@@ -27,7 +27,7 @@ export async function getOverviewData() {
     // 1) All job_cost_events (linked_lead_id is the reverse FK to crm_leads)
     supabase
       .from('job_cost_events')
-      .select('id, source_event_id, event_name, event_date, event_location, staff, revenue, seller, status, notes, revenue_vat_mode, revenue_wht_rate, linked_lead_id, created_at')
+      .select('id, source_event_id, event_name, event_date, event_location, staff, revenue, seller, status, notes, revenue_vat_mode, revenue_wht_rate, linked_lead_id, phase, created_at')
       .order('event_date', { ascending: false }),
 
     // 2) All cost items

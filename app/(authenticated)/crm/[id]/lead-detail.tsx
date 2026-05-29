@@ -717,6 +717,66 @@ export default function LeadDetail({ lead, activities, settings, users, installm
               })()}
             </div>
 
+            {/* Per-event breakdown — cost (claims) per linked event. Revenue is
+                single-sourced at the lead level, so events show cost only. */}
+            {costSummary.byEvent.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold mb-1.5">
+                  {locale === 'th' ? 'แยกตามอีเวนต์' : 'By Event'}
+                </p>
+                <div className="space-y-1.5">
+                  {costSummary.byEvent.map(ev => {
+                    const phaseCfg = EVENT_PHASES.find(p => p.value === ev.phase)
+                    const pct = costSummary.totalClaimed > 0 ? (ev.amount / costSummary.totalClaimed) * 100 : 0
+                    return (
+                      <Link
+                        key={ev.eventId}
+                        href={`/costs/events/${ev.eventId}`}
+                        className="block px-2.5 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 hover:border-rose-300 hover:bg-rose-50/30 dark:hover:bg-rose-950/10 transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex items-center gap-2">
+                            {phaseCfg && <span className="text-xs shrink-0">{phaseCfg.icon}</span>}
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">{ev.name}</p>
+                              <p className="text-[10px] text-zinc-400">
+                                {ev.date ? new Date(ev.date).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB') : '—'}
+                                {ev.count > 0
+                                  ? ` • ${ev.count} ${locale === 'th' ? 'ใบเบิก' : 'claims'}`
+                                  : ` • ${locale === 'th' ? 'ยังไม่มีเบิก' : 'no claims'}`}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs font-mono font-semibold text-rose-600 dark:text-rose-400">
+                              ฿{ev.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                            </p>
+                            {ev.pending > 0 && (
+                              <p className="text-[10px] text-zinc-500">
+                                {locale === 'th' ? 'รอจ่าย' : 'pending'} ฿{ev.pending.toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {/* Share of total cost */}
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <div className="flex-1 h-1 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-rose-400/80 dark:bg-rose-500/80 transition-all duration-500"
+                              style={{ width: `${Math.min(pct, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] font-mono text-zinc-400 w-11 text-right shrink-0">
+                            {pct.toFixed(1)}%
+                          </span>
+                        </div>
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Phase breakdown */}
             {Object.keys(costSummary.byPhase).length > 0 && (
               <div>

@@ -14,6 +14,7 @@ import {
   type AiHistoryRecord
 } from './ai-actions'
 import AnalyticsPanel from './analytics-panel'
+import { attributeRevenue } from '@/app/(authenticated)/costs/lib/revenue-attribution'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -23,7 +24,7 @@ interface JobEvent {
   staff: string | null; revenue: number | null; seller: string | null
   status: string | null
   revenue_vat_mode: string | null; revenue_wht_rate: number | null
-  linked_lead_id: string | null
+  linked_lead_id: string | null; phase: string | null
 }
 interface CostItem {
   id: string; job_event_id: string; category: string
@@ -178,6 +179,14 @@ export default function OverviewView({ data }: { data: OverviewData }) {
 
   // ─── Build per-event summary ──────────────────────────────
   const eventSummaries = useMemo(() => {
+    // Revenue is single-sourced per CRM lead: the lead's revenue is attributed
+    // to ONE primary event (others get 0), so all rollups below (totals,
+    // topSellers, monthly, topCustomers, sellerStats, AI payload) stop
+    // double-counting when a lead has multiple linked events.
+    const leadPriceById = new Map<string, number>()
+    data.leads.forEach(l => leadPriceById.set(l.id, Number(l.confirmed_price || l.quoted_price || 0)))
+    const attributedRevenueById = attributeRevenue(data.jobEvents, leadPriceById)
+
     const costMap = new Map<string, { total: number; byCategory: Record<string, number> }>()
     data.costItems.forEach(c => {
       const prev = costMap.get(c.job_event_id) || { total: 0, byCategory: {} }
@@ -227,7 +236,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
     })
 
     return data.jobEvents.map(je => {
-      const revenue = Number(je.revenue || 0)
+      const revenue = attributedRevenueById.get(je.id) ?? Number(je.revenue || 0)
       const costData = costMap.get(je.id) || { total: 0, byCategory: {} }
       const expData = expenseMap.get(je.id) || { total: 0, count: 0, byStatus: {}, paid: 0 }
       const lead = je.linked_lead_id ? leadMap.get(je.linked_lead_id) : undefined
