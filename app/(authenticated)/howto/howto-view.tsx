@@ -1235,15 +1235,15 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
               steps={isEn ? [
                 { n: 1, label: 'Open accepted lead at /crm/[id]', tag: null },
                 { n: 2, label: 'Click "Create Event"', tag: null },
-                { n: 3, label: 'System pre-fills name, date, location, staff with roles, VAT/WHT', tag: 'prefill' },
-                { n: 4, label: 'Pick kits to assign', tag: null },
-                { n: 5, label: 'Save → events.crm_lead_id linked + crm_lead_staff synced', tag: 'bidirectional link' },
+                { n: 3, label: 'System pre-fills name, date, location, VAT/WHT (staff starts empty)', tag: 'prefill' },
+                { n: 4, label: 'Add staff + roles for THIS event, pick kits to assign', tag: null },
+                { n: 5, label: 'Save → events.crm_lead_id linked + staff saved to event_staff', tag: 'per-event' },
               ] : [
                 { n: 1, label: 'เปิด lead ที่ accepted แล้วที่ /crm/[id]', tag: null },
                 { n: 2, label: 'กดปุ่ม "สร้าง Event"', tag: null },
-                { n: 3, label: 'ระบบ pre-fill ชื่อ / วันที่ / สถานที่ / ทีมพร้อม role / VAT-WHT', tag: 'prefill' },
-                { n: 4, label: 'เลือกชุดอุปกรณ์ (kits) ที่จะใช้', tag: null },
-                { n: 5, label: 'บันทึก → events.crm_lead_id ถูกผูก + crm_lead_staff sync', tag: 'ผูกสองทาง' },
+                { n: 3, label: 'ระบบ pre-fill ชื่อ / วันที่ / สถานที่ / VAT-WHT (ทีมเริ่มว่าง)', tag: 'prefill' },
+                { n: 4, label: 'เพิ่มทีม + role สำหรับ event นี้ + เลือกชุดอุปกรณ์ (kits)', tag: null },
+                { n: 5, label: 'บันทึก → events.crm_lead_id ถูกผูก + staff เก็บใน event_staff', tag: 'แยกต่อ event' },
               ]}
             />
             <RoleCard
@@ -1338,7 +1338,7 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
                 <li>{isEn ? 'Batch update each item.status by condition picked' : 'อัปเดต items.status ทุกตัวตามสภาพที่เลือก (batch)'}</li>
                 <li>{isEn ? 'Release all kits — kits.event_id = null' : 'ปลด kit ทั้งหมด — kits.event_id = null'}</li>
                 <li>{isEn ? 'Delete the event row entirely' : 'ลบ event row นี้ทิ้ง'}</li>
-                <li>{isEn ? 'Clear crm_leads.event_id back-pointer (if linked)' : 'เคลียร์ crm_leads.event_id (ถ้าเคยผูก)'}</li>
+                <li>{isEn ? 'Cascade-remove this event’s staff (event_staff) — the CRM lead keeps its other events' : 'ลบทีมของ event นี้อัตโนมัติ (event_staff cascade) — lead ใน CRM ยังเก็บ event อื่นไว้'}</li>
               </ol>
             </div>
 
@@ -1445,7 +1445,7 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
             color="emerald"
           />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <FeatureBlock titleTh="🤝 CRM" titleEn="🤝 CRM" lines={isEn ? ['Lead → event prefill (one-click)', 'crm_leads.event_id ↔ events.crm_lead_id', 'Staff sync via crm_lead_staff'] : ['Lead → event pre-fill ปุ่มเดียว', 'crm_leads.event_id ↔ events.crm_lead_id', 'ทีม sync ผ่าน crm_lead_staff']} />
+            <FeatureBlock titleTh="🤝 CRM" titleEn="🤝 CRM" lines={isEn ? ['Lead → event prefill (one-click)', 'events.crm_lead_id (1 lead → N events)', 'Staff per event via event_staff'] : ['Lead → event pre-fill ปุ่มเดียว', 'events.crm_lead_id (1 lead → N events)', 'ทีมแยกต่อ event ผ่าน event_staff']} />
             <FeatureBlock titleTh="📍 Check-in" titleEn="📍 Check-in" lines={isEn ? ['On-site session picks an event from today', 'sessions.event_id stamped', 'Auto-creates expense claim on checkout'] : ['session on-site เลือก event ของวันนี้', 'sessions.event_id ถูก stamp', 'ตอน checkout สร้างใบเบิกอัตโนมัติ']} />
             <FeatureBlock titleTh="📦 Stock / Kits" titleEn="📦 Stock / Kits" lines={isEn ? ['kits.event_id = event.id when assigned', 'Items flip to in_use on checkout', 'Items flip back via return checklist'] : ['kits.event_id = event.id เมื่อผูก', 'item เปลี่ยนเป็น in_use ตอน checkout', 'item เปลี่ยนกลับผ่าน return checklist']} />
             <FeatureBlock titleTh="💰 Costs / Finance" titleEn="💰 Costs / Finance" lines={isEn ? ['job_cost_events.source_event_id (nullable)', 'expense_claims tied via job_event_id', 'VAT / WHT inherited from CRM lead'] : ['job_cost_events.source_event_id (ไม่บังคับ)', 'ใบเบิกผูกผ่าน job_event_id', 'VAT / WHT ตามที่ตั้งใน CRM lead']} />
