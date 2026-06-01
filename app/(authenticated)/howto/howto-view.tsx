@@ -507,10 +507,10 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
               />
               <NewItem
                 icon={<Users className="h-3.5 w-3.5" />}
-                titleTh="มอบหมายทีมแบบใหม่"
-                titleEn="Modern staff junction"
-                descTh="ใช้ตาราง crm_lead_staff — 1 user มีหลาย role ใน lead เดียวได้ (sale / graphic / photographer / screen / lighting / general)"
-                descEn="Junction table replaces array columns — one user can have multiple roles per lead"
+                titleTh="มอบหมายทีมแยกต่อ Event"
+                titleEn="Per-event staff assignment"
+                descTh="เก็บใน event_staff (แยกต่อ event) — 1 user มีหลาย role ต่อ event ได้ (sale / graphic / photographer / screen / lighting / general)"
+                descEn="Stored in event_staff (per event) — one user can hold multiple roles on a single event"
                 isEn={isEn}
               />
               <NewItem
@@ -806,14 +806,14 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
         <div id="crm-staff" className="scroll-mt-6">
           <SectionHeader
             icon={<Users className="h-4 w-4" />}
-            title={isEn ? 'Staff — modern role-based assignment' : 'มอบหมายทีม — แบ่งตาม role'}
+            title={isEn ? 'Staff — per-event, role-based assignment' : 'มอบหมายทีม — แยกต่อ event แบ่งตาม role'}
             color="rose"
           />
           <div className="rounded-xl border-2 border-rose-200 dark:border-rose-900 bg-rose-50/40 dark:bg-rose-950/20 p-4 space-y-3">
             <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
               {isEn
-                ? 'Each lead has a staff list backed by the crm_lead_staff junction table. One person can have multiple roles on the same lead (e.g. lead photographer + lighting). Roles are configurable in /crm/settings.'
-                : 'แต่ละ lead มีลิสต์ทีม เก็บในตาราง crm_lead_staff — 1 คนสวมหลาย role บน lead เดียวกันได้ (เช่นเป็น photographer + lighting) ตั้ง role ได้ที่ /crm/settings'}
+                ? 'Staff is assigned per event (event_staff table) — each event under a CRM lead has its own independent team. The CRM lead page shows staff grouped by event (read-only); edit it on each event’s page. One person can have multiple roles on the same event. Roles are configurable in /crm/settings.'
+                : 'มอบหมายทีมแยกต่อ event (ตาราง event_staff) — แต่ละ event ใน lead เดียวกันมีทีมของตัวเองแยกกัน หน้า CRM แสดงทีมจัดกลุ่มตาม event (read-only) แก้ไขได้ในหน้าแต่ละ event — 1 คนสวมหลาย role ต่อ event ได้ ตั้ง role ที่ /crm/settings'}
             </p>
             <ul className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
               <NewItem icon={<Send className="h-3.5 w-3.5" />} titleTh="🎯 sale" titleEn="🎯 sale" descTh="คนปิดดีล" descEn="Closes the deal" isEn={isEn} />

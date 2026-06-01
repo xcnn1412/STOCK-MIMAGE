@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -29,12 +29,11 @@ import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
   archiveLead, unarchiveLead, saveAllInstallments,
   uploadPaymentProof, deletePaymentProof, checkEventDateConflicts,
-  addLeadStaff, removeLeadStaff, setJobCostEventPhase,
-  type LeadCostSummary, type LinkedLeadEvent,
+  setJobCostEventPhase,
+  type LeadCostSummary, type LinkedLeadEvent, type LeadEventStaff,
 } from '../actions'
 import { EVENT_PHASES, getPhaseLabel } from '../event-phases'
 import { getClaimStatusLabel, getClaimStatusColor } from '../../costs/types'
-import type { StaffAssignment } from '@/types/database.types'
 import { createJobsFromLead, getJobsByLeadId } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
 import { STATUS_CONFIG, ALL_STATUSES, getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
@@ -61,12 +60,12 @@ interface LeadDetailProps {
   settings: CrmSetting[]
   users: SystemUser[]
   installments: LeadInstallment[]
-  staffAssignments: StaffAssignment[]
+  eventStaffGroups: LeadEventStaff[]
   linkedEvents?: LinkedLeadEvent[]
   costSummary?: LeadCostSummary
 }
 
-export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, staffAssignments: initialStaffAssignments, linkedEvents = [], costSummary }: LeadDetailProps) {
+export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary }: LeadDetailProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.detail
@@ -84,21 +83,14 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   const [activityDesc, setActivityDesc] = useState('')
   const [addingActivity, setAddingActivity] = useState(false)
   const [mentionedActivityUsers, setMentionedActivityUsers] = useState<string[]>([])
-  const [staffSaving, setStaffSaving] = useState(false)
-  // Junction table staff assignments
-  const [localStaffAssignments, setLocalStaffAssignments] = useState<StaffAssignment[]>(initialStaffAssignments)
-  const [staffSelectUser, setStaffSelectUser] = useState('')
-  const [staffSelectRole, setStaffSelectRole] = useState('')
+  // Staff role settings — still needed to render role labels/colors in the read-only
+  // per-event staff display (staff is edited per event, not here).
   const staffRoles = settings.filter(s => s.category === 'staff_role' && s.is_active).sort((a, b) => a.sort_order - b.sort_order)
   const [uploadingInstallment, setUploadingInstallment] = useState<string | null>(null)
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [localReceiptUrls, setLocalReceiptUrls] = useState<Record<string, string>>(
     Object.fromEntries(initialInstallments.filter(i => i.receipt_url).map(i => [i.id, i.receipt_url!]))
   )
-
-  useEffect(() => {
-    setLocalStaffAssignments(initialStaffAssignments)
-  }, [initialStaffAssignments])
 
   const getStatusLabel = (status: string) => {
     const cfg = getStatusConfig(settings, status)
@@ -452,46 +444,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     router.refresh()
   }
 
-  // Add staff assignment via junction table
-  const handleAddStaff = async () => {
-    if (!staffSelectUser || !staffSelectRole) return
-    // Check if already exists
-    if (localStaffAssignments.some(a => a.user_id === staffSelectUser && a.role === staffSelectRole)) {
-      toast.error(locale === 'th' ? 'พนักงานนี้มีหน้าที่นี้อยู่แล้ว' : 'This assignment already exists')
-      return
-    }
-    setStaffSaving(true)
-    const result = await addLeadStaff(lead.id, staffSelectUser, staffSelectRole)
-    if (result.error) {
-      toast.error(result.error)
-    } else {
-      const user = users.find(u => u.id === staffSelectUser)
-      setLocalStaffAssignments(prev => [...prev, {
-        id: Date.now().toString(), // temp ID, will be replaced on refresh
-        user_id: staffSelectUser,
-        role: staffSelectRole,
-        note: null,
-        full_name: user?.full_name || null,
-      }])
-      setStaffSelectUser('')
-      setStaffSelectRole('')
-      router.refresh()
-    }
-    setStaffSaving(false)
-  }
-
-  // Remove staff assignment
-  const handleRemoveStaff = async (assignmentId: string) => {
-    setStaffSaving(true)
-    const result = await removeLeadStaff(assignmentId, lead.id)
-    if (result.error) {
-      toast.error(result.error)
-    } else {
-      setLocalStaffAssignments(prev => prev.filter(a => a.id !== assignmentId))
-      router.refresh()
-    }
-    setStaffSaving(false)
-  }
+  // Staff is managed per event (event_staff), not at the lead level. This page only
+  // displays it grouped by event — see the "Staff & Roles" card below, which links out
+  // to each event's edit page for changes.
 
   // Get role label from settings
   const getRoleLabel = (roleValue: string) => {
@@ -1082,7 +1037,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         </CardContent>
       </Card>
 
-      {/* Staff Assignments Card — Junction Table */}
+      {/* Staff Assignments Card — read-only, grouped per event.
+          Staff lives in event_staff (keyed by event_id); each linked event manages its
+          own team. Editing happens in each event's edit page, not here. */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -1090,96 +1047,73 @@ export default function LeadDetail({ lead, activities, settings, users, installm
               <Users className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
             </div>
             {locale === 'th' ? 'ทีมงาน & หน้าที่' : 'Staff & Roles'}
-            {staffSaving && <span className="text-[10px] text-zinc-400 animate-pulse">saving...</span>}
+            <span className="ml-auto text-[10px] font-normal text-zinc-400">
+              {locale === 'th' ? 'จัดการแยกแต่ละอีเวนต์' : 'managed per event'}
+            </span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Add Staff Row */}
-          <div className="flex items-end gap-2">
-            <div className="flex-1 space-y-1">
-              <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'เลือกพนักงาน' : 'Select Staff'}</label>
-              <Select value={staffSelectUser} onValueChange={setStaffSelectUser}>
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue placeholder={locale === 'th' ? 'เลือกพนักงาน...' : 'Select staff...'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {users.map(user => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.full_name || user.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex-1 space-y-1">
-              <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'หน้าที่' : 'Role'}</label>
-              <Select value={staffSelectRole} onValueChange={setStaffSelectRole}>
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue placeholder={locale === 'th' ? 'เลือกหน้าที่...' : 'Select role...'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {staffRoles.map(role => (
-                    <SelectItem key={role.value} value={role.value}>
-                      <span className="flex items-center gap-2">
-                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color || '#6b7280' }} />
-                        {locale === 'th' ? role.label_th : role.label_en}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              size="sm"
-              className="h-8 px-3"
-              onClick={handleAddStaff}
-              disabled={staffSaving || !staffSelectUser || !staffSelectRole}
-            >
-              {locale === 'th' ? '+ เพิ่ม' : '+ Add'}
-            </Button>
-          </div>
-
-          {/* Staff List */}
-          {localStaffAssignments.length === 0 ? (
+        <CardContent className="space-y-3">
+          {eventStaffGroups.length === 0 ? (
             <p className="text-xs text-zinc-400 text-center py-4">
-              {locale === 'th' ? 'ยังไม่มีทีมงาน' : 'No staff assigned'}
+              {locale === 'th'
+                ? 'ยังไม่มีอีเวนต์ — สร้างอีเวนต์เพื่อกำหนดทีมงาน'
+                : 'No events yet — create an event to assign staff'}
             </p>
           ) : (
-            <div className="space-y-1.5">
-              {localStaffAssignments.map(assignment => (
-                <div
-                  key={assignment.id}
-                  className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 group hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex items-center justify-center h-7 w-7 rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
-                      {(assignment.full_name || '?').charAt(0).toUpperCase()}
+            eventStaffGroups.map(group => {
+              const phaseCfg = EVENT_PHASES.find(p => p.value === group.phase)
+              return (
+                <div key={group.eventId} className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                  {/* Event header */}
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800">
+                    <div className="min-w-0 flex items-center gap-2">
+                      {phaseCfg && <span className="text-sm shrink-0">{phaseCfg.icon}</span>}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{group.eventName}</p>
+                        {group.eventDate && (
+                          <p className="text-[11px] text-zinc-400">
+                            {new Date(group.eventDate).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB')}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
-                        {assignment.full_name || assignment.user_id}
-                      </p>
-                    </div>
-                    <Badge
-                      variant="secondary"
-                      className="text-[10px] shrink-0"
-                      style={{ backgroundColor: getRoleColor(assignment.role) + '20', color: getRoleColor(assignment.role), borderColor: getRoleColor(assignment.role) + '40' }}
-                    >
-                      {getRoleLabel(assignment.role)}
-                    </Badge>
+                    <Link href={`/events/${group.eventId}/edit`} className="shrink-0">
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
+                        <Pencil className="h-3 w-3 mr-1" />
+                        {locale === 'th' ? 'แก้ไขใน event' : 'Edit in event'}
+                      </Button>
+                    </Link>
                   </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
-                    onClick={() => handleRemoveStaff(assignment.id)}
-                    disabled={staffSaving}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
+
+                  {/* Staff list for this event */}
+                  {group.staff.length === 0 ? (
+                    <p className="text-xs text-zinc-400 text-center py-3">
+                      {locale === 'th' ? 'ยังไม่มีทีมงานสำหรับอีเวนต์นี้' : 'No staff for this event'}
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                      {group.staff.map((s, i) => (
+                        <div key={`${s.user_id}-${s.role}-${i}`} className="flex items-center gap-3 px-3 py-2">
+                          <div className="flex items-center justify-center h-7 w-7 rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
+                            {(s.full_name || '?').charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate flex-1 min-w-0">
+                            {s.full_name || s.user_id}
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px] shrink-0"
+                            style={{ backgroundColor: getRoleColor(s.role) + '20', color: getRoleColor(s.role), borderColor: getRoleColor(s.role) + '40' }}
+                          >
+                            {getRoleLabel(s.role)}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              )
+            })
           )}
         </CardContent>
       </Card>

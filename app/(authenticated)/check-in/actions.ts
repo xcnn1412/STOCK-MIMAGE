@@ -306,16 +306,9 @@ async function autoCreateExpenseFromCheckin(
       .eq('user_id', userId)
 
     eStaff?.forEach(e => rolesSet.add(e.role))
-
-    if (event.crm_lead_id) {
-      const { data: cStaff } = await supabase
-        .from('crm_lead_staff')
-        .select('role')
-        .eq('lead_id', event.crm_lead_id)
-        .eq('user_id', userId)
-
-      cStaff?.forEach(c => rolesSet.add(c.role))
-    }
+    // Roles come from event_staff only. Staff is per-event now; the old union with
+    // crm_lead_staff (by lead_id) would pull in roles from sibling sub-events sharing
+    // the same CRM lead — wrong for wage calculation.
 
     // 5. ดึง Role Settings (rate + auto_calc per role) & Global auto_calc toggle
     const [{ data: roleSettings }, { data: globalSettings }] = await Promise.all([
@@ -790,11 +783,10 @@ export async function getTodayEvents() {
     roleMap[s.value] = { label: s.label_th, color: s.color || '#6b7280' }
   })
 
-  // Find assignments for this user to get their roles
-  const [{ data: eStaff }, { data: cStaff }] = await Promise.all([
-    supabase.from('event_staff').select('event_id, role').eq('user_id', userId),
-    supabase.from('crm_lead_staff').select('lead_id, role').eq('user_id', userId),
-  ])
+  // Find assignments for this user to get their roles. event_staff (per event) is the
+  // single source of truth — no crm_lead_staff union, which would attribute a sibling
+  // sub-event's roles to every event under the same CRM lead.
+  const { data: eStaff } = await supabase.from('event_staff').select('event_id, role').eq('user_id', userId)
 
   const eStaffRoles = new Map<string, string[]>()
   eStaff?.forEach(e => {
@@ -802,20 +794,11 @@ export async function getTodayEvents() {
     eStaffRoles.get(e.event_id)!.push(e.role)
   })
 
-  const cStaffRoles = new Map<string, string[]>()
-  cStaff?.forEach(c => {
-    if (!cStaffRoles.has(c.lead_id)) cStaffRoles.set(c.lead_id, [])
-    cStaffRoles.get(c.lead_id)!.push(c.role)
-  })
-
   // Map events to attach roles nicely
   const mappedEvents = data.map(ev => {
     const rolesSet = new Set<string>()
     if (eStaffRoles.has(ev.id)) {
       eStaffRoles.get(ev.id)!.forEach(r => rolesSet.add(r))
-    }
-    if (ev.crm_lead_id && cStaffRoles.has(ev.crm_lead_id)) {
-      cStaffRoles.get(ev.crm_lead_id)!.forEach(r => rolesSet.add(r))
     }
 
     const assigned_roles = Array.from(rolesSet).map(r => ({
@@ -832,7 +815,7 @@ export async function getTodayEvents() {
     return mappedEvents
   }
 
-  // Filter events: non-admin must be assigned either directly or via CRM
+  // Filter events: non-admin must be assigned to the event (via event_staff)
   const allowedEvents = mappedEvents.filter(ev => ev.assigned_roles.length > 0)
 
   return allowedEvents
@@ -921,16 +904,15 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
   const jceMap = new Map<string, { name: string; sourceEventId: string | null }>()
   jceRows?.forEach(j => jceMap.set(j.id, { name: j.event_name, sourceEventId: j.source_event_id }))
 
-  // jce rows may carry a source_event_id we can use for role lookup (event_staff /
-  // crm_lead_staff). Add those to eventIds so the staff-role join below finds them.
+  // jce rows may carry a source_event_id we can use for role lookup (event_staff).
+  // Add those to eventIds so the staff-role join below finds them.
   jceRows?.forEach(j => { if (j.source_event_id) eventIds.push(j.source_event_id) })
   const dedupedEventIds = Array.from(new Set(eventIds))
 
-  const leadIds = Array.from(new Set(records.map(r => (r.events as any)?.crm_lead_id).filter(Boolean))) as string[]
-
-  const [{ data: eStaff }, { data: cStaff }, { data: settingsData }] = await Promise.all([
+  // Roles resolve from event_staff only (per event). No crm_lead_staff union — that
+  // would attribute a sibling sub-event's roles to every event under the same lead.
+  const [{ data: eStaff }, { data: settingsData }] = await Promise.all([
     dedupedEventIds.length > 0 ? supabase.from('event_staff').select('event_id, user_id, role').in('event_id', dedupedEventIds) : { data: [] },
-    leadIds.length > 0 ? supabase.from('crm_lead_staff').select('lead_id, user_id, role').in('lead_id', leadIds) : { data: [] },
     supabase.from('crm_settings').select('value, label_th, color').eq('category', 'staff_role')
   ])
 
@@ -944,13 +926,6 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
     const key = `${e.event_id}_${e.user_id}`
     if (!eRoleMap.has(key)) eRoleMap.set(key, [])
     eRoleMap.get(key)!.push(e.role)
-  })
-
-  const cRoleMap = new Map<string, string[]>()
-  cStaff?.forEach(c => {
-    const key = `${c.lead_id}_${c.user_id}`
-    if (!cRoleMap.has(key)) cRoleMap.set(key, [])
-    cRoleMap.get(key)!.push(c.role)
   })
 
   const mappedRecords = records.map(r => {
@@ -984,12 +959,6 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
     if (effectiveEventId) {
       const eKey = `${effectiveEventId}_${r.user_id}`
       if (eRoleMap.has(eKey)) eRoleMap.get(eKey)!.forEach(role => rolesSet.add(role))
-
-      const leadId = (r.events as any)?.crm_lead_id
-      if (leadId) {
-        const cKey = `${leadId}_${r.user_id}`
-        if (cRoleMap.has(cKey)) cRoleMap.get(cKey)!.forEach(role => rolesSet.add(role))
-      }
     }
 
     const assigned_roles = Array.from(rolesSet).map(role => ({

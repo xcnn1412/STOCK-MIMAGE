@@ -697,22 +697,44 @@ export async function getCrmLeadForJob(leadId: string) {
         .select('*')
         .order('sort_order', { ascending: true })
 
-    // Get lead staff assignments from junction table
-    const { data: leadStaff } = await supabase
-        .from('crm_lead_staff')
-        .select('id, user_id, role, profiles:user_id(full_name)')
-        .eq('lead_id', leadId)
-        .order('created_at', { ascending: true })
+    // Staff for this lead = the UNION of every linked event's staff. Staff is managed
+    // per event now (event_staff keyed by event_id), so we aggregate across the lead's
+    // events and de-dupe by user+role for this flat list.
+    const { data: leadEvents } = await supabase
+        .from('events')
+        .select('id')
+        .eq('crm_lead_id', leadId)
+    const leadEventIds = (leadEvents || []).map((e: { id: string }) => e.id)
+
+    let leadStaffRows: any[] = []
+    if (leadEventIds.length > 0) {
+        const { data } = await supabase
+            .from('event_staff')
+            .select('user_id, role, profiles:user_id(full_name)')
+            .in('event_id', leadEventIds)
+            .order('created_at', { ascending: true })
+        leadStaffRows = data || []
+    }
+
+    const seenStaff = new Set<string>()
+    const leadStaff = leadStaffRows
+        .map((s: any) => ({
+            user_id: s.user_id,
+            full_name: s.profiles?.full_name || '',
+            role: s.role,
+        }))
+        .filter((s: { user_id: string; role: string }) => {
+            const key = `${s.user_id}::${s.role}`
+            if (seenStaff.has(key)) return false
+            seenStaff.add(key)
+            return true
+        })
 
     return {
         lead,
         installments: installments || [],
         crmSettings: crmSettings || [],
-        leadStaff: (leadStaff || []).map((s: any) => ({
-            user_id: s.user_id,
-            full_name: s.profiles?.full_name || '',
-            role: s.role,
-        })),
+        leadStaff,
     }
 }
 

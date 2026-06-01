@@ -39,27 +39,16 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
     .select('id, full_name, role')
     .order('full_name')
 
-  // 4. Fetch event_staff junction table records
+  // 4. Fetch staff — event_staff (keyed by event_id) is the single source of truth for
+  // every event, CRM-linked or not. Each sub-event under a shared CRM lead has its own
+  // independent staff list.
   const serviceClient = createServiceClient()
-  // 4. Fetch staff — Single Table approach
-  let eventStaff: any[] = []
-  if (event.crm_lead_id) {
-    // CRM-linked: read from crm_lead_staff
-    const { data } = await serviceClient
-      .from('crm_lead_staff')
-      .select('id, user_id, role, profiles:user_id(full_name)')
-      .eq('lead_id', event.crm_lead_id)
-      .order('created_at', { ascending: true })
-    eventStaff = data || []
-  } else {
-    // Standalone: read from event_staff
-    const { data } = await serviceClient
-      .from('event_staff')
-      .select('id, user_id, role, profiles:user_id(full_name)')
-      .eq('event_id', event.id)
-      .order('created_at', { ascending: true })
-    eventStaff = data || []
-  }
+  const { data: eventStaffData } = await serviceClient
+    .from('event_staff')
+    .select('id, user_id, role, profiles:user_id(full_name)')
+    .eq('event_id', event.id)
+    .order('created_at', { ascending: true })
+  const eventStaff: any[] = eventStaffData || []
 
   // 5. Fetch staff role settings
   const { data: allSettings } = await getCrmSettings()

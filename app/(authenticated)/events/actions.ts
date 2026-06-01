@@ -8,6 +8,34 @@ import { cookies } from 'next/headers'
 import type { ActionState, KitContent, Item, Database } from '@/types'
 
 
+// Recompute crm_leads.assigned_* roll-up arrays as the UNION of every linked event's
+// event_staff. Staff now lives per-event (event_staff keyed by event_id), but the
+// Kanban board still filters leads by these lead-level arrays, so we keep them in sync
+// whenever a CRM-linked event's staff changes. Best-effort — never blocks the caller.
+async function syncLeadArraysFromEvents(supabase: ReturnType<typeof createServiceClient>, leadId: string) {
+  try {
+    const { data: evs } = await supabase.from('events').select('id').eq('crm_lead_id', leadId)
+    const eventIds = (evs || []).map((e: { id: string }) => e.id)
+    let staffRows: { user_id: string; role: string }[] = []
+    if (eventIds.length > 0) {
+      const { data } = await supabase.from('event_staff').select('user_id, role').in('event_id', eventIds)
+      staffRows = (data || []) as { user_id: string; role: string }[]
+    }
+    const uniq = (arr: string[]) => Array.from(new Set(arr))
+    const assigned_sales = uniq(staffRows.filter(s => s.role === 'sale').map(s => s.user_id))
+    const assigned_graphics = uniq(staffRows.filter(s => s.role === 'graphic').map(s => s.user_id))
+    const assigned_staff = uniq(staffRows.filter(s => s.role !== 'sale' && s.role !== 'graphic').map(s => s.user_id))
+    await supabase.from('crm_leads').update({
+      assigned_sales,
+      assigned_graphics,
+      assigned_staff,
+    }).eq('id', leadId)
+  } catch (e) {
+    console.error('syncLeadArraysFromEvents error:', e)
+  }
+}
+
+
 export async function createEvent(prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
@@ -53,40 +81,21 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
       return { error: 'Failed to create event' }
   }
 
-  // Staff assignments — Single Table approach
+  // Staff assignments — event_staff (keyed by event_id) is the single source of truth
+  // for EVERY event, CRM-linked or standalone. This is what keeps sub-events under the
+  // same CRM lead independent of each other. (Kanban roll-up arrays are recomputed from
+  // the union of all the lead's events further below, inside the `if (fromCrm)` block.)
   const staffAssignmentsJson = formData.get('staff_assignments') as string
   if (staffAssignmentsJson) {
     try {
       const staffAssignments = JSON.parse(staffAssignmentsJson) as { user_id: string; role: string }[]
       if (staffAssignments.length > 0) {
-        if (fromCrm) {
-          // CRM-linked: sync to crm_lead_staff (delete old + insert new)
-          await supabase.from('crm_lead_staff').delete().eq('lead_id', fromCrm)
-          const rows = staffAssignments.map(a => ({
-            lead_id: fromCrm,
-            user_id: a.user_id,
-            role: a.role,
-          }))
-          await supabase.from('crm_lead_staff').insert(rows)
-
-          // Sync old text arrays on crm_leads for Kanban board
-          const assigned_sales = staffAssignments.filter(a => a.role === 'sale').map(a => a.user_id)
-          const assigned_graphics = staffAssignments.filter(a => a.role === 'graphic').map(a => a.user_id)
-          const assigned_staff = staffAssignments.filter(a => a.role !== 'sale' && a.role !== 'graphic').map(a => a.user_id)
-          await supabase.from('crm_leads').update({
-            assigned_sales,
-            assigned_graphics,
-            assigned_staff,
-          }).eq('id', fromCrm)
-        } else {
-          // Standalone event: use event_staff
-          const rows = staffAssignments.map(a => ({
-            event_id: event.id,
-            user_id: a.user_id,
-            role: a.role,
-          }))
-          await supabase.from('event_staff').insert(rows)
-        }
+        const rows = staffAssignments.map(a => ({
+          event_id: event.id,
+          user_id: a.user_id,
+          role: a.role,
+        }))
+        await supabase.from('event_staff').insert(rows)
       }
     } catch (e) {
       console.error('Parse staff_assignments error:', e)
@@ -124,6 +133,9 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
       description: `เปิดอีเวนต์แล้ว: ${name}`,
     })
     await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', fromCrm)
+
+    // Keep the Kanban roll-up arrays in sync with this lead's per-event staff.
+    await syncLeadArraysFromEvents(supabase, fromCrm)
 
     // Auto-create paired job_cost_events (mirrors importEventFromStock, but we
     // already know the lead, so we read its revenue/tax directly).
@@ -210,6 +222,9 @@ export async function linkEventToCrm(eventId: string, leadId: string) {
     .eq('id', eventId)
   if (e1) return { error: e1.message }
 
+  // This event's staff now contributes to the lead — refresh Kanban roll-up arrays.
+  await syncLeadArraysFromEvents(supabase, leadId)
+
   await logActivity('LINK_EVENT_TO_CRM', { eventId, leadId })
   revalidatePath('/events')
   revalidatePath(`/events/${eventId}/edit`)
@@ -232,6 +247,9 @@ export async function unlinkEventFromCrm(eventId: string) {
   const leadId = event?.crm_lead_id
 
   await supabase.from('events').update({ crm_lead_id: null }).eq('id', eventId)
+
+  // This event no longer contributes to the lead — refresh Kanban roll-up arrays.
+  if (leadId) await syncLeadArraysFromEvents(supabase, leadId)
 
   await logActivity('UNLINK_EVENT_FROM_CRM', { eventId, leadId })
   revalidatePath('/events')
@@ -280,18 +298,9 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
       .eq('event_id', id)
   const oldKits = (oldKitsRaw || []) as { id: string; name: string }[]
 
+  // Staff now lives per-event in event_staff for every event (CRM-linked or not).
   let oldStaff: { user_id: string; full_name: string; role: string }[] = []
-  if (oldEvent?.crm_lead_id) {
-      const { data: rows } = await supabase
-          .from('crm_lead_staff')
-          .select('user_id, role, profiles:user_id(full_name)')
-          .eq('lead_id', oldEvent.crm_lead_id)
-      oldStaff = ((rows || []) as any[]).map((s: any) => ({
-          user_id: s.user_id,
-          full_name: s.profiles?.full_name || '',
-          role: s.role,
-      }))
-  } else {
+  {
       const { data: rows } = await supabase
           .from('event_staff')
           .select('user_id, role, profiles:user_id(full_name)')
@@ -360,57 +369,29 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
           .in('id', selectedKitIds)
   }
 
-  // 3. Sync staff — Single Table approach
+  // 3. Sync staff — event_staff (keyed by event_id) is the single source of truth for
+  // every event, CRM-linked or not. Always delete+insert THIS event's own rows, so
+  // sub-events sharing the same CRM lead never overwrite each other's staff.
   const staffAssignmentsJson = formData.get('staff_assignments') as string
   if (staffAssignmentsJson) {
     try {
       const staffAssignments = JSON.parse(staffAssignmentsJson) as { user_id: string; role: string }[]
-      
-      // Check if event is CRM-linked
-      const { data: eventData } = await supabase.from('events').select('crm_lead_id').eq('id', id).single()
-      const crmLeadId = eventData?.crm_lead_id
 
-      console.log('--- DEBUG updateEvent ---')
-      console.log('eventId:', id)
-      console.log('crmLeadId:', crmLeadId)
-      console.log('staffAssignments:', staffAssignments)
+      await supabase.from('event_staff').delete().eq('event_id', id)
+      if (staffAssignments.length > 0) {
+        const rows = staffAssignments.map(a => ({
+          event_id: id,
+          user_id: a.user_id,
+          role: a.role,
+        }))
+        const { error: insErr } = await supabase.from('event_staff').insert(rows)
+        if (insErr) console.error('Insert event_staff err:', insErr)
+      }
 
-      if (crmLeadId) {
-        // CRM-linked: sync to crm_lead_staff
-        const { error: delErr } = await supabase.from('crm_lead_staff').delete().eq('lead_id', crmLeadId)
-        if (delErr) console.error('Delete CRM staff err:', delErr)
-
-        if (staffAssignments.length > 0) {
-          const rows = staffAssignments.map(a => ({
-            lead_id: crmLeadId,
-            user_id: a.user_id,
-            role: a.role,
-          }))
-          const { error: insErr } = await supabase.from('crm_lead_staff').insert(rows)
-          if (insErr) console.error('Insert CRM staff err:', insErr)
-          else console.log('Inserted CRM staff rows successfully:', rows.length)
-        }
-
-        // Sync old text arrays on crm_leads for Kanban board
-        const assignedSales = staffAssignments.filter(a => a.role === 'sale').map(a => a.user_id)
-        const assignedGraphics = staffAssignments.filter(a => a.role === 'graphic').map(a => a.user_id)
-        const assignedStaff = staffAssignments.filter(a => a.role !== 'sale' && a.role !== 'graphic').map(a => a.user_id)
-        await supabase.from('crm_leads').update({
-          assigned_sales: assignedSales,
-          assigned_graphics: assignedGraphics,
-          assigned_staff: assignedStaff,
-        }).eq('id', crmLeadId)
-      } else {
-        // Standalone event: sync to event_staff
-        await supabase.from('event_staff').delete().eq('event_id', id)
-        if (staffAssignments.length > 0) {
-          const rows = staffAssignments.map(a => ({
-            event_id: id,
-            user_id: a.user_id,
-            role: a.role,
-          }))
-          await supabase.from('event_staff').insert(rows)
-        }
+      // If CRM-linked, refresh the lead's Kanban roll-up arrays from the union of all
+      // its events' staff (this event included).
+      if (oldEvent?.crm_lead_id) {
+        await syncLeadArraysFromEvents(supabase, oldEvent.crm_lead_id)
       }
     } catch (e) {
       console.error('Sync staff error:', e)

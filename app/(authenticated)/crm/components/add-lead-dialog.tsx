@@ -83,15 +83,12 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
   const [selectedSales, setSelectedSales] = useState<string[]>([])
   const [selectedGraphics, setSelectedGraphics] = useState<string[]>([])
   const [selectedStaff, setSelectedStaff] = useState<string[]>([])
-  // Junction table staff assignments
-  const [staffAssignments, setStaffAssignments] = useState<{ user_id: string; full_name: string; role: string }[]>([])
-  const [staffSelectUser, setStaffSelectUser] = useState('')
-  const [staffSelectRole, setStaffSelectRole] = useState('')
+  // Staff is assigned per event (event_staff), not at lead creation — this dialog no
+  // longer has a staff editor.
 
   const packages = settings.filter(s => s.category === 'package' && s.is_active)
   const customerTypes = settings.filter(s => s.category === 'customer_type' && s.is_active)
   const leadSources = settings.filter(s => s.category === 'lead_source' && s.is_active)
-  const staffRoles = settings.filter(s => s.category === 'staff_role' && s.is_active).sort((a, b) => a.sort_order - b.sort_order)
   const staffList = getActiveStaff()
 
   const getSettingLabel = (setting: CrmSetting) => {
@@ -141,40 +138,11 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
       setSelectedSales([])
       setSelectedGraphics([])
       setSelectedStaff([])
-      setStaffAssignments([])
-      setStaffSelectUser('')
-      setStaffSelectRole('')
     }
   }, [open])
 
   const toggleUser = (list: string[], setList: (v: string[]) => void, userId: string) => {
     setList(list.includes(userId) ? list.filter(id => id !== userId) : [...list, userId])
-  }
-
-  const addStaffAssignment = () => {
-    if (!staffSelectUser || !staffSelectRole) return
-    if (staffAssignments.some(a => a.user_id === staffSelectUser && a.role === staffSelectRole)) return
-    const user = users.find(u => u.id === staffSelectUser)
-    setStaffAssignments(prev => [...prev, {
-      user_id: staffSelectUser,
-      full_name: user?.full_name || staffSelectUser,
-      role: staffSelectRole,
-    }])
-    setStaffSelectUser('')
-    setStaffSelectRole('')
-  }
-
-  const removeStaffAssignment = (idx: number) => {
-    setStaffAssignments(prev => prev.filter((_, i) => i !== idx))
-  }
-
-  const getRoleLabel = (roleValue: string) => {
-    const r = staffRoles.find(s => s.value === roleValue)
-    if (!r) return roleValue
-    return locale === 'th' ? r.label_th : r.label_en
-  }
-  const getRoleColor = (roleValue: string) => {
-    return staffRoles.find(s => s.value === roleValue)?.color || '#6b7280'
   }
 
   return (
@@ -274,108 +242,8 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
             </div>
           </SectionCard>
 
-          {/* ================================================================
-              2. ผู้ดูแล (Staff Assignments)
-              ================================================================ */}
-          <SectionCard
-            icon={<Users className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />}
-            iconBg="bg-amber-50 dark:bg-amber-950/40"
-            title={locale === 'th' ? 'ทีมงาน & หน้าที่' : 'Staff & Roles'}
-            defaultOpen={false}
-          >
-            {/* Hidden input for form submission */}
-            <input type="hidden" name="staff_assignments" value={JSON.stringify(staffAssignments)} />
-
-            {/* Add row */}
-            <div className="flex items-end gap-2">
-              <div className="flex-1 space-y-1">
-                <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'เลือกพนักงาน' : 'Select Staff'}</label>
-                <Select value={staffSelectUser} onValueChange={setStaffSelectUser}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue placeholder={locale === 'th' ? 'เลือกพนักงาน...' : 'Select staff...'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {users.map(user => (
-                      <SelectItem key={user.id} value={user.id}>
-                        {user.full_name || user.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex-1 space-y-1">
-                <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'หน้าที่' : 'Role'}</label>
-                <Select value={staffSelectRole} onValueChange={setStaffSelectRole}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue placeholder={locale === 'th' ? 'เลือกหน้าที่...' : 'Select role...'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {staffRoles.map(role => (
-                      <SelectItem key={role.value} value={role.value}>
-                        <span className="flex items-center gap-2">
-                          <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color || '#6b7280' }} />
-                          {locale === 'th' ? role.label_th : role.label_en}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                className="h-8 px-3"
-                onClick={addStaffAssignment}
-                disabled={!staffSelectUser || !staffSelectRole}
-              >
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                {locale === 'th' ? 'เพิ่ม' : 'Add'}
-              </Button>
-            </div>
-
-            {/* Staff list */}
-            {staffAssignments.length > 0 && (
-              <div className="space-y-1.5">
-                {staffAssignments.map((a, idx) => (
-                  <div
-                    key={`${a.user_id}-${a.role}-${idx}`}
-                    className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 group hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex items-center justify-center h-7 w-7 rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
-                        {(a.full_name || '?').charAt(0).toUpperCase()}
-                      </div>
-                      <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
-                        {a.full_name}
-                      </span>
-                      <Badge
-                        variant="secondary"
-                        className="text-[10px] shrink-0"
-                        style={{ backgroundColor: getRoleColor(a.role) + '20', color: getRoleColor(a.role), borderColor: getRoleColor(a.role) + '40' }}
-                      >
-                        {getRoleLabel(a.role)}
-                      </Badge>
-                    </div>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
-                      onClick={() => removeStaffAssignment(idx)}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {staffAssignments.length === 0 && (
-              <p className="text-xs text-zinc-400 text-center py-2">
-                {locale === 'th' ? 'ยังไม่มีทีมงาน — เพิ่มพนักงานและเลือกหน้าที่' : 'No staff assigned'}
-              </p>
-            )}
-          </SectionCard>
+          {/* Staff is assigned per event (event_staff) — not here. See each event's
+              edit page; the CRM lead page shows staff grouped by event (read-only). */}
 
           {/* ================================================================
               3. ข้อมูลอีเวนต์ (Event Info)

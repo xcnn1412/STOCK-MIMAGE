@@ -509,24 +509,9 @@ export async function createLead(formData: FormData) {
     }
   }
 
-  // Insert staff assignments into junction table
-  const staffAssignmentsJson = formData.get('staff_assignments') as string
-  if (staffAssignmentsJson) {
-    try {
-      const staffAssignments = JSON.parse(staffAssignmentsJson) as { user_id: string; role: string }[]
-      if (staffAssignments.length > 0) {
-        const staffRows = staffAssignments.map(a => ({
-          lead_id: data.id,
-          user_id: a.user_id,
-          role: a.role,
-        }))
-        const { error: staffError } = await supabase.from('crm_lead_staff').insert(staffRows)
-        if (staffError) console.error('Insert crm_lead_staff error:', staffError)
-      }
-    } catch (e) {
-      console.error('Parse staff_assignments error:', e)
-    }
-  }
+  // NOTE: staff is NOT assigned at lead creation. It is managed per event (event_staff)
+  // and only displayed (grouped by event) on the CRM lead page. The new-lead dialog no
+  // longer collects staff, so there is no staff_assignments insert here.
 
   await logActivity('CREATE_CRM_LEAD', {
     id: data.id,
@@ -613,24 +598,9 @@ export async function updateLead(id: string, formData: FormData) {
   const { error } = await supabase.from('crm_leads').update(updates).eq('id', id)
   if (error) return { error: error.message }
 
-  // Sync crm_lead_staff junction table if staff_assignments provided
-  const staffAssignmentsJson = formData.get('staff_assignments') as string | null
-  if (staffAssignmentsJson) {
-    try {
-      const staffAssignments = JSON.parse(staffAssignmentsJson) as { user_id: string; role: string }[]
-      await supabase.from('crm_lead_staff').delete().eq('lead_id', id)
-      if (staffAssignments.length > 0) {
-        const rows = staffAssignments.map(a => ({
-          lead_id: id,
-          user_id: a.user_id,
-          role: a.role,
-        }))
-        await supabase.from('crm_lead_staff').insert(rows)
-      }
-    } catch (e) {
-      console.error('Sync crm_lead_staff error:', e)
-    }
-  }
+  // NOTE: staff is no longer edited at the lead level — it is managed per event
+  // (event_staff) and only displayed (grouped by event) on the CRM lead page. The old
+  // crm_lead_staff write that used to live here was removed as part of that refactor.
 
   await logActivity('UPDATE_CRM_LEAD', { id, changes: Object.keys(updates).join(', ') })
   revalidatePath('/crm')
@@ -1174,14 +1144,76 @@ export async function getLeadStaff(leadId: string) {
   }))
 }
 
-// Helper to sync crm_lead_staff state back to text arrays in crm_leads for Kanban board filtering
-async function syncLeadStaffArrays(supabase: any, leadId: string) {
-  const { data: staffData } = await supabase.from('crm_lead_staff').select('user_id, role, profiles(full_name)').eq('lead_id', leadId)
-  if (!staffData) return
+export interface LeadEventStaff {
+  eventId: string
+  eventName: string
+  eventDate: string | null
+  phase: string | null
+  staff: { user_id: string; full_name: string | null; role: string }[]
+}
 
-  const assigned_sales = staffData.filter((a: any) => a.role === 'sale').map((a: any) => a.user_id)
-  const assigned_graphics = staffData.filter((a: any) => a.role === 'graphic').map((a: any) => a.user_id)
-  const assigned_staff = staffData.filter((a: any) => a.role !== 'sale' && a.role !== 'graphic').map((a: any) => a.user_id)
+/**
+ * Staff for a lead, grouped per operational event. Staff now lives in event_staff
+ * (keyed by event_id), so each sub-event under the same lead has its own independent
+ * team. The CRM lead page uses this to display staff broken out by event (read-only;
+ * editing happens in each event's edit page).
+ */
+export async function getLeadEventStaff(leadId: string): Promise<LeadEventStaff[]> {
+  const supabase = createServiceClient()
+
+  const { data: events } = await supabase
+    .from('events')
+    .select('id, name, event_date, phase')
+    .eq('crm_lead_id', leadId)
+    .order('event_date', { ascending: true })
+
+  if (!events || events.length === 0) return []
+
+  const eventIds = events.map(e => e.id)
+  const { data: staffRows } = await supabase
+    .from('event_staff')
+    .select('event_id, user_id, role, profiles:user_id(full_name)')
+    .in('event_id', eventIds)
+    .order('created_at', { ascending: true })
+
+  const byEvent = new Map<string, { user_id: string; full_name: string | null; role: string }[]>()
+  for (const s of (staffRows || []) as any[]) {
+    if (!byEvent.has(s.event_id)) byEvent.set(s.event_id, [])
+    byEvent.get(s.event_id)!.push({
+      user_id: s.user_id,
+      full_name: s.profiles?.full_name || null,
+      role: s.role,
+    })
+  }
+
+  return events.map(e => ({
+    eventId: e.id,
+    eventName: e.name,
+    eventDate: e.event_date,
+    phase: (e as { phase?: string | null }).phase ?? null,
+    staff: byEvent.get(e.id) || [],
+  }))
+}
+
+// Recompute crm_leads.assigned_* roll-up arrays from the UNION of every linked event's
+// event_staff. Staff is managed per-event now; these lead-level arrays exist only to
+// power the Kanban board's "assigned to me" filters. (This no longer pushes staff text
+// back into events.staff/seller — that lead→all-events overwrite is what made sibling
+// sub-events clobber each other.)
+async function syncLeadStaffArrays(supabase: any, leadId: string) {
+  const { data: linkedOpEvents } = await supabase.from('events').select('id').eq('crm_lead_id', leadId)
+  const eventIds = (linkedOpEvents || []).map((e: { id: string }) => e.id)
+
+  let staffData: { user_id: string; role: string }[] = []
+  if (eventIds.length > 0) {
+    const { data } = await supabase.from('event_staff').select('user_id, role').in('event_id', eventIds)
+    staffData = data || []
+  }
+
+  const uniq = (arr: string[]) => Array.from(new Set(arr))
+  const assigned_sales = uniq(staffData.filter(a => a.role === 'sale').map(a => a.user_id))
+  const assigned_graphics = uniq(staffData.filter(a => a.role === 'graphic').map(a => a.user_id))
+  const assigned_staff = uniq(staffData.filter(a => a.role !== 'sale' && a.role !== 'graphic').map(a => a.user_id))
 
   await supabase.from('crm_leads').update({
     assigned_sales,
@@ -1189,17 +1221,6 @@ async function syncLeadStaffArrays(supabase: any, leadId: string) {
     assigned_staff,
     updated_at: new Date().toISOString()
   }).eq('id', leadId)
-
-  // Sync to all linked operational events (1 lead → N events) so the events edit form doesn't show stale staff
-  const { data: linkedOpEvents } = await supabase.from('events').select('id').eq('crm_lead_id', leadId)
-  if (linkedOpEvents && linkedOpEvents.length > 0) {
-    const sellerStr = staffData.filter((a: any) => a.role === 'sale').map((a: any) => a.profiles?.full_name || '').filter(Boolean).join(', ')
-    const staffStr = staffData.filter((a: any) => a.role !== 'sale').map((a: any) => a.profiles?.full_name || '').filter(Boolean).join(', ')
-    await supabase.from('events').update({
-      seller: sellerStr || null,
-      staff: staffStr || null,
-    }).in('id', linkedOpEvents.map((e: { id: string }) => e.id))
-  }
 }
 
 export async function addLeadStaff(leadId: string, userId: string, role: string, note?: string) {
