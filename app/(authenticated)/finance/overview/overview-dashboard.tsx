@@ -237,6 +237,7 @@ export default function OverviewDashboard({
         'เลขที่ใบเบิก': c.claim_number,
         'วันที่': c.expense_date || c.created_at?.slice(0, 10) || '',
         'ผู้เบิก': c.submitter?.full_name || '',
+        'ทีมงาน & หน้าที่': (c.staff_roles || []).map(r => r.label).join(', '),
         'หัวข้อ': c.title,
         'หมวด': getCategoryLabel(c.category, 'th', categories),
         'ประเภท':
@@ -266,7 +267,7 @@ export default function OverviewDashboard({
 
     const ws = XLSX.utils.json_to_sheet(rows)
     ws['!cols'] = [
-      { wch: 16 }, { wch: 11 }, { wch: 22 }, { wch: 30 }, { wch: 14 },
+      { wch: 16 }, { wch: 11 }, { wch: 22 }, { wch: 24 }, { wch: 30 }, { wch: 14 },
       { wch: 12 }, { wch: 14 }, { wch: 22 }, { wch: 12 }, { wch: 12 },
       { wch: 12 }, { wch: 16 }, { wch: 9 }, { wch: 12 }, { wch: 18 },
       { wch: 18 }, { wch: 14 }, { wch: 30 },
@@ -320,7 +321,7 @@ export default function OverviewDashboard({
     html += `<table>
       <tr>
         <th>#</th><th>${isEn ? 'Claim No.' : 'เลขที่'}</th><th>${isEn ? 'Date' : 'วันที่'}</th>
-        <th>${isEn ? 'Submitter' : 'ผู้เบิก'}</th><th>${isEn ? 'Title' : 'หัวข้อ'}</th>
+        <th>${isEn ? 'Submitter' : 'ผู้เบิก'}</th><th>${isEn ? 'Roles' : 'ทีมงาน & หน้าที่'}</th><th>${isEn ? 'Title' : 'หัวข้อ'}</th>
         <th>${isEn ? 'Type' : 'ประเภท'}</th><th>${isEn ? 'Funding' : 'แหล่งเงิน'}</th>
         <th class="num">${isEn ? 'Amount' : 'ยอด'}</th>
         <th>${isEn ? 'Status' : 'สถานะ'}</th>
@@ -350,6 +351,7 @@ export default function OverviewDashboard({
         <td>${c.claim_number || ''}</td>
         <td>${c.expense_date || ''}</td>
         <td>${c.submitter?.full_name || ''}</td>
+        <td>${(c.staff_roles || []).map(r => r.label).join(', ')}</td>
         <td>${c.title || ''}</td>
         <td>${c.claim_type === 'event' ? 'อีเวนต์' : c.claim_type === 'advance' ? 'ทดลองจ่าย' : 'อื่นๆ'}</td>
         <td>${getFundingSourceLabel(c.funding_source, 'th')}</td>
@@ -736,6 +738,7 @@ export default function OverviewDashboard({
                     <th className="px-3 py-2 font-semibold">{isEn ? 'Claim No.' : 'เลขที่'}</th>
                     <th className="px-3 py-2 font-semibold">{isEn ? 'Date' : 'วันที่'}</th>
                     <th className="px-3 py-2 font-semibold">{isEn ? 'Submitter / Title' : 'ผู้เบิก / หัวข้อ'}</th>
+                    <th className="px-3 py-2 font-semibold">{isEn ? 'Roles' : 'ทีมงาน & หน้าที่'}</th>
                     <th className="px-3 py-2 font-semibold">{isEn ? 'Type' : 'ประเภท'}</th>
                     <th className="px-3 py-2 font-semibold">{isEn ? 'Funding' : 'แหล่งเงิน'}</th>
                     <th className="px-3 py-2 font-semibold text-right">{isEn ? 'Amount' : 'ยอด'}</th>
@@ -770,6 +773,22 @@ export default function OverviewDashboard({
                           <p className="text-zinc-500 truncate max-w-50">
                             {c.submitter?.full_name || '—'}
                           </p>
+                        </td>
+                        <td className="px-3 py-2">
+                          {c.staff_roles && c.staff_roles.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 max-w-44">
+                              {c.staff_roles.map((r, ri) => (
+                                <span
+                                  key={ri}
+                                  className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/50 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                                >
+                                  {r.label}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-zinc-400">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
@@ -896,6 +915,18 @@ export default function OverviewDashboard({
                         <p className="text-xs text-zinc-500 mt-0.5">
                           {c.submitter?.full_name || '—'} • {c.expense_date || c.created_at?.slice(0, 10)}
                         </p>
+                        {c.staff_roles && c.staff_roles.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {c.staff_roles.map((r, ri) => (
+                              <span
+                                key={ri}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/50 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                              >
+                                {r.label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
