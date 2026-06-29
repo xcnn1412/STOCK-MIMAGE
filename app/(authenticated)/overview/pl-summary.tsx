@@ -8,14 +8,11 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { ChevronRight, Activity, AlertTriangle, CheckCircle2, Layers, ExternalLink } from 'lucide-react'
 import {
-  TrendingUp, TrendingDown, Wallet, ArrowDownRight, ChevronRight,
-  Banknote, Clock, Activity, AlertTriangle, CheckCircle2, Layers, ExternalLink, Hourglass,
-} from 'lucide-react'
-import {
-  type PLLead, type PLClaim, type PLInstallment, type PLJobEvent, type PLCostItem, type Ladder, type DealPL, type ArGroup,
+  type PLLead, type PLClaim, type PLInstallment, type PLJobEvent, type PLCostItem, type Ladder, type DealPL,
   newLadder, pushLadder, calcTax, claimEffective, num,
-  isRevLead, leadDate, claimDate, leadAmount, groupKey, fmt, fmtSign, buildHealth, buildArStatus,
+  isRevLead, leadDate, claimDate, leadAmount, groupKey, fmt, fmtSign, buildHealth,
   type GroupBy,
 } from './pl/pl-lib'
 
@@ -23,10 +20,8 @@ function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(
 function monthStartStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` }
 function yearStartStr() { return `${new Date().getFullYear()}-01-01` }
 
-interface Profile { id: string; full_name: string | null; nickname: string | null }
-
-export default function PLSummary({ leads, claims, installments, events, costItems, profiles }: {
-  leads: PLLead[]; claims: PLClaim[]; installments: PLInstallment[]; events: PLJobEvent[]; costItems: PLCostItem[]; profiles: Profile[]
+export default function PLSummary({ leads, claims, installments, events, costItems }: {
+  leads: PLLead[]; claims: PLClaim[]; installments: PLInstallment[]; events: PLJobEvent[]; costItems: PLCostItem[]
 }) {
   const router = useRouter()
   const [from, setFrom] = useState('')
@@ -36,15 +31,6 @@ export default function PLSummary({ leads, claims, installments, events, costIte
   const inRange = (d: string | null) => !!d && (!from || d.slice(0, 10) >= from) && (!to || d.slice(0, 10) <= to)
 
   const h = useMemo(() => buildHealth(leads, claims, installments, events, costItems, inRange), [leads, claims, installments, events, costItems, from, to])
-
-  const salesName = useMemo(() => {
-    const m = new Map<string, string>()
-    profiles.forEach(p => m.set(p.id, p.nickname || p.full_name || p.id.slice(0, 6)))
-    return m
-  }, [profiles])
-
-  // สถานะลูกหนี้ (snapshot) — ดีลรายรับที่อยู่ในช่วงที่เลือก, อายุหนี้คิด ณ วันนี้
-  const ar = useMemo(() => buildArStatus(leads.filter(l => inRange(leadDate(l))), installments, todayStr(), salesName), [leads, installments, salesName, from, to])
 
   // Planned vs Actual — เฉพาะดีลที่มีทั้งต้นทุนประเมิน + จ่ายจริง
   const cmp = useMemo(() => {
@@ -124,55 +110,6 @@ export default function PLSummary({ leads, claims, installments, events, costIte
           })}
         </div>
       )}
-
-      {/* ── เงินสด vs กำไร ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <SummaryCard icon={TrendingUp} tone="emerald" label="รายรับรับรู้ (booked, ฐาน)"
-          value={h.revBase} sub={`${h.dealCount} ดีล · รวม VAT ฿${fmt(h.bookedGross)}`} />
-        <SummaryCard icon={Banknote} tone="emerald" label="เงินสดเก็บได้จริง"
-          value={h.cashCollected} sub={`${(h.cashRate * 100).toFixed(0)}% ของยอดที่รับรู้`} />
-        <SummaryCard icon={Clock} tone="rose" label="ลูกหนี้คงค้าง (AR)"
-          value={h.ar} sub={`ยังไม่เก็บ ${((1 - h.cashRate) * 100).toFixed(0)}%`} />
-      </div>
-
-      {/* ── สถานะลูกหนี้ (AR) ── */}
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 overflow-hidden">
-        <div className="px-5 py-3 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <Hourglass className="h-4 w-4 text-zinc-400" /> สถานะลูกหนี้ (AR) — แยกตามอายุ / เซล / ลูกค้า
-          </h2>
-          <span className="text-[11px] text-zinc-400">ณ {todayStr()}</span>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-zinc-100 dark:bg-zinc-800">
-          <ArTile label="ยังไม่แบ่งงวด" hint="ยังไม่วางบิล" value={ar.buckets.unscheduled} total={ar.buckets.total} tone="text-zinc-700 dark:text-zinc-200" bar="bg-zinc-400" emphatic />
-          <ArTile label="รอครบกำหนด" hint="ยังไม่ถึง due" value={ar.buckets.notDue} total={ar.buckets.total} tone="text-sky-600 dark:text-sky-400" bar="bg-sky-400" />
-          <ArTile label="เลยกำหนด 0-30 วัน" value={ar.buckets.d0_30} total={ar.buckets.total} tone="text-amber-600 dark:text-amber-400" bar="bg-amber-400" />
-          <ArTile label="เลยกำหนด 31-60 วัน" value={ar.buckets.d31_60} total={ar.buckets.total} tone="text-orange-600 dark:text-orange-400" bar="bg-orange-400" />
-          <ArTile label="เลยกำหนด 60+ วัน" hint="ต้องตามด่วน" value={ar.buckets.d60plus} total={ar.buckets.total} tone="text-rose-600 dark:text-rose-400" bar="bg-rose-500" emphatic={ar.buckets.d60plus > 0} />
-        </div>
-        {ar.overdue.length > 0 && (
-          <div className="border-t border-zinc-100 dark:border-zinc-800">
-            <div className="px-5 py-2 text-[11px] font-semibold uppercase tracking-wider text-rose-500">ดีลที่เลยกำหนดชำระ ({ar.overdue.length})</div>
-            <div className="max-h-60 overflow-y-auto divide-y divide-zinc-50 dark:divide-zinc-800/50">
-              {ar.overdue.map(o => (
-                <div key={o.leadId} onClick={() => router.push(`/crm/${o.leadId}`)}
-                  className="flex items-center gap-3 px-5 py-2 hover:bg-rose-50/40 dark:hover:bg-rose-950/10 cursor-pointer">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-zinc-700 dark:text-zinc-200 truncate">{o.name}</div>
-                    <div className="text-[10px] text-rose-500">เลยกำหนด {o.daysOverdue} วัน · due {o.dueDate}</div>
-                  </div>
-                  <div className="text-sm font-mono font-bold text-rose-600 dark:text-rose-400 shrink-0">฿{fmt(o.amount)}</div>
-                  <ExternalLink className="h-3.5 w-3.5 text-zinc-300 dark:text-zinc-600 shrink-0" />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-zinc-100 dark:bg-zinc-800 border-t border-zinc-100 dark:border-zinc-800">
-          <ArRank title="AR ตามเซล" rows={ar.bySales} total={ar.buckets.total} />
-          <ArRank title="AR ตามลูกค้า (Top)" rows={ar.byCustomer} total={ar.buckets.total} limit={8} />
-        </div>
-      </div>
 
       {/* ── Scorecard ── */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
@@ -289,7 +226,7 @@ export default function PLSummary({ leads, claims, installments, events, costIte
 function Th({ children }: { children?: React.ReactNode }) {
   return <th className="text-right font-semibold px-5 py-2.5 whitespace-nowrap">{children}</th>
 }
-function Td({ children, tone, strong, muted }: { children: React.ReactNode; tone?: 'emerald' | 'rose'; strong?: boolean; muted?: boolean }) {
+function Td({ children, tone, strong, muted }: { children?: React.ReactNode; tone?: 'emerald' | 'rose'; strong?: boolean; muted?: boolean }) {
   const c = tone === 'emerald' ? 'text-emerald-600 dark:text-emerald-400'
     : tone === 'rose' ? 'text-rose-500 dark:text-rose-400'
     : muted ? 'text-zinc-400' : 'text-zinc-700 dark:text-zinc-300'
@@ -312,49 +249,6 @@ function PLLine({ label, value, tone, strong, emphatic, sub }: {
   )
 }
 
-function ArRank({ title, rows, total, limit }: { title: string; rows: ArGroup[]; total: number; limit?: number }) {
-  const shown = limit ? rows.slice(0, limit) : rows
-  const max = Math.max(...rows.map(r => r.ar), 1)
-  return (
-    <div className="bg-white dark:bg-zinc-900 p-4">
-      <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-2.5">{title}</div>
-      <div className="space-y-2">
-        {shown.length === 0 && <div className="text-xs text-zinc-400">—</div>}
-        {shown.map(r => (
-          <div key={r.key} className="space-y-0.5">
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="text-zinc-600 dark:text-zinc-300 truncate min-w-0">{r.name} <span className="text-[10px] text-zinc-400">· {r.count}</span></span>
-              <span className="font-mono font-semibold text-zinc-700 dark:text-zinc-200 shrink-0">
-                ฿{fmt(r.ar)}
-                {r.overdue > 0 && <span className="ml-1.5 text-[10px] text-rose-500">เลยกำหนด ฿{fmt(r.overdue)}</span>}
-              </span>
-            </div>
-            <div className="h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-              <div className="h-full bg-amber-400 rounded-full" style={{ width: `${(r.ar / max) * 100}%` }} />
-            </div>
-          </div>
-        ))}
-        {limit && rows.length > limit && <div className="text-[10px] text-zinc-400 pt-0.5">+ อีก {rows.length - limit} ราย</div>}
-      </div>
-    </div>
-  )
-}
-function ArTile({ label, hint, value, total, tone, bar, emphatic }: {
-  label: string; hint?: string; value: number; total: number; tone: string; bar: string; emphatic?: boolean
-}) {
-  const pct = total > 0 ? (value / total) * 100 : 0
-  return (
-    <div className={`p-3 ${emphatic ? 'bg-zinc-50 dark:bg-zinc-800/50' : 'bg-white dark:bg-zinc-900'}`}>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 leading-tight">{label}</div>
-      {hint && <div className="text-[9px] text-zinc-400">{hint}</div>}
-      <div className={`text-base font-bold font-mono mt-1 ${tone}`}>฿{fmt(value)}</div>
-      <div className="h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mt-1.5">
-        <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
-      </div>
-      <div className="text-[9px] text-zinc-400 mt-0.5">{pct.toFixed(0)}%</div>
-    </div>
-  )
-}
 function Metric({ label, value, good, invert, hint }: { label: string; value: string; good: boolean; invert?: boolean; hint?: string }) {
   const c = good ? 'text-emerald-600 dark:text-emerald-400' : invert ? 'text-amber-600 dark:text-amber-400' : 'text-rose-500 dark:text-rose-400'
   return (
@@ -402,18 +296,3 @@ function DealRow({ d, onClick }: { d: DealPL; onClick: () => void }) {
   )
 }
 
-function SummaryCard({ icon: Icon, label, value, sub, tone }: {
-  icon: React.ElementType; label: string; value: number; sub: string; tone: 'emerald' | 'rose'
-}) {
-  const c = tone === 'emerald' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-  return (
-    <div className="rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-5">
-      <div className="flex items-center gap-2 text-zinc-400">
-        <Icon className={`h-4 w-4 ${c}`} />
-        <span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span>
-      </div>
-      <div className={`text-2xl font-bold font-mono mt-2 ${c}`}>{fmtSign(value)}</div>
-      <div className="text-[11px] text-zinc-400 mt-1">{sub}</div>
-    </div>
-  )
-}

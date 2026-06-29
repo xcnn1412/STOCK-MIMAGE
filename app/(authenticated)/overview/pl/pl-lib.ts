@@ -76,13 +76,14 @@ export function buildPaidByLead(leads: PLLead[], installments: PLInstallment[]):
 
 export function revLineItem(l: PLLead, t: Tax, amount: number, paidRaw: number): LineItem {
   const isSuccess = (l.status || '').toLowerCase() === 'success'
-  const paid = Math.min(paidRaw, amount)
+  // เป้าเก็บเงิน = ยอดสุทธิหลัง VAT/WHT (ลูกค้าหัก ณ ที่จ่ายแล้วนำส่งเอง ไม่ใช่หนี้ค้าง)
+  const paid = Math.min(paidRaw, t.netPayable)
   return {
     name: l.customer_name || '(ไม่ระบุชื่อ)', meta: (leadDate(l) || '').slice(0, 10),
     tag: isSuccess ? 'success' : 'accepted',
     href: `/crm/${l.id}`, linkLabel: 'เปิดดีลใน CRM',
     gross: amount, base: t.baseAmount, vat: t.vatAmount, wht: t.whtAmount, net: t.netPayable,
-    paid, outstanding: Math.max(0, amount - paid),
+    paid, outstanding: Math.max(0, t.netPayable - paid),
   }
 }
 export function expLineItem(c: PLClaim, t: Tax, amount: number): LineItem {
@@ -110,7 +111,7 @@ export interface PLJobEvent { id: string; linked_lead_id: string | null }
 export interface DealPL {
   leadId: string; name: string; status: string
   revenueBase: number; cost: number; profit: number; margin: number
-  gross: number; paid: number; outstanding: number; hasCost: boolean
+  gross: number; receivable: number; paid: number; outstanding: number; hasCost: boolean
   planned: number; variance: number; hasPlan: boolean // planned = job_cost_items, variance = actual − planned
 }
 export interface HealthFlag { severity: 'alert' | 'warning' | 'positive'; text: string }
@@ -118,7 +119,7 @@ export interface Health {
   revBase: number; revVat: number; revWht: number; revNet: number
   directCost: number; overhead: number; totalCost: number
   grossProfit: number; operatingProfit: number; grossMargin: number; opMargin: number
-  bookedGross: number; cashCollected: number; ar: number; cashRate: number
+  bookedGross: number; collectible: number; cashCollected: number; ar: number; cashRate: number
   dealCount: number; dealsWithCost: number; revWithCostPct: number; overheadRatio: number
   deals: DealPL[]; flags: HealthFlag[]
 }
@@ -140,20 +141,22 @@ export function buildHealth(
 
   const rev = newLadder()
   const dealMap = new Map<string, DealPL>()
-  let bookedGross = 0, cashCollected = 0
+  let bookedGross = 0, collectible = 0, cashCollected = 0
   for (const l of leads) {
     if (!isRevLead(l)) continue
     const d = leadDate(l); if (!inRange(d)) continue
     const amount = leadAmount(l); if (amount <= 0) continue
     const t = calcTax(amount, l.vat_mode || 'none', num(l.wht_rate))
     pushLadder(rev, t, amount)
-    const paid = Math.min(paidByLead.get(l.id) || 0, amount)
-    bookedGross += amount; cashCollected += paid
+    // ยอดที่ต้องเก็บจากลูกค้า = สุทธิหลัง VAT/WHT (ลูกค้าหัก ณ ที่จ่ายแล้วนำส่งเอง)
+    const receivable = t.netPayable
+    const paid = Math.min(paidByLead.get(l.id) || 0, receivable)
+    bookedGross += amount; collectible += receivable; cashCollected += paid
     const planned = plannedByLead.get(l.id) || 0
     dealMap.set(l.id, {
       leadId: l.id, name: l.customer_name || '(ไม่ระบุชื่อ)', status: (l.status || '').toLowerCase(),
       revenueBase: t.baseAmount, cost: 0, profit: 0, margin: 0,
-      gross: amount, paid, outstanding: Math.max(0, amount - paid), hasCost: false,
+      gross: amount, receivable, paid, outstanding: Math.max(0, receivable - paid), hasCost: false,
       planned, variance: 0, hasPlan: planned > 0,
     })
   }
@@ -184,7 +187,7 @@ export function buildHealth(
   const totalCost = directCost + overhead
   const grossProfit = rev.base - directCost
   const operatingProfit = grossProfit - overhead
-  const cashRate = bookedGross > 0 ? cashCollected / bookedGross : 0
+  const cashRate = collectible > 0 ? cashCollected / collectible : 0
   const revWithCostPct = rev.base > 0 ? revWithCost / rev.base : 0
   const overheadRatio = totalCost > 0 ? overhead / totalCost : 0
 
@@ -203,7 +206,7 @@ export function buildHealth(
     grossProfit, operatingProfit,
     grossMargin: rev.base > 0 ? (grossProfit / rev.base) * 100 : 0,
     opMargin: rev.base > 0 ? (operatingProfit / rev.base) * 100 : 0,
-    bookedGross, cashCollected, ar: bookedGross - cashCollected, cashRate,
+    bookedGross, collectible, cashCollected, ar: collectible - cashCollected, cashRate,
     dealCount: deals.length, dealsWithCost, revWithCostPct, overheadRatio,
     deals, flags,
   }
@@ -232,7 +235,9 @@ export function buildArStatus(leads: PLLead[], installments: PLInstallment[], to
 
   for (const l of leads) {
     if (!isRevLead(l)) continue
-    const price = leadAmount(l); if (price <= 0) continue
+    const gross = leadAmount(l); if (gross <= 0) continue
+    // ยอดที่ต้องเก็บ = สุทธิหลัง VAT/WHT (ตรงกับ "ชำระครบ" ใน CRM) ไม่ใช่ราคาเต็ม
+    const net = calcTax(gross, l.vat_mode || 'none', num(l.wht_rate)).netPayable
     const arr = insByLead.get(l.id) || []
     let scheduled = 0, paidSum = num(l.deposit), dealOverdue = 0, maxDays = 0, worstDue = ''
     for (const i of arr) {
@@ -246,12 +251,12 @@ export function buildArStatus(leads: PLLead[], installments: PLInstallment[], to
       dealOverdue += amt
       if (dd > maxDays) { maxDays = dd; worstDue = i.due_date }
     }
-    const rem = price - num(l.deposit) - scheduled
+    const rem = net - num(l.deposit) - scheduled
     if (rem > 1) b.unscheduled += rem
     if (dealOverdue > 0) overdue.push({ leadId: l.id, name: l.customer_name || '(ไม่ระบุชื่อ)', amount: dealOverdue, daysOverdue: maxDays, dueDate: worstDue })
 
-    // AR คงค้างของดีล = ราคา − เงินที่เก็บแล้ว (มัดจำ+งวดที่จ่าย)
-    const leadAr = Math.max(0, price - Math.min(paidSum, price))
+    // AR คงค้างของดีล = ยอดสุทธิ − เงินที่เก็บแล้ว (มัดจำ+งวดที่จ่าย)
+    const leadAr = Math.max(0, net - paidSum)
     if (leadAr > 1) {
       const sid = l.assigned_sales?.[0] || ''
       bump(salesMap, sid || 'none', sid ? (salesName?.get(sid) || sid.slice(0, 6)) : 'ไม่ระบุเซล', leadAr, dealOverdue)

@@ -15,6 +15,7 @@ import {
 } from './ai-actions'
 import AnalyticsPanel from './analytics-panel'
 import PLSummary from './pl-summary'
+import CashArView from './cash-ar-view'
 import { attributeRevenue } from '@/app/(authenticated)/costs/lib/revenue-attribution'
 
 // ─── Types ──────────────────────────────────────────────────
@@ -118,7 +119,7 @@ function marginBg(m: number): string {
 // ─── Component ──────────────────────────────────────────────
 
 export default function OverviewView({ data }: { data: OverviewData }) {
-  const [viewMode, setViewMode] = useState<'dashboard' | 'pl' | 'table' | 'ai' | 'analytics'>('dashboard')
+  const [viewMode, setViewMode] = useState<'dashboard' | 'pl' | 'cashar' | 'table' | 'ai' | 'analytics'>('dashboard')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -748,6 +749,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
         {([
           {key: 'dashboard' as const, icon: LayoutDashboard, label: 'Dashboard'},
           {key: 'pl' as const, icon: Banknote, label: 'งบกำไร-ขาดทุน'},
+          {key: 'cashar' as const, icon: Clock, label: 'เงินสด & ลูกหนี้'},
           {key: 'table' as const, icon: Table2, label: 'ตารางข้อมูล'},
           {key: 'analytics' as const, icon: BarChart3, label: 'Analytics'},
           // AI is intentionally last + muted: most questions are answered by
@@ -767,7 +769,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       </div>
 
       {/* Filters */}
-      <div className={`flex flex-wrap gap-2 items-center ${viewMode === 'pl' ? 'hidden' : ''}`}>
+      <div className={`flex flex-wrap gap-2 items-center ${viewMode === 'pl' || viewMode === 'cashar' ? 'hidden' : ''}`}>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
           <input type="text" placeholder="ค้นหาอีเวนต์..." value={searchQuery}
@@ -791,7 +793,11 @@ export default function OverviewView({ data }: { data: OverviewData }) {
 
       {/* ═══════════════════ งบกำไร-ขาดทุน (P&L) ═══════════════════ */}
       {viewMode === 'pl' && (
-        <PLSummary leads={data.leads} claims={data.expenseClaims} installments={data.leadInstallments} events={data.jobEvents} costItems={data.costItems} profiles={data.profiles} />
+        <PLSummary leads={data.leads} claims={data.expenseClaims} installments={data.leadInstallments} events={data.jobEvents} costItems={data.costItems} />
+      )}
+
+      {viewMode === 'cashar' && (
+        <CashArView leads={data.leads} claims={data.expenseClaims} installments={data.leadInstallments} events={data.jobEvents} costItems={data.costItems} profiles={data.profiles} />
       )}
 
       {/* ═══════════════════ DASHBOARD ═══════════════════ */}

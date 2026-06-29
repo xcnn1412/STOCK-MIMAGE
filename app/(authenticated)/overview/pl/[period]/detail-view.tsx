@@ -142,7 +142,7 @@ export default function PLDetailView({ period, leads, claims, installments }: {
 
         {/* สรุปเครดิต: ยอดเต็ม / เก็บแล้ว / คงค้าง */}
         {tab === 'credit' && (() => {
-          const full = d.credit.reduce((s, i) => s + i.gross, 0)
+          const full = d.credit.reduce((s, i) => s + i.net, 0)
           const paid = d.credit.reduce((s, i) => s + i.paid, 0)
           const outstanding = d.credit.reduce((s, i) => s + i.outstanding, 0)
           const paidPct = full > 0 ? (paid / full) * 100 : 0
@@ -221,7 +221,7 @@ export default function PLDetailView({ period, leads, claims, installments }: {
                   {tab === 'credit' ? (
                     <>
                       <div className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400">ค้าง ฿{fmt(it.outstanding)}</div>
-                      <div className="text-[10px] font-mono text-zinc-400">เต็ม ฿{fmt(it.gross)} · เก็บแล้ว <span className="text-emerald-600 dark:text-emerald-400">฿{fmt(it.paid)}</span></div>
+                      <div className="text-[10px] font-mono text-zinc-400">เต็ม ฿{fmt(it.net)} · เก็บแล้ว <span className="text-emerald-600 dark:text-emerald-400">฿{fmt(it.paid)}</span></div>
                     </>
                   ) : (
                     <>
