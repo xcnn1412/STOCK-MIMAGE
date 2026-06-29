@@ -38,12 +38,12 @@ export async function getOverviewData() {
     // 3) CRM leads — joined to job_cost_events via job_cost_events.linked_lead_id
     supabase
       .from('crm_leads')
-      .select('id, customer_name, confirmed_price, quoted_price, assigned_sales, assigned_graphics, assigned_staff, package_name, status, event_date, event_location, vat_mode, wht_rate'),
+      .select('id, customer_name, confirmed_price, quoted_price, assigned_sales, assigned_graphics, assigned_staff, package_name, status, event_date, event_location, vat_mode, wht_rate, created_at, deposit'),
 
-    // 4) Expense claims linked to events
+    // 4) Expense claims (ALL — incl. office/advance, not just event-linked)
     supabase
       .from('expense_claims')
-      .select('id, job_event_id, total_amount, status, claim_type, submitted_by, category, paid_at, expense_date, vat_mode, include_vat, withholding_tax_rate'),
+      .select('id, job_event_id, amount, total_amount, actual_spent_amount, status, claim_type, submitted_by, category, paid_at, expense_date, created_at, vat_mode, include_vat, withholding_tax_rate'),
 
     // 5) Staff checkins (for event check-in counts)
     supabase
@@ -62,6 +62,11 @@ export async function getOverviewData() {
     .from('events')
     .select('id, name')
 
+  // งวดชำระจริงของ CRM lead (มัดจำ+งวดที่จ่าย) — ใช้คำนวณ "เก็บแล้ว/คงค้าง" ในงบ P&L
+  const leadInstallmentsResult = await supabase
+    .from('crm_lead_installments')
+    .select('lead_id, amount, is_paid, due_date, paid_date')
+
   return {
     jobEvents: eventsResult.data || [],
     costItems: costItemsResult.data || [],
@@ -70,5 +75,6 @@ export async function getOverviewData() {
     checkins: checkinsResult.data || [],
     profiles: profilesResult.data || [],
     events: eventsTableResult.data || [],
+    leadInstallments: leadInstallmentsResult.data || [],
   }
 }

@@ -19,6 +19,26 @@ export default async function EventCostDetailPage({ params }: { params: Promise<
 
   if (!jobEvent) redirect('/costs/events')
 
+  // แนบสถานะใบเบิกให้แต่ละรายการต้นทุนที่ auto-สร้างจากใบเบิก (notes = "<claim_number>::<claimId>")
+  // เพื่อโชว์ badge สถานะ (จ่ายแล้ว/รอจ่ายสิ้นเดือน/...) ในตารางค่าใช้จ่าย
+  {
+    const items = jobEvent.job_cost_items || []
+    const claimIds = items
+      .map((i: any) => String(i.notes || '').match(/::(.+)$/)?.[1])
+      .filter(Boolean) as string[]
+    if (claimIds.length) {
+      const { data: statuses } = await supabase
+        .from('expense_claims')
+        .select('id, status')
+        .in('id', claimIds)
+      const stMap = new Map((statuses || []).map(s => [s.id, s.status]))
+      items.forEach((i: any) => {
+        const cid = String(i.notes || '').match(/::(.+)$/)?.[1]
+        if (cid) i.claim_status = stMap.get(cid) ?? null
+      })
+    }
+  }
+
   // ดึงใบเบิกที่ผูกกับ event นี้
   let expenseClaims: any[] = []
   if (jobEvent.source_event_id) {

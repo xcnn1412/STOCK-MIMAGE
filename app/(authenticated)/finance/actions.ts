@@ -374,6 +374,29 @@ export async function updateClaim(id: string, updateData: {
 
   if (error) return { error: 'เกิดข้อผิดพลาดในการแก้ไข' }
 
+  // Sync ต้นทุนในโมดูล Costs: ใบเบิกที่ผูก event จะ auto-สร้าง job_cost_item ไว้
+  // (notes = "<claim_number>::<id>") เป็น snapshot ตอน approve ครั้งเดียว — เมื่อแก้ใบเบิก
+  // ทีหลัง (เช่น แก้ยอด) ต้อง sync ให้ตรง ไม่งั้น Costs จะคิดต้นทุนผิด. แตะเฉพาะ row
+  // ที่ auto-สร้าง (มี "::<id>" ใน notes) เท่านั้น — รายการที่กรอกมือไม่โดน.
+  {
+    const eff = { ...claim, ...finalData }
+    const linkedEventId: string | null = eff.job_event_id ?? null
+    if (linkedEventId) {
+      const amount = Number(eff.amount) || (Number(eff.unit_price) || 0) * (Number(eff.quantity) || 0)
+      await supabase.from('job_cost_items').update({
+        job_event_id: linkedEventId,
+        category: eff.category,
+        description: `[เบิกเงิน] ${eff.title}`,
+        amount,
+        unit_price: Number(eff.unit_price) || amount,
+        quantity: eff.quantity,
+      }).like('notes', `%::${id}`)
+    } else {
+      // เลิกผูก event → ลบ cost item ที่ออโต้สร้างไว้
+      await supabase.from('job_cost_items').delete().like('notes', `%::${id}`)
+    }
+  }
+
   // Log changes
   if (Object.keys(changes).length > 0) {
     await supabase.from('expense_claim_logs').insert({

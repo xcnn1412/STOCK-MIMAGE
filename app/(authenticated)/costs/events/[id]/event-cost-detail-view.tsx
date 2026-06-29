@@ -28,6 +28,20 @@ import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
 
+// ป้ายสถานะใบเบิก (สำหรับรายการต้นทุนที่ auto-สร้างจากใบเบิก)
+const CLAIM_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  paid: { label: 'จ่ายแล้ว', cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  refund_confirmed: { label: 'คืนเงินแล้ว', cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  approved: { label: 'อนุมัติแล้ว', cls: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
+  waiting_tax_invoice: { label: 'รอใบกำกับภาษี', cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
+  pending_month_end: { label: 'รอจ่ายสิ้นเดือน', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  pending: { label: 'รอจ่าย', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  submitted: { label: 'ส่งแล้ว', cls: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300' },
+  draft: { label: 'ร่าง', cls: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300' },
+  rejected: { label: 'ปฏิเสธ', cls: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' },
+  cancelled: { label: 'ยกเลิก', cls: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' },
+}
+
 interface ExpenseClaimRow {
   id: string
   claim_number: string
@@ -622,17 +636,25 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
                               <td className="py-3 px-4 text-xs max-w-[160px]">
                                 {(() => {
                                   if (!item.notes) return <span className="text-muted-foreground">{''}  </span>
+                                  const st = (item as any).claim_status as string | null | undefined
+                                  const badge = st ? CLAIM_STATUS_BADGE[st] || { label: st, cls: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300' } : null
+                                  const StatusBadge = badge
+                                    ? <span className={`mt-1 inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.cls}`}>{badge.label}</span>
+                                    : null
                                   // Format: "EXP-202602-001::uuid"
                                   const match = item.notes.match(/^(EXP-\d{6}-\d{3})::(.+)$/)
                                   if (match) {
                                     return (
-                                      <a
-                                        href={`/finance/${match[2]}`}
-                                        className="inline-flex items-center gap-1 text-emerald-600 hover:text-emerald-700 hover:underline transition-colors font-medium"
-                                      >
-                                        <Banknote className="h-3 w-3" />
-                                        {match[1]}
-                                      </a>
+                                      <span className="flex flex-col gap-0.5">
+                                        <a
+                                          href={`/finance/${match[2]}`}
+                                          className="inline-flex items-center gap-1 text-emerald-600 hover:text-emerald-700 hover:underline transition-colors font-medium"
+                                        >
+                                          <Banknote className="h-3 w-3" />
+                                          {match[1]}
+                                        </a>
+                                        {StatusBadge}
+                                      </span>
                                     )
                                   }
                                   // Fallback: old format "จากใบเบิก EXP-XXX"
