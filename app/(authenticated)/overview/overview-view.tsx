@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, Fragment, useCallback, useEffect } from 'react'
+import Link from 'next/link'
 import {
   LayoutDashboard, Table2, TrendingUp, DollarSign, Users, Calendar,
   MapPin, Download, Search, ChevronDown, ChevronRight, X,
@@ -739,10 +740,16 @@ export default function OverviewView({ data }: { data: OverviewData }) {
           </h1>
           <p className="text-sm text-zinc-400 dark:text-zinc-500">ภาพรวมอีเวนต์ · Performance Analytics · Admin Only</p>
         </div>
-        <button onClick={exportCSV}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors shadow-sm active:scale-[0.98]">
-          <Download className="h-4 w-4" /> Export CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <Link href="/overview/export"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 text-sm font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors active:scale-[0.98]">
+            <Sparkles className="h-4 w-4 text-amber-500" /> ส่งออก AI
+          </Link>
+          <button onClick={exportCSV}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors shadow-sm active:scale-[0.98]">
+            <Download className="h-4 w-4" /> Export CSV
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
