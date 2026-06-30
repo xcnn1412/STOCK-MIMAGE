@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import {
     LogOut, Menu, X,
     PanelLeftClose, PanelLeftOpen,
-    ChevronDown, ChevronRight, User, BookOpen,
+    ChevronDown, ChevronRight, User, BookOpen, Trophy,
 } from "lucide-react"
 import { logout } from '@/app/login/actions'
 import { useLanguage } from '@/contexts/language-context'
@@ -230,6 +230,28 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
             <nav className={`flex-1 overflow-y-auto py-3 ${collapsed && !isMobile ? 'px-1.5' : 'px-3'} space-y-4`}
                 style={{ scrollbarWidth: 'thin' }}
             >
+                {/* Featured: Sales Board — เห็นได้ทุก user (ไม่ผูก module key) */}
+                <Link
+                    href="/sales-board"
+                    onClick={isMobile ? closeMobile : undefined}
+                    className={`
+                        relative w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13.5px] font-semibold
+                        transition-all duration-150 overflow-hidden
+                        ${collapsed && !isMobile ? 'justify-center' : ''}
+                        ${isActive('/sales-board')
+                            ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/30'
+                            : 'bg-gradient-to-r from-amber-50 to-orange-50/40 dark:from-amber-950/25 dark:to-orange-950/10 text-amber-700 dark:text-amber-400 hover:from-amber-100 hover:to-orange-100/60 dark:hover:from-amber-950/45'
+                        }
+                    `}
+                    title="สรุปยอดขาย"
+                >
+                    {isActive('/sales-board') && (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-amber-500 dark:bg-amber-400" />
+                    )}
+                    <Trophy className="h-4 w-4 shrink-0" />
+                    {(!collapsed || isMobile) && <span className="truncate">สรุปยอดขาย</span>}
+                </Link>
+
                 {visibleGroups.map(group => (
                     <SidebarGroup
                         key={group.key}
