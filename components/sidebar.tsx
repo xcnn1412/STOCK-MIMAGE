@@ -235,8 +235,9 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
                     href="/sales-board"
                     onClick={isMobile ? closeMobile : undefined}
                     className={`
-                        relative w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13.5px] font-semibold
-                        transition-all duration-150 overflow-hidden
+                        group relative w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13.5px] font-semibold
+                        transition-all duration-200 overflow-hidden animate-sales-glow
+                        hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-500/25 active:translate-y-0 active:scale-[0.98]
                         ${collapsed && !isMobile ? 'justify-center' : ''}
                         ${isActive('/sales-board')
                             ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/30'
@@ -245,10 +246,15 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
                     `}
                     title="สรุปยอดขาย"
                 >
+                    {/* Shine sweep on hover */}
+                    <span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/50 dark:via-white/15 to-transparent skew-x-12 animate-sales-shine group-hover:animate-none group-hover:transition-transform group-hover:duration-700 group-hover:ease-out group-hover:translate-x-full"
+                    />
                     {isActive('/sales-board') && (
                         <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-amber-500 dark:bg-amber-400" />
                     )}
-                    <Trophy className="h-4 w-4 shrink-0" />
+                    <Trophy className="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-12 group-hover:drop-shadow-[0_0_6px_rgba(245,158,11,0.7)]" />
                     {(!collapsed || isMobile) && <span className="truncate">สรุปยอดขาย</span>}
                 </Link>
 

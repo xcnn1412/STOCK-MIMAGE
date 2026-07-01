@@ -175,6 +175,40 @@
   animation: toast-progress linear forwards;
 }
 
+/* Sales-board nav button: idle breathing glow + periodic shine sweep */
+@keyframes sales-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px 1px rgba(245, 158, 11, 0.35);
+  }
+}
+
+@keyframes sales-shine {
+  0%, 60%, 100% {
+    transform: translateX(-100%) skewX(-12deg);
+  }
+  80% {
+    transform: translateX(200%) skewX(-12deg);
+  }
+}
+
+.animate-sales-glow {
+  animation: sales-glow 3s ease-in-out infinite;
+}
+
+.animate-sales-shine {
+  animation: sales-shine 4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-sales-glow,
+  .animate-sales-shine {
+    animation: none;
+  }
+}
+
 /* ============================================================================
    Rich Text Editor (Tiptap)
    ============================================================================ */
