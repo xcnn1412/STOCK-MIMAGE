@@ -29,6 +29,7 @@ interface Props {
   leads: LeadWithPkg[]; claims: PLClaim[]; installments: PLInstallment[]
   jobEvents: JobEvent[]; costItems: CostItem[]
   initialTargets: TargetStore
+  packageLabels: Record<string, string>  // package_name → ชื่อ "ระบบที่ใช้บริการ"
 }
 
 // ── helper วันที่/เดือน (พ.ศ.) ──
@@ -50,9 +51,10 @@ const COLORS: Record<string, { tint: string; text: string; chip: string; bar: st
   teal: { tint: 'from-teal-100 to-teal-50/40 dark:from-teal-950/50 dark:to-zinc-900', text: 'text-teal-700 dark:text-teal-300', chip: 'bg-teal-500 text-white', bar: 'bg-teal-500', border: 'border-teal-300 dark:border-teal-800', glow: 'shadow-teal-500/20' },
 }
 
-// แพ็กเกจ = สินค้า/บริการที่ขายจริง (CRM package_name)
+// ระบบที่ใช้บริการ = สินค้า/บริการที่ขายจริง (CRM package_name → ชื่อจาก crm_settings)
 const PKG_LABEL: Record<string, string> = { basic: 'Basic', standard: 'Standard', premium: 'Premium', premium_video: 'Premium Video', custom: 'Custom' }
-const pkgLabel = (p: string) => p ? (PKG_LABEL[p] || p.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())) : 'ไม่ระบุแพ็กเกจ'
+const pkgLabel = (p: string, labels: Record<string, string>) =>
+  p ? (labels[p] || PKG_LABEL[p] || p.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())) : 'ไม่ระบุระบบ'
 
 // ── นิยาม metric (แต่ละตัวตั้งเป้าได้) ──
 type MetricKey = 'sales' | 'revenue' | 'expense' | 'deals'
@@ -164,19 +166,19 @@ export default function SalesBoardView(props: Props) {
     return { rows, overdueAmt, overdueCount: rows.filter((r) => r.days < 0).length }
   }, [props.installments, props.leads])
 
-  // ── สินค้า/บริการ (แพ็กเกจ): ขายได้เดือนนี้ + สะสมทั้งหมด, เรียงตามขายได้เดือนนี้ ──
+  // ── ระบบที่ใช้บริการ (package_name): ขายได้เดือนนี้ + สะสมทั้งหมด, เรียงตามขายได้เดือนนี้ ──
   const products = useMemo(() => {
     const agg = new Map<string, { key: string; name: string; month: number; total: number }>()
     for (const l of props.leads) {
       if (!isRevLead(l) || leadAmount(l) <= 0) continue
       const key = l.package_name || ''
-      const g = agg.get(key) || { key, name: pkgLabel(key), month: 0, total: 0 }
+      const g = agg.get(key) || { key, name: pkgLabel(key, props.packageLabels), month: 0, total: 0 }
       g.total++
       if (inMonth(leadDate(l), month)) g.month++
       agg.set(key, g)
     }
     return [...agg.values()].sort((a, b) => b.month - a.month || b.total - a.total)
-  }, [props.leads, month])
+  }, [props.leads, props.packageLabels, month])
 
   // ── เทรนด์ยอดขาย 6 เดือนล่าสุด (จบที่เดือนที่เลือก) ──
   const trend = useMemo(() => {
@@ -622,15 +624,15 @@ function ProductTable({ products, monthName }: { products: { key: string; name: 
   const max = Math.max(1, ...products.map((p) => p.month))
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border bg-card p-3 md:p-4">
-      <div className="mb-2 flex shrink-0 items-center gap-2 text-sm font-semibold"><Package className="h-4 w-4 text-teal-500" /> สินค้า/บริการที่ขายได้ — {monthName}</div>
+      <div className="mb-2 flex shrink-0 items-center gap-2 text-sm font-semibold"><Package className="h-4 w-4 text-teal-500" /> ระบบที่ใช้บริการที่ขายได้ — {monthName}</div>
       {products.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูลแพ็กเกจ</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูล</p>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-card">
               <tr className="border-b text-xs text-muted-foreground">
-                <th className="pb-1.5 text-left font-medium">สินค้า/บริการ</th>
+                <th className="pb-1.5 text-left font-medium">ระบบที่ใช้บริการ</th>
                 <th className="pb-1.5 text-right font-medium">เดือนนี้</th>
                 <th className="pb-1.5 text-right font-medium">สัดส่วน</th>
                 <th className="pb-1.5 text-right font-medium">สะสม</th>
