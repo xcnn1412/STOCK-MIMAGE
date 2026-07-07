@@ -1,6 +1,6 @@
 'use server'
 
-import { createServiceClient } from '@/lib/supabase-server'
+import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
@@ -646,8 +646,15 @@ export async function deleteLead(id: string) {
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
+
+  // เก็บ receipt ของ installment ทั้งหมดใน lead (จะถูก cascade ลบ) ไว้ลบไฟล์ตาม
+  const { data: insts } = await supabase
+    .from('crm_lead_installments').select('receipt_url').eq('lead_id', id)
+
   const { error } = await supabase.from('crm_leads').delete().eq('id', id)
   if (error) return { error: error.message }
+
+  await removeStorageByUrls(supabase, 'crm-payment-proofs', (insts || []).map(i => i.receipt_url))
 
   await logActivity('DELETE_CRM_LEAD', { id })
   revalidatePath('/crm')
@@ -919,8 +926,14 @@ export async function deleteInstallment(id: string, leadId: string) {
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
+
+  const { data: inst } = await supabase
+    .from('crm_lead_installments').select('receipt_url').eq('id', id).single()
+
   const { error } = await supabase.from('crm_lead_installments').delete().eq('id', id)
   if (error) return { error: error.message }
+
+  if (inst) await removeStorageByUrls(supabase, 'crm-payment-proofs', [inst.receipt_url])
 
   // Re-number remaining installments
   const { data: remaining } = await supabase

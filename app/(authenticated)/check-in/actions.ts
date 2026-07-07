@@ -1,6 +1,6 @@
 'use server'
 
-import { createServiceClient } from '@/lib/supabase-server'
+import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 
@@ -565,6 +565,12 @@ export async function adminDeleteCheckin(checkinId: string) {
 
   const supabase = createServiceClient()
 
+  const { data: row } = await supabase
+    .from('staff_checkins')
+    .select('photo_url, checkout_photo_url')
+    .eq('id', checkinId)
+    .single()
+
   const { error } = await supabase
     .from('staff_checkins')
     .delete()
@@ -574,6 +580,9 @@ export async function adminDeleteCheckin(checkinId: string) {
     console.error('Admin delete error:', error)
     return { error: 'เกิดข้อผิดพลาดในการลบ' }
   }
+
+  // ลบรูปเช็คอิน/เช็คเอาต์ออกจาก Storage ไม่ให้กลายเป็น orphan
+  if (row) await removeStorageByUrls(supabase, 'checkin-photos', [row.photo_url, row.checkout_photo_url])
 
   revalidatePath('/check-in')
   return { success: true }

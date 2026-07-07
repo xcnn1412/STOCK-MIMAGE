@@ -37,6 +37,25 @@ export function createServiceClient() {
 // stale connections and cold-start issues. Always use createServiceClient().
 
 /**
+ * ลบไฟล์ออกจาก Storage โดยรับ full public URL (หรือ array/ค่า null ปนกัน).
+ * แยก key หลัง `/<bucket>/` ให้เอง แล้ว remove เป็นชุดเดียว. best-effort — log ไม่ throw.
+ * ใช้เวลาลบ record ที่ถือไฟล์ เพื่อไม่ให้ไฟล์กลายเป็น orphan.
+ */
+export async function removeStorageByUrls(
+  supabase: ReturnType<typeof createServiceClient>,
+  bucket: string,
+  urls: (string | null | undefined)[]
+) {
+  const paths = urls
+    .flatMap(u => (Array.isArray(u) ? u : [u]))
+    .map(u => (typeof u === 'string' ? u.split(`/${bucket}/`)[1] : null))
+    .filter((p): p is string => !!p)
+  if (!paths.length) return
+  const { error } = await supabase.storage.from(bucket).remove(paths)
+  if (error) console.error(`removeStorageByUrls(${bucket}):`, error.message)
+}
+
+/**
  * Backward-compatible export. Uses Proxy to call createServiceClient()
  * on every property access, ensuring fresh connections.
  * 

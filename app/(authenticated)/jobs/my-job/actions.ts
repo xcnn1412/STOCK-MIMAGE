@@ -309,6 +309,8 @@ export async function archiveMyJob(id: string, targetUserId?: string) {
     return { success: true }
 }
 
+// ponytail: my_job_comments/my_ticket_comments attachments อาจ orphan ตอนลบ แต่ปริมาณน้อยมาก
+// และ scripts/cleanup-storage.mjs กวาด ticket-attachments orphan จากทุกตารางอยู่แล้ว → ไม่ patch แยก
 export async function deleteMyJob(id: string, targetUserId?: string) {
     const { userId, role } = await getSession()
     if (!userId) return { error: 'Unauthorized' }

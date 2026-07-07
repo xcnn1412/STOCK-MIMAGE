@@ -1,6 +1,6 @@
 'use server'
 
-import { createServiceClient } from '@/lib/supabase-server'
+import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
@@ -1128,8 +1128,18 @@ export async function deleteTicket(id: string) {
     if (!userId) return { error: 'Unauthorized' }
 
     const supabase = createServiceClient()
+
+    // เก็บ attachment ของ ticket + replies (ที่จะถูก cascade ลบ) ไว้ลบไฟล์ตาม
+    const { data: ticket } = await supabase.from('tickets').select('attachments').eq('id', id).single()
+    const { data: replies } = await supabase.from('ticket_replies').select('attachments').eq('ticket_id', id)
+
     const { error } = await supabase.from('tickets').delete().eq('id', id)
     if (error) return { error: error.message }
+
+    await removeStorageByUrls(supabase, 'ticket-attachments', [
+        ...(ticket?.attachments || []),
+        ...(replies || []).flatMap(r => r.attachments || []),
+    ])
 
     await logActivity('DELETE_TICKET', { id })
     revalidatePath('/jobs')

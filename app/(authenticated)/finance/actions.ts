@@ -1,6 +1,6 @@
 'use server'
 
-import { createServiceClient } from '@/lib/supabase-server'
+import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
@@ -1134,7 +1134,7 @@ export async function deleteClaim(id: string) {
 
   const { data: claim } = await supabase
     .from('expense_claims')
-    .select('claim_number, submitted_by, status, job_event_id')
+    .select('claim_number, submitted_by, status, job_event_id, receipt_urls, tax_invoice_urls, actual_receipt_urls')
     .eq('id', id)
     .single()
 
@@ -1152,6 +1152,13 @@ export async function deleteClaim(id: string) {
 
   const { error } = await supabase.from('expense_claims').delete().eq('id', id)
   if (error) return { error: 'เกิดข้อผิดพลาดในการลบ' }
+
+  // ลบไฟล์ใบเสร็จออกจาก Storage ไม่ให้กลายเป็น orphan
+  await removeStorageByUrls(supabase, 'receipts', [
+    ...(claim.receipt_urls || []),
+    ...(claim.tax_invoice_urls || []),
+    ...(claim.actual_receipt_urls || []),
+  ])
 
   await logActivity('DELETE_EXPENSE_CLAIM', {
     claimId: id,
