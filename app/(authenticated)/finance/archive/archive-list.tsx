@@ -283,6 +283,7 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
               >
                 <option value="">{isEn ? 'All types' : 'ทั้งหมด'}</option>
                 <option value="event">{isEn ? 'Event' : 'เบิกงานอีเวนต์'}</option>
+                <option value="advance">{isEn ? 'Advance' : 'เบิกทดลองจ่าย'}</option>
                 <option value="other">{isEn ? 'Other' : 'เบิกอื่นๆ'}</option>
               </select>
             </div>
@@ -324,7 +325,7 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
             </div>
 
             {/* Event Filter */}
-            {filterClaimType !== 'other' && events.length > 0 && (
+            {filterClaimType !== 'other' && filterClaimType !== 'advance' && events.length > 0 && (
               <div>
                 <label className="block text-[11px] font-medium text-zinc-500 mb-1.5">
                   {isEn ? 'Event' : 'อีเวนต์'}

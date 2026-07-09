@@ -65,6 +65,7 @@ export default function ClaimsListView({
   const [isPending, startTransition] = useTransition()
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'event' | 'other' | 'advance'>('all')
   const [paidSearch, setPaidSearch] = useState('')
   const [paidTypeFilter, setPaidTypeFilter] = useState<'all' | 'event' | 'other' | 'advance'>('all')
   const [paidCategoryFilter, setPaidCategoryFilter] = useState('')
@@ -154,9 +155,10 @@ export default function ClaimsListView({
     (c.status !== 'paid' && c.status !== 'cancelled' && c.status !== 'refund_confirmed') || isUnsettledAdvance(c)
   )
 
-  const filtered = filterStatus === 'all'
+  const filtered = (filterStatus === 'all'
     ? activeClaims
     : activeClaims.filter(c => c.status === filterStatus)
+  ).filter(c => typeFilter === 'all' || c.claim_type === typeFilter)
 
   // Stats
   const totalDraft = claims.filter(c => c.status === 'draft').length
@@ -270,6 +272,33 @@ export default function ClaimsListView({
           )}
         </div>
       </div>
+
+      {/* Claim type filter */}
+      {filterStatus !== 'paid' && (
+        <div className="flex items-center gap-2 -mt-3">
+          <Wallet className="h-4 w-4 text-zinc-400" />
+          <div className="flex gap-1">
+            {([
+              { v: 'all', label: isEn ? 'All types' : 'ทุกประเภท' },
+              { v: 'event', label: isEn ? 'Event' : 'อีเวนต์' },
+              { v: 'advance', label: isEn ? 'Advance' : 'ทดลองจ่าย' },
+              { v: 'other', label: isEn ? 'Other' : 'อื่นๆ' },
+            ] as const).map(t => (
+              <button
+                key={t.v}
+                onClick={() => setTypeFilter(t.v)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  typeFilter === t.v
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Claims List */}
       {filterStatus !== 'paid' && error && (

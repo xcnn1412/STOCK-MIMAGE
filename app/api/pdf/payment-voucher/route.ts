@@ -117,6 +117,65 @@ export async function GET(req: NextRequest) {
       approverName: claim.approver?.full_name || undefined,
     }
 
+    // ── Advance (ทดลองจ่าย) overrides ──
+    if (claim.claim_type === 'advance') {
+      const actualItems = Array.isArray(claim.actual_spent_items) ? claim.actual_spent_items : []
+      const actualSpent = claim.actual_spent_amount != null ? Number(claim.actual_spent_amount) : null
+      const refundAmount = claim.refund_amount != null ? Number(claim.refund_amount) : 0
+
+      voucherData.isAdvance = true
+      voucherData.docTitle = 'เงินทดลองจ่าย'
+      voucherData.docTitleEn = 'ADVANCE PAYMENT VOUCHER'
+      voucherData.advanceAmount = totalBeforeTax
+      voucherData.actualSpent = actualSpent ?? undefined
+      voucherData.refundAmount = refundAmount
+
+      // Table = itemized actual spend once settled; otherwise keep the advance line
+      if (actualItems.length > 0) {
+        voucherData.items = actualItems.map((it: { description?: string; amount?: number }, i: number) => ({
+          no: i + 1,
+          description: it.description || '(ไม่ระบุ)',
+          amount: Number(it.amount) || 0,
+        }))
+        const sum = actualSpent ?? voucherData.items.reduce((a, b) => a + b.amount, 0)
+        voucherData.totalAmount = sum
+        voucherData.netAmount = sum
+        // Advance has no VAT/WHT
+        voucherData.vatAmount = undefined
+        voucherData.whtAmount = undefined
+      }
+
+      // Refund proof page — fetch slip images (skip PDFs, can't embed inline)
+      const slipUrls: string[] = Array.isArray(claim.refund_slip_urls) ? claim.refund_slip_urls : []
+      if (refundAmount > 0 && slipUrls.length > 0) {
+        const images: string[] = []
+        for (const url of slipUrls) {
+          if (url.toLowerCase().endsWith('.pdf')) continue
+          try {
+            const res = await fetch(url)
+            if (!res.ok) continue
+            const buf = Buffer.from(await res.arrayBuffer())
+            const mime = res.headers.get('content-type') || 'image/jpeg'
+            images.push(`data:${mime};base64,${buf.toString('base64')}`)
+          } catch {
+            // skip unreachable slip
+          }
+        }
+        if (images.length > 0) {
+          voucherData.refundSlipImages = images
+          voucherData.refundConfirmedAt = claim.refund_confirmed_at
+            ? formatThaiDate(claim.refund_confirmed_at)
+            : claim.advance_settled_at
+              ? formatThaiDate(claim.advance_settled_at)
+              : undefined
+          voucherData.refundPayerName = claim.account_holder_name || claim.submitter?.full_name || undefined
+          voucherData.refundBankName = claim.bank_name || undefined
+          voucherData.refundAccountNumber = claim.bank_account_number || undefined
+          voucherData.refundAccountName = claim.account_holder_name || undefined
+        }
+      }
+    }
+
     // Generate QR Code as base64 PNG data URL
     // Content = claim number for document verification
     const qrContent = claim.claim_number || claimId

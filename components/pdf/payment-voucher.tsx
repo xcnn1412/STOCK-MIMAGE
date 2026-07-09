@@ -53,6 +53,19 @@ export interface PaymentVoucherData {
   payerName?: string
   approverName?: string
   qrCodeDataUrl?: string
+  // Advance (ทดลองจ่าย) extras
+  isAdvance?: boolean
+  docTitle?: string
+  docTitleEn?: string
+  advanceAmount?: number
+  actualSpent?: number
+  refundAmount?: number
+  refundConfirmedAt?: string
+  refundSlipImages?: string[] // data URLs (images only)
+  refundPayerName?: string
+  refundBankName?: string
+  refundAccountNumber?: string
+  refundAccountName?: string
 }
 
 // ============================================================================
@@ -298,6 +311,54 @@ const s = StyleSheet.create({
     paddingHorizontal: 8,
     fontSize: 12,
   },
+  // Advance reconciliation block
+  reconBox: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  reconRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#ccc',
+  },
+  reconRowLast: {
+    flexDirection: 'row',
+  },
+  reconLabel: {
+    flex: 1,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#333',
+  },
+  reconValue: {
+    width: 160,
+    textAlign: 'right',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  reconHeader: {
+    backgroundColor: '#f5f5f5',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    fontWeight: 'bold',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  refundHighlight: {
+    fontWeight: 'bold',
+    color: '#0a7c42',
+  },
+  // Refund proof page (page 2)
+  slipImage: {
+    width: '100%',
+    maxHeight: 360,
+    objectFit: 'contain',
+    marginBottom: 12,
+    borderWidth: 0.5,
+    borderColor: '#ccc',
+  },
 })
 
 // ============================================================================
@@ -332,8 +393,8 @@ export function PaymentVoucherPDF({ data }: { data: PaymentVoucherData }) {
         {/* ── Header ── */}
         <View style={s.headerContainer}>
           <Text style={s.companyName}>บริษัท อิมเมจแลนด์ จำกัด</Text>
-          <Text style={s.title}>ใบสำคัญจ่าย</Text>
-          <Text style={s.titleEn}>PAYMENT VOUCHER</Text>
+          <Text style={s.title}>{data.docTitle || 'ใบสำคัญจ่าย'}</Text>
+          <Text style={s.titleEn}>{data.docTitleEn || 'PAYMENT VOUCHER'}</Text>
           {/* QR Code — top right corner */}
           {data.qrCodeDataUrl && (
             <Image style={s.qrCode} src={data.qrCodeDataUrl} />
@@ -489,6 +550,29 @@ export function PaymentVoucherPDF({ data }: { data: PaymentVoucherData }) {
           </View>
         </View>
 
+        {/* ── Advance reconciliation (ทดลองจ่าย) ── */}
+        {data.isAdvance && (
+          <View style={s.reconBox}>
+            <Text style={s.reconHeader}>สรุปการเบิกทดลองจ่าย</Text>
+            <View style={s.reconRow}>
+              <Text style={s.reconLabel}>เบิกล่วงหน้า</Text>
+              <Text style={s.reconValue}>{fmtNum(data.advanceAmount ?? 0)}</Text>
+            </View>
+            <View style={s.reconRow}>
+              <Text style={s.reconLabel}>ใช้จ่ายจริง</Text>
+              <Text style={s.reconValue}>
+                {data.actualSpent != null ? fmtNum(data.actualSpent) : '—'}
+              </Text>
+            </View>
+            <View style={s.reconRowLast}>
+              <Text style={[s.reconLabel, s.refundHighlight]}>เงินคืนบริษัท</Text>
+              <Text style={[s.reconValue, s.refundHighlight]}>
+                {fmtNum(data.refundAmount ?? 0)}
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* ── Signatures ── */}
         <View style={s.signaturesContainer}>
           <View style={s.signatureBlock}>
@@ -514,6 +598,67 @@ export function PaymentVoucherPDF({ data }: { data: PaymentVoucherData }) {
           </View>
         </View>
       </Page>
+
+      {/* ── Page 2: Refund proof (only if refunded to company) ── */}
+      {data.refundSlipImages && data.refundSlipImages.length > 0 && (
+        <Page size="A4" style={s.page}>
+          <View style={s.headerContainer}>
+            <Text style={s.companyName}>บริษัท อิมเมจแลนด์ จำกัด</Text>
+            <Text style={s.title}>หลักฐานการคืนเงินบริษัท</Text>
+            <Text style={s.titleEn}>REFUND TRANSFER PROOF</Text>
+          </View>
+
+          <View style={s.twoColRow}>
+            <View style={s.twoColLeft}>
+              <Text style={s.infoLabel}>เลขที่</Text>
+              <Text style={s.infoColon}>:</Text>
+              <Text style={s.infoValue}>{data.claimNumber}</Text>
+            </View>
+            <View style={s.twoColRight}>
+              <Text style={{ width: 70, fontWeight: 'bold' }}>ยอดเงินคืน</Text>
+              <Text style={s.infoColon}>:</Text>
+              <Text style={[s.infoValue, s.refundHighlight]}>
+                {fmtNum(data.refundAmount ?? 0)} บาท
+              </Text>
+            </View>
+          </View>
+
+          {data.refundConfirmedAt && (
+            <View style={s.infoRow}>
+              <Text style={s.infoLabel}>วันที่คืนเงิน</Text>
+              <Text style={s.infoColon}>:</Text>
+              <Text style={s.infoValue}>{data.refundConfirmedAt}</Text>
+            </View>
+          )}
+          {data.refundPayerName && (
+            <View style={s.infoRow}>
+              <Text style={s.infoLabel}>ผู้โอนคืน</Text>
+              <Text style={s.infoColon}>:</Text>
+              <Text style={s.infoValue}>{data.refundPayerName}</Text>
+            </View>
+          )}
+          {data.refundBankName && (
+            <View style={s.twoColRow}>
+              <View style={s.twoColLeft}>
+                <Text style={s.infoLabel}>ธนาคาร (ผู้โอน)</Text>
+                <Text style={s.infoColon}>:</Text>
+                <Text style={s.infoValue}>{data.refundBankName}</Text>
+              </View>
+              <View style={s.twoColRight}>
+                <Text style={{ width: 70, fontWeight: 'bold' }}>เลขที่บัญชี</Text>
+                <Text style={s.infoColon}>:</Text>
+                <Text style={s.infoValue}>{data.refundAccountNumber || ''}</Text>
+              </View>
+            </View>
+          )}
+
+          <View style={s.divider} />
+          <Text style={{ fontWeight: 'bold', marginBottom: 8 }}>สลิปการโอนเงินคืน</Text>
+          {data.refundSlipImages.map((src, i) => (
+            <Image key={i} style={s.slipImage} src={src} />
+          ))}
+        </Page>
+      )}
     </Document>
   )
 }
