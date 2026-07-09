@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   ListChecks, Filter, Search, FileSpreadsheet, FileDown, ExternalLink,
-  CheckCircle2, AlertCircle, Building2, User as UserIcon, Wallet, Receipt,
+  CheckCircle2, AlertCircle, Building2, User as UserIcon, Wallet, Coins, Receipt,
   Hash, RefreshCw, FileText, ChevronDown, ChevronUp, Calendar
 } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
@@ -92,7 +92,7 @@ export default function OverviewDashboard({
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set())
-  const [typeFilter, setTypeFilter] = useState<'all' | 'event' | 'other' | 'advance'>('all')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'event' | 'other' | 'advance' | 'petty_cash'>('all')
   const [fundingFilter, setFundingFilter] = useState<'all' | 'company' | 'personal'>('all')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
@@ -245,7 +245,9 @@ export default function OverviewDashboard({
             ? 'อีเวนต์'
             : c.claim_type === 'advance'
               ? 'ทดลองจ่าย'
-              : 'ค่าอื่นๆ',
+              : c.claim_type === 'petty_cash'
+                ? 'เงินสดย่อย'
+                : 'ค่าอื่นๆ',
         'แหล่งเงิน': getFundingSourceLabel(c.funding_source, 'th'),
         'อีเวนต์': (c.job_event as any)?.event_name || '',
         'ยอดเงิน': amt,
@@ -353,7 +355,7 @@ export default function OverviewDashboard({
         <td>${c.submitter?.full_name || ''}</td>
         <td>${(c.staff_roles || []).map(r => r.label).join(', ')}</td>
         <td>${c.title || ''}</td>
-        <td>${c.claim_type === 'event' ? 'อีเวนต์' : c.claim_type === 'advance' ? 'ทดลองจ่าย' : 'อื่นๆ'}</td>
+        <td>${c.claim_type === 'event' ? 'อีเวนต์' : c.claim_type === 'advance' ? 'ทดลองจ่าย' : c.claim_type === 'petty_cash' ? 'เงินสดย่อย' : 'อื่นๆ'}</td>
         <td>${getFundingSourceLabel(c.funding_source, 'th')}</td>
         <td class="num">${fmtDec(c.amount || 0)}</td>
         <td>${getClaimStatusLabel(c.status, 'th')}</td>
@@ -621,7 +623,7 @@ export default function OverviewDashboard({
               <div>
                 <p className="text-[11px] text-zinc-500 mb-1 font-medium">{isEn ? 'Type' : 'ประเภท'}</p>
                 <div className="flex gap-1">
-                  {(['all', 'event', 'other', 'advance'] as const).map(t => (
+                  {(['all', 'event', 'other', 'advance', 'petty_cash'] as const).map(t => (
                     <button
                       key={t}
                       onClick={() => setTypeFilter(t)}
@@ -631,7 +633,7 @@ export default function OverviewDashboard({
                           : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
                       }`}
                     >
-                      {t === 'all' ? (isEn ? 'All' : 'ทุก') : t === 'event' ? (isEn ? 'Event' : 'อีเวนต์') : t === 'advance' ? (isEn ? 'Advance' : 'ทดลอง') : (isEn ? 'Other' : 'อื่นๆ')}
+                      {t === 'all' ? (isEn ? 'All' : 'ทุก') : t === 'event' ? (isEn ? 'Event' : 'อีเวนต์') : t === 'advance' ? (isEn ? 'Advance' : 'ทดลอง') : t === 'petty_cash' ? (isEn ? 'Petty Cash' : 'เงินสดย่อย') : (isEn ? 'Other' : 'อื่นๆ')}
                     </button>
                   ))}
                 </div>
@@ -794,12 +796,15 @@ export default function OverviewDashboard({
                           <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
                             c.claim_type === 'advance'
                               ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
-                              : c.claim_type === 'event'
-                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
-                                : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                              : c.claim_type === 'petty_cash'
+                                ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-400'
+                                : c.claim_type === 'event'
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+                                  : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                           }`}>
                             {c.claim_type === 'advance' && <Wallet className="h-2.5 w-2.5" />}
-                            {c.claim_type === 'event' ? (isEn ? 'Event' : 'อีเวนต์') : c.claim_type === 'advance' ? (isEn ? 'Advance' : 'ทดลอง') : (isEn ? 'Other' : 'อื่นๆ')}
+                            {c.claim_type === 'petty_cash' && <Coins className="h-2.5 w-2.5" />}
+                            {c.claim_type === 'event' ? (isEn ? 'Event' : 'อีเวนต์') : c.claim_type === 'advance' ? (isEn ? 'Advance' : 'ทดลอง') : c.claim_type === 'petty_cash' ? (isEn ? 'Petty Cash' : 'เงินสดย่อย') : (isEn ? 'Other' : 'อื่นๆ')}
                           </span>
                         </td>
                         <td className="px-3 py-2">

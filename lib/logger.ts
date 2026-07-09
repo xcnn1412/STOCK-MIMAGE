@@ -77,6 +77,8 @@ export type ActionType =
     | 'MARK_CLAIM_PAID'
     | 'SETTLE_ADVANCE_CLAIM'
     | 'CONFIRM_REFUND_RECEIVED'
+    | 'UPDATE_PETTY_CASH'
+    | 'CLOSE_PETTY_CASH_PERIOD'
     | 'ADMIN_OVERRIDE_CLAIM_STATUS'
     // Security Module
     | 'ACCOUNT_LOCKED'

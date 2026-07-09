@@ -97,7 +97,7 @@ export async function getClaim(id: string) {
 
   const supabase = createServiceClient()
 
-  let query = supabase
+  const { data, error } = await supabase
     .from('expense_claims')
     .select(`
       *,
@@ -106,11 +106,18 @@ export async function getClaim(id: string) {
       job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name)
     `)
     .eq('id', id)
+    .single()
 
-  // 🔒 Non-admins can only access their own claim
-  if (role !== 'admin') query = query.eq('submitted_by', userId)
+  if (!data) return { data: null, error: error?.message }
 
-  const { data, error } = await query.single()
+  // 🔒 Non-admins can only access their own claims — EXCEPT petty-cash docs
+  // (funds, top-ups, box expenses), which belong to the shared office box and
+  // must be visible to every staff member who logs into it.
+  const isPettyRelated = data.claim_type === 'petty_cash' || !!data.pettycash_fund_id
+  if (role !== 'admin' && data.submitted_by !== userId && !isPettyRelated) {
+    return { data: null, error: 'ไม่พบใบเบิก' }
+  }
+
   return { data, error: error?.message }
 }
 
@@ -182,6 +189,49 @@ export async function createClaim(formData: FormData) {
   const fundingSourceRaw = (formData.get('funding_source') as string || 'company').trim()
   const funding_source: 'company' | 'personal' = fundingSourceRaw === 'personal' ? 'personal' : 'company'
 
+  // Petty cash (เงินสดย่อย) — this claim OPENS the monthly fund (ใบแม่).
+  // Expenses / top-ups into the fund are created from the fund page instead.
+  const isPettyCash = claim_type === 'petty_cash'
+  let pettycash_period_start: string | null = null
+  let pettycash_period_end: string | null = null
+  let pettycash_previous_claim_id: string | null = null
+  if (isPettyCash) {
+    const month = ((formData.get('pettycash_month') as string) || '').slice(0, 7)
+    if (!/^\d{4}-\d{2}$/.test(month)) return { error: 'กรุณาเลือกเดือนของกองทุนเงินสดย่อย' }
+    const [y, m] = month.split('-').map(Number)
+    if (m < 1 || m > 12) return { error: 'เดือนไม่ถูกต้อง' }
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+    pettycash_period_start = `${month}-01`
+    pettycash_period_end = `${month}-${String(lastDay).padStart(2, '0')}`
+
+    // One open fund at a time — the previous month must be closed (cash
+    // returned) before a new month starts.
+    const { data: openFund } = await supabase
+      .from('expense_claims')
+      .select('id, claim_number')
+      .eq('claim_type', 'petty_cash')
+      .is('pettycash_fund_id', null)
+      .is('pettycash_closed_at', null)
+      .not('status', 'in', '(cancelled,rejected)')
+      .limit(1)
+      .maybeSingle()
+    if (openFund) {
+      return { error: `มีกองทุนเงินสดย่อย (${openFund.claim_number}) ที่ยังไม่ปิดอยู่ — กรุณาปิดเดือนและคืนเงินก่อนเปิดกองทุนใหม่` }
+    }
+
+    // Link the latest previous fund for month-to-month navigation.
+    const { data: prevFund } = await supabase
+      .from('expense_claims')
+      .select('id')
+      .eq('claim_type', 'petty_cash')
+      .is('pettycash_fund_id', null)
+      .not('status', 'in', '(cancelled,rejected)')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    pettycash_previous_claim_id = prevFund?.id || null
+  }
+
   // Collect receipt files from FormData
   const receiptFiles: File[] = []
   const allEntries = formData.getAll('receipt_files')
@@ -229,32 +279,43 @@ export async function createClaim(formData: FormData) {
     receipt_urls = await uploadReceiptFiles(supabase, receiptFiles, claimNumber)
   }
 
+  const insertData: Record<string, any> = {
+    claim_number: claimNumber,
+    claim_type,
+    job_event_id: claim_type === 'event' ? job_event_id : null,
+    title,
+    description,
+    category,
+    amount: amount || (unit_price * quantity),
+    unit_price,
+    unit,
+    quantity,
+    expense_date,
+    vat_mode,
+    include_vat,
+    withholding_tax_rate,
+    notes,
+    bank_name,
+    bank_account_number,
+    account_holder_name,
+    receipt_urls,
+    funding_source,
+    submitted_by: userId,
+    status: 'draft',
+  }
+  // Only reference the pettycash_* columns for petty cash, so non-petty claim
+  // creation keeps working even if the petty-cash migration hasn't been applied.
+  if (isPettyCash) {
+    insertData.pettycash_opening_balance = 0 // monthly model — no carried opening
+    insertData.pettycash_previous_claim_id = pettycash_previous_claim_id
+    insertData.pettycash_period_start = pettycash_period_start
+    insertData.pettycash_period_end = pettycash_period_end
+    insertData.pettycash_fund_id = null
+  }
+
   const { data, error } = await supabase
     .from('expense_claims')
-    .insert({
-      claim_number: claimNumber,
-      claim_type,
-      job_event_id: claim_type === 'event' ? job_event_id : null,
-      title,
-      description,
-      category,
-      amount: amount || (unit_price * quantity),
-      unit_price,
-      unit,
-      quantity,
-      expense_date,
-      vat_mode,
-      include_vat,
-      withholding_tax_rate,
-      notes,
-      bank_name,
-      bank_account_number,
-      account_holder_name,
-      receipt_urls,
-      funding_source,
-      submitted_by: userId,
-      status: 'draft',
-    })
+    .insert(insertData)
     .select('id')
     .single()
 
@@ -321,6 +382,24 @@ export async function updateClaim(id: string, updateData: {
   if (!isAdmin && !['draft', 'pending'].includes(claim.status)) return { error: 'แก้ไขได้เฉพาะใบเบิกที่ยังไม่ถูกดำเนินการ' }
   if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
 
+  // A closed petty-cash month is frozen — its leftover snapshot (refund_amount)
+  // must keep reconciling with the children.
+  if (claim.claim_type === 'petty_cash' && claim.pettycash_closed_at) {
+    return { error: 'กองทุนเงินสดย่อยนี้ปิดเดือนแล้ว ไม่สามารถแก้ไขได้ (admin ต้องเปิดรอบอีกครั้งก่อน)' }
+  }
+  // Children of a CLOSED month are frozen too — mutating them would desync the
+  // refund snapshot taken at close. Admin escape hatch: reopenPettyCashMonth.
+  if (claim.pettycash_fund_id) {
+    const { data: parentFund } = await supabase
+      .from('expense_claims')
+      .select('pettycash_closed_at')
+      .eq('id', claim.pettycash_fund_id)
+      .single()
+    if (parentFund?.pettycash_closed_at) {
+      return { error: 'รอบเดือนของกองทุนนี้ปิดแล้ว ไม่สามารถแก้ไขรายการได้ (admin ต้องเปิดรอบอีกครั้งก่อน)' }
+    }
+  }
+
   // Auto-import stock event → job_cost_events
   if (updateData.job_event_id && updateData.job_event_id.startsWith('stock:')) {
     const stockEventId = updateData.job_event_id.replace('stock:', '')
@@ -369,7 +448,14 @@ export async function updateClaim(id: string, updateData: {
     }
   }
 
-  const finalData: any = { ...updateData }
+  // SECURITY: whitelist columns — a server action is a callable endpoint and
+  // accepts arbitrary runtime keys, so spreading caller input would let a
+  // non-admin set e.g. { status: 'paid' } or { pettycash_fund_id: ... }.
+  const finalData: any = {}
+  for (const key of fieldsToCheck) {
+    if (key in updateData) finalData[key] = (updateData as any)[key]
+  }
+  if ('include_vat' in updateData) finalData.include_vat = updateData.include_vat
   if (newReceiptUrls.length > 0) {
     const existing = claim.receipt_urls || []
     finalData.receipt_urls = [...existing, ...newReceiptUrls]
@@ -455,14 +541,16 @@ export async function getClaimLogs(claimId: string) {
 
   const supabase = createServiceClient()
 
-  // Non-admins may only read logs for claims they own.
+  // Non-admins may only read logs for claims they own — except petty-cash docs,
+  // which belong to the shared office box.
   if (role !== 'admin') {
     const { data: owned } = await supabase
       .from('expense_claims')
-      .select('submitted_by')
+      .select('submitted_by, claim_type, pettycash_fund_id')
       .eq('id', claimId)
       .single()
-    if (!owned || owned.submitted_by !== userId) return []
+    const isPettyRelated = owned?.claim_type === 'petty_cash' || !!owned?.pettycash_fund_id
+    if (!owned || (owned.submitted_by !== userId && !isPettyRelated)) return []
   }
 
   const { data, error } = await supabase
@@ -498,8 +586,9 @@ export async function submitClaim(id: string) {
   if (!claim) return { error: 'ไม่พบใบเบิก' }
   if (claim.submitted_by !== userId) return { error: 'คุณไม่มีสิทธิ์ยื่นใบเบิกนี้' }
   if (claim.status !== 'draft') return { error: 'ยื่นได้เฉพาะใบเบิกที่อยู่ในสถานะ "แบบร่าง" เท่านั้น' }
-  // Advance (ทดลองจ่าย) claims don't require receipts at submission — they're uploaded on settlement
-  if (claim.claim_type !== 'advance' && (!claim.receipt_urls || claim.receipt_urls.length === 0)) {
+  // Advance (ทดลองจ่าย) and petty cash (เงินสดย่อย) don't require receipts at
+  // submission — they're uploaded later as expenses are logged.
+  if (claim.claim_type !== 'advance' && claim.claim_type !== 'petty_cash' && (!claim.receipt_urls || claim.receipt_urls.length === 0)) {
     return { error: 'กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นใบเบิก' }
   }
 
@@ -1125,6 +1214,19 @@ export async function markAsPaid(id: string) {
     return { error: 'ชำระเงินได้เฉพาะใบเบิกที่อนุมัติแล้วเท่านั้น' }
   }
 
+  // A petty-cash top-up must not be paid into a CLOSED month — the close
+  // snapshot already fixed the box balance.
+  if (claim.claim_type === 'petty_cash' && claim.pettycash_fund_id) {
+    const { data: parentFund } = await supabase
+      .from('expense_claims')
+      .select('pettycash_closed_at')
+      .eq('id', claim.pettycash_fund_id)
+      .single()
+    if (parentFund?.pettycash_closed_at) {
+      return { error: 'กองทุนปลายทางปิดเดือนแล้ว — จ่ายรายการเติมเงินนี้ไม่ได้ (ยกเลิกรายการแทน)' }
+    }
+  }
+
   const { error } = await supabase
     .from('expense_claims')
     .update({
@@ -1169,11 +1271,35 @@ export async function deleteClaim(id: string) {
 
   const { data: claim } = await supabase
     .from('expense_claims')
-    .select('claim_number, submitted_by, status, job_event_id, receipt_urls, tax_invoice_urls, actual_receipt_urls')
+    .select('claim_number, claim_type, submitted_by, status, job_event_id, receipt_urls, tax_invoice_urls, actual_receipt_urls, pettycash_fund_id')
     .eq('id', id)
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
+
+  // Children of a CLOSED petty-cash month are frozen (refund snapshot).
+  if (claim.pettycash_fund_id) {
+    const { data: parentFund } = await supabase
+      .from('expense_claims')
+      .select('pettycash_closed_at')
+      .eq('id', claim.pettycash_fund_id)
+      .single()
+    if (parentFund?.pettycash_closed_at) {
+      return { error: 'รอบเดือนของกองทุนปิดแล้ว — admin ต้องเปิดรอบอีกครั้งก่อนจึงจะลบรายการได้' }
+    }
+  }
+
+  // A petty-cash fund with children (expenses/top-ups) must not be deleted —
+  // the children would orphan and the box audit trail would break.
+  if (claim.claim_type === 'petty_cash') {
+    const { count } = await supabase
+      .from('expense_claims')
+      .select('id', { count: 'exact', head: true })
+      .eq('pettycash_fund_id', id)
+    if ((count || 0) > 0) {
+      return { error: 'กองทุนนี้มีรายการลูก (ค่าใช้จ่าย/เติมเงิน) อยู่ — ยกเลิก/ลบรายการลูกก่อนจึงจะลบกองทุนได้' }
+    }
+  }
 
   // ถ้าเคย approved → ลบ cost item ที่สร้างจากใบเบิกนี้ด้วย
   // job_event_id ชี้ไป job_cost_events.id ตรงๆ
@@ -1227,6 +1353,28 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
   if (claim.status === newStatus) return { error: 'สถานะเดิมและสถานะใหม่เหมือนกัน' }
+
+  // Petty-cash guardrails: children of a closed month are frozen, and a fund
+  // with children must stay a live fund (its children reference it).
+  if (claim.pettycash_fund_id) {
+    const { data: parentFund } = await supabase
+      .from('expense_claims')
+      .select('pettycash_closed_at')
+      .eq('id', claim.pettycash_fund_id)
+      .single()
+    if (parentFund?.pettycash_closed_at) {
+      return { error: 'รอบเดือนของกองทุนปิดแล้ว — เปิดรอบอีกครั้งก่อนจึงจะแก้สถานะรายการลูกได้' }
+    }
+  }
+  if (claim.claim_type === 'petty_cash' && !claim.pettycash_fund_id && ['draft', 'pending', 'cancelled', 'rejected'].includes(newStatus)) {
+    const { count } = await supabase
+      .from('expense_claims')
+      .select('id', { count: 'exact', head: true })
+      .eq('pettycash_fund_id', id)
+    if ((count || 0) > 0) {
+      return { error: 'กองทุนนี้มีรายการลูกอยู่ — ไม่สามารถย้อนเป็น draft/pending หรือยกเลิก/ปฏิเสธได้' }
+    }
+  }
 
   const now = new Date().toISOString()
   const fromStatus = claim.status
@@ -1660,8 +1808,16 @@ export async function confirmRefundReceived(id: string) {
     .single()
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
-  if (claim.claim_type !== 'advance') {
-    return { error: 'ใช้ได้เฉพาะใบเบิกประเภท "ทดลองจ่าย" เท่านั้น' }
+  // Advance claims AND petty-cash funds (month-close leftover) both return cash
+  // to the company through this confirmation.
+  const isPettyFund = claim.claim_type === 'petty_cash' && !claim.pettycash_fund_id
+  if (claim.claim_type !== 'advance' && !isPettyFund) {
+    return { error: 'ใช้ได้เฉพาะใบเบิกประเภท "ทดลองจ่าย" หรือกองทุนเงินสดย่อยเท่านั้น' }
+  }
+  // A fund's return is only confirmable after the month has been closed —
+  // the leftover snapshot doesn't exist before that.
+  if (isPettyFund && !claim.pettycash_closed_at) {
+    return { error: 'ต้องปิดเดือนก่อนจึงจะยืนยันเงินคืนได้' }
   }
   if (claim.status === 'refund_confirmed') {
     return { error: 'ยืนยันการคืนเงินไปแล้ว' }
@@ -1724,5 +1880,531 @@ export async function confirmRefundReceived(id: string) {
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
+  return { success: true }
+}
+
+// ============================================================================
+// Petty Cash (เงินสดย่อย) — monthly fund model
+// Fund (ใบแม่): claim_type='petty_cash', pettycash_fund_id NULL, amount = ยอดตั้งต้น.
+// Top-up: claim_type='petty_cash' + fund_id set (approve→pay adds cash to the box).
+// Expense: claim_type='other' + fund_id set, created as PAID immediately — the
+// cash already left the physical box; control = the box + admin audit at close.
+//   balance = fund.amount (once paid) + Σ topups(paid) − Σ expenses(live)
+// Month close: leftover returned to company via refund_amount/refund_slip_urls,
+// then admin confirms via confirmRefundReceived → status 'refund_confirmed'.
+// ============================================================================
+
+const roundBaht = (n: number) => Math.round(n * 100) / 100
+
+const PETTY_DEAD = ['cancelled', 'rejected']
+
+// Children of a fund + money sums. Shared by fund page / ledger / close / PDF so
+// the balance math lives in ONE place.
+async function getPettyChildren(supabase: any, fundId: string) {
+  const { data } = await supabase
+    .from('expense_claims')
+    .select(`
+      id, claim_number, claim_type, title, category, amount, expense_date, status,
+      receipt_urls, created_at, paid_at,
+      submitter:profiles!expense_claims_submitted_by_fkey(id, full_name)
+    `)
+    .eq('pettycash_fund_id', fundId)
+    .order('expense_date', { ascending: true })
+    .limit(2000) // ponytail: PostgREST defaults to 1000 — a month won't hit 2000 entries
+
+  const live = (data || []).filter((c: any) => !PETTY_DEAD.includes(c.status))
+  const topups = live.filter((c: any) => c.claim_type === 'petty_cash')
+  const expenses = live.filter((c: any) => c.claim_type !== 'petty_cash')
+  const topupPaid = roundBaht(topups.filter((t: any) => t.status === 'paid').reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0))
+  const topupPending = roundBaht(topups.filter((t: any) => t.status !== 'paid').reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0))
+  const spent = roundBaht(expenses.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0))
+  return { topups, expenses, topupPaid, topupPending, spent }
+}
+
+export type PettyChildren = Awaited<ReturnType<typeof getPettyChildren>>
+
+// The currently-open fund. Deliberately NOT scoped to the submitter — the box is
+// a shared office resource and any staff member may log expenses into it.
+export async function getOpenPettyCashFund() {
+  const { userId } = await getSession()
+  if (!userId) return { data: null }
+
+  const supabase = createServiceClient()
+  const { data: fund } = await supabase
+    .from('expense_claims')
+    .select('id, claim_number, title, amount, status, pettycash_period_start, pettycash_period_end')
+    .eq('claim_type', 'petty_cash')
+    .is('pettycash_fund_id', null)
+    .is('pettycash_closed_at', null)
+    .not('status', 'in', '(cancelled,rejected)')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!fund) return { data: null }
+  return {
+    data: {
+      id: fund.id as string,
+      claimNumber: fund.claim_number as string,
+      title: fund.title as string,
+      amount: Number(fund.amount) || 0,
+      status: fund.status as string,
+      periodStart: fund.pettycash_period_start as string | null,
+      periodEnd: fund.pettycash_period_end as string | null,
+    },
+  }
+}
+
+// Children + sums for the fund detail page (all staff may view — shared box).
+export async function getPettyCashChildren(fundId: string) {
+  const { userId } = await getSession()
+  if (!userId) return null
+  const supabase = createServiceClient()
+  return getPettyChildren(supabase, fundId)
+}
+
+// Ledger: every fund (month) with its sums.
+// ponytail: N+1 child queries — fine at ~12 funds/year, batch if it ever matters.
+export async function getPettyCashLedger() {
+  const { userId } = await getSession()
+  if (!userId) return { funds: [] }
+
+  const supabase = createServiceClient()
+  const { data: fundRows } = await supabase
+    .from('expense_claims')
+    .select('*, submitter:profiles!expense_claims_submitted_by_fkey(id, full_name)')
+    .eq('claim_type', 'petty_cash')
+    .is('pettycash_fund_id', null)
+    .not('status', 'in', '(cancelled,rejected)')
+    .order('created_at', { ascending: false })
+
+  const funds = []
+  for (const fund of fundRows || []) {
+    const kids = await getPettyChildren(supabase, fund.id)
+    const funded = fund.status === 'paid' || fund.status === 'refund_confirmed'
+    const initial = funded ? roundBaht(Number(fund.amount) || 0) : 0
+    funds.push({
+      fund,
+      topups: kids.topups,
+      expenses: kids.expenses,
+      initial,
+      topupPaid: kids.topupPaid,
+      topupPending: kids.topupPending,
+      spent: kids.spent,
+      balance: roundBaht(initial + kids.topupPaid - kids.spent),
+    })
+  }
+  return { funds }
+}
+
+// Log an expense paid from the cash box. Any staff member may log (shared box).
+// The claim is created directly as PAID — the cash physically left the box; the
+// control is the box itself + admin audit at month close. Corrections: admin
+// override → cancelled.
+export async function addPettyCashExpense(fundId: string, formData: FormData) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: fund } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', fundId)
+    .single()
+
+  if (!fund || fund.claim_type !== 'petty_cash' || fund.pettycash_fund_id) {
+    return { error: 'ไม่พบกองทุนเงินสดย่อย' }
+  }
+  if (fund.pettycash_closed_at) return { error: 'กองทุนนี้ปิดเดือนแล้ว ไม่สามารถเพิ่มรายจ่ายได้' }
+  if (fund.status !== 'paid') {
+    return { error: 'กองทุนยังไม่เปิดใช้ — ต้องอนุมัติและจ่ายเงินตั้งต้นก่อน' }
+  }
+
+  const title = (formData.get('title') as string || '').trim()
+  const category = (formData.get('category') as string) || 'other'
+  const amount = roundBaht(Number(formData.get('amount')) || 0)
+  const expense_date = (formData.get('expense_date') as string) || new Date().toISOString().split('T')[0]
+  const description = (formData.get('description') as string || '').trim() || null
+  if (!title) return { error: 'กรุณากรอกรายการค่าใช้จ่าย' }
+  if (amount <= 0) return { error: 'กรุณากรอกจำนวนเงินให้ถูกต้อง' }
+  // Keep the weekly buckets honest — expenses must belong to the fund's month.
+  if (fund.pettycash_period_start && fund.pettycash_period_end
+      && (expense_date < fund.pettycash_period_start || expense_date > fund.pettycash_period_end)) {
+    return { error: `วันที่รายจ่ายต้องอยู่ในเดือนของกองทุน (${fund.pettycash_period_start} ถึง ${fund.pettycash_period_end})` }
+  }
+
+  const receiptFiles: File[] = []
+  for (const entry of formData.getAll('receipt_files')) {
+    if (entry instanceof File && entry.size > 0) receiptFiles.push(entry)
+  }
+
+  const claimNumber = await generateClaimNumber(supabase)
+  let receipt_urls: string[] = []
+  if (receiptFiles.length > 0) {
+    receipt_urls = await uploadReceiptFiles(supabase, receiptFiles, claimNumber)
+  }
+
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('expense_claims')
+    .insert({
+      claim_number: claimNumber,
+      claim_type: 'other',
+      pettycash_fund_id: fundId,
+      title,
+      description,
+      category,
+      amount,
+      unit_price: amount,
+      unit: 'บาท',
+      quantity: 1,
+      expense_date,
+      vat_mode: 'none',
+      include_vat: false,
+      withholding_tax_rate: 0,
+      receipt_urls,
+      funding_source: 'company',
+      submitted_by: userId,
+      submitted_at: now,
+      status: 'paid',
+      paid_at: now,
+      paid_by: userId,
+    })
+    .select('id')
+    .single()
+
+  if (error) return { error: `บันทึกรายจ่ายไม่สำเร็จ: ${error.message}` }
+
+  // Race guard: if the fund was closed while this insert was in flight, void
+  // the row — money must not enter a closed month.
+  // ponytail: read-after-write instead of a DB lock; move close+insert into a
+  // FOR UPDATE Postgres function if concurrent closes ever become common.
+  const { data: fundAfterInsert } = await supabase
+    .from('expense_claims')
+    .select('pettycash_closed_at')
+    .eq('id', fundId)
+    .single()
+  if (fundAfterInsert?.pettycash_closed_at) {
+    await supabase.from('expense_claims').delete().eq('id', data.id)
+    return { error: 'กองทุนถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก กรุณาติดต่อ admin' }
+  }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: data.id,
+    action: 'petty_cash_expense',
+    changed_by: userId,
+    changes: { status: { from: null, to: 'paid' } },
+    note: `จ่ายจากเงินสดย่อย ${fund.claim_number} ฿${amount.toLocaleString()}`,
+  })
+
+  await logActivity('CREATE_EXPENSE_CLAIM', {
+    claimId: data.id,
+    claimNumber,
+    title,
+    amount,
+    claim_type: 'other',
+    pettyCashFund: fund.claim_number,
+  })
+
+  // Fresh balance so the UI can warn on overspend immediately.
+  const kids = await getPettyChildren(supabase, fundId)
+  const balance = roundBaht(roundBaht(Number(fund.amount) || 0) + kids.topupPaid - kids.spent)
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${fundId}`)
+  revalidatePath('/finance/petty-cash')
+  return { success: true, id: data.id, balance }
+}
+
+// Request a mid-month top-up into the fund (fund owner or admin). Goes straight
+// into the approval queue (pending → approve → pay adds cash to the box).
+export async function createPettyCashTopup(fundId: string, formData: FormData) {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: fund } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', fundId)
+    .single()
+
+  if (!fund || fund.claim_type !== 'petty_cash' || fund.pettycash_fund_id) {
+    return { error: 'ไม่พบกองทุนเงินสดย่อย' }
+  }
+  if (fund.pettycash_closed_at) return { error: 'กองทุนนี้ปิดเดือนแล้ว' }
+  if (fund.status !== 'paid') return { error: 'กองทุนยังไม่เปิดใช้' }
+
+  const isAdmin = role === 'admin'
+  const isOwner = fund.submitted_by === userId
+  if (!isAdmin && !isOwner) return { error: 'เฉพาะผู้ดูแลกองทุนหรือ admin เท่านั้นที่เบิกเพิ่มได้' }
+
+  const amount = roundBaht(Number(formData.get('amount')) || 0)
+  const note = (formData.get('note') as string || '').trim()
+  if (amount <= 0) return { error: 'กรุณากรอกจำนวนเงินให้ถูกต้อง' }
+
+  const claimNumber = await generateClaimNumber(supabase)
+  const now = new Date().toISOString()
+
+  const { data, error } = await supabase
+    .from('expense_claims')
+    .insert({
+      claim_number: claimNumber,
+      claim_type: 'petty_cash',
+      pettycash_fund_id: fundId,
+      title: `เติมเงินสดย่อย ${fund.claim_number}${note ? ` — ${note}` : ''}`,
+      description: note || null,
+      category: 'other',
+      amount,
+      unit_price: amount,
+      unit: 'บาท',
+      quantity: 1,
+      expense_date: now.split('T')[0],
+      vat_mode: 'none',
+      include_vat: false,
+      withholding_tax_rate: 0,
+      // Payout transfers to the fund custodian's account (copied from the fund).
+      bank_name: fund.bank_name,
+      bank_account_number: fund.bank_account_number,
+      account_holder_name: fund.account_holder_name,
+      funding_source: 'company',
+      submitted_by: userId,
+      submitted_at: now,
+      status: 'pending',
+    })
+    .select('id')
+    .single()
+
+  if (error) return { error: `สร้างรายการเติมเงินไม่สำเร็จ: ${error.message}` }
+
+  // Race guard: void the request if the fund closed mid-flight.
+  const { data: fundAfterInsert } = await supabase
+    .from('expense_claims')
+    .select('pettycash_closed_at')
+    .eq('id', fundId)
+    .single()
+  if (fundAfterInsert?.pettycash_closed_at) {
+    await supabase.from('expense_claims').delete().eq('id', data.id)
+    return { error: 'กองทุนถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก' }
+  }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: data.id,
+    action: 'submit',
+    changed_by: userId,
+    changes: { status: { from: null, to: 'pending' } },
+    note: `ขอเติมเงินสดย่อย ฿${amount.toLocaleString()} เข้ากองทุน ${fund.claim_number}`,
+  })
+
+  await logActivity('CREATE_EXPENSE_CLAIM', {
+    claimId: data.id,
+    claimNumber,
+    title: `เติมเงินสดย่อย ${fund.claim_number}`,
+    amount,
+    claim_type: 'petty_cash',
+    pettyCashFund: fund.claim_number,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${fundId}`)
+  revalidatePath('/finance/petty-cash')
+  return { success: true, id: data.id }
+}
+
+// Close the monthly fund (owner or admin). Computes the leftover from the DB
+// (fund + paid top-ups − live expenses), requires a return-transfer slip when
+// leftover > 0, blocks while any top-up is still in flight. After closing, an
+// admin confirms the returned cash via confirmRefundReceived → refund_confirmed.
+export async function closePettyCashMonth(id: string, formData?: FormData) {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: fund } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (!fund || fund.claim_type !== 'petty_cash' || fund.pettycash_fund_id) {
+    return { error: 'ไม่พบกองทุนเงินสดย่อย' }
+  }
+
+  const isAdmin = role === 'admin'
+  const isOwner = fund.submitted_by === userId
+  if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์ปิดกองทุนนี้' }
+
+  if (fund.pettycash_closed_at) return { error: 'ปิดเดือนไปแล้ว' }
+  if (fund.status !== 'paid') return { error: 'ปิดได้เฉพาะกองทุนที่เปิดใช้แล้วเท่านั้น' }
+
+  const kids = await getPettyChildren(supabase, id)
+
+  // Money in flight — a requested top-up that hasn't been paid yet would desync
+  // the box balance. Resolve (pay or cancel) before closing.
+  const pendingTopups = kids.topups.filter((t: any) => t.status !== 'paid')
+  if (pendingTopups.length > 0) {
+    return {
+      error: `มีรายการเติมเงินค้างดำเนินการ ${pendingTopups.length} ใบ (${pendingTopups.map((t: any) => t.claim_number).join(', ')}) — อนุมัติ/จ่าย หรือยกเลิกให้เรียบร้อยก่อนปิดเดือน`,
+    }
+  }
+
+  const initial = roundBaht(Number(fund.amount) || 0)
+  const leftover = roundBaht(initial + kids.topupPaid - kids.spent)
+  if (leftover < 0) {
+    return { error: `ยอดกองทุนติดลบ ฿${Math.abs(leftover).toLocaleString()} — รายจ่ายเกินเงินในกองทุน กรุณาตรวจสอบรายการก่อนปิดเดือน` }
+  }
+
+  const updatePayload: Record<string, any> = {
+    pettycash_closed_at: new Date().toISOString(),
+    pettycash_closed_by: userId,
+  }
+  let note = 'ปิดกองทุนเงินสดย่อยประจำเดือน — ไม่มีเงินคงเหลือ'
+
+  if (leftover > 0) {
+    const slipFiles: File[] = []
+    if (formData) {
+      for (const entry of formData.getAll('refund_slip_files')) {
+        if (entry instanceof File && entry.size > 0) slipFiles.push(entry)
+      }
+    }
+    const existingSlips: string[] = fund.refund_slip_urls || []
+    if (slipFiles.length === 0 && existingSlips.length === 0) {
+      return { error: `ต้องแนบสลิปโอนเงินคืนบริษัท ฿${leftover.toLocaleString()} ก่อนปิดเดือน` }
+    }
+    let slipUrls: string[] = []
+    if (slipFiles.length > 0) {
+      slipUrls = await uploadReceiptFiles(supabase, slipFiles, `${fund.claim_number}-return`)
+      // Abort BEFORE committing the close if any slip failed to upload —
+      // otherwise the month closes with a refund but no proof, and can never
+      // be confirmed.
+      if (slipUrls.length !== slipFiles.length) {
+        return { error: 'อัพโหลดสลิปไม่สำเร็จครบทุกไฟล์ — ยังไม่ปิดเดือน กรุณาลองใหม่อีกครั้ง' }
+      }
+    }
+    updatePayload.refund_amount = leftover
+    if (slipUrls.length > 0) updatePayload.refund_slip_urls = [...existingSlips, ...slipUrls]
+    note = `ปิดเดือน — คืนเงินคงเหลือให้บริษัท ฿${leftover.toLocaleString()} (รอ admin ยืนยันรับเงิน)`
+  }
+
+  // Conditional close — a concurrent close (double-click / second admin) must
+  // not silently re-run and overwrite the snapshot.
+  const { data: closedRows, error } = await supabase
+    .from('expense_claims')
+    .update(updatePayload)
+    .eq('id', id)
+    .is('pettycash_closed_at', null)
+    .select('id')
+
+  if (error) {
+    console.error('Close petty cash month error:', error)
+    return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
+  }
+  if ((closedRows?.length ?? 0) === 0) {
+    return { error: 'ปิดเดือนไปแล้ว (มีการกดปิดซ้อนกัน)' }
+  }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'close_petty_cash',
+    changed_by: userId,
+    changes: {
+      pettycash_closed_at: { from: null, to: 'closed' },
+      ...(leftover > 0 ? { refund_amount: { from: fund.refund_amount ?? null, to: leftover } } : {}),
+    },
+    note,
+  })
+
+  await logActivity('CLOSE_PETTY_CASH_PERIOD', {
+    claimId: id,
+    claimNumber: fund.claim_number,
+    initial,
+    topupPaid: kids.topupPaid,
+    spent: kids.spent,
+    leftover,
+  })
+
+  // Ask admins to verify the returned cash and finalise the month.
+  if (leftover > 0) {
+    const { data: adminProfiles } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin')
+    const adminIds = (adminProfiles || []).map((p: { id: string }) => p.id).filter((aid: string) => aid !== userId)
+    if (adminIds.length > 0) {
+      await createNotifications({
+        userIds: adminIds,
+        type: 'expense_approved',
+        title: `กองทุนเงินสดย่อย ${fund.claim_number} ปิดเดือนแล้ว — รอยืนยันเงินคืน ฿${leftover.toLocaleString()}`,
+        body: 'ตรวจสลิปการโอนคืน แล้วกดยืนยันรับเงินในหน้ากองทุน',
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+    }
+  }
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  revalidatePath('/finance/petty-cash')
+  return { success: true, leftover }
+}
+
+// Reopen a closed month (admin only, before the return is confirmed) — the
+// escape hatch for audit corrections, since a closed month's children are
+// frozen. Clears the close snapshot; already-uploaded slips stay attached.
+export async function reopenPettyCashMonth(id: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServiceClient()
+
+  const { data: fund } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (!fund || fund.claim_type !== 'petty_cash' || fund.pettycash_fund_id) {
+    return { error: 'ไม่พบกองทุนเงินสดย่อย' }
+  }
+  if (!fund.pettycash_closed_at) return { error: 'กองทุนนี้ยังไม่ได้ปิดเดือน' }
+  if (fund.status === 'refund_confirmed') {
+    return { error: 'ยืนยันรับเงินคืนไปแล้ว ไม่สามารถเปิดรอบได้อีก' }
+  }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({
+      pettycash_closed_at: null,
+      pettycash_closed_by: null,
+      refund_amount: null,
+    })
+    .eq('id', id)
+
+  if (error) return { error: `เกิดข้อผิดพลาด: ${error.message}` }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'reopen_petty_cash',
+    changed_by: userId,
+    changes: {
+      pettycash_closed_at: { from: 'closed', to: null },
+      refund_amount: { from: fund.refund_amount ?? null, to: null },
+    },
+    note: 'เปิดรอบเดือนอีกครั้ง (admin) — ล้างยอดเงินคืนที่บันทึกไว้ ต้องปิดเดือนใหม่หลังแก้ไข',
+  })
+
+  await logActivity('CLOSE_PETTY_CASH_PERIOD', {
+    claimId: id,
+    claimNumber: fund.claim_number,
+    reopened: true,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  revalidatePath('/finance/petty-cash')
   return { success: true }
 }

@@ -40,6 +40,7 @@ export interface PaymentVoucherData {
   description?: string
   items: {
     no: number
+    date?: string
     description: string
     amount: number
   }[]
@@ -66,6 +67,16 @@ export interface PaymentVoucherData {
   refundBankName?: string
   refundAccountNumber?: string
   refundAccountName?: string
+  // Petty cash (เบิกเงินสดย่อย) extras
+  isPettyCash?: boolean
+  pettyOpening?: number
+  pettyTopup?: number
+  pettyStarting?: number
+  pettySpent?: number
+  pettyClosing?: number
+  pettyOpeningFrom?: string
+  pettyPeriodStart?: string
+  pettyPeriodEnd?: string
 }
 
 // ============================================================================
@@ -498,7 +509,7 @@ export function PaymentVoucherPDF({ data }: { data: PaymentVoucherData }) {
                 <Text style={{ textAlign: 'center' }}>{item.no}</Text>
               </View>
               <View style={s.colDesc}>
-                <Text>{item.description}</Text>
+                <Text>{item.date ? `${item.date}  ${item.description}` : item.description}</Text>
               </View>
               <View style={s.colAmount}>
                 <Text>{fmtNum(item.amount)}</Text>
@@ -569,6 +580,38 @@ export function PaymentVoucherPDF({ data }: { data: PaymentVoucherData }) {
               <Text style={[s.reconValue, s.refundHighlight]}>
                 {fmtNum(data.refundAmount ?? 0)}
               </Text>
+            </View>
+          </View>
+        )}
+
+        {/* ── Petty cash reconciliation (เงินสดย่อย) ── */}
+        {data.isPettyCash && (
+          <View style={s.reconBox}>
+            <Text style={s.reconHeader}>
+              สรุปเงินสดย่อย
+              {data.pettyPeriodStart || data.pettyPeriodEnd
+                ? `  (${data.pettyPeriodStart || '—'} ถึง ${data.pettyPeriodEnd || '—'})`
+                : ''}
+            </Text>
+            <View style={s.reconRow}>
+              <Text style={s.reconLabel}>ยอดตั้งต้นเดือน</Text>
+              <Text style={s.reconValue}>{fmtNum(data.pettyOpening ?? 0)}</Text>
+            </View>
+            <View style={s.reconRow}>
+              <Text style={s.reconLabel}>เติมระหว่างเดือน</Text>
+              <Text style={s.reconValue}>{fmtNum(data.pettyTopup ?? 0)}</Text>
+            </View>
+            <View style={s.reconRow}>
+              <Text style={[s.reconLabel, s.bold]}>รวมเงินเข้ากองทุน</Text>
+              <Text style={[s.reconValue, s.bold]}>{fmtNum(data.pettyStarting ?? 0)}</Text>
+            </View>
+            <View style={s.reconRow}>
+              <Text style={s.reconLabel}>รวมรายจ่าย</Text>
+              <Text style={s.reconValue}>{fmtNum(data.pettySpent ?? 0)}</Text>
+            </View>
+            <View style={s.reconRowLast}>
+              <Text style={[s.reconLabel, s.refundHighlight]}>คงเหลือ (คืนบริษัท)</Text>
+              <Text style={[s.reconValue, s.refundHighlight]}>{fmtNum(data.pettyClosing ?? 0)}</Text>
             </View>
           </View>
         )}

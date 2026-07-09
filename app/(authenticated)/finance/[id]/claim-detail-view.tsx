@@ -2,15 +2,16 @@
 
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useConfirm } from '../use-confirm'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
   Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
   Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert,
   Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Coins, Lock,
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES, getClaimChecklist, getFundingSourceLabel, getFundingSourceColor, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -103,7 +104,30 @@ interface JobEventOption {
   status: string
 }
 
-export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', jobEvents = [] }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; jobEvents?: JobEventOption[] }) {
+/** Light row shape for a fund's children (expenses / top-ups) */
+type PettyChildLite = {
+  id: string
+  claim_number: string
+  claim_type: string
+  title: string
+  category: string
+  amount: number
+  expense_date: string
+  status: string
+  receipt_urls: string[] | null
+  created_at: string
+  paid_at: string | null
+  submitter?: { id: string; full_name: string } | null
+}
+type PettyChildren = {
+  topups: PettyChildLite[]
+  expenses: PettyChildLite[]
+  topupPaid: number
+  topupPending: number
+  spent: number
+}
+
+export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', jobEvents = [], pettyChildren = null }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; jobEvents?: JobEventOption[]; pettyChildren?: PettyChildren | null }) {
   const router = useRouter()
   const { locale } = useLocale()
   const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
@@ -146,10 +170,11 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [editTaxEntries, setEditTaxEntries] = useState<ExistingTaxEntry[]>(buildExistingEntries())
   const [editingTaxEntries, setEditingTaxEntries] = useState(false)
 
-  // Advance settlement state (ทดลองจ่าย)
-  type SpentItem = { description: string; amount: string }
+  // Advance settlement / petty-cash expense state. Both reuse actual_spent_items;
+  // petty cash additionally carries a per-row date.
+  type SpentItem = { date?: string; description: string; amount: string }
   const seededItems: SpentItem[] = Array.isArray(claim.actual_spent_items) && claim.actual_spent_items.length > 0
-    ? claim.actual_spent_items.map(i => ({ description: i.description || '', amount: String(i.amount ?? '') }))
+    ? claim.actual_spent_items.map(i => ({ date: i.date || '', description: i.description || '', amount: String(i.amount ?? '') }))
     : [{ description: '', amount: '' }]
   const [spentItems, setSpentItems] = useState<SpentItem[]>(seededItems)
   const hasSavedSpentItems = Array.isArray(claim.actual_spent_items) && claim.actual_spent_items.length > 0
@@ -158,6 +183,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [refundSlipFiles, setRefundSlipFiles] = useState<File[]>([])
 
   const addSpentItem = () => setSpentItems(prev => [...prev, { description: '', amount: '' }])
+
+  // Petty-cash fund: quick-add expense + top-up request form state
+  const [qaTitle, setQaTitle] = useState('')
+  const [qaCategory, setQaCategory] = useState(categories[0]?.value || 'other')
+  const [qaAmount, setQaAmount] = useState('')
+  const [qaDate, setQaDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [qaFiles, setQaFiles] = useState<File[]>([])
+  const [tuAmount, setTuAmount] = useState('')
+  const [tuNote, setTuNote] = useState('')
+  const [showTopupForm, setShowTopupForm] = useState(false)
   const removeSpentItem = (idx: number) => setSpentItems(prev => prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx))
   const updateSpentItem = (idx: number, patch: Partial<SpentItem>) =>
     setSpentItems(prev => prev.map((it, i) => i === idx ? { ...it, ...patch } : it))
@@ -192,10 +227,31 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const isRefundConfirmed = claim.status === 'refund_confirmed'
   const isTerminal = ['paid', 'rejected', 'cancelled', 'refund_confirmed'].includes(claim.status)
   const isAdvance = claim.claim_type === 'advance'
+
+  // Petty cash (เงินสดย่อย) — monthly fund model.
+  // Fund = claim_type petty_cash + no fund_id; top-up = petty_cash + fund_id;
+  // expense = other type + fund_id (paid from the box).
+  const isPettyCash = claim.claim_type === 'petty_cash'
+  const isPettyFund = isPettyCash && !claim.pettycash_fund_id
+  const isPettyTopup = isPettyCash && !!claim.pettycash_fund_id
+  const isPettyExpense = !isPettyCash && !!claim.pettycash_fund_id
+  const isPettyClosed = !!claim.pettycash_closed_at
+  // Box only holds the initial amount once the fund claim was actually paid out.
+  const pettyFunded = isPettyFund && (claim.status === 'paid' || claim.status === 'refund_confirmed')
+  const pettyInitial = pettyFunded ? (Number(claim.amount) || 0) : 0
+  const pettyTopupPaid = pettyChildren?.topupPaid ?? 0
+  const pettyTopupPending = pettyChildren?.topupPending ?? 0
+  const pettySpent = pettyChildren?.spent ?? 0
+  const pettyBalance = Math.round((pettyInitial + pettyTopupPaid - pettySpent) * 100) / 100
+  const pettyReturned = isPettyFund && (Number(claim.refund_amount) || 0) > 0
+  const pettyFundOpen = isPettyFund && claim.status === 'paid' && !isPettyClosed
+  const canManagePettyFund = isPettyFund && (isOwner || isAdmin) && pettyFundOpen
+
   // Settlement allowed after the claim has been approved (user has or will have the money)
   const canSettleAdvance = isAdvance && (isOwner || isAdmin) && !isRefundConfirmed && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)
-  // Admin may confirm the refund once the user has uploaded a transfer slip
-  const canConfirmRefund = isAdmin && isAdvance && !isRefundConfirmed
+  // Admin may confirm the returned cash once a transfer slip exists — used by
+  // both advance refunds and petty-cash month-close returns.
+  const canConfirmRefund = isAdmin && (isAdvance || isPettyFund) && !isRefundConfirmed
     && (Number(claim.refund_amount) || 0) > 0
     && (claim.refund_slip_urls?.length ?? 0) > 0
     && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice', 'awaiting_payment'].includes(claim.status)
@@ -432,6 +488,128 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       router.refresh()
       setLoading(false)
     }
+  }
+
+  // Group fund expenses into calendar weeks of the month (1–7, 8–14, …) for
+  // the "สรุปยอดแต่ละสัปดาห์" summary.
+  const pettyWeekGroups = (() => {
+    if (!pettyChildren || pettyChildren.expenses.length === 0) return []
+    const groups = new Map<number, { from: number; to: number; items: PettyChildLite[]; total: number }>()
+    for (const e of pettyChildren.expenses) {
+      const day = Number((e.expense_date || '').slice(8, 10)) || 1
+      const w = Math.min(5, Math.floor((day - 1) / 7) + 1)
+      if (!groups.has(w)) groups.set(w, { from: (w - 1) * 7 + 1, to: w === 5 ? 31 : w * 7, items: [], total: 0 })
+      const g = groups.get(w)!
+      g.items.push(e)
+      g.total = Math.round((g.total + (Number(e.amount) || 0)) * 100) / 100
+    }
+    return Array.from(groups.entries()).sort((a, b) => a[0] - b[0]).map(([week, g]) => ({ week, ...g }))
+  })()
+
+  // Log an expense paid from the box (any staff member, while the fund is open)
+  const handleAddPettyExpense = async () => {
+    if (!qaTitle.trim()) { setError(isEn ? 'Enter the expense description.' : 'กรุณากรอกรายการค่าใช้จ่าย'); return }
+    if (!(Number(qaAmount) > 0)) { setError(isEn ? 'Enter a valid amount.' : 'กรุณากรอกจำนวนเงินให้ถูกต้อง'); return }
+    setLoading(true)
+    setError(null)
+    const fd = new FormData()
+    fd.append('title', qaTitle.trim())
+    fd.append('category', qaCategory)
+    fd.append('amount', qaAmount)
+    fd.append('expense_date', qaDate)
+    for (const f of qaFiles) {
+      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+      fd.append('receipt_files', compressed)
+    }
+    const res = await addPettyCashExpense(claim.id, fd)
+    if (res.error) { setError(res.error); setLoading(false); return }
+    setQaTitle('')
+    setQaAmount('')
+    setQaFiles([])
+    if ((res.balance ?? 0) < 0) {
+      setError(isEn
+        ? `Saved — but the box balance is now negative (฿${fmtDec(res.balance ?? 0)}). Request a top-up.`
+        : `บันทึกแล้ว — แต่เงินในกล่องติดลบ (฿${fmtDec(res.balance ?? 0)}) กรุณาเบิกเพิ่ม`)
+    }
+    router.refresh()
+    setLoading(false)
+  }
+
+  // Request a mid-month top-up (fund owner or admin) → normal approve→pay flow
+  const handleCreateTopup = async () => {
+    if (!(Number(tuAmount) > 0)) { setError(isEn ? 'Enter a valid top-up amount.' : 'กรุณากรอกจำนวนเงินให้ถูกต้อง'); return }
+    setLoading(true)
+    setError(null)
+    const fd = new FormData()
+    fd.append('amount', tuAmount)
+    fd.append('note', tuNote.trim())
+    const res = await createPettyCashTopup(claim.id, fd)
+    if (res.error) { setError(res.error); setLoading(false); return }
+    setTuAmount('')
+    setTuNote('')
+    setShowTopupForm(false)
+    router.refresh()
+    setLoading(false)
+  }
+
+  // Close the month: leftover returned to the company (slip required when > 0)
+  const handleCloseMonth = async () => {
+    if (pettyTopupPending > 0) {
+      setError(isEn
+        ? 'There are unresolved top-up requests — pay or cancel them before closing.'
+        : 'มีรายการเติมเงินค้างดำเนินการ — อนุมัติ/จ่าย หรือยกเลิกให้เรียบร้อยก่อนปิดเดือน')
+      return
+    }
+    if (pettyBalance > 0 && refundSlipFiles.length === 0 && (claim.refund_slip_urls?.length ?? 0) === 0) {
+      setError(isEn
+        ? `Attach the return transfer slip (฿${fmtDec(pettyBalance)}) before closing.`
+        : `กรุณาแนบสลิปโอนเงินคืนบริษัท ฿${fmtDec(pettyBalance)} ก่อนปิดเดือน`)
+      return
+    }
+    const ok = await askConfirm({
+      title: isEn ? 'Close this month?' : 'ปิดกองทุนเดือนนี้?',
+      description: isEn
+        ? 'Locks the fund — no more expenses or top-ups. The leftover is recorded as returned to the company and awaits admin confirmation.'
+        : 'จะล็อกกองทุน (เพิ่มรายจ่าย/เติมเงินไม่ได้อีก) และบันทึกยอดคงเหลือเป็นเงินคืนบริษัท รอ admin ยืนยันรับเงิน',
+      details: [
+        ...claimContextDetails,
+        { label: isEn ? 'Return to company' : 'คืนบริษัท', value: `฿${fmtDec(pettyBalance)}` },
+      ],
+      variant: 'warning',
+      confirmLabel: isEn ? 'Close month' : 'ปิดเดือน',
+      cancelLabel: isEn ? 'Not yet' : 'ยังไม่ปิด',
+    })
+    if (!ok) return
+    setLoading(true)
+    setError(null)
+    const fd = new FormData()
+    for (const f of refundSlipFiles) {
+      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+      fd.append('refund_slip_files', compressed)
+    }
+    const res = await closePettyCashMonth(claim.id, fd)
+    if (res.error) { setError(res.error); setLoading(false) }
+    else { setRefundSlipFiles([]); router.refresh(); setLoading(false) }
+  }
+
+  // Admin escape hatch: reopen a closed (not yet confirmed) month for corrections
+  const handleReopenMonth = async () => {
+    const ok = await askConfirm({
+      title: isEn ? 'Reopen this month?' : 'เปิดรอบเดือนนี้อีกครั้ง?',
+      description: isEn
+        ? 'Clears the recorded return amount. Make corrections, then close the month again.'
+        : 'จะล้างยอดเงินคืนที่บันทึกไว้ — แก้ไขรายการเสร็จแล้วต้องกดปิดเดือนใหม่',
+      details: claimContextDetails,
+      variant: 'warning',
+      confirmLabel: isEn ? 'Reopen' : 'เปิดรอบ',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
+    setLoading(true)
+    setError(null)
+    const res = await reopenPettyCashMonth(claim.id)
+    if (res.error) { setError(res.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
   }
 
   const handleConfirmRefund = async () => {
@@ -794,7 +972,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               </div>
 
               {/* Funding Source — เงินบริษัท / เงินส่วนตัว */}
-              {!isAdvance && (
+              {!isAdvance && !isPettyCash && (
                 <div>
                   <label className="text-xs font-medium text-zinc-500 mb-1.5 block">
                     {isEn ? 'Funding Source' : 'แหล่งเงินที่ใช้เบิก'}
@@ -1034,14 +1212,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               {/* Info Grid — ข้อมูลทั่วไป */}
               <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                 <div className="flex items-center gap-2 text-sm">
-                  {isAdvance ? <Wallet className="h-4 w-4 text-amber-500 shrink-0" /> : <FileText className="h-4 w-4 text-zinc-400 shrink-0" />}
+                  {isAdvance ? <Wallet className="h-4 w-4 text-amber-500 shrink-0" /> : isPettyCash ? <Coins className="h-4 w-4 text-orange-500 shrink-0" /> : <FileText className="h-4 w-4 text-zinc-400 shrink-0" />}
                   <span className="text-zinc-500">{isEn ? 'Type:' : 'ประเภท:'}</span>
-                  <span className={`font-medium ${isAdvance ? 'text-amber-700 dark:text-amber-300' : 'text-zinc-900 dark:text-zinc-100'}`}>
+                  <span className={`font-medium ${isAdvance ? 'text-amber-700 dark:text-amber-300' : isPettyCash ? 'text-orange-700 dark:text-orange-300' : 'text-zinc-900 dark:text-zinc-100'}`}>
                     {claim.claim_type === 'event'
                       ? (isEn ? 'Event' : 'เบิกงานอีเวนต์')
                       : claim.claim_type === 'advance'
                         ? (isEn ? 'Advance Payment' : 'เบิกทดลองจ่าย')
-                        : (isEn ? 'Other' : 'ค่าอื่นๆ')}
+                        : claim.claim_type === 'petty_cash'
+                          ? (isEn ? 'Petty Cash' : 'เบิกเงินสดย่อย')
+                          : (isEn ? 'Other' : 'ค่าอื่นๆ')}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
@@ -2182,6 +2362,469 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : 'อัพเดทได้หลายครั้ง — แต่ละครั้งจะถูกบันทึกในประวัติ'}
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* ── Petty cash child banner (top-up / box expense) ── */}
+            {(isPettyTopup || isPettyExpense) && (
+              <div className="flex items-start gap-2 p-3 bg-orange-50/60 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900/40 rounded-xl">
+                <Coins className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />
+                <div className="text-xs text-orange-800 dark:text-orange-200 space-y-0.5">
+                  <p className="font-semibold">
+                    {isPettyTopup
+                      ? (isEn ? 'Top-up into the petty cash fund' : 'รายการเติมเงินเข้ากองทุนเงินสดย่อย')
+                      : (isEn ? 'Expense paid from the petty cash box' : 'ค่าใช้จ่ายที่จ่ายจากกล่องเงินสดย่อย')}
+                  </p>
+                  <Link href={`/finance/${claim.pettycash_fund_id}`} className="inline-flex items-center gap-1 underline">
+                    {isEn ? 'Open the fund page' : 'ไปที่หน้ากองทุน'} →
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {/* ── Petty Cash Fund (กองทุนเงินสดย่อยประจำเดือน) ── */}
+            {isPettyFund && (
+              <div className="space-y-3.5 p-4 bg-orange-50/40 dark:bg-orange-950/10 border border-orange-200 dark:border-orange-900/40 rounded-xl">
+                {/* Header */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center h-7 w-7 rounded-lg bg-orange-100 dark:bg-orange-900/30">
+                      <Coins className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                        {isEn ? 'Monthly Petty Cash Fund' : 'กองทุนเงินสดย่อยประจำเดือน'}
+                      </p>
+                      <p className="text-[11px] text-zinc-500">
+                        {claim.pettycash_period_start || '—'} → {claim.pettycash_period_end || '—'}
+                      </p>
+                    </div>
+                  </div>
+                  {isPettyClosed ? (
+                    <span className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-zinc-600 bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-300 rounded-md shrink-0">
+                      <Lock className="h-3 w-3" /> {isEn ? 'Closed' : 'ปิดเดือนแล้ว'}
+                    </span>
+                  ) : pettyFundOpen ? (
+                    <span className="px-2 py-1 text-[11px] font-medium text-emerald-700 bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 rounded-md shrink-0">
+                      {isEn ? 'Open' : 'เปิดใช้งาน'}
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 text-[11px] font-medium text-amber-700 bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 rounded-md shrink-0">
+                      {isEn ? 'Awaiting payout' : 'รออนุมัติ/จ่ายเงินตั้งต้น'}
+                    </span>
+                  )}
+                </div>
+
+                {/* Previous month link */}
+                {claim.pettycash_previous_claim_id && (
+                  <Link
+                    href={`/finance/${claim.pettycash_previous_claim_id}`}
+                    className="inline-flex items-center gap-1.5 text-[11px] text-orange-600 dark:text-orange-400 hover:underline"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    {isEn ? 'View previous month fund' : 'ดูกองทุนเดือนก่อนหน้า'} →
+                  </Link>
+                )}
+
+                {/* Summary strip: initial / topped-up / spent / balance */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Initial fund' : 'ยอดตั้งต้น'}</p>
+                    <p className="text-sm font-mono font-semibold text-zinc-800 dark:text-zinc-200">฿{fmtDec(Number(claim.amount) || 0)}</p>
+                    {!pettyFunded && (
+                      <p className="text-[9px] text-amber-500 mt-0.5">{isEn ? 'not paid out yet' : 'ยังไม่จ่ายเข้ากล่อง'}</p>
+                    )}
+                  </div>
+                  <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Topped up' : 'เติมแล้ว'}</p>
+                    <p className="text-sm font-mono font-semibold text-zinc-800 dark:text-zinc-200">฿{fmtDec(pettyTopupPaid)}</p>
+                    {pettyTopupPending > 0 && (
+                      <p className="text-[9px] text-amber-500 mt-0.5">{isEn ? `pending ฿${fmtDec(pettyTopupPending)}` : `รอดำเนินการ ฿${fmtDec(pettyTopupPending)}`}</p>
+                    )}
+                  </div>
+                  <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Spent' : 'ใช้ไป'}</p>
+                    <p className="text-sm font-mono font-semibold text-orange-600 dark:text-orange-400">฿{fmtDec(pettySpent)}</p>
+                    <p className="text-[9px] text-zinc-400 mt-0.5">{pettyChildren?.expenses.length || 0} {isEn ? 'item(s)' : 'รายการ'}</p>
+                  </div>
+                  <div className={`p-2.5 rounded-lg border ${pettyBalance < 0 ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800' : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800'}`}>
+                    <p className="text-[10px] text-zinc-400">{isEn ? 'Balance in box' : 'คงเหลือในกล่อง'}</p>
+                    <p className={`text-sm font-mono font-semibold ${pettyBalance < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>฿{fmtDec(pettyBalance)}</p>
+                  </div>
+                </div>
+
+                {pettyBalance < 0 && (
+                  <div className="flex items-start gap-2 p-2.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-600 dark:text-red-400">
+                    <ShieldAlert className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      {isEn
+                        ? 'Spending exceeds the money in the box — request a top-up.'
+                        : 'รายจ่ายเกินเงินในกล่อง — กรุณาเบิกเพิ่ม (Top-up) หรือตรวจสอบรายการ'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Quick-add expense — any staff member, while the fund is open */}
+                {pettyFundOpen && (
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-2.5">
+                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                      <Plus className="h-3.5 w-3.5 text-orange-500" />
+                      {isEn ? 'Log Expense (paid from the box)' : 'บันทึกค่าใช้จ่าย (จ่ายจากกล่อง)'}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-[130px_1fr] gap-2">
+                      <input
+                        type="date"
+                        value={qaDate}
+                        onChange={e => setQaDate(e.target.value)}
+                        className="px-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                      />
+                      <input
+                        type="text"
+                        value={qaTitle}
+                        onChange={e => setQaTitle(e.target.value)}
+                        placeholder={isEn ? 'e.g. Drinking water, Stamps' : 'เช่น ค่าน้ำดื่ม, ค่าแสตมป์'}
+                        className="px-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_150px] gap-2">
+                      <select
+                        value={qaCategory}
+                        onChange={e => setQaCategory(e.target.value)}
+                        className="px-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                      >
+                        {categories.map(cat => (
+                          <option key={cat.value} value={cat.value}>{isEn ? cat.label : cat.label_th}</option>
+                        ))}
+                      </select>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 pointer-events-none">฿</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          value={qaAmount}
+                          onChange={e => setQaAmount(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full pl-6 pr-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm font-mono text-right outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                        />
+                      </div>
+                    </div>
+                    {/* Receipts */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        multiple
+                        onChange={(e) => { if (e.target.files) setQaFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = '' }}
+                        className="hidden"
+                        id="petty-qa-receipts"
+                      />
+                      <label htmlFor="petty-qa-receipts" className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-zinc-600 dark:text-zinc-400 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-md hover:border-orange-400 transition-colors">
+                        <Upload className="h-3.5 w-3.5" />
+                        {isEn ? 'Attach receipt' : 'แนบใบเสร็จ'}
+                      </label>
+                      {qaFiles.map((file, i) => (
+                        <span key={i} className="inline-flex items-center gap-1 px-2 py-1 bg-zinc-100 dark:bg-zinc-800 rounded text-[11px] text-zinc-600 dark:text-zinc-300">
+                          <span className="truncate max-w-[140px]">{file.name}</span>
+                          <button type="button" onClick={() => setQaFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-zinc-400 hover:text-red-500">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={handleAddPettyExpense}
+                        disabled={loading}
+                        className="ml-auto flex items-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors"
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        {loading ? '...' : (isEn ? 'Save Expense' : 'บันทึกรายจ่าย')}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-zinc-400">
+                      {isEn
+                        ? 'Saved as a paid claim immediately — the cash already left the box. Admin audits at month close.'
+                        : 'บันทึกเป็นใบเบิกสถานะ "จ่ายแล้ว" ทันที (เงินสดออกจากกล่องแล้วจริง) — admin ตรวจสอบตอนปิดเดือน'}
+                    </p>
+                  </div>
+                )}
+
+                {/* Weekly expense summary (สรุปยอดแต่ละสัปดาห์) */}
+                {pettyWeekGroups.length > 0 && (
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 mb-2">
+                      <Receipt className="h-3.5 w-3.5 text-orange-500" />
+                      {isEn ? 'Weekly Summary' : 'สรุปยอดแต่ละสัปดาห์'}
+                    </p>
+                    <div className="space-y-2.5">
+                      {pettyWeekGroups.map(g => (
+                        <div key={g.week}>
+                          <div className="flex items-center justify-between px-2 py-1.5 bg-orange-50/70 dark:bg-orange-950/20 rounded-md">
+                            <span className="text-[11px] font-semibold text-orange-700 dark:text-orange-300">
+                              {isEn ? `Week ${g.week}` : `สัปดาห์ที่ ${g.week}`}
+                              <span className="text-zinc-400 font-normal ml-1">({isEn ? 'day' : 'วันที่'} {g.from}–{g.to})</span>
+                            </span>
+                            <span className="text-xs font-mono font-bold text-orange-700 dark:text-orange-300">฿{fmtDec(g.total)}</span>
+                          </div>
+                          <div className="mt-1 space-y-0.5">
+                            {g.items.map(e => (
+                              <Link
+                                key={e.id}
+                                href={`/finance/${e.id}`}
+                                className="flex items-center gap-2 px-2 py-1 rounded hover:bg-zinc-50 dark:hover:bg-zinc-800/40 text-xs group"
+                              >
+                                <span className="font-mono text-[10px] text-zinc-400 w-12 shrink-0">{(e.expense_date || '').slice(5)}</span>
+                                <span className="font-mono text-[10px] text-zinc-400 hidden sm:inline shrink-0">{e.claim_number}</span>
+                                <span className="flex-1 truncate text-zinc-700 dark:text-zinc-300 group-hover:text-orange-600">{e.title}</span>
+                                {(e.receipt_urls?.length ?? 0) === 0 && (
+                                  <span className="text-[9px] text-red-400 shrink-0">{isEn ? 'no receipt' : 'ไม่มีใบเสร็จ'}</span>
+                                )}
+                                <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300 shrink-0">฿{fmtDec(Number(e.amount) || 0)}</span>
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2.5 pt-2.5 border-t border-zinc-200 dark:border-zinc-700 flex justify-between items-center">
+                      <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{isEn ? 'Month total' : 'รวมทั้งเดือน'}</span>
+                      <span className="text-base font-mono font-bold text-orange-600 dark:text-orange-400">฿{fmtDec(pettySpent)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Top-ups (เติมเงินระหว่างเดือน) */}
+                {(canManagePettyFund || (pettyChildren?.topups.length ?? 0) > 0) && (
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                        <Banknote className="h-3.5 w-3.5 text-orange-500" />
+                        {isEn ? 'Top-ups' : 'เติมเงินเข้ากองทุน'}
+                        <span className="text-zinc-400 font-normal">({pettyChildren?.topups.length ?? 0})</span>
+                      </p>
+                      {canManagePettyFund && (
+                        <button
+                          type="button"
+                          onClick={() => setShowTopupForm(v => !v)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium text-orange-600 border border-dashed border-orange-300 dark:border-orange-800 hover:bg-orange-50 dark:hover:bg-orange-950/20 rounded-md transition-colors"
+                        >
+                          {showTopupForm ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                          {showTopupForm ? (isEn ? 'Cancel' : 'ยกเลิก') : (isEn ? 'Request top-up' : 'ขอเบิกเพิ่ม')}
+                        </button>
+                      )}
+                    </div>
+
+                    {showTopupForm && canManagePettyFund && (
+                      <div className="p-2.5 bg-orange-50/50 dark:bg-orange-950/10 border border-orange-200 dark:border-orange-900/40 rounded-md space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-2">
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 pointer-events-none">฿</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={tuAmount}
+                              onChange={e => setTuAmount(e.target.value)}
+                              placeholder="0.00"
+                              className="w-full pl-6 pr-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm font-mono text-right outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                            />
+                          </div>
+                          <input
+                            type="text"
+                            value={tuNote}
+                            onChange={e => setTuNote(e.target.value)}
+                            placeholder={isEn ? 'Note (optional)' : 'หมายเหตุ (ไม่บังคับ)'}
+                            className="px-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCreateTopup}
+                            disabled={loading}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors"
+                          >
+                            <Send className="h-3.5 w-3.5" />
+                            {loading ? '...' : (isEn ? 'Submit for approval' : 'ส่งขออนุมัติ')}
+                          </button>
+                          <p className="text-[10px] text-zinc-400">
+                            {isEn ? 'Goes through approve → pay like a normal claim.' : 'เข้าคิวอนุมัติ → จ่ายเงิน เหมือนใบเบิกปกติ'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {(pettyChildren?.topups.length ?? 0) > 0 && (
+                      <div className="space-y-0.5">
+                        {pettyChildren!.topups.map(t => (
+                          <Link
+                            key={t.id}
+                            href={`/finance/${t.id}`}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-50 dark:hover:bg-zinc-800/40 text-xs group"
+                          >
+                            <span className="font-mono text-[10px] text-zinc-400 shrink-0">{t.claim_number}</span>
+                            <span className="flex-1 truncate text-zinc-700 dark:text-zinc-300 group-hover:text-orange-600">{t.title}</span>
+                            <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium shrink-0 ${
+                              t.status === 'paid'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                            }`}>
+                              {t.status === 'paid' ? (isEn ? 'Paid' : 'จ่ายแล้ว') : getClaimStatusLabel(t.status, locale)}
+                            </span>
+                            <span className="font-mono font-medium text-zinc-700 dark:text-zinc-300 shrink-0">+฿{fmtDec(Number(t.amount) || 0)}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Close month — return leftover to the company */}
+                {canManagePettyFund && (
+                  <div className="border-t border-orange-200/70 dark:border-orange-900/40 pt-3 space-y-2.5">
+                    <div>
+                      <p className="text-xs font-semibold text-orange-700 dark:text-orange-300 flex items-center gap-1.5">
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        {isEn ? `Close month — return leftover ฿${fmtDec(pettyBalance)}` : `ปิดเดือน — คืนเงินคงเหลือ ฿${fmtDec(pettyBalance)}`}
+                      </p>
+                      <p className="text-[11px] text-zinc-500 mt-0.5">
+                        {isEn
+                          ? 'Transfer the leftover back to the company, attach the slip, then close. Admin confirms receipt to finalise.'
+                          : 'โอนเงินคงเหลือคืนบริษัท แนบสลิป แล้วกดปิดเดือน — จากนั้น admin ยืนยันรับเงินเพื่อจบเดือน'}
+                      </p>
+                    </div>
+                    {pettyTopupPending > 0 && (
+                      <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg text-[11px] text-amber-700 dark:text-amber-300">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span>
+                          {isEn
+                            ? `Unresolved top-ups (฿${fmtDec(pettyTopupPending)}) — pay or cancel them before closing.`
+                            : `มีรายการเติมเงินค้างดำเนินการ (฿${fmtDec(pettyTopupPending)}) — ต้องจ่ายหรือยกเลิกก่อนปิดเดือน`}
+                        </span>
+                      </div>
+                    )}
+                    {pettyBalance > 0 && (
+                      <>
+                        <div className="border-2 border-dashed border-orange-300 dark:border-orange-800 rounded-lg p-3 text-center hover:border-orange-500 transition-colors bg-orange-50/30 dark:bg-orange-950/10">
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            multiple
+                            onChange={(e) => { if (e.target.files) setRefundSlipFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = '' }}
+                            className="hidden"
+                            id="petty-return-slip"
+                          />
+                          <label htmlFor="petty-return-slip" className="cursor-pointer">
+                            <Upload className="h-5 w-5 mx-auto text-orange-500 mb-1" />
+                            <p className="text-xs text-orange-700 dark:text-orange-400">{isEn ? 'Attach return transfer slip' : 'แนบสลิปการโอนเงินคืนบริษัท'}</p>
+                          </label>
+                        </div>
+                        {refundSlipFiles.length > 0 && (
+                          <div className="space-y-1">
+                            {refundSlipFiles.map((file, i) => (
+                              <div key={i} className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-zinc-800 rounded-md text-xs border border-orange-200 dark:border-orange-800">
+                                <span className="truncate text-zinc-600 dark:text-zinc-400">{file.name}</span>
+                                <button type="button" onClick={() => setRefundSlipFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-zinc-400 hover:text-red-500 ml-2 shrink-0">
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleCloseMonth}
+                      disabled={loading || pettyTopupPending > 0 || (pettyBalance > 0 && refundSlipFiles.length === 0 && (claim.refund_slip_urls?.length ?? 0) === 0)}
+                      className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
+                    >
+                      <Lock className="h-4 w-4" />
+                      {isEn ? 'Close Month & Return' : 'ปิดเดือน + คืนเงิน'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Closed banner */}
+                {isPettyClosed && (
+                  <div className="flex items-start gap-2 p-3 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-200 dark:border-cyan-800 rounded-lg">
+                    <CheckCircle2 className="h-4 w-4 text-cyan-600 dark:text-cyan-400 shrink-0 mt-0.5" />
+                    <div className="text-xs">
+                      <p className="font-semibold text-cyan-700 dark:text-cyan-300">
+                        {pettyReturned
+                          ? (isRefundConfirmed
+                              ? (isEn ? `Month closed — ฿${fmtDec(Number(claim.refund_amount) || 0)} returned & confirmed` : `ปิดเดือนแล้ว — คืนเงิน ฿${fmtDec(Number(claim.refund_amount) || 0)} และ admin ยืนยันแล้ว`)
+                              : (isEn ? `Month closed — ฿${fmtDec(Number(claim.refund_amount) || 0)} returned, awaiting admin confirmation` : `ปิดเดือนแล้ว — คืนเงิน ฿${fmtDec(Number(claim.refund_amount) || 0)} รอ admin ยืนยันรับเงิน`))
+                          : (isEn ? 'Month closed — no leftover to return' : 'ปิดเดือนแล้ว — ไม่มีเงินคงเหลือต้องคืน')}
+                      </p>
+                      {claim.pettycash_closed_at && (
+                        <p className="text-[10px] text-cyan-600/80 dark:text-cyan-400/80 mt-0.5">
+                          {isEn ? 'Closed at' : 'ปิดเมื่อ'}: {new Date(claim.pettycash_closed_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+                        </p>
+                      )}
+                      {isAdmin && !isRefundConfirmed && (
+                        <button
+                          type="button"
+                          onClick={handleReopenMonth}
+                          disabled={loading}
+                          className="mt-2 flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium text-cyan-700 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-700 hover:bg-cyan-100 dark:hover:bg-cyan-950/40 disabled:opacity-50 rounded-md transition-colors"
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          {isEn ? 'Reopen month (admin)' : 'เปิดรอบอีกครั้ง เพื่อแก้ไข (admin)'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Admin: confirm returned cash */}
+                {canConfirmRefund && isPettyFund && (
+                  <div className="flex items-center justify-between gap-2 p-3 bg-emerald-50/60 dark:bg-emerald-950/20 border border-dashed border-emerald-300 dark:border-emerald-800 rounded-lg">
+                    <div className="text-xs">
+                      <p className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        {isEn
+                          ? `Awaiting confirmation — return ฿${fmtDec(Number(claim.refund_amount) || 0)}`
+                          : `รอ admin ยืนยัน — เงินคืน ฿${fmtDec(Number(claim.refund_amount) || 0)}`}
+                      </p>
+                      <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">
+                        {isEn ? 'Check the slip, then mark as received.' : 'ตรวจสลิปการโอน แล้วกดยืนยันได้รับเงิน'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleConfirmRefund}
+                      disabled={loading}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {isEn ? 'Confirm received' : 'ยืนยันรับเงินแล้ว'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Return slips */}
+                {claim.refund_slip_urls && claim.refund_slip_urls.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1.5 flex items-center gap-1.5">
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      {isEn ? 'Return Transfer Slips' : 'สลิปการโอนเงินคืนบริษัท'}
+                    </p>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {claim.refund_slip_urls.map((url, i) => {
+                        const isPdf = url.toLowerCase().endsWith('.pdf')
+                        return (
+                          <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg border border-orange-200 dark:border-orange-800 overflow-hidden aspect-[4/3] bg-orange-50 dark:bg-orange-950/20">
+                            {isPdf
+                              ? <div className="flex flex-col items-center justify-center h-full gap-1 text-orange-400"><FileText className="h-6 w-6" /><span className="text-[10px]">PDF</span></div>
+                              : <img src={url} alt={`${isEn ? 'return slip' : 'สลิปคืน'} ${i + 1}`} className="w-full h-full object-cover" />}
+                          </a>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

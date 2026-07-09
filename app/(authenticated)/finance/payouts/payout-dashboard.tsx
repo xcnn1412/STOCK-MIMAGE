@@ -138,7 +138,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
       if (personFilter !== 'all' && c.submitted_by !== personFilter) return false
       // Event filter
       if (eventFilter !== 'all' && c.job_event_id !== eventFilter) return false
-      // Claim type filter (exact match: event / other / advance)
+      // Claim type filter (exact match: event / other / advance / petty_cash)
       if (claimTypeFilter !== 'all' && c.claim_type !== claimTypeFilter) return false
       // Category filter
       if (categoryFilter !== 'all' && c.category !== categoryFilter) return false
@@ -257,10 +257,11 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
         </select>
 
         {/* Claim Type */}
-        <select value={claimTypeFilter} onChange={e => { setClaimTypeFilter(e.target.value); if (e.target.value === 'other' || e.target.value === 'advance') setEventFilter('all') }} className={`${selectCls} flex-1 sm:flex-none`}>
+        <select value={claimTypeFilter} onChange={e => { setClaimTypeFilter(e.target.value); if (e.target.value === 'other' || e.target.value === 'advance' || e.target.value === 'petty_cash') setEventFilter('all') }} className={`${selectCls} flex-1 sm:flex-none`}>
           <option value="all">{isEn ? 'All Types' : 'ทุกประเภท'}</option>
           <option value="event">{isEn ? 'Event Expense' : '📍 เบิกงานอีเวนต์'}</option>
           <option value="advance">{isEn ? 'Advance' : '💵 เบิกทดลองจ่าย'}</option>
+          <option value="petty_cash">{isEn ? 'Petty Cash' : '🪙 เบิกเงินสดย่อย'}</option>
           <option value="other">{isEn ? 'Other Expense' : '📋 เบิกอื่นๆ'}</option>
         </select>
 
@@ -283,7 +284,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
         </select>
 
         {/* Event */}
-        {claimTypeFilter !== 'other' && claimTypeFilter !== 'advance' && (
+        {claimTypeFilter !== 'other' && claimTypeFilter !== 'advance' && claimTypeFilter !== 'petty_cash' && (
           <select value={eventFilter} onChange={e => setEventFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
             <option value="all">{isEn ? 'All Events' : 'ทุกอีเวนต์'}</option>
             {events.map(([id, name]) => (

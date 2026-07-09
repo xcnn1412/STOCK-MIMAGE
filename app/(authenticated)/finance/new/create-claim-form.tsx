@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef, useActionState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon, Wallet, Info, Building2, User as UserIcon } from 'lucide-react'
-import { createClaim } from '../actions'
+import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon, Wallet, Info, Building2, User as UserIcon, Coins } from 'lucide-react'
+import { createClaim, getOpenPettyCashFund } from '../actions'
 import { CLAIM_TYPES, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -50,8 +50,25 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const router = useRouter()
   const { locale } = useLocale()
   const isEn = locale === 'en'
-  const [claimType, setClaimType] = useState<'event' | 'other' | 'advance'>('event')
+  const [claimType, setClaimType] = useState<'event' | 'other' | 'advance' | 'petty_cash'>('event')
   const isAdvance = claimType === 'advance'
+  const isPettyCash = claimType === 'petty_cash'
+  // Advance and petty cash share the "single amount, no VAT/WHT, company-funded" shape.
+  const isSimpleAmount = isAdvance || isPettyCash
+
+  // Petty cash — this form OPENS the monthly fund. Only one fund may be open at
+  // a time; expenses/top-ups are added from the fund page afterwards.
+  const [pettyMonth, setPettyMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [openFund, setOpenFund] = useState<{ id: string; claimNumber: string; periodStart: string | null; periodEnd: string | null } | null>(null)
+  useEffect(() => {
+    if (claimType !== 'petty_cash') return
+    let cancelled = false
+    getOpenPettyCashFund().then(res => {
+      if (cancelled) return
+      setOpenFund(res.data ? { id: res.data.id, claimNumber: res.data.claimNumber, periodStart: res.data.periodStart, periodEnd: res.data.periodEnd } : null)
+    })
+    return () => { cancelled = true }
+  }, [claimType])
   const [fundingSource, setFundingSource] = useState<FundingSource>('company')
   const isPersonalFunded = fundingSource === 'personal'
   const [selectedCategory, setSelectedCategory] = useState(categories[0]?.value || 'staff')
@@ -153,24 +170,28 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
             {isEn ? 'Claim Type' : 'ประเภทการเบิก'} *
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {CLAIM_TYPES.map(type => {
               const isActive = claimType === type.value
               const isAdvanceType = type.value === 'advance'
+              const isPettyType = type.value === 'petty_cash'
+              const activeCls = isActive
+                ? (isAdvanceType
+                    ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/20'
+                    : isPettyType
+                      ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/20'
+                      : 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20')
+                : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300'
               return (
                 <button
                   key={type.value}
                   type="button"
-                  onClick={() => setClaimType(type.value as 'event' | 'other' | 'advance')}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${isActive
-                      ? (isAdvanceType
-                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/20'
-                          : 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20')
-                      : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300'
-                    }`}
+                  onClick={() => setClaimType(type.value)}
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${activeCls}`}
                 >
                   <div className="flex items-center gap-2">
                     {isAdvanceType && <Wallet className={`h-4 w-4 ${isActive ? 'text-amber-600' : 'text-zinc-400'}`} />}
+                    {isPettyType && <Coins className={`h-4 w-4 ${isActive ? 'text-orange-600' : 'text-zinc-400'}`} />}
                     <p className="font-medium text-zinc-900 dark:text-zinc-100">
                       {isEn ? type.label : type.labelTh}
                     </p>
@@ -180,6 +201,11 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                       {isEn ? 'Request money up-front, settle after use' : 'ขอเงินล่วงหน้า คืนส่วนต่างภายหลัง'}
                     </p>
                   )}
+                  {isPettyType && (
+                    <p className="text-[11px] text-zinc-500 mt-1">
+                      {isEn ? 'Open the monthly office fund, log expenses, return leftover' : 'เปิดกองทุนประจำเดือน จดรายจ่าย เติมเงิน คืนเงินสิ้นเดือน'}
+                    </p>
+                  )}
                 </button>
               )
             })}
@@ -187,7 +213,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           <input type="hidden" name="claim_type" value={claimType} />
 
           {/* Funding Source — เงินบริษัท / เงินส่วนตัว */}
-          {!isAdvance && (
+          {!isSimpleAmount && (
             <div className="mt-4">
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                 {isEn ? 'Funding Source' : 'แหล่งเงินที่ใช้เบิก'} *
@@ -246,8 +272,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               )}
             </div>
           )}
-          {/* Advance type defaults to company funding */}
-          {isAdvance && <input type="hidden" name="funding_source" value="company" />}
+          {/* Advance & petty cash default to company funding */}
+          {isSimpleAmount && <input type="hidden" name="funding_source" value="company" />}
 
           {/* Advance workflow info banner */}
           {isAdvance && (
@@ -431,12 +457,16 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           )
         })()}
 
-        {/* Unit Price + Unit + Quantity — simplified to single amount field for advance */}
-        {isAdvance ? (
+        {/* Unit Price + Unit + Quantity — simplified to single amount field for advance / petty cash */}
+        {isSimpleAmount ? (
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-              <Wallet className="inline h-3.5 w-3.5 mr-1 text-amber-500" />
-              {isEn ? 'Advance Amount (฿)' : 'จำนวนเงินที่ขอเบิกล่วงหน้า (฿)'} *
+              {isPettyCash
+                ? <Coins className="inline h-3.5 w-3.5 mr-1 text-orange-500" />
+                : <Wallet className="inline h-3.5 w-3.5 mr-1 text-amber-500" />}
+              {isPettyCash
+                ? (isEn ? 'Initial Fund Amount (฿)' : 'ยอดตั้งต้นกองทุน (฿)')
+                : (isEn ? 'Advance Amount (฿)' : 'จำนวนเงินที่ขอเบิกล่วงหน้า (฿)')} *
             </label>
             <input
               type="number"
@@ -446,12 +476,14 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               value={unitPrice}
               onChange={e => setUnitPrice(e.target.value)}
               placeholder="0"
-              className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"
+              className={`w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono outline-none ${isPettyCash ? 'focus:border-orange-500 focus:ring-1 focus:ring-orange-500' : 'focus:border-amber-500 focus:ring-1 focus:ring-amber-500'}`}
             />
             <input type="hidden" name="unit" value="บาท" />
             <input type="hidden" name="quantity" value="1" />
             <p className="text-[11px] text-zinc-400 mt-1">
-              {isEn ? 'You will settle the actual amount spent later.' : 'จำนวนเงินที่ใช้จ่ายจริงจะอัพเดทย้อนหลัง เมื่อเสร็จงาน'}
+              {isPettyCash
+                ? (isEn ? 'Log expenses & top-ups from the fund page after payout.' : 'จดรายจ่าย/เติมเงินได้จากหน้ากองทุน หลังจ่ายเงินแล้ว')
+                : (isEn ? 'You will settle the actual amount spent later.' : 'จำนวนเงินที่ใช้จ่ายจริงจะอัพเดทย้อนหลัง เมื่อเสร็จงาน')}
             </p>
           </div>
         ) : (
@@ -506,13 +538,15 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
               {isAdvance
                 ? (isEn ? 'Advance Total (฿)' : 'ยอดเบิกล่วงหน้า (฿)')
-                : (isEn ? 'Total Amount (฿)' : 'ยอดรวม (฿)')}
+                : isPettyCash
+                  ? (isEn ? 'Fund Total (฿)' : 'ยอดตั้งต้น (฿)')
+                  : (isEn ? 'Total Amount (฿)' : 'ยอดรวม (฿)')}
             </label>
             <div className="flex items-center h-[42px] px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 font-mono font-semibold text-sm">
               ฿{fmtDec(computedAmount)}
             </div>
             <input type="hidden" name="amount" value={computedAmount} />
-            {!isAdvance && (
+            {!isSimpleAmount && (
               <p className="text-[10px] text-zinc-400 mt-1">
                 {isEn ? 'Unit Price × Quantity (before VAT)' : 'ราคาต่อหน่วย × จำนวน (ก่อน VAT)'}
               </p>
@@ -523,7 +557,9 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               <Calendar className="inline h-3.5 w-3.5 mr-1" />
               {isAdvance
                 ? (isEn ? 'Planned Expense Date' : 'วันที่คาดว่าจะใช้จ่าย')
-                : (isEn ? 'Expense Date' : 'วันที่เกิดค่าใช้จ่าย')}
+                : isPettyCash
+                  ? (isEn ? 'Fund Opening Date' : 'วันที่เบิกตั้งต้น')
+                  : (isEn ? 'Expense Date' : 'วันที่เกิดค่าใช้จ่าย')}
             </label>
             <input
               type="date"
@@ -534,8 +570,68 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           </div>
         </div>
 
-        {/* VAT + WHT — hidden for advance (ทดลองจ่าย) since no receipts yet */}
-        {!isAdvance && (
+        {/* Petty cash — monthly fund opener */}
+        {isPettyCash && (
+          <div className="border-2 border-orange-200 dark:border-orange-900/40 rounded-xl p-4 space-y-3 bg-orange-50/40 dark:bg-orange-950/10">
+            <p className="text-sm font-semibold text-orange-700 dark:text-orange-300 flex items-center gap-1.5">
+              <Coins className="h-4 w-4" />
+              {isEn ? 'Monthly Petty Cash Fund' : 'กองทุนเงินสดย่อยประจำเดือน'}
+            </p>
+
+            {/* A fund is already open — must close it before opening a new one */}
+            {openFund ? (
+              <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                <div className="text-xs text-red-700 dark:text-red-300 space-y-1">
+                  <p className="font-semibold">
+                    {isEn
+                      ? `Fund ${openFund.claimNumber} is still open (${openFund.periodStart || '—'} → ${openFund.periodEnd || '—'})`
+                      : `มีกองทุน ${openFund.claimNumber} เปิดอยู่ (${openFund.periodStart || '—'} → ${openFund.periodEnd || '—'})`}
+                  </p>
+                  <p>
+                    {isEn
+                      ? 'Close that month (return the leftover) before opening a new fund.'
+                      : 'กรุณาปิดเดือนและคืนเงินคงเหลือก่อน จึงจะเปิดกองทุนเดือนใหม่ได้'}
+                  </p>
+                  <a href={`/finance/${openFund.id}`} className="inline-block underline font-medium">
+                    {isEn ? 'Go to the open fund →' : 'ไปที่กองทุนที่เปิดอยู่ →'}
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+                  {isEn ? 'Fund Month' : 'ประจำเดือน'}
+                </label>
+                <input
+                  type="month"
+                  name="pettycash_month"
+                  value={pettyMonth}
+                  onChange={e => setPettyMonth(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between border-t border-orange-200 dark:border-orange-900/40 pt-2.5 text-sm">
+              <span className="text-zinc-600 dark:text-zinc-400">
+                {isEn ? 'Initial fund this month' : 'ยอดตั้งต้นกองทุนเดือนนี้'}
+              </span>
+              <span className="font-mono font-semibold text-orange-700 dark:text-orange-300">
+                ฿{fmtDec(computedAmount)}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-zinc-500">
+              {isEn
+                ? 'After approval & payout, log each expense and request top-ups from the fund page. Close the month to return the leftover.'
+                : 'หลังอนุมัติและจ่ายเงินแล้ว จดค่าใช้จ่ายแต่ละรายการ / เบิกเพิ่ม ได้จากหน้ากองทุน — สิ้นเดือนกด "ปิดเดือน" เพื่อคืนเงินคงเหลือ'}
+            </p>
+          </div>
+        )}
+
+        {/* VAT + WHT — hidden for advance (ทดลองจ่าย) & petty cash since no receipts yet */}
+        {!isSimpleAmount && (
         <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-4 space-y-3 bg-zinc-50/50 dark:bg-zinc-800/30">
           <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5">
             <Receipt className="h-3.5 w-3.5" />
@@ -639,8 +735,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
         </div>
         )}
 
-        {/* Hidden defaults for advance — no VAT/WHT */}
-        {isAdvance && (
+        {/* Hidden defaults for advance & petty cash — no VAT/WHT */}
+        {isSimpleAmount && (
           <>
             <input type="hidden" name="vat_mode" value="none" />
             <input type="hidden" name="withholding_tax_rate" value="0" />
@@ -830,7 +926,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
         <div className="flex items-center gap-3 pt-4 border-t border-zinc-200 dark:border-zinc-800">
           <button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || (isPettyCash && !!openFund)}
             className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
           >
             <Banknote className="h-4 w-4" />

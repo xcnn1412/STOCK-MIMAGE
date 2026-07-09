@@ -284,6 +284,7 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
                 <option value="">{isEn ? 'All types' : 'ทั้งหมด'}</option>
                 <option value="event">{isEn ? 'Event' : 'เบิกงานอีเวนต์'}</option>
                 <option value="advance">{isEn ? 'Advance' : 'เบิกทดลองจ่าย'}</option>
+                <option value="petty_cash">{isEn ? 'Petty Cash' : 'เบิกเงินสดย่อย'}</option>
                 <option value="other">{isEn ? 'Other' : 'เบิกอื่นๆ'}</option>
               </select>
             </div>
@@ -325,7 +326,7 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
             </div>
 
             {/* Event Filter */}
-            {filterClaimType !== 'other' && filterClaimType !== 'advance' && events.length > 0 && (
+            {filterClaimType !== 'other' && filterClaimType !== 'advance' && filterClaimType !== 'petty_cash' && events.length > 0 && (
               <div>
                 <label className="block text-[11px] font-medium text-zinc-500 mb-1.5">
                   {isEn ? 'Event' : 'อีเวนต์'}
@@ -454,13 +455,17 @@ export default function ArchiveList({ claims, categories }: { claims: ExpenseCla
                             ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400'
                             : c.claim_type === 'advance'
                               ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
-                              : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                              : c.claim_type === 'petty_cash'
+                                ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-400'
+                                : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                         }`}>
                           {c.claim_type === 'event'
                             ? (isEn ? 'Event' : 'อีเวนต์')
                             : c.claim_type === 'advance'
                               ? (isEn ? 'Advance' : 'ทดลองจ่าย')
-                              : (isEn ? 'Other' : 'อื่นๆ')}
+                              : c.claim_type === 'petty_cash'
+                                ? (isEn ? 'Petty Cash' : 'เงินสดย่อย')
+                                : (isEn ? 'Other' : 'อื่นๆ')}
                         </span>
                       )}
                     </div>

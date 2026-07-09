@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Banknote, LayoutDashboard, PlusCircle, Globe, Wallet, Archive, BarChart3, Percent } from 'lucide-react'
+import { Banknote, LayoutDashboard, PlusCircle, Globe, Wallet, Archive, BarChart3, Percent, Coins } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { Locale } from '@/lib/i18n'
 
@@ -10,14 +10,15 @@ const tabMeta = [
   { href: '/finance', key: 'claims' as const, icon: LayoutDashboard, exact: true },
   { href: '/finance/overview', key: 'overview' as const, icon: BarChart3, exact: false },
   { href: '/finance/payouts', key: 'payouts' as const, icon: Wallet, exact: false },
+  { href: '/finance/petty-cash', key: 'pettyCash' as const, icon: Coins, exact: false },
   { href: '/finance/archive', key: 'archive' as const, icon: Archive, exact: false },
   { href: '/finance/download', key: 'download' as const, icon: Percent, exact: false },
   { href: '/finance/new', key: 'newClaim' as const, icon: PlusCircle, exact: false },
 ]
 
 const labels = {
-  en: { claims: 'All Claims', overview: 'Audit Report', payouts: 'Payouts', archive: 'Archive', download: 'WHT 3%', newClaim: 'New Claim' },
-  th: { claims: 'ใบเบิก', overview: 'รายงานตรวจสอบ', payouts: 'สรุปยอดจ่าย', archive: 'คลังเก็บ', download: 'หัก ณ ที่จ่าย', newClaim: 'สร้างใบเบิก' },
+  en: { claims: 'All Claims', overview: 'Audit Report', payouts: 'Payouts', pettyCash: 'Petty Cash', archive: 'Archive', download: 'WHT 3%', newClaim: 'New Claim' },
+  th: { claims: 'ใบเบิก', overview: 'รายงานตรวจสอบ', payouts: 'สรุปยอดจ่าย', pettyCash: 'เงินสดย่อย', archive: 'คลังเก็บ', download: 'หัก ณ ที่จ่าย', newClaim: 'สร้างใบเบิก' },
 }
 
 export default function FinanceNav({ role }: { role: string }) {

@@ -3,7 +3,7 @@
 import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw } from 'lucide-react'
+import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
 import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../costs/types'
@@ -65,9 +65,9 @@ export default function ClaimsListView({
   const [isPending, startTransition] = useTransition()
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
-  const [typeFilter, setTypeFilter] = useState<'all' | 'event' | 'other' | 'advance'>('all')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'event' | 'other' | 'advance' | 'petty_cash'>('all')
   const [paidSearch, setPaidSearch] = useState('')
-  const [paidTypeFilter, setPaidTypeFilter] = useState<'all' | 'event' | 'other' | 'advance'>('all')
+  const [paidTypeFilter, setPaidTypeFilter] = useState<'all' | 'event' | 'other' | 'advance' | 'petty_cash'>('all')
   const [paidCategoryFilter, setPaidCategoryFilter] = useState('')
   const [paidMonthFilter, setPaidMonthFilter] = useState('')
 
@@ -151,8 +151,13 @@ export default function ClaimsListView({
   // can find them to settle.
   const isUnsettledAdvance = (c: ExpenseClaim) =>
     c.claim_type === 'advance' && c.status === 'paid' && c.actual_spent_amount == null
+  // A petty-cash FUND stays visible while its month is open (paid but not
+  // closed) so the office can keep logging expenses. Top-ups (fund_id set) are
+  // normal claims — once paid they drop to the archive like everything else.
+  const isOpenPettyCash = (c: ExpenseClaim) =>
+    c.claim_type === 'petty_cash' && !c.pettycash_fund_id && c.status === 'paid' && c.pettycash_closed_at == null
   const activeClaims = claims.filter(c =>
-    (c.status !== 'paid' && c.status !== 'cancelled' && c.status !== 'refund_confirmed') || isUnsettledAdvance(c)
+    (c.status !== 'paid' && c.status !== 'cancelled' && c.status !== 'refund_confirmed') || isUnsettledAdvance(c) || isOpenPettyCash(c)
   )
 
   const filtered = (filterStatus === 'all'
@@ -282,6 +287,7 @@ export default function ClaimsListView({
               { v: 'all', label: isEn ? 'All types' : 'ทุกประเภท' },
               { v: 'event', label: isEn ? 'Event' : 'อีเวนต์' },
               { v: 'advance', label: isEn ? 'Advance' : 'ทดลองจ่าย' },
+              { v: 'petty_cash', label: isEn ? 'Petty Cash' : 'เงินสดย่อย' },
               { v: 'other', label: isEn ? 'Other' : 'อื่นๆ' },
             ] as const).map(t => (
               <button
@@ -319,7 +325,9 @@ export default function ClaimsListView({
               ? (isEn ? 'Event' : 'อีเวนต์')
               : claim.claim_type === 'advance'
                 ? (isEn ? 'Advance' : 'ทดลองจ่าย')
-                : (isEn ? 'Other' : 'ค่าอื่นๆ')
+                : claim.claim_type === 'petty_cash'
+                  ? (isEn ? 'Petty Cash' : 'เงินสดย่อย')
+                  : (isEn ? 'Other' : 'ค่าอื่นๆ')
             return (
               <Link
                 key={claim.id}
@@ -355,6 +363,7 @@ export default function ClaimsListView({
                     <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
                       <span className="inline-flex items-center gap-1">
                         {claim.claim_type === 'advance' && <Wallet className="h-2.5 w-2.5 text-amber-500" />}
+                        {claim.claim_type === 'petty_cash' && <Coins className="h-2.5 w-2.5 text-orange-500" />}
                         {typeLabel}
                       </span>
                       <span className="text-zinc-300">•</span>
@@ -466,7 +475,7 @@ export default function ClaimsListView({
           <div className="flex flex-wrap items-center gap-2">
             {/* Type */}
             <div className="flex gap-1">
-              {(['all', 'event', 'other', 'advance'] as const).map(t => (
+              {(['all', 'event', 'other', 'advance', 'petty_cash'] as const).map(t => (
                 <button
                   key={t}
                   onClick={() => setPaidTypeFilter(t)}
@@ -479,6 +488,7 @@ export default function ClaimsListView({
                   {t === 'all'     ? (isEn ? 'All Types' : 'ทุกประเภท')
                    : t === 'event'  ? (isEn ? 'Event' : 'อีเวนต์')
                    : t === 'advance'? (isEn ? 'Advance' : 'ทดลองจ่าย')
+                   : t === 'petty_cash' ? (isEn ? 'Petty Cash' : 'เงินสดย่อย')
                    :                  (isEn ? 'Other' : 'ค่าอื่นๆ')}
                 </button>
               ))}

@@ -108,9 +108,10 @@ export function canTransitionTo(
 
 /** ประเภทใบเบิก */
 export const CLAIM_TYPES = [
-  { value: 'event',   label: 'Event',           labelTh: 'เบิกงานอีเวนต์' },
-  { value: 'other',   label: 'Other',           labelTh: 'เบิกค่าอื่นๆ' },
-  { value: 'advance', label: 'Advance Payment', labelTh: 'เบิกทดลองจ่าย' },
+  { value: 'event',      label: 'Event',           labelTh: 'เบิกงานอีเวนต์' },
+  { value: 'other',      label: 'Other',           labelTh: 'เบิกค่าอื่นๆ' },
+  { value: 'advance',    label: 'Advance Payment', labelTh: 'เบิกทดลองจ่าย' },
+  { value: 'petty_cash', label: 'Petty Cash',      labelTh: 'เบิกเงินสดย่อย' },
 ] as const
 
 export type ClaimType = typeof CLAIM_TYPES[number]['value']
@@ -137,9 +138,11 @@ export interface ExpenseClaim {
   tax_invoice_numbers: string[] | null
   /** แหล่งเงินที่ใช้เบิก: 'company' = เงินบริษัท (default), 'personal' = ผู้เบิกออกเงินส่วนตัวก่อนแล้วเบิกย้อนหลัง */
   funding_source: 'company' | 'personal'
-  // Advance (ทดลองจ่าย) settlement fields — only used when claim_type = 'advance'
+  // Advance (ทดลองจ่าย) settlement fields — only used when claim_type = 'advance'.
+  // Reused by petty_cash: actual_spent_items = daily expense entries (with optional date),
+  // actual_spent_amount = running total for the period.
   actual_spent_amount: number | null
-  actual_spent_items: { description: string; amount: number }[] | null
+  actual_spent_items: { date?: string; description: string; amount: number }[] | null
   refund_amount: number | null
   actual_receipt_urls: string[] | null
   refund_slip_urls: string[] | null
@@ -147,6 +150,19 @@ export interface ExpenseClaim {
   advance_settled_by: string | null
   refund_confirmed_at: string | null
   refund_confirmed_by: string | null
+  // Petty cash (เงินสดย่อย) — monthly fund model.
+  // Fund (ใบแม่): claim_type='petty_cash', pettycash_fund_id=null, amount=ยอดตั้งต้น.
+  // Top-up (เติมเงิน): claim_type='petty_cash', pettycash_fund_id=<fund>.
+  // Expense (ค่าใช้จ่ายจากกล่อง): claim_type='other', pettycash_fund_id=<fund>, paid on create.
+  // balance = fund.amount + Σ topups(paid) − Σ expenses(not cancelled/rejected)
+  pettycash_fund_id: string | null            // parent fund (null = this IS a fund)
+  pettycash_opening_balance: number | null    // legacy/unused in monthly model (kept 0)
+  pettycash_opening_from: string | null
+  pettycash_previous_claim_id: string | null  // fund → previous month's fund (navigation)
+  pettycash_period_start: string | null       // fund month start
+  pettycash_period_end: string | null         // fund month end
+  pettycash_closed_at: string | null
+  pettycash_closed_by: string | null
   status: ClaimStatus
   submitted_by: string | null
   approved_by: string | null

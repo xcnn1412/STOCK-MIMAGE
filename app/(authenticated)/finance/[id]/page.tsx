@@ -1,4 +1,4 @@
-import { getClaim, getClaimLogs, getJobEventsForSelect } from '../actions'
+import { getClaim, getClaimLogs, getJobEventsForSelect, getPettyCashChildren } from '../actions'
 import { getFinanceCategories } from '../settings-actions'
 import { notFound } from 'next/navigation'
 import ClaimDetailView from './claim-detail-view'
@@ -21,5 +21,10 @@ export default async function ClaimDetailPage({ params }: { params: Promise<{ id
   ])
   if (!data || error) notFound()
 
-  return <ClaimDetailView claim={data as unknown as ExpenseClaim} role={role} categories={categories} logs={logs} userId={userId} jobEvents={jobEvents} />
+  // Petty-cash FUND → also load its children (box expenses + top-ups)
+  const claim = data as unknown as ExpenseClaim
+  const isPettyFund = claim.claim_type === 'petty_cash' && !claim.pettycash_fund_id
+  const pettyChildren = isPettyFund ? await getPettyCashChildren(id) : null
+
+  return <ClaimDetailView claim={claim} role={role} categories={categories} logs={logs} userId={userId} jobEvents={jobEvents} pettyChildren={pettyChildren as any} />
 }

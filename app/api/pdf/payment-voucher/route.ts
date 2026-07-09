@@ -85,8 +85,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Claim not found' }, { status: 404 })
     }
 
-    // Non-admins may only export their own claim's voucher.
-    if (session.role !== 'admin' && claim.submitted_by !== session.userId) {
+    // Non-admins may only export their own claim's voucher — except petty-cash
+    // docs (fund / top-up / box expense), which belong to the shared office box
+    // and are printable by any staff member (mirrors getClaim's visibility).
+    const isPettyRelated = claim.claim_type === 'petty_cash' || !!claim.pettycash_fund_id
+    if (session.role !== 'admin' && claim.submitted_by !== session.userId && !isPettyRelated) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -182,6 +185,89 @@ export async function GET(req: NextRequest) {
             : claim.advance_settled_at
               ? formatThaiDate(claim.advance_settled_at)
               : undefined
+          voucherData.refundPayerName = claim.account_holder_name || claim.submitter?.full_name || undefined
+          voucherData.refundBankName = claim.bank_name || undefined
+          voucherData.refundAccountNumber = claim.bank_account_number || undefined
+          voucherData.refundAccountName = claim.account_holder_name || undefined
+        }
+      }
+    }
+
+    // ── Petty cash FUND (กองทุนเงินสดย่อยประจำเดือน) — monthly summary ──
+    // Top-ups (petty_cash + fund_id) and box expenses fall through to the
+    // normal voucher; only the fund itself gets the monthly-report layout.
+    if (claim.claim_type === 'petty_cash' && !claim.pettycash_fund_id) {
+      // Children: expenses (any type + fund_id) and top-ups (petty_cash + fund_id)
+      const { data: childRows } = await supabase
+        .from('expense_claims')
+        .select('claim_number, claim_type, title, amount, expense_date, status')
+        .eq('pettycash_fund_id', claimId)
+        .order('expense_date', { ascending: true })
+      const live = (childRows || []).filter(c => !['cancelled', 'rejected'].includes(c.status))
+      const topups = live.filter(c => c.claim_type === 'petty_cash')
+      const expenses = live.filter(c => c.claim_type !== 'petty_cash')
+
+      // Mirror the app's balance math: the initial only counts once the fund
+      // was actually paid out, and every sum is rounded to satang.
+      const round2 = (n: number) => Math.round(n * 100) / 100
+      const funded = ['paid', 'refund_confirmed'].includes(claim.status)
+      const nominal = round2(Number(claim.amount) || 0)
+      const initial = funded ? nominal : 0
+      const topupPaid = round2(topups.filter(t => t.status === 'paid').reduce((s, t) => s + (Number(t.amount) || 0), 0))
+      const spent = round2(expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0))
+
+      voucherData.isPettyCash = true
+      voucherData.docTitle = 'สรุปเงินสดย่อยประจำเดือน'
+      voucherData.docTitleEn = 'PETTY CASH MONTHLY SUMMARY'
+      voucherData.pettyOpening = initial
+      voucherData.pettyTopup = topupPaid
+      voucherData.pettyStarting = round2(initial + topupPaid)
+      voucherData.pettySpent = spent
+      voucherData.pettyClosing = round2(initial + topupPaid - spent)
+      voucherData.pettyPeriodStart = claim.pettycash_period_start || undefined
+      voucherData.pettyPeriodEnd = claim.pettycash_period_end || undefined
+      voucherData.vatAmount = undefined
+      voucherData.whtAmount = undefined
+
+      if (expenses.length > 0) {
+        voucherData.items = expenses.map((e, i) => ({
+          no: i + 1,
+          date: e.expense_date || undefined,
+          description: `${e.title || '(ไม่ระบุ)'}  [${e.claim_number}]`,
+          amount: Number(e.amount) || 0,
+        }))
+        voucherData.totalAmount = spent
+        voucherData.netAmount = spent
+      } else {
+        // No expenses yet — the voucher doubles as the initial disbursement doc
+        // (nominal = requested amount, shown even before payout).
+        voucherData.items = [{ no: 1, description: claim.title || 'เงินสดย่อยสำรอง Office', amount: nominal }]
+        voucherData.totalAmount = nominal
+        voucherData.netAmount = nominal
+      }
+
+      // Month-end return proof — reuse the advance refund page for the leftover
+      // that was returned to the company.
+      const pettyRefund = claim.refund_amount != null ? Number(claim.refund_amount) : 0
+      const pettySlipUrls: string[] = Array.isArray(claim.refund_slip_urls) ? claim.refund_slip_urls : []
+      if (pettyRefund > 0 && pettySlipUrls.length > 0) {
+        const images: string[] = []
+        for (const url of pettySlipUrls) {
+          if (url.toLowerCase().endsWith('.pdf')) continue
+          try {
+            const res = await fetch(url)
+            if (!res.ok) continue
+            const buf = Buffer.from(await res.arrayBuffer())
+            const mime = res.headers.get('content-type') || 'image/jpeg'
+            images.push(`data:${mime};base64,${buf.toString('base64')}`)
+          } catch {
+            // skip unreachable slip
+          }
+        }
+        if (images.length > 0) {
+          voucherData.refundSlipImages = images
+          voucherData.refundAmount = pettyRefund
+          voucherData.refundConfirmedAt = claim.pettycash_closed_at ? formatThaiDate(claim.pettycash_closed_at) : undefined
           voucherData.refundPayerName = claim.account_holder_name || claim.submitter?.full_name || undefined
           voucherData.refundBankName = claim.bank_name || undefined
           voucherData.refundAccountNumber = claim.bank_account_number || undefined
