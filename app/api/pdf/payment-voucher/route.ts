@@ -4,6 +4,7 @@ import React from 'react'
 import { PaymentVoucherPDF } from '@/components/pdf/payment-voucher'
 import type { PaymentVoucherData } from '@/components/pdf/payment-voucher'
 import { createServiceClient } from '@/lib/supabase-server'
+import { requireAuth } from '@/lib/auth'
 import QRCode from 'qrcode'
 
 // Force Node.js runtime for @react-pdf/renderer
@@ -52,6 +53,14 @@ function formatThaiDate(dateStr: string): string {
 // ============================================================================
 export async function GET(req: NextRequest) {
   try {
+    // This route lives under /api, which proxy.ts does NOT session-guard —
+    // so authenticate here or the voucher (bank account, ID) leaks to anyone
+    // holding a claim UUID.
+    const session = await requireAuth()
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { searchParams } = new URL(req.url)
     const claimId = searchParams.get('id')
     if (!claimId) {
@@ -74,6 +83,11 @@ export async function GET(req: NextRequest) {
 
     if (error || !claim) {
       return NextResponse.json({ error: 'Claim not found' }, { status: 404 })
+    }
+
+    // Non-admins may only export their own claim's voucher.
+    if (session.role !== 'admin' && claim.submitted_by !== session.userId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Calculate tax

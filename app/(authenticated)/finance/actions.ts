@@ -5,12 +5,33 @@ import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 
-async function getSession() {
+// Resolve the acting user with a DB-verified role. NEVER trust the raw
+// `session_role` cookie — it is unsigned and user-editable, so reading role
+// from it let a staff user set `session_role=admin` and approve/pay/delete.
+// Prefer the HMAC session_token (requireAuth); fall back to the legacy
+// session_user_id cookie only when no token exists, and even then read role
+// from the DB. ponytail: 8 lines of fallback, but the dual-cookie invariant
+// in CLAUDE.md requires it — drop it once legacy sessions are fully retired.
+async function getSession(): Promise<{ userId?: string; role?: string }> {
+  const session = await requireAuth()
+  if (session) return { userId: session.userId, role: session.role }
+
   const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
-  const role = cookieStore.get('session_role')?.value
-  return { userId, role }
+  // A token present but rejected by requireAuth (bad sig / kicked session) is a
+  // hard no — don't let the legacy path re-grant it.
+  if (cookieStore.get('session_token')?.value) return {}
+  const legacyId = cookieStore.get('session_user_id')?.value
+  if (!legacyId) return {}
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, role, is_approved')
+    .eq('id', legacyId)
+    .single()
+  if (!data || !data.is_approved) return {}
+  return { userId: data.id, role: data.role || 'staff' }
 }
 
 // ============================================================================
@@ -429,7 +450,21 @@ export async function updateClaim(id: string, updateData: {
 // ============================================================================
 
 export async function getClaimLogs(claimId: string) {
+  const { userId, role } = await getSession()
+  if (!userId) return []
+
   const supabase = createServiceClient()
+
+  // Non-admins may only read logs for claims they own.
+  if (role !== 'admin') {
+    const { data: owned } = await supabase
+      .from('expense_claims')
+      .select('submitted_by')
+      .eq('id', claimId)
+      .single()
+    if (!owned || owned.submitted_by !== userId) return []
+  }
+
   const { data, error } = await supabase
     .from('expense_claim_logs')
     .select(`
@@ -1390,7 +1425,7 @@ export async function getJobEventsForSelect() {
 
 export async function recreateCostItemFromClaim(claimId: string, jobCostEventId: string) {
   const { userId, role } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
 
   const supabase = createServiceClient()
 
