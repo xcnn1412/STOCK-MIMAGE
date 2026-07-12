@@ -468,6 +468,7 @@ export async function createLead(formData: FormData) {
     event_location: formData.get('event_location') as string || null,
     event_details: formData.get('event_details') as string || null,
     package_name: formData.get('package_name') as string || null,
+    work_type: formData.get('work_type') as string || null,
     quoted_price: Number(formData.get('quoted_price') || 0),
     confirmed_price: Number(formData.get('confirmed_price') || 0),
     deposit: Number(formData.get('deposit') || 0),
@@ -534,7 +535,7 @@ export async function updateLead(id: string, formData: FormData) {
   const textFields = [
     'customer_name', 'customer_line', 'customer_phone', 'customer_type',
     'lead_source', 'event_location', 'event_details', 'package_name',
-    'quotation_ref', 'notes'
+    'quotation_ref', 'notes', 'work_type'
   ]
   textFields.forEach(f => {
     const v = formData.get(f)

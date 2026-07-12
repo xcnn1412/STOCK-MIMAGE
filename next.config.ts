@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
+  turbopack: { root: __dirname }, // pin workspace root — wrong inference made Tailwind resolve from the parent dir and every page hang
   images: {
     remotePatterns: [
       {

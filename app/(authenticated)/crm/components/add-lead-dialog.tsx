@@ -170,6 +170,31 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
             iconBg="bg-blue-50 dark:bg-blue-950/40"
             title={locale === 'th' ? 'ข้อมูลลูกค้า' : 'Customer Info'}
           >
+            {/* Work Type: sale / event / gp */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">{locale === 'th' ? 'ประเภทงาน' : 'Work Type'}</Label>
+              <RadioGroup name="work_type" defaultValue="sale" className="flex gap-4">
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="sale" id="wt-sale" />
+                  <Label htmlFor="wt-sale" className="text-sm cursor-pointer">
+                    {locale === 'th' ? 'ขาย' : 'Sale'}
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="event" id="wt-event" />
+                  <Label htmlFor="wt-event" className="text-sm cursor-pointer">
+                    {locale === 'th' ? 'อีเวนต์' : 'Event'}
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="gp" id="wt-gp" />
+                  <Label htmlFor="wt-gp" className="text-sm cursor-pointer">
+                    GP
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
             {/* Customer Type: New / Returning */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">{tc.customerStatus}</Label>

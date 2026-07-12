@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight, Settings2, RefreshCw, Trophy, CheckCircle2,
   Banknote, Wallet, TrendingUp, Handshake, Package, Target,
   Timer, Flame, Filter, CalendarClock,
+  Tag, CalendarDays, Percent,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -23,7 +24,7 @@ import { saveMonthTargets } from './actions'
 // ── ชนิดข้อมูลที่ page.tsx ส่งเข้ามา ──
 type JobEvent = { id: string; linked_lead_id: string | null; event_date: string | null }
 type CostItem = { job_event_id: string; amount: number | null }
-type LeadWithPkg = PLLead & { package_name: string | null }
+type LeadWithPkg = PLLead & { package_name: string | null; work_type: string | null }
 
 interface Props {
   leads: LeadWithPkg[]; claims: PLClaim[]; installments: PLInstallment[]
@@ -69,6 +70,15 @@ const METRICS: MetricDef[] = [
 // เป้า auto (คิดจากค่าจริง ไม่ต้องตั้งเองใน dialog): เก็บเงินแล้ว, รายจ่าย
 const AUTO_TARGET_KEYS: MetricKey[] = ['revenue', 'expense']
 
+// ── ประเภทงาน (work_type) — ตั้งเป้า/แสดงยอดแยกได้ ──
+type WorkTypeTargetKey = 'wt_sale' | 'wt_event' | 'wt_gp'
+interface WorkTypeDef { key: WorkTypeTargetKey; wt: string; label: string; color: string; icon: typeof Target }
+const WORK_TYPES: WorkTypeDef[] = [
+  { key: 'wt_sale', wt: 'sale', label: 'ขาย', color: 'violet', icon: Tag },
+  { key: 'wt_event', wt: 'event', label: 'อีเวนต์', color: 'cyan', icon: CalendarDays },
+  { key: 'wt_gp', wt: 'gp', label: 'GP', color: 'orange', icon: Percent },
+]
+
 // ฐานเทียบงบรายจ่าย
 type ExpenseBase = 'sales' | 'revenue'
 const EXPENSE_BASE_KEY = 'sales-board-expense-base'
@@ -80,7 +90,7 @@ const FUNNEL_STAGES: { keys: string[]; label: string; color: string }[] = [
   { keys: ['accepted', 'success'], label: 'ปิดการขาย', color: 'bg-emerald-600' },
 ]
 
-type Targets = Partial<Record<MetricKey, number>>
+type Targets = Partial<Record<MetricKey | WorkTypeTargetKey, number>>
 type TargetStore = Record<string, Targets>
 
 export default function SalesBoardView(props: Props) {
@@ -190,6 +200,34 @@ export default function SalesBoardView(props: Props) {
     })
   }, [props.leads, month])
 
+  // ── ยอด/ดีล แยกตามประเภทงาน ของเดือนที่เลือก ──
+  const workTypeStats = useMemo(() => {
+    const stat: Record<string, { amount: number; deals: number }> = {}
+    for (const w of WORK_TYPES) stat[w.wt] = { amount: 0, deals: 0 }
+    let unspecAmount = 0, unspecDeals = 0
+    for (const l of props.leads) {
+      if (!isRevLead(l) || leadAmount(l) <= 0 || !inMonth(leadDate(l), month)) continue
+      const wt = l.work_type
+      if (wt && stat[wt]) { stat[wt].amount += leadAmount(l); stat[wt].deals++ }
+      else { unspecAmount += leadAmount(l); unspecDeals++ }
+    }
+    return { stat, unspecAmount, unspecDeals }
+  }, [props.leads, month])
+
+  // ── เทรนด์ 6 เดือน แยกตามประเภทงาน (จบที่เดือนที่เลือก) ──
+  const wtTrend = useMemo(() => {
+    const months = Array.from({ length: 6 }, (_, i) => addMonth(month, i - 5))
+    const result: Record<string, { month: string; amount: number }[]> = {}
+    for (const w of WORK_TYPES) {
+      result[w.wt] = months.map((m) => {
+        let amount = 0
+        for (const l of props.leads) if (l.work_type === w.wt && isRevLead(l) && inMonth(leadDate(l), m) && leadAmount(l) > 0) amount += leadAmount(l)
+        return { month: m, amount }
+      })
+    }
+    return result
+  }, [props.leads, month])
+
   if (!mounted) {
     return <div className="flex min-h-[60vh] items-center justify-center text-muted-foreground">กำลังโหลดสรุปยอดขาย…</div>
   }
@@ -248,6 +286,20 @@ export default function SalesBoardView(props: Props) {
             onSetTarget={() => setEditorOpen(true)} />
         ))}
       </div>
+
+      {/* ── การ์ดตามประเภทงาน (ขาย/อีเวนต์/GP) ── */}
+      <div className="grid shrink-0 grid-cols-1 gap-2.5 sm:grid-cols-3">
+        {WORK_TYPES.map((w) => (
+          <WorkTypeCard key={w.key} def={w}
+            amount={workTypeStats.stat[w.wt].amount} deals={workTypeStats.stat[w.wt].deals}
+            target={targets[w.key]} trend={wtTrend[w.wt]} onSetTarget={() => setEditorOpen(true)} />
+        ))}
+      </div>
+      {workTypeStats.unspecDeals > 0 && (
+        <p className="-mt-1 shrink-0 text-[11px] text-muted-foreground">
+          * ไม่ระบุประเภทงาน: {fmtDeal(workTypeStats.unspecDeals)} ดีล · ฿{fmt(workTypeStats.unspecAmount)}
+        </p>
+      )}
 
       {/* ── แถวล่าง: เป้าต่อวัน/สัปดาห์ · กรวยขาย · งวดครบกำหนด · สินค้า (เติมความสูงที่เหลือ) ── */}
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-4">
@@ -387,6 +439,59 @@ function MetricCard({ def, value, prev, target, baseToggle, onSetTarget }: { def
       ) : (
         <button onClick={onSetTarget} className="mt-3 text-sm font-medium text-muted-foreground/70 transition-colors hover:text-foreground hover:underline">+ ตั้งเป้าเดือนนี้ ({def.sub})</button>
       )}
+    </div>
+  )
+}
+
+// ── การ์ดยอดตามประเภทงาน (compact) — ยอดเดือนนี้ + ดีล + เทียบเป้า + เทรนด์ 6 เดือน ──
+function WorkTypeCard({ def, amount, deals, target, trend, onSetTarget }: {
+  def: WorkTypeDef; amount: number; deals: number; target?: number
+  trend: { month: string; amount: number }[]; onSetTarget: () => void
+}) {
+  const Icon = def.icon
+  const c = COLORS[def.color] || COLORS.violet
+  const has = typeof target === 'number' && target > 0
+  const pct = has ? (amount / target!) * 100 : 0
+  const hit = has && amount >= target!
+  const trendMax = Math.max(1, ...trend.map((t) => t.amount))
+  return (
+    <div className={cn('flex flex-col overflow-hidden rounded-xl border-2 bg-gradient-to-br p-3 shadow-sm md:p-4', c.tint, c.border)}>
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-2 text-sm font-bold text-foreground/80">
+          <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg shadow-sm', c.chip)}><Icon className="h-4 w-4" /></span>
+          {def.label}
+        </span>
+        <span className="text-xs font-medium tabular-nums text-muted-foreground">{fmtDeal(deals)} ดีล</span>
+      </div>
+      <div className={cn('mt-2 text-2xl font-extrabold tracking-tight tabular-nums', c.text)}>฿{fmt(amount)}</div>
+      {has ? (
+        <div className="mt-1.5">
+          <div className="flex items-baseline justify-between text-xs">
+            <span className="font-semibold text-foreground tabular-nums">เป้า ฿{fmt(target!)}</span>
+            <span className={cn('text-sm font-extrabold tabular-nums', hit ? 'text-emerald-600' : c.text)}>{pct.toFixed(0)}%</span>
+          </div>
+          <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
+            <div className={cn('h-full rounded-full transition-all duration-500', hit ? 'bg-emerald-500' : c.bar)} style={{ width: `${Math.min(100, pct)}%` }} />
+          </div>
+          <div className="mt-1 text-[11px] font-medium">
+            {hit ? <span className="text-emerald-600">เกินเป้า ฿{fmt(amount - target!)} 🎉</span> : <span className="text-muted-foreground">เหลืออีก ฿{fmt(target! - amount)} ถึงเป้า</span>}
+          </div>
+        </div>
+      ) : (
+        <button onClick={onSetTarget} className="mt-1.5 self-start text-xs font-medium text-muted-foreground/70 transition-colors hover:text-foreground hover:underline">+ ตั้งเป้า</button>
+      )}
+      {/* mini trend 6 เดือน */}
+      <div className="mt-2 flex items-end justify-between gap-1" style={{ height: 40 }}>
+        {trend.map((t, i) => (
+          <div key={t.month} className="flex flex-1 flex-col items-center justify-end gap-0.5">
+            <div className="flex w-full items-end justify-center" style={{ height: 28 }}>
+              <div className={cn('w-full max-w-[16px] rounded-t transition-all', i === trend.length - 1 ? c.bar : cn('bg-current opacity-25', c.text))}
+                style={{ height: `${Math.max(2, (t.amount / trendMax) * 28)}px` }} />
+            </div>
+            <span className="text-[9px] text-muted-foreground">{t.month.slice(5)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -679,12 +784,14 @@ function TargetDialog({ open, month, initial, onSave, onOpenChange }: {
   const [draft, setDraft] = useState<Record<string, string>>(() => {
     const d: Record<string, string> = {}
     for (const m of METRICS) { const v = initial[m.key]; d[m.key] = v != null ? String(v) : '' }
+    for (const w of WORK_TYPES) { const v = initial[w.key]; d[w.key] = v != null ? String(v) : '' }
     return d
   })
 
   const save = () => {
     const next: Targets = {}
     for (const m of METRICS) { const n = Number(draft[m.key]); if (n > 0) next[m.key] = n }
+    for (const w of WORK_TYPES) { const n = Number(draft[w.key]); if (n > 0) next[w.key] = n }
     onSave(next); onOpenChange(false)
   }
 
@@ -706,6 +813,26 @@ function TargetDialog({ open, month, initial, onSave, onOpenChange }: {
               </div>
             )
           })}
+
+          {/* เป้าตามประเภทงาน */}
+          <div className="border-t pt-3">
+            <div className="mb-2 text-xs font-semibold text-muted-foreground">เป้าตามประเภทงาน</div>
+            <div className="space-y-3">
+              {WORK_TYPES.map((w) => {
+                const Icon = w.icon
+                return (
+                  <div key={w.key} className="grid grid-cols-[1fr_auto] items-center gap-3">
+                    <Label htmlFor={`t-${w.key}`} className="flex flex-col gap-0.5">
+                      <span className="flex items-center gap-1.5 text-sm"><Icon className="h-4 w-4 text-muted-foreground" /> {w.label}</span>
+                      <span className="text-xs font-normal text-muted-foreground">บาท</span>
+                    </Label>
+                    <Input id={`t-${w.key}`} type="number" inputMode="numeric" min={0} placeholder="—" className="w-36 text-right"
+                      value={draft[w.key] ?? ''} onChange={(e) => setDraft((d) => ({ ...d, [w.key]: e.target.value }))} />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
         <DialogFooter className="gap-2 sm:justify-between">
           <Button variant="ghost" onClick={() => { onSave({}); onOpenChange(false) }} className="text-muted-foreground">ล้างเป้าเดือนนี้</Button>

@@ -102,6 +102,52 @@ Several module-level design/spec markdowns live at the repo root (`Finance.md`, 
 
 `next.config.ts` applies `X-Frame-Options: DENY` site-wide except `/api/pdf/*` (which uses `SAMEORIGIN` so PDFs can be embedded in the app's preview UI). Server actions accept up to 10mb (`serverActions.bodySizeLimit`).
 
+## Agent Workflow (Plan → Execute → Verify Loop)
+
+Pattern: **Fable5 วางแผน → Opus ลงมือ → Fable5 ตรวจ → ไม่ผ่านวนใหม่ (สูงสุด 5 รอบ)**
+
+### หลักการสำคัญ (ประหยัด token 50–70% ในงานที่วนหลายรอบ)
+
+| หลักการ | ทำอะไร |
+|---|---|
+| ส่ง delta ไม่ส่ง context เต็ม | รอบ 2+ ส่ง Executor เฉพาะส่วนที่ตก ไม่ใช่งานทั้งชิ้น |
+| Critic ตอบ JSON สั้น | ห้ามเรียงความ ใช้ structured output |
+| Lock acceptance criteria ตั้งแต่แรก | Planner ออกเกณฑ์วัดได้ ใช้ตลอดทุกรอบ ห้ามเปลี่ยน |
+| Prompt caching | cache แผน + criteria + system prompt ของแต่ละ role |
+| Early exit 3 ชั้น | หยุดก่อนครบ 5 รอบเมื่อเข้าเงื่อนไข |
+
+### Loop
+
+```
+[รอบวางแผน — ครั้งเดียว]
+Fable5: สร้างแผน + acceptance criteria (lock ไว้) → cache
+
+[Loop สูงสุด 5 รอบ]
+Opus:   ลงมือ (รอบแรก = แผนเต็ม / รอบถัดไป = เฉพาะ failures)
+Fable5: ตรวจกับ criteria → JSON {pass, score, passed_ids, failures}
+  ┌─ pass = true ───────────→ จบทันที
+  ├─ score >= pass_threshold ─→ จบ ("ดีพอ" แม้ไม่ perfect)
+  ├─ score ไม่ขยับ 2 รอบติด ──→ จบ คืนผลงานดีสุดที่มี
+  ├─ ครบ 5 รอบ ──────────────→ จบ คืนผลงานดีสุด + แจ้งว่าไม่ผ่านครบ
+  └─ ไม่ผ่าน ────────────────→ ส่งเฉพาะ failures กลับ Opus, lock passed_ids (ไม่ตรวจซ้ำ)
+```
+
+### Role prompts
+
+**Planner (Fable5 — ครั้งเดียว):** output JSON เท่านั้น `{"plan": [ขั้นตอนย่อยเรียงลำดับ], "acceptance_criteria": [{"id": "AC1", "check": "เกณฑ์วัดได้ ผ่าน/ไม่ผ่านชัดเจน"}], "pass_threshold": 0.85}` — เกณฑ์ต้องวัดได้เป็นข้อเท็จจริง ห้ามคลุมเครือ (❌ "โค้ดควรอ่านง่าย" ✅ "ทุกฟังก์ชันมี docstring") และถูก lock ตลอดทุกรอบ
+
+**Executor (Opus):** รอบแรกรับแผนเต็ม + criteria ทำให้ครบ; รอบ 2+ รับเฉพาะ `{failed_section}` + `{failures}` — แก้เฉพาะจุดที่ตก ห้ามรื้อส่วนที่ผ่านแล้ว ห้าม regenerate ทั้งชิ้น ส่งเฉพาะ delta
+
+**Critic (Fable5):** ตรวจเทียบเกณฑ์ที่ lock เท่านั้น ห้ามเพิ่มเกณฑ์ใหม่ ข้ามส่วนที่ lock แล้ว output JSON เท่านั้น `{"pass": bool, "score": 0.0-1.0, "passed_ids": [...], "failures": [{"loc", "ac_id", "issue"}]}` — issue สั้นที่สุดพอให้ Executor รู้ว่าแก้อะไร; pass=true → failures=[]
+
+### กฎทอง
+
+1. Planner ล็อกเกณฑ์ที่**วัดได้**ตั้งแต่แรก
+2. Executor แก้**เฉพาะจุดที่ตก** ไม่ regenerate ทั้งชิ้น
+3. Critic ตอบ **JSON สั้น** ห้ามเรียงความ
+4. เปิด **prompt caching** กับส่วนที่คงที่
+5. **Early exit** เมื่อผ่าน / score นิ่ง 2 รอบ / ถึง threshold
+
 ## Conventions worth following
 
 - Thai user-facing copy is normal — error messages returned from server actions are often Thai (e.g., `'เฉพาะ admin เท่านั้นที่สร้างอีเวนต์ได้'`). Use `useLanguage()` / `t()` for new UI strings rather than hardcoding.

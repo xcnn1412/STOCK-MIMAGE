@@ -25,7 +25,7 @@ async function fetchAll(table: string, cols: string) {
 // ของ proxy.ts → ทุก user ที่ล็อกอินเข้าถึงได้ (ตามที่ขอ: ทุก user ใช้งานได้)
 export default async function SalesBoardPage() {
   const [leads, claims, installments, jobEvents, costItems, targetRows, settings] = await Promise.all([
-    fetchAll('crm_leads', 'id, status, customer_name, confirmed_price, quoted_price, deposit, vat_mode, wht_rate, event_date, created_at, assigned_sales, package_name'),
+    fetchAll('crm_leads', 'id, status, customer_name, confirmed_price, quoted_price, deposit, vat_mode, wht_rate, event_date, created_at, assigned_sales, package_name, work_type'),
     fetchAll('expense_claims', 'id, job_event_id, claim_type, category, amount, actual_spent_amount, status, vat_mode, withholding_tax_rate, expense_date, created_at'),
     fetchAll('crm_lead_installments', 'lead_id, amount, is_paid, due_date, paid_date'),
     fetchAll('job_cost_events', 'id, linked_lead_id, event_date'),
