@@ -123,6 +123,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     customer_line: lead.customer_line || '',
     customer_phone: lead.customer_phone || '',
     customer_type: sanitizeType(lead.customer_type),
+    work_type: lead.work_type || '',
     lead_source: sanitizeSource(lead.lead_source),
     is_returning: lead.is_returning || false,
     event_date: lead.event_date || '',
@@ -153,6 +154,13 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   const sources = settings.filter(s => s.category === 'lead_source' && s.is_active)
   const customerTypes = settings.filter(s => s.category === 'customer_type' && s.is_active)
 
+  const workTypeOptions = [
+    { value: 'sale', label: locale === 'th' ? 'ขาย' : 'Sale' },
+    { value: 'event', label: locale === 'th' ? 'อีเวนต์' : 'Event' },
+    { value: 'gp', label: 'GP' },
+  ]
+  const workTypeLabel = workTypeOptions.find(o => o.value === lead.work_type)?.label
+
   const isOverdue =
     lead.event_date &&
     !['accepted', 'rejected'].includes(lead.status) &&
@@ -181,7 +189,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
 
     // Choose which fields to save based on section
     const fieldsBySection: Record<CardSection, string[]> = {
-      customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'lead_source', 'is_returning'],
+      customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'work_type', 'lead_source', 'is_returning'],
       event: ['event_date', 'event_end_date', 'event_location', 'event_details'],
       financial: ['package_name', 'quoted_price', 'confirmed_price', 'deposit', 'vat_mode', 'wht_rate', 'quotation_ref', 'notes'],
     }
@@ -230,6 +238,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
       customer_line: lead.customer_line || '',
       customer_phone: lead.customer_phone || '',
       customer_type: sanitizeType(lead.customer_type),
+      work_type: lead.work_type || '',
       lead_source: sanitizeSource(lead.lead_source),
       is_returning: lead.is_returning || false,
       event_date: lead.event_date || '',
@@ -1147,6 +1156,13 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                       placeholder={tc.selectType}
                     />
                     <EditSelect
+                      label={locale === 'th' ? 'ประเภทงาน' : 'Work Type'}
+                      value={form.work_type}
+                      onChange={v => updateForm('work_type', v)}
+                      options={workTypeOptions}
+                      placeholder={locale === 'th' ? 'เลือกประเภทงาน' : 'Select work type'}
+                    />
+                    <EditSelect
                       label={tc.channel}
                       value={form.lead_source}
                       onChange={v => updateForm('lead_source', v)}
@@ -1175,6 +1191,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                     <InfoRow label={tc.lineId} value={lead.customer_line} />
                     <InfoRow label={tc.phone} value={lead.customer_phone} />
                     <InfoRow label={tc.type} value={typeSetting ? getSettingLabel(typeSetting) : lead.customer_type} />
+                    <InfoRow label={locale === 'th' ? 'ประเภทงาน' : 'Work Type'} value={workTypeLabel || lead.work_type} />
                     <InfoRow label={tc.channel} value={sourceSetting ? getSettingLabel(sourceSetting) : lead.lead_source} />
                     <InfoRow label={tc.package} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
                   </>

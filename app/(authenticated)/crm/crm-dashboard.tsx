@@ -71,6 +71,7 @@ export interface CrmLead {
   customer_line: string | null
   customer_phone: string | null
   customer_type: string | null
+  work_type: string | null // 'sale' | 'event' | 'gp'
   lead_source: string | null
   event_date: string | null
   event_end_date: string | null
