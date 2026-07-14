@@ -203,7 +203,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                   )}
                   {isPettyType && (
                     <p className="text-[11px] text-zinc-500 mt-1">
-                      {isEn ? 'Open the monthly office fund, log expenses, return leftover' : 'เปิดกองทุนประจำเดือน จดรายจ่าย เติมเงิน คืนเงินสิ้นเดือน'}
+                      {isEn ? 'Open the monthly office fund, log expenses, return leftover' : 'เปิดวงเงินประจำเดือน จดรายจ่าย เติมเงิน คืนเงินสิ้นเดือน'}
                     </p>
                   )}
                 </button>
@@ -465,7 +465,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 ? <Coins className="inline h-3.5 w-3.5 mr-1 text-orange-500" />
                 : <Wallet className="inline h-3.5 w-3.5 mr-1 text-amber-500" />}
               {isPettyCash
-                ? (isEn ? 'Initial Fund Amount (฿)' : 'ยอดตั้งต้นกองทุน (฿)')
+                ? (isEn ? 'Initial Fund Amount (฿)' : 'ยอดตั้งต้นวงเงิน (฿)')
                 : (isEn ? 'Advance Amount (฿)' : 'จำนวนเงินที่ขอเบิกล่วงหน้า (฿)')} *
             </label>
             <input
@@ -482,7 +482,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             <input type="hidden" name="quantity" value="1" />
             <p className="text-[11px] text-zinc-400 mt-1">
               {isPettyCash
-                ? (isEn ? 'Log expenses & top-ups from the fund page after payout.' : 'จดรายจ่าย/เติมเงินได้จากหน้ากองทุน หลังจ่ายเงินแล้ว')
+                ? (isEn ? 'Log expenses & top-ups from the fund page after payout.' : 'จดรายจ่าย/เติมเงินได้จากหน้าวงเงิน หลังจ่ายเงินแล้ว')
                 : (isEn ? 'You will settle the actual amount spent later.' : 'จำนวนเงินที่ใช้จ่ายจริงจะอัพเดทย้อนหลัง เมื่อเสร็จงาน')}
             </p>
           </div>
@@ -575,7 +575,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           <div className="border-2 border-orange-200 dark:border-orange-900/40 rounded-xl p-4 space-y-3 bg-orange-50/40 dark:bg-orange-950/10">
             <p className="text-sm font-semibold text-orange-700 dark:text-orange-300 flex items-center gap-1.5">
               <Coins className="h-4 w-4" />
-              {isEn ? 'Monthly Petty Cash Fund' : 'กองทุนเงินสดย่อยประจำเดือน'}
+              {isEn ? 'Monthly Petty Cash Fund' : 'วงเงินสดย่อยประจำเดือน'}
             </p>
 
             {/* A fund is already open — must close it before opening a new one */}
@@ -586,15 +586,15 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                   <p className="font-semibold">
                     {isEn
                       ? `Fund ${openFund.claimNumber} is still open (${openFund.periodStart || '—'} → ${openFund.periodEnd || '—'})`
-                      : `มีกองทุน ${openFund.claimNumber} เปิดอยู่ (${openFund.periodStart || '—'} → ${openFund.periodEnd || '—'})`}
+                      : `มีวงเงิน ${openFund.claimNumber} เปิดอยู่ (${openFund.periodStart || '—'} → ${openFund.periodEnd || '—'})`}
                   </p>
                   <p>
                     {isEn
                       ? 'Close that month (return the leftover) before opening a new fund.'
-                      : 'กรุณาปิดเดือนและคืนเงินคงเหลือก่อน จึงจะเปิดกองทุนเดือนใหม่ได้'}
+                      : 'กรุณาปิดเดือนและคืนเงินคงเหลือก่อน จึงจะเปิดวงเงินเดือนใหม่ได้'}
                   </p>
                   <a href={`/finance/${openFund.id}`} className="inline-block underline font-medium">
-                    {isEn ? 'Go to the open fund →' : 'ไปที่กองทุนที่เปิดอยู่ →'}
+                    {isEn ? 'Go to the open fund →' : 'ไปที่วงเงินที่เปิดอยู่ →'}
                   </a>
                 </div>
               </div>
@@ -615,7 +615,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
 
             <div className="flex items-center justify-between border-t border-orange-200 dark:border-orange-900/40 pt-2.5 text-sm">
               <span className="text-zinc-600 dark:text-zinc-400">
-                {isEn ? 'Initial fund this month' : 'ยอดตั้งต้นกองทุนเดือนนี้'}
+                {isEn ? 'Initial fund this month' : 'ยอดตั้งต้นวงเงินเดือนนี้'}
               </span>
               <span className="font-mono font-semibold text-orange-700 dark:text-orange-300">
                 ฿{fmtDec(computedAmount)}
@@ -625,7 +625,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             <p className="text-[11px] text-zinc-500">
               {isEn
                 ? 'After approval & payout, log each expense and request top-ups from the fund page. Close the month to return the leftover.'
-                : 'หลังอนุมัติและจ่ายเงินแล้ว จดค่าใช้จ่ายแต่ละรายการ / เบิกเพิ่ม ได้จากหน้ากองทุน — สิ้นเดือนกด "ปิดเดือน" เพื่อคืนเงินคงเหลือ'}
+                : 'หลังอนุมัติและจ่ายเงินแล้ว จดค่าใช้จ่ายแต่ละรายการ / เบิกเพิ่ม ได้จากหน้าวงเงิน — สิ้นเดือนกด "ปิดเดือน" เพื่อคืนเงินคงเหลือ'}
             </p>
           </div>
         )}

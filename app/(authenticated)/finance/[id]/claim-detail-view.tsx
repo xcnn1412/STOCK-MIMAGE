@@ -567,10 +567,10 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       return
     }
     const ok = await askConfirm({
-      title: isEn ? 'Close this month?' : 'ปิดกองทุนเดือนนี้?',
+      title: isEn ? 'Close this month?' : 'ปิดวงเงินเดือนนี้?',
       description: isEn
         ? 'Locks the fund — no more expenses or top-ups. The leftover is recorded as returned to the company and awaits admin confirmation.'
-        : 'จะล็อกกองทุน (เพิ่มรายจ่าย/เติมเงินไม่ได้อีก) และบันทึกยอดคงเหลือเป็นเงินคืนบริษัท รอ admin ยืนยันรับเงิน',
+        : 'จะล็อกวงเงิน (เพิ่มรายจ่าย/เติมเงินไม่ได้อีก) และบันทึกยอดคงเหลือเป็นเงินคืนบริษัท รอ admin ยืนยันรับเงิน',
       details: [
         ...claimContextDetails,
         { label: isEn ? 'Return to company' : 'คืนบริษัท', value: `฿${fmtDec(pettyBalance)}` },
@@ -2372,17 +2372,17 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 <div className="text-xs text-orange-800 dark:text-orange-200 space-y-0.5">
                   <p className="font-semibold">
                     {isPettyTopup
-                      ? (isEn ? 'Top-up into the petty cash fund' : 'รายการเติมเงินเข้ากองทุนเงินสดย่อย')
+                      ? (isEn ? 'Top-up into the petty cash fund' : 'รายการเติมเงินเข้าวงเงินสดย่อย')
                       : (isEn ? 'Expense paid from the petty cash box' : 'ค่าใช้จ่ายที่จ่ายจากกล่องเงินสดย่อย')}
                   </p>
                   <Link href={`/finance/${claim.pettycash_fund_id}`} className="inline-flex items-center gap-1 underline">
-                    {isEn ? 'Open the fund page' : 'ไปที่หน้ากองทุน'} →
+                    {isEn ? 'Open the fund page' : 'ไปที่หน้าวงเงิน'} →
                   </Link>
                 </div>
               </div>
             )}
 
-            {/* ── Petty Cash Fund (กองทุนเงินสดย่อยประจำเดือน) ── */}
+            {/* ── Petty Cash Fund (วงเงินสดย่อยประจำเดือน) ── */}
             {isPettyFund && (
               <div className="space-y-3.5 p-4 bg-orange-50/40 dark:bg-orange-950/10 border border-orange-200 dark:border-orange-900/40 rounded-xl">
                 {/* Header */}
@@ -2393,7 +2393,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                        {isEn ? 'Monthly Petty Cash Fund' : 'กองทุนเงินสดย่อยประจำเดือน'}
+                        {isEn ? 'Monthly Petty Cash Fund' : 'วงเงินสดย่อยประจำเดือน'}
                       </p>
                       <p className="text-[11px] text-zinc-500">
                         {claim.pettycash_period_start || '—'} → {claim.pettycash_period_end || '—'}
@@ -2422,7 +2422,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     className="inline-flex items-center gap-1.5 text-[11px] text-orange-600 dark:text-orange-400 hover:underline"
                   >
                     <RefreshCw className="h-3 w-3" />
-                    {isEn ? 'View previous month fund' : 'ดูกองทุนเดือนก่อนหน้า'} →
+                    {isEn ? 'View previous month fund' : 'ดูวงเงินเดือนก่อนหน้า'} →
                   </Link>
                 )}
 
@@ -2600,7 +2600,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
                         <Banknote className="h-3.5 w-3.5 text-orange-500" />
-                        {isEn ? 'Top-ups' : 'เติมเงินเข้ากองทุน'}
+                        {isEn ? 'Top-ups' : 'เติมเงินเข้าวงเงิน'}
                         <span className="text-zinc-400 font-normal">({pettyChildren?.topups.length ?? 0})</span>
                       </p>
                       {canManagePettyFund && (

@@ -5,7 +5,7 @@ export const revalidate = 0
 
 export const metadata = {
   title: 'เงินสดย่อย — Finance',
-  description: 'กองทุนเงินสดย่อยรายเดือน (ตั้งต้น / เติมเงิน / รายจ่าย / คงเหลือ / คืนบริษัท)',
+  description: 'วงเงินสดย่อยรายเดือน (ตั้งต้น / เติมเงิน / รายจ่าย / คงเหลือ / คืนบริษัท)',
 }
 
 export default async function PettyCashPage() {

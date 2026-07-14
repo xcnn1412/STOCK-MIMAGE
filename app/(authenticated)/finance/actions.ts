@@ -197,7 +197,7 @@ export async function createClaim(formData: FormData) {
   let pettycash_previous_claim_id: string | null = null
   if (isPettyCash) {
     const month = ((formData.get('pettycash_month') as string) || '').slice(0, 7)
-    if (!/^\d{4}-\d{2}$/.test(month)) return { error: 'กรุณาเลือกเดือนของกองทุนเงินสดย่อย' }
+    if (!/^\d{4}-\d{2}$/.test(month)) return { error: 'กรุณาเลือกเดือนของวงเงินสดย่อย' }
     const [y, m] = month.split('-').map(Number)
     if (m < 1 || m > 12) return { error: 'เดือนไม่ถูกต้อง' }
     const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
@@ -216,7 +216,7 @@ export async function createClaim(formData: FormData) {
       .limit(1)
       .maybeSingle()
     if (openFund) {
-      return { error: `มีกองทุนเงินสดย่อย (${openFund.claim_number}) ที่ยังไม่ปิดอยู่ — กรุณาปิดเดือนและคืนเงินก่อนเปิดกองทุนใหม่` }
+      return { error: `มีวงเงินสดย่อย (${openFund.claim_number}) ที่ยังไม่ปิดอยู่ — กรุณาปิดเดือนและคืนเงินก่อนเปิดวงเงินใหม่` }
     }
 
     // Link the latest previous fund for month-to-month navigation.
@@ -385,7 +385,7 @@ export async function updateClaim(id: string, updateData: {
   // A closed petty-cash month is frozen — its leftover snapshot (refund_amount)
   // must keep reconciling with the children.
   if (claim.claim_type === 'petty_cash' && claim.pettycash_closed_at) {
-    return { error: 'กองทุนเงินสดย่อยนี้ปิดเดือนแล้ว ไม่สามารถแก้ไขได้ (admin ต้องเปิดรอบอีกครั้งก่อน)' }
+    return { error: 'วงเงินสดย่อยนี้ปิดเดือนแล้ว ไม่สามารถแก้ไขได้ (admin ต้องเปิดรอบอีกครั้งก่อน)' }
   }
   // Children of a CLOSED month are frozen too — mutating them would desync the
   // refund snapshot taken at close. Admin escape hatch: reopenPettyCashMonth.
@@ -396,7 +396,7 @@ export async function updateClaim(id: string, updateData: {
       .eq('id', claim.pettycash_fund_id)
       .single()
     if (parentFund?.pettycash_closed_at) {
-      return { error: 'รอบเดือนของกองทุนนี้ปิดแล้ว ไม่สามารถแก้ไขรายการได้ (admin ต้องเปิดรอบอีกครั้งก่อน)' }
+      return { error: 'รอบเดือนของวงเงินนี้ปิดแล้ว ไม่สามารถแก้ไขรายการได้ (admin ต้องเปิดรอบอีกครั้งก่อน)' }
     }
   }
 
@@ -1223,7 +1223,7 @@ export async function markAsPaid(id: string) {
       .eq('id', claim.pettycash_fund_id)
       .single()
     if (parentFund?.pettycash_closed_at) {
-      return { error: 'กองทุนปลายทางปิดเดือนแล้ว — จ่ายรายการเติมเงินนี้ไม่ได้ (ยกเลิกรายการแทน)' }
+      return { error: 'วงเงินปลายทางปิดเดือนแล้ว — จ่ายรายการเติมเงินนี้ไม่ได้ (ยกเลิกรายการแทน)' }
     }
   }
 
@@ -1285,7 +1285,7 @@ export async function deleteClaim(id: string) {
       .eq('id', claim.pettycash_fund_id)
       .single()
     if (parentFund?.pettycash_closed_at) {
-      return { error: 'รอบเดือนของกองทุนปิดแล้ว — admin ต้องเปิดรอบอีกครั้งก่อนจึงจะลบรายการได้' }
+      return { error: 'รอบเดือนของวงเงินปิดแล้ว — admin ต้องเปิดรอบอีกครั้งก่อนจึงจะลบรายการได้' }
     }
   }
 
@@ -1297,7 +1297,7 @@ export async function deleteClaim(id: string) {
       .select('id', { count: 'exact', head: true })
       .eq('pettycash_fund_id', id)
     if ((count || 0) > 0) {
-      return { error: 'กองทุนนี้มีรายการลูก (ค่าใช้จ่าย/เติมเงิน) อยู่ — ยกเลิก/ลบรายการลูกก่อนจึงจะลบกองทุนได้' }
+      return { error: 'วงเงินนี้มีรายการลูก (ค่าใช้จ่าย/เติมเงิน) อยู่ — ยกเลิก/ลบรายการลูกก่อนจึงจะลบวงเงินได้' }
     }
   }
 
@@ -1363,7 +1363,7 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
       .eq('id', claim.pettycash_fund_id)
       .single()
     if (parentFund?.pettycash_closed_at) {
-      return { error: 'รอบเดือนของกองทุนปิดแล้ว — เปิดรอบอีกครั้งก่อนจึงจะแก้สถานะรายการลูกได้' }
+      return { error: 'รอบเดือนของวงเงินปิดแล้ว — เปิดรอบอีกครั้งก่อนจึงจะแก้สถานะรายการลูกได้' }
     }
   }
   if (claim.claim_type === 'petty_cash' && !claim.pettycash_fund_id && ['draft', 'pending', 'cancelled', 'rejected'].includes(newStatus)) {
@@ -1372,7 +1372,7 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
       .select('id', { count: 'exact', head: true })
       .eq('pettycash_fund_id', id)
     if ((count || 0) > 0) {
-      return { error: 'กองทุนนี้มีรายการลูกอยู่ — ไม่สามารถย้อนเป็น draft/pending หรือยกเลิก/ปฏิเสธได้' }
+      return { error: 'วงเงินนี้มีรายการลูกอยู่ — ไม่สามารถย้อนเป็น draft/pending หรือยกเลิก/ปฏิเสธได้' }
     }
   }
 
@@ -1812,7 +1812,7 @@ export async function confirmRefundReceived(id: string) {
   // to the company through this confirmation.
   const isPettyFund = claim.claim_type === 'petty_cash' && !claim.pettycash_fund_id
   if (claim.claim_type !== 'advance' && !isPettyFund) {
-    return { error: 'ใช้ได้เฉพาะใบเบิกประเภท "ทดลองจ่าย" หรือกองทุนเงินสดย่อยเท่านั้น' }
+    return { error: 'ใช้ได้เฉพาะใบเบิกประเภท "ทดลองจ่าย" หรือวงเงินสดย่อยเท่านั้น' }
   }
   // A fund's return is only confirmable after the month has been closed —
   // the leftover snapshot doesn't exist before that.
@@ -2014,11 +2014,11 @@ export async function addPettyCashExpense(fundId: string, formData: FormData) {
     .single()
 
   if (!fund || fund.claim_type !== 'petty_cash' || fund.pettycash_fund_id) {
-    return { error: 'ไม่พบกองทุนเงินสดย่อย' }
+    return { error: 'ไม่พบวงเงินสดย่อย' }
   }
-  if (fund.pettycash_closed_at) return { error: 'กองทุนนี้ปิดเดือนแล้ว ไม่สามารถเพิ่มรายจ่ายได้' }
+  if (fund.pettycash_closed_at) return { error: 'วงเงินนี้ปิดเดือนแล้ว ไม่สามารถเพิ่มรายจ่ายได้' }
   if (fund.status !== 'paid') {
-    return { error: 'กองทุนยังไม่เปิดใช้ — ต้องอนุมัติและจ่ายเงินตั้งต้นก่อน' }
+    return { error: 'วงเงินยังไม่เปิดใช้ — ต้องอนุมัติและจ่ายเงินตั้งต้นก่อน' }
   }
 
   const title = (formData.get('title') as string || '').trim()
@@ -2031,7 +2031,7 @@ export async function addPettyCashExpense(fundId: string, formData: FormData) {
   // Keep the weekly buckets honest — expenses must belong to the fund's month.
   if (fund.pettycash_period_start && fund.pettycash_period_end
       && (expense_date < fund.pettycash_period_start || expense_date > fund.pettycash_period_end)) {
-    return { error: `วันที่รายจ่ายต้องอยู่ในเดือนของกองทุน (${fund.pettycash_period_start} ถึง ${fund.pettycash_period_end})` }
+    return { error: `วันที่รายจ่ายต้องอยู่ในเดือนของวงเงิน (${fund.pettycash_period_start} ถึง ${fund.pettycash_period_end})` }
   }
 
   const receiptFiles: File[] = []
@@ -2087,7 +2087,7 @@ export async function addPettyCashExpense(fundId: string, formData: FormData) {
     .single()
   if (fundAfterInsert?.pettycash_closed_at) {
     await supabase.from('expense_claims').delete().eq('id', data.id)
-    return { error: 'กองทุนถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก กรุณาติดต่อ admin' }
+    return { error: 'วงเงินถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก กรุณาติดต่อ admin' }
   }
 
   await supabase.from('expense_claim_logs').insert({
@@ -2132,14 +2132,14 @@ export async function createPettyCashTopup(fundId: string, formData: FormData) {
     .single()
 
   if (!fund || fund.claim_type !== 'petty_cash' || fund.pettycash_fund_id) {
-    return { error: 'ไม่พบกองทุนเงินสดย่อย' }
+    return { error: 'ไม่พบวงเงินสดย่อย' }
   }
-  if (fund.pettycash_closed_at) return { error: 'กองทุนนี้ปิดเดือนแล้ว' }
-  if (fund.status !== 'paid') return { error: 'กองทุนยังไม่เปิดใช้' }
+  if (fund.pettycash_closed_at) return { error: 'วงเงินนี้ปิดเดือนแล้ว' }
+  if (fund.status !== 'paid') return { error: 'วงเงินยังไม่เปิดใช้' }
 
   const isAdmin = role === 'admin'
   const isOwner = fund.submitted_by === userId
-  if (!isAdmin && !isOwner) return { error: 'เฉพาะผู้ดูแลกองทุนหรือ admin เท่านั้นที่เบิกเพิ่มได้' }
+  if (!isAdmin && !isOwner) return { error: 'เฉพาะผู้ดูแลวงเงินหรือ admin เท่านั้นที่เบิกเพิ่มได้' }
 
   const amount = roundBaht(Number(formData.get('amount')) || 0)
   const note = (formData.get('note') as string || '').trim()
@@ -2187,7 +2187,7 @@ export async function createPettyCashTopup(fundId: string, formData: FormData) {
     .single()
   if (fundAfterInsert?.pettycash_closed_at) {
     await supabase.from('expense_claims').delete().eq('id', data.id)
-    return { error: 'กองทุนถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก' }
+    return { error: 'วงเงินถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก' }
   }
 
   await supabase.from('expense_claim_logs').insert({
@@ -2195,7 +2195,7 @@ export async function createPettyCashTopup(fundId: string, formData: FormData) {
     action: 'submit',
     changed_by: userId,
     changes: { status: { from: null, to: 'pending' } },
-    note: `ขอเติมเงินสดย่อย ฿${amount.toLocaleString()} เข้ากองทุน ${fund.claim_number}`,
+    note: `ขอเติมเงินสดย่อย ฿${amount.toLocaleString()} เข้าวงเงิน ${fund.claim_number}`,
   })
 
   await logActivity('CREATE_EXPENSE_CLAIM', {
@@ -2230,15 +2230,15 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
     .single()
 
   if (!fund || fund.claim_type !== 'petty_cash' || fund.pettycash_fund_id) {
-    return { error: 'ไม่พบกองทุนเงินสดย่อย' }
+    return { error: 'ไม่พบวงเงินสดย่อย' }
   }
 
   const isAdmin = role === 'admin'
   const isOwner = fund.submitted_by === userId
-  if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์ปิดกองทุนนี้' }
+  if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์ปิดวงเงินนี้' }
 
   if (fund.pettycash_closed_at) return { error: 'ปิดเดือนไปแล้ว' }
-  if (fund.status !== 'paid') return { error: 'ปิดได้เฉพาะกองทุนที่เปิดใช้แล้วเท่านั้น' }
+  if (fund.status !== 'paid') return { error: 'ปิดได้เฉพาะวงเงินที่เปิดใช้แล้วเท่านั้น' }
 
   const kids = await getPettyChildren(supabase, id)
 
@@ -2254,14 +2254,14 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
   const initial = roundBaht(Number(fund.amount) || 0)
   const leftover = roundBaht(initial + kids.topupPaid - kids.spent)
   if (leftover < 0) {
-    return { error: `ยอดกองทุนติดลบ ฿${Math.abs(leftover).toLocaleString()} — รายจ่ายเกินเงินในกองทุน กรุณาตรวจสอบรายการก่อนปิดเดือน` }
+    return { error: `ยอดคงเหลือติดลบ ฿${Math.abs(leftover).toLocaleString()} — รายจ่ายเกินวงเงิน กรุณาตรวจสอบรายการก่อนปิดเดือน` }
   }
 
   const updatePayload: Record<string, any> = {
     pettycash_closed_at: new Date().toISOString(),
     pettycash_closed_by: userId,
   }
-  let note = 'ปิดกองทุนเงินสดย่อยประจำเดือน — ไม่มีเงินคงเหลือ'
+  let note = 'ปิดวงเงินสดย่อยประจำเดือน — ไม่มีเงินคงเหลือ'
 
   if (leftover > 0) {
     const slipFiles: File[] = []
@@ -2337,8 +2337,8 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
       await createNotifications({
         userIds: adminIds,
         type: 'expense_approved',
-        title: `กองทุนเงินสดย่อย ${fund.claim_number} ปิดเดือนแล้ว — รอยืนยันเงินคืน ฿${leftover.toLocaleString()}`,
-        body: 'ตรวจสลิปการโอนคืน แล้วกดยืนยันรับเงินในหน้ากองทุน',
+        title: `วงเงินสดย่อย ${fund.claim_number} ปิดเดือนแล้ว — รอยืนยันเงินคืน ฿${leftover.toLocaleString()}`,
+        body: 'ตรวจสลิปการโอนคืน แล้วกดยืนยันรับเงินในหน้าวงเงิน',
         referenceType: 'expense_claim',
         referenceId: id,
         actorId: userId,
@@ -2368,9 +2368,9 @@ export async function reopenPettyCashMonth(id: string) {
     .single()
 
   if (!fund || fund.claim_type !== 'petty_cash' || fund.pettycash_fund_id) {
-    return { error: 'ไม่พบกองทุนเงินสดย่อย' }
+    return { error: 'ไม่พบวงเงินสดย่อย' }
   }
-  if (!fund.pettycash_closed_at) return { error: 'กองทุนนี้ยังไม่ได้ปิดเดือน' }
+  if (!fund.pettycash_closed_at) return { error: 'วงเงินนี้ยังไม่ได้ปิดเดือน' }
   if (fund.status === 'refund_confirmed') {
     return { error: 'ยืนยันรับเงินคืนไปแล้ว ไม่สามารถเปิดรอบได้อีก' }
   }

@@ -97,7 +97,7 @@ export default function PettyCashLedger({ funds }: { funds: FundEntry[] }) {
               {isEn ? 'Petty Cash' : 'เงินสดย่อย'}
             </h1>
             <p className="text-sm text-zinc-500">
-              {isEn ? 'Monthly funds — expenses, top-ups, month-end returns' : 'กองทุนรายเดือน — รายจ่าย เติมเงิน และการคืนเงินสิ้นเดือน'}
+              {isEn ? 'Monthly funds — expenses, top-ups, month-end returns' : 'วงเงินรายเดือน — รายจ่าย เติมเงิน และการคืนเงินสิ้นเดือน'}
             </p>
           </div>
         </div>
@@ -106,14 +106,14 @@ export default function PettyCashLedger({ funds }: { funds: FundEntry[] }) {
           className="flex items-center gap-2 px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm shrink-0"
         >
           <PlusCircle className="h-4 w-4" />
-          <span className="hidden sm:inline">{isEn ? 'Open monthly fund' : 'เปิดกองทุนเดือนใหม่'}</span>
+          <span className="hidden sm:inline">{isEn ? 'Open monthly fund' : 'เปิดวงเงินเดือนใหม่'}</span>
         </Link>
       </div>
 
       {/* Grand totals */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-          <p className="text-xs text-zinc-400 mb-1">{isEn ? 'Total funded' : 'เงินเข้ากองทุนรวม'}</p>
+          <p className="text-xs text-zinc-400 mb-1">{isEn ? 'Total funded' : 'เงินเข้ารวม (ตั้งต้น + เติม)'}</p>
           <p className="text-xl font-bold font-mono text-zinc-800 dark:text-zinc-200">฿{fmtDec(grandIn)}</p>
         </div>
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
@@ -129,8 +129,8 @@ export default function PettyCashLedger({ funds }: { funds: FundEntry[] }) {
       {funds.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
           <Coins className="h-12 w-12 mb-3 opacity-40" />
-          <p className="text-sm">{isEn ? 'No petty cash funds yet' : 'ยังไม่มีกองทุนเงินสดย่อย'}</p>
-          <p className="text-xs mt-1">{isEn ? 'Open the first monthly fund to get started.' : 'เริ่มจากการเปิดกองทุนประจำเดือนแรก'}</p>
+          <p className="text-sm">{isEn ? 'No petty cash funds yet' : 'ยังไม่มีวงเงินสดย่อย'}</p>
+          <p className="text-xs mt-1">{isEn ? 'Open the first monthly fund to get started.' : 'เริ่มจากการเปิดวงเงินประจำเดือนแรก'}</p>
         </div>
       ) : (
         funds.map(f => {
@@ -151,7 +151,7 @@ export default function PettyCashLedger({ funds }: { funds: FundEntry[] }) {
                     <ChipIcon className="h-2.5 w-2.5" />
                     {chip.label}
                   </span>
-                  <Link href={`/finance/${f.fund.id}`} className="text-zinc-400 hover:text-orange-500 inline-flex" title={isEn ? 'Open fund' : 'เปิดหน้ากองทุน'}>
+                  <Link href={`/finance/${f.fund.id}`} className="text-zinc-400 hover:text-orange-500 inline-flex" title={isEn ? 'Open fund' : 'เปิดหน้าวงเงิน'}>
                     <ExternalLink className="h-4 w-4" />
                   </Link>
                 </div>

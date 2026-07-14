@@ -602,7 +602,7 @@ export function PaymentVoucherPDF({ data }: { data: PaymentVoucherData }) {
               <Text style={s.reconValue}>{fmtNum(data.pettyTopup ?? 0)}</Text>
             </View>
             <View style={s.reconRow}>
-              <Text style={[s.reconLabel, s.bold]}>รวมเงินเข้ากองทุน</Text>
+              <Text style={[s.reconLabel, s.bold]}>รวมเงินเข้า (ตั้งต้น + เติม)</Text>
               <Text style={[s.reconValue, s.bold]}>{fmtNum(data.pettyStarting ?? 0)}</Text>
             </View>
             <View style={s.reconRow}>

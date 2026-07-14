@@ -193,7 +193,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // ── Petty cash FUND (กองทุนเงินสดย่อยประจำเดือน) — monthly summary ──
+    // ── Petty cash FUND (วงเงินสดย่อยประจำเดือน) — monthly summary ──
     // Top-ups (petty_cash + fund_id) and box expenses fall through to the
     // normal voucher; only the fund itself gets the monthly-report layout.
     if (claim.claim_type === 'petty_cash' && !claim.pettycash_fund_id) {
