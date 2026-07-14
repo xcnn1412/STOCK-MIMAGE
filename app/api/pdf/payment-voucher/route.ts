@@ -200,7 +200,7 @@ export async function GET(req: NextRequest) {
       // Children: expenses (any type + fund_id) and top-ups (petty_cash + fund_id)
       const { data: childRows } = await supabase
         .from('expense_claims')
-        .select('claim_number, claim_type, title, amount, expense_date, status')
+        .select('claim_number, claim_type, title, amount, expense_date, status, refund_amount')
         .eq('pettycash_fund_id', claimId)
         .order('expense_date', { ascending: true })
       const live = (childRows || []).filter(c => !['cancelled', 'rejected'].includes(c.status))
@@ -214,7 +214,10 @@ export async function GET(req: NextRequest) {
       const nominal = round2(Number(claim.amount) || 0)
       const initial = funded ? nominal : 0
       const topupPaid = round2(topups.filter(t => t.status === 'paid').reduce((s, t) => s + (Number(t.amount) || 0), 0))
-      const spent = round2(expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0))
+      // Fund-linked advance with confirmed refund: leftover went back in the box.
+      const effAmount = (e: { claim_type: string; status: string; amount: unknown; refund_amount?: unknown }) =>
+        round2((Number(e.amount) || 0) - (e.claim_type === 'advance' && e.status === 'refund_confirmed' ? (Number(e.refund_amount) || 0) : 0))
+      const spent = round2(expenses.reduce((s, e) => s + effAmount(e), 0))
 
       voucherData.isPettyCash = true
       voucherData.docTitle = 'สรุปเงินสดย่อยประจำเดือน'
@@ -234,7 +237,7 @@ export async function GET(req: NextRequest) {
           no: i + 1,
           date: e.expense_date || undefined,
           description: `${e.title || '(ไม่ระบุ)'}  [${e.claim_number}]`,
-          amount: Number(e.amount) || 0,
+          amount: effAmount(e),
         }))
         voucherData.totalAmount = spent
         voucherData.netAmount = spent

@@ -11,7 +11,7 @@ import {
   Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle,
   ChevronDown, ChevronRight, Coins, Lock,
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES, getClaimChecklist, getFundingSourceLabel, getFundingSourceColor, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -127,7 +127,19 @@ type PettyChildren = {
   spent: number
 }
 
-export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', jobEvents = [], pettyChildren = null }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; jobEvents?: JobEventOption[]; pettyChildren?: PettyChildren | null }) {
+/** Approved-but-unpaid claim that admin can pull into the fund */
+type LinkableClaim = {
+  id: string
+  claim_number: string
+  claim_type: string
+  title: string
+  amount: number
+  expense_date: string | null
+  status: string
+  submitter?: { id: string; full_name: string } | null
+}
+
+export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', jobEvents = [], pettyChildren = null, linkableClaims = null }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; jobEvents?: JobEventOption[]; pettyChildren?: PettyChildren | null; linkableClaims?: LinkableClaim[] | null }) {
   const router = useRouter()
   const { locale } = useLocale()
   const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
@@ -193,6 +205,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [tuAmount, setTuAmount] = useState('')
   const [tuNote, setTuNote] = useState('')
   const [showTopupForm, setShowTopupForm] = useState(false)
+  const [linkClaimId, setLinkClaimId] = useState('')
   const removeSpentItem = (idx: number) => setSpentItems(prev => prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx))
   const updateSpentItem = (idx: number, patch: Partial<SpentItem>) =>
     setSpentItems(prev => prev.map((it, i) => i === idx ? { ...it, ...patch } : it))
@@ -253,7 +266,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   // both advance refunds and petty-cash month-close returns.
   const canConfirmRefund = isAdmin && (isAdvance || isPettyFund) && !isRefundConfirmed
     && (Number(claim.refund_amount) || 0) > 0
-    && (claim.refund_slip_urls?.length ?? 0) > 0
+    // Fund-linked advance returns cash to the box — no transfer slip exists.
+    && ((claim.refund_slip_urls?.length ?? 0) > 0 || (isAdvance && !!claim.pettycash_fund_id))
     && ['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice', 'awaiting_payment'].includes(claim.status)
   const advanceAmount = claim.amount || 0
   const actualSpentNum = spentItemsTotal
@@ -531,6 +545,37 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
         ? `Saved — but the box balance is now negative (฿${fmtDec(res.balance ?? 0)}). Request a top-up.`
         : `บันทึกแล้ว — แต่เงินในกล่องติดลบ (฿${fmtDec(res.balance ?? 0)}) กรุณาเบิกเพิ่ม`)
     }
+    router.refresh()
+    setLoading(false)
+  }
+
+  const claimTypeShort = (t: string) =>
+    t === 'event' ? (isEn ? 'Event' : 'อีเวนต์')
+    : t === 'advance' ? (isEn ? 'Advance' : 'ทดลองจ่าย')
+    : (isEn ? 'Other' : 'อื่นๆ')
+
+  // Pull an approved claim into the fund (admin) — pays it from the box
+  const handleLinkClaim = async () => {
+    if (!linkClaimId) return
+    setLoading(true)
+    setError(null)
+    const res = await linkClaimToPettyCash(claim.id, linkClaimId)
+    if (res.error) { setError(res.error); setLoading(false); return }
+    if (res.warning) setError(res.warning) // link succeeded — date-outside-month notice only
+    setLinkClaimId('')
+    router.refresh()
+    setLoading(false)
+  }
+
+  // Undo a pull (admin, month still open) — claim returns to the payout queue
+  const handleUnlinkClaim = async () => {
+    if (!confirm(isEn
+      ? 'Unlink this claim from the petty cash fund? It returns to the payout queue as approved.'
+      : 'ยกเลิกการดึงใบเบิกนี้ออกจากวงเงินสดย่อย? ใบเบิกจะกลับเข้าคิวจ่ายเงิน (สถานะอนุมัติแล้ว)')) return
+    setLoading(true)
+    setError(null)
+    const res = await unlinkClaimFromPettyCash(claim.id)
+    if (res.error) { setError(res.error); setLoading(false); return }
     router.refresh()
     setLoading(false)
   }
@@ -2375,9 +2420,30 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       ? (isEn ? 'Top-up into the petty cash fund' : 'รายการเติมเงินเข้าวงเงินสดย่อย')
                       : (isEn ? 'Expense paid from the petty cash box' : 'ค่าใช้จ่ายที่จ่ายจากกล่องเงินสดย่อย')}
                   </p>
+                  {isPettyExpense && claim.claim_type === 'advance' && (
+                    <p>
+                      {isEn
+                        ? 'Settlement leftover returns to the petty cash box (not the company account).'
+                        : 'เงินคืนจากการเคลียร์ทดลองจ่ายจะกลับเข้ากล่องเงินสดย่อย (ไม่ใช่บัญชีบริษัท)'}
+                    </p>
+                  )}
                   <Link href={`/finance/${claim.pettycash_fund_id}`} className="inline-flex items-center gap-1 underline">
                     {isEn ? 'Open the fund page' : 'ไปที่หน้าวงเงิน'} →
                   </Link>
+                  {/* Unlink — only claims that went through approval (pulled in), not box-logged ones */}
+                  {isPettyExpense && isAdmin && !!(claim as any).approved_by && (
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={handleUnlinkClaim}
+                        disabled={loading}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-950/40 rounded-md transition-colors disabled:opacity-50"
+                      >
+                        <X className="h-3 w-3" />
+                        {isEn ? 'Unlink from fund (back to payout queue)' : 'ยกเลิกการดึง — คืนใบเบิกเข้าคิวจ่ายเงิน'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2550,6 +2616,50 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   </div>
                 )}
 
+                {/* Pull an approved claim into the fund (ดึงใบเบิกเข้าวงเงิน) — admin only */}
+                {pettyFundOpen && isAdmin && (
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 space-y-2">
+                    <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                      <Wallet className="h-3.5 w-3.5 text-orange-500" />
+                      {isEn ? 'Pull a claim into the fund (pay from the box)' : 'ดึงใบเบิกเข้าวงเงิน (จ่ายจากกล่อง)'}
+                    </p>
+                    {(linkableClaims?.length ?? 0) === 0 ? (
+                      <p className="text-[11px] text-zinc-400">
+                        {isEn ? 'No approved claims awaiting payment.' : 'ไม่มีใบเบิกที่อนุมัติแล้วรอจ่ายเงิน'}
+                      </p>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <select
+                          value={linkClaimId}
+                          onChange={e => setLinkClaimId(e.target.value)}
+                          className="flex-1 min-w-0 px-2.5 py-2 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-sm outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                        >
+                          <option value="">{isEn ? '— Select a claim —' : '— เลือกใบเบิก —'}</option>
+                          {(linkableClaims || []).map(c => (
+                            <option key={c.id} value={c.id}>
+                              {c.claim_number} · {claimTypeShort(c.claim_type)} · {c.title} · ฿{fmtDec(Number(c.amount) || 0)}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleLinkClaim}
+                          disabled={loading || !linkClaimId}
+                          className="flex items-center justify-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          {loading ? '...' : (isEn ? 'Pull into fund' : 'ดึงเข้าวงเงิน')}
+                        </button>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-zinc-400">
+                      {isEn
+                        ? 'The claim becomes "paid" and its amount is deducted from the box — blocked if the box balance can\'t cover it.'
+                        : 'ใบเบิกจะเปลี่ยนเป็น "จ่ายแล้ว" และยอดถูกหักจากเงินในกล่อง — ดึงไม่ได้ถ้าเงินในกล่องไม่พอ'}
+                    </p>
+                  </div>
+                )}
+
                 {/* Weekly expense summary (สรุปยอดแต่ละสัปดาห์) */}
                 {pettyWeekGroups.length > 0 && (
                   <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
@@ -2576,6 +2686,9 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                               >
                                 <span className="font-mono text-[10px] text-zinc-400 w-12 shrink-0">{(e.expense_date || '').slice(5)}</span>
                                 <span className="font-mono text-[10px] text-zinc-400 hidden sm:inline shrink-0">{e.claim_number}</span>
+                                {e.claim_type !== 'other' && (
+                                  <span className="text-[9px] px-1 py-0.5 rounded bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 shrink-0">{claimTypeShort(e.claim_type)}</span>
+                                )}
                                 <span className="flex-1 truncate text-zinc-700 dark:text-zinc-300 group-hover:text-orange-600">{e.title}</span>
                                 {(e.receipt_urls?.length ?? 0) === 0 && (
                                   <span className="text-[9px] text-red-400 shrink-0">{isEn ? 'no receipt' : 'ไม่มีใบเสร็จ'}</span>

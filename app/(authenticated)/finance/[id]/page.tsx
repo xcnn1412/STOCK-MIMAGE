@@ -1,4 +1,4 @@
-import { getClaim, getClaimLogs, getJobEventsForSelect, getPettyCashChildren } from '../actions'
+import { getClaim, getClaimLogs, getJobEventsForSelect, getPettyCashChildren, getLinkablePettyClaims } from '../actions'
 import { getFinanceCategories } from '../settings-actions'
 import { notFound } from 'next/navigation'
 import ClaimDetailView from './claim-detail-view'
@@ -25,6 +25,8 @@ export default async function ClaimDetailPage({ params }: { params: Promise<{ id
   const claim = data as unknown as ExpenseClaim
   const isPettyFund = claim.claim_type === 'petty_cash' && !claim.pettycash_fund_id
   const pettyChildren = isPettyFund ? await getPettyCashChildren(id) : null
+  // Claims (event/other/advance) that admin can pull into this fund
+  const linkableClaims = isPettyFund && role === 'admin' ? (await getLinkablePettyClaims()).data : null
 
-  return <ClaimDetailView claim={claim} role={role} categories={categories} logs={logs} userId={userId} jobEvents={jobEvents} pettyChildren={pettyChildren as any} />
+  return <ClaimDetailView claim={claim} role={role} categories={categories} logs={logs} userId={userId} jobEvents={jobEvents} pettyChildren={pettyChildren as any} linkableClaims={linkableClaims as any} />
 }

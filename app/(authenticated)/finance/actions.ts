@@ -1829,8 +1829,11 @@ export async function confirmRefundReceived(id: string) {
   if (refundAmount <= 0) {
     return { error: 'ใบเบิกนี้ไม่มีเงินคืนที่ต้องยืนยัน' }
   }
+  // Fund-linked advance: the leftover is CASH going back into the box — there
+  // is no transfer slip. Admin confirms against the box count instead.
+  const refundsToBox = claim.claim_type === 'advance' && !!claim.pettycash_fund_id
   const refundSlips: string[] = claim.refund_slip_urls || []
-  if (refundSlips.length === 0) {
+  if (refundSlips.length === 0 && !refundsToBox) {
     return { error: 'ต้องมีสลิปโอนเงินคืนก่อนจึงจะยืนยันได้' }
   }
 
@@ -1905,7 +1908,7 @@ async function getPettyChildren(supabase: any, fundId: string) {
     .from('expense_claims')
     .select(`
       id, claim_number, claim_type, title, category, amount, expense_date, status,
-      receipt_urls, created_at, paid_at,
+      receipt_urls, created_at, paid_at, refund_amount, advance_settled_at,
       submitter:profiles!expense_claims_submitted_by_fkey(id, full_name)
     `)
     .eq('pettycash_fund_id', fundId)
@@ -1917,8 +1920,16 @@ async function getPettyChildren(supabase: any, fundId: string) {
   const expenses = live.filter((c: any) => c.claim_type !== 'petty_cash')
   const topupPaid = roundBaht(topups.filter((t: any) => t.status === 'paid').reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0))
   const topupPending = roundBaht(topups.filter((t: any) => t.status !== 'paid').reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0))
-  const spent = roundBaht(expenses.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0))
+  const spent = roundBaht(expenses.reduce((s: number, e: any) => s + pettyExpenseAmount(e), 0))
   return { topups, expenses, topupPaid, topupPending, spent }
+}
+
+// Effective box cost of an expense. A fund-linked advance whose refund was
+// confirmed put its leftover cash BACK in the box, so only the spent part counts.
+function pettyExpenseAmount(e: any) {
+  const amount = Number(e.amount) || 0
+  const refund = e.claim_type === 'advance' && e.status === 'refund_confirmed' ? (Number(e.refund_amount) || 0) : 0
+  return roundBaht(amount - refund)
 }
 
 export type PettyChildren = Awaited<ReturnType<typeof getPettyChildren>>
@@ -2217,6 +2228,178 @@ export async function createPettyCashTopup(fundId: string, formData: FormData) {
 // (fund + paid top-ups − live expenses), requires a return-transfer slip when
 // leftover > 0, blocks while any top-up is still in flight. After closing, an
 // admin confirms the returned cash via confirmRefundReceived → refund_confirmed.
+// ── Pull an existing claim into the fund (ดึงใบเบิกเข้าวงเงิน) ──
+// Linking = paying that claim with cash from the box instead of a company
+// transfer: sets pettycash_fund_id + marks paid, so getPettyChildren counts it
+// as a box expense automatically. Admin only (it IS a payment).
+
+const PETTY_LINKABLE_TYPES = ['event', 'other', 'advance']
+const PETTY_LINKABLE_STATUSES = ['approved', 'awaiting_payment', 'pending_month_end', 'waiting_tax_invoice']
+
+// Approved-but-unpaid claims that can be pulled into the open fund.
+export async function getLinkablePettyClaims() {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { data: [] }
+
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from('expense_claims')
+    .select(`
+      id, claim_number, claim_type, title, amount, expense_date, status,
+      submitter:profiles!expense_claims_submitted_by_fkey(id, full_name)
+    `)
+    .in('claim_type', PETTY_LINKABLE_TYPES)
+    .is('pettycash_fund_id', null)
+    .in('status', PETTY_LINKABLE_STATUSES)
+    .order('created_at', { ascending: false })
+    .limit(200)
+  return { data: data || [] }
+}
+
+export async function linkClaimToPettyCash(fundId: string, claimId: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่ดึงใบเบิกเข้าวงเงินได้' }
+
+  const supabase = createServiceClient()
+
+  const { data: fund } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', fundId)
+    .single()
+  if (!fund || fund.claim_type !== 'petty_cash' || fund.pettycash_fund_id) {
+    return { error: 'ไม่พบวงเงินสดย่อย' }
+  }
+  if (fund.pettycash_closed_at) return { error: 'วงเงินนี้ปิดเดือนแล้ว ไม่สามารถดึงใบเบิกเข้าได้' }
+  if (fund.status !== 'paid') return { error: 'วงเงินยังไม่เปิดใช้ — ต้องอนุมัติและจ่ายเงินตั้งต้นก่อน' }
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', claimId)
+    .single()
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (!PETTY_LINKABLE_TYPES.includes(claim.claim_type)) {
+    return { error: 'ดึงได้เฉพาะใบเบิกประเภทงานอีเวนต์ / อื่นๆ / ทดลองจ่ายเท่านั้น' }
+  }
+  if (claim.pettycash_fund_id) return { error: 'ใบเบิกนี้อยู่ในวงเงินสดย่อยอยู่แล้ว' }
+  if (!PETTY_LINKABLE_STATUSES.includes(claim.status)) {
+    return { error: 'ดึงได้เฉพาะใบเบิกที่อนุมัติแล้วและยังไม่จ่ายเงินเท่านั้น' }
+  }
+
+  // The box must cover the whole claim — blocked, not just warned (นโยบาย: ห้ามเบิกเกิน)
+  const amount = roundBaht(Number(claim.amount) || 0)
+  const kids = await getPettyChildren(supabase, fundId)
+  const balance = roundBaht(roundBaht(Number(fund.amount) || 0) + kids.topupPaid - kids.spent)
+  if (amount > balance) {
+    return { error: `เงินในกล่องไม่พอ — คงเหลือ ฿${balance.toLocaleString()} แต่ใบเบิกนี้ ฿${amount.toLocaleString()} กรุณาเติมเงินเข้าวงเงินก่อน` }
+  }
+
+  const now = new Date().toISOString()
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({ pettycash_fund_id: fundId, status: 'paid', paid_at: now, paid_by: userId })
+    .eq('id', claimId)
+  if (error) return { error: `ดึงใบเบิกไม่สำเร็จ: ${error.message}` }
+
+  // Race guard (same as addPettyCashExpense): fund closed mid-flight → revert.
+  const { data: fundAfter } = await supabase
+    .from('expense_claims')
+    .select('pettycash_closed_at')
+    .eq('id', fundId)
+    .single()
+  if (fundAfter?.pettycash_closed_at) {
+    await supabase
+      .from('expense_claims')
+      .update({ pettycash_fund_id: null, status: claim.status, paid_at: claim.paid_at, paid_by: claim.paid_by })
+      .eq('id', claimId)
+    return { error: 'วงเงินถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก' }
+  }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: claimId,
+    action: 'link_petty_cash',
+    changed_by: userId,
+    changes: { status: { from: claim.status, to: 'paid' }, pettycash_fund_id: { from: null, to: fundId } },
+    note: `จ่ายจากเงินสดย่อย ${fund.claim_number} ฿${amount.toLocaleString()}`,
+  })
+  await logActivity('LINK_CLAIM_TO_PETTY_CASH', {
+    claimId,
+    claimNumber: claim.claim_number,
+    amount,
+    pettyCashFund: fund.claim_number,
+  })
+
+  // Date outside the fund month is allowed — flagged so admin sees it (นโยบาย: เตือนอย่างเดียว)
+  let warning: string | undefined
+  if (fund.pettycash_period_start && fund.pettycash_period_end && claim.expense_date
+      && (claim.expense_date < fund.pettycash_period_start || claim.expense_date > fund.pettycash_period_end)) {
+    warning = `ดึงเข้าแล้ว — แต่วันที่ใบเบิก (${claim.expense_date}) อยู่นอกเดือนของวงเงิน (${fund.pettycash_period_start} ถึง ${fund.pettycash_period_end})`
+  }
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${fundId}`)
+  revalidatePath(`/finance/${claimId}`)
+  revalidatePath('/finance/petty-cash')
+  return { success: true, warning }
+}
+
+// Undo a pull while the month is open — the cash goes back into the box and the
+// claim returns to the payout queue (approved). Box-logged expenses were never
+// approved (no approved_by) and can't be unlinked — cancel them instead.
+export async function unlinkClaimFromPettyCash(claimId: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('*')
+    .eq('id', claimId)
+    .single()
+  if (!claim || !claim.pettycash_fund_id || claim.claim_type === 'petty_cash') {
+    return { error: 'ใบเบิกนี้ไม่ใช่รายการที่ดึงเข้าวงเงิน' }
+  }
+  if (!claim.approved_by) {
+    return { error: 'รายการนี้บันทึกจากกล่องโดยตรง — ใช้การยกเลิกรายการ (admin override) แทน' }
+  }
+
+  const { data: fund } = await supabase
+    .from('expense_claims')
+    .select('claim_number, pettycash_closed_at')
+    .eq('id', claim.pettycash_fund_id)
+    .single()
+  if (fund?.pettycash_closed_at) {
+    return { error: 'รอบเดือนของวงเงินปิดแล้ว — เปิดรอบอีกครั้งก่อนจึงจะยกเลิกการดึงได้' }
+  }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({ pettycash_fund_id: null, status: 'approved', paid_at: null, paid_by: null })
+    .eq('id', claimId)
+  if (error) return { error: 'เกิดข้อผิดพลาด' }
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: claimId,
+    action: 'unlink_petty_cash',
+    changed_by: userId,
+    changes: { status: { from: claim.status, to: 'approved' }, pettycash_fund_id: { from: claim.pettycash_fund_id, to: null } },
+    note: `ยกเลิกการจ่ายจากเงินสดย่อย ${fund?.claim_number || ''} — กลับเข้าคิวจ่ายเงิน`,
+  })
+  await logActivity('UNLINK_CLAIM_FROM_PETTY_CASH', {
+    claimId,
+    claimNumber: claim.claim_number,
+    pettyCashFund: fund?.claim_number,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${claim.pettycash_fund_id}`)
+  revalidatePath(`/finance/${claimId}`)
+  revalidatePath('/finance/petty-cash')
+  return { success: true }
+}
+
 export async function closePettyCashMonth(id: string, formData?: FormData) {
   const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
@@ -2248,6 +2431,17 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
   if (pendingTopups.length > 0) {
     return {
       error: `มีรายการเติมเงินค้างดำเนินการ ${pendingTopups.length} ใบ (${pendingTopups.map((t: any) => t.claim_number).join(', ')}) — อนุมัติ/จ่าย หรือยกเลิกให้เรียบร้อยก่อนปิดเดือน`,
+    }
+  }
+
+  // A fund-linked advance that hasn't been settled yet also desyncs the box —
+  // its leftover would come back to a closed month. Settle + confirm first.
+  // (Fully-spent advances have refund 0 and never reach refund_confirmed — fine.)
+  const unsettledAdvances = kids.expenses.filter((e: any) => e.claim_type === 'advance'
+    && (!e.advance_settled_at || ((Number(e.refund_amount) || 0) > 0 && e.status !== 'refund_confirmed')))
+  if (unsettledAdvances.length > 0) {
+    return {
+      error: `มีใบทดลองจ่ายในวงเงินที่ยังเคลียร์ไม่จบ ${unsettledAdvances.length} ใบ (${unsettledAdvances.map((e: any) => e.claim_number).join(', ')}) — เคลียร์และยืนยันเงินคืนเข้ากล่องก่อนปิดเดือน`,
     }
   }
 
