@@ -275,18 +275,6 @@ export default function SalesBoardView(props: Props) {
         <HeroCard value={values.sales} prev={prevValues.sales} target={targets.sales} trend={trend} trendMax={trendMax} />
       </div>
 
-      {/* ── การ์ด metric ที่เหลือ ── */}
-      <div className="grid shrink-0 grid-cols-1 gap-2.5 sm:grid-cols-3">
-        {METRICS.filter((m) => m.key !== 'sales').map((m) => (
-          <MetricCard key={m.key} def={m} value={values[m.key]} prev={prevValues[m.key]}
-            target={m.key === 'revenue' ? values.sales
-              : m.key === 'expense' ? (expenseBase === 'sales' ? values.sales : values.revenue)
-              : targets[m.key]}
-            baseToggle={m.key === 'expense' ? <ExpenseBaseToggle value={expenseBase} onChange={changeExpenseBase} /> : undefined}
-            onSetTarget={() => setEditorOpen(true)} />
-        ))}
-      </div>
-
       {/* ── การ์ดตามประเภทงาน (ขาย/อีเวนต์/GP) ── */}
       <div className="grid shrink-0 grid-cols-1 gap-2.5 sm:grid-cols-3">
         {WORK_TYPES.map((w) => (
@@ -300,6 +288,18 @@ export default function SalesBoardView(props: Props) {
           * ไม่ระบุประเภทงาน: {fmtDeal(workTypeStats.unspecDeals)} ดีล · ฿{fmt(workTypeStats.unspecAmount)}
         </p>
       )}
+
+      {/* ── การ์ด metric ที่เหลือ ── */}
+      <div className="grid shrink-0 grid-cols-1 gap-2.5 sm:grid-cols-3">
+        {METRICS.filter((m) => m.key !== 'sales').map((m) => (
+          <MetricCard key={m.key} def={m} value={values[m.key]} prev={prevValues[m.key]}
+            target={m.key === 'revenue' ? values.sales
+              : m.key === 'expense' ? (expenseBase === 'sales' ? values.sales : values.revenue)
+              : targets[m.key]}
+            baseToggle={m.key === 'expense' ? <ExpenseBaseToggle value={expenseBase} onChange={changeExpenseBase} /> : undefined}
+            onSetTarget={() => setEditorOpen(true)} />
+        ))}
+      </div>
 
       {/* ── แถวล่าง: เป้าต่อวัน/สัปดาห์ · กรวยขาย · งวดครบกำหนด · สินค้า (เติมความสูงที่เหลือ) ── */}
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-4">
