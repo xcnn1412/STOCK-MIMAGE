@@ -5,6 +5,8 @@ import ProfileCompletionChecker from '@/components/profile-completion-checker'
 import NotificationBell from '@/components/notification-bell'
 import NotificationToastContainer from '@/components/notification-toast'
 import LicenseBanner from '@/components/license-banner'
+// WORLDCUP 2026 (temporary) — remove after the tournament
+import WorldCupPopup from '@/components/worldcup/worldcup-popup'
 import { getLicenseStatus } from '@/lib/license'
 import { getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
@@ -20,6 +22,8 @@ export default async function AuthenticatedLayout({
   let role: string | undefined
   let allowedModules = ['stock']
   let missingFields: string[] = []
+  // WORLDCUP 2026 (temporary) — the user's locked-in champion pick
+  let worldcupTeam: string | null = null
 
   if (userId) {
     const supabase = createServiceClient()
@@ -49,6 +53,14 @@ export default async function AuthenticatedLayout({
       ]
       missingFields = checks.filter(([, ok]) => !ok).map(([k]) => k)
     }
+
+    // WORLDCUP 2026 (temporary) — errors (e.g. table not migrated yet) just mean no pick
+    const { data: wcPick } = await supabase
+      .from('worldcup_predictions')
+      .select('team')
+      .eq('user_id', userId)
+      .maybeSingle()
+    worldcupTeam = (wcPick?.team as string) ?? null
   }
 
   // Admin always gets admin + overview module access
@@ -66,8 +78,10 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full flex" suppressHydrationWarning>
-      <Sidebar role={role} allowedModules={allowedModules} licenseExpiresAt={licenseExpiresAt} />
+      <Sidebar role={role} allowedModules={allowedModules} licenseExpiresAt={licenseExpiresAt} worldcupTeam={worldcupTeam} />
       <SessionTimeout />
+      {/* WORLDCUP 2026 (temporary) — champion prediction popup */}
+      {userId && <WorldCupPopup hasPicked={!!worldcupTeam} />}
       {/* Notification Bell — fixed top-right */}
       <div className="fixed top-3 right-4 z-50 hidden md:block">
         <NotificationBell />

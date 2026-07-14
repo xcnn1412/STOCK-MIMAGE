@@ -14,6 +14,8 @@ import { useLanguage } from '@/contexts/language-context'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import NotificationBell from '@/components/notification-bell'
 import LicenseCountdownChip from '@/components/license-countdown-chip'
+// WORLDCUP 2026 (temporary) — remove after the tournament
+import WorldCupChip from '@/components/worldcup/worldcup-chip'
 import { NAV_GROUPS, type NavGroup } from '@/lib/nav-config'
 
 // Module accent colors. `bar` is the solid-color sliver shown to the left of
@@ -40,6 +42,8 @@ interface SidebarProps {
     allowedModules?: string[]
     /** ISO 8601 license expiry from server. null when env not configured. */
     licenseExpiresAt?: string | null
+    /** WORLDCUP 2026 (temporary) — the user's champion pick, remove after the tournament */
+    worldcupTeam?: string | null
 }
 
 // ============================================================================
@@ -136,7 +140,7 @@ function SidebarGroup({
 // ============================================================================
 // Main Sidebar Component
 // ============================================================================
-export default function Sidebar({ role, allowedModules = ['stock'], licenseExpiresAt = null }: SidebarProps) {
+export default function Sidebar({ role, allowedModules = ['stock'], licenseExpiresAt = null, worldcupTeam = null }: SidebarProps) {
     const { t } = useLanguage()
     const pathname = usePathname()
     const [collapsed, setCollapsed] = useState(false)
@@ -280,7 +284,11 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
                 {/* License countdown — hidden when desktop sidebar is collapsed
                     (rail is w-0 anyway); shown in mobile drawer always */}
                 {(!collapsed || isMobile) && (
-                    <LicenseCountdownChip expiresAtIso={licenseExpiresAt} />
+                    <>
+                        {/* WORLDCUP 2026 (temporary) — remove after the tournament */}
+                        <WorldCupChip team={worldcupTeam} />
+                        <LicenseCountdownChip expiresAtIso={licenseExpiresAt} />
+                    </>
                 )}
 
                 {/* My Profile */}

@@ -81,6 +81,8 @@ export type ActionType =
     | 'CLOSE_PETTY_CASH_PERIOD'
     | 'LINK_CLAIM_TO_PETTY_CASH'
     | 'UNLINK_CLAIM_FROM_PETTY_CASH'
+    // WORLDCUP 2026 (temporary) — remove after the tournament
+    | 'WORLDCUP_PICK'
     | 'ADMIN_OVERRIDE_CLAIM_STATUS'
     // Security Module
     | 'ACCOUNT_LOCKED'
