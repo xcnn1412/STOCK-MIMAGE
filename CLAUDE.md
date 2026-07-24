@@ -94,6 +94,17 @@ CRM leads can spawn Events (`crm_lead_id` FK) and Jobs (`CREATE_JOBS_FROM_LEAD`)
 
 Supabase types are generated to `types/database.types.ts` and re-exported from `types/index.ts`. The repo accumulates **two flavors of SQL files**: ad-hoc patches at the repo root (`add_*.sql`, `create_*.sql`, `update_*.sql` — historical) and proper migrations in `supabase/migrations/` (datestamped, current convention). New schema changes go in `supabase/migrations/` only; the root-level SQL files are kept for reference.
 
+### What's New (/whats-new)
+
+หน้า "มีอะไรใหม่" แสดง changelog ฝั่งผู้ใช้ เข้าจากลิงก์ล่างซ้ายของ sidebar (ไอคอน Sparkles) — อยู่ใต้ `(authenticated)` แต่**ไม่อยู่ใน `MODULE_ROUTES`** ดังนั้นทุก user ที่ล็อกอินเห็นได้ (ตั้งใจ ไม่ต้องเพิ่ม module key)
+
+วิธีทำงาน: ข้อมูลทั้งหมดเป็น static array ใน `app/(authenticated)/whats-new/updates.ts` (ไม่มี DB, ไม่มี admin UI) หน้า `page.tsx` เป็น server component ล้วน render จาก array ตรงๆ จัดกลุ่มตามวันที่
+
+**กติกาสำหรับ Claude: ทุกครั้งที่ ship การเปลี่ยนแปลงที่ผู้ใช้สัมผัสได้ (ฟีเจอร์ใหม่ / ปรับปรุง / แก้บั๊กที่ user เห็น) ให้เติม `UpdateEntry` ไว้ "บนสุด" ของ `UPDATES` ใน commit เดียวกัน** โดย:
+- `date` = วันที่ ship (YYYY-MM-DD ค.ศ.), `tag` = `'ใหม่' | 'ปรับปรุง' | 'แก้บั๊ก'`
+- `title`/`points` เขียนภาษาไทยมุมมองผู้ใช้ — ห้ามศัพท์เทคนิค (❌ "refactor buildHealth" ✅ "แก้ตัวเลขการ์ดให้ถูกต้อง")
+- งาน internal ล้วน (refactor, security ภายใน, script) ไม่ต้องลง
+
 ### Module-specific design docs
 
 Several module-level design/spec markdowns live at the repo root (`Finance.md`, `KPI.md`, `job.md`, `jobs.md`, `notification.md`, `ACCESS_CONTROL.md`, `SECURITY_REPORT.md`, `PROJECT_ANALYSIS.md`). They are not part of the build; treat them as the closest thing to per-module requirements docs when changing those modules.
