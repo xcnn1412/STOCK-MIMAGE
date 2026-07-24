@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Settings2, RefreshCw, Trophy, CheckCircle2,
   Banknote, Wallet, TrendingUp, Handshake, Package, Target,
   Timer, Flame, Filter, CalendarClock,
-  Tag, CalendarDays, Percent,
+  Tag, CalendarDays, Percent, Eye,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -17,7 +17,8 @@ import {
 } from '@/components/ui/dialog'
 import {
   buildHealth, fmt, isRevLead, leadAmount, leadDate,
-  type PLLead, type PLClaim, type PLInstallment,
+  claimEffective, claimDate, CLAIM_TYPE_LABEL,
+  type PLLead, type PLClaim, type PLInstallment, type DealPL,
 } from '../overview/pl/pl-lib'
 import { saveMonthTargets } from './actions'
 
@@ -62,7 +63,7 @@ type MetricKey = 'sales' | 'revenue' | 'expense' | 'deals'
 interface MetricDef { key: MetricKey; label: string; sub: string; money: boolean; invert?: boolean; icon: typeof Target; color: string }
 const METRICS: MetricDef[] = [
   { key: 'sales', label: 'ยอดขาย', sub: 'มูลค่าดีลที่ปิดได้', money: true, icon: TrendingUp, color: 'emerald' },
-  { key: 'revenue', label: 'เก็บเงินแล้ว', sub: 'เงินเข้าจริง เทียบกับยอดขาย', money: true, icon: Banknote, color: 'sky' },
+  { key: 'revenue', label: 'เก็บเงินแล้ว', sub: 'เงินเข้าจริง เทียบยอดที่ต้องเก็บ (สุทธิ)', money: true, icon: Banknote, color: 'sky' },
   { key: 'expense', label: 'รายจ่าย', sub: 'ใบเบิกทั้งหมด (ยิ่งต่ำยิ่งดี)', money: true, invert: true, icon: Wallet, color: 'rose' },
   { key: 'deals', label: 'ดีลที่ปิดได้', sub: 'จำนวนการขาย', money: false, icon: Handshake, color: 'amber' },
 ]
@@ -78,20 +79,29 @@ const WORK_TYPES: WorkTypeDef[] = [
   { key: 'wt_event', wt: 'event', label: 'อีเวนต์', color: 'cyan', icon: CalendarDays },
   { key: 'wt_gp', wt: 'gp', label: 'GP', color: 'orange', icon: Percent },
 ]
+// work_type → ป้ายภาษาไทย (ใช้ในตาราง viewer)
+const WT_LABEL: Record<string, string> = { sale: 'ขาย', event: 'อีเวนต์', gp: 'GP' }
 
 // ฐานเทียบงบรายจ่าย
 type ExpenseBase = 'sales' | 'revenue'
 const EXPENSE_BASE_KEY = 'sales-board-expense-base'
 
-// ── ลำดับกรวยขาย (ตรงกับ STATUS_CONFIG ของ CRM; ปิดการขาย = accepted/success) ──
-const FUNNEL_STAGES: { keys: string[]; label: string; color: string }[] = [
-  { keys: ['lead'], label: 'ลูกค้าใหม่', color: 'bg-blue-500' },
-  { keys: ['quotation_sent'], label: 'ส่งใบเสนอราคา', color: 'bg-amber-500' },
+// ── ลำดับกรวยขาย (สะสม — นับตามสถานะที่ถึงขั้นนั้น "หรือไกลกว่า"; keys=null = ทุกสถานะ) ──
+// ลูกค้าใหม่ = ลีดทั้งหมดที่สร้างเดือนนี้ · ส่งใบเสนอราคา ⊇ ปิดการขาย → conversion ≤ 100% เสมอ
+const FUNNEL_STAGES: { keys: string[] | null; label: string; color: string }[] = [
+  { keys: null, label: 'ลูกค้าใหม่', color: 'bg-blue-500' },
+  { keys: ['quotation_sent', 'accepted', 'success'], label: 'ส่งใบเสนอราคา', color: 'bg-amber-500' },
   { keys: ['accepted', 'success'], label: 'ปิดการขาย', color: 'bg-emerald-600' },
 ]
 
 type Targets = Partial<Record<MetricKey | WorkTypeTargetKey, number>>
 type TargetStore = Record<string, Targets>
+
+// ── โมเดลตาราง "ดูรายการ" ของแต่ละการ์ด (viewer) ──
+type ViewerColumn = { label: string; align?: 'right' }
+type ViewerRow = { href: string; cells: ReactNode[] }
+type ViewerModel = { title: string; columns: ViewerColumn[]; rows: ViewerRow[]; footer: (ReactNode | null)[] }
+const bahtCell = (n: number) => `฿${fmt(n)}`
 
 export default function SalesBoardView(props: Props) {
   const router = useRouter()
@@ -100,6 +110,7 @@ export default function SalesBoardView(props: Props) {
   // เป้าใช้ร่วมกันทั้งองค์กร — มาจาก DB ผ่าน props, ตั้งใหม่ = บันทึกลง DB แล้ว router.refresh()
   const store = props.initialTargets
   const [editorOpen, setEditorOpen] = useState(false)
+  const [viewer, setViewer] = useState<string | null>(null) // การ์ดที่กำลังเปิดดูรายการ
   const [updatedAt, setUpdatedAt] = useState('')
   const [expenseBase, setExpenseBase] = useState<ExpenseBase>('sales')
 
@@ -130,32 +141,44 @@ export default function SalesBoardView(props: Props) {
 
   const targets = store[month] || {}
 
-  // ── คำนวณค่าจริงของเดือนที่เลือก ──
-  const values = useMemo<Record<MetricKey, number>>(() => {
+  // รายจ่ายจริงของเดือน = Σ ใบเบิกที่ไม่ถูก reject/cancel (เงินออกจริง หลังรวม VAT/หัก ณ ที่จ่าย)
+  //   ต่างจาก h.totalCost ซึ่งเป็นฐานก่อน VAT — ป้ายการ์ดคือ "ใบเบิกทั้งหมด" จึงต้องใช้ยอดเต็ม
+  const monthClaims = (m: string) => props.claims.filter((c) =>
+    c.status !== 'rejected' && c.status !== 'cancelled' && inMonth(claimDate(c), m) && claimEffective(c) > 0)
+  const expenseOf = (list: PLClaim[]) => list.reduce((s, c) => s + claimEffective(c), 0)
+
+  // ── สุขภาพการเงิน + รายการใบเบิกของเดือนที่เลือก (ใช้ทั้งค่าการ์ดและ viewer) ──
+  const cur = useMemo(() => {
     const range = (d: string | null) => inMonth(d, month)
     const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range)
-    return { sales: h.bookedGross, revenue: h.cashCollected, expense: h.totalCost, deals: h.dealCount }
+    const expClaims = monthClaims(month)
+    return { h, expClaims, expense: expenseOf(expClaims) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf เป็น pure จาก props+month
   }, [props, month])
 
+  // ── คำนวณค่าจริงของเดือนที่เลือก (revenue เทียบ "ยอดที่ต้องเก็บ" = collectible) ──
+  const values = useMemo<Record<MetricKey, number> & { collectible: number }>(() => ({
+    sales: cur.h.bookedGross, revenue: cur.h.cashCollected, expense: cur.expense, deals: cur.h.dealCount, collectible: cur.h.collectible,
+  }), [cur])
+
   // ── ค่าจริงของ "เดือนก่อน" (ไว้เทียบ MoM) ──
-  const prevValues = useMemo<Record<MetricKey, number>>(() => {
+  const prevValues = useMemo<Record<MetricKey, number> & { collectible: number }>(() => {
     const pm = addMonth(month, -1)
     const range = (d: string | null) => inMonth(d, pm)
     const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range)
-    return { sales: h.bookedGross, revenue: h.cashCollected, expense: h.totalCost, deals: h.dealCount }
+    return { sales: h.bookedGross, revenue: h.cashCollected, expense: expenseOf(monthClaims(pm)), deals: h.dealCount, collectible: h.collectible }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf เป็น pure จาก props+month
   }, [props, month])
 
-  // ── กรวยขาย: ลีดที่เข้ามาในเดือนนี้ แยกตามสถานะ ──
+  // ── กรวยขาย: ลีดที่ "สร้าง" ในเดือนนี้ (created_at) นับสะสมตามขั้น → conversion ≤ 100% ──
   const funnel = useMemo(() => {
-    const counts = new Map<string, number>()
-    let lost = 0
-    for (const l of props.leads) {
-      if (!inMonth(leadDate(l), month)) continue
-      const s = (l.status || '').toLowerCase()
-      if (s === 'rejected' || s === 'cancelled') { lost++; continue }
-      counts.set(s, (counts.get(s) || 0) + 1)
-    }
-    const stages = FUNNEL_STAGES.map((st) => ({ label: st.label, color: st.color, count: st.keys.reduce((s, k) => s + (counts.get(k) || 0), 0) }))
+    const monthLeads = props.leads.filter((l) => inMonth(l.created_at, month))
+    const hit = (keys: string[] | null, s: string) => keys === null || keys.includes(s)
+    const stages = FUNNEL_STAGES.map((st) => ({
+      label: st.label, color: st.color,
+      count: monthLeads.filter((l) => hit(st.keys, (l.status || '').toLowerCase())).length,
+    }))
+    const lost = monthLeads.filter((l) => { const s = (l.status || '').toLowerCase(); return s === 'rejected' || s === 'cancelled' }).length
     const top = Math.max(1, ...stages.map((s) => s.count))
     return { stages, top, lost }
   }, [props.leads, month])
@@ -163,10 +186,14 @@ export default function SalesBoardView(props: Props) {
   // ── งวดที่ครบ/เลยกำหนด (ไปข้างหน้า ไม่ผูกกับเดือนที่เลือก) — to-do ตามเก็บเงิน ──
   const dueList = useMemo(() => {
     const nameOf = new Map(props.leads.map((l) => [l.id, l.customer_name || '(ไม่ระบุชื่อ)']))
+    // ลีดที่ยกเลิก/ไม่ปิดการขายแล้ว ไม่ต้องตามเก็บเงิน
+    const dead = new Set(props.leads.filter((l) => {
+      const s = (l.status || '').toLowerCase(); return s === 'rejected' || s === 'cancelled'
+    }).map((l) => l.id))
     const today = new Date(); today.setHours(0, 0, 0, 0)
     const rows: { name: string; due: string; amount: number; days: number }[] = []
     for (const i of props.installments) {
-      if (i.is_paid || !i.due_date || !(Number(i.amount) > 0)) continue
+      if (i.is_paid || !i.due_date || !(Number(i.amount) > 0) || dead.has(i.lead_id)) continue
       const days = Math.round((new Date(i.due_date).getTime() - today.getTime()) / 86_400_000)
       if (days > 14) continue // แสดงเฉพาะเลยกำหนด + ครบภายใน 14 วัน
       rows.push({ name: nameOf.get(i.lead_id) || '—', due: i.due_date, amount: Number(i.amount), days })
@@ -228,6 +255,65 @@ export default function SalesBoardView(props: Props) {
     return result
   }, [props.leads, month])
 
+  // ── รายการเบื้องหลังตัวเลขการ์ด (viewer) — สร้างจากชุดข้อมูลเดียวกับที่คิดเป็นยอดการ์ด ──
+  const viewerModel = useMemo<ViewerModel | null>(() => {
+    if (!viewer) return null
+    const ml = monthLabel(month)
+
+    // การ์ดฝั่งลีด (ยอดขาย / ดีลที่ปิดได้ / ประเภทงาน) — rev leads ของเดือน, leadAmount>0
+    const leadModel = (label: string, wt?: string): ViewerModel => {
+      const ls = props.leads
+        .filter((l) => isRevLead(l) && leadAmount(l) > 0 && inMonth(leadDate(l), month) && (!wt || l.work_type === wt))
+        .sort((a, b) => leadAmount(b) - leadAmount(a))
+      const total = ls.reduce((s, l) => s + leadAmount(l), 0)
+      return {
+        title: `${label} — ${ml}`,
+        columns: [{ label: 'ลูกค้า' }, { label: 'วันที่' }, { label: 'ประเภทงาน' }, { label: 'ระบบ' }, { label: 'สถานะ' }, { label: 'ยอด', align: 'right' }],
+        rows: ls.map((l) => ({
+          href: `/crm/${l.id}`,
+          cells: [l.customer_name || '(ไม่ระบุชื่อ)', (leadDate(l) || '').slice(0, 10), WT_LABEL[l.work_type || ''] || 'ไม่ระบุ', pkgLabel(l.package_name || '', props.packageLabels), l.status || '—', bahtCell(leadAmount(l))],
+        })),
+        footer: ['รวม', null, null, null, null, bahtCell(total)],
+      }
+    }
+
+    if (viewer === 'sales') return leadModel('ยอดขาย')
+    if (viewer === 'deals') return leadModel('ดีลที่ปิดได้')
+    const wtDef = WORK_TYPES.find((w) => w.key === viewer)
+    if (wtDef) return leadModel(wtDef.label, wtDef.wt)
+
+    if (viewer === 'revenue') {
+      const deals: DealPL[] = cur.h.deals
+      return {
+        title: `เก็บเงินแล้ว — ${ml}`,
+        columns: [{ label: 'ลูกค้า' }, { label: 'ยอดที่ต้องเก็บ', align: 'right' }, { label: 'เก็บแล้ว', align: 'right' }, { label: 'คงค้าง', align: 'right' }],
+        rows: deals.map((d) => ({
+          href: `/crm/${d.leadId}`,
+          cells: [d.name, bahtCell(d.receivable), bahtCell(d.paid), bahtCell(d.outstanding)],
+        })),
+        footer: ['รวม', bahtCell(cur.h.collectible), bahtCell(cur.h.cashCollected), bahtCell(cur.h.ar)],
+      }
+    }
+
+    if (viewer === 'expense') {
+      const cs = [...cur.expClaims].sort((a, b) => claimEffective(b) - claimEffective(a))
+      return {
+        title: `รายจ่าย — ${ml}`,
+        columns: [{ label: 'รายการ' }, { label: 'ประเภท' }, { label: 'วันที่' }, { label: 'สถานะ' }, { label: 'จำนวน', align: 'right' }],
+        rows: cs.map((c) => ({
+          href: `/finance/${c.id}`,
+          cells: [
+            c.category || CLAIM_TYPE_LABEL[c.claim_type || ''] || c.claim_type || 'รายจ่าย',
+            CLAIM_TYPE_LABEL[c.claim_type || ''] || c.claim_type || '—',
+            (claimDate(c) || '').slice(0, 10), c.status || '—', bahtCell(claimEffective(c)),
+          ],
+        })),
+        footer: ['รวม', null, null, null, bahtCell(cur.expense)],
+      }
+    }
+    return null
+  }, [viewer, month, props.leads, props.packageLabels, cur])
+
   if (!mounted) {
     return <div className="flex min-h-[60vh] items-center justify-center text-muted-foreground">กำลังโหลดสรุปยอดขาย…</div>
   }
@@ -272,7 +358,7 @@ export default function SalesBoardView(props: Props) {
       {/* ── นับถอยหลัง + HERO ยอดขาย (คู่กันเพื่อประหยัดความสูง) ── */}
       <div className="grid shrink-0 grid-cols-1 gap-2.5 lg:grid-cols-[1fr_1.6fr]">
         <Countdown />
-        <HeroCard value={values.sales} prev={prevValues.sales} target={targets.sales} trend={trend} trendMax={trendMax} />
+        <HeroCard value={values.sales} prev={prevValues.sales} target={targets.sales} trend={trend} trendMax={trendMax} onView={() => setViewer('sales')} />
       </div>
 
       {/* ── การ์ดตามประเภทงาน (ขาย/อีเวนต์/GP) ── */}
@@ -280,7 +366,8 @@ export default function SalesBoardView(props: Props) {
         {WORK_TYPES.map((w) => (
           <WorkTypeCard key={w.key} def={w}
             amount={workTypeStats.stat[w.wt].amount} deals={workTypeStats.stat[w.wt].deals}
-            target={targets[w.key]} trend={wtTrend[w.wt]} onSetTarget={() => setEditorOpen(true)} />
+            target={targets[w.key]} trend={wtTrend[w.wt]} onSetTarget={() => setEditorOpen(true)}
+            onView={() => setViewer(w.key)} />
         ))}
       </div>
       {workTypeStats.unspecDeals > 0 && (
@@ -293,11 +380,11 @@ export default function SalesBoardView(props: Props) {
       <div className="grid shrink-0 grid-cols-1 gap-2.5 sm:grid-cols-3">
         {METRICS.filter((m) => m.key !== 'sales').map((m) => (
           <MetricCard key={m.key} def={m} value={values[m.key]} prev={prevValues[m.key]}
-            target={m.key === 'revenue' ? values.sales
+            target={m.key === 'revenue' ? values.collectible
               : m.key === 'expense' ? (expenseBase === 'sales' ? values.sales : values.revenue)
               : targets[m.key]}
             baseToggle={m.key === 'expense' ? <ExpenseBaseToggle value={expenseBase} onChange={changeExpenseBase} /> : undefined}
-            onSetTarget={() => setEditorOpen(true)} />
+            onSetTarget={() => setEditorOpen(true)} onView={() => setViewer(m.key)} />
         ))}
       </div>
 
@@ -310,6 +397,7 @@ export default function SalesBoardView(props: Props) {
       </div>
 
       <TargetDialog key={`${month}|${editorOpen}`} open={editorOpen} month={month} initial={targets} onSave={saveTargets} onOpenChange={setEditorOpen} />
+      <CardViewerDialog model={viewerModel} onClose={() => setViewer(null)} />
     </div>
   )
 }
@@ -331,14 +419,77 @@ function MoMBadge({ value, prev, goodWhenUp = true, onDark = false }: { value: n
   )
 }
 
+// ── ปุ่มไอคอน "ดูรายการ" บนหัวการ์ด ──
+function EyeButton({ onClick, onDark = false }: { onClick: () => void; onDark?: boolean }) {
+  return (
+    <button onClick={onClick} title="ดูรายการ"
+      className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors',
+        onDark ? 'bg-white/15 text-white hover:bg-white/30' : 'text-muted-foreground hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10')}>
+      <Eye className="h-4 w-4" />
+    </button>
+  )
+}
+
+// ── Dialog แสดงรายการเบื้องหลังตัวเลขการ์ด (ยอดรวมท้ายตาราง = ตัวเลขบนการ์ด) ──
+function CardViewerDialog({ model, onClose }: { model: ViewerModel | null; onClose: () => void }) {
+  return (
+    <Dialog open={!!model} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-h-[85vh] sm:max-w-3xl">
+        {model && (
+          <>
+            <DialogHeader>
+              <DialogTitle>{model.title}</DialogTitle>
+            </DialogHeader>
+            <p className="-mt-1 text-xs text-muted-foreground">{model.rows.length} รายการ</p>
+            <div className="max-h-[60vh] overflow-y-auto rounded-lg border">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-card">
+                  <tr className="border-b text-xs text-muted-foreground">
+                    {model.columns.map((c, i) => (
+                      <th key={i} className={cn('px-2 py-1.5 font-medium', c.align === 'right' ? 'text-right' : 'text-left')}>{c.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.rows.length === 0 ? (
+                    <tr><td colSpan={model.columns.length} className="py-6 text-center text-muted-foreground">ไม่มีข้อมูล</td></tr>
+                  ) : model.rows.map((r, ri) => (
+                    <tr key={ri} className="border-b last:border-0 hover:bg-muted/40">
+                      {r.cells.map((cell, ci) => (
+                        <td key={ci} className={cn('px-2 py-1.5 align-top', model.columns[ci].align === 'right' ? 'text-right tabular-nums' : 'text-left')}>
+                          {ci === 0 ? <a href={r.href} className="font-medium text-sky-600 hover:underline dark:text-sky-400">{cell}</a> : cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="sticky bottom-0 bg-card">
+                  <tr className="border-t font-bold">
+                    {model.footer.map((f, i) => (
+                      <td key={i} className={cn('px-2 py-2', model.columns[i]?.align === 'right' ? 'text-right tabular-nums' : 'text-left')}>{f}</td>
+                    ))}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── การ์ดใหญ่ ยอดขาย + เทรนด์ ──
-function HeroCard({ value, prev, target, trend, trendMax }: { value: number; prev: number; target?: number; trend: { month: string; amount: number }[]; trendMax: number }) {
+function HeroCard({ value, prev, target, trend, trendMax, onView }: { value: number; prev: number; target?: number; trend: { month: string; amount: number }[]; trendMax: number; onView?: () => void }) {
   const pct = target && target > 0 ? (value / target) * 100 : 0
   const hit = target ? value >= target : false
   return (
     <div className="grid h-full grid-cols-1 gap-3 rounded-2xl border bg-gradient-to-br from-emerald-600 to-emerald-700 p-4 text-white shadow-lg lg:grid-cols-[1.1fr_1fr] md:px-5">
       <div className="flex flex-col justify-center">
-        <div className="flex items-center gap-2 text-xs font-medium text-emerald-50/90"><TrendingUp className="h-4 w-4" /> ยอดขายเดือนนี้</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-medium text-emerald-50/90"><TrendingUp className="h-4 w-4" /> ยอดขายเดือนนี้</div>
+          {onView && <EyeButton onClick={onView} onDark />}
+        </div>
         <div className="mt-1 flex flex-wrap items-end gap-2">
           <span className="text-4xl font-extrabold tracking-tight tabular-nums md:text-5xl">฿{fmt(value)}</span>
           {hit && <span className="mb-1.5 flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold"><CheckCircle2 className="h-3.5 w-3.5" /> ถึงเป้าแล้ว!</span>}
@@ -397,7 +548,7 @@ function ExpenseBaseToggle({ value, onChange }: { value: ExpenseBase; onChange: 
 }
 
 // ── การ์ด metric ทั่วไป (มีสีตามหมวด + เทียบเป้า %/จำนวน) ──
-function MetricCard({ def, value, prev, target, baseToggle, onSetTarget }: { def: MetricDef; value: number; prev: number; target?: number; baseToggle?: ReactNode; onSetTarget: () => void }) {
+function MetricCard({ def, value, prev, target, baseToggle, onSetTarget, onView }: { def: MetricDef; value: number; prev: number; target?: number; baseToggle?: ReactNode; onSetTarget: () => void; onView?: () => void }) {
   const Icon = def.icon
   const c = COLORS[def.color] || COLORS.sky
   const has = typeof target === 'number' && target > 0
@@ -414,7 +565,10 @@ function MetricCard({ def, value, prev, target, baseToggle, onSetTarget }: { def
           <span className={cn('flex h-11 w-11 items-center justify-center rounded-xl shadow-sm transition-transform group-hover:scale-110', c.chip)}><Icon className="h-6 w-6" /></span>
           {def.label}
         </span>
-        <MoMBadge value={value} prev={prev} goodWhenUp={!def.invert} />
+        <span className="flex items-center gap-2">
+          <MoMBadge value={value} prev={prev} goodWhenUp={!def.invert} />
+          {onView && <EyeButton onClick={onView} />}
+        </span>
       </div>
       <div className={cn('mt-3 text-5xl font-extrabold tracking-tight tabular-nums', c.text)}>
         {fmtV(value)}
@@ -444,9 +598,9 @@ function MetricCard({ def, value, prev, target, baseToggle, onSetTarget }: { def
 }
 
 // ── การ์ดยอดตามประเภทงาน (compact) — ยอดเดือนนี้ + ดีล + เทียบเป้า + เทรนด์ 6 เดือน ──
-function WorkTypeCard({ def, amount, deals, target, trend, onSetTarget }: {
+function WorkTypeCard({ def, amount, deals, target, trend, onSetTarget, onView }: {
   def: WorkTypeDef; amount: number; deals: number; target?: number
-  trend: { month: string; amount: number }[]; onSetTarget: () => void
+  trend: { month: string; amount: number }[]; onSetTarget: () => void; onView?: () => void
 }) {
   const Icon = def.icon
   const c = COLORS[def.color] || COLORS.violet
@@ -461,7 +615,10 @@ function WorkTypeCard({ def, amount, deals, target, trend, onSetTarget }: {
           <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg shadow-sm', c.chip)}><Icon className="h-4 w-4" /></span>
           {def.label}
         </span>
-        <span className="text-xs font-medium tabular-nums text-muted-foreground">{fmtDeal(deals)} ดีล</span>
+        <span className="flex items-center gap-1.5">
+          <span className="text-xs font-medium tabular-nums text-muted-foreground">{fmtDeal(deals)} ดีล</span>
+          {onView && <EyeButton onClick={onView} />}
+        </span>
       </div>
       <div className={cn('mt-2 text-2xl font-extrabold tracking-tight tabular-nums', c.text)}>฿{fmt(amount)}</div>
       {has ? (
