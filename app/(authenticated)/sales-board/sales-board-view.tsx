@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Settings2, RefreshCw, Trophy, CheckCircle2,
   Banknote, Wallet, TrendingUp, Handshake, Package, Target,
   Timer, Flame, Filter, CalendarClock,
-  Tag, CalendarDays, Percent, Eye,
+  Tag, CalendarDays, Percent, Eye, Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   buildHealth, fmt, isRevLead, leadAmount, leadDate,
   claimEffective, claimDate, CLAIM_TYPE_LABEL,
@@ -70,6 +71,20 @@ const METRICS: MetricDef[] = [
 
 // เป้า auto (คิดจากค่าจริง ไม่ต้องตั้งเองใน dialog): เก็บเงินแล้ว, รายจ่าย
 const AUTO_TARGET_KEYS: MetricKey[] = ['revenue', 'expense']
+
+// ── คำอธิบายเกณฑ์การนับของแต่ละการ์ด (แสดงใน icon ℹ) — ต้องตรงกับสูตรจริงเสมอ ──
+const LEAD_RULE = 'นับดีลจาก CRM ที่สถานะ "ตอบรับ" หรือ "สำเร็จ" และมีมูลค่ามากกว่า 0 — ใช้ราคายืนยัน (ถ้าไม่มีใช้ราคาเสนอ) จัดเข้าเดือนตามวันจัดงาน (ถ้าไม่มีใช้วันสร้างลีด)'
+const INFO: Record<string, string> = {
+  sales: `${LEAD_RULE} · ยอดที่แสดง = ราคาเต็มตามที่ตกลง (รวม VAT ถ้ามี)`,
+  deals: `จำนวนดีลชุดเดียวกับการ์ดยอดขาย — ${LEAD_RULE}`,
+  revenue: 'เงินที่เก็บได้จริงของดีลเดือนนี้ = มัดจำ + งวดที่บันทึกว่าจ่ายแล้ว (ไม่เกินยอดสุทธิหลัง VAT/หัก ณ ที่จ่าย ของแต่ละดีล) · นับตามเดือนของดีล ไม่ใช่เดือนที่เงินเข้า · เป้า = ยอดที่ต้องเก็บสุทธิของดีลเดือนนี้',
+  expense: 'ใบเบิกทุกประเภท (งานอีเวนต์ / office-อื่นๆ / เงินทดลองจ่าย) ที่ไม่ถูกปฏิเสธ/ยกเลิก จัดเข้าเดือนตามวันที่ใช้จ่าย (ถ้าไม่มีใช้วันสร้างใบ) · เงินทดลองจ่ายที่เคลียร์คืนแล้วนับตามยอดใช้จริง · แสดงยอดเต็มตามใบเบิก (รวม VAT)',
+  workType: `${LEAD_RULE} · นับเฉพาะดีลที่ระบุประเภทงานนี้ — ดีลที่ไม่ระบุประเภทงานแสดงในหมายเหตุใต้การ์ด`,
+  pace: 'เฉลี่ยยอดสะสมและเป้าเป็นรายวัน/สัปดาห์ บนฐานจำนวนวันทั้งเดือน · "ต้องทำวันละ" = ยอดที่ยังขาดหารด้วยจำนวนวันที่เหลือถึงสิ้นเดือน',
+  funnel: 'นับลีดที่ถูก "สร้าง" ในเดือนนี้ (ตามวันสร้างลีด) แบบสะสมตามขั้น — ลูกค้าใหม่ = ลีดเข้าทั้งหมดทุกสถานะ · ส่งใบเสนอราคา = ถึงขั้นส่งใบเสนอหรือไกลกว่า · ปิดการขาย = ตอบรับ/สำเร็จ · เสียดีล = ปฏิเสธ/ยกเลิก · อัตราปิดการขาย = ปิดได้ ÷ ลีดเข้าทั้งหมด',
+  due: 'งวดชำระที่ยังไม่จ่าย และถึงกำหนดภายใน 14 วันหรือเลยกำหนดแล้ว — ดูล่วงหน้าทุกเดือน ไม่ผูกกับเดือนที่เลือก · ไม่รวมดีลที่ปฏิเสธ/ยกเลิก',
+  products: 'นับจำนวนดีลชุดเดียวกับการ์ดยอดขาย แยกตามระบบที่ใช้บริการ (แพ็กเกจ) · คอลัมน์สะสม = นับทุกเดือนรวมกัน',
+}
 
 // ── ประเภทงาน (work_type) — ตั้งเป้า/แสดงยอดแยกได้ ──
 type WorkTypeTargetKey = 'wt_sale' | 'wt_event' | 'wt_gp'
@@ -419,6 +434,25 @@ function MoMBadge({ value, prev, goodWhenUp = true, onDark = false }: { value: n
   )
 }
 
+// ── icon ℹ อธิบายเกณฑ์การนับของการ์ด (กด/แตะเพื่อเปิด — ใช้ได้บนจอ touch) ──
+function InfoTip({ text, onDark = false }: { text: string; onDark?: boolean }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button title="เกณฑ์การนับ" aria-label="เกณฑ์การนับ"
+          className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors',
+            onDark ? 'text-white/70 hover:bg-white/20 hover:text-white' : 'text-muted-foreground/60 hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10')}>
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-3 text-xs leading-relaxed" side="bottom" align="end">
+        <div className="mb-1 font-semibold">เกณฑ์การนับ</div>
+        <p className="text-muted-foreground">{text}</p>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 // ── ปุ่มไอคอน "ดูรายการ" บนหัวการ์ด ──
 function EyeButton({ onClick, onDark = false }: { onClick: () => void; onDark?: boolean }) {
   return (
@@ -488,7 +522,10 @@ function HeroCard({ value, prev, target, trend, trendMax, onView }: { value: num
       <div className="flex flex-col justify-center">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-medium text-emerald-50/90"><TrendingUp className="h-4 w-4" /> ยอดขายเดือนนี้</div>
-          {onView && <EyeButton onClick={onView} onDark />}
+          <span className="flex items-center gap-1">
+            <InfoTip text={INFO.sales} onDark />
+            {onView && <EyeButton onClick={onView} onDark />}
+          </span>
         </div>
         <div className="mt-1 flex flex-wrap items-end gap-2">
           <span className="text-4xl font-extrabold tracking-tight tabular-nums md:text-5xl">฿{fmt(value)}</span>
@@ -549,6 +586,7 @@ function ExpenseBaseToggle({ value, onChange }: { value: ExpenseBase; onChange: 
 
 // ── การ์ด metric ทั่วไป (มีสีตามหมวด + เทียบเป้า %/จำนวน) ──
 function MetricCard({ def, value, prev, target, baseToggle, onSetTarget, onView }: { def: MetricDef; value: number; prev: number; target?: number; baseToggle?: ReactNode; onSetTarget: () => void; onView?: () => void }) {
+  const info = INFO[def.key]
   const Icon = def.icon
   const c = COLORS[def.color] || COLORS.sky
   const has = typeof target === 'number' && target > 0
@@ -567,6 +605,7 @@ function MetricCard({ def, value, prev, target, baseToggle, onSetTarget, onView 
         </span>
         <span className="flex items-center gap-2">
           <MoMBadge value={value} prev={prev} goodWhenUp={!def.invert} />
+          {info && <InfoTip text={info} />}
           {onView && <EyeButton onClick={onView} />}
         </span>
       </div>
@@ -617,6 +656,7 @@ function WorkTypeCard({ def, amount, deals, target, trend, onSetTarget, onView }
         </span>
         <span className="flex items-center gap-1.5">
           <span className="text-xs font-medium tabular-nums text-muted-foreground">{fmtDeal(deals)} ดีล</span>
+          <InfoTip text={INFO.workType} />
           {onView && <EyeButton onClick={onView} />}
         </span>
       </div>
@@ -767,7 +807,10 @@ function TargetBreakdown({ salesTarget, salesValue, dealsTarget, dealsValue, mon
   ].filter(Boolean) as { key: string; label: string; dot: string; text: string; target: number; value: number; fmtN: (n: number) => string; need: number }[]
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border bg-card p-3 md:p-4">
-      <div className="mb-2 flex shrink-0 items-center gap-2 text-sm font-semibold"><Target className="h-4 w-4 text-emerald-500" /> เป้าเฉลี่ย · ปัจจุบัน</div>
+      <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-sm font-semibold"><Target className="h-4 w-4 text-emerald-500" /> เป้าเฉลี่ย · ปัจจุบัน</span>
+        <InfoTip text={INFO.pace} />
+      </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         {sections.map((s) => (
           <div key={s.key}>
@@ -808,7 +851,10 @@ function FunnelPanel({ funnel, monthName }: { funnel: { stages: { label: string;
   const empty = funnel.stages.every((s) => s.count === 0) && funnel.lost === 0
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border bg-card p-3 md:p-4">
-      <div className="mb-2 flex shrink-0 items-center gap-2 text-sm font-semibold"><Filter className="h-4 w-4 text-sky-500" /> กรวยขาย — {monthName}</div>
+      <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-sm font-semibold"><Filter className="h-4 w-4 text-sky-500" /> กรวยขาย — {monthName}</span>
+        <InfoTip text={INFO.funnel} />
+      </div>
       {empty ? (
         <p className="py-6 text-center text-sm text-muted-foreground">ยังไม่มีลีดในเดือนนี้</p>
       ) : (
@@ -843,7 +889,10 @@ function DuePanel({ due }: { due: { rows: { name: string; due: string; amount: n
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border bg-card p-3 md:p-4">
       <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-        <span className="flex items-center gap-2 text-sm font-semibold"><CalendarClock className="h-4 w-4 text-rose-500" /> งวดที่ครบ/เลยกำหนด</span>
+        <span className="flex items-center gap-2 text-sm font-semibold">
+          <CalendarClock className="h-4 w-4 text-rose-500" /> งวดที่ครบ/เลยกำหนด
+          <InfoTip text={INFO.due} />
+        </span>
         {due.overdueCount > 0 && (
           <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
             เลย {due.overdueCount} · ฿{fmt(due.overdueAmt)}
@@ -886,7 +935,10 @@ function ProductTable({ products, monthName }: { products: { key: string; name: 
   const max = Math.max(1, ...products.map((p) => p.month))
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border bg-card p-3 md:p-4">
-      <div className="mb-2 flex shrink-0 items-center gap-2 text-sm font-semibold"><Package className="h-4 w-4 text-teal-500" /> ระบบที่ใช้บริการที่ขายได้ — {monthName}</div>
+      <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-sm font-semibold"><Package className="h-4 w-4 text-teal-500" /> ระบบที่ใช้บริการที่ขายได้ — {monthName}</span>
+        <InfoTip text={INFO.products} />
+      </div>
       {products.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูล</p>
       ) : (
