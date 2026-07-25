@@ -251,6 +251,7 @@ export default function OverviewDashboard({
         'แหล่งเงิน': getFundingSourceLabel(c.funding_source, 'th'),
         'อีเวนต์': (c.job_event as any)?.event_name || '',
         'ยอดเงิน': amt,
+        'ก่อนหัก ณ ที่จ่าย': Math.round(tax.totalWithVat * 100) / 100,
         'หัก ณ ที่จ่าย': Math.round(tax.whtAmount * 100) / 100,
         'จ่ายจริง': Math.round(tax.netPayable * 100) / 100,
         'สถานะ': getClaimStatusLabel(c.status, 'th'),
@@ -270,7 +271,7 @@ export default function OverviewDashboard({
     const ws = XLSX.utils.json_to_sheet(rows)
     ws['!cols'] = [
       { wch: 16 }, { wch: 11 }, { wch: 22 }, { wch: 24 }, { wch: 30 }, { wch: 14 },
-      { wch: 12 }, { wch: 14 }, { wch: 22 }, { wch: 12 }, { wch: 12 },
+      { wch: 12 }, { wch: 14 }, { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 12 },
       { wch: 12 }, { wch: 16 }, { wch: 9 }, { wch: 12 }, { wch: 18 },
       { wch: 18 }, { wch: 14 }, { wch: 30 },
     ]
@@ -314,6 +315,7 @@ export default function OverviewDashboard({
       <div>${isEn ? 'Ready for accounting' : 'พร้อมส่งบัญชี'}<b class="ok">${summary.completeCount}</b></div>
       <div>${isEn ? 'Incomplete' : 'ยังไม่ครบ'}<b class="bad">${summary.incompleteCount}</b></div>
       <div>${isEn ? 'Total amount' : 'ยอดรวม'}<b>฿${fmtDec(summary.totalGross)}</b></div>
+      <div>${isEn ? 'Total before WHT' : 'ยอดก่อนหัก ณ ที่จ่ายรวม'}<b>฿${fmtDec(summary.totalNet + summary.totalWht)}</b></div>
       <div>${isEn ? 'Total WHT' : 'หัก ณ ที่จ่ายรวม'}<b>฿${fmtDec(summary.totalWht)}</b></div>
       <div>${isEn ? 'Net paid' : 'จ่ายจริงรวม'}<b>฿${fmtDec(summary.totalNet)}</b></div>
       <div>${isEn ? 'Tax inv. pending' : 'รอใบกำกับภาษี'}<b>${summary.pendingTaxInvoice}</b></div>
@@ -326,6 +328,8 @@ export default function OverviewDashboard({
         <th>${isEn ? 'Submitter' : 'ผู้เบิก'}</th><th>${isEn ? 'Roles' : 'ทีมงาน & หน้าที่'}</th><th>${isEn ? 'Title' : 'หัวข้อ'}</th>
         <th>${isEn ? 'Type' : 'ประเภท'}</th><th>${isEn ? 'Funding' : 'แหล่งเงิน'}</th>
         <th class="num">${isEn ? 'Amount' : 'ยอด'}</th>
+        <th class="num">${isEn ? 'Before WHT' : 'ก่อนหัก ณ ที่จ่าย'}</th>
+        <th class="num">${isEn ? 'WHT' : 'หัก ณ ที่จ่าย'}</th>
         <th>${isEn ? 'Status' : 'สถานะ'}</th>
         <th>${isEn ? 'Receipt' : 'ใบเสร็จ'}</th>
         <th>${isEn ? 'Tax Invoice' : 'ใบกำกับภาษี'}</th>
@@ -335,6 +339,7 @@ export default function OverviewDashboard({
 
     filtered.forEach((c, i) => {
       const ck = getClaimChecklist(c)
+      const tax = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
       const taxNumStr = (c.tax_invoice_numbers || []).join(' / ')
       const taxInvoiceCell = !ck.taxInvoiceRequired
         ? '<span class="muted">—</span>'
@@ -358,6 +363,8 @@ export default function OverviewDashboard({
         <td>${c.claim_type === 'event' ? 'อีเวนต์' : c.claim_type === 'advance' ? 'ทดลองจ่าย' : c.claim_type === 'petty_cash' ? 'เงินสดย่อย' : 'อื่นๆ'}</td>
         <td>${getFundingSourceLabel(c.funding_source, 'th')}</td>
         <td class="num">${fmtDec(c.amount || 0)}</td>
+        <td class="num">${fmtDec(tax.totalWithVat)}</td>
+        <td class="num">${tax.whtAmount > 0 ? fmtDec(tax.whtAmount) : '—'}</td>
         <td>${getClaimStatusLabel(c.status, 'th')}</td>
         <td>${ck.hasReceipt ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'}</td>
         <td>${taxInvoiceCell}</td>
