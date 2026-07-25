@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Settings2, RefreshCw, Trophy, CheckCircle2,
   Banknote, Wallet, TrendingUp, Handshake, Package, Target,
   Timer, Flame, Filter, CalendarClock,
-  Tag, CalendarDays, Percent, Eye, Info,
+  Tag, CalendarDays, Percent, Eye, Info, Coins,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -65,17 +65,20 @@ const pkgLabel = (p: string, labels: Record<string, string>) =>
   p ? (labels[p] || PKG_LABEL[p] || p.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())) : 'ไม่ระบุระบบ'
 
 // ── นิยาม metric (แต่ละตัวตั้งเป้าได้) ──
-type MetricKey = 'sales' | 'revenue' | 'expense' | 'deals'
-interface MetricDef { key: MetricKey; label: string; sub: string; money: boolean; invert?: boolean; icon: typeof Target; color: string }
+type MetricKey = 'sales' | 'revenue' | 'inflow' | 'expense' | 'deals'
+interface MetricDef { key: MetricKey; label: string; sub: string; money: boolean; invert?: boolean; noTarget?: boolean; icon: typeof Target; color: string }
 const METRICS: MetricDef[] = [
   { key: 'sales', label: 'ยอดขาย', sub: 'มูลค่าดีลที่ปิดได้', money: true, icon: TrendingUp, color: 'emerald' },
   { key: 'revenue', label: 'เก็บเงินแล้ว', sub: 'เงินเข้าจริง เทียบยอดที่ต้องเก็บ (สุทธิ)', money: true, icon: Banknote, color: 'sky' },
+  // เงินเข้าเดือนนี้ = งวดที่ชำระจริง (paid_date) ในเดือน — นับทุกดีลไม่สนสถานะ/เดือนที่ปิด
+  // ต่างจาก "เก็บเงินแล้ว" ที่เป็นเงินสะสมของดีลที่ปิดเดือนนี้ (ไม่รวมมัดจำ เพราะมัดจำไม่มีวันที่)
+  { key: 'inflow', label: 'เงินเข้าเดือนนี้', sub: 'งวดที่ชำระจริงในเดือน ทุกดีล (ไม่รวมมัดจำ)', money: true, noTarget: true, icon: Coins, color: 'teal' },
   { key: 'expense', label: 'รายจ่าย', sub: 'ใบเบิกทั้งหมด (ยิ่งต่ำยิ่งดี)', money: true, invert: true, icon: Wallet, color: 'rose' },
   { key: 'deals', label: 'ดีลที่ปิดได้', sub: 'จำนวนการขาย', money: false, icon: Handshake, color: 'amber' },
 ]
 
-// เป้า auto (คิดจากค่าจริง ไม่ต้องตั้งเองใน dialog): เก็บเงินแล้ว, รายจ่าย
-const AUTO_TARGET_KEYS: MetricKey[] = ['revenue', 'expense']
+// เป้า auto (คิดจากค่าจริง ไม่ต้องตั้งเองใน dialog): เก็บเงินแล้ว, เงินเข้า, รายจ่าย
+const AUTO_TARGET_KEYS: MetricKey[] = ['revenue', 'inflow', 'expense']
 
 // ── คำอธิบายเกณฑ์การนับของแต่ละการ์ด (แสดงใน icon ℹ) — ต้องตรงกับสูตรจริงเสมอ ──
 const CLOSE_BASIS = 'นับตามวันที่ปิดดีลจริง (วันแรกที่สถานะเปลี่ยนเป็น ตอบรับ/สำเร็จ จากประวัติใน CRM) ดีลที่ปิดเดือนนี้แต่จัดงานเดือนหน้านับเดือนนี้ · ลีดที่ไม่มีประวัติใช้วันสร้างลีด'
@@ -84,6 +87,7 @@ const INFO: Record<string, string> = {
   sales: `${LEAD_RULE} · ยอดที่แสดง = ราคาเต็มตามที่ตกลง (รวม VAT ถ้ามี)`,
   deals: `จำนวนดีลชุดเดียวกับการ์ดยอดขาย — ${LEAD_RULE}`,
   revenue: `เงินที่เก็บได้จริงของดีลเดือนนี้ = มัดจำ + งวดที่บันทึกว่าจ่ายแล้ว (ไม่เกินยอดสุทธิหลัง VAT/หัก ณ ที่จ่าย ของแต่ละดีล) · ${CLOSE_BASIS} — ไม่ใช่เดือนที่เงินเข้า (เงินเข้าจริงต่อเดือนดูการ์ด "เงินเข้าเดือนนี้") · เป้า = ยอดที่ต้องเก็บสุทธิของดีลเดือนนี้`,
+  inflow: 'เงินที่เข้าจริงในเดือนที่เลือก = Σ งวดชำระที่ติ๊กว่าจ่ายแล้วและมีวันที่ชำระอยู่ในเดือนนี้ — นับทุกดีลทุกสถานะ ไม่สนว่าปิดดีลเดือนไหน · ไม่รวมมัดจำ (ระบบไม่ได้เก็บวันที่รับมัดจำ) · การ์ดนี้ไม่ต้องตั้งเป้า',
   expense: 'ใบเบิกทุกประเภท (งานอีเวนต์ / office-อื่นๆ / เงินทดลองจ่าย) ที่ไม่ถูกปฏิเสธ/ยกเลิก จัดเข้าเดือนตามวันที่ใช้จ่าย (ถ้าไม่มีใช้วันสร้างใบ) · เงินทดลองจ่ายที่เคลียร์คืนแล้วนับตามยอดใช้จริง · แสดงยอดเต็มตามใบเบิก (รวม VAT)',
   workType: `${LEAD_RULE} · นับเฉพาะดีลที่ระบุประเภทงานนี้ — ดีลที่ไม่ระบุประเภทงานแสดงในหมายเหตุใต้การ์ด`,
   pace: 'เฉลี่ยยอดสะสมและเป้าเป็นรายวัน/สัปดาห์ บนฐานจำนวนวันทั้งเดือน · "ต้องทำวันละ" = ยอดที่ยังขาดหารด้วยจำนวนวันที่เหลือถึงสิ้นเดือน',
@@ -168,18 +172,23 @@ export default function SalesBoardView(props: Props) {
     c.status !== 'rejected' && c.status !== 'cancelled' && inMonth(claimDate(c), m) && claimEffective(c) > 0)
   const expenseOf = (list: PLClaim[]) => list.reduce((s, c) => s + claimEffective(c), 0)
 
-  // ── สุขภาพการเงิน + รายการใบเบิกของเดือนที่เลือก (ใช้ทั้งค่าการ์ดและ viewer) ──
+  // เงินเข้าจริงของเดือน = งวดที่ชำระแล้ว (paid_date อยู่ในเดือน) — ทุกดีลทุกสถานะ
+  const paidInMonth = (m: string) => props.installments.filter((i) => i.is_paid && inMonth(i.paid_date, m) && Number(i.amount) > 0)
+  const inflowOf = (list: PLInstallment[]) => list.reduce((s, i) => s + Number(i.amount || 0), 0)
+
+  // ── สุขภาพการเงิน + รายการใบเบิก/งวดที่เข้าของเดือนที่เลือก (ใช้ทั้งค่าการ์ดและ viewer) ──
   const cur = useMemo(() => {
     const range = (d: string | null) => inMonth(d, month)
     const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range, closedDate)
     const expClaims = monthClaims(month)
-    return { h, expClaims, expense: expenseOf(expClaims) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf เป็น pure จาก props+month
+    const inflowIns = paidInMonth(month)
+    return { h, expClaims, expense: expenseOf(expClaims), inflowIns, inflow: inflowOf(inflowIns) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf/paidInMonth เป็น pure จาก props+month
   }, [props, month])
 
   // ── คำนวณค่าจริงของเดือนที่เลือก (revenue เทียบ "ยอดที่ต้องเก็บ" = collectible) ──
   const values = useMemo<Record<MetricKey, number> & { collectible: number }>(() => ({
-    sales: cur.h.bookedGross, revenue: cur.h.cashCollected, expense: cur.expense, deals: cur.h.dealCount, collectible: cur.h.collectible,
+    sales: cur.h.bookedGross, revenue: cur.h.cashCollected, inflow: cur.inflow, expense: cur.expense, deals: cur.h.dealCount, collectible: cur.h.collectible,
   }), [cur])
 
   // ── ค่าจริงของ "เดือนก่อน" (ไว้เทียบ MoM) ──
@@ -187,7 +196,7 @@ export default function SalesBoardView(props: Props) {
     const pm = addMonth(month, -1)
     const range = (d: string | null) => inMonth(d, pm)
     const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range, closedDate)
-    return { sales: h.bookedGross, revenue: h.cashCollected, expense: expenseOf(monthClaims(pm)), deals: h.dealCount, collectible: h.collectible }
+    return { sales: h.bookedGross, revenue: h.cashCollected, inflow: inflowOf(paidInMonth(pm)), expense: expenseOf(monthClaims(pm)), deals: h.dealCount, collectible: h.collectible }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf เป็น pure จาก props+month
   }, [props, month])
 
@@ -334,6 +343,20 @@ export default function SalesBoardView(props: Props) {
         footer: ['รวม', null, null, null, bahtCell(cur.expense)],
       }
     }
+
+    if (viewer === 'inflow') {
+      const nameOf = new Map(props.leads.map((l) => [l.id, l.customer_name || '(ไม่ระบุชื่อ)']))
+      const ins = [...cur.inflowIns].sort((a, b) => (b.paid_date || '').localeCompare(a.paid_date || ''))
+      return {
+        title: `เงินเข้าเดือนนี้ — ${ml}`,
+        columns: [{ label: 'ลูกค้า' }, { label: 'วันที่ชำระ' }, { label: 'จำนวน', align: 'right' }],
+        rows: ins.map((i) => ({
+          href: `/crm/${i.lead_id}`,
+          cells: [nameOf.get(i.lead_id) || '—', (i.paid_date || '').slice(0, 10), bahtCell(Number(i.amount || 0))],
+        })),
+        footer: ['รวม', null, bahtCell(cur.inflow)],
+      }
+    }
     return null
   }, [viewer, month, props.leads, props.packageLabels, cur])
 
@@ -400,7 +423,7 @@ export default function SalesBoardView(props: Props) {
       )}
 
       {/* ── การ์ด metric ที่เหลือ ── */}
-      <div className="grid shrink-0 grid-cols-1 gap-2.5 sm:grid-cols-3">
+      <div className="grid shrink-0 grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
         {METRICS.filter((m) => m.key !== 'sales').map((m) => (
           <MetricCard key={m.key} def={m} value={values[m.key]} prev={prevValues[m.key]}
             target={m.key === 'revenue' ? values.collectible
@@ -637,6 +660,8 @@ function MetricCard({ def, value, prev, target, baseToggle, onSetTarget, onView 
               : (hit ? <span className="text-emerald-600">เกินเป้า {fmtV(value - target!)} 🎉</span> : <span className="text-muted-foreground">เหลืออีก {fmtV(target! - value)} ถึงเป้า</span>)}
           </div>
         </div>
+      ) : def.noTarget ? (
+        <p className="mt-3 text-sm font-medium text-muted-foreground/70">{def.sub}</p>
       ) : (
         <button onClick={onSetTarget} className="mt-3 text-sm font-medium text-muted-foreground/70 transition-colors hover:text-foreground hover:underline">+ ตั้งเป้าเดือนนี้ ({def.sub})</button>
       )}
