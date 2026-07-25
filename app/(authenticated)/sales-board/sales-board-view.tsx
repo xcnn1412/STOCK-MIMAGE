@@ -430,7 +430,7 @@ export default function SalesBoardView(props: Props) {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -604,8 +604,9 @@ function CardViewerDialog({ model, onClose }: { model: ViewerModel | null; onClo
               <DialogTitle>{model.title}</DialogTitle>
             </DialogHeader>
             <p className="-mt-1 text-xs text-muted-foreground">{model.rows.length} รายการ</p>
-            <div className="max-h-[60vh] overflow-y-auto rounded-lg border">
-              <table className="w-full text-sm">
+            {/* มือถือ: ตารางกว้างกว่าจอ → เลื่อนแนวนอนในกรอบตัวเอง แทนการบีบคอลัมน์จนอ่านไม่ได้ */}
+            <div className="max-h-[60vh] overflow-auto rounded-lg border">
+              <table className="w-full min-w-[560px] text-sm sm:min-w-0">
                 <thead className="sticky top-0 bg-card">
                   <tr className="border-b text-xs text-muted-foreground">
                     {model.columns.map((c, i) => (
@@ -738,9 +739,9 @@ function MetricCard({ def, value, prev, target, baseToggle, onSetTarget, onView,
           {onView && <EyeButton onClick={onView} />}
         </span>
       </div>
-      <div className={cn('mt-3 text-5xl font-extrabold tracking-tight tabular-nums', c.text)}>
+      <div className={cn('mt-3 text-3xl font-extrabold tracking-tight tabular-nums sm:text-4xl xl:text-5xl', c.text)}>
         {fmtV(value)}
-        {has && <span className="ml-1.5 text-lg font-semibold text-muted-foreground">/ {fmtV(target!)}</span>}
+        {has && <span className="ml-1.5 text-base font-semibold text-muted-foreground sm:text-lg">/ {fmtV(target!)}</span>}
       </div>
       {baseToggle && <div className="mt-2.5">{baseToggle}</div>}
       {has ? (
