@@ -23,9 +23,12 @@ import {
 } from '../overview/pl/pl-lib'
 import { saveMonthTargets } from './actions'
 
-// บอร์ดนี้วัด "ผลงานทีมขาย" → อิงเดือนที่ปิดดีลจริง (closed_at = วันแรกที่สถานะเปลี่ยนเป็น
-// accepted/success, คำนวณจาก crm_activities ใน page.tsx) ต่างจาก overview/P&L ที่อิงเดือน
-// จัดงาน (event_date) — ดีลปิดเดือนนี้แต่จัดงานเดือนหน้า นับเดือนนี้; fallback = วันสร้างลีด
+// บอร์ดนี้วัด "ผลงานทีมขาย" เป็น KPI → ตัวเลขฝั่งลีดอิงเดือนที่ "สร้างลีดใน CRM"
+// (created_at) — ลีดสร้างเดือนไหน ผลงานนับเดือนนั้น ไม่อิงวันปิดดีลหรือวันจัดงาน
+// ต่างจาก overview/P&L ที่อิงเดือนจัดงาน (event_date) ผ่าน default ของ buildHealth
+const createdDate = (l: PLLead) => l.created_at
+// ยกเว้นการ์ดเดียว: "ดีลที่ปิดได้" นับตามวันปิดดีลจริง (closed_at = status_change →
+// accepted/success ครั้งแรก คำนวณใน page.tsx จาก crm_activities; ไม่มีประวัติใช้วันสร้างลีด)
 const closedDate = (l: PLLead) => (l as { closed_at?: string | null }).closed_at || l.created_at
 
 // ── ชนิดข้อมูลที่ page.tsx ส่งเข้ามา ──
@@ -68,30 +71,31 @@ const pkgLabel = (p: string, labels: Record<string, string>) =>
 type MetricKey = 'sales' | 'revenue' | 'inflow' | 'expense' | 'deals'
 interface MetricDef { key: MetricKey; label: string; sub: string; money: boolean; invert?: boolean; noTarget?: boolean; icon: typeof Target; color: string }
 const METRICS: MetricDef[] = [
-  { key: 'sales', label: 'ยอดขาย', sub: 'มูลค่าดีลที่ปิดได้', money: true, icon: TrendingUp, color: 'emerald' },
-  { key: 'revenue', label: 'เก็บเงินแล้ว', sub: 'เงินเข้าจริง เทียบยอดที่ต้องเก็บ (สุทธิ)', money: true, icon: Banknote, color: 'sky' },
-  // เงินเข้าเดือนนี้ = งวดที่ชำระจริง (paid_date) ในเดือน — นับทุกดีลไม่สนสถานะ/เดือนที่ปิด
-  // ต่างจาก "เก็บเงินแล้ว" ที่เป็นเงินสะสมของดีลที่ปิดเดือนนี้ (ไม่รวมมัดจำ เพราะมัดจำไม่มีวันที่)
+  { key: 'sales', label: 'ยอดขาย', sub: 'มูลค่าดีลจากลีดเดือนนี้', money: true, icon: TrendingUp, color: 'emerald' },
+  { key: 'revenue', label: 'เก็บเงินแล้ว', sub: 'ยอดเก็บของดีลเดือนนี้ เทียบยอดต้องเก็บ', money: true, icon: Banknote, color: 'sky' },
+  // เงินเข้าเดือนนี้ = งวดที่ชำระจริง (paid_date) ในเดือน — นับทุกดีลไม่สนสถานะ/เดือนที่สร้างลีด
+  // ต่างจาก "เก็บเงินแล้ว" ที่เป็นเงินสะสมของดีลจากลีดเดือนนี้ (ไม่รวมมัดจำ เพราะมัดจำไม่มีวันที่)
   { key: 'inflow', label: 'เงินเข้าเดือนนี้', sub: 'งวดที่ชำระจริงในเดือน ทุกดีล (ไม่รวมมัดจำ)', money: true, noTarget: true, icon: Coins, color: 'teal' },
   { key: 'expense', label: 'รายจ่าย', sub: 'ใบเบิกทั้งหมด (ยิ่งต่ำยิ่งดี)', money: true, invert: true, icon: Wallet, color: 'rose' },
-  { key: 'deals', label: 'ดีลที่ปิดได้', sub: 'จำนวนการขาย', money: false, icon: Handshake, color: 'amber' },
+  { key: 'deals', label: 'ดีลที่ปิดได้', sub: 'นับตามวันที่ปิดดีลจริง', money: false, icon: Handshake, color: 'amber' },
 ]
 
 // เป้า auto (คิดจากค่าจริง ไม่ต้องตั้งเองใน dialog): เก็บเงินแล้ว, เงินเข้า, รายจ่าย
 const AUTO_TARGET_KEYS: MetricKey[] = ['revenue', 'inflow', 'expense']
 
 // ── คำอธิบายเกณฑ์การนับของแต่ละการ์ด (แสดงใน icon ℹ) — ต้องตรงกับสูตรจริงเสมอ ──
-const CLOSE_BASIS = 'นับตามวันที่ปิดดีลจริง (วันแรกที่สถานะเปลี่ยนเป็น ตอบรับ/สำเร็จ จากประวัติใน CRM) ดีลที่ปิดเดือนนี้แต่จัดงานเดือนหน้านับเดือนนี้ · ลีดที่ไม่มีประวัติใช้วันสร้างลีด'
-const LEAD_RULE = `นับดีลจาก CRM ที่สถานะ "ตอบรับ" หรือ "สำเร็จ" และมีมูลค่ามากกว่า 0 — ใช้ราคายืนยัน (ถ้าไม่มีใช้ราคาเสนอ) · ${CLOSE_BASIS}`
+const CREATED_BASIS = 'นับตามเดือนที่สร้างลีดใน CRM (ใช้เป็น KPI ทีมขาย) — ลีดสร้างเดือนไหน ผลงานนับเดือนนั้น ไม่อิงวันปิดดีลหรือวันจัดงาน'
+const LEAD_RULE = `นับดีลจาก CRM ที่สถานะ "ตอบรับ" หรือ "สำเร็จ" และมีมูลค่ามากกว่า 0 — ใช้ราคายืนยัน (ถ้าไม่มีใช้ราคาเสนอ) · ${CREATED_BASIS}`
 const INFO: Record<string, string> = {
   sales: `${LEAD_RULE} · ยอดที่แสดง = ราคาเต็มตามที่ตกลง (รวม VAT ถ้ามี)`,
-  deals: `จำนวนดีลชุดเดียวกับการ์ดยอดขาย — ${LEAD_RULE}`,
-  revenue: `เงินที่เก็บได้จริงของดีลเดือนนี้ = มัดจำ + งวดที่บันทึกว่าจ่ายแล้ว (ไม่เกินยอดสุทธิหลัง VAT/หัก ณ ที่จ่าย ของแต่ละดีล) · ${CLOSE_BASIS} — ไม่ใช่เดือนที่เงินเข้า (เงินเข้าจริงต่อเดือนดูการ์ด "เงินเข้าเดือนนี้") · เป้า = ยอดที่ต้องเก็บสุทธิของดีลเดือนนี้`,
-  inflow: 'เงินที่เข้าจริงในเดือนที่เลือก = Σ งวดชำระที่ติ๊กว่าจ่ายแล้วและมีวันที่ชำระอยู่ในเดือนนี้ — นับทุกดีลทุกสถานะ ไม่สนว่าปิดดีลเดือนไหน · ไม่รวมมัดจำ (ระบบไม่ได้เก็บวันที่รับมัดจำ) · การ์ดนี้ไม่ต้องตั้งเป้า',
+  deals: 'นับดีลสถานะ "ตอบรับ" หรือ "สำเร็จ" ที่มูลค่ามากกว่า 0 ตาม "วันที่ปิดดีลจริง" (วันแรกที่สถานะเปลี่ยนเป็น ตอบรับ/สำเร็จ จากประวัติใน CRM; ดีลที่ไม่มีประวัติใช้วันสร้างลีด) — ดีลจากลีดเดือนก่อนที่เพิ่งปิดได้เดือนนี้ก็นับ · เป็นการ์ดเดียวบนบอร์ดที่ใช้วันปิดดีล การ์ดอื่นนับตามเดือนสร้างลีด · บรรทัดย่อยแยกให้ว่ามาจากลีดเดือนนี้กี่ดีล ลีดเดือนก่อนหน้ากี่ดีล',
+  revenue: `เงินที่เก็บได้ของดีลชุดเดียวกับการ์ดยอดขาย (${CREATED_BASIS}) = มัดจำ + งวดที่บันทึกว่าจ่ายแล้วทุกเดือน ไม่เกินยอดสุทธิของแต่ละดีล · เป้า = ยอดที่ต้องเก็บสุทธิ ซึ่งไม่เท่ายอดขายตรงๆ เพราะ "ยอดขาย + VAT ที่ต้องเรียกเก็บเพิ่ม (ดีลที่ตั้งราคาไม่รวม VAT) − ภาษีหัก ณ ที่จ่ายที่ลูกค้าหักนำส่งเอง" ตามบรรทัดสรุปในการ์ด · ต่างจากการ์ด "เงินเข้าเดือนนี้" ที่นับตามวันที่เงินเข้าจริง ไม่ว่าลีดจะสร้างเดือนไหน`,
+  inflow: 'เงินที่เข้าจริงในเดือนที่เลือก = Σ งวดชำระที่ติ๊กว่าจ่ายแล้วและมีวันที่ชำระอยู่ในเดือนนี้ — นับทุกดีลทุกสถานะ · ไม่รวมมัดจำ (ระบบไม่ได้เก็บวันที่รับมัดจำ) · แตกเป็น 2 ก้อนตามเดือนที่สร้างลีดใน CRM: "จากลีดที่สร้างเดือนนี้" + "จากลีดเดือนก่อนหน้า" (เงินตามเก็บ)',
+  inflowPrev: 'งวดที่ชำระในเดือนนี้ของลีด CRM ที่สร้างไว้ตั้งแต่เดือนก่อนหน้า — เงินตามเก็บ/งวดค้างจ่ายที่เพิ่งเข้าจริงเดือนนี้ นับทุกสถานะดีล (รวมดีลที่ถูกเปลี่ยนสถานะ เช่น รายรับเงินสดย่อย Office)',
   expense: 'ใบเบิกทุกประเภท (งานอีเวนต์ / office-อื่นๆ / เงินทดลองจ่าย) ที่ไม่ถูกปฏิเสธ/ยกเลิก จัดเข้าเดือนตามวันที่ใช้จ่าย (ถ้าไม่มีใช้วันสร้างใบ) · เงินทดลองจ่ายที่เคลียร์คืนแล้วนับตามยอดใช้จริง · แสดงยอดเต็มตามใบเบิก (รวม VAT)',
   workType: `${LEAD_RULE} · นับเฉพาะดีลที่ระบุประเภทงานนี้ — ดีลที่ไม่ระบุประเภทงานแสดงในหมายเหตุใต้การ์ด`,
   pace: 'เฉลี่ยยอดสะสมและเป้าเป็นรายวัน/สัปดาห์ บนฐานจำนวนวันทั้งเดือน · "ต้องทำวันละ" = ยอดที่ยังขาดหารด้วยจำนวนวันที่เหลือถึงสิ้นเดือน',
-  funnel: `นับลีดของเดือนนี้แบบสะสมตามขั้น — ${CLOSE_BASIS} (ลีดที่ยังไม่ปิด = ตามวันสร้างลีด) · ลูกค้าใหม่ = ลีดทั้งหมดทุกสถานะ · ส่งใบเสนอราคา = ถึงขั้นส่งใบเสนอหรือไกลกว่า · ปิดการขาย = ตอบรับ/สำเร็จ (ชุดเดียวกับการ์ดดีลที่ปิดได้) · เสียดีล = ปฏิเสธ/ยกเลิก · อัตราปิดการขาย = ปิดได้ ÷ ลีดทั้งหมด`,
+  funnel: `นับลีดที่สร้างในเดือนนี้แบบสะสมตามขั้น — ${CREATED_BASIS} · ลูกค้าใหม่ = ลีดที่สร้างเดือนนี้ทั้งหมดทุกสถานะ · ส่งใบเสนอราคา = ถึงขั้นส่งใบเสนอหรือไกลกว่า · ปิดการขาย = ตอบรับ/สำเร็จ (เฉพาะลีดเดือนนี้ — ต่างจากการ์ดดีลที่ปิดได้ซึ่งนับตามวันปิด) · เสียดีล = ปฏิเสธ/ยกเลิก · อัตราปิดการขาย = ปิดได้ ÷ ลีดทั้งหมด`,
   due: 'งวดชำระที่ยังไม่จ่าย และถึงกำหนดภายใน 14 วันหรือเลยกำหนดแล้ว — ดูล่วงหน้าทุกเดือน ไม่ผูกกับเดือนที่เลือก · ไม่รวมดีลที่ปฏิเสธ/ยกเลิก',
   products: 'นับจำนวนดีลชุดเดียวกับการ์ดยอดขาย แยกตามระบบที่ใช้บริการ (แพ็กเกจ) · คอลัมน์สะสม = นับทุกเดือนรวมกัน',
 }
@@ -176,34 +180,48 @@ export default function SalesBoardView(props: Props) {
   const paidInMonth = (m: string) => props.installments.filter((i) => i.is_paid && inMonth(i.paid_date, m) && Number(i.amount) > 0)
   const inflowOf = (list: PLInstallment[]) => list.reduce((s, i) => s + Number(i.amount || 0), 0)
 
+  // ดีลที่ปิดได้ตามวันปิดจริงของเดือน m (การ์ดเดียวที่ใช้ closedDate)
+  const closedDealsOf = (m: string) =>
+    props.leads.filter((l) => isRevLead(l) && leadAmount(l) > 0 && inMonth(closedDate(l), m))
+
   // ── สุขภาพการเงิน + รายการใบเบิก/งวดที่เข้าของเดือนที่เลือก (ใช้ทั้งค่าการ์ดและ viewer) ──
+  // h = ฐานเดือนที่สร้างลีด (createdDate) — ยอดขาย และเก็บเงินแล้ว/ยอดต้องเก็บ เป็นชุดดีล
+  // เดียวกันตาม KPI ทีมขาย · การ์ดดีลที่ปิดได้ใช้ closedDeals (วันปิดจริง) แยกต่างหาก
   const cur = useMemo(() => {
     const range = (d: string | null) => inMonth(d, month)
-    const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range, closedDate)
+    const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range, createdDate)
     const expClaims = monthClaims(month)
     const inflowIns = paidInMonth(month)
-    return { h, expClaims, expense: expenseOf(expClaims), inflowIns, inflow: inflowOf(inflowIns) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf/paidInMonth เป็น pure จาก props+month
+    // แตกเงินเข้าเป็น 2 ก้อนตามเดือนที่สร้างลีด: ลีดเดือนนี้ vs ลีดเดือนก่อนหน้า (เงินตามเก็บ)
+    const newLeadIds = new Set(props.leads.filter((l) => inMonth(l.created_at, month)).map((l) => l.id))
+    const inflowInsPrev = inflowIns.filter((i) => !newLeadIds.has(i.lead_id))
+    const closedDeals = closedDealsOf(month)
+    const closedFromThisMonth = closedDeals.filter((l) => inMonth(l.created_at, month)).length
+    return {
+      h, expClaims, expense: expenseOf(expClaims), inflowIns, inflow: inflowOf(inflowIns), inflowInsPrev, inflowPrev: inflowOf(inflowInsPrev),
+      closedDeals, closedFromThisMonth,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf/paidInMonth/closedDealsOf เป็น pure จาก props+month
   }, [props, month])
 
-  // ── คำนวณค่าจริงของเดือนที่เลือก (revenue เทียบ "ยอดที่ต้องเก็บ" = collectible) ──
+  // ── คำนวณค่าจริงของเดือนที่เลือก (revenue เทียบ "ยอดที่ต้องเก็บ" = collectible ชุดเดียวกัน) ──
   const values = useMemo<Record<MetricKey, number> & { collectible: number }>(() => ({
-    sales: cur.h.bookedGross, revenue: cur.h.cashCollected, inflow: cur.inflow, expense: cur.expense, deals: cur.h.dealCount, collectible: cur.h.collectible,
+    sales: cur.h.bookedGross, revenue: cur.h.cashCollected, inflow: cur.inflow, expense: cur.expense, deals: cur.closedDeals.length, collectible: cur.h.collectible,
   }), [cur])
 
   // ── ค่าจริงของ "เดือนก่อน" (ไว้เทียบ MoM) ──
   const prevValues = useMemo<Record<MetricKey, number> & { collectible: number }>(() => {
     const pm = addMonth(month, -1)
     const range = (d: string | null) => inMonth(d, pm)
-    const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range, closedDate)
-    return { sales: h.bookedGross, revenue: h.cashCollected, inflow: inflowOf(paidInMonth(pm)), expense: expenseOf(monthClaims(pm)), deals: h.dealCount, collectible: h.collectible }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf เป็น pure จาก props+month
+    const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range, createdDate)
+    return { sales: h.bookedGross, revenue: h.cashCollected, inflow: inflowOf(paidInMonth(pm)), expense: expenseOf(monthClaims(pm)), deals: closedDealsOf(pm).length, collectible: h.collectible }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf/closedDealsOf เป็น pure จาก props+month
   }, [props, month])
 
-  // ── กรวยขาย: ลีดของเดือนนี้ (วันปิดดีลจริง, ยังไม่ปิด = วันสร้างลีด) นับสะสมตามขั้น ──
-  //    ทุกขั้นนับจากชุดลีดเดียวกัน → conversion ≤ 100% เสมอ และ "ปิดการขาย" ตรงกับการ์ดดีลที่ปิดได้
+  // ── กรวยขาย: ลีดที่ "สร้าง" ในเดือนนี้ (created_at) นับสะสมตามขั้น ──
+  //    ทุกขั้นนับจากชุดลีดเดียวกัน → conversion ≤ 100% เสมอ (ต่างจากการ์ดดีลที่ปิดได้ซึ่งนับตามวันปิด)
   const funnel = useMemo(() => {
-    const monthLeads = props.leads.filter((l) => inMonth(closedDate(l), month))
+    const monthLeads = props.leads.filter((l) => inMonth(createdDate(l), month))
     const hit = (keys: string[] | null, s: string) => keys === null || keys.includes(s)
     const stages = FUNNEL_STAGES.map((st) => ({
       label: st.label, color: st.color,
@@ -242,7 +260,7 @@ export default function SalesBoardView(props: Props) {
       const key = l.package_name || ''
       const g = agg.get(key) || { key, name: pkgLabel(key, props.packageLabels), month: 0, total: 0 }
       g.total++
-      if (inMonth(closedDate(l), month)) g.month++
+      if (inMonth(createdDate(l), month)) g.month++
       agg.set(key, g)
     }
     return [...agg.values()].sort((a, b) => b.month - a.month || b.total - a.total)
@@ -253,7 +271,7 @@ export default function SalesBoardView(props: Props) {
     const months = Array.from({ length: 6 }, (_, i) => addMonth(month, i - 5))
     return months.map((m) => {
       let amount = 0
-      for (const l of props.leads) if (isRevLead(l) && inMonth(closedDate(l), m) && leadAmount(l) > 0) amount += leadAmount(l)
+      for (const l of props.leads) if (isRevLead(l) && inMonth(createdDate(l), m) && leadAmount(l) > 0) amount += leadAmount(l)
       return { month: m, amount }
     })
   }, [props.leads, month])
@@ -264,7 +282,7 @@ export default function SalesBoardView(props: Props) {
     for (const w of WORK_TYPES) stat[w.wt] = { amount: 0, deals: 0 }
     let unspecAmount = 0, unspecDeals = 0
     for (const l of props.leads) {
-      if (!isRevLead(l) || leadAmount(l) <= 0 || !inMonth(closedDate(l), month)) continue
+      if (!isRevLead(l) || leadAmount(l) <= 0 || !inMonth(createdDate(l), month)) continue
       const wt = l.work_type
       if (wt && stat[wt]) { stat[wt].amount += leadAmount(l); stat[wt].deals++ }
       else { unspecAmount += leadAmount(l); unspecDeals++ }
@@ -279,7 +297,7 @@ export default function SalesBoardView(props: Props) {
     for (const w of WORK_TYPES) {
       result[w.wt] = months.map((m) => {
         let amount = 0
-        for (const l of props.leads) if (l.work_type === w.wt && isRevLead(l) && inMonth(closedDate(l), m) && leadAmount(l) > 0) amount += leadAmount(l)
+        for (const l of props.leads) if (l.work_type === w.wt && isRevLead(l) && inMonth(createdDate(l), m) && leadAmount(l) > 0) amount += leadAmount(l)
         return { month: m, amount }
       })
     }
@@ -292,38 +310,56 @@ export default function SalesBoardView(props: Props) {
     const ml = monthLabel(month)
 
     // การ์ดฝั่งลีด (ยอดขาย / ดีลที่ปิดได้ / ประเภทงาน) — rev leads ของเดือน, leadAmount>0
-    // กรองด้วย closedDate ตัวเดียวกับที่คิดยอดการ์ด → รายการในตารางตรงกับตัวเลขบนการ์ดเสมอ
+    // กรองด้วย createdDate ตัวเดียวกับที่คิดยอดการ์ด → รายการในตารางตรงกับตัวเลขบนการ์ดเสมอ
     const leadModel = (label: string, wt?: string): ViewerModel => {
       const ls = props.leads
-        .filter((l) => isRevLead(l) && leadAmount(l) > 0 && inMonth(closedDate(l), month) && (!wt || l.work_type === wt))
+        .filter((l) => isRevLead(l) && leadAmount(l) > 0 && inMonth(createdDate(l), month) && (!wt || l.work_type === wt))
         .sort((a, b) => leadAmount(b) - leadAmount(a))
       const total = ls.reduce((s, l) => s + leadAmount(l), 0)
       return {
         title: `${label} — ${ml}`,
-        columns: [{ label: 'ลูกค้า' }, { label: 'วันปิดดีล' }, { label: 'ประเภทงาน' }, { label: 'ระบบ' }, { label: 'สถานะ' }, { label: 'ยอด', align: 'right' }],
+        columns: [{ label: 'ลูกค้า' }, { label: 'สร้างลีดเมื่อ' }, { label: 'ประเภทงาน' }, { label: 'ระบบ' }, { label: 'สถานะ' }, { label: 'ยอด', align: 'right' }],
         rows: ls.map((l) => ({
           href: `/crm/${l.id}`,
-          cells: [l.customer_name || '(ไม่ระบุชื่อ)', (closedDate(l) || '').slice(0, 10), WT_LABEL[l.work_type || ''] || 'ไม่ระบุ', pkgLabel(l.package_name || '', props.packageLabels), l.status || '—', bahtCell(leadAmount(l))],
+          cells: [l.customer_name || '(ไม่ระบุชื่อ)', (createdDate(l) || '').slice(0, 10), WT_LABEL[l.work_type || ''] || 'ไม่ระบุ', pkgLabel(l.package_name || '', props.packageLabels), l.status || '—', bahtCell(leadAmount(l))],
         })),
         footer: ['รวม', null, null, null, null, bahtCell(total)],
       }
     }
 
     if (viewer === 'sales') return leadModel('ยอดขาย')
-    if (viewer === 'deals') return leadModel('ดีลที่ปิดได้')
     const wtDef = WORK_TYPES.find((w) => w.key === viewer)
     if (wtDef) return leadModel(wtDef.label, wtDef.wt)
 
+    // ดีลที่ปิดได้ — การ์ดเดียวที่ใช้วันปิดดีลจริง (closedDate) ไม่ใช่เดือนสร้างลีด
+    if (viewer === 'deals') {
+      const ls = [...cur.closedDeals].sort((a, b) => (closedDate(b) || '').localeCompare(closedDate(a) || ''))
+      return {
+        title: `ดีลที่ปิดได้ — ${ml}`,
+        columns: [{ label: 'ลูกค้า' }, { label: 'วันปิดดีล' }, { label: 'สร้างลีดเมื่อ' }, { label: 'ประเภทงาน' }, { label: 'สถานะ' }, { label: 'ยอด', align: 'right' }],
+        rows: ls.map((l) => ({
+          href: `/crm/${l.id}`,
+          cells: [l.customer_name || '(ไม่ระบุชื่อ)', (closedDate(l) || '').slice(0, 10), (l.created_at || '').slice(0, 10), WT_LABEL[l.work_type || ''] || 'ไม่ระบุ', l.status || '—', bahtCell(leadAmount(l))],
+        })),
+        footer: [`รวม ${ls.length} ดีล`, null, null, null, null, bahtCell(ls.reduce((s, l) => s + leadAmount(l), 0))],
+      }
+    }
+
     if (viewer === 'revenue') {
-      const deals: DealPL[] = cur.h.deals
+      // ดีลชุดเดียวกับการ์ดยอดขาย (ฐานเดือนที่สร้างลีด) — เรียงคงค้างมาก→น้อย เป็นลิสต์ไล่เก็บเงิน
+      const leadOf = new Map(props.leads.map((l) => [l.id, l]))
+      const dayOf = (id: string, f: (l: LeadWithPkg) => string | null) => {
+        const l = leadOf.get(id); return l ? (f(l) || '').slice(0, 10) || '—' : '—'
+      }
+      const deals: DealPL[] = [...cur.h.deals].sort((a, b) => b.outstanding - a.outstanding)
       return {
         title: `เก็บเงินแล้ว — ${ml}`,
-        columns: [{ label: 'ลูกค้า' }, { label: 'ยอดที่ต้องเก็บ', align: 'right' }, { label: 'เก็บแล้ว', align: 'right' }, { label: 'คงค้าง', align: 'right' }],
+        columns: [{ label: 'ลูกค้า' }, { label: 'สร้างลีดเมื่อ' }, { label: 'วันงาน' }, { label: 'ยอดที่ต้องเก็บ', align: 'right' }, { label: 'เก็บแล้ว', align: 'right' }, { label: 'คงค้าง', align: 'right' }],
         rows: deals.map((d) => ({
           href: `/crm/${d.leadId}`,
-          cells: [d.name, bahtCell(d.receivable), bahtCell(d.paid), bahtCell(d.outstanding)],
+          cells: [d.name, dayOf(d.leadId, createdDate), dayOf(d.leadId, (l) => l.event_date), bahtCell(d.receivable), bahtCell(d.paid), bahtCell(d.outstanding)],
         })),
-        footer: ['รวม', bahtCell(cur.h.collectible), bahtCell(cur.h.cashCollected), bahtCell(cur.h.ar)],
+        footer: ['รวม', null, null, bahtCell(cur.h.collectible), bahtCell(cur.h.cashCollected), bahtCell(cur.h.ar)],
       }
     }
 
@@ -344,17 +380,27 @@ export default function SalesBoardView(props: Props) {
       }
     }
 
-    if (viewer === 'inflow') {
-      const nameOf = new Map(props.leads.map((l) => [l.id, l.customer_name || '(ไม่ระบุชื่อ)']))
-      const ins = [...cur.inflowIns].sort((a, b) => (b.paid_date || '').localeCompare(a.paid_date || ''))
+    if (viewer === 'inflow' || viewer === 'inflowPrev') {
+      const prevOnly = viewer === 'inflowPrev'
+      const leadOf = new Map(props.leads.map((l) => [l.id, l]))
+      const ins = [...(prevOnly ? cur.inflowInsPrev : cur.inflowIns)].sort((a, b) => (b.paid_date || '').localeCompare(a.paid_date || ''))
       return {
-        title: `เงินเข้าเดือนนี้ — ${ml}`,
-        columns: [{ label: 'ลูกค้า' }, { label: 'วันที่ชำระ' }, { label: 'จำนวน', align: 'right' }],
-        rows: ins.map((i) => ({
-          href: `/crm/${i.lead_id}`,
-          cells: [nameOf.get(i.lead_id) || '—', (i.paid_date || '').slice(0, 10), bahtCell(Number(i.amount || 0))],
-        })),
-        footer: ['รวม', null, bahtCell(cur.inflow)],
+        title: `${prevOnly ? 'เงินเข้าจากลีดเดือนก่อนหน้า' : 'เงินเข้าเดือนนี้'} — ${ml}`,
+        columns: [{ label: 'ลูกค้า' }, { label: 'สร้างลีดเมื่อ' }, { label: 'สถานะดีล' }, { label: 'วันที่ชำระ' }, { label: 'จำนวน', align: 'right' }],
+        rows: ins.map((i) => {
+          const l = leadOf.get(i.lead_id)
+          return {
+            href: `/crm/${i.lead_id}`,
+            cells: [
+              l?.customer_name || '(ไม่ระบุชื่อ)',
+              (l?.created_at || '').slice(0, 10) || '—',
+              l?.status || '—',
+              (i.paid_date || '').slice(0, 10),
+              bahtCell(Number(i.amount || 0)),
+            ],
+          }
+        }),
+        footer: ['รวม', null, null, null, bahtCell(prevOnly ? cur.inflowPrev : cur.inflow)],
       }
     }
     return null
@@ -379,7 +425,9 @@ export default function SalesBoardView(props: Props) {
           <Trophy className="h-6 w-6 text-amber-500" />
           <div>
             <h1 className="text-xl font-bold leading-tight tracking-tight md:text-2xl">สรุปยอดขาย</h1>
-            <p className="text-xs text-muted-foreground">เป้าหมายและผลงานทีมขายประจำเดือน</p>
+            <p className="text-xs text-muted-foreground">
+              ผลงานนับตามเดือนที่สร้างลีด (KPI ทีมขาย) · เงินเข้า/รายจ่ายนับตามวันที่เงินเข้า-ใช้จ่ายจริง
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -430,7 +478,57 @@ export default function SalesBoardView(props: Props) {
               : m.key === 'expense' ? (expenseBase === 'sales' ? values.sales : values.revenue)
               : targets[m.key]}
             baseToggle={m.key === 'expense' ? <ExpenseBaseToggle value={expenseBase} onChange={changeExpenseBase} /> : undefined}
-            onSetTarget={() => setEditorOpen(true)} onView={() => setViewer(m.key)} />
+            onSetTarget={() => setEditorOpen(true)} onView={() => setViewer(m.key)}
+            extra={m.key === 'inflow' ? (
+              // แตกยอดในการ์ด: ก้อนที่ซ้ำกับ "เก็บเงินแล้ว" vs เงินตามเก็บจากดีลเดือนก่อน (มี ℹ/👁 ของตัวเอง)
+              <div className="mt-3 space-y-1 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-muted-foreground">จากลีดที่สร้างเดือนนี้</span>
+                  <span className="font-bold tabular-nums">฿{fmt(cur.inflow - cur.inflowPrev)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-0.5 font-medium text-muted-foreground">
+                    จากลีดเดือนก่อนหน้า
+                    <InfoTip text={INFO.inflowPrev} />
+                    <EyeButton onClick={() => setViewer('inflowPrev')} />
+                  </span>
+                  <span className="font-bold tabular-nums">฿{fmt(cur.inflowPrev)}</span>
+                </div>
+              </div>
+            ) : m.key === 'revenue' ? (
+              // ที่มาของ "ยอดที่ต้องเก็บ" — กัน user งงว่าทำไมไม่เท่ายอดขาย (ขาย+อีเวนต์+GP)
+              // vat ที่เรียกเก็บเพิ่ม = Σ totalWithVat − Σ ราคาเต็ม = collectible + wht − bookedGross
+              <div className="mt-3 space-y-0.5 text-xs">
+                <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                  <span>ยอดขาย (ราคาเต็ม)</span><span className="tabular-nums">฿{fmt(cur.h.bookedGross)}</span>
+                </div>
+                <div className="pl-3 text-[11px] leading-snug text-muted-foreground/70">
+                  {WORK_TYPES.map((w) => `${w.label} ฿${fmt(workTypeStats.stat[w.wt].amount)}`).join(' + ')}
+                  {workTypeStats.unspecAmount > 0 ? ` + ไม่ระบุ ฿${fmt(workTypeStats.unspecAmount)}` : ''}
+                </div>
+                <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                  <span>+ VAT ที่ต้องเรียกเก็บเพิ่ม</span><span className="tabular-nums">฿{fmt(cur.h.collectible + cur.h.revWht - cur.h.bookedGross)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                  <span>− ลูกค้าหักภาษี ณ ที่จ่าย</span><span className="tabular-nums">฿{fmt(cur.h.revWht)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 border-t pt-0.5 font-semibold text-foreground/80">
+                  <span>= ยอดที่ต้องเก็บ (เป้า)</span><span className="tabular-nums">฿{fmt(cur.h.collectible)}</span>
+                </div>
+              </div>
+            ) : m.key === 'deals' ? (
+              // แสดงคู่: ยอดใหญ่ = ตามวันปิดจริง, บรรทัดย่อยแยกตามเดือนที่สร้างลีด (KPI)
+              <div className="mt-3 space-y-1 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-muted-foreground">จากลีดที่สร้างเดือนนี้</span>
+                  <span className="font-bold tabular-nums">{fmtDeal(cur.closedFromThisMonth)} ดีล</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-muted-foreground">จากลีดเดือนก่อนหน้า</span>
+                  <span className="font-bold tabular-nums">{fmtDeal(cur.closedDeals.length - cur.closedFromThisMonth)} ดีล</span>
+                </div>
+              </div>
+            ) : undefined} />
         ))}
       </div>
 
@@ -616,7 +714,7 @@ function ExpenseBaseToggle({ value, onChange }: { value: ExpenseBase; onChange: 
 }
 
 // ── การ์ด metric ทั่วไป (มีสีตามหมวด + เทียบเป้า %/จำนวน) ──
-function MetricCard({ def, value, prev, target, baseToggle, onSetTarget, onView }: { def: MetricDef; value: number; prev: number; target?: number; baseToggle?: ReactNode; onSetTarget: () => void; onView?: () => void }) {
+function MetricCard({ def, value, prev, target, baseToggle, onSetTarget, onView, extra }: { def: MetricDef; value: number; prev: number; target?: number; baseToggle?: ReactNode; onSetTarget: () => void; onView?: () => void; extra?: ReactNode }) {
   const info = INFO[def.key]
   const Icon = def.icon
   const c = COLORS[def.color] || COLORS.sky
@@ -661,10 +759,12 @@ function MetricCard({ def, value, prev, target, baseToggle, onSetTarget, onView 
           </div>
         </div>
       ) : def.noTarget ? (
-        <p className="mt-3 text-sm font-medium text-muted-foreground/70">{def.sub}</p>
+        extra ?? <p className="mt-3 text-sm font-medium text-muted-foreground/70">{def.sub}</p>
       ) : (
         <button onClick={onSetTarget} className="mt-3 text-sm font-medium text-muted-foreground/70 transition-colors hover:text-foreground hover:underline">+ ตั้งเป้าเดือนนี้ ({def.sub})</button>
       )}
+      {/* การ์ดที่มีเป้า (เช่น ดีลที่ปิดได้) ยังแสดง breakdown ต่อท้ายได้ — เว้น noTarget ซึ่ง render extra ไปแล้วด้านบน */}
+      {!def.noTarget && extra}
     </div>
   )
 }

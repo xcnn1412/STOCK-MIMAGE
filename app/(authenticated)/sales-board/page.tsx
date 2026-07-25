@@ -40,7 +40,7 @@ export default async function SalesBoardPage() {
   ])
 
   // วันปิดดีลจริงต่อ lead = status_change → accepted/success ครั้งแรก (แปลงเป็นวันที่ไทย)
-  // บอร์ดนี้วัดผลงานทีมขายตามเดือนที่ปิดดีล ไม่ใช่เดือนจัดงานแบบ overview/P&L
+  // ใช้เฉพาะการ์ด "ดีลที่ปิดได้" — การ์ดอื่นนับตามเดือนที่สร้างลีด (KPI ทีมขาย)
   const firstClose = new Map<string, string>()
   for (const a of statusActs) {
     const ns = (a.new_status || '').toLowerCase()
