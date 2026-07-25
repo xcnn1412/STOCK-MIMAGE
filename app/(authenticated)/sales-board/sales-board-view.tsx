@@ -17,11 +17,16 @@ import {
 } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
-  buildHealth, fmt, isRevLead, leadAmount, leadDate,
+  buildHealth, fmt, isRevLead, leadAmount,
   claimEffective, claimDate, CLAIM_TYPE_LABEL,
   type PLLead, type PLClaim, type PLInstallment, type DealPL,
 } from '../overview/pl/pl-lib'
 import { saveMonthTargets } from './actions'
+
+// บอร์ดนี้วัด "ผลงานทีมขาย" → อิงเดือนที่ปิดดีลจริง (closed_at = วันแรกที่สถานะเปลี่ยนเป็น
+// accepted/success, คำนวณจาก crm_activities ใน page.tsx) ต่างจาก overview/P&L ที่อิงเดือน
+// จัดงาน (event_date) — ดีลปิดเดือนนี้แต่จัดงานเดือนหน้า นับเดือนนี้; fallback = วันสร้างลีด
+const closedDate = (l: PLLead) => (l as { closed_at?: string | null }).closed_at || l.created_at
 
 // ── ชนิดข้อมูลที่ page.tsx ส่งเข้ามา ──
 type JobEvent = { id: string; linked_lead_id: string | null; event_date: string | null }
@@ -73,15 +78,16 @@ const METRICS: MetricDef[] = [
 const AUTO_TARGET_KEYS: MetricKey[] = ['revenue', 'expense']
 
 // ── คำอธิบายเกณฑ์การนับของแต่ละการ์ด (แสดงใน icon ℹ) — ต้องตรงกับสูตรจริงเสมอ ──
-const LEAD_RULE = 'นับดีลจาก CRM ที่สถานะ "ตอบรับ" หรือ "สำเร็จ" และมีมูลค่ามากกว่า 0 — ใช้ราคายืนยัน (ถ้าไม่มีใช้ราคาเสนอ) จัดเข้าเดือนตามวันจัดงาน (ถ้าไม่มีใช้วันสร้างลีด)'
+const CLOSE_BASIS = 'นับตามวันที่ปิดดีลจริง (วันแรกที่สถานะเปลี่ยนเป็น ตอบรับ/สำเร็จ จากประวัติใน CRM) ดีลที่ปิดเดือนนี้แต่จัดงานเดือนหน้านับเดือนนี้ · ลีดที่ไม่มีประวัติใช้วันสร้างลีด'
+const LEAD_RULE = `นับดีลจาก CRM ที่สถานะ "ตอบรับ" หรือ "สำเร็จ" และมีมูลค่ามากกว่า 0 — ใช้ราคายืนยัน (ถ้าไม่มีใช้ราคาเสนอ) · ${CLOSE_BASIS}`
 const INFO: Record<string, string> = {
   sales: `${LEAD_RULE} · ยอดที่แสดง = ราคาเต็มตามที่ตกลง (รวม VAT ถ้ามี)`,
   deals: `จำนวนดีลชุดเดียวกับการ์ดยอดขาย — ${LEAD_RULE}`,
-  revenue: 'เงินที่เก็บได้จริงของดีลเดือนนี้ = มัดจำ + งวดที่บันทึกว่าจ่ายแล้ว (ไม่เกินยอดสุทธิหลัง VAT/หัก ณ ที่จ่าย ของแต่ละดีล) · นับตามเดือนของดีล ไม่ใช่เดือนที่เงินเข้า · เป้า = ยอดที่ต้องเก็บสุทธิของดีลเดือนนี้',
+  revenue: `เงินที่เก็บได้จริงของดีลเดือนนี้ = มัดจำ + งวดที่บันทึกว่าจ่ายแล้ว (ไม่เกินยอดสุทธิหลัง VAT/หัก ณ ที่จ่าย ของแต่ละดีล) · ${CLOSE_BASIS} — ไม่ใช่เดือนที่เงินเข้า (เงินเข้าจริงต่อเดือนดูการ์ด "เงินเข้าเดือนนี้") · เป้า = ยอดที่ต้องเก็บสุทธิของดีลเดือนนี้`,
   expense: 'ใบเบิกทุกประเภท (งานอีเวนต์ / office-อื่นๆ / เงินทดลองจ่าย) ที่ไม่ถูกปฏิเสธ/ยกเลิก จัดเข้าเดือนตามวันที่ใช้จ่าย (ถ้าไม่มีใช้วันสร้างใบ) · เงินทดลองจ่ายที่เคลียร์คืนแล้วนับตามยอดใช้จริง · แสดงยอดเต็มตามใบเบิก (รวม VAT)',
   workType: `${LEAD_RULE} · นับเฉพาะดีลที่ระบุประเภทงานนี้ — ดีลที่ไม่ระบุประเภทงานแสดงในหมายเหตุใต้การ์ด`,
   pace: 'เฉลี่ยยอดสะสมและเป้าเป็นรายวัน/สัปดาห์ บนฐานจำนวนวันทั้งเดือน · "ต้องทำวันละ" = ยอดที่ยังขาดหารด้วยจำนวนวันที่เหลือถึงสิ้นเดือน',
-  funnel: 'นับลีดที่ถูก "สร้าง" ในเดือนนี้ (ตามวันสร้างลีด) แบบสะสมตามขั้น — ลูกค้าใหม่ = ลีดเข้าทั้งหมดทุกสถานะ · ส่งใบเสนอราคา = ถึงขั้นส่งใบเสนอหรือไกลกว่า · ปิดการขาย = ตอบรับ/สำเร็จ · เสียดีล = ปฏิเสธ/ยกเลิก · อัตราปิดการขาย = ปิดได้ ÷ ลีดเข้าทั้งหมด',
+  funnel: `นับลีดของเดือนนี้แบบสะสมตามขั้น — ${CLOSE_BASIS} (ลีดที่ยังไม่ปิด = ตามวันสร้างลีด) · ลูกค้าใหม่ = ลีดทั้งหมดทุกสถานะ · ส่งใบเสนอราคา = ถึงขั้นส่งใบเสนอหรือไกลกว่า · ปิดการขาย = ตอบรับ/สำเร็จ (ชุดเดียวกับการ์ดดีลที่ปิดได้) · เสียดีล = ปฏิเสธ/ยกเลิก · อัตราปิดการขาย = ปิดได้ ÷ ลีดทั้งหมด`,
   due: 'งวดชำระที่ยังไม่จ่าย และถึงกำหนดภายใน 14 วันหรือเลยกำหนดแล้ว — ดูล่วงหน้าทุกเดือน ไม่ผูกกับเดือนที่เลือก · ไม่รวมดีลที่ปฏิเสธ/ยกเลิก',
   products: 'นับจำนวนดีลชุดเดียวกับการ์ดยอดขาย แยกตามระบบที่ใช้บริการ (แพ็กเกจ) · คอลัมน์สะสม = นับทุกเดือนรวมกัน',
 }
@@ -165,7 +171,7 @@ export default function SalesBoardView(props: Props) {
   // ── สุขภาพการเงิน + รายการใบเบิกของเดือนที่เลือก (ใช้ทั้งค่าการ์ดและ viewer) ──
   const cur = useMemo(() => {
     const range = (d: string | null) => inMonth(d, month)
-    const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range)
+    const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range, closedDate)
     const expClaims = monthClaims(month)
     return { h, expClaims, expense: expenseOf(expClaims) }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf เป็น pure จาก props+month
@@ -180,14 +186,15 @@ export default function SalesBoardView(props: Props) {
   const prevValues = useMemo<Record<MetricKey, number> & { collectible: number }>(() => {
     const pm = addMonth(month, -1)
     const range = (d: string | null) => inMonth(d, pm)
-    const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range)
+    const h = buildHealth(props.leads, props.claims, props.installments, props.jobEvents, props.costItems, range, closedDate)
     return { sales: h.bookedGross, revenue: h.cashCollected, expense: expenseOf(monthClaims(pm)), deals: h.dealCount, collectible: h.collectible }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- monthClaims/expenseOf เป็น pure จาก props+month
   }, [props, month])
 
-  // ── กรวยขาย: ลีดที่ "สร้าง" ในเดือนนี้ (created_at) นับสะสมตามขั้น → conversion ≤ 100% ──
+  // ── กรวยขาย: ลีดของเดือนนี้ (วันปิดดีลจริง, ยังไม่ปิด = วันสร้างลีด) นับสะสมตามขั้น ──
+  //    ทุกขั้นนับจากชุดลีดเดียวกัน → conversion ≤ 100% เสมอ และ "ปิดการขาย" ตรงกับการ์ดดีลที่ปิดได้
   const funnel = useMemo(() => {
-    const monthLeads = props.leads.filter((l) => inMonth(l.created_at, month))
+    const monthLeads = props.leads.filter((l) => inMonth(closedDate(l), month))
     const hit = (keys: string[] | null, s: string) => keys === null || keys.includes(s)
     const stages = FUNNEL_STAGES.map((st) => ({
       label: st.label, color: st.color,
@@ -226,7 +233,7 @@ export default function SalesBoardView(props: Props) {
       const key = l.package_name || ''
       const g = agg.get(key) || { key, name: pkgLabel(key, props.packageLabels), month: 0, total: 0 }
       g.total++
-      if (inMonth(leadDate(l), month)) g.month++
+      if (inMonth(closedDate(l), month)) g.month++
       agg.set(key, g)
     }
     return [...agg.values()].sort((a, b) => b.month - a.month || b.total - a.total)
@@ -237,7 +244,7 @@ export default function SalesBoardView(props: Props) {
     const months = Array.from({ length: 6 }, (_, i) => addMonth(month, i - 5))
     return months.map((m) => {
       let amount = 0
-      for (const l of props.leads) if (isRevLead(l) && inMonth(leadDate(l), m) && leadAmount(l) > 0) amount += leadAmount(l)
+      for (const l of props.leads) if (isRevLead(l) && inMonth(closedDate(l), m) && leadAmount(l) > 0) amount += leadAmount(l)
       return { month: m, amount }
     })
   }, [props.leads, month])
@@ -248,7 +255,7 @@ export default function SalesBoardView(props: Props) {
     for (const w of WORK_TYPES) stat[w.wt] = { amount: 0, deals: 0 }
     let unspecAmount = 0, unspecDeals = 0
     for (const l of props.leads) {
-      if (!isRevLead(l) || leadAmount(l) <= 0 || !inMonth(leadDate(l), month)) continue
+      if (!isRevLead(l) || leadAmount(l) <= 0 || !inMonth(closedDate(l), month)) continue
       const wt = l.work_type
       if (wt && stat[wt]) { stat[wt].amount += leadAmount(l); stat[wt].deals++ }
       else { unspecAmount += leadAmount(l); unspecDeals++ }
@@ -263,7 +270,7 @@ export default function SalesBoardView(props: Props) {
     for (const w of WORK_TYPES) {
       result[w.wt] = months.map((m) => {
         let amount = 0
-        for (const l of props.leads) if (l.work_type === w.wt && isRevLead(l) && inMonth(leadDate(l), m) && leadAmount(l) > 0) amount += leadAmount(l)
+        for (const l of props.leads) if (l.work_type === w.wt && isRevLead(l) && inMonth(closedDate(l), m) && leadAmount(l) > 0) amount += leadAmount(l)
         return { month: m, amount }
       })
     }
@@ -276,17 +283,18 @@ export default function SalesBoardView(props: Props) {
     const ml = monthLabel(month)
 
     // การ์ดฝั่งลีด (ยอดขาย / ดีลที่ปิดได้ / ประเภทงาน) — rev leads ของเดือน, leadAmount>0
+    // กรองด้วย closedDate ตัวเดียวกับที่คิดยอดการ์ด → รายการในตารางตรงกับตัวเลขบนการ์ดเสมอ
     const leadModel = (label: string, wt?: string): ViewerModel => {
       const ls = props.leads
-        .filter((l) => isRevLead(l) && leadAmount(l) > 0 && inMonth(leadDate(l), month) && (!wt || l.work_type === wt))
+        .filter((l) => isRevLead(l) && leadAmount(l) > 0 && inMonth(closedDate(l), month) && (!wt || l.work_type === wt))
         .sort((a, b) => leadAmount(b) - leadAmount(a))
       const total = ls.reduce((s, l) => s + leadAmount(l), 0)
       return {
         title: `${label} — ${ml}`,
-        columns: [{ label: 'ลูกค้า' }, { label: 'วันที่' }, { label: 'ประเภทงาน' }, { label: 'ระบบ' }, { label: 'สถานะ' }, { label: 'ยอด', align: 'right' }],
+        columns: [{ label: 'ลูกค้า' }, { label: 'วันปิดดีล' }, { label: 'ประเภทงาน' }, { label: 'ระบบ' }, { label: 'สถานะ' }, { label: 'ยอด', align: 'right' }],
         rows: ls.map((l) => ({
           href: `/crm/${l.id}`,
-          cells: [l.customer_name || '(ไม่ระบุชื่อ)', (leadDate(l) || '').slice(0, 10), WT_LABEL[l.work_type || ''] || 'ไม่ระบุ', pkgLabel(l.package_name || '', props.packageLabels), l.status || '—', bahtCell(leadAmount(l))],
+          cells: [l.customer_name || '(ไม่ระบุชื่อ)', (closedDate(l) || '').slice(0, 10), WT_LABEL[l.work_type || ''] || 'ไม่ระบุ', pkgLabel(l.package_name || '', props.packageLabels), l.status || '—', bahtCell(leadAmount(l))],
         })),
         footer: ['รวม', null, null, null, null, bahtCell(total)],
       }

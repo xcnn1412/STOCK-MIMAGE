@@ -127,6 +127,9 @@ export interface Health {
 export function buildHealth(
   leads: PLLead[], claims: PLClaim[], installments: PLInstallment[],
   events: PLJobEvent[], costItems: PLCostItem[], inRange: (d: string | null) => boolean,
+  // ฐานวันที่ของ lead: ค่าปกติ = event_date||created_at (มุมรับรู้รายรับตามเดือนจัดงาน — overview/P&L)
+  // sales-board ส่ง created_at เข้ามาแทน (มุมผลงานทีมขายตามเดือนที่ปิดดีล)
+  leadDateOf: (l: PLLead) => string | null = leadDate,
 ): Health {
   const paidByLead = buildPaidByLead(leads, installments)
   const revLeadIds = new Set(leads.filter(isRevLead).map((l) => l.id))
@@ -144,7 +147,7 @@ export function buildHealth(
   let bookedGross = 0, collectible = 0, cashCollected = 0
   for (const l of leads) {
     if (!isRevLead(l)) continue
-    const d = leadDate(l); if (!inRange(d)) continue
+    const d = leadDateOf(l); if (!inRange(d)) continue
     const amount = leadAmount(l); if (amount <= 0) continue
     const t = calcTax(amount, l.vat_mode || 'none', num(l.wht_rate))
     pushLadder(rev, t, amount)
