@@ -32,6 +32,13 @@ export interface PersonalSetting {
     created_at: string
 }
 
+/** รายการย่อยในเช็กลิสต์ของงาน (เก็บเป็น jsonb ในคอลัมน์ my_jobs.checklist) */
+export interface ChecklistItem {
+    id: string
+    text: string
+    done: boolean
+}
+
 export interface PersonalJob {
     id: string
     user_id: string
@@ -47,6 +54,7 @@ export interface PersonalJob {
     created_at: string
     updated_at: string
     archived_at: string | null
+    checklist?: ChecklistItem[]
 }
 
 export interface PersonalTicket {
@@ -284,6 +292,32 @@ export async function updateMyJobStatus(id: string, status: string, targetUserId
     const { error } = await supabase
         .from('my_jobs')
         .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('user_id', effectiveUserId)
+    if (error) return { error: error.message }
+    revalidatePath('/jobs/my-job')
+    if (targetUserId) revalidatePath('/jobs/admin-job')
+    return { success: true }
+}
+
+/** บันทึกเช็กลิสต์ของงาน (แทนที่ทั้งชุด) */
+export async function updateMyJobChecklist(id: string, items: ChecklistItem[], targetUserId?: string) {
+    const { userId, role } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+    const effectiveUserId = targetUserId && role === 'admin' ? targetUserId : userId
+
+    if (!Array.isArray(items)) return { error: 'รูปแบบเช็กลิสต์ไม่ถูกต้อง' }
+
+    const cleanItems: ChecklistItem[] = items.slice(0, 100).map(it => ({
+        id: String(it?.id ?? ''),
+        text: String(it?.text ?? '').slice(0, 500),
+        done: Boolean(it?.done),
+    }))
+
+    const supabase = createServiceClient()
+    const { error } = await supabase
+        .from('my_jobs')
+        .update({ checklist: cleanItems, updated_at: new Date().toISOString() })
         .eq('id', id)
         .eq('user_id', effectiveUserId)
     if (error) return { error: error.message }

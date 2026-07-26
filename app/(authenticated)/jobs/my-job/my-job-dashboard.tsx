@@ -471,6 +471,7 @@ export default function MyJobDashboard({
                                 jobTypes={jobTypes}
                                 defaultJobType={pipelineTab}
                                 editJob={editJob || undefined}
+                                targetUserId={adminTargetUserId}
                                 onUpdate={adminTargetUserId
                                     ? (id, fd) => updateMyJob(id, fd, adminTargetUserId)
                                     : updateMyJob}

@@ -1102,13 +1102,25 @@ export async function createTicketReply(ticketId: string, formData: FormData) {
 
     await logActivity('CREATE_TICKET_REPLY', { ticketId, reply_type: reply.reply_type })
 
-    // Notify ticket participants + mentioned users
+    // Notify ticket participants + mentioned users (mentioned get a distinct
+    // type so the "ถูกแท็ก" tab can list tickets the user was @'d in)
     if (ticket) {
-        const recipients = [...(ticket.assigned_to || []), ticket.created_by].filter(Boolean) as string[]
         const mentionedUsers = (formData.get('notify_users') as string || '').split(',').filter(Boolean)
-        const allRecipients = [...recipients, ...mentionedUsers]
+        const recipients = ([...(ticket.assigned_to || []), ticket.created_by].filter(Boolean) as string[])
+            .filter(id => !mentionedUsers.includes(id))
+        if (mentionedUsers.length > 0) {
+            await createNotifications({
+                userIds: mentionedUsers,
+                type: 'ticket_mentioned',
+                title: `คุณถูกแท็กใน Ticket: ${ticket.subject || 'ไม่ระบุ'}`,
+                body: (reply.content || '').substring(0, 200),
+                referenceType: 'ticket',
+                referenceId: ticketId,
+                actorId: userId,
+            })
+        }
         await createNotifications({
-            userIds: allRecipients,
+            userIds: recipients,
             type: 'ticket_reply',
             title: `มีตอบกลับใหม่ใน Ticket: ${ticket.subject || 'ไม่ระบุ'}`,
             body: (reply.content || '').substring(0, 200),
@@ -1121,6 +1133,22 @@ export async function createTicketReply(ticketId: string, formData: FormData) {
     revalidatePath('/jobs')
     revalidatePath(`/jobs/tickets/${ticketId}`)
     return { success: true }
+}
+
+/** Ticket ids ที่ user ปัจจุบันเคยถูก @ (จาก notification type 'ticket_mentioned') */
+export async function getMentionedTicketIds(): Promise<string[]> {
+    const { userId } = await getSession()
+    if (!userId) return []
+
+    const supabase = createServiceClient()
+    const { data } = await supabase
+        .from('notifications')
+        .select('reference_id')
+        .eq('user_id', userId)
+        .eq('type', 'ticket_mentioned')
+        .eq('reference_type', 'ticket')
+
+    return [...new Set((data || []).map(r => r.reference_id as string))]
 }
 
 export async function deleteTicket(id: string) {

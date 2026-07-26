@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useTransition, useOptimistic } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { AlertCircle, Calendar, Archive, Trash2, Pencil } from 'lucide-react'
+import { AlertCircle, Calendar, Archive, Trash2, Pencil, ListChecks } from 'lucide-react'
 import { updateMyJobStatus, archiveMyJob, deleteMyJob } from '../actions'
 import { useRouter } from 'next/navigation'
 import type { PersonalJob, PersonalSetting } from '../actions'
@@ -191,6 +191,9 @@ function MyJobCard({
     const priority  = PRIORITY_CONFIG[job.priority] || PRIORITY_CONFIG.medium
     const isOverdue = job.due_date && new Date(job.due_date) < new Date() && job.status !== 'done'
 
+    const checklistTotal = job.checklist?.length ?? 0
+    const checklistDone  = job.checklist?.filter(it => it.done).length ?? 0
+
     const handleArchive = async (e: React.MouseEvent) => {
         e.stopPropagation()
         if (!confirm(locale === 'th' ? 'ย้ายงานนี้ไปคลัง?' : 'Archive this job?')) return
@@ -262,6 +265,13 @@ function MyJobCard({
                     {job.tags.length > 3 && (
                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0">+{job.tags.length - 3}</Badge>
                     )}
+                </div>
+            )}
+
+            {checklistTotal > 0 && (
+                <div className="flex items-center gap-1 text-[10px] text-zinc-400 dark:text-zinc-500 mb-1 pl-4">
+                    <ListChecks className="h-3 w-3" />
+                    {checklistDone}/{checklistTotal}
                 </div>
             )}
 

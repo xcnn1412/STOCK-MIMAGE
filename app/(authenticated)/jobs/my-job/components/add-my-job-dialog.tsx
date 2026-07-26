@@ -12,9 +12,10 @@ import { Textarea } from '@/components/ui/textarea'
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Loader2, MessageSquare } from 'lucide-react'
-import { createMyJob } from '../actions'
-import type { PersonalSetting } from '../actions'
+import { Loader2, MessageSquare, ListChecks, Plus, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { createMyJob, updateMyJobChecklist } from '../actions'
+import type { ChecklistItem, PersonalSetting } from '../actions'
 import { getMyJobStatuses } from './my-job-kanban-board'
 import { MyCommentThread } from './my-comment-thread'
 import { useLocale } from '@/lib/i18n/context'
@@ -40,6 +41,7 @@ interface AddMyJobDialogProps {
         due_date: string | null
         notes: string | null
         tags: string[]
+        checklist?: ChecklistItem[]
     }
     onUpdate?: (id: string, formData: FormData) => Promise<{ success?: boolean; error?: string }>
     /** When set (admin view), new jobs are created under this user */
@@ -84,6 +86,46 @@ export function AddMyJobDialog({
     const [notes,       setNotes]       = useState(editJob?.notes || '')
     const [tagsInput,   setTagsInput]   = useState((editJob?.tags || []).join(', '))
     const [error,       setError]       = useState('')
+
+    // ---- Checklist (edit mode only) ----
+    const [checklist,      setChecklist]      = useState<ChecklistItem[]>(editJob?.checklist || [])
+    const [checklistInput, setChecklistInput] = useState('')
+
+    // sync local checklist when the dialog opens or the job changes
+    // (adjust-state-during-render pattern — ไม่ใช้ useEffect)
+    const checklistKey = `${editJob?.id ?? ''}:${open}`
+    const [lastChecklistKey, setLastChecklistKey] = useState(checklistKey)
+    if (lastChecklistKey !== checklistKey) {
+        setLastChecklistKey(checklistKey)
+        setChecklist(editJob?.checklist || [])
+        setChecklistInput('')
+    }
+
+    const persistChecklist = (next: ChecklistItem[]) => {
+        setChecklist(next)
+        if (!editJob) return
+        startTransition(async () => {
+            const res = await updateMyJobChecklist(editJob.id, next, targetUserId)
+            if (res?.error) {
+                toast.error(res.error)
+            }
+        })
+    }
+
+    const addChecklistItem = () => {
+        const text = checklistInput.trim()
+        if (!text) return
+        persistChecklist([...checklist, { id: crypto.randomUUID(), text, done: false }])
+        setChecklistInput('')
+    }
+
+    const toggleChecklistItem = (id: string) =>
+        persistChecklist(checklist.map(it => (it.id === id ? { ...it, done: !it.done } : it)))
+
+    const deleteChecklistItem = (id: string) =>
+        persistChecklist(checklist.filter(it => it.id !== id))
+
+    const doneCount = checklist.filter(it => it.done).length
 
     const statuses = getMyJobStatuses(settings, jobType)
 
@@ -141,6 +183,15 @@ export function AddMyJobDialog({
                         <TabsList className="w-full">
                             <TabsTrigger value="details" className="flex-1">
                                 {locale === 'th' ? 'รายละเอียด' : 'Details'}
+                            </TabsTrigger>
+                            <TabsTrigger value="checklist" className="flex-1 gap-1.5">
+                                <ListChecks className="h-3.5 w-3.5" />
+                                {locale === 'th' ? 'เช็กลิสต์' : 'Checklist'}
+                                {checklist.length > 0 && (
+                                    <span className="inline-flex items-center justify-center h-4 px-1.5 rounded-full bg-violet-500 text-white text-[10px] font-bold">
+                                        {doneCount}/{checklist.length}
+                                    </span>
+                                )}
                             </TabsTrigger>
                             <TabsTrigger value="comments" className="flex-1 gap-1.5">
                                 <MessageSquare className="h-3.5 w-3.5" />
@@ -285,6 +336,84 @@ export function AddMyJobDialog({
                     </DialogFooter>
                 </form>
 
+                        </TabsContent>
+
+                        <TabsContent value="checklist" className="mt-4">
+                            <div className="space-y-3">
+                                {/* Progress */}
+                                <div className="space-y-1.5">
+                                    <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                                        {locale === 'th' ? 'เสร็จแล้ว' : 'Done'} {doneCount}/{checklist.length}
+                                    </p>
+                                    <div className="h-1.5 w-full rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full bg-violet-500 transition-all duration-300"
+                                            style={{ width: `${checklist.length ? (doneCount / checklist.length) * 100 : 0}%` }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Items */}
+                                {checklist.length === 0 ? (
+                                    <p className="text-sm text-zinc-400 py-6 text-center">
+                                        {locale === 'th' ? 'ยังไม่มีรายการย่อย — เพิ่มด้านล่างได้เลย' : 'No items yet — add one below'}
+                                    </p>
+                                ) : (
+                                    <ul className="space-y-1">
+                                        {checklist.map(item => (
+                                            <li
+                                                key={item.id}
+                                                className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900/60 transition-colors"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={item.done}
+                                                    onChange={() => toggleChecklistItem(item.id)}
+                                                    className="h-4 w-4 shrink-0 cursor-pointer accent-violet-600"
+                                                />
+                                                <span
+                                                    className={`flex-1 min-w-0 text-sm break-words ${
+                                                        item.done
+                                                            ? 'line-through text-zinc-400 dark:text-zinc-500'
+                                                            : 'text-zinc-800 dark:text-zinc-200'
+                                                    }`}
+                                                >
+                                                    {item.text}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => deleteChecklistItem(item.id)}
+                                                    title={locale === 'th' ? 'ลบ' : 'Delete'}
+                                                    className="p-1 rounded shrink-0 text-zinc-300 hover:text-red-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                                                >
+                                                    <X className="h-3.5 w-3.5" />
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+
+                                {/* Add row */}
+                                <div className="flex items-center gap-2 pt-1">
+                                    <Input
+                                        value={checklistInput}
+                                        onChange={e => setChecklistInput(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') { e.preventDefault(); addChecklistItem() }
+                                        }}
+                                        placeholder={locale === 'th' ? 'เพิ่มรายการย่อย...' : 'Add an item...'}
+                                    />
+                                    <Button
+                                        type="button"
+                                        onClick={addChecklistItem}
+                                        disabled={!checklistInput.trim()}
+                                        className="bg-violet-600 hover:bg-violet-700 text-white shrink-0"
+                                    >
+                                        <Plus className="h-4 w-4" />
+                                        {locale === 'th' ? 'เพิ่ม' : 'Add'}
+                                    </Button>
+                                </div>
+                            </div>
                         </TabsContent>
 
                         <TabsContent value="comments" className="mt-0 p-0">

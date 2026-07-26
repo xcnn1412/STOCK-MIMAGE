@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
     Plus, Search, LayoutGrid, List, Tag, ChevronDown, AlertCircle,
-    Calendar, Palette, Wrench, Ticket as TicketIcon, Briefcase
+    Calendar, Palette, Wrench, Ticket as TicketIcon, Briefcase, AtSign
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -66,15 +66,17 @@ interface JobsDashboardProps {
     jobTypes: JobSetting[]
     tickets: Ticket[]
     ticketCategories: JobSetting[]
+    mentionedTicketIds: string[]
 }
 
-export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets, ticketCategories }: JobsDashboardProps) {
+export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets, ticketCategories, mentionedTicketIds }: JobsDashboardProps) {
     const { locale } = useLocale()
     const searchParams = useSearchParams()
     const router = useRouter()
-    const initialTab = searchParams.get('tab') === 'tickets' ? 'tickets' : 'jobs'
+    const tabParam = searchParams.get('tab')
+    const initialTab = tabParam === 'tickets' ? 'tickets' : tabParam === 'mentioned' ? 'mentioned' : 'jobs'
     const initialCat = searchParams.get('cat') || ticketCategories[0]?.value || ''
-    const [boardMode, setBoardMode] = useState<'jobs' | 'tickets'>(initialTab)
+    const [boardMode, setBoardMode] = useState<'jobs' | 'tickets' | 'mentioned'>(initialTab)
     const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban')
     const [pipelineTab, setPipelineTab] = useState<string>(jobTypes[0]?.value || 'graphic')
     const [ticketCategoryTab, setTicketCategoryTab] = useState<string>(initialCat)
@@ -152,8 +154,15 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
     // ---- Ticket Mode State ----
     const ticketStatuses = useMemo(() => getTicketStatuses(settings), [settings])
 
+    // โหมด "ถูกแท็ก" = ticket board เดิม แต่เห็นเฉพาะ ticket ที่ user ถูก @
+    const baseTickets = useMemo(() => {
+        if (boardMode !== 'mentioned') return tickets
+        const mentioned = new Set(mentionedTicketIds)
+        return tickets.filter(t => mentioned.has(t.id))
+    }, [tickets, boardMode, mentionedTicketIds])
+
     const filteredTickets = useMemo(() => {
-        return tickets.filter(t => {
+        return baseTickets.filter(t => {
             if (search) {
                 const q = search.toLowerCase()
                 if (!t.subject.toLowerCase().includes(q) && !(t.description?.toLowerCase().includes(q))) return false
@@ -161,16 +170,16 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
             if (statusFilter !== 'all' && t.status !== statusFilter) return false
             return true
         })
-    }, [tickets, search, statusFilter])
+    }, [baseTickets, search, statusFilter])
 
     const ticketStats = useMemo(() => {
-        const categoryTickets = tickets.filter(t => t.category === ticketCategoryTab)
+        const categoryTickets = baseTickets.filter(t => t.category === ticketCategoryTab)
         const statusCounts = ticketStatuses.reduce((acc, s) => {
             acc[s] = categoryTickets.filter(t => t.status === s).length
             return acc
         }, {} as Record<string, number>)
         return { statusCounts, total: categoryTickets.length }
-    }, [tickets, ticketCategoryTab, ticketStatuses])
+    }, [baseTickets, ticketCategoryTab, ticketStatuses])
 
     return (
         <div className="space-y-6">
@@ -180,13 +189,17 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                     <h1 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100">
                         {boardMode === 'jobs'
                             ? (locale === 'th' ? 'งาน (Jobs)' : 'Jobs')
-                            : (locale === 'th' ? 'Ticket' : 'Tickets')
+                            : boardMode === 'mentioned'
+                                ? (locale === 'th' ? 'ถูกแท็กถึงฉัน' : 'Mentions')
+                                : (locale === 'th' ? 'Ticket' : 'Tickets')
                         }
                     </h1>
                     <p className="text-sm text-zinc-500 dark:text-zinc-400">
                         {boardMode === 'jobs'
                             ? (locale === 'th' ? 'จัดการงานทุกประเภท' : 'Manage all job types')
-                            : (locale === 'th' ? 'เปิดคำถามและคำร้อง' : 'Open questions and requests')
+                            : boardMode === 'mentioned'
+                                ? (locale === 'th' ? 'Ticket ที่มีคน @ ถึงคุณ' : 'Tickets where you were @mentioned')
+                                : (locale === 'th' ? 'เปิดคำถามและคำร้อง' : 'Open questions and requests')
                         }
                     </p>
                 </div>
@@ -215,6 +228,21 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                             {tickets.filter(t => t.status !== 'closed').length > 0 && (
                                 <Badge className="ml-0.5 bg-violet-100 dark:bg-violet-950 text-violet-600 dark:text-violet-400 text-[10px] px-1.5 py-0 border-0">
                                     {tickets.filter(t => t.status !== 'closed').length}
+                                </Badge>
+                            )}
+                        </button>
+                        <button
+                            onClick={() => { setBoardMode('mentioned'); setStatusFilter('all'); setSearch(''); router.replace(`/jobs?tab=mentioned&cat=${ticketCategoryTab}`, { scroll: false }) }}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${boardMode === 'mentioned'
+                                ? 'bg-white dark:bg-zinc-700 text-fuchsia-600 dark:text-fuchsia-400 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
+                                }`}
+                        >
+                            <AtSign className="h-4 w-4" />
+                            <span className="hidden sm:inline">{locale === 'th' ? 'ถูกแท็ก' : 'Mentions'}</span>
+                            {tickets.filter(t => mentionedTicketIds.includes(t.id) && t.status !== 'closed').length > 0 && (
+                                <Badge className="ml-0.5 bg-fuchsia-100 dark:bg-fuchsia-950 text-fuchsia-600 dark:text-fuchsia-400 text-[10px] px-1.5 py-0 border-0">
+                                    {tickets.filter(t => mentionedTicketIds.includes(t.id) && t.status !== 'closed').length}
                                 </Badge>
                             )}
                         </button>
@@ -392,20 +420,20 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
             )}
 
             {/* ============================================================ */}
-            {/* TICKETS MODE */}
+            {/* TICKETS / MENTIONED MODE */}
             {/* ============================================================ */}
-            {boardMode === 'tickets' && (
+            {(boardMode === 'tickets' || boardMode === 'mentioned') && (
                 <>
                     {/* Ticket Category Filter Chips */}
                     <div className="flex flex-wrap gap-1.5">
                         {ticketCategories.map(cat => {
                             const isActive = ticketCategoryTab === cat.value
                             const catColor = cat.color || '#8b5cf6'
-                            const count = tickets.filter(t => t.category === cat.value && t.status !== 'closed').length
+                            const count = baseTickets.filter(t => t.category === cat.value && t.status !== 'closed').length
                             return (
                                 <button
                                     key={cat.value}
-                                    onClick={() => { setTicketCategoryTab(cat.value); setStatusFilter('all'); router.replace(`/jobs?tab=tickets&cat=${cat.value}`, { scroll: false }) }}
+                                    onClick={() => { setTicketCategoryTab(cat.value); setStatusFilter('all'); router.replace(`/jobs?tab=${boardMode}&cat=${cat.value}`, { scroll: false }) }}
                                     className={`
                                         group flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-semibold
                                         transition-all duration-200 whitespace-nowrap
