@@ -24,6 +24,12 @@ Font.register({
   ],
 })
 
+// THSarabun has no emoji glyphs — render emoji in titles as Twemoji PNGs instead
+Font.registerEmojiSource({
+  format: 'png',
+  url: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/',
+})
+
 // ============================================================================
 // Types
 // ============================================================================
