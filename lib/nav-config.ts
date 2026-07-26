@@ -1,8 +1,8 @@
-import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History, Eye, User } from 'lucide-react'
+import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History, Eye, User, Megaphone } from 'lucide-react'
 
-export type ModuleKey = 'overview' | 'crm' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'jobs' | 'checkin' | 'salesboard' | 'admin'
+export type ModuleKey = 'overview' | 'crm' | 'content' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'jobs' | 'checkin' | 'salesboard' | 'admin'
 
-export const ALL_MODULES: ModuleKey[] = ['overview', 'crm', 'jobs', 'events', 'stock', 'costs', 'finance', 'kpi', 'checkin', 'salesboard']
+export const ALL_MODULES: ModuleKey[] = ['overview', 'crm', 'content', 'jobs', 'events', 'stock', 'costs', 'finance', 'kpi', 'checkin', 'salesboard']
 
 export interface NavItem {
   href: string
@@ -39,6 +39,13 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/crm/payments', icon: CalendarDays, labelKey: 'crmPayments' },
       { href: '/crm/download', icon: Download, labelKey: 'crmDownload' },
       { href: '/crm/archive', icon: Archive, labelKey: 'crmArchive' },
+    ],
+  },
+  {
+    key: 'content',
+    icon: Megaphone,
+    items: [
+      { href: '/content-planner', icon: Megaphone, labelKey: 'contentPlanner', exact: false },
     ],
   },
   {

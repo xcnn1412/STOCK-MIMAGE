@@ -115,7 +115,9 @@ Several module-level design/spec markdowns live at the repo root (`Finance.md`, 
 
 ## Agent Workflow (Plan → Execute → Verify Loop)
 
-Pattern: **Fable5 วางแผน → Opus ลงมือ → Fable5 ตรวจ → ไม่ผ่านวนใหม่ (สูงสุด 5 รอบ)**
+Pattern: **Fable5 วางแผน → Opus 4.8 ลงมือ → Fable5 ตรวจ → ไม่ผ่านวนใหม่ (สูงสุด 5 รอบ)**
+
+> Executor ใช้ **Opus 4.8** — ตอน dispatch ผ่าน Agent tool เลือก tier `opus` ได้เท่านั้น (เลือกเวอร์ชันย่อยตรงๆ ไม่ได้) เวอร์ชันจริงตามที่ session/config ของ Claude Code resolve ให้
 
 ### หลักการสำคัญ (ประหยัด token 50–70% ในงานที่วนหลายรอบ)
 
@@ -134,20 +136,20 @@ Pattern: **Fable5 วางแผน → Opus ลงมือ → Fable5 ตร�
 Fable5: สร้างแผน + acceptance criteria (lock ไว้) → cache
 
 [Loop สูงสุด 5 รอบ]
-Opus:   ลงมือ (รอบแรก = แผนเต็ม / รอบถัดไป = เฉพาะ failures)
+Opus4.8: ลงมือ (รอบแรก = แผนเต็ม / รอบถัดไป = เฉพาะ failures)
 Fable5: ตรวจกับ criteria → JSON {pass, score, passed_ids, failures}
   ┌─ pass = true ───────────→ จบทันที
   ├─ score >= pass_threshold ─→ จบ ("ดีพอ" แม้ไม่ perfect)
   ├─ score ไม่ขยับ 2 รอบติด ──→ จบ คืนผลงานดีสุดที่มี
   ├─ ครบ 5 รอบ ──────────────→ จบ คืนผลงานดีสุด + แจ้งว่าไม่ผ่านครบ
-  └─ ไม่ผ่าน ────────────────→ ส่งเฉพาะ failures กลับ Opus, lock passed_ids (ไม่ตรวจซ้ำ)
+  └─ ไม่ผ่าน ────────────────→ ส่งเฉพาะ failures กลับ Opus 4.8, lock passed_ids (ไม่ตรวจซ้ำ)
 ```
 
 ### Role prompts
 
 **Planner (Fable5 — ครั้งเดียว):** output JSON เท่านั้น `{"plan": [ขั้นตอนย่อยเรียงลำดับ], "acceptance_criteria": [{"id": "AC1", "check": "เกณฑ์วัดได้ ผ่าน/ไม่ผ่านชัดเจน"}], "pass_threshold": 0.85}` — เกณฑ์ต้องวัดได้เป็นข้อเท็จจริง ห้ามคลุมเครือ (❌ "โค้ดควรอ่านง่าย" ✅ "ทุกฟังก์ชันมี docstring") และถูก lock ตลอดทุกรอบ
 
-**Executor (Opus):** รอบแรกรับแผนเต็ม + criteria ทำให้ครบ; รอบ 2+ รับเฉพาะ `{failed_section}` + `{failures}` — แก้เฉพาะจุดที่ตก ห้ามรื้อส่วนที่ผ่านแล้ว ห้าม regenerate ทั้งชิ้น ส่งเฉพาะ delta
+**Executor (Opus 4.8):** รอบแรกรับแผนเต็ม + criteria ทำให้ครบ; รอบ 2+ รับเฉพาะ `{failed_section}` + `{failures}` — แก้เฉพาะจุดที่ตก ห้ามรื้อส่วนที่ผ่านแล้ว ห้าม regenerate ทั้งชิ้น ส่งเฉพาะ delta
 
 **Critic (Fable5):** ตรวจเทียบเกณฑ์ที่ lock เท่านั้น ห้ามเพิ่มเกณฑ์ใหม่ ข้ามส่วนที่ lock แล้ว output JSON เท่านั้น `{"pass": bool, "score": 0.0-1.0, "passed_ids": [...], "failures": [{"loc", "ac_id", "issue"}]}` — issue สั้นที่สุดพอให้ Executor รู้ว่าแก้อะไร; pass=true → failures=[]
 

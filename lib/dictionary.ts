@@ -28,6 +28,8 @@ export const dictionary = {
       settings: 'Settings',
       security: 'Security',
 
+      contentPlanner: 'Content Planner',
+
       finance: 'Finance',
       financeNew: 'New Request',
       financeSettings: 'Settings',
@@ -47,6 +49,7 @@ export const dictionary = {
     },
     navGroups: {
       crm: 'CRM',
+      content: 'Content',
       events: 'Events',
       stock: 'Stock',
 
@@ -293,6 +296,8 @@ export const dictionary = {
       settings: 'ตั้งค่า',
       security: 'ความปลอดภัย',
 
+      contentPlanner: 'แพลนคอนเทนต์',
+
       finance: 'เบิกเงิน',
       financeNew: 'สร้างใบเบิก',
       financeSettings: 'ตั้งค่า',
@@ -312,6 +317,7 @@ export const dictionary = {
     },
     navGroups: {
       crm: 'CRM',
+      content: 'คอนเทนต์',
       events: 'อีเวนต์',
       stock: 'คลังอุปกรณ์',
 

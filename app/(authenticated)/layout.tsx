@@ -63,13 +63,16 @@ export default async function AuthenticatedLayout({
     worldcupTeam = (wcPick?.team as string) ?? null
   }
 
-  // Admin always gets admin + overview module access
+  // Admin always gets admin + overview + content module access
   if (role === 'admin') {
     if (!allowedModules.includes('admin')) {
       allowedModules = [...allowedModules, 'admin']
     }
     if (!allowedModules.includes('overview')) {
       allowedModules = [...allowedModules, 'overview']
+    }
+    if (!allowedModules.includes('content')) {
+      allowedModules = [...allowedModules, 'content']
     }
   }
 

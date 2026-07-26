@@ -113,6 +113,10 @@ export type ActionType =
     | 'DELETE_TICKET'
     | 'ARCHIVE_TICKET'
     | 'UNARCHIVE_TICKET'
+    // Content Planner Module
+    | 'CREATE_CONTENT_POST'
+    | 'UPDATE_CONTENT_POST'
+    | 'DELETE_CONTENT_POST'
     // Event ↔ CRM Linking
     | 'LINK_EVENT_TO_CRM'
     | 'UNLINK_EVENT_FROM_CRM'

@@ -10,6 +10,7 @@ const MODULE_ROUTES: Record<string, string[]> = {
   kpi: ['/kpi'],
   costs: ['/costs'],
   crm: ['/crm'],
+  content: ['/content-planner'],
   finance: ['/finance'],
   salesboard: ['/sales-board'],
   admin: ['/logs', '/users', '/security'],
@@ -146,6 +147,10 @@ export async function proxy(request: NextRequest) {
           // Admins always see the sales board (same auto-grant pattern as 'admin')
           if (data.role === 'admin' && !allowedModules.includes('salesboard')) {
             allowedModules = [...allowedModules, 'salesboard']
+          }
+          // Admins always see the content planner
+          if (data.role === 'admin' && !allowedModules.includes('content')) {
+            allowedModules = [...allowedModules, 'content']
           }
         }
       }
