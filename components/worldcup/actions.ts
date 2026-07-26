@@ -2,7 +2,7 @@
 
 // WORLDCUP 2026 (temporary feature) — delete this folder after the tournament.
 
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { revalidatePath } from 'next/cache'
@@ -28,4 +28,25 @@ export async function saveWorldCupPick(team: string) {
   await logActivity('WORLDCUP_PICK', { team })
   revalidatePath('/', 'layout')
   return { success: true }
+}
+
+// Results summary for the post-tournament popup — every user's pick, oldest first.
+export async function getWorldCupResults() {
+  const session = await getSessionLight()
+  if (!session) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('worldcup_predictions')
+    .select('team, created_at, profiles(full_name)')
+    .order('created_at', { ascending: true })
+  if (error) return { error: error.message }
+
+  return {
+    rows: (data ?? []).map(r => ({
+      team: r.team as string,
+      createdAt: r.created_at as string,
+      name: ((r.profiles as unknown as { full_name?: string } | null)?.full_name) || '—',
+    })),
+  }
 }
