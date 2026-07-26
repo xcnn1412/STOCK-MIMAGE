@@ -234,7 +234,8 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
             <nav className={`flex-1 overflow-y-auto py-3 ${collapsed && !isMobile ? 'px-1.5' : 'px-3'} space-y-4`}
                 style={{ scrollbarWidth: 'thin' }}
             >
-                {/* Featured: Sales Board — เห็นได้ทุก user (ไม่ผูก module key) */}
+                {/* Featured: Sales Board — เฉพาะผู้ได้รับสิทธิ์ module 'salesboard' (admin เห็นเสมอ) */}
+                {(role === 'admin' || allowedModules.includes('salesboard')) && (
                 <Link
                     href="/sales-board"
                     onClick={isMobile ? closeMobile : undefined}
@@ -261,6 +262,7 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
                     <Trophy className="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-12 group-hover:drop-shadow-[0_0_6px_rgba(245,158,11,0.7)]" />
                     {(!collapsed || isMobile) && <span className="truncate">สรุปยอดขาย</span>}
                 </Link>
+                )}
 
                 {visibleGroups.map(group => (
                     <SidebarGroup

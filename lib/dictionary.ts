@@ -56,6 +56,7 @@ export const dictionary = {
       jobs: 'Jobs',
       checkin: 'Check-in',
       overview: 'Overview',
+      salesboard: 'Sales Board',
       admin: 'Admin',
     },
     common: {
@@ -320,6 +321,7 @@ export const dictionary = {
       jobs: 'งาน',
       checkin: 'เช็คอิน',
       overview: 'ภาพรวม',
+      salesboard: 'สรุปยอดขาย',
       admin: 'ผู้ดูแล',
     },
     common: {

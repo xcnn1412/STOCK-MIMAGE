@@ -24,8 +24,7 @@ async function fetchAll(table: string, cols: string, filter?: (q: any) => any) {
   return rows
 }
 
-// หน้านี้อยู่ใต้ (authenticated) → ผ่าน session gate แล้ว และไม่อยู่ใน MODULE_ROUTES
-// ของ proxy.ts → ทุก user ที่ล็อกอินเข้าถึงได้ (ตามที่ขอ: ทุก user ใช้งานได้)
+// เข้าได้เฉพาะผู้มี module 'salesboard' (admin เข้าได้เสมอ) — บังคับที่ proxy.ts MODULE_ROUTES
 export default async function SalesBoardPage() {
   const [leads, claims, installments, jobEvents, costItems, targetRows, settings, statusActs] = await Promise.all([
     fetchAll('crm_leads', 'id, status, customer_name, confirmed_price, quoted_price, deposit, vat_mode, wht_rate, event_date, created_at, assigned_sales, package_name, work_type'),
