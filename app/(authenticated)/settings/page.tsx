@@ -1,6 +1,7 @@
 import { getFinanceCategories, getAllCategoryItems, getStaffProfiles } from '@/app/(authenticated)/finance/settings-actions'
 import { getCrmSettings } from '@/app/(authenticated)/crm/actions'
 import { getStaffRoleRates, getAutoCalcSettings } from '@/app/(authenticated)/finance/rate-config-actions'
+import { getMetaTokenStatus } from '@/app/(authenticated)/content-planner/actions'
 import SettingsView from './settings-view'
 
 export const revalidate = 0
@@ -11,13 +12,14 @@ export const metadata = {
 }
 
 export default async function SettingsPage() {
-  const [categories, categoryItems, staffProfiles, { data: crmSettings }, roleRates, autoCalcSettings] = await Promise.all([
+  const [categories, categoryItems, staffProfiles, { data: crmSettings }, roleRates, autoCalcSettings, metaToken] = await Promise.all([
     getFinanceCategories(false), // include inactive
     getAllCategoryItems(),
     getStaffProfiles(),
     getCrmSettings(),
     getStaffRoleRates(),
     getAutoCalcSettings(),
+    getMetaTokenStatus(),
   ])
 
   return (
@@ -28,6 +30,7 @@ export default async function SettingsPage() {
       crmSettings={(crmSettings as any[]) || []}
       roleRates={roleRates}
       autoCalcSettings={autoCalcSettings}
+      metaToken={metaToken}
     />
   )
 }

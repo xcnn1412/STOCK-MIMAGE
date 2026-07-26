@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { logActivity } from '@/lib/logger'
 import { PLATFORM_PREFIX, type ContentPost, type PlatformKey } from './constants'
+import { fetchMetricsForUrl, getMetaToken, META_TOKEN_KEY, ERR_TIKTOK, type FetchedMetrics } from './metrics-lib'
 
 // ============================================================================
 // Session — ทุกคนที่ล็อกอินใช้ได้ (proxy.ts กันสิทธิ์ระดับโมดูล 'content' ให้แล้ว)
@@ -253,6 +254,79 @@ export async function updateContentPostStatus(id: string, status: string) {
 
   revalidatePath('/content-planner')
   return { success: true }
+}
+
+// ============================================================================
+// ดึงผลลัพธ์อัตโนมัติจากแพลตฟอร์ม (TikTok = ขูดหน้าเพจ / FB+IG = Meta Graph API)
+// ============================================================================
+
+/** สถานะการเชื่อมต่อ Meta (admin เท่านั้น) — ไม่ส่ง token เต็มกลับไป client */
+export async function getMetaTokenStatus(): Promise<{ connected: boolean; hint: string | null }> {
+  const { role } = await getSession()
+  if (role !== 'admin') return { connected: false, hint: null }
+  const token = await getMetaToken()
+  return { connected: !!token, hint: token ? `…${token.slice(-4)}` : null }
+}
+
+/** บันทึก/ลบ Meta token (admin เท่านั้น) — ส่งค่าว่างเพื่อลบ */
+export async function saveMetaToken(token: string) {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
+
+  const supabase = createServiceClient()
+  const cleaned = token.trim()
+  const { error } = cleaned
+    ? await supabase.from('app_settings').upsert({ key: META_TOKEN_KEY, value: cleaned, updated_at: new Date().toISOString() })
+    : await supabase.from('app_settings').delete().eq('key', META_TOKEN_KEY)
+  if (error) return { error: `บันทึกไม่สำเร็จ: ${error.message} (ตรวจว่ารัน migration app_settings แล้ว)` }
+
+  await logActivity('UPDATE_CONTENT_POST', { setting: 'meta_token', action: cleaned ? 'saved' : 'removed' })
+  return { success: true }
+}
+/** ดึงยอดจากแพลตฟอร์มมาเติมช่อง "ผลลัพธ์" ให้อัตโนมัติ (ยังแก้ตัวเลขเองทับได้ตามปกติ) */
+export async function fetchPostMetrics(id: string): Promise<{
+  success?: boolean
+  error?: string
+  metrics?: FetchedMetrics
+  fetchedAt?: string
+}> {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+  const { data: post, error } = await supabase
+    .from('content_posts')
+    .select('id, post_code, platform, post_url')
+    .eq('id', id)
+    .single()
+  if (error || !post) return { error: 'ไม่พบโพสต์นี้' }
+
+  const url = String(post.post_url || '').trim()
+  if (!url) return { error: 'กรอกลิงก์โพสต์ในหมวด "เผยแพร่" ก่อน แล้วค่อยดึงผลอัตโนมัติ' }
+
+  const result = await fetchMetricsForUrl(post.platform, url)
+  if (result.error || !result.metrics) return { error: result.error || ERR_TIKTOK }
+
+  const metrics = result.metrics
+  const fetched = Object.keys(metrics) as (keyof FetchedMetrics)[]
+  const fetchedAt = new Date().toISOString()
+
+  // อัปเดตเฉพาะคอลัมน์ที่ดึงมาได้จริง — ตัวที่ดึงไม่ได้คงค่าที่ผู้ใช้กรอกไว้เดิม
+  const updates: Record<string, unknown> = { metrics_fetched_at: fetchedAt, updated_at: fetchedAt }
+  for (const k of fetched) updates[k] = metrics[k]
+
+  const { error: updateError } = await supabase.from('content_posts').update(updates).eq('id', id)
+  if (updateError) return { error: updateError.message }
+
+  await logActivity('UPDATE_CONTENT_POST', {
+    id,
+    post_code: post.post_code,
+    auto_metrics: true,
+    fetched,
+  })
+
+  revalidatePath('/content-planner')
+  return { success: true, metrics, fetchedAt }
 }
 
 export async function deleteContentPost(id: string) {

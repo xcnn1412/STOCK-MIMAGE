@@ -1,16 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { Settings, ContactRound, Banknote, ChevronRight, Calculator } from 'lucide-react'
+import { Settings, ContactRound, Banknote, ChevronRight, Calculator, Megaphone } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import FinanceSettingsView from '@/app/(authenticated)/finance/settings/finance-settings-view'
 import CrmSettingsView from '@/app/(authenticated)/crm/settings/settings-view'
 import RateConfigView from '@/app/(authenticated)/finance/settings/rate-config-view'
+import MetaTokenSettings from '@/app/(authenticated)/content-planner/meta-token-settings'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
 import type { CrmSetting } from '@/app/(authenticated)/crm/crm-dashboard'
 import type { StaffRoleRate, AutoCalcSetting } from '@/app/(authenticated)/finance/rate-config-actions'
 
-type SettingsSection = 'finance' | 'rate_config' | 'crm'
+type SettingsSection = 'finance' | 'rate_config' | 'crm' | 'content'
 
 const sections: {
   key: SettingsSection
@@ -44,6 +45,14 @@ const sections: {
     activeText: 'text-blue-700 dark:text-blue-300',
     activeBg: 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800',
   },
+  {
+    key: 'content',
+    icon: Megaphone,
+    gradient: 'from-fuchsia-500 to-pink-600',
+    shadow: 'shadow-fuchsia-500/25',
+    activeText: 'text-fuchsia-700 dark:text-fuchsia-300',
+    activeBg: 'bg-fuchsia-50/80 dark:bg-fuchsia-950/40 border-fuchsia-200 dark:border-fuchsia-800',
+  },
 ]
 
 const labels = {
@@ -56,6 +65,8 @@ const labels = {
     rate_configDesc: 'Staff pay rates & auto-calculation per role',
     crm: 'CRM',
     crmDesc: 'Packages, customer types, and lead sources',
+    content: 'Content (Meta API)',
+    contentDesc: 'Token for auto-fetching FB/IG post metrics',
   },
   th: {
     title: 'ตั้งค่าระบบ',
@@ -66,6 +77,8 @@ const labels = {
     rate_configDesc: 'อัตราค่าจ้าง & คำนวณอัตโนมัติตามหน้าที่',
     crm: 'CRM',
     crmDesc: 'แพ็กเกจ, ประเภทลูกค้า, แหล่งที่มา',
+    content: 'คอนเทนต์ (Meta API)',
+    contentDesc: 'Token สำหรับดึงผลโพสต์ FB/IG อัตโนมัติ',
   },
 }
 
@@ -76,9 +89,10 @@ interface Props {
   crmSettings: CrmSetting[]
   roleRates: StaffRoleRate[]
   autoCalcSettings: AutoCalcSetting[]
+  metaToken: { connected: boolean; hint: string | null }
 }
 
-export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, roleRates, autoCalcSettings }: Props) {
+export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, roleRates, autoCalcSettings, metaToken }: Props) {
   const { locale } = useLocale()
   const t = labels[locale] || labels.th
   const [activeSection, setActiveSection] = useState<SettingsSection>('finance')
@@ -97,7 +111,7 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
       </div>
 
       {/* Section Selector Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {sections.map(section => {
           const Icon = section.icon
           const isActive = activeSection === section.key
@@ -167,6 +181,11 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
         {activeSection === 'crm' && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
             <CrmSettingsView settings={crmSettings} />
+          </div>
+        )}
+        {activeSection === 'content' && (
+          <div className="animate-in fade-in slide-in-from-right-2 duration-300">
+            <MetaTokenSettings connected={metaToken.connected} hint={metaToken.hint} />
           </div>
         )}
       </div>

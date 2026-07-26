@@ -192,6 +192,8 @@ export interface ContentPost {
   comments: number | null
   shares: number | null
   saves: number | null
+  /** เวลาที่ดึงผลลัพธ์อัตโนมัติจากแพลตฟอร์มล่าสุด (null = ยังไม่เคยดึง) */
+  metrics_fetched_at: string | null
   note: string | null
   created_by: string | null
   created_at: string

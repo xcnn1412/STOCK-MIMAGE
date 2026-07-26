@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Pencil, Trash2, Megaphone, Loader2, ExternalLink, Copy, Check } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Megaphone, Loader2, ExternalLink, Copy, Check, List, CalendarDays, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -19,7 +19,7 @@ import {
 } from './constants'
 import {
   createContentPost, updateContentPost, updateContentPostStatus, deleteContentPost,
-  uploadContentExampleImages,
+  uploadContentExampleImages, fetchPostMetrics,
 } from './actions'
 import { compressImage } from '@/lib/utils'
 
@@ -41,6 +41,16 @@ function thaiDate(d: string | null): string {
   const dt = new Date(d + 'T00:00:00Z')
   if (isNaN(dt.getTime())) return d
   return dt.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'UTC' })
+}
+
+/** วันที่+เวลาแบบไทย สำหรับ timestamp เต็ม (เช่น เวลาที่ดึงผลอัตโนมัติล่าสุด) */
+function thaiDateTime(iso: string | null): string {
+  if (!iso) return ''
+  const dt = new Date(iso)
+  if (isNaN(dt.getTime())) return iso
+  return dt.toLocaleString('th-TH', {
+    day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit',
+  })
 }
 
 /** ผลลัพธ์แบบย่อสำหรับตาราง — Reach/Views บรรทัดบน, ยอดมีส่วนร่วมรวมบรรทัดล่าง */
@@ -104,6 +114,12 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
   const [platform, setPlatform] = useState<PlatformKey>('facebook')
   const [statusFilter, setStatusFilter] = useState<StatusKey | 'all'>('all')
   const [search, setSearch] = useState('')
+  // มุมมอง: ตาราง (แยกแพลตฟอร์ม) / ปฏิทิน (ภาพรวมทุกแพลตฟอร์มตามวันโพสต์)
+  const [mode, setMode] = useState<'table' | 'calendar'>('table')
+  const [calMonth, setCalMonth] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<ContentPost | null>(null)
@@ -213,15 +229,46 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
             </p>
           </div>
         </div>
-        <Button
-          onClick={openCreate}
-          className="bg-violet-600 hover:bg-violet-700 text-white shrink-0"
-        >
-          <Plus className="h-4 w-4" />
-          เพิ่มโพสต์
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Table / Calendar toggle */}
+          <div className="flex items-center gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
+            <button
+              onClick={() => setMode('table')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all ${mode === 'table'
+                ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
+                : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
+                }`}
+            >
+              <List className="h-4 w-4" />
+              <span className="hidden sm:inline">ตาราง</span>
+            </button>
+            <button
+              onClick={() => setMode('calendar')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all ${mode === 'calendar'
+                ? 'bg-white text-violet-600 shadow-sm dark:bg-zinc-700 dark:text-violet-400'
+                : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
+                }`}
+            >
+              <CalendarDays className="h-4 w-4" />
+              <span className="hidden sm:inline">ปฏิทิน</span>
+            </button>
+          </div>
+          <Button
+            onClick={openCreate}
+            className="bg-violet-600 hover:bg-violet-700 text-white shrink-0"
+          >
+            <Plus className="h-4 w-4" />
+            เพิ่มโพสต์
+          </Button>
+        </div>
       </div>
 
+      {/* ---------------- Calendar mode: ภาพรวมทุกแพลตฟอร์มตามวันโพสต์ ---------------- */}
+      {mode === 'calendar' && (
+        <CalendarView posts={posts} month={calMonth} onMonthChange={setCalMonth} onOpen={openView} />
+      )}
+
+      {mode === 'table' && (<>
       {/* ---------------- Platform tabs ---------------- */}
       <div className="flex flex-wrap gap-2">
         {PLATFORMS.map(pf => {
@@ -439,6 +486,7 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
           </div>
         </>
       )}
+      </>)}
 
       {/* ---------------- Dialog ---------------- */}
       <PostDialog
@@ -461,6 +509,151 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
 // ============================================================================
 
 type FormState = Record<string, string>
+
+// ============================================================================
+// Calendar view — ภาพรวมโพสต์ทุกแพลตฟอร์มตามวันโพสต์ (คลิกชิพเพื่อเปิดดู)
+// ============================================================================
+
+const CAL_DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']
+const CAL_PREFIX: Record<string, string> = { facebook: 'FB', instagram: 'IG', tiktok: 'TT' }
+
+function CalendarView({ posts, month, onMonthChange, onOpen }: {
+  posts: ContentPost[]
+  month: string // YYYY-MM
+  onMonthChange: (m: string) => void
+  onOpen: (p: ContentPost) => void
+}) {
+  const [y, m] = month.split('-').map(Number)
+  const first = new Date(y, m - 1, 1)
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const now = new Date()
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+  const shift = (delta: number) => {
+    const d = new Date(y, m - 1 + delta, 1)
+    onMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, ContentPost[]>()
+    for (const p of posts) {
+      if (!p.post_date) continue
+      const list = map.get(p.post_date) || []
+      list.push(p)
+      map.set(p.post_date, list)
+    }
+    // เรียงในวันตามเวลาโพสต์
+    for (const list of map.values()) list.sort((a, b) => (a.post_time || '99').localeCompare(b.post_time || '99'))
+    return map
+  }, [posts])
+
+  const noDateCount = useMemo(() => posts.filter(p => !p.post_date).length, [posts])
+
+  // จำนวนโพสต์ต่อสถานะ เฉพาะเดือนที่แสดงอยู่ (ตรงกับที่เห็นในปฏิทิน)
+  const monthStatusCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const p of posts) {
+      if (p.post_date?.startsWith(month)) counts[p.status] = (counts[p.status] || 0) + 1
+    }
+    return counts
+  }, [posts, month])
+
+  const cells: (number | null)[] = [
+    ...Array<null>(first.getDay()).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ]
+  while (cells.length % 7 !== 0) cells.push(null)
+
+  const monthLabel = first.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })
+
+  return (
+    <div className="space-y-3">
+      {/* Month nav + legend */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1">
+          <button onClick={() => shift(-1)} className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="เดือนก่อน">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="min-w-36 text-center text-sm font-bold text-zinc-900 dark:text-zinc-100">{monthLabel}</span>
+          <button onClick={() => shift(1)} className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="เดือนถัดไป">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => onMonthChange(todayStr.slice(0, 7))}
+            className="ml-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            วันนี้
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {STATUSES.map(st => (
+            <span key={st.value} className="inline-flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+              <span className={`h-2 w-2 rounded-full ${statusStyle(st.value).dot}`} />
+              {st.th} <span className="font-bold">({monthStatusCounts[st.value] || 0})</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Grid — จอเล็กเลื่อนซ้ายขวาแทนการบีบคอลัมน์ */}
+      <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="min-w-[760px]">
+          <div className="grid grid-cols-7 border-b border-zinc-100 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/40">
+            {CAL_DOW.map(d => (
+              <div key={d} className="px-2 py-2 text-center text-[11px] font-semibold text-zinc-400 dark:text-zinc-500">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7">
+            {cells.map((day, i) => {
+              const dateStr = day ? `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}` : ''
+              const dayPosts = day ? (byDate.get(dateStr) || []) : []
+              const isToday = dateStr === todayStr
+              return (
+                <div
+                  key={i}
+                  className={`min-h-24 border-b border-r border-zinc-100 p-1.5 last:border-r-0 dark:border-zinc-800 ${day ? '' : 'bg-zinc-50/60 dark:bg-zinc-800/20'} ${isToday ? 'bg-violet-50/60 dark:bg-violet-950/20' : ''}`}
+                >
+                  {day && (
+                    <>
+                      <div className={`mb-1 text-right text-[11px] font-semibold ${isToday
+                        ? 'text-violet-600 dark:text-violet-400'
+                        : 'text-zinc-400 dark:text-zinc-500'}`}
+                      >
+                        {isToday ? <span className="rounded-full bg-violet-600 px-1.5 py-0.5 text-white dark:bg-violet-500">{day}</span> : day}
+                      </div>
+                      <div className="space-y-1">
+                        {dayPosts.map(p => {
+                          const s = statusStyle(p.status)
+                          return (
+                            <button
+                              key={p.id}
+                              onClick={() => onOpen(p)}
+                              title={`${p.post_code} · ${statusLabel(p.status)}${p.post_time ? ` · ${p.post_time}` : ''}${p.page ? ` · ${p.page}` : ''}`}
+                              className={`block w-full truncate rounded-md border px-1.5 py-1 text-left text-[10px] font-medium leading-tight transition-opacity hover:opacity-75 ${s.badge}`}
+                            >
+                              <span className="font-bold">{CAL_PREFIX[p.platform] || '?'}</span>
+                              {' '}{p.topic || p.post_code}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {noDateCount > 0 && (
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+          มีอีก {noDateCount} โพสต์ที่ยังไม่กำหนดวันโพสต์ — ไม่แสดงในปฏิทิน (ดูได้ในมุมมองตาราง)
+        </p>
+      )}
+    </div>
+  )
+}
 
 function emptyForm(platform: PlatformKey): FormState {
   return {
@@ -490,11 +683,12 @@ function formFromPost(p: ContentPost): FormState {
   }
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function SectionTitle({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 pt-1">
-      <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{children}</h3>
+      <h3 className="shrink-0 text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{children}</h3>
       <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+      {action}
     </div>
   )
 }
@@ -551,6 +745,9 @@ function PostDialog({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  // ดึงผลอัตโนมัติ — เวลาที่ดึงล่าสุด เริ่มจากค่าที่บันทึกไว้ใน DB
+  const [fetchingMetrics, setFetchingMetrics] = useState(false)
+  const [metricsFetchedAt, setMetricsFetchedAt] = useState<string | null>(post?.metrics_fetched_at ?? null)
   // เปิดจากการคลิกแถว = ดูอย่างเดียว จนกว่าจะกดปุ่มดินสอ (parent remount ผ่าน key เมื่อโหมดเปลี่ยน)
   const [viewing, setViewing] = useState(!!startInView && !!post)
 
@@ -571,6 +768,28 @@ function PostDialog({
     setUploading(false)
     if (res.error) { setError(res.error); return }
     set('example_images', JSON.stringify([...exampleImages, ...res.urls].slice(0, 12)))
+  }
+
+  // ดึงยอดจากแพลตฟอร์มมาเติมช่องผลลัพธ์ — ล้มเหลวก็ไม่แตะฟอร์ม แค่ขึ้นข้อความ
+  async function handleFetchMetrics() {
+    if (!post) return
+    setFetchingMetrics(true)
+    setError(null)
+    const res = await fetchPostMetrics(post.id)
+    setFetchingMetrics(false)
+    if (res?.error || !res?.metrics) {
+      setError(res?.error || 'ดึงผลอัตโนมัติไม่สำเร็จ — กรอกตัวเลขเองได้ตามเดิม')
+      return
+    }
+    const metrics = res.metrics
+    setForm(prev => {
+      const next = { ...prev }
+      for (const [k, v] of Object.entries(metrics)) {
+        if (v !== null && v !== undefined) next[k] = String(v)
+      }
+      return next
+    })
+    if (res.fetchedAt) setMetricsFetchedAt(res.fetchedAt)
   }
 
   function removeExampleImage(url: string) {
@@ -820,8 +1039,29 @@ function PostDialog({
           </Field>
 
           {/* ---------- 6) ผลลัพธ์ ---------- */}
-          <SectionTitle>ผลลัพธ์</SectionTitle>
-          <p className="-mt-2 text-xs text-zinc-400 dark:text-zinc-500">กรอกหลังโพสต์ 24–48 ชม.</p>
+          <SectionTitle
+            action={isEdit && !viewing ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleFetchMetrics}
+                disabled={fetchingMetrics}
+                className="h-7 shrink-0 gap-1.5 px-2.5 text-[11px] font-medium"
+              >
+                {fetchingMetrics
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <RefreshCw className="h-3.5 w-3.5" />}
+                ดึงผลอัตโนมัติ
+              </Button>
+            ) : undefined}
+          >
+            ผลลัพธ์
+          </SectionTitle>
+          <p className="-mt-2 text-xs text-zinc-400 dark:text-zinc-500">
+            กรอกหลังโพสต์ 24–48 ชม.
+            {metricsFetchedAt && <span className="ml-2">· อัปเดตล่าสุด {thaiDateTime(metricsFetchedAt)}</span>}
+          </p>
           <div className="grid grid-cols-3 gap-3">
             {([
               ['reach', 'Reach'],
