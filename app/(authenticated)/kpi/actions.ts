@@ -418,11 +418,11 @@ export async function submitSelfEvaluation(formData: FormData) {
 
   await logActivity('SUBMIT_SELF_EVALUATION', { assignment_id, score, actual_value, difference, achievement_pct })
 
-  // ── Notification: แจ้ง Admin ทุกคนว่า Staff ประเมินตัวเอง ──
+  // ── Notification: แจ้งเฉพาะ admin ผู้มอบหมาย KPI นั้น (fallback: admin ทุกคน) ──
   try {
     const { data: selfAssignment } = await supabase
       .from('kpi_assignments')
-      .select('kpi_templates(name), custom_name')
+      .select('created_by, kpi_templates(name), custom_name')
       .eq('id', assignment_id)
       .single()
 
@@ -432,17 +432,21 @@ export async function submitSelfEvaluation(formData: FormData) {
       .eq('id', userId!)
       .single()
 
-    const { data: admins } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'admin')
-      .eq('is_approved', true)
+    let recipientIds: string[] = (selfAssignment as any)?.created_by ? [(selfAssignment as any).created_by] : []
+    if (recipientIds.length === 0) {
+      const { data: admins } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin')
+        .eq('is_approved', true)
+      recipientIds = (admins || []).map(a => a.id)
+    }
 
-    if (admins && admins.length > 0) {
+    if (recipientIds.length > 0) {
       const kpiName = (selfAssignment as any)?.kpi_templates?.name || (selfAssignment as any)?.custom_name || 'KPI'
       const staffName = selfUser?.full_name || 'พนักงาน'
       await createNotifications({
-        userIds: admins.map(a => a.id),
+        userIds: recipientIds,
         type: 'kpi_self_evaluated',
         title: `${staffName} ประเมินตัวเอง: ${kpiName}`,
         body: comment || `ค่าจริง: ${actual_value}, คะแนน: ${score}`,

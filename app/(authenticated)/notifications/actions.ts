@@ -2,6 +2,7 @@
 
 import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
+import { CATEGORY_PREFIXES, type NotificationCategory } from '@/components/notification-category'
 
 // ============================================================================
 // Notification Actions — สำหรับ frontend
@@ -74,16 +75,24 @@ export async function markAsRead(id: string) {
   return { success: true }
 }
 
-export async function markAllAsRead() {
+/** อ่านทั้งหมด — ระบุ category เพื่อเคลียร์เฉพาะหมวดนั้น (เช่นตอนกรองหมวดอยู่) */
+export async function markAllAsRead(category?: NotificationCategory) {
   const { userId } = await getSessionLight()
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
-  const { error } = await supabase
+  let query = supabase
     .from('notifications')
     .update({ is_read: true, read_at: new Date().toISOString() })
     .eq('user_id', userId)
     .eq('is_read', false)
+
+  if (category && category !== 'other') {
+    const prefixes = CATEGORY_PREFIXES[category]
+    query = query.or(prefixes.map(p => `type.like.${p}%`).join(','))
+  }
+
+  const { error } = await query
 
   if (error) return { error: error.message }
   return { success: true }

@@ -6,28 +6,10 @@ import { Bell, CheckCheck, Check, ArrowLeft, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getNotifications, markAsRead, markAllAsRead, type NotificationItem } from './actions'
-
-// ============================================================================
-// Type → icon + color
-// ============================================================================
-
-const TYPE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
-  job_assigned:         { icon: '⭐', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'งานใหม่' },
-  job_status_changed:   { icon: '🔄', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',         label: 'สถานะงาน' },
-  job_mentioned:        { icon: '📣', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400', label: 'ถูกแท็ก' },
-  job_comment:          { icon: '💬', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',             label: 'ความคิดเห็น' },
-  ticket_assigned:      { icon: '🎫', color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400', label: 'Ticket ใหม่' },
-  ticket_reply:         { icon: '📝', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',         label: 'ตอบกลับ' },
-  ticket_status_changed:{ icon: '🔔', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',         label: 'สถานะ Ticket' },
-  expense_approved:     { icon: '✅', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'อนุมัติแล้ว' },
-  expense_rejected:     { icon: '❌', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',             label: 'ถูกปฏิเสธ' },
-  kpi_evaluated:        { icon: '📊', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400', label: 'ผลประเมิน KPI' },
-  kpi_self_evaluated:   { icon: '📝', color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400', label: 'ประเมินตัวเอง' },
-  kpi_evaluation_reply: { icon: '💬', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400', label: 'ตอบกลับ KPI' },
-  crm_mentioned:        { icon: '📍', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', label: 'ถูกแท็กใน CRM' },
-}
-
-const DEFAULT_TYPE = { icon: '🔔', color: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400', label: 'การแจ้งเตือน' }
+import {
+  categoryOf, CATEGORY_LABELS, CATEGORY_ORDER, type NotificationCategory,
+  TYPE_CONFIG, DEFAULT_TYPE_CONFIG, DAY_ORDER, DAY_LABELS, dayGroupOf,
+} from '@/components/notification-category'
 
 // ============================================================================
 // URL mapping
@@ -37,7 +19,7 @@ function getUrl(item: NotificationItem): string {
   switch (item.reference_type) {
     case 'job':           return `/jobs/${item.reference_id}`
     case 'ticket':        return `/jobs/tickets/${item.reference_id}`
-    case 'expense_claim': return `/finance`
+    case 'expense_claim': return `/finance/${item.reference_id}`
     case 'kpi_evaluation':return `/kpi/reports`
     case 'crm_lead':      return `/crm/${item.reference_id}`
     default:              return '/dashboard'
@@ -69,6 +51,7 @@ export default function NotificationsPage() {
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
+  const [category, setCategory] = useState<NotificationCategory | 'all'>('all')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -87,13 +70,28 @@ export default function NotificationsPage() {
     router.push(getUrl(item))
   }
 
+  // กรองหมวดอยู่ = เคลียร์เฉพาะหมวดนั้น
   const handleMarkAll = async () => {
-    await markAllAsRead()
-    setItems(prev => prev.map(n => ({ ...n, is_read: true })))
+    await markAllAsRead(category === 'all' ? undefined : category)
+    setItems(prev => prev.map(n =>
+      category === 'all' || categoryOf(n.type) === category ? { ...n, is_read: true } : n
+    ))
   }
 
-  const displayed = filter === 'unread' ? items.filter(n => !n.is_read) : items
+  const displayed = items.filter(n =>
+    (filter === 'all' || !n.is_read) &&
+    (category === 'all' || categoryOf(n.type) === category)
+  )
   const unreadCount = items.filter(n => !n.is_read).length
+
+  // แสดงเฉพาะหมวดที่มีรายการจริง + จำนวนที่ยังไม่อ่านของหมวดนั้น
+  const availableCategories = CATEGORY_ORDER
+    .filter(c => items.some(n => categoryOf(n.type) === c))
+    .map(c => ({ key: c, unread: items.filter(n => !n.is_read && categoryOf(n.type) === c).length }))
+
+  const groups = DAY_ORDER
+    .map(g => ({ key: g, rows: displayed.filter(n => dayGroupOf(n.created_at) === g) }))
+    .filter(g => g.rows.length > 0)
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
@@ -119,12 +117,13 @@ export default function NotificationsPage() {
         {unreadCount > 0 && (
           <Button variant="outline" size="sm" onClick={handleMarkAll} className="gap-1.5 text-xs">
             <CheckCheck className="h-3.5 w-3.5" />
-            อ่านทั้งหมด
+            {category === 'all' ? 'อ่านทั้งหมด' : `อ่านหมวด${CATEGORY_LABELS[category]}`}
           </Button>
         )}
       </div>
 
-      {/* Filter tabs */}
+      {/* Filter tabs + category chips */}
+      <div className="flex flex-wrap items-center gap-3">
       <div className="flex gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg w-fit">
         {(['all', 'unread'] as const).map(f => (
           <button
@@ -139,6 +138,34 @@ export default function NotificationsPage() {
             {f === 'all' ? 'ทั้งหมด' : `ยังไม่อ่าน${unreadCount > 0 ? ` (${unreadCount})` : ''}`}
           </button>
         ))}
+      </div>
+
+        {/* Category chips */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            onClick={() => setCategory('all')}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              category === 'all'
+                ? 'bg-zinc-900 text-white border-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 dark:border-zinc-100'
+                : 'bg-white text-zinc-500 border-zinc-200 hover:text-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:border-zinc-700 dark:hover:text-zinc-200'
+            }`}
+          >
+            ทั้งหมด
+          </button>
+          {availableCategories.map(c => (
+            <button
+              key={c.key}
+              onClick={() => setCategory(c.key)}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                category === c.key
+                  ? 'bg-zinc-900 text-white border-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 dark:border-zinc-100'
+                  : 'bg-white text-zinc-500 border-zinc-200 hover:text-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:border-zinc-700 dark:hover:text-zinc-200'
+              }`}
+            >
+              {CATEGORY_LABELS[c.key]}{c.unread > 0 ? ` (${c.unread})` : ''}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* List */}
@@ -163,8 +190,15 @@ export default function NotificationsPage() {
             </p>
           </div>
         ) : (
-          displayed.map(item => {
-            const cfg = TYPE_CONFIG[item.type] || DEFAULT_TYPE
+          groups.map(group => (
+            <div key={group.key}>
+              {/* Day header */}
+              <div className="sticky top-0 z-10 px-4 py-2 text-[11px] font-semibold tracking-wide text-zinc-400 dark:text-zinc-500 bg-zinc-50 dark:bg-zinc-800/40 border-b border-zinc-100 dark:border-zinc-800">
+                {DAY_LABELS[group.key]}
+              </div>
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {group.rows.map(item => {
+            const cfg = TYPE_CONFIG[item.type] || DEFAULT_TYPE_CONFIG
             return (
               <button
                 key={item.id}
@@ -218,7 +252,10 @@ export default function NotificationsPage() {
                 </div>
               </button>
             )
-          })
+          })}
+              </div>
+            </div>
+          ))
         )}
       </div>
     </div>

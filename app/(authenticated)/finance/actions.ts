@@ -1007,7 +1007,7 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
 
   const { data: claim } = await supabase
     .from('expense_claims')
-    .select('status, submitted_by, claim_number, tax_invoice_urls, tax_invoice_numbers')
+    .select('status, submitted_by, approved_by, claim_number, tax_invoice_urls, tax_invoice_numbers')
     .eq('id', id)
     .single()
 
@@ -1102,16 +1102,18 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
     note: 'Auto-transition: Tax Invoice Uploaded',
   })
 
-  // Notify all admins that the tax invoice has been uploaded and claim is ready
-  const { data: adminProfiles } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('role', 'admin')
-
-  const adminIds = (adminProfiles || []).map((p: { id: string }) => p.id)
-  if (adminIds.length > 0) {
+  // Notify only the approving admin (fallback: all admins if unknown)
+  let recipientIds: string[] = claim.approved_by ? [claim.approved_by] : []
+  if (recipientIds.length === 0) {
+    const { data: adminProfiles } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin')
+    recipientIds = (adminProfiles || []).map((p: { id: string }) => p.id)
+  }
+  if (recipientIds.length > 0) {
     await createNotifications({
-      userIds: adminIds,
+      userIds: recipientIds,
       type: 'expense_tax_invoice_uploaded',
       title: `ใบเบิก ${claim.claim_number} — อัพโหลดใบกำกับภาษีแล้ว`,
       body: 'ผู้เบิกอัพโหลดใบกำกับภาษีแล้ว สถานะกลับเป็น "อนุมัติแล้ว" พร้อมดำเนินการชำระเงิน',
@@ -1763,16 +1765,19 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
     refundAmount,
   })
 
-  // Notify admins when a user settles their advance so they can reconcile
+  // Notify only the approving admin when a user settles their advance (fallback: all admins)
   if (!isAdmin) {
-    const { data: adminProfiles } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'admin')
-    const adminIds = (adminProfiles || []).map((p: { id: string }) => p.id)
-    if (adminIds.length > 0) {
+    let recipientIds: string[] = claim.approved_by ? [claim.approved_by] : []
+    if (recipientIds.length === 0) {
+      const { data: adminProfiles } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin')
+      recipientIds = (adminProfiles || []).map((p: { id: string }) => p.id)
+    }
+    if (recipientIds.length > 0) {
       await createNotifications({
-        userIds: adminIds,
+        userIds: recipientIds,
         type: 'expense_approved',
         title: `ใบเบิก ${claim.claim_number} — อัพเดทค่าใช้จ่ายจริง`,
         body: `ผู้เบิกอัพเดทค่าใช้จ่ายจริง ฿${actualSpent.toLocaleString()} / เงินคืน ฿${refundAmount.toLocaleString()}`,
@@ -2520,16 +2525,19 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
     leftover,
   })
 
-  // Ask admins to verify the returned cash and finalise the month.
+  // Ask only the fund's approving admin to verify the returned cash (fallback: all admins)
   if (leftover > 0) {
-    const { data: adminProfiles } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'admin')
-    const adminIds = (adminProfiles || []).map((p: { id: string }) => p.id).filter((aid: string) => aid !== userId)
-    if (adminIds.length > 0) {
+    let recipientIds: string[] = fund.approved_by && fund.approved_by !== userId ? [fund.approved_by] : []
+    if (recipientIds.length === 0 && !fund.approved_by) {
+      const { data: adminProfiles } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin')
+      recipientIds = (adminProfiles || []).map((p: { id: string }) => p.id).filter((aid: string) => aid !== userId)
+    }
+    if (recipientIds.length > 0) {
       await createNotifications({
-        userIds: adminIds,
+        userIds: recipientIds,
         type: 'expense_approved',
         title: `วงเงินสดย่อย ${fund.claim_number} ปิดเดือนแล้ว — รอยืนยันเงินคืน ฿${leftover.toLocaleString()}`,
         body: 'ตรวจสลิปการโอนคืน แล้วกดยืนยันรับเงินในหน้าวงเงิน',

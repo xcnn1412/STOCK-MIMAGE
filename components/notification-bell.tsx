@@ -4,29 +4,10 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Bell, Check, CheckCheck, ExternalLink } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { getNotifications, markAsRead, markAllAsRead, type NotificationItem } from '@/app/(authenticated)/notifications/actions'
-
-// ============================================================================
-// Notification Type → Icon & Color mapping
-// ============================================================================
-
-const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
-  job_assigned: { icon: '⭐', color: 'text-amber-500' },
-  job_status_changed: { icon: '🔄', color: 'text-blue-500' },
-  job_mentioned: { icon: '📣', color: 'text-purple-500' },
-  job_comment: { icon: '💬', color: 'text-sky-500' },
-  ticket_assigned: { icon: '🎫', color: 'text-indigo-500' },
-  ticket_reply: { icon: '📝', color: 'text-teal-500' },
-  ticket_status_changed: { icon: '🔔', color: 'text-cyan-500' },
-  expense_approved: { icon: '✅', color: 'text-emerald-500' },
-  expense_rejected: { icon: '❌', color: 'text-red-500' },
-  expense_waiting_tax_invoice: { icon: '🧾', color: 'text-sky-500' },
-  expense_tax_invoice_uploaded: { icon: '📤', color: 'text-teal-500' },
-  expense_refund_confirmed: { icon: '💸', color: 'text-cyan-500' },
-  kpi_evaluated: { icon: '📊', color: 'text-violet-500' },
-  kpi_self_evaluated: { icon: '📝', color: 'text-indigo-500' },
-  kpi_evaluation_reply: { icon: '💬', color: 'text-violet-500' },
-  crm_mentioned: { icon: '📍', color: 'text-orange-500' },
-}
+import {
+  categoryOf, CATEGORY_LABELS, CATEGORY_ORDER, type NotificationCategory,
+  TYPE_CONFIG, DEFAULT_TYPE_CONFIG, DAY_ORDER, DAY_LABELS, dayGroupOf,
+} from '@/components/notification-category'
 
 // ============================================================================
 // Relative time helper
@@ -75,19 +56,23 @@ function getNotificationUrl(item: NotificationItem): string {
 // NotificationBell Component
 // ============================================================================
 
+const LAST_SEEN_KEY = 'notif_last_seen'
+
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [count, setCount] = useState(0)
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [category, setCategory] = useState<NotificationCategory | 'all'>('all')
   const ref = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
-  // Poll unread count
+  // Poll unread count — นับเฉพาะที่มาใหม่หลังเปิดกระดิ่งครั้งล่าสุด (เห็นแล้วเลขหาย)
   useEffect(() => {
     const fetchCount = async () => {
       try {
-        const res = await fetch('/api/notifications/count')
+        const since = localStorage.getItem(LAST_SEEN_KEY)
+        const res = await fetch(`/api/notifications/count${since ? `?since=${encodeURIComponent(since)}` : ''}`)
         if (res.ok) {
           const data = await res.json()
           setCount(data.count || 0)
@@ -104,7 +89,7 @@ export default function NotificationBell() {
   const loadNotifications = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await getNotifications(30)
+      const data = await getNotifications(100)
       setItems(data)
     } finally {
       setLoading(false)
@@ -137,18 +122,45 @@ export default function NotificationBell() {
     router.push(getNotificationUrl(item))
   }
 
-  // Mark all as read
+  // Mark all as read — กรองหมวดอยู่ = เคลียร์เฉพาะหมวดนั้น
   const handleMarkAllRead = async () => {
-    await markAllAsRead()
-    setItems(prev => prev.map(n => ({ ...n, is_read: true })))
-    setCount(0)
+    await markAllAsRead(category === 'all' ? undefined : category)
+    if (category === 'all') {
+      setItems(prev => prev.map(n => ({ ...n, is_read: true })))
+      setCount(0)
+    } else {
+      const cleared = items.filter(n => !n.is_read && categoryOf(n.type) === category).length
+      setItems(prev => prev.map(n => categoryOf(n.type) === category ? { ...n, is_read: true } : n))
+      setCount(prev => Math.max(0, prev - cleared))
+    }
   }
+
+  const displayed = category === 'all' ? items : items.filter(n => categoryOf(n.type) === category)
+
+  // แสดงเฉพาะหมวดที่มีรายการจริง + จำนวนที่ยังไม่อ่านของหมวดนั้น
+  const availableCategories = CATEGORY_ORDER
+    .filter(c => items.some(n => categoryOf(n.type) === c))
+    .map(c => ({ key: c, unread: items.filter(n => !n.is_read && categoryOf(n.type) === c).length }))
+
+  // แบ่งกลุ่มตามวันแบบหน้า "ดูทั้งหมด"
+  const groups = DAY_ORDER
+    .map(g => ({ key: g, rows: displayed.filter(n => dayGroupOf(n.created_at) === g) }))
+    .filter(g => g.rows.length > 0)
+
+  const unreadInList = items.filter(n => !n.is_read).length
 
   return (
     <div ref={ref} className="relative">
       {/* Bell Button */}
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (!open) {
+            // เปิดดู = รับรู้แล้ว → เลขบน badge หาย (สถานะยังไม่อ่านในลิสต์คงเดิม)
+            localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString())
+            setCount(0)
+          }
+          setOpen(!open)
+        }}
         className="relative flex items-center justify-center h-9 w-9 rounded-lg text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800 transition-colors duration-200"
         aria-label="การแจ้งเตือน"
       >
@@ -167,22 +179,51 @@ export default function NotificationBell() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               การแจ้งเตือน
-              {count > 0 && (
+              {unreadInList > 0 && (
                 <span className="ml-2 text-xs font-medium text-zinc-400 dark:text-zinc-500">
-                  ({count} ใหม่)
+                  ({unreadInList} ยังไม่อ่าน)
                 </span>
               )}
             </h3>
-            {count > 0 && (
+            {unreadInList > 0 && (
               <button
                 onClick={handleMarkAllRead}
                 className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium transition-colors"
               >
                 <CheckCheck className="h-3 w-3" />
-                อ่านทั้งหมด
+                {category === 'all' ? 'อ่านทั้งหมด' : `อ่านหมวด${CATEGORY_LABELS[category]}`}
               </button>
             )}
           </div>
+
+          {/* Category chips */}
+          {availableCategories.length > 0 && (
+            <div className="flex items-center gap-1 px-3 py-2 overflow-x-auto border-b border-zinc-100 dark:border-zinc-800 shrink-0" style={{ scrollbarWidth: 'none' }}>
+              <button
+                onClick={() => setCategory('all')}
+                className={`shrink-0 text-[11px] px-2 py-1 rounded-full font-medium transition-colors ${
+                  category === 'all'
+                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                    : 'bg-zinc-100 text-zinc-500 hover:text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+                }`}
+              >
+                ทั้งหมด
+              </button>
+              {availableCategories.map(c => (
+                <button
+                  key={c.key}
+                  onClick={() => setCategory(c.key)}
+                  className={`shrink-0 text-[11px] px-2 py-1 rounded-full font-medium transition-colors ${
+                    category === c.key
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                      : 'bg-zinc-100 text-zinc-500 hover:text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  {CATEGORY_LABELS[c.key]}{c.unread > 0 ? ` (${c.unread})` : ''}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* List */}
           <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
@@ -190,59 +231,70 @@ export default function NotificationBell() {
               <div className="flex items-center justify-center py-8 text-sm text-zinc-400">
                 กำลังโหลด...
               </div>
-            ) : items.length === 0 ? (
+            ) : displayed.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 text-zinc-400 dark:text-zinc-500">
                 <Bell className="h-8 w-8 mb-2 opacity-40" />
                 <p className="text-sm">ไม่มีการแจ้งเตือน</p>
               </div>
             ) : (
-              items.map(item => {
-                const config = TYPE_CONFIG[item.type] || { icon: '🔔', color: 'text-zinc-500' }
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => handleClick(item)}
-                    className={`
-                      w-full flex items-start gap-3 px-4 py-3 text-left transition-colors duration-150
-                      hover:bg-zinc-50 dark:hover:bg-zinc-800/60
-                      ${!item.is_read ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}
-                      border-b border-zinc-50 dark:border-zinc-800/50 last:border-b-0
-                    `}
-                  >
-                    {/* Icon */}
-                    <span className="text-base mt-0.5 shrink-0" role="img">
-                      {config.icon}
-                    </span>
+              groups.map(group => (
+                <div key={group.key}>
+                  {/* Day header */}
+                  <div className="sticky top-0 z-10 px-4 py-1.5 text-[10px] font-semibold tracking-wide text-zinc-400 dark:text-zinc-500 bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-100 dark:border-zinc-800">
+                    {DAY_LABELS[group.key]}
+                  </div>
+                  {group.rows.map(item => {
+                    const config = TYPE_CONFIG[item.type] || DEFAULT_TYPE_CONFIG
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => handleClick(item)}
+                        className={`
+                          w-full flex items-start gap-3 px-4 py-3 text-left transition-colors duration-150
+                          hover:bg-zinc-50 dark:hover:bg-zinc-800/60
+                          ${!item.is_read ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}
+                          border-b border-zinc-50 dark:border-zinc-800/50 last:border-b-0
+                        `}
+                      >
+                        {/* Icon tile */}
+                        <div className={`flex items-center justify-center h-9 w-9 rounded-xl text-base shrink-0 ${config.color}`}>
+                          <span role="img">{config.icon}</span>
+                        </div>
 
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm leading-snug ${!item.is_read ? 'font-semibold text-zinc-900 dark:text-zinc-100' : 'text-zinc-600 dark:text-zinc-400'}`}>
-                        {item.title}
-                      </p>
-                      {item.body && (
-                        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 line-clamp-1">
-                          {item.body}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                          {timeAgo(item.created_at)}
-                        </span>
-                        {item.actor && (
-                          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                            • {item.actor.nickname || item.actor.full_name || 'ไม่ระบุ'}
-                          </span>
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm leading-snug ${!item.is_read ? 'font-semibold text-zinc-900 dark:text-zinc-100' : 'text-zinc-600 dark:text-zinc-400'}`}>
+                            {item.title}
+                          </p>
+                          {item.body && (
+                            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 line-clamp-1">
+                              {item.body}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${config.color}`}>
+                              {config.label}
+                            </span>
+                            <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                              {timeAgo(item.created_at)}
+                            </span>
+                            {item.actor && (
+                              <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                                • {item.actor.nickname || item.actor.full_name || 'ไม่ระบุ'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Unread dot */}
+                        {!item.is_read && (
+                          <span className="mt-2 h-2 w-2 rounded-full bg-blue-500 shrink-0" />
                         )}
-                      </div>
-                    </div>
-
-                    {/* Unread dot */}
-                    {!item.is_read && (
-                      <span className="mt-2 h-2 w-2 rounded-full bg-blue-500 shrink-0" />
-                    )}
-                  </button>
-                )
-              })
+                      </button>
+                    )
+                  })}
+                </div>
+              ))
             )}
           </div>
 
