@@ -109,6 +109,10 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
             return { error: 'รหัส PIN ไม่ถูกต้อง' }
         }
 
+        if ((user as any).is_blocked) {
+            return { error: 'บัญชีของคุณถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ' }
+        }
+
         if (!user.is_approved) {
             return { error: 'Your account is pending approval by an admin.' }
         }

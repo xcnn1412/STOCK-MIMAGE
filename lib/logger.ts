@@ -8,6 +8,8 @@ export type ActionType =
     | 'REGISTER'
     | 'APPROVE_USER'
     | 'REVOKE_USER'
+    | 'BLOCK_USER'
+    | 'UNBLOCK_USER'
     | 'UPDATE_ROLE'
     | 'DELETE_USER'
     | 'CREATE_ITEM'

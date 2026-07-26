@@ -35,6 +35,37 @@ export async function toggleUserApproval(userId: string, currentStatus: boolean)
   revalidatePath('/users')
 }
 
+export async function toggleUserBlock(userId: string, currentlyBlocked: boolean) {
+  const cookieStore = await cookies()
+  const sessionUserId = cookieStore.get('session_user_id')?.value
+  const sessionRole = cookieStore.get('session_role')?.value
+  if (!sessionUserId || sessionRole !== 'admin') {
+      return { error: 'เฉพาะ admin เท่านั้น' }
+  }
+  if (userId === sessionUserId) {
+      return { error: 'บล็อกบัญชีตัวเองไม่ได้' }
+  }
+
+  const supabase = createServiceClient()
+
+  // Blocking also clears active_session_id so the user is kicked immediately
+  const { error } = await supabase
+    .from('profiles')
+    .update(currentlyBlocked
+      ? { is_blocked: false }
+      : { is_blocked: true, active_session_id: null } as Record<string, unknown>)
+    .eq('id', userId)
+
+  if (error) {
+    console.error(error)
+    return { error: 'Failed to update block status (ตรวจสอบว่ารัน migration is_blocked แล้ว)' }
+  }
+
+  await logActivity(currentlyBlocked ? 'UNBLOCK_USER' : 'BLOCK_USER', {}, userId)
+
+  revalidatePath('/users')
+}
+
 export async function updateUserRole(userId: string, role: string) {
     const cookieStore = await cookies()
     const sessionUserId = cookieStore.get('session_user_id')?.value

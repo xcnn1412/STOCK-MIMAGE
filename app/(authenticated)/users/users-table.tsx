@@ -2,11 +2,11 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { toggleUserApproval, updateUserRole, deleteUser, updateUserModules, updateUserProfile } from './actions'
+import { toggleUserApproval, toggleUserBlock, updateUserRole, deleteUser, updateUserModules, updateUserProfile } from './actions'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Check, X, Shield, User, Trash2, Clock, Pencil, AlertTriangle, ChevronDown, CreditCard, MapPin, IdCard, Building2 } from "lucide-react"
+import { Check, X, Shield, User, Trash2, Clock, Pencil, AlertTriangle, ChevronDown, CreditCard, MapPin, IdCard, Building2, Ban } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import BankSelect from '@/components/bank-select'
@@ -39,6 +39,7 @@ interface UserWithLogin {
     phone: string
     role: string
     is_approved: boolean
+    is_blocked?: boolean
     allowed_modules: string[]
     last_login_at: string | null
     national_id: string | null
@@ -305,6 +306,14 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
         setLoadingId(null)
     }
 
+    const handleBlock = async (id: string, currentlyBlocked: boolean) => {
+        setLoadingId(id)
+        const res = await toggleUserBlock(id, currentlyBlocked)
+        if (res?.error) toast.error(res.error)
+        else toast.success(currentlyBlocked ? 'ปลดบล็อกแล้ว' : 'บล็อกผู้ใช้แล้ว')
+        setLoadingId(null)
+    }
+
     const handleRole = async (id: string, role: string) => {
         const newRole = role === 'admin' ? 'staff' : 'admin'
         setLoadingId(id)
@@ -404,7 +413,11 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
-                                        {user.is_approved ? (
+                                        {user.is_blocked ? (
+                                            <Badge variant="outline" className="text-red-600 bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800">
+                                                <Ban className="h-3 w-3 mr-1" /> ถูกบล็อก
+                                            </Badge>
+                                        ) : user.is_approved ? (
                                             <Badge variant="outline" className="text-emerald-600 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800">
                                                 <Check className="h-3 w-3 mr-1" /> อนุมัติ
                                             </Badge>
@@ -446,6 +459,16 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                                 className="h-8 w-8 p-0"
                                             >
                                                 {user.is_approved ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5 text-emerald-600" />}
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => handleBlock(user.id, !!user.is_blocked)}
+                                                disabled={loadingId === user.id}
+                                                title={user.is_blocked ? 'ปลดบล็อก' : 'บล็อกไม่ให้เข้าเว็บ'}
+                                                className={`h-8 w-8 p-0 ${user.is_blocked ? 'text-red-600 bg-red-50 dark:bg-red-950/30 hover:text-red-700' : 'text-zinc-400 hover:text-red-600'}`}
+                                            >
+                                                <Ban className="h-3.5 w-3.5" />
                                             </Button>
                                             <Button
                                                 variant="ghost"
@@ -521,7 +544,9 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                 </div>
                                 <div className="flex items-center gap-3 mt-1">
                                     <a href={`tel:${user.phone}`} className="text-xs text-blue-600 font-mono">{user.phone}</a>
-                                    {user.is_approved ? (
+                                    {user.is_blocked ? (
+                                        <span className="text-[10px] text-red-600 flex items-center gap-0.5"><Ban className="h-3 w-3" /> ถูกบล็อก</span>
+                                    ) : user.is_approved ? (
                                         <span className="text-[10px] text-emerald-600 flex items-center gap-0.5"><Check className="h-3 w-3" /> อนุมัติ</span>
                                     ) : (
                                         <span className="text-[10px] text-amber-600 flex items-center gap-0.5"><Clock className="h-3 w-3" /> รออนุมัติ</span>
@@ -569,6 +594,15 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                         ) : (
                                             <><Check className="h-3.5 w-3.5 mr-1" /> อนุมัติ</>
                                         )}
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className={`flex-1 text-xs ${user.is_blocked ? 'text-red-600 border-red-300' : ''}`}
+                                        onClick={() => handleBlock(user.id, !!user.is_blocked)}
+                                        disabled={loadingId === user.id}
+                                    >
+                                        <Ban className="h-3.5 w-3.5 mr-1" /> {user.is_blocked ? 'ปลดบล็อก' : 'บล็อก'}
                                     </Button>
                                     <Button variant="outline" size="sm" onClick={() => handleRole(user.id, user.role)} disabled={loadingId === user.id} className="text-xs">
                                         <Shield className={`h-3.5 w-3.5 ${user.role === 'admin' ? 'text-purple-600' : 'text-zinc-400'}`} />

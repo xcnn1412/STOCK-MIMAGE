@@ -124,13 +124,14 @@ export async function proxy(request: NextRequest) {
     )
 
     try {
+      // select('*') so a not-yet-migrated is_blocked column can't error the query
       const { data } = await supabase
         .from('profiles')
-        .select('id, is_approved, active_session_id, allowed_modules, role')
+        .select('*')
         .eq('id', userId)
         .single()
 
-      if (data && data.is_approved) {
+      if (data && data.is_approved && !data.is_blocked) {
         if (data.active_session_id && data.active_session_id !== sessionId) {
           isValidSession = false // Session mismatch (logged in elsewhere)
         } else {
