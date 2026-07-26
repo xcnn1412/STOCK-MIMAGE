@@ -751,6 +751,9 @@ export default function OverviewDashboard({
                     <th className="px-3 py-2 font-semibold">{isEn ? 'Type' : 'ประเภท'}</th>
                     <th className="px-3 py-2 font-semibold">{isEn ? 'Funding' : 'แหล่งเงิน'}</th>
                     <th className="px-3 py-2 font-semibold text-right">{isEn ? 'Amount' : 'ยอด'}</th>
+                    <th className="px-3 py-2 font-semibold text-right">{isEn ? 'VAT' : 'VAT'}</th>
+                    <th className="px-3 py-2 font-semibold text-right">{isEn ? 'WHT' : 'หัก ณ ที่จ่าย'}</th>
+                    <th className="px-3 py-2 font-semibold text-right">{isEn ? 'Net' : 'สุทธิ'}</th>
                     <th className="px-3 py-2 font-semibold">{isEn ? 'Status' : 'สถานะ'}</th>
                     <th className="px-3 py-2 font-semibold text-center">{isEn ? 'Receipt' : 'ใบเสร็จ'}</th>
                     <th className="px-3 py-2 font-semibold">{isEn ? 'Tax Invoice' : 'ใบกำกับภาษี'}</th>
@@ -762,6 +765,7 @@ export default function OverviewDashboard({
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                   {filtered.map((c, i) => {
                     const ck = getClaimChecklist(c)
+                    const tax = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
                     const fundingColor = getFundingSourceColor(c.funding_source)
                     const isPersonal = c.funding_source === 'personal'
                     const FundingIcon = isPersonal ? UserIcon : Building2
@@ -825,6 +829,15 @@ export default function OverviewDashboard({
                         </td>
                         <td className="px-3 py-2 text-right font-mono font-semibold text-zinc-700 dark:text-zinc-200">
                           ฿{fmtDec(c.amount || 0)}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-zinc-500 dark:text-zinc-400">
+                          {tax.vatAmount > 0 ? `฿${fmtDec(tax.vatAmount)}` : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-zinc-500 dark:text-zinc-400">
+                          {tax.whtAmount > 0 ? `฿${fmtDec(tax.whtAmount)}` : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono font-semibold text-zinc-700 dark:text-zinc-200">
+                          ฿{fmtDec(tax.netPayable)}
                         </td>
                         <td className="px-3 py-2">
                           <span
