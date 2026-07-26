@@ -211,8 +211,9 @@ function MyJobCard({
             draggable={!readonly}
             onDragStart={e => onDragStart(e, job.id)}
             onDragEnd={onDragEnd}
+            onClick={() => { if (!readonly && onEdit) onEdit(job) }}
             className={`group relative bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 p-3 shadow-sm hover:shadow-md transition-all duration-200 ${
-                readonly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
+                readonly ? 'cursor-default' : 'cursor-pointer active:cursor-grabbing'
             } ${isDragging ? 'opacity-50 scale-[0.97] rotate-1' : ''}`}
         >
             {/* Left accent */}
