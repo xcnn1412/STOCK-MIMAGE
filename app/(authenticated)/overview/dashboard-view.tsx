@@ -10,12 +10,13 @@ import { useMemo, useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   TrendingUp, TrendingDown, Wallet, Clock, RefreshCw, Calendar, Receipt,
-  Users, Activity, AlertTriangle, CheckCircle2, ArrowDownRight,
+  Users, Activity, AlertTriangle, CheckCircle2, ArrowDownRight, Percent, Banknote, Layers,
 } from 'lucide-react'
 import {
   type PLLead, type PLClaim, type PLInstallment, type PLJobEvent, type PLCostItem,
-  buildHealth, isRevLead, leadDate, leadAmount, claimDate, claimEffective, num, fmt, fmtSign,
+  buildHealth, isRevLead, leadDate, leadAmount, claimDate, claimEffective, fmt, fmtSign,
 } from './pl/pl-lib'
+import { StatCard, INFO } from './components/stat-primitives'
 
 const CLAIM_STATUS_TH: Record<string, string> = {
   paid: 'จ่ายแล้ว', refund_confirmed: 'คืนเงินแล้ว', approved: 'อนุมัติแล้ว',
@@ -107,19 +108,28 @@ export default function DashboardView({ leads, claims, installments, events, cos
 
       {/* KPI hero */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi icon={TrendingUp} tone="emerald" label="รายรับ (ฐานก่อน VAT)" value={fmtSign(h.revBase)} sub={`${h.dealCount} ดีล · รวม VAT ฿${fmt(h.bookedGross)}`} />
-        <Kpi icon={TrendingDown} tone="rose" label="รายจ่าย (ฐานก่อน VAT)" value={fmtSign(h.totalCost)} sub={`ตรง ฿${fmt(h.directCost)} · overhead ฿${fmt(h.overhead)}`} />
-        <Kpi icon={isProfit ? Wallet : ArrowDownRight} tone={isProfit ? 'emerald' : 'rose'} emphatic
-          label={isProfit ? 'กำไรดำเนินงาน' : 'ขาดทุนดำเนินงาน'} value={fmtSign(h.operatingProfit)} sub={`Margin ${h.opMargin.toFixed(1)}%`} />
-        <Kpi icon={Clock} tone="rose" label="ลูกหนี้คงค้าง (AR)" value={fmtSign(h.ar)} sub={`เก็บแล้ว ${(h.cashRate * 100).toFixed(0)}% · เงินสด ฿${fmt(h.cashCollected)}`} />
+        <StatCard icon={TrendingUp} tone="emerald" label="รายรับ (ฐานก่อน VAT)" value={fmtSign(h.revBase)}
+          sub={`${h.dealCount} ดีล · รวม VAT ฿${fmt(h.bookedGross)}`} info={INFO.revBase} />
+        <StatCard icon={TrendingDown} tone="rose" label="รายจ่าย (ฐานก่อน VAT)" value={fmtSign(h.totalCost)}
+          sub={`ตรง ฿${fmt(h.directCost)} · overhead ฿${fmt(h.overhead)}`} info={INFO.expense} />
+        <StatCard icon={isProfit ? Wallet : ArrowDownRight} tone={isProfit ? 'emerald' : 'rose'}
+          label={isProfit ? 'กำไรดำเนินงาน' : 'ขาดทุนดำเนินงาน'} value={fmtSign(h.operatingProfit)}
+          sub={`Margin ${h.opMargin.toFixed(1)}%`} info={INFO.opProfit} />
+        <StatCard icon={Clock} tone="amber" label="ลูกหนี้คงค้าง (AR)" value={fmtSign(h.ar)}
+          sub={`เก็บแล้ว ${(h.cashRate * 100).toFixed(0)}% · เงินสด ฿${fmt(h.cashCollected)}`} info={INFO.ar} />
       </div>
 
       {/* Health strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-        <Metric label="Gross Margin" value={`${h.grossMargin.toFixed(0)}%`} good={h.grossMargin >= 40} />
-        <Metric label="Operating Margin" value={`${h.opMargin.toFixed(0)}%`} good={h.opMargin >= 20} />
-        <Metric label="อัตราเก็บเงิน" value={`${(h.cashRate * 100).toFixed(0)}%`} good={h.cashRate >= 0.7} />
-        <Metric label="ความครอบคลุมต้นทุน" value={`${(h.revWithCostPct * 100).toFixed(0)}%`} good={h.revWithCostPct >= 0.8} hint={`${h.dealsWithCost}/${h.dealCount} ดีลมีต้นทุน`} />
+        <StatCard size="sm" icon={Percent} tone={h.grossMargin >= 40 ? 'emerald' : 'amber'}
+          label="Gross Margin" value={`${h.grossMargin.toFixed(0)}%`} info={INFO.grossMargin} />
+        <StatCard size="sm" icon={Percent} tone={h.opMargin >= 20 ? 'emerald' : 'amber'}
+          label="Operating Margin" value={`${h.opMargin.toFixed(0)}%`} info={INFO.opMargin} />
+        <StatCard size="sm" icon={Banknote} tone={h.cashRate >= 0.7 ? 'emerald' : 'amber'}
+          label="อัตราเก็บเงิน" value={`${(h.cashRate * 100).toFixed(0)}%`} info={INFO.cashRate} />
+        <StatCard size="sm" icon={Layers} tone={h.revWithCostPct >= 0.8 ? 'emerald' : 'amber'}
+          label="ความครอบคลุมต้นทุน" value={`${(h.revWithCostPct * 100).toFixed(0)}%`}
+          sub={`${h.dealsWithCost}/${h.dealCount} ดีลมีต้นทุน`} info={INFO.revWithCost} />
       </div>
 
       {/* ธงเตือน */}
@@ -184,8 +194,10 @@ export default function DashboardView({ leads, claims, installments, events, cos
         {/* ใบเบิก + ตัวเลขย่อ */}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <Mini icon={Receipt} label="ใบเบิก (ในช่วง)" value={`${claimStats.total}`} sub={`฿${fmt(claimStats.amount)}`} />
-            <Mini icon={Users} label="ลูกค้า" value={`${customers}`} sub={`เฉลี่ย ฿${fmt(avgDeal)}/ดีล`} />
+            <StatCard size="sm" icon={Receipt} tone="violet" label="ใบเบิก (ในช่วง)" value={`${claimStats.total}`}
+              sub={`฿${fmt(claimStats.amount)}`} info={INFO.claims} />
+            <StatCard size="sm" icon={Users} tone="sky" label="ลูกค้า" value={`${customers}`}
+              sub={`เฉลี่ย ฿${fmt(avgDeal)}/ดีล`} info={`${INFO.customers} · ${INFO.avgDeal}`} />
           </div>
           <Card title="ใบเบิกแยกสถานะ" icon={Receipt}>
             {claimStats.total === 0 ? <Empty /> : (
@@ -207,35 +219,6 @@ export default function DashboardView({ leads, claims, installments, events, cos
 }
 
 // ─── sub-components ───
-function Kpi({ icon: Icon, label, value, sub, tone, emphatic }: { icon: React.ElementType; label: string; value: string; sub: string; tone: 'emerald' | 'rose'; emphatic?: boolean }) {
-  const c = tone === 'emerald' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-  return (
-    <div className={`rounded-2xl border p-4 sm:p-5 ${emphatic ? (tone === 'emerald' ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20') : 'border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900'}`}>
-      <div className="flex items-center gap-2 text-zinc-400"><Icon className={`h-4 w-4 ${emphatic ? c : ''}`} /><span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider truncate">{label}</span></div>
-      <div className={`text-xl sm:text-2xl font-bold font-mono mt-2 ${emphatic ? c : 'text-zinc-900 dark:text-zinc-100'}`}>{value}</div>
-      <div className="text-[10px] sm:text-[11px] text-zinc-400 mt-1 truncate">{sub}</div>
-    </div>
-  )
-}
-function Metric({ label, value, good, hint }: { label: string; value: string; good: boolean; hint?: string }) {
-  const c = good ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
-  return (
-    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-3">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{label}</div>
-      <div className={`text-lg sm:text-xl font-bold font-mono mt-0.5 ${c}`}>{value}</div>
-      {hint && <div className="text-[10px] text-zinc-400 truncate">{hint}</div>}
-    </div>
-  )
-}
-function Mini({ icon: Icon, label, value, sub }: { icon: React.ElementType; label: string; value: string; sub: string }) {
-  return (
-    <div className="rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-4">
-      <div className="flex items-center gap-1.5 text-zinc-400"><Icon className="h-3.5 w-3.5" /><span className="text-[10px] font-semibold uppercase tracking-wider truncate">{label}</span></div>
-      <div className="text-xl font-bold font-mono mt-1 text-zinc-900 dark:text-zinc-100">{value}</div>
-      <div className="text-[10px] text-zinc-400 truncate">{sub}</div>
-    </div>
-  )
-}
 function Card({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-5 space-y-3">

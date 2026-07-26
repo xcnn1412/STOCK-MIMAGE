@@ -10,8 +10,9 @@ import { useRouter } from 'next/navigation'
 import { TrendingUp, Banknote, Clock, Hourglass, Search, ExternalLink, Layers } from 'lucide-react'
 import {
   type PLLead, type PLClaim, type PLInstallment, type PLJobEvent, type PLCostItem,
-  type ArGroup, type DealPL, buildHealth, buildArStatus, fmt, fmtSign, leadDate,
+  type ArGroup, buildHealth, buildArStatus, fmt, fmtSign, leadDate,
 } from './pl/pl-lib'
+import { StatCard, InfoTip, Th, Td, INFO } from './components/stat-primitives'
 
 interface Profile { id: string; full_name: string | null; nickname: string | null }
 function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
@@ -63,9 +64,13 @@ export default function CashArView({ leads, claims, installments, events, costIt
 
       {/* การ์ดสรุป */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <StatCard icon={TrendingUp} tone="emerald" label="รายรับรับรู้ (booked, ฐาน)" value={h.revBase} sub={`${h.dealCount} ดีล · รวม VAT ฿${fmt(h.bookedGross)}`} />
-        <StatCard icon={Banknote} tone="emerald" label="เงินสดเก็บได้จริง" value={h.cashCollected} sub={`${(h.cashRate * 100).toFixed(0)}% ของยอดที่ต้องเก็บ ฿${fmt(h.collectible)}`} />
-        <StatCard icon={Clock} tone="rose" label="ลูกหนี้คงค้าง (AR)" value={h.ar} sub={`ยังไม่เก็บ ${((1 - h.cashRate) * 100).toFixed(0)}%`} />
+        <StatCard icon={TrendingUp} tone="emerald" label="รายรับรับรู้ (booked, ฐาน)" value={fmtSign(h.revBase)}
+          sub={`${h.dealCount} ดีล · รวม VAT ฿${fmt(h.bookedGross)}`} info={INFO.revBase} />
+        <StatCard icon={Banknote} tone="sky" label="เงินสดเก็บได้จริง" value={fmtSign(h.cashCollected)}
+          sub={`${(h.cashRate * 100).toFixed(0)}% ของยอดที่ต้องเก็บ ฿${fmt(h.collectible)}`}
+          info={`${INFO.cashCollected} · ${INFO.collectible}`} />
+        <StatCard icon={Clock} tone="amber" label="ลูกหนี้คงค้าง (AR)" value={fmtSign(h.ar)}
+          sub={`ยังไม่เก็บ ${((1 - h.cashRate) * 100).toFixed(0)}%`} info={INFO.ar} />
       </div>
 
       {/* AR aging + แยกเซล/ลูกค้า */}
@@ -73,13 +78,14 @@ export default function CashArView({ leads, claims, installments, events, costIt
         <div className="px-5 py-3 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-2">
           <Hourglass className="h-4 w-4 text-zinc-400" />
           <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">สถานะลูกหนี้ — แยกตามอายุ / เซล / ลูกค้า</h2>
+          <span className="ml-auto"><InfoTip text={INFO.arAging} /></span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-zinc-100 dark:bg-zinc-800">
-          <ArTile label="ยังไม่แบ่งงวด" hint="ยังไม่วางบิล" value={ar.buckets.unscheduled} total={ar.buckets.total} tone="text-zinc-700 dark:text-zinc-200" bar="bg-zinc-400" emphatic />
-          <ArTile label="รอครบกำหนด" hint="ยังไม่ถึง due" value={ar.buckets.notDue} total={ar.buckets.total} tone="text-sky-600 dark:text-sky-400" bar="bg-sky-400" />
-          <ArTile label="เลยกำหนด 0-30 วัน" value={ar.buckets.d0_30} total={ar.buckets.total} tone="text-amber-600 dark:text-amber-400" bar="bg-amber-400" />
-          <ArTile label="เลยกำหนด 31-60 วัน" value={ar.buckets.d31_60} total={ar.buckets.total} tone="text-orange-600 dark:text-orange-400" bar="bg-orange-400" />
-          <ArTile label="เลยกำหนด 60+ วัน" hint="ต้องตามด่วน" value={ar.buckets.d60plus} total={ar.buckets.total} tone="text-rose-600 dark:text-rose-400" bar="bg-rose-500" emphatic={ar.buckets.d60plus > 0} />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5 p-4">
+          <ArTile label="ยังไม่แบ่งงวด" hint="ยังไม่วางบิล" value={ar.buckets.unscheduled} total={ar.buckets.total} tone="zinc" />
+          <ArTile label="รอครบกำหนด" hint="ยังไม่ถึง due" value={ar.buckets.notDue} total={ar.buckets.total} tone="sky" />
+          <ArTile label="เลยกำหนด 0-30 วัน" value={ar.buckets.d0_30} total={ar.buckets.total} tone="amber" />
+          <ArTile label="เลยกำหนด 31-60 วัน" value={ar.buckets.d31_60} total={ar.buckets.total} tone="orange" />
+          <ArTile label="เลยกำหนด 60+ วัน" hint="ต้องตามด่วน" value={ar.buckets.d60plus} total={ar.buckets.total} tone="rose" />
         </div>
         {ar.overdue.length > 0 && (
           <div className="border-t border-zinc-100 dark:border-zinc-800">
@@ -173,6 +179,7 @@ function CashArBar({ h, ar }: { h: ReturnType<typeof buildHealth>; ar: ReturnTyp
       <div className="flex items-center gap-2">
         <Layers className="h-4 w-4 text-zinc-400" />
         <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">กระแสเงินสด · ยอดที่ต้องเก็บ ฿{fmt(h.collectible)} (สุทธิหลัง VAT/WHT)</h2>
+        <span className="ml-auto"><InfoTip text={`${INFO.collectible} · ${INFO.cashCollected} · ${INFO.ar}`} /></span>
       </div>
 
       {/* แท่งหลัก: เก็บแล้ว vs ค้าง */}
@@ -215,26 +222,26 @@ function CashArBar({ h, ar }: { h: ReturnType<typeof buildHealth>; ar: ReturnTyp
   )
 }
 
-function StatCard({ icon: Icon, label, value, sub, tone }: { icon: React.ElementType; label: string; value: number; sub: string; tone: 'emerald' | 'rose' }) {
-  const c = tone === 'emerald' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-  return (
-    <div className="rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-5">
-      <div className="flex items-center gap-2 text-zinc-400"><Icon className={`h-4 w-4 ${c}`} /><span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span></div>
-      <div className={`text-2xl font-bold font-mono mt-2 ${c}`}>{fmtSign(value)}</div>
-      <div className="text-[11px] text-zinc-400 mt-1">{sub}</div>
-    </div>
-  )
+// ── ช่องอายุหนี้ (เฉพาะหน้านี้) — ภาษาภาพเดียวกับ StatCard: ไล่เฉด ขอบสี ตัวเลข tabular-nums
+// คลาสสีเขียนเป็น literal ทั้งหมด (Tailwind JIT อ่าน string ที่ประกอบตอน runtime ไม่ได้)
+const AR_TONES: Record<string, { tint: string; text: string; border: string; bar: string }> = {
+  zinc: { tint: 'from-zinc-100 to-zinc-50/40 dark:from-zinc-800/60 dark:to-zinc-900', text: 'text-zinc-700 dark:text-zinc-200', border: 'border-zinc-300 dark:border-zinc-700', bar: 'bg-zinc-400' },
+  sky: { tint: 'from-sky-100 to-sky-50/40 dark:from-sky-950/50 dark:to-zinc-900', text: 'text-sky-700 dark:text-sky-300', border: 'border-sky-300 dark:border-sky-800', bar: 'bg-sky-400' },
+  amber: { tint: 'from-amber-100 to-amber-50/40 dark:from-amber-950/50 dark:to-zinc-900', text: 'text-amber-700 dark:text-amber-300', border: 'border-amber-300 dark:border-amber-800', bar: 'bg-amber-400' },
+  orange: { tint: 'from-orange-100 to-orange-50/40 dark:from-orange-950/50 dark:to-zinc-900', text: 'text-orange-700 dark:text-orange-300', border: 'border-orange-300 dark:border-orange-800', bar: 'bg-orange-400' },
+  rose: { tint: 'from-rose-100 to-rose-50/40 dark:from-rose-950/50 dark:to-zinc-900', text: 'text-rose-700 dark:text-rose-300', border: 'border-rose-300 dark:border-rose-800', bar: 'bg-rose-500' },
 }
 
-function ArTile({ label, hint, value, total, tone, bar, emphatic }: { label: string; hint?: string; value: number; total: number; tone: string; bar: string; emphatic?: boolean }) {
+function ArTile({ label, hint, value, total, tone }: { label: string; hint?: string; value: number; total: number; tone: keyof typeof AR_TONES }) {
   const pct = total > 0 ? (value / total) * 100 : 0
+  const c = AR_TONES[tone]
   return (
-    <div className={`p-3 ${emphatic ? 'bg-zinc-50 dark:bg-zinc-800/50' : 'bg-white dark:bg-zinc-900'}`}>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 leading-tight">{label}</div>
+    <div className={`rounded-2xl border-2 bg-gradient-to-br p-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${c.tint} ${c.border}`}>
+      <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 leading-tight">{label}</div>
       {hint && <div className="text-[9px] text-zinc-400">{hint}</div>}
-      <div className={`text-base font-bold font-mono mt-1 ${tone}`}>฿{fmt(value)}</div>
-      <div className="h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mt-1.5"><div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} /></div>
-      <div className="text-[9px] text-zinc-400 mt-0.5">{pct.toFixed(0)}%</div>
+      <div className={`text-lg sm:text-xl font-extrabold tabular-nums tracking-tight mt-1 ${c.text}`}>฿{fmt(value)}</div>
+      <div className="h-1 bg-black/5 dark:bg-white/10 rounded-full overflow-hidden mt-1.5"><div className={`h-full rounded-full ${c.bar}`} style={{ width: `${pct}%` }} /></div>
+      <div className="text-[9px] text-zinc-400 mt-0.5 tabular-nums">{pct.toFixed(0)}%</div>
     </div>
   )
 }
@@ -260,10 +267,4 @@ function ArRank({ title, rows, limit }: { title: string; rows: ArGroup[]; limit?
       </div>
     </div>
   )
-}
-
-function Th({ children }: { children?: React.ReactNode }) { return <th className="text-right font-semibold px-5 py-2.5 whitespace-nowrap">{children}</th> }
-function Td({ children, tone, strong, muted }: { children?: React.ReactNode; tone?: 'emerald' | 'rose'; strong?: boolean; muted?: boolean }) {
-  const c = tone === 'emerald' ? 'text-emerald-600 dark:text-emerald-400' : tone === 'rose' ? 'text-rose-500 dark:text-rose-400' : muted ? 'text-zinc-400' : 'text-zinc-700 dark:text-zinc-300'
-  return <td className={`text-right px-5 py-2.5 whitespace-nowrap ${strong ? 'font-bold' : ''} ${c}`}>{children}</td>
 }

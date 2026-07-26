@@ -3,12 +3,10 @@
 import { useState, useMemo, Fragment, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import {
-  LayoutDashboard, Table2, TrendingUp, DollarSign, Users, Calendar,
-  MapPin, Download, Search, ChevronDown, ChevronRight, X,
-  BarChart3, Zap, UserCheck, Receipt, Percent, ArrowUpRight,
-  ArrowDownRight, Target, Banknote, PieChart, Activity, Hash,
+  LayoutDashboard, Table2, Calendar, Download, Search,
+  ChevronDown, ChevronRight, ChevronLeft, X, BarChart3, Banknote,
   Bot, Loader2, Sparkles, Send, CheckSquare, Square,
-  History, Trash2, Eye, Clock, Database, ChevronLeft
+  History, Trash2, Clock, Database,
 } from 'lucide-react'
 import {
   saveAiAnalysis, getAiAnalysisHistory, getAiAnalysisDetail, deleteAiAnalysis,
@@ -192,9 +190,9 @@ export default function OverviewView({ data }: { data: OverviewData }) {
   // ─── Build per-event summary ──────────────────────────────
   const eventSummaries = useMemo(() => {
     // Revenue is single-sourced per CRM lead: the lead's revenue is attributed
-    // to ONE primary event (others get 0), so all rollups below (totals,
-    // topSellers, monthly, topCustomers, sellerStats, AI payload) stop
-    // double-counting when a lead has multiple linked events.
+    // to ONE primary event (others get 0), so every rollup below (totals row,
+    // the table tab, the AI payload) stops double-counting when a lead has
+    // multiple linked events.
     const leadPriceById = new Map<string, number>()
     data.leads.forEach(l => leadPriceById.set(l.id, Number(l.confirmed_price || l.quoted_price || 0)))
     const attributedRevenueById = attributeRevenue(data.jobEvents, leadPriceById)
@@ -478,219 +476,6 @@ export default function OverviewView({ data }: { data: OverviewData }) {
   }, [filtered])
 
   const profitMargin = pct(totals.profit, totals.revenue)
-  const avgRevenue = totals.events > 0 ? totals.revenue / totals.events : 0
-  const avgProfit = totals.events > 0 ? totals.profit / totals.events : 0
-  const completionRate = pct(totals.completed, totals.events)
-  const expensePayRate = pct(totals.expensePaid, totals.expenses)
-
-  // Top sellers
-  const topSellers = useMemo(() => {
-    const map = new Map<string, { name: string; revenue: number; count: number; profit: number }>()
-    filtered.forEach(e => {
-      if (e.seller) {
-        const prev = map.get(e.seller) || { name: e.seller, revenue: 0, count: 0, profit: 0 }
-        prev.revenue += e.revenue; prev.count += 1; prev.profit += e.profit
-        map.set(e.seller, prev)
-      }
-    })
-    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue)
-  }, [filtered])
-
-  // Top graphics
-  const topGraphics = useMemo(() => {
-    const map = new Map<string, { name: string; count: number }>()
-    filtered.forEach(e => {
-      e.graphicsIds.forEach(gId => {
-        const prev = map.get(gId) || { name: getName(gId), count: 0 }
-        prev.count += 1; map.set(gId, prev)
-      })
-    })
-    return Array.from(map.values()).sort((a, b) => b.count - a.count)
-  }, [filtered])
-
-  // Monthly revenue trend
-  const monthlyData = useMemo(() => {
-    const map = new Map<string, { revenue: number; cost: number; profit: number; count: number }>()
-    filtered.forEach(e => {
-      if (e.date) {
-        const month = e.date.slice(0, 7)
-        const prev = map.get(month) || { revenue: 0, cost: 0, profit: 0, count: 0 }
-        prev.revenue += e.revenue; prev.cost += e.totalCost; prev.profit += e.profit; prev.count++
-        map.set(month, prev)
-      }
-    })
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-12)
-  }, [filtered])
-
-  // Margin distribution
-  const marginDist = useMemo(() => {
-    const bands = { negative: 0, low: 0, medium: 0, high: 0 }
-    filtered.forEach(e => {
-      if (e.margin < 0) bands.negative++
-      else if (e.margin < 20) bands.low++
-      else if (e.margin < 40) bands.medium++
-      else bands.high++
-    })
-    return bands
-  }, [filtered])
-
-  // ─── Native, rule-based insights (no AI) ────────────────────
-  // Each insight is precomputed from the already-loaded data so the dashboard
-  // can answer "what needs attention?" without an external LLM call.
-  // Severity colors the chip; clicking applies a filter so the user can drill in.
-  const dataInsights = useMemo(() => {
-    type Severity = 'alert' | 'warning' | 'info' | 'positive'
-    type Insight = {
-      id: string
-      severity: Severity
-      title: string
-      value: string
-      detail?: string
-      filterStatus?: string
-    }
-    const list: Insight[] = []
-
-    const lossEvents = filtered.filter(e => e.margin < 0 && e.revenue > 0)
-    if (lossEvents.length > 0) {
-      const totalLoss = lossEvents.reduce((s, e) => s + e.profit, 0)
-      list.push({
-        id: 'loss', severity: 'alert',
-        title: 'อีเวนต์ขาดทุน', value: `${lossEvents.length} อีเวนต์`,
-        detail: `ผลรวมขาดทุน ฿${fmtK(Math.abs(totalLoss))}`,
-      })
-    }
-
-    const lowMargin = filtered.filter(e => e.margin >= 0 && e.margin < 20 && e.revenue > 0)
-    if (lowMargin.length > 0) {
-      list.push({
-        id: 'low-margin', severity: 'warning',
-        title: 'Margin ต่ำ (<20%)', value: `${lowMargin.length} อีเวนต์`,
-        detail: 'ทบทวนต้นทุนหรือราคาขาย',
-      })
-    }
-
-    const noCheckin = filtered.filter(e => e.status === 'completed' && e.checkinCount === 0)
-    if (noCheckin.length > 0) {
-      list.push({
-        id: 'no-checkin', severity: 'warning',
-        title: 'อีเวนต์เสร็จแต่ไม่มีเช็คอิน', value: `${noCheckin.length} อีเวนต์`,
-        detail: 'ทีมไม่ได้บันทึกเข้างาน?',
-      })
-    }
-
-    const noCost = filtered.filter(e => e.revenue > 0 && e.totalCost === 0)
-    if (noCost.length > 0) {
-      list.push({
-        id: 'no-cost', severity: 'info',
-        title: 'รายได้แต่ยังไม่ลงต้นทุน', value: `${noCost.length} อีเวนต์`,
-        detail: 'อาจจะรอลงข้อมูลต้นทุน',
-      })
-    }
-
-    const noSeller = filtered.filter(e => !e.seller && e.revenue > 0)
-    if (noSeller.length > 0) {
-      list.push({
-        id: 'no-seller', severity: 'info',
-        title: 'ไม่ระบุเซล', value: `${noSeller.length} อีเวนต์`,
-        detail: 'ข้อมูลไม่ครบ — กระทบสรุปยอดต่อเซล',
-      })
-    }
-
-    const highDiscount = filtered.filter(e => e.discountPct > 20)
-    if (highDiscount.length > 0) {
-      const avg = highDiscount.reduce((s, e) => s + e.discountPct, 0) / highDiscount.length
-      list.push({
-        id: 'discount', severity: 'warning',
-        title: 'ลดราคา > 20%', value: `${highDiscount.length} อีเวนต์`,
-        detail: `เฉลี่ย ${avg.toFixed(0)}% off quote`,
-      })
-    }
-
-    // Stale pending expenses — `expense_date` older than 30 days, status pending
-    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000
-    const stalePending = data.expenseClaims.filter(c => {
-      if (c.status !== 'pending') return false
-      const ed = (c as { expense_date?: string | null }).expense_date
-      if (!ed) return false
-      return new Date(ed).getTime() < thirtyDaysAgo
-    })
-    if (stalePending.length > 0) {
-      const total = stalePending.reduce((s, c) => s + Number(c.total_amount || 0), 0)
-      list.push({
-        id: 'stale-pending', severity: 'alert',
-        title: 'เบิกค้าง > 30 วัน', value: `${stalePending.length} ใบ`,
-        detail: `รวม ฿${fmtK(total)}`,
-      })
-    }
-
-    // Month-over-month — needs at least 2 months of data
-    if (monthlyData.length >= 2) {
-      const [, prev] = monthlyData[monthlyData.length - 2]
-      const [, curr] = monthlyData[monthlyData.length - 1]
-      const change = pct(curr.revenue - prev.revenue, prev.revenue)
-      list.push({
-        id: 'mom', severity: change >= 0 ? 'positive' : 'warning',
-        title: 'รายรับเดือนนี้ vs เดือนก่อน',
-        value: `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`,
-        detail: `฿${fmtK(curr.revenue)} vs ฿${fmtK(prev.revenue)}`,
-      })
-    }
-
-    // Best margin event — celebratory positive
-    const topMarginEvent = [...filtered].filter(e => e.revenue > 0)
-      .sort((a, b) => b.margin - a.margin)[0]
-    if (topMarginEvent && topMarginEvent.margin > 30) {
-      list.push({
-        id: 'top-margin', severity: 'positive',
-        title: 'Margin สูงสุด', value: `${topMarginEvent.margin.toFixed(0)}%`,
-        detail: topMarginEvent.name,
-      })
-    }
-
-    return list
-  }, [filtered, monthlyData, data.expenseClaims])
-
-  // Top 5 most profitable events — quick "what's working" answer
-  const topProfitable = useMemo(() =>
-    [...filtered].filter(e => e.revenue > 0).sort((a, b) => b.profit - a.profit).slice(0, 5)
-  , [filtered])
-
-  // Bottom 5 events by profit — quick "what to fix" answer
-  const bottomEvents = useMemo(() =>
-    [...filtered].filter(e => e.revenue > 0).sort((a, b) => a.profit - b.profit).slice(0, 5)
-  , [filtered])
-
-  // Top customers by total revenue across their events
-  const topCustomers = useMemo(() => {
-    const map = new Map<string, { name: string; revenue: number; profit: number; count: number }>()
-    filtered.forEach(e => {
-      if (e.customerName) {
-        const prev = map.get(e.customerName) || { name: e.customerName, revenue: 0, profit: 0, count: 0 }
-        prev.revenue += e.revenue; prev.profit += e.profit; prev.count += 1
-        map.set(e.customerName, prev)
-      }
-    })
-    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 8)
-  }, [filtered])
-
-  // Seller stats with avg discount + margin — extends what topSellers shows
-  const sellerStats = useMemo(() => {
-    const map = new Map<string, { name: string; events: number; revenue: number; profit: number; discountSum: number; discountCount: number }>()
-    filtered.forEach(e => {
-      if (!e.seller) return
-      const prev = map.get(e.seller) || { name: e.seller, events: 0, revenue: 0, profit: 0, discountSum: 0, discountCount: 0 }
-      prev.events += 1
-      prev.revenue += e.revenue
-      prev.profit += e.profit
-      if (e.quotedPrice > 0) { prev.discountSum += e.discountPct; prev.discountCount += 1 }
-      map.set(e.seller, prev)
-    })
-    return Array.from(map.values()).map(s => ({
-      ...s,
-      avgDiscount: s.discountCount > 0 ? s.discountSum / s.discountCount : 0,
-      margin: pct(s.profit, s.revenue),
-    })).sort((a, b) => b.revenue - a.revenue)
-  }, [filtered])
 
   const toggleSort = (key: string) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -726,9 +511,6 @@ export default function OverviewView({ data }: { data: OverviewData }) {
     a.href = url; a.download = `event-overview-${new Date().toISOString().split('T')[0]}.csv`
     a.click(); URL.revokeObjectURL(url)
   }
-
-  const maxMonthly = Math.max(...monthlyData.map(([, v]) => Math.max(v.revenue, v.cost)), 1)
-  const SortIcon = ({ k }: { k: string }) => sortKey === k ? (sortDir === 'desc' ? <ChevronDown className="h-3 w-3 inline" /> : <ChevronRight className="h-3 w-3 inline rotate-[-90deg]" />) : null
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-12">
@@ -976,18 +758,18 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       {/* ═══════════════════ AI ANALYSIS ═══════════════════ */}
       {viewMode === 'ai' && (
       <>
-        {/* Hint banner — push users back to native analysis first to avoid
-            unnecessary LLM calls. AI is for free-form follow-up, not "what
-            are my numbers" questions which the Dashboard already answers. */}
+        {/* Hint banner — ต้องบอกตรงกับสิ่งที่ ai-actions.ts::buildDataPayload
+            ส่งจริงเท่านั้น (แก้ payload เมื่อไหร่ให้แก้ข้อความนี้ด้วย) */}
         <div className="flex items-start gap-3 p-4 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-zinc-50/60 dark:bg-zinc-900/40">
           <Sparkles className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
           <div className="flex-1 text-xs text-zinc-600 dark:text-zinc-400 space-y-1">
-            <p className="font-semibold text-zinc-700 dark:text-zinc-300">ลองดู Dashboard ก่อน — ส่วนใหญ่ตอบได้โดยไม่ต้องใช้ AI</p>
+            <p className="font-semibold text-zinc-700 dark:text-zinc-300">ลองดูแท็บ Dashboard / งบกำไร-ขาดทุน ก่อน — ตัวเลขสรุปมีให้ครบโดยไม่ต้องเรียก AI</p>
             <p>
-              ระบบคำนวณ &quot;ข้อมูลที่ควรสังเกต&quot; (loss / margin ต่ำ / เบิกค้าง / ข้อมูลขาด) · Top 5 / Bottom 5 ·
-              ลูกค้าที่สร้างรายรับสูงสุด · MoM growth — ทั้งหมดเป็น deterministic จากข้อมูลในระบบโดยตรง
+              ข้อมูลที่ส่งให้ AI = อีเวนต์ตามตัวกรอง/ช่วงวันที่ที่เลือกเท่านั้น โดยเลือกได้เป็นหมวด:
+              ภาพรวมการเงิน (รายรับ/ต้นทุน/กำไร/margin) · ต้นทุนแยกหมวด · รายละเอียดรายอีเวนต์ ·
+              ประสิทธิภาพเซล · เบิกจ่าย · เช็คอิน · กราฟฟิก
             </p>
-            <p className="text-zinc-400">ใช้ AI Assist ก็ต่อเมื่อต้องการสรุปแบบ free-form หรือถาม follow-up ที่ Dashboard ยังไม่ตอบ</p>
+            <p className="text-zinc-400">ใช้ AI Assist ก็ต่อเมื่อต้องการสรุปแบบ free-form หรือถาม follow-up ที่แท็บอื่นยังไม่ตอบ</p>
           </div>
           <button onClick={() => setViewMode('dashboard')}
             className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 underline whitespace-nowrap shrink-0">
@@ -1272,21 +1054,6 @@ export default function OverviewView({ data }: { data: OverviewData }) {
 }
 
 // ─── Subcomponents ──────────────────────────────────────────
-
-function KpiCard({ icon: Icon, label, value, sub, valueClass }: {
-  icon: typeof Calendar; label: string; value: string; sub?: string; valueClass?: string
-}) {
-  return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <Icon className="h-4 w-4 text-zinc-400" />
-      </div>
-      <div className={`text-xl font-bold tracking-tight font-mono ${valueClass || 'text-zinc-900 dark:text-zinc-100'}`}>{value}</div>
-      <p className="text-[10px] text-zinc-400 uppercase tracking-wider mt-0.5">{label}</p>
-      {sub && <p className="text-[10px] text-zinc-400 mt-0.5">{sub}</p>}
-    </div>
-  )
-}
 
 function TH({ k, label, left, right, sortKey, onClick }: {
   k: string; label: string; left?: boolean; right?: boolean; sortKey: string; onClick: (k: string) => void

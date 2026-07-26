@@ -8,13 +8,14 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronRight, Activity, AlertTriangle, CheckCircle2, Layers, ExternalLink } from 'lucide-react'
+import { ChevronRight, Activity, AlertTriangle, CheckCircle2, Layers, ExternalLink, Percent, Banknote, PieChart } from 'lucide-react'
 import {
   type PLLead, type PLClaim, type PLInstallment, type PLJobEvent, type PLCostItem, type Ladder, type DealPL,
   newLadder, pushLadder, calcTax, claimEffective, num,
   isRevLead, leadDate, claimDate, leadAmount, groupKey, fmt, fmtSign, buildHealth,
   type GroupBy,
 } from './pl/pl-lib'
+import { StatCard, InfoTip, Th, Td, INFO } from './components/stat-primitives'
 
 function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 function monthStartStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` }
@@ -113,12 +114,17 @@ export default function PLSummary({ leads, claims, installments, events, costIte
 
       {/* ── Scorecard ── */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-        <Metric label="Gross Margin" value={`${h.grossMargin.toFixed(0)}%`} good={h.grossMargin >= 40} />
-        <Metric label="Operating Margin" value={`${h.opMargin.toFixed(0)}%`} good={h.opMargin >= 20} />
-        <Metric label="อัตราเก็บเงิน" value={`${(h.cashRate * 100).toFixed(0)}%`} good={h.cashRate >= 0.7} />
-        <Metric label="ความครอบคลุมต้นทุน" value={`${(h.revWithCostPct * 100).toFixed(0)}%`} good={h.revWithCostPct >= 0.8}
-          hint={`${h.dealsWithCost}/${h.dealCount} ดีลมีต้นทุน`} />
-        <Metric label="Overhead Ratio" value={`${(h.overheadRatio * 100).toFixed(0)}%`} good={h.overheadRatio <= 0.5} invert />
+        <StatCard size="sm" icon={Percent} tone={h.grossMargin >= 40 ? 'emerald' : 'rose'}
+          label="Gross Margin" value={`${h.grossMargin.toFixed(0)}%`} info={INFO.grossMargin} />
+        <StatCard size="sm" icon={Percent} tone={h.opMargin >= 20 ? 'emerald' : 'rose'}
+          label="Operating Margin" value={`${h.opMargin.toFixed(0)}%`} info={INFO.opMargin} />
+        <StatCard size="sm" icon={Banknote} tone={h.cashRate >= 0.7 ? 'emerald' : 'rose'}
+          label="อัตราเก็บเงิน" value={`${(h.cashRate * 100).toFixed(0)}%`} info={INFO.cashRate} />
+        <StatCard size="sm" icon={Layers} tone={h.revWithCostPct >= 0.8 ? 'emerald' : 'rose'}
+          label="ความครอบคลุมต้นทุน" value={`${(h.revWithCostPct * 100).toFixed(0)}%`}
+          sub={`${h.dealsWithCost}/${h.dealCount} ดีลมีต้นทุน`} info={INFO.revWithCost} />
+        <StatCard size="sm" icon={PieChart} tone={h.overheadRatio <= 0.5 ? 'emerald' : 'amber'}
+          label="Overhead Ratio" value={`${(h.overheadRatio * 100).toFixed(0)}%`} info={INFO.overheadRatio} />
       </div>
 
       {/* ── งบกำไร-ขาดทุน 2 ชั้น ── */}
@@ -129,12 +135,12 @@ export default function PLSummary({ leads, claims, installments, events, costIte
         </div>
         <table className="w-full text-sm">
           <tbody className="font-mono">
-            <PLLine label="รายรับ (ฐานก่อน VAT)" value={h.revBase} tone="emerald" />
-            <PLLine label="− ต้นทุนตรงของงาน (ใบเบิกผูกดีล)" value={-h.directCost} />
-            <PLLine label="= กำไรขั้นต้น" value={h.grossProfit} strong sub={`Margin ${h.grossMargin.toFixed(1)}%`} />
-            <PLLine label="− ค่าใช้จ่าย Office / Overhead" value={-h.overhead} />
+            <PLLine label="รายรับ (ฐานก่อน VAT)" value={h.revBase} tone="emerald" info={INFO.revBase} />
+            <PLLine label="− ต้นทุนตรงของงาน (ใบเบิกผูกดีล)" value={-h.directCost} info={INFO.expense} />
+            <PLLine label="= กำไรขั้นต้น" value={h.grossProfit} strong sub={`Margin ${h.grossMargin.toFixed(1)}%`} info={INFO.grossProfit} />
+            <PLLine label="− ค่าใช้จ่าย Office / Overhead" value={-h.overhead} info={INFO.overheadRatio} />
             <PLLine label="= กำไรดำเนินงาน" value={h.operatingProfit} strong emphatic
-              tone={isProfit ? 'emerald' : 'rose'} sub={`Margin ${h.opMargin.toFixed(1)}%`} />
+              tone={isProfit ? 'emerald' : 'rose'} sub={`Margin ${h.opMargin.toFixed(1)}%`} info={INFO.opProfit} />
           </tbody>
         </table>
         <p className="px-5 py-2.5 text-[10px] text-zinc-400 border-t border-zinc-100 dark:border-zinc-800">
@@ -223,18 +229,8 @@ export default function PLSummary({ leads, claims, installments, events, costIte
 }
 
 // ─── sub-components ───
-function Th({ children }: { children?: React.ReactNode }) {
-  return <th className="text-right font-semibold px-5 py-2.5 whitespace-nowrap">{children}</th>
-}
-function Td({ children, tone, strong, muted }: { children?: React.ReactNode; tone?: 'emerald' | 'rose'; strong?: boolean; muted?: boolean }) {
-  const c = tone === 'emerald' ? 'text-emerald-600 dark:text-emerald-400'
-    : tone === 'rose' ? 'text-rose-500 dark:text-rose-400'
-    : muted ? 'text-zinc-400' : 'text-zinc-700 dark:text-zinc-300'
-  return <td className={`text-right px-5 py-2.5 whitespace-nowrap ${strong ? 'font-bold' : ''} ${c}`}>{children}</td>
-}
-
-function PLLine({ label, value, tone, strong, emphatic, sub }: {
-  label: string; value: number; tone?: 'emerald' | 'rose'; strong?: boolean; emphatic?: boolean; sub?: string
+function PLLine({ label, value, tone, strong, emphatic, sub, info }: {
+  label: string; value: number; tone?: 'emerald' | 'rose'; strong?: boolean; emphatic?: boolean; sub?: string; info?: string
 }) {
   const c = tone === 'emerald' ? 'text-emerald-600 dark:text-emerald-400'
     : tone === 'rose' ? 'text-rose-500 dark:text-rose-400'
@@ -242,21 +238,13 @@ function PLLine({ label, value, tone, strong, emphatic, sub }: {
   return (
     <tr className={`border-b border-zinc-50 dark:border-zinc-800/50 ${emphatic ? (value >= 0 ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : 'bg-rose-50/50 dark:bg-rose-950/20') : strong ? 'bg-zinc-50/60 dark:bg-zinc-800/30' : ''}`}>
       <td className={`px-5 py-2.5 font-sans ${strong ? 'font-bold text-zinc-900 dark:text-zinc-100' : 'text-zinc-600 dark:text-zinc-300'}`}>
-        {label}{sub && <span className="ml-2 text-[10px] font-mono text-zinc-400">{sub}</span>}
+        <span className="inline-flex items-center gap-1 align-middle">
+          <span>{label}{sub && <span className="ml-2 text-[10px] font-mono text-zinc-400">{sub}</span>}</span>
+          {info && <InfoTip text={info} side="right" />}
+        </span>
       </td>
       <td className={`text-right px-5 py-2.5 font-mono whitespace-nowrap ${strong ? 'font-bold text-base' : ''} ${c}`}>{fmtSign(value)}</td>
     </tr>
-  )
-}
-
-function Metric({ label, value, good, invert, hint }: { label: string; value: string; good: boolean; invert?: boolean; hint?: string }) {
-  const c = good ? 'text-emerald-600 dark:text-emerald-400' : invert ? 'text-amber-600 dark:text-amber-400' : 'text-rose-500 dark:text-rose-400'
-  return (
-    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 p-3">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{label}</div>
-      <div className={`text-xl font-bold font-mono mt-0.5 ${c}`}>{value}</div>
-      {hint && <div className="text-[10px] text-zinc-400">{hint}</div>}
-    </div>
   )
 }
 
