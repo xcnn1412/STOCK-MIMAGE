@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Pencil, Trash2, Megaphone, Loader2, ExternalLink, Copy, Check, List, CalendarDays, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Megaphone, Loader2, ExternalLink, Copy, Check, List, CalendarDays, ChevronLeft, ChevronRight, RefreshCw, FileUp, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -22,6 +22,7 @@ import {
   uploadContentExampleImages, fetchPostMetrics,
 } from './actions'
 import { compressImage } from '@/lib/utils'
+import ImportDialog, { downloadTemplate } from './import-dialog'
 
 // ค่าที่ใช้แทน "ไม่ระบุ" ใน Select (Radix ไม่ยอมให้ value เป็นสตริงว่าง)
 const NONE = '__none__'
@@ -122,6 +123,7 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
   })
 
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [editing, setEditing] = useState<ContentPost | null>(null)
   // เปิดจากการคลิกแถว = โหมดดูอย่างเดียว ต้องกดดินสอถึงแก้ได้
   const [dialogView, setDialogView] = useState(false)
@@ -254,6 +256,22 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
             </button>
           </div>
           <Button
+            variant="outline"
+            onClick={downloadTemplate}
+            className="shrink-0"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">ดาวน์โหลดเทมเพลต</span>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setImportOpen(true)}
+            className="shrink-0"
+          >
+            <FileUp className="h-4 w-4" />
+            <span className="hidden sm:inline">นำเข้า Excel</span>
+          </Button>
+          <Button
             onClick={openCreate}
             className="bg-violet-600 hover:bg-violet-700 text-white shrink-0"
           >
@@ -262,6 +280,8 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
           </Button>
         </div>
       </div>
+
+      <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={() => router.refresh()} />
 
       {/* ---------------- Calendar mode: ภาพรวมทุกแพลตฟอร์มตามวันโพสต์ ---------------- */}
       {mode === 'calendar' && (

@@ -117,6 +117,7 @@ export type ActionType =
     | 'CREATE_CONTENT_POST'
     | 'UPDATE_CONTENT_POST'
     | 'DELETE_CONTENT_POST'
+    | 'IMPORT_CONTENT_POSTS'
     // Event ↔ CRM Linking
     | 'LINK_EVENT_TO_CRM'
     | 'UNLINK_EVENT_FROM_CRM'
