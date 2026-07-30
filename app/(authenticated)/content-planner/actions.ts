@@ -567,6 +567,32 @@ export async function fetchPostMetrics(id: string): Promise<{
   return { success: true, metrics, fetchedAt }
 }
 
+/** ลบหลายโพสต์ทีเดียว — ปุ่ม "ลบทั้งหมดที่แสดง" (client ส่ง id ตามฟิลเตอร์แพลตฟอร์ม/สถานะ/คำค้นที่เลือกอยู่) */
+export async function deleteContentPosts(ids: string[]) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const clean = [...new Set(ids)].filter(id => typeof id === 'string' && id)
+  if (!clean.length) return { error: 'ไม่มีโพสต์ให้ลบ' }
+
+  const supabase = createServiceClient()
+  const { data: existing } = await supabase
+    .from('content_posts')
+    .select('post_code')
+    .in('id', clean)
+
+  const { error } = await supabase.from('content_posts').delete().in('id', clean)
+  if (error) return { error: error.message }
+
+  await logActivity('DELETE_CONTENT_POSTS', {
+    count: existing?.length ?? clean.length,
+    post_codes: (existing || []).map(r => r.post_code),
+  })
+
+  revalidatePath('/content-planner')
+  return { success: true, deleted: existing?.length ?? clean.length }
+}
+
 export async function deleteContentPost(id: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }

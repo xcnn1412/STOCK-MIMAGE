@@ -18,7 +18,7 @@ import {
   type ContentPost, type PlatformKey, type StatusKey,
 } from './constants'
 import {
-  createContentPost, updateContentPost, updateContentPostStatus, deleteContentPost,
+  createContentPost, updateContentPost, updateContentPostStatus, deleteContentPost, deleteContentPosts,
   uploadContentExampleImages, fetchPostMetrics,
 } from './actions'
 import { compressImage } from '@/lib/utils'
@@ -210,6 +210,20 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
     })
   }
 
+  // ลบทุกโพสต์ที่แสดงอยู่ตามฟิลเตอร์ปัจจุบัน (แพลตฟอร์ม + สถานะ + คำค้น)
+  function handleDeleteAll() {
+    if (!visible.length) return
+    const pfLabel = PLATFORMS.find(pf => pf.value === platform)?.th || platform
+    const statusText = statusFilter === 'all' ? 'ทุกสถานะ' : `สถานะ "${statusLabel(statusFilter)}"`
+    const searchText = search.trim() ? `\n(เฉพาะที่ตรงกับคำค้น "${search.trim()}")` : ''
+    if (!confirm(`ลบโพสต์ ${pfLabel} ${statusText} ทั้งหมด ${visible.length} รายการ?${searchText}\nการลบนี้ย้อนกลับไม่ได้`)) return
+    startTransition(async () => {
+      const res = await deleteContentPosts(visible.map(p => p.id))
+      if (res?.error) { alert(res.error); return }
+      router.refresh()
+    })
+  }
+
   function openCreate() { setEditing(null); setDialogView(false); setDialogOpen(true) }
   function openEdit(post: ContentPost) { setEditing(post); setDialogView(false); setDialogOpen(true) }
   function openView(post: ContentPost) { setEditing(post); setDialogView(true); setDialogOpen(true) }
@@ -342,6 +356,16 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
             </button>
           )
         })}
+        {visible.length > 0 && (
+          <button
+            onClick={handleDeleteAll}
+            disabled={isPending}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:bg-zinc-900 dark:text-rose-400 dark:hover:bg-rose-950/40"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            ลบทั้งหมดที่แสดง ({visible.length})
+          </button>
+        )}
       </div>
 
       {/* ---------------- Search ---------------- */}
