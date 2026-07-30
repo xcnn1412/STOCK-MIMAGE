@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Pencil, Trash2, Megaphone, Loader2, ExternalLink, Copy, Check, List, CalendarDays, ChevronLeft, ChevronRight, RefreshCw, FileUp, Download } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Megaphone, Loader2, ExternalLink, Copy, Check, List, CalendarDays, ChevronLeft, ChevronRight, RefreshCw, FileUp, Download, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -104,6 +104,37 @@ function InlineStatusSelect({
   )
 }
 
+// หัวคอลัมน์แบบคลิกเรียง — คลิกวน น้อย→มาก / มาก→น้อย / กลับลำดับเดิม
+type SortKey = 'post_code' | 'post_date' | 'format' | 'topic' | 'pillar' | 'objective' | 'status' | 'results'
+type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
+
+function SortableTh({ label, sortKey, sort, onSort, align = 'left' }: {
+  label: string
+  sortKey: SortKey
+  sort: SortState
+  onSort: (k: SortKey) => void
+  align?: 'left' | 'right'
+}) {
+  const active = sort?.key === sortKey
+  return (
+    <th className={`px-4 py-3 ${align === 'right' ? 'text-right' : 'text-left'}`}>
+      <button
+        onClick={() => onSort(sortKey)}
+        title="คลิกเพื่อเรียงลำดับ"
+        className={`inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider transition-colors ${active
+          ? 'text-violet-600 dark:text-violet-400'
+          : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+          }`}
+      >
+        {label}
+        {active
+          ? (sort.dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)
+          : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+      </button>
+    </th>
+  )
+}
+
 // ============================================================================
 // Main view
 // ============================================================================
@@ -115,6 +146,8 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
   const [platform, setPlatform] = useState<PlatformKey>('facebook')
   const [statusFilter, setStatusFilter] = useState<StatusKey | 'all'>('all')
   const [search, setSearch] = useState('')
+  // เรียงตามคอลัมน์ (คลิกหัวตาราง) — null = ลำดับเดิมจาก server (วันที่ล่าสุดก่อน)
+  const [sort, setSort] = useState<SortState>(null)
   // มุมมอง: ตาราง (แยกแพลตฟอร์ม) / ปฏิทิน (ภาพรวมทุกแพลตฟอร์มตามวันโพสต์)
   const [mode, setMode] = useState<'table' | 'calendar'>('table')
   const [calMonth, setCalMonth] = useState(() => {
@@ -173,6 +206,42 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
     return m
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searched, statusOverride])
+
+  // คลิกหัวคอลัมน์: คอลัมน์ใหม่ → น้อยไปมาก / ซ้ำ → มากไปน้อย / ซ้ำอีก → เลิกเรียง
+  function toggleSort(key: SortKey) {
+    setSort(prev => {
+      if (prev?.key !== key) return { key, dir: 'asc' }
+      return prev.dir === 'asc' ? { key, dir: 'desc' } : null
+    })
+  }
+
+  // เรียงตามป้ายภาษาไทยที่ผู้ใช้เห็นในตาราง (ไม่ใช่ค่าดิบ) — ค่าว่างไปท้ายเสมอ
+  const sorted = useMemo(() => {
+    if (!sort) return visible
+    const dir = sort.dir === 'asc' ? 1 : -1
+    const statusOrder = new Map(STATUSES.map((s, i) => [s.value as string, i]))
+    const val = (p: ContentPost): string | number | null => {
+      switch (sort.key) {
+        case 'post_code': return p.post_code
+        case 'post_date': return p.post_date ? `${p.post_date} ${p.post_time || ''}` : null
+        case 'format': return formatLabel(p.platform, p.format) || null
+        case 'topic': return p.topic
+        case 'pillar': return labelOf(PILLARS, p.pillar) || null
+        case 'objective': return labelOf(OBJECTIVES, p.objective) || null
+        case 'status': return statusOrder.get(effStatus(p)) ?? 99
+        case 'results': return p.views ?? p.reach
+      }
+    }
+    return [...visible].sort((a, b) => {
+      const va = val(a), vb = val(b)
+      if (va == null && vb == null) return 0
+      if (va == null) return 1
+      if (vb == null) return -1
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir
+      return String(va).localeCompare(String(vb), 'th', { numeric: true }) * dir
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, sort, statusOverride])
 
   // ตัวเลขบนแท็บแพลตฟอร์ม = โพสต์ที่ยังไม่ได้โพสต์ (งานค้าง)
   const pendingByPlatform = useMemo(() => {
@@ -393,19 +462,19 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 text-left">
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">รหัส</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">วันที่+เวลา</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">รูปแบบ</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">หัวข้อ</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">เสาหลัก</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">เป้าหมาย</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">สถานะ</th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">ผลลัพธ์</th>
+                  <SortableTh label="รหัส" sortKey="post_code" sort={sort} onSort={toggleSort} />
+                  <SortableTh label="วันที่+เวลา" sortKey="post_date" sort={sort} onSort={toggleSort} />
+                  <SortableTh label="รูปแบบ" sortKey="format" sort={sort} onSort={toggleSort} />
+                  <SortableTh label="หัวข้อ" sortKey="topic" sort={sort} onSort={toggleSort} />
+                  <SortableTh label="เสาหลัก" sortKey="pillar" sort={sort} onSort={toggleSort} />
+                  <SortableTh label="เป้าหมาย" sortKey="objective" sort={sort} onSort={toggleSort} />
+                  <SortableTh label="สถานะ" sortKey="status" sort={sort} onSort={toggleSort} />
+                  <SortableTh label="ผลลัพธ์" sortKey="results" sort={sort} onSort={toggleSort} />
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {visible.map(p => {
+                {sorted.map(p => {
                   const { top, engTotal } = engagementSummary(p)
                   return (
                     <tr
@@ -506,7 +575,7 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
 
           {/* ---------------- Mobile cards ---------------- */}
           <div className="lg:hidden space-y-2.5">
-            {visible.map(p => (
+            {sorted.map(p => (
               <button
                 key={p.id}
                 onClick={() => openView(p)}
