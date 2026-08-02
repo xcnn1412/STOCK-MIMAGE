@@ -54,6 +54,16 @@ function thaiDateTime(iso: string | null): string {
   })
 }
 
+/** จำนวนวัน (ตามปฏิทินท้องถิ่น) จากวันนี้ถึงวันโพสต์ — บวก = อนาคต, ลบ = เลยมาแล้ว */
+function daysUntilPost(p: ContentPost): number | null {
+  if (!p.post_date) return null
+  const target = new Date(p.post_date + 'T00:00:00')
+  if (isNaN(target.getTime())) return null
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000)
+}
+
 /** ผลลัพธ์แบบย่อสำหรับตาราง — Reach/Views บรรทัดบน, ยอดมีส่วนร่วมรวมบรรทัดล่าง */
 function engagementSummary(p: ContentPost) {
   const top: string[] = []
@@ -74,6 +84,38 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${s.badge}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
       {statusLabel(status)}
+    </span>
+  )
+}
+
+/** นับถอยหลังถึงวันโพสต์ — อีกกี่วัน / วันนี้ / เลยกำหนดมากี่วัน (โพสต์แล้วไม่ต้องนับ) */
+function CountdownBadge({ post, status }: { post: ContentPost; status: string }) {
+  const muted = <span className="text-zinc-300 dark:text-zinc-600">—</span>
+  if (!post.post_date || status === 'published') return muted
+  const d = daysUntilPost(post)
+  if (d === null) return muted
+
+  const base = 'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium'
+  if (d > 0) {
+    return (
+      <span className={`${base} bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-900`}>
+        <span className="h-1.5 w-1.5 rounded-full bg-sky-400 dark:bg-sky-500" />
+        อีก {d} วัน
+      </span>
+    )
+  }
+  if (d === 0) {
+    return (
+      <span className={`${base} bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900`}>
+        <span className="h-1.5 w-1.5 rounded-full bg-violet-400 dark:bg-violet-500" />
+        วันนี้{post.post_time ? ` ${post.post_time}` : ''}
+      </span>
+    )
+  }
+  return (
+    <span className={`${base} bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-rose-400 dark:bg-rose-500" />
+      เลยมา {Math.abs(d)} วัน
     </span>
   )
 }
@@ -464,6 +506,9 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
                 <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 text-left">
                   <SortableTh label="รหัส" sortKey="post_code" sort={sort} onSort={toggleSort} />
                   <SortableTh label="วันที่+เวลา" sortKey="post_date" sort={sort} onSort={toggleSort} />
+                  <th className="px-4 py-3 text-left">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">กำหนดโพสต์</span>
+                  </th>
                   <SortableTh label="รูปแบบ" sortKey="format" sort={sort} onSort={toggleSort} />
                   <SortableTh label="หัวข้อ" sortKey="topic" sort={sort} onSort={toggleSort} />
                   <SortableTh label="เสาหลัก" sortKey="pillar" sort={sort} onSort={toggleSort} />
@@ -488,6 +533,9 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
                       <td className="px-4 py-3 whitespace-nowrap text-zinc-700 dark:text-zinc-300">
                         {p.post_date ? thaiDate(p.post_date) : <span className="text-zinc-300 dark:text-zinc-600">—</span>}
                         {p.post_time && <span className="ml-1.5 text-xs text-zinc-400 dark:text-zinc-500">{p.post_time}</span>}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <CountdownBadge post={p} status={effStatus(p)} />
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
                         {formatLabel(p.platform, p.format) || <span className="text-zinc-300 dark:text-zinc-600">—</span>}
@@ -590,6 +638,7 @@ export default function ContentPlannerView({ posts, ownerOptions }: { posts: Con
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                   <span>{p.post_date ? thaiDate(p.post_date) : 'ยังไม่กำหนดวัน'}{p.post_time ? ` ${p.post_time}` : ''}</span>
+                  {p.post_date && effStatus(p) !== 'published' && <CountdownBadge post={p} status={effStatus(p)} />}
                   {p.format && <><span className="text-zinc-300 dark:text-zinc-600">·</span><span>{formatLabel(p.platform, p.format)}</span></>}
                   {p.page && <><span className="text-zinc-300 dark:text-zinc-600">·</span><span className="text-violet-500 dark:text-violet-400">{p.page}</span></>}
                   {p.owner && <><span className="text-zinc-300 dark:text-zinc-600">·</span><span>{p.owner}</span></>}
