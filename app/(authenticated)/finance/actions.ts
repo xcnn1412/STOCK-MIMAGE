@@ -532,6 +532,53 @@ export async function updateClaim(id: string, updateData: {
 }
 
 // ============================================================================
+// Remove a receipt file (admin any status; owner only draft/pending)
+// ============================================================================
+
+export async function removeReceiptFile(id: string, url: string) {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select('status, submitted_by, receipt_urls')
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+
+  const isAdmin = role === 'admin'
+  const isOwner = claim.submitted_by === userId
+  if (!isAdmin && !['draft', 'pending'].includes(claim.status)) return { error: 'ลบเอกสารได้เฉพาะใบเบิกที่ยังไม่ถูกดำเนินการ' }
+  if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
+
+  const existing: string[] = claim.receipt_urls || []
+  if (!existing.includes(url)) return { error: 'ไม่พบไฟล์นี้ในใบเบิก' }
+
+  const { error } = await supabase
+    .from('expense_claims')
+    .update({ receipt_urls: existing.filter(u => u !== url) })
+    .eq('id', id)
+  if (error) return { error: 'เกิดข้อผิดพลาดในการลบเอกสาร' }
+
+  await removeStorageByUrls(supabase, 'receipts', [url])
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'delete_receipt',
+    changed_by: userId,
+    changes: { receipt_urls: { from: existing.length, to: existing.length - 1 } },
+    note: 'ลบเอกสารแนบ 1 ไฟล์',
+  })
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
+  return { success: true }
+}
+
+// ============================================================================
 // Get Claim Edit Logs
 // ============================================================================
 

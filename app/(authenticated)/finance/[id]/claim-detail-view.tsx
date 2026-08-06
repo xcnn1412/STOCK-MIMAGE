@@ -11,7 +11,7 @@ import {
   Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle,
   ChevronDown, ChevronRight, Coins, Lock,
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, removeReceiptFile, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES, getClaimChecklist, getFundingSourceLabel, getFundingSourceColor, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -1184,6 +1184,34 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     ? 'For tax invoices, use the dedicated tax invoice section (only available when status is "Waiting Tax Invoice").'
                     : 'สำหรับใบกำกับภาษี ใช้ส่วน "แนบใบกำกับภาษี" โดยเฉพาะ (เปิดเมื่อสถานะ "รอใบกำกับภาษี")'}
                 </p>
+                {claim.receipt_urls && claim.receipt_urls.length > 0 && (
+                  <div className="mb-2 space-y-1.5">
+                    {claim.receipt_urls.map((url, i) => (
+                      <div key={url} className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded text-xs">
+                        <a href={url} target="_blank" rel="noopener noreferrer" className="truncate text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 hover:underline">
+                          {isEn ? 'File' : 'ไฟล์'} {i + 1} — {decodeURIComponent(url.split('/').pop() || '')}
+                        </a>
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={async () => {
+                            if (!confirm(isEn ? 'Delete this file? This cannot be undone.' : 'ลบไฟล์นี้? ลบแล้วกู้คืนไม่ได้')) return
+                            setLoading(true)
+                            setError(null)
+                            const result = await removeReceiptFile(claim.id, url)
+                            if (result.error) setError(result.error)
+                            else router.refresh()
+                            setLoading(false)
+                          }}
+                          className="text-zinc-400 hover:text-red-500 ml-2 shrink-0 disabled:opacity-50"
+                          title={isEn ? 'Delete file' : 'ลบไฟล์'}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-3 text-center hover:border-emerald-400 transition-colors bg-white dark:bg-zinc-900">
                   <input
                     type="file"
@@ -3031,6 +3059,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
                       log.action === 'update'          ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
                       : log.action === 'upload_receipt'  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+                      : log.action === 'delete_receipt'  ? 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400'
                       : log.action === 'submit'          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
                       : log.action === 'approve'         ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
                       : log.action === 'approve_month_end' ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400'
@@ -3047,6 +3076,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     }`}>
                       {log.action === 'update'          ? (isEn ? 'Edit' : 'แก้ไข')
                       : log.action === 'upload_receipt'  ? (isEn ? 'Upload' : 'อัพโหลด')
+                      : log.action === 'delete_receipt'  ? (isEn ? 'File Deleted' : 'ลบเอกสาร')
                       : log.action === 'submit'          ? (isEn ? 'Submitted' : 'ยื่นแล้ว')
                       : log.action === 'approve'         ? (isEn ? 'Approved' : 'อนุมัติ')
                       : log.action === 'approve_month_end' ? (isEn ? 'Approved (Month End)' : 'อนุมัติ-สิ้นเดือน')
