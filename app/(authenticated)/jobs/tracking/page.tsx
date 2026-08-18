@@ -9,11 +9,12 @@ export const metadata = {
 export default async function TrackingPage() {
     const supabase = createServiceClient()
 
-    const { data: leads } = await supabase
+    const { data: leads, error: leadsError } = await supabase
         .from('crm_leads')
-        .select('id, customer_name, event_name, event_date, design_status, supplier_note, tracking_checklist')
+        .select('id, customer_name, event_location, event_date, design_status, supplier_note, tracking_checklist')
         .eq('status', 'accepted')
         .order('event_date', { ascending: true, nullsFirst: false })
+    if (leadsError) throw new Error(leadsError.message)
 
     const leadIds = (leads || []).map(l => l.id)
 
@@ -60,7 +61,7 @@ export default async function TrackingPage() {
     const rows: TrackingLead[] = (leads || []).map(l => ({
         id: l.id,
         customer_name: l.customer_name,
-        event_name: l.event_name,
+        event_name: l.event_location,
         event_date: l.event_date,
         design_status: l.design_status || 'not_started',
         supplier_note: l.supplier_note,
