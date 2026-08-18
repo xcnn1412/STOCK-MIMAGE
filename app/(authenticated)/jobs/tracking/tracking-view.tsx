@@ -7,6 +7,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Users } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { updateLeadTracking } from '../actions'
 
 export interface TrackingLead {
@@ -21,10 +24,10 @@ export interface TrackingLead {
 }
 
 const DESIGN_OPTIONS = [
-    { value: 'not_started', label: 'ยังไม่ออกแบบ' },
-    { value: 'in_progress', label: 'กำลังออกแบบ' },
-    { value: 'sent', label: 'ส่งลูกค้า' },
-    { value: 'sent_email_cf', label: 'ส่งEmail+CFลูกค้า' },
+    { value: 'not_started', label: 'ยังไม่ออกแบบ', className: '' },
+    { value: 'in_progress', label: 'กำลังออกแบบ', className: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100' },
+    { value: 'sent', label: 'ส่งลูกค้า', className: 'bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100' },
+    { value: 'sent_email_cf', label: 'ส่งEmail+CFลูกค้า', className: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100' },
 ]
 
 function daysUntil(d: string | null) {
@@ -32,6 +35,41 @@ function daysUntil(d: string | null) {
     const today = new Date(); today.setHours(0, 0, 0, 0)
     const target = new Date(d); target.setHours(0, 0, 0, 0)
     return Math.round((target.getTime() - today.getTime()) / 86400000)
+}
+
+function StaffCell({ staff, roleLabels }: { staff: TrackingLead['staff']; roleLabels: Record<string, string> }) {
+    if (staff.length === 0) return <span className="text-xs text-zinc-400">ยังไม่จัดคน</span>
+
+    const byRole = new Map<string, string[]>()
+    for (const s of staff) {
+        const label = roleLabels[s.role] || s.role
+        if (!byRole.has(label)) byRole.set(label, [])
+        byRole.get(label)!.push(s.name)
+    }
+    const groups = [...byRole.entries()]
+
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <button type="button" className="text-left w-full rounded-md px-1 -mx-1 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                    <span className="inline-flex items-center gap-1 text-sm font-medium">
+                        <Users className="h-3.5 w-3.5 text-zinc-500" /> {staff.length} คน
+                    </span>
+                    <div className="text-xs text-zinc-500 truncate">
+                        {groups.map(([role, names]) => `${role} ×${names.length}`).join(' · ')}
+                    </div>
+                </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-64 p-3 space-y-2">
+                {groups.map(([role, names]) => (
+                    <div key={role}>
+                        <div className="text-xs font-medium text-zinc-500">{role} ({names.length})</div>
+                        <div className="text-sm">{names.join(', ')}</div>
+                    </div>
+                ))}
+            </PopoverContent>
+        </Popover>
+    )
 }
 
 function Countdown({ date }: { date: string | null }) {
@@ -90,7 +128,7 @@ export default function TrackingView({
                             <TableHead className="w-28">Countdown</TableHead>
                             <TableHead className="w-48">ออกแบบ</TableHead>
                             <TableHead className="w-56">ซัพพลายเออร์</TableHead>
-                            <TableHead>จัดคน</TableHead>
+                            <TableHead className="w-48">จัดคน</TableHead>
                             <TableHead className="w-44">checklist</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -124,7 +162,7 @@ export default function TrackingView({
                                         value={lead.design_status}
                                         onValueChange={v => save(lead.id, { design_status: v })}
                                     >
-                                        <SelectTrigger className="w-full">
+                                        <SelectTrigger className={cn('w-full', DESIGN_OPTIONS.find(o => o.value === lead.design_status)?.className)}>
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -149,20 +187,7 @@ export default function TrackingView({
                                 </TableCell>
 
                                 <TableCell>
-                                    {lead.staff.length === 0 ? (
-                                        <span className="text-xs text-zinc-400">ยังไม่จัดคน</span>
-                                    ) : (
-                                        <div className="flex flex-wrap gap-1">
-                                            {lead.staff.map((s, si) => (
-                                                <span
-                                                    key={si}
-                                                    className="inline-flex items-center rounded-md bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs text-zinc-700 dark:text-zinc-300"
-                                                >
-                                                    {s.name} · {roleLabels[s.role] || s.role}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
+                                    <StaffCell staff={lead.staff} roleLabels={roleLabels} />
                                 </TableCell>
 
                                 <TableCell>
