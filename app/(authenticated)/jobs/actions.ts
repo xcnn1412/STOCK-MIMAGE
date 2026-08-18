@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 
 
 async function getSession() {
@@ -1730,5 +1731,43 @@ export async function toggleCustomEmoji(id: string, isActive: boolean) {
     if (error) return { error: error.message }
     revalidatePath('/jobs/settings')
     revalidatePath('/jobs')
+    return { success: true }
+}
+
+// ============================================================================
+// CRM Lead Tracking (/jobs/tracking)
+// ============================================================================
+
+const DESIGN_STATUSES = ['not_started', 'in_progress', 'sent', 'sent_email_cf']
+const CHECKLIST_KEYS = ['lock_queue', 'on_site']
+
+export async function updateLeadTracking(
+    leadId: string,
+    patch: { design_status?: string; supplier_note?: string | null; tracking_checklist?: string[] }
+) {
+    const session = await requireAuth()
+    if (!session) return { error: 'Unauthorized' }
+
+    const update: Record<string, unknown> = {}
+
+    if (patch.design_status !== undefined) {
+        if (!DESIGN_STATUSES.includes(patch.design_status)) return { error: 'สถานะออกแบบไม่ถูกต้อง' }
+        update.design_status = patch.design_status
+    }
+    if (patch.supplier_note !== undefined) {
+        update.supplier_note = patch.supplier_note?.trim() || null
+    }
+    if (patch.tracking_checklist !== undefined) {
+        if (patch.tracking_checklist.some(k => !CHECKLIST_KEYS.includes(k))) return { error: 'รายการ checklist ไม่ถูกต้อง' }
+        update.tracking_checklist = Array.from(new Set(patch.tracking_checklist))
+    }
+    if (Object.keys(update).length === 0) return { success: true }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('crm_leads').update(update).eq('id', leadId)
+    if (error) return { error: error.message }
+
+    await logActivity('UPDATE_LEAD_TRACKING', { lead_id: leadId, ...update })
+    revalidatePath('/jobs/tracking')
     return { success: true }
 }

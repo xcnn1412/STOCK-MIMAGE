@@ -2,10 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Briefcase, LayoutDashboard, Archive, Settings, BarChart3, User, ShieldCheck } from 'lucide-react'
+import { Briefcase, LayoutDashboard, Archive, Settings, BarChart3, User, ShieldCheck, ClipboardList } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 
-type TabKey = 'board' | 'myJob' | 'adminJob' | 'archive' | 'report' | 'settings'
+type TabKey = 'board' | 'tracking' | 'myJob' | 'adminJob' | 'archive' | 'report' | 'settings'
 
 interface TabMeta {
   href: string
@@ -17,6 +17,7 @@ interface TabMeta {
 
 const ALL_TABS: TabMeta[] = [
   { href: '/jobs', key: 'board', icon: LayoutDashboard, exact: true },
+  { href: '/jobs/tracking', key: 'tracking', icon: ClipboardList, exact: false },
   { href: '/jobs/my-job', key: 'myJob', icon: User, exact: false },
   { href: '/jobs/admin-job', key: 'adminJob', icon: ShieldCheck, exact: false, adminOnly: true },
   { href: '/jobs/archive', key: 'archive', icon: Archive, exact: false },
@@ -27,6 +28,7 @@ const ALL_TABS: TabMeta[] = [
 const labels: Record<'en' | 'th', Record<TabKey, string>> = {
   en: {
     board: 'Board',
+    tracking: 'Tracking',
     myJob: 'My Job',
     adminJob: 'Admin Job',
     archive: 'Archive',
@@ -35,6 +37,7 @@ const labels: Record<'en' | 'th', Record<TabKey, string>> = {
   },
   th: {
     board: 'Board',
+    tracking: 'ติดตามงาน',
     myJob: 'งานของฉัน',
     adminJob: 'Admin Job',
     archive: 'คลังเก็บ',
@@ -62,6 +65,7 @@ export default function JobsNav({ role }: JobsNavProps) {
       return pathname === href || (
         pathname.startsWith('/jobs/') &&
         !pathname.startsWith('/jobs/settings') &&
+        !pathname.startsWith('/jobs/tracking') &&
         !pathname.startsWith('/jobs/archive') &&
         !pathname.startsWith('/jobs/report') &&
         !pathname.startsWith('/jobs/my-job') &&
