@@ -27,6 +27,22 @@ const DESIGN_OPTIONS = [
     { value: 'sent_email_cf', label: 'ส่งEmail+CFลูกค้า' },
 ]
 
+function daysUntil(d: string | null) {
+    if (!d) return null
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const target = new Date(d); target.setHours(0, 0, 0, 0)
+    return Math.round((target.getTime() - today.getTime()) / 86400000)
+}
+
+function Countdown({ date }: { date: string | null }) {
+    const d = daysUntil(date)
+    if (d === null) return <span className="text-zinc-300 dark:text-zinc-600">—</span>
+    const base = 'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap'
+    if (d > 0) return <span className={`${base} bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-900`}>อีก {d} วัน</span>
+    if (d === 0) return <span className={`${base} bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900`}>วันนี้</span>
+    return <span className={`${base} bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900`}>ผ่านมา {-d} วัน</span>
+}
+
 const CHECKLIST = [
     { key: 'lock_queue', label: 'ล็อคคิวรถ' },
     { key: 'on_site', label: 'ออกหน้างาน' },
@@ -71,6 +87,7 @@ export default function TrackingView({
                         <TableRow>
                             <TableHead className="w-12">ลำดับ</TableHead>
                             <TableHead className="w-56">วันจัดงาน</TableHead>
+                            <TableHead className="w-28">Countdown</TableHead>
                             <TableHead className="w-48">ออกแบบ</TableHead>
                             <TableHead className="w-56">ซัพพลายเออร์</TableHead>
                             <TableHead>จัดคน</TableHead>
@@ -80,7 +97,7 @@ export default function TrackingView({
                     <TableBody>
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={6} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={7} className="text-center text-sm text-zinc-500 py-10">
                                     ยังไม่มีดีลที่ตอบรับ
                                 </TableCell>
                             </TableRow>
@@ -99,6 +116,8 @@ export default function TrackingView({
                                         {lead.event_name ? ` / ${lead.event_name}` : ''}
                                     </Link>
                                 </TableCell>
+
+                                <TableCell><Countdown date={lead.event_date} /></TableCell>
 
                                 <TableCell>
                                     <Select
