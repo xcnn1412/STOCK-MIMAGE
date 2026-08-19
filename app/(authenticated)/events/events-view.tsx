@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from 'next/link'
-import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar } from "lucide-react"
+import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar, Eye, EyeOff } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
 import EventStatusBadge from './event-status-badge'
 import EventsLogSheet, { type EventLog } from './events-log-sheet'
@@ -21,8 +21,14 @@ export default function EventsView({
 }) {
   const { t, lang } = useLanguage()
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  // Closed events stay in the DB now (soft-close), so hide them unless asked for.
+  const [showClosed, setShowClosed] = useState(false)
 
-  const sortedEvents = [...events].sort((a, b) => {
+  const closedCount = events.filter(e => e.status === 'completed').length
+
+  const visibleEvents = showClosed ? events : events.filter(e => e.status !== 'completed')
+
+  const sortedEvents = [...visibleEvents].sort((a, b) => {
     const dateA = new Date(a.event_date).getTime()
     const dateB = new Date(b.event_date).getTime()
     return sortOrder === 'asc' ? dateA - dateB : dateB - dateA
@@ -73,6 +79,20 @@ export default function EventsView({
           >
             <ArrowUpDown className="mr-2 h-4 w-4" />
             {t.events.sortDate}
+          </Button>
+          <Button
+            variant={showClosed ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowClosed(v => !v)}
+            className={showClosed
+              ? 'w-fit bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900'
+              : 'w-fit border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800'}
+          >
+            {showClosed ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+            {showClosed
+              ? (lang === 'th' ? 'ซ่อนงานที่ปิดแล้ว' : 'Hide closed')
+              : (lang === 'th' ? 'แสดงงานที่ปิดแล้ว' : 'Show closed')}
+            {closedCount > 0 && <span className="ml-1.5 opacity-60">{closedCount}</span>}
           </Button>
           <div className="md:hidden">
             <EventsLogSheet logs={logs} />
@@ -183,15 +203,17 @@ export default function EventsView({
                   </Button>
                 </Link>
               )}
-              <Link href={`/events/${event.id}/return`}>
-                <Button
-                  size="sm"
-                  className="min-h-[44px] min-w-[44px] bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  <span className="sr-only">{t.events.finalizeJob}</span>
-                </Button>
-              </Link>
+              {isAdmin && event.status !== 'completed' && (
+                <Link href={`/events/${event.id}/return`}>
+                  <Button
+                    size="sm"
+                    className="min-h-[44px] min-w-[44px] bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    <span className="sr-only">{t.events.finalizeJob}</span>
+                  </Button>
+                </Link>
+              )}
             </CardFooter>
           </Card>
         ))}
