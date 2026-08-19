@@ -1,5 +1,5 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import CheckListForm from './return-checklist'
 
 export const revalidate = 0
@@ -9,6 +9,9 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
   const { data: event } = await supabase.from('events').select('*').eq('id', params.id).single()
   
   if (!event) notFound()
+
+  // Already closed — nothing to check in.
+  if (event.status === 'completed') redirect('/events')
 
   // 1. Get kits assigned to event
   const { data: kits } = await supabase

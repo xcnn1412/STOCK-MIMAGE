@@ -2,12 +2,11 @@
 
 
 import { useState, useTransition } from 'react'
-import { processEventReturn } from '../../actions' // Adjust path if necessary
+import { processEventReturn, uploadClosureImage } from '../../actions'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Loader2, CheckCircle2, ImagePlus, X, UploadCloud } from "lucide-react"
-import { supabaseServer as supabase } from '@/lib/supabase-server'
 import { compressImage } from '@/lib/utils'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -81,64 +80,66 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
 
         startTransition(async () => {
              const uploadedUrls: string[] = []
-             
+
              if (selectedFiles.length > 0) {
-                 setUploadProgress('Uploading images...')
-                 
-                 // Process uploads in parallel
-                 const uploadPromises = selectedFiles.map(async (file, i) => {
-                     const fileExt = file.name.split('.').pop()
-                     const fileName = `${event.id}/${Date.now()}-${i}.${fileExt}`
-                     
-                     // Try upload
-                     const { error: uploadError } = await supabase.storage
-                        .from('event_closures')
-                        .upload(fileName, file)
-                     
-                     if (uploadError) {
-                         console.error('Error uploading', file.name, uploadError)
+                 setUploadProgress(`Uploading 0/${selectedFiles.length}...`)
+
+                 // Uploads go through a server action: the browser client is `anon`
+                 // (custom cookie session, not Supabase Auth) and cannot write to the bucket.
+                 const uploadPromises = selectedFiles.map(async (file) => {
+                     const fd = new FormData()
+                     fd.append('file', file)
+                     fd.append('eventId', event.id)
+
+                     const res = await uploadClosureImage(fd)
+                     if (res.error || !res.url) {
+                         console.error('Error uploading', file.name, res.error)
                          return null
                      }
-
-                     const { data: { publicUrl } } = supabase.storage
-                        .from('event_closures')
-                        .getPublicUrl(fileName)
-                     
-                     return publicUrl
+                     return res.url
                  })
 
                  const results = await Promise.all(uploadPromises)
-                 
-                 // Filter out failures
+
+                 // Skip failures — a bad photo must not block the close
                  results.forEach(url => {
                      if (url) uploadedUrls.push(url)
                  })
+                 setUploadProgress(`Uploaded ${uploadedUrls.length}/${selectedFiles.length}`)
              }
 
              const payload = Object.entries(statuses).map(([itemId, status]) => ({ itemId, status }))
-             await processEventReturn(event.id, payload, uploadedUrls)
-             router.push('/events') // Redirect after server action
+             const result = await processEventReturn(event.id, payload, uploadedUrls)
+             if (result && 'error' in result) {
+                 setUploadProgress('')
+                 alert(result.error)
+                 return
+             }
+             router.push('/events')
         })
     }
-    
-    // If no kits/items, allow deleting event immediately?
+
+    // No kits/items to check in — the event can simply be closed.
     if (totalItems === 0) {
         return (
              <div className="max-w-2xl mx-auto space-y-6 text-center pt-10">
                  <h2 className="text-xl font-bold">{t.events.noItemsAssigned}</h2>
-                 <p className="text-zinc-500">{t.events.canDeleteDirectly}</p>
-                 <Button 
-                    variant="destructive" 
+                 <p className="text-zinc-500">{t.events.canCloseDirectly}</p>
+                 <Button
                     onClick={() => {
                         startTransition(async () => {
-                             await processEventReturn(event.id, [])
+                             const result = await processEventReturn(event.id, [])
+                             if (result && 'error' in result) {
+                                 alert(result.error)
+                                 return
+                             }
                              router.push('/events')
                         })
                     }}
                     disabled={isPending}
                  >
                      {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                     {t.events.delete}
+                     {t.events.finalizeJob}
                  </Button>
                  <Link href="/events"><Button variant="ghost">{t.common.cancel}</Button></Link>
              </div>

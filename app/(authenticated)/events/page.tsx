@@ -22,7 +22,7 @@ export default async function EventsPage() {
       created_at,
       user:user_id (full_name, role)
     `)
-    .in('action_type', ['CREATE_EVENT', 'UPDATE_EVENT', 'DELETE_EVENT', 'LINK_EVENT_TO_CRM', 'UNLINK_EVENT_FROM_CRM'])
+    .in('action_type', ['CREATE_EVENT', 'UPDATE_EVENT', 'DELETE_EVENT', 'CLOSE_EVENT', 'LINK_EVENT_TO_CRM', 'UNLINK_EVENT_FROM_CRM'])
     .order('created_at', { ascending: false })
     .limit(200)
 

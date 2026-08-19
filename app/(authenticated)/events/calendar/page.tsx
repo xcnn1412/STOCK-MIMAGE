@@ -14,6 +14,9 @@ export default async function CalendarPage() {
     supabase
       .from('events')
       .select('id, name, event_date, location')
+      // Closed events are already surfaced via event_closures below — avoid duplicates.
+      // (status is nullable, so a bare .neq() would also drop NULL rows)
+      .or('status.is.null,status.neq.completed')
       .order('event_date', { ascending: false })
       .limit(300),
     supabase

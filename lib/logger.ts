@@ -24,6 +24,7 @@ export type ActionType =
     | 'CREATE_EVENT'
     | 'UPDATE_EVENT'
     | 'DELETE_EVENT'
+    | 'CLOSE_EVENT'
     | 'CREATE_TEMPLATE'
     | 'UPDATE_TEMPLATE'
     | 'DELETE_TEMPLATE'

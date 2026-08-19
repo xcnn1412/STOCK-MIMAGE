@@ -16,6 +16,7 @@ import {
   Plus,
   Pencil,
   Trash2,
+  CheckCircle2,
   Link as LinkIcon,
   Unlink,
   History,
@@ -32,7 +33,7 @@ export type EventLog = {
   user: { full_name: string | null; role: string | null } | null
 }
 
-type ActionFilter = 'all' | 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'LINK' | 'UNLINK'
+type ActionFilter = 'all' | 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'CLOSE_EVENT' | 'LINK' | 'UNLINK'
 
 const ACTION_META: Record<string, {
   th: string
@@ -65,6 +66,14 @@ const ACTION_META: Record<string, {
     ring: 'ring-red-200 dark:ring-red-900/40',
     dot: 'bg-red-500',
     badge: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800',
+  },
+  CLOSE_EVENT: {
+    th: 'ปิดงาน',
+    en: 'Closed',
+    Icon: CheckCircle2,
+    ring: 'ring-sky-200 dark:ring-sky-900/40',
+    dot: 'bg-sky-500',
+    badge: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/20 dark:text-sky-300 dark:border-sky-800',
   },
   LINK_EVENT_TO_CRM: {
     th: 'เชื่อมกับ CRM',
@@ -278,6 +287,19 @@ function LogEntryDetail({ log, lang }: { log: EventLog; lang: 'th' | 'en' }) {
     )
   }
 
+  if (action === 'CLOSE_EVENT') {
+    return (
+      <div className="space-y-1 text-sm">
+        <div className="font-medium text-zinc-900 dark:text-zinc-100">{d.name || '-'}</div>
+        <div className="text-xs text-zinc-500 dark:text-zinc-400">
+          {d.closureRecorded
+            ? (lang === 'th' ? 'บันทึกสรุปปิดงานแล้ว' : 'Closure report saved')
+            : (lang === 'th' ? 'ปิดงานแล้ว (ไม่ได้บันทึกสรุป)' : 'Closed (no closure report)')}
+        </div>
+      </div>
+    )
+  }
+
   if (action === 'LINK_EVENT_TO_CRM' || action === 'UNLINK_EVENT_FROM_CRM') {
     return (
       <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono break-all">
@@ -301,11 +323,12 @@ export default function EventsLogSheet({ logs }: { logs: EventLog[] }) {
   const [filter, setFilter] = useState<ActionFilter>('all')
 
   const counts = useMemo(() => {
-    const c = { create: 0, update: 0, delete: 0, link: 0 }
+    const c = { create: 0, update: 0, delete: 0, close: 0, link: 0 }
     for (const l of logs) {
       if (l.action_type === 'CREATE_EVENT') c.create++
       else if (l.action_type === 'UPDATE_EVENT') c.update++
       else if (l.action_type === 'DELETE_EVENT') c.delete++
+      else if (l.action_type === 'CLOSE_EVENT') c.close++
       else if (l.action_type === 'LINK_EVENT_TO_CRM' || l.action_type === 'UNLINK_EVENT_FROM_CRM') c.link++
     }
     return c
@@ -316,6 +339,7 @@ export default function EventsLogSheet({ logs }: { logs: EventLog[] }) {
       if (filter === 'CREATE_EVENT' && l.action_type !== 'CREATE_EVENT') return false
       if (filter === 'UPDATE_EVENT' && l.action_type !== 'UPDATE_EVENT') return false
       if (filter === 'DELETE_EVENT' && l.action_type !== 'DELETE_EVENT') return false
+      if (filter === 'CLOSE_EVENT' && l.action_type !== 'CLOSE_EVENT') return false
       if (filter === 'LINK' && l.action_type !== 'LINK_EVENT_TO_CRM') return false
       if (filter === 'UNLINK' && l.action_type !== 'UNLINK_EVENT_FROM_CRM') return false
       if (!search.trim()) return true
@@ -362,6 +386,7 @@ export default function EventsLogSheet({ logs }: { logs: EventLog[] }) {
     { key: 'all', labelTh: 'ทั้งหมด', labelEn: 'All', count: logs.length },
     { key: 'CREATE_EVENT', labelTh: 'สร้าง', labelEn: 'Created', count: counts.create },
     { key: 'UPDATE_EVENT', labelTh: 'แก้ไข', labelEn: 'Updated', count: counts.update },
+    { key: 'CLOSE_EVENT', labelTh: 'ปิดงาน', labelEn: 'Closed', count: counts.close },
     { key: 'DELETE_EVENT', labelTh: 'ลบ', labelEn: 'Deleted', count: counts.delete },
   ]
 

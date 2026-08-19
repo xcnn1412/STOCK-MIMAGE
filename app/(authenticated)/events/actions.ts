@@ -486,11 +486,19 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 }
 
 
-export async function processEventReturn(eventId: string, itemStatuses: { itemId: string, status: string }[], imageUrls: string[] = []) {
+export async function processEventReturn(
+    eventId: string,
+    itemStatuses: { itemId: string, status: string }[],
+    imageUrls: string[] = []
+): Promise<{ error: string } | { success: true }> {
      const cookieStore = await cookies()
      const userId = cookieStore.get('session_user_id')?.value
+     const role = cookieStore.get('session_role')?.value || 'staff'
      if (!userId) {
-         throw new Error('Unauthorized: No active session')
+         return { error: 'Unauthorized: No active session' }
+     }
+     if (role !== 'admin') {
+         return { error: 'เฉพาะ admin เท่านั้นที่ปิดงานได้' }
      }
 
      const supabase = createServiceClient()
@@ -501,6 +509,10 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
          .select('*')
          .eq('id', eventId)
          .single()
+
+     if (event?.status === 'completed') {
+         return { error: 'อีเวนต์นี้ปิดงานไปแล้ว' }
+     }
 
      // Fetch kits and their items for snapshot
      const { data: kits } = await supabase
@@ -567,20 +579,21 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
         .update({ event_id: null })
         .eq('event_id', eventId)
 
-     // 4. Delete the event
+     // 4. Soft-close the event — keep the row so event_staff / staff_checkins /
+     //    job_cost_events links survive. Status flips to 'completed'.
      const { error } = await supabase
         .from('events')
-        .delete()
+        .update({ status: 'completed' })
         .eq('id', eventId)
 
      if (error) {
-         console.error("Delete event failed", error)
+         console.error("Close event failed", error)
+         return { error: 'ปิดงานไม่สำเร็จ' }
      }
 
-     await logActivity('DELETE_EVENT', { 
-         eventId, 
+     await logActivity('CLOSE_EVENT', {
+         eventId,
          name: event?.name || 'Unknown Event',
-         reason: 'return',
          closureRecorded: !closureError
      }, undefined)
 
@@ -588,12 +601,44 @@ export async function processEventReturn(eventId: string, itemStatuses: { itemId
      revalidatePath('/items')
      revalidatePath('/kits')
      revalidatePath('/events/event-closures')
-
-     // 6. Clear event_id on CRM leads that referenced this event
-     await supabase
-       .from('crm_leads')
-       .update({ event_id: null })
-       .eq('event_id', eventId)
+     revalidatePath('/events/calendar')
      revalidatePath('/crm')
+
+     return { success: true }
+}
+
+// Upload a closure photo. The browser client is `anon` (this app uses a custom
+// cookie session, not Supabase Auth), and the `event_closures` bucket only allows
+// INSERT for `authenticated` — so uploads must go through the service-role client here.
+export async function uploadClosureImage(formData: FormData): Promise<{ url?: string; error?: string }> {
+    const cookieStore = await cookies()
+    const userId = cookieStore.get('session_user_id')?.value
+    const role = cookieStore.get('session_role')?.value || 'staff'
+    if (!userId) return { error: 'Unauthorized: No active session' }
+    if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้นที่ปิดงานได้' }
+
+    const file = formData.get('file') as File | null
+    const eventId = formData.get('eventId') as string | null
+
+    if (!file || typeof file === 'string') return { error: 'ไม่พบไฟล์' }
+    if (!eventId) return { error: 'ไม่พบอีเวนต์' }
+    if (!file.type?.startsWith('image/')) return { error: 'รองรับเฉพาะไฟล์รูปภาพ' }
+    if (file.size > 5 * 1024 * 1024) return { error: 'ไฟล์ใหญ่เกิน 5MB' }
+
+    const sanitizedName = (file.name || 'image.jpg').replace(/[^a-zA-Z0-9._-]/g, '_')
+    const path = `${eventId}/${Date.now()}_${sanitizedName}`
+
+    const supabase = createServiceClient()
+    const { error: uploadError } = await supabase.storage
+        .from('event_closures')
+        .upload(path, file, { contentType: file.type })
+
+    if (uploadError) {
+        console.error('Upload closure image error:', uploadError)
+        return { error: 'อัปโหลดรูปไม่สำเร็จ' }
+    }
+
+    const { data } = supabase.storage.from('event_closures').getPublicUrl(path)
+    return { url: data.publicUrl }
 }
 
