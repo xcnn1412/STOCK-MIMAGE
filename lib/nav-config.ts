@@ -1,8 +1,8 @@
 import { Package, Archive, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History, Eye, User, Megaphone } from 'lucide-react'
 
-export type ModuleKey = 'overview' | 'crm' | 'content' | 'events' | 'stock' | 'costs' | 'finance' | 'kpi' | 'jobs' | 'checkin' | 'salesboard' | 'admin'
+export type ModuleKey = 'overview' | 'crm' | 'content' | 'events' | 'stock' | 'costs' | 'finance' | 'documents' | 'kpi' | 'jobs' | 'checkin' | 'salesboard' | 'admin'
 
-export const ALL_MODULES: ModuleKey[] = ['overview', 'crm', 'content', 'jobs', 'events', 'stock', 'costs', 'finance', 'kpi', 'checkin', 'salesboard']
+export const ALL_MODULES: ModuleKey[] = ['overview', 'crm', 'content', 'jobs', 'events', 'stock', 'costs', 'finance', 'documents', 'kpi', 'checkin', 'salesboard']
 
 export interface NavItem {
   href: string
@@ -93,6 +93,17 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/finance', icon: Banknote, labelKey: 'finance', exact: true },
       { href: '/finance/new', icon: FileText, labelKey: 'financeNew' },
       { href: '/finance/settings', icon: Settings, labelKey: 'financeSettings' },
+    ],
+  },
+  {
+    key: 'documents',
+    icon: FileText,
+    items: [
+      { href: '/documents', icon: FileText, labelKey: 'documents', exact: true },
+      { href: '/documents/approvals', icon: ClipboardCheck, labelKey: 'documentsApprovals', adminOnly: true },
+      { href: '/documents/dashboard', icon: LayoutDashboard, labelKey: 'documentsDashboard' },
+      { href: '/documents/reports', icon: BarChart3, labelKey: 'documentsReports', adminOnly: true },
+      { href: '/documents/settings', icon: Settings, labelKey: 'documentsSettings', adminOnly: true },
     ],
   },
   {

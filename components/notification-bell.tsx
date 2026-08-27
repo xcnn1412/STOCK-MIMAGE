@@ -47,6 +47,8 @@ function getNotificationUrl(item: NotificationItem): string {
       return `/kpi/reports`
     case 'crm_lead':
       return `/crm/${item.reference_id}`
+    case 'document':
+      return `/documents/${item.reference_id}`
     default:
       return '/dashboard'
   }

@@ -12,6 +12,8 @@ const MODULE_ROUTES: Record<string, string[]> = {
   crm: ['/crm'],
   content: ['/content-planner'],
   finance: ['/finance'],
+  // duplicated from lib/nav-config.ts — Edge runtime can't import lucide icons
+  documents: ['/documents'],
   salesboard: ['/sales-board'],
   admin: ['/logs', '/users', '/security'],
 }

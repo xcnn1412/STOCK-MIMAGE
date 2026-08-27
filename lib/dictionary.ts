@@ -34,6 +34,12 @@ export const dictionary = {
       financeNew: 'New Request',
       financeSettings: 'Settings',
 
+      documents: 'Documents',
+      documentsApprovals: 'Approvals',
+      documentsDashboard: 'Dashboard',
+      documentsReports: 'Number Continuity',
+      documentsSettings: 'Settings',
+
       jobsKanban: 'Jobs',
       jobsMyWork: 'My Work',
       jobsSettings: 'Settings',
@@ -56,6 +62,7 @@ export const dictionary = {
       costs: 'Costs',
       kpi: 'KPI',
       finance: 'Finance',
+      documents: 'Documents',
       jobs: 'Jobs',
       checkin: 'Check-in',
       overview: 'Overview',
@@ -303,6 +310,12 @@ export const dictionary = {
       financeNew: 'สร้างใบเบิก',
       financeSettings: 'ตั้งค่า',
 
+      documents: 'รายการเอกสาร',
+      documentsApprovals: 'รออนุมัติ',
+      documentsDashboard: 'แดชบอร์ด',
+      documentsReports: 'รายงานเลขต่อเนื่อง',
+      documentsSettings: 'ตั้งค่า',
+
       jobsKanban: 'งาน',
       jobsMyWork: 'งานของฉัน',
       jobsSettings: 'ตั้งค่า',
@@ -325,6 +338,7 @@ export const dictionary = {
       costs: 'ต้นทุน',
       kpi: 'ประเมิน KPI',
       finance: 'เบิกเงิน',
+      documents: 'เอกสาร',
       jobs: 'งาน',
       checkin: 'เช็คอิน',
       overview: 'ภาพรวม',
