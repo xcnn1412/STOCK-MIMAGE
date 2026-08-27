@@ -74,6 +74,27 @@ export default async function AuthenticatedLayout({
     if (!allowedModules.includes('content')) {
       allowedModules = [...allowedModules, 'content']
     }
+    // admin ต้องเข้าโมดูลเอกสารได้เสมอ — หน้ารออนุมัติ/ตั้งค่า/รายงานเป็นของ admin เท่านั้น
+    if (!allowedModules.includes('documents')) {
+      allowedModules = [...allowedModules, 'documents']
+    }
+  }
+
+  // ตัวเลขบนเมนู "รออนุมัติ" — เฉพาะ admin
+  // ponytail: นับสดด้วย head-count ตรงนี้ (ไม่เรียก server action ที่ต้อง requireAuth +
+  // query profiles ซ้ำ) และ try/catch ไว้เผื่อ instance ที่ยังไม่ได้รัน migration
+  const badges: Record<string, number> = {}
+  if (role === 'admin') {
+    try {
+      const supabase = createServiceClient()
+      const { count } = await supabase
+        .from('documents')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending_approval')
+      if (count && count > 0) badges['/documents/approvals'] = count
+    } catch {
+      // ตารางยังไม่มี — ไม่ต้องมี badge
+    }
   }
 
   const license = getLicenseStatus()
@@ -81,7 +102,7 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full flex" suppressHydrationWarning>
-      <Sidebar role={role} allowedModules={allowedModules} licenseExpiresAt={licenseExpiresAt} worldcupTeam={worldcupTeam} />
+      <Sidebar role={role} allowedModules={allowedModules} licenseExpiresAt={licenseExpiresAt} worldcupTeam={worldcupTeam} badges={badges} />
       <SessionTimeout />
       {/* WORLDCUP 2026 (temporary) — champion prediction popup */}
       {userId && <WorldCupPopup hasPicked={!!worldcupTeam} />}

@@ -3,15 +3,16 @@
 // ใช้ร่วมกันระหว่างหน้า /notifications, กระดิ่งแจ้งเตือน และ actions
 // ============================================================================
 
-export type NotificationCategory = 'jobs' | 'finance' | 'kpi' | 'crm' | 'other'
+export type NotificationCategory = 'jobs' | 'finance' | 'kpi' | 'crm' | 'documents' | 'other'
 
-export const CATEGORY_ORDER: NotificationCategory[] = ['jobs', 'finance', 'kpi', 'crm', 'other']
+export const CATEGORY_ORDER: NotificationCategory[] = ['jobs', 'finance', 'kpi', 'crm', 'documents', 'other']
 
 export const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   jobs:    'งาน',
   finance: 'การเงิน',
   kpi:     'KPI',
   crm:     'CRM',
+  documents: 'เอกสาร',
   other:   'อื่นๆ',
 }
 
@@ -21,6 +22,7 @@ export const CATEGORY_PREFIXES: Record<Exclude<NotificationCategory, 'other'>, s
   finance: ['expense_'],
   kpi:     ['kpi_'],
   crm:     ['crm_'],
+  documents: ['doc_'],
 }
 
 export function categoryOf(type: string): NotificationCategory {
@@ -52,6 +54,10 @@ export const TYPE_CONFIG: Record<string, TypeConfig> = {
   kpi_self_evaluated:          { icon: '📝', color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400', label: 'ประเมินตัวเอง' },
   kpi_evaluation_reply:        { icon: '💬', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400', label: 'ตอบกลับ KPI' },
   crm_mentioned:               { icon: '📍', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', label: 'ถูกแท็กใน CRM' },
+  doc_pending_approval:        { icon: '📄', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'เอกสารรออนุมัติ' },
+  doc_approved:                { icon: '📗', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'เอกสารอนุมัติแล้ว' },
+  doc_rejected:                { icon: '📕', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',             label: 'เอกสารถูกตีกลับ' },
+  doc_voided:                  { icon: '🚫', color: 'bg-neutral-200 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400', label: 'เอกสารถูกยกเลิก' },
 }
 
 export const DEFAULT_TYPE_CONFIG: TypeConfig = {

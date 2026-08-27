@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { User, Phone, CreditCard, MapPin, Save, CheckCircle2, AlertTriangle, Building2, Hash, IdCard, Lock, Eye, EyeOff, KeyRound } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { User, Phone, CreditCard, MapPin, Save, CheckCircle2, AlertTriangle, Building2, Hash, IdCard, Lock, Eye, EyeOff, KeyRound, Signature, Upload, Trash2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button'
 import BankSelect from '@/components/bank-select'
 import ThaiAddressInput from '@/components/thai-address-input'
 import { parseAddress, serializeAddress, type AddressData } from '@/lib/thai-address'
-import { updateMyProfile, changePin } from './actions'
+import { updateMyProfile, changePin, updateSignature, removeSignature } from './actions'
+import { compressImage } from '@/lib/utils'
 import { toast } from 'sonner'
 
 interface ProfileData {
@@ -23,6 +24,7 @@ interface ProfileData {
   account_holder_name: string | null
   phone: string | null
   role: string | null
+  signature_url?: string | null
 }
 
 function getCompletionItems(profile: ProfileData) {
@@ -60,6 +62,11 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
   const [showCurrentPin, setShowCurrentPin] = useState(false)
   const [showNewPin, setShowNewPin] = useState(false)
 
+  // ลายเซ็นสำหรับเอกสาร
+  const [signatureUrl, setSignatureUrl] = useState<string | null>(profile.signature_url || null)
+  const [signatureBusy, setSignatureBusy] = useState(false)
+  const signatureInputRef = useRef<HTMLInputElement>(null)
+
   const completionItems = getCompletionItems({
     ...profile,
     full_name: form.full_name,
@@ -96,6 +103,57 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
       toast.error('เกิดข้อผิดพลาด')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleSignatureChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // เลือกไฟล์เดิมซ้ำได้
+    if (!file) return
+
+    if (file.type !== 'image/png' && file.type !== 'image/jpeg') {
+      toast.error('รองรับเฉพาะไฟล์ PNG หรือ JPG')
+      return
+    }
+    if (file.size > 1024 * 1024) {
+      toast.error('ไฟล์ต้องไม่เกิน 1MB')
+      return
+    }
+
+    setSignatureBusy(true)
+    try {
+      // ย่อด้านยาวสุดเหลือ 400px ก่อนอัปโหลด — ลายเซ็นบน PDF ใช้เท่านี้พอ
+      const compressed = await compressImage(file, 0.3, 400)
+      const fd = new FormData()
+      fd.append('file', compressed)
+      const result = await updateSignature(fd)
+      if (result?.error) {
+        toast.error(result.error)
+      } else {
+        setSignatureUrl(result.url || null)
+        toast.success('อัปโหลดลายเซ็นเรียบร้อยแล้ว')
+      }
+    } catch {
+      toast.error('เกิดข้อผิดพลาด')
+    } finally {
+      setSignatureBusy(false)
+    }
+  }
+
+  const handleRemoveSignature = async () => {
+    setSignatureBusy(true)
+    try {
+      const result = await removeSignature()
+      if (result?.error) {
+        toast.error(result.error)
+      } else {
+        setSignatureUrl(null)
+        toast.success('ลบลายเซ็นแล้ว')
+      }
+    } catch {
+      toast.error('เกิดข้อผิดพลาด')
+    } finally {
+      setSignatureBusy(false)
     }
   }
 
@@ -300,6 +358,81 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
                 placeholder="ชื่อบัญชี (ตามหน้าสมุดบัญชี)"
               />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ลายเซ็นสำหรับเอกสาร */}
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Signature className="h-4 w-4 text-zinc-500" />
+            ลายเซ็นสำหรับเอกสาร
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-zinc-500">
+            แสดงในช่องผู้อนุมัติบน PDF เอกสาร — แนะนำพื้นหลังขาว ลายเซ็นสีเข้ม
+          </p>
+
+          {/* กล่องพรีวิว — พื้นขาวเสมอ เพื่อให้เห็นลายเซ็นตรงกับที่จะพิมพ์ */}
+          <div className="h-32 w-full max-w-xs rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white flex items-center justify-center overflow-hidden">
+            {signatureUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={signatureUrl}
+                alt="ลายเซ็นของฉัน"
+                className="max-h-full max-w-full object-contain"
+              />
+            ) : (
+              <span className="text-xs text-zinc-400">ยังไม่มีลายเซ็น</span>
+            )}
+          </div>
+
+          <input
+            ref={signatureInputRef}
+            type="file"
+            accept="image/png,image/jpeg"
+            className="hidden"
+            onChange={handleSignatureChange}
+          />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={signatureBusy}
+              onClick={() => signatureInputRef.current?.click()}
+            >
+              {signatureBusy ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-3.5 w-3.5 border-2 border-zinc-300 border-t-zinc-600 rounded-full animate-spin" />
+                  กำลังอัปโหลด...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Upload className="h-3.5 w-3.5" />
+                  {signatureUrl ? 'เปลี่ยนลายเซ็น' : 'อัปโหลดลายเซ็น'}
+                </span>
+              )}
+            </Button>
+            {signatureUrl && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={signatureBusy}
+                onClick={handleRemoveSignature}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+              >
+                <span className="flex items-center gap-2">
+                  <Trash2 className="h-3.5 w-3.5" />
+                  ลบลายเซ็น
+                </span>
+              </Button>
+            )}
+            <span className="text-[11px] text-zinc-400">PNG หรือ JPG ไม่เกิน 1MB</span>
           </div>
         </CardContent>
       </Card>

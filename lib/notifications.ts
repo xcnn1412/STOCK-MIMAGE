@@ -24,8 +24,12 @@ export type NotificationType =
   | 'kpi_self_evaluated'
   | 'kpi_evaluation_reply'
   | 'crm_mentioned'
+  | 'doc_pending_approval'
+  | 'doc_approved'
+  | 'doc_rejected'
+  | 'doc_voided'
 
-export type ReferenceType = 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation' | 'crm_lead'
+export type ReferenceType = 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation' | 'crm_lead' | 'document'
 
 interface CreateNotificationParams {
   userIds: string[]

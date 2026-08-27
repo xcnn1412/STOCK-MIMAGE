@@ -12,6 +12,8 @@ const MODULE_ROUTES: Record<string, string[]> = {
   crm: ['/crm'],
   content: ['/content-planner'],
   finance: ['/finance'],
+  // duplicated from lib/nav-config.ts — Edge runtime can't import lucide icons
+  documents: ['/documents'],
   salesboard: ['/sales-board'],
   admin: ['/logs', '/users', '/security'],
 }
@@ -151,6 +153,10 @@ export async function proxy(request: NextRequest) {
           // Admins always see the content planner
           if (data.role === 'admin' && !allowedModules.includes('content')) {
             allowedModules = [...allowedModules, 'content']
+          }
+          // Admins always reach the documents module (approvals/settings/reports are admin-only)
+          if (data.role === 'admin' && !allowedModules.includes('documents')) {
+            allowedModules = [...allowedModules, 'documents']
           }
         }
       }
