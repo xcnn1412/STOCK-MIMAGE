@@ -141,6 +141,7 @@ export async function updateUserModules(userId: string, modules: string[]) {
 export async function updateUserProfile(userId: string, data: {
   full_name?: string
   nickname?: string
+  department?: string | null
   national_id?: string
   address?: string
   bank_name?: string

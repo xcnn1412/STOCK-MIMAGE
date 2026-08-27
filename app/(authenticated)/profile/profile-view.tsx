@@ -6,17 +6,20 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import BankSelect from '@/components/bank-select'
 import ThaiAddressInput from '@/components/thai-address-input'
 import { parseAddress, serializeAddress, type AddressData } from '@/lib/thai-address'
 import { updateMyProfile, changePin, updateSignature, removeSignature } from './actions'
 import { compressImage } from '@/lib/utils'
+import { DEPARTMENTS } from '@/lib/departments'
 import { toast } from 'sonner'
 
 interface ProfileData {
   id: string
   full_name: string
   nickname: string | null
+  department: string | null
   national_id: string | null
   address: string | null
   bank_name: string | null
@@ -43,6 +46,7 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
   const [form, setForm] = useState({
     full_name: profile.full_name || '',
     nickname: profile.nickname || '',
+    department: profile.department || '',
     national_id: profile.national_id || '',
     address: parseAddress(profile.address),
     bank_name: profile.bank_name || '',
@@ -88,6 +92,7 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
       const result = await updateMyProfile({
         full_name: form.full_name,
         nickname: form.nickname || undefined,
+        department: form.department || null,
         national_id: form.national_id || undefined,
         address: serializeAddress(form.address),
         bank_name: form.bank_name || undefined,
@@ -278,6 +283,21 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
                 placeholder="ชื่อเล่น"
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5 text-zinc-400" />
+              แผนก
+            </Label>
+            <Select value={form.department} onValueChange={v => setForm({ ...form, department: v })}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="เลือกแผนก" />
+              </SelectTrigger>
+              <SelectContent>
+                {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-1.5">

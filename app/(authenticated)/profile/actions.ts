@@ -10,6 +10,7 @@ import bcrypt from 'bcryptjs'
 export async function updateMyProfile(data: {
   full_name?: string
   nickname?: string
+  department?: string | null
   national_id?: string
   address?: string
   bank_name?: string
@@ -49,7 +50,7 @@ export async function getMyProfile() {
   const supabase = createServiceClient()
   const { data } = await supabase
     .from('profiles')
-    .select('id, full_name, nickname, national_id, address, bank_name, bank_account_number, account_holder_name, phone, role, signature_url')
+    .select('id, full_name, nickname, national_id, address, bank_name, bank_account_number, account_holder_name, department, phone, role, signature_url')
     .eq('id', userId)
     .single()
 

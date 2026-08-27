@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Check, X, Shield, User, Trash2, Clock, Pencil, AlertTriangle, ChevronDown, CreditCard, MapPin, IdCard, Building2, Ban } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { DEPARTMENTS } from '@/lib/departments'
 import BankSelect from '@/components/bank-select'
 import ThaiAddressInput from '@/components/thai-address-input'
 import { toast } from "sonner"
@@ -36,6 +38,7 @@ interface UserWithLogin {
     id: string
     full_name: string
     nickname: string | null
+    department: string | null
     phone: string
     role: string
     is_approved: boolean
@@ -261,7 +264,7 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
     const [expandedId, setExpandedId] = useState<string | null>(null)
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null)
     const [editProfile, setEditProfile] = useState<{
-        id: string; full_name: string; nickname: string; national_id: string;
+        id: string; full_name: string; nickname: string; department: string; national_id: string;
         address: AddressData;
         bank_name: string; bank_account_number: string; account_holder_name: string
     } | null>(null)
@@ -271,6 +274,7 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
         id: user.id,
         full_name: user.full_name,
         nickname: user.nickname || '',
+        department: user.department || '',
         national_id: user.national_id || '',
         address: parseAddress(user.address),
         bank_name: user.bank_name || '',
@@ -284,6 +288,7 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
         const res = await updateUserProfile(editProfile.id, {
             full_name: editProfile.full_name,
             nickname: editProfile.nickname || undefined,
+            department: editProfile.department || null,
             national_id: editProfile.national_id || undefined,
             address: serializeAddress(editProfile.address),
             bank_name: editProfile.bank_name || undefined,
@@ -371,7 +376,9 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                         <TableRow>
                             <TableHead className="w-[40px]"></TableHead>
                             <TableHead>ชื่อ-นามสกุล</TableHead>
+                            <TableHead>ชื่อเล่น</TableHead>
                             <TableHead>เบอร์โทร</TableHead>
+                            <TableHead>แผนก</TableHead>
                             <TableHead>สิทธิ์</TableHead>
                             <TableHead>สถานะ</TableHead>
                             <TableHead>โมดูล</TableHead>
@@ -396,13 +403,18 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                     <TableCell>
                                         <div className="min-w-[120px]">
                                             <span className="font-medium text-zinc-900 dark:text-zinc-100">{user.full_name}</span>
-                                            {user.nickname && (
-                                                <span className="text-xs text-zinc-400 ml-1">({user.nickname})</span>
-                                            )}
                                         </div>
                                     </TableCell>
                                     <TableCell>
+                                        {user.nickname || <span className="text-zinc-300 dark:text-zinc-600">—</span>}
+                                    </TableCell>
+                                    <TableCell>
                                         <span className="text-sm font-mono text-zinc-600 dark:text-zinc-400">{user.phone}</span>
+                                    </TableCell>
+                                    <TableCell>
+                                        {user.department
+                                            ? <Badge variant="outline" className="text-[10px] rounded-full">{user.department}</Badge>
+                                            : <span className="text-zinc-300 dark:text-zinc-600">—</span>}
                                     </TableCell>
                                     <TableCell>
                                         <Badge
@@ -506,7 +518,7 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                 {/* Expanded Detail */}
                                 {expandedId === user.id && (
                                     <TableRow key={`${user.id}-detail`}>
-                                        <TableCell colSpan={9} className="py-2 px-4">
+                                        <TableCell colSpan={11} className="py-2 px-4">
                                             <UserDetail user={user} />
                                         </TableCell>
                                     </TableRow>
@@ -534,6 +546,7 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                     <div className="truncate">
                                         <span className="font-semibold text-sm">{user.full_name}</span>
                                         {user.nickname && <span className="text-xs text-zinc-400 ml-1">({user.nickname})</span>}
+                                        {user.department && <span className="block text-[10px] text-zinc-500">{user.department}</span>}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                         <Badge variant={user.role === 'admin' ? 'default' : 'secondary'} className={`text-[10px] ${user.role === 'admin' ? 'bg-purple-600' : ''}`}>
@@ -682,6 +695,17 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                         placeholder="ชื่อเล่น"
                                     />
                                 </div>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label>แผนก</Label>
+                                <Select value={editProfile.department} onValueChange={v => setEditProfile({ ...editProfile, department: v })}>
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="เลือกแผนก" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="space-y-1.5">
                                 <Label htmlFor="edit-nid">เลขบัตรประชาชน (13 หลัก)</Label>
