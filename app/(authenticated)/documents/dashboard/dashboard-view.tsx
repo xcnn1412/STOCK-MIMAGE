@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { THAI_MONTHS } from '@/lib/thai-date'
 import { DOC_TYPES, type DocStatus } from '../doc-types'
 import type { DocumentsDashboard } from './actions'
 
@@ -26,13 +27,9 @@ const STATUS_HEX: Record<DocStatus, string> = {
 
 const fmt = (n: number) => n.toLocaleString('th-TH', { maximumFractionDigits: 0 })
 
-const MONTH_TH = [
-  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
-]
 const monthLabel = (m: string) => {
   const [y, mm] = m.split('-').map(Number)
-  return `${MONTH_TH[(mm || 1) - 1]} ${y + 543}`
+  return `${THAI_MONTHS[(mm || 1) - 1]} ${y + 543}`
 }
 
 /** "3 ชม." / "2 วัน" — รับชั่วโมงที่คำนวณมาจาก server (render ต้อง pure) */

@@ -154,6 +154,10 @@ export async function proxy(request: NextRequest) {
           if (data.role === 'admin' && !allowedModules.includes('content')) {
             allowedModules = [...allowedModules, 'content']
           }
+          // Admins always reach the documents module (approvals/settings/reports are admin-only)
+          if (data.role === 'admin' && !allowedModules.includes('documents')) {
+            allowedModules = [...allowedModules, 'documents']
+          }
         }
       }
     } catch (e) {

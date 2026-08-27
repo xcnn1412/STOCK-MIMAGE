@@ -1,38 +1,8 @@
 'use server'
 
-import { cookies } from 'next/headers'
-import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
+import { getSession, requireAdmin } from '../session'
 import type { DocumentRow } from '../doc-types'
-
-// Resolve the acting user with a DB-verified role — NEVER trust the raw
-// `session_role` cookie.
-// ponytail: คัดลอกจาก documents/settings/actions.ts แทนที่จะ refactor เป็น helper กลาง
-// (documents/actions.ts ถูกแก้โดย agent อื่นพร้อมกัน — ห้ามแตะ)
-async function getSession(): Promise<{ userId?: string; role?: string }> {
-  const session = await requireAuth()
-  if (session) return { userId: session.userId, role: session.role }
-
-  const cookieStore = await cookies()
-  if (cookieStore.get('session_token')?.value) return {}
-  const legacyId = cookieStore.get('session_user_id')?.value
-  if (!legacyId) return {}
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('profiles')
-    .select('id, role, is_approved')
-    .eq('id', legacyId)
-    .single()
-  if (!data || !data.is_approved) return {}
-  return { userId: data.id, role: data.role || 'staff' }
-}
-
-async function requireAdmin(): Promise<{ userId: string } | { error: string }> {
-  const { userId, role } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
-  if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้นที่เข้าถึงหน้ารออนุมัติได้' }
-  return { userId }
-}
 
 /** แถวในหน้ารออนุมัติ = เอกสาร + ชื่อผู้ขอ (creator) + ชื่อแบรนด์ */
 export type PendingApprovalRow = DocumentRow & { brand_name_th: string | null }

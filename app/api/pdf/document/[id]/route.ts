@@ -3,7 +3,7 @@ import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { DocumentPDF, type DocumentPdfData } from '@/components/pdf/document-pdf'
 import { createServiceClient } from '@/lib/supabase-server'
-import { requireAuth } from '@/lib/auth'
+import { getSession } from '@/app/(authenticated)/documents/session'
 import type {
   DocBrandRow, DocTemplateRow, DocumentItemRow, DocumentRow,
 } from '@/app/(authenticated)/documents/doc-types'
@@ -16,8 +16,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     // /api ไม่ผ่าน proxy.ts — ต้องเช็ค session เองที่นี่
-    const session = await requireAuth()
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // ใช้ getSession ของโมดูลเอกสาร: รองรับคุกกี้ legacy เหมือน actions ทุกตัว
+    const { userId, role } = await getSession()
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { id } = await ctx.params
     if (!id || !UUID_RE.test(id)) {
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
     const doc = docRow as unknown as DocumentRow
     // admin เห็นทุกใบ; คนอื่นเห็นเฉพาะใบที่ออกเลขแล้ว หรือใบที่ตัวเองสร้าง
-    if (session.role !== 'admin' && !doc.doc_no && doc.created_by !== session.userId) {
+    if (role !== 'admin' && !doc.doc_no && doc.created_by !== userId) {
       return NextResponse.json({ error: 'ไม่พบเอกสาร' }, { status: 404 })
     }
 

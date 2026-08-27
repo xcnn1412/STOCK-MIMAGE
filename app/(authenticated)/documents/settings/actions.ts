@@ -1,44 +1,13 @@
 'use server'
 
-import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
+import { requireAdmin } from '../session'
 import {
   DOC_TYPES,
   type DocBrandRow, type DocTemplateRow, type DocTypeCode, type VatMode,
 } from '../doc-types'
-
-// Resolve the acting user with a DB-verified role — NEVER trust the raw
-// `session_role` cookie.
-// ponytail: คัดลอกจาก documents/actions.ts แทนที่จะ refactor เป็น helper กลาง
-// (ไฟล์นั้นถูกแก้โดย agent อื่นพร้อมกัน — ห้ามแตะ)
-async function getSession(): Promise<{ userId?: string; role?: string }> {
-  const session = await requireAuth()
-  if (session) return { userId: session.userId, role: session.role }
-
-  const cookieStore = await cookies()
-  if (cookieStore.get('session_token')?.value) return {}
-  const legacyId = cookieStore.get('session_user_id')?.value
-  if (!legacyId) return {}
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('profiles')
-    .select('id, role, is_approved')
-    .eq('id', legacyId)
-    .single()
-  if (!data || !data.is_approved) return {}
-  return { userId: data.id, role: data.role || 'staff' }
-}
-
-/** ทุก action ในไฟล์นี้เป็น admin-only — ตรวจซ้ำฝั่ง server เสมอ */
-async function requireAdmin(): Promise<{ userId: string } | { error: string }> {
-  const { userId, role } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
-  if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้นที่เข้าถึงหน้าตั้งค่าเอกสารได้' }
-  return { userId }
-}
 
 function refresh() {
   revalidatePath('/documents/settings')
@@ -182,10 +151,10 @@ export async function setBrandActive(code: string, active: boolean): Promise<{ e
   return {}
 }
 
+// @react-pdf/renderer ถอดรหัสได้แค่ JPEG/PNG — WebP จะหายเงียบๆ จากทุก PDF
 const LOGO_TYPES: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
-  'image/webp': 'webp',
 }
 
 export async function uploadBrandLogo(code: string, formData: FormData): Promise<{ error?: string; url?: string }> {
@@ -198,7 +167,7 @@ export async function uploadBrandLogo(code: string, formData: FormData): Promise
   const file = formData.get('file')
   if (!(file instanceof File) || file.size === 0) return { error: 'ไม่พบไฟล์' }
   const ext = LOGO_TYPES[file.type]
-  if (!ext) return { error: 'รองรับเฉพาะ PNG / JPG / WebP' }
+  if (!ext) return { error: 'รองรับเฉพาะ PNG หรือ JPG (PDF อ่าน WebP ไม่ได้)' }
   if (file.size > 2 * 1024 * 1024) return { error: 'ไฟล์ต้องไม่เกิน 2MB' }
 
   const supabase = createServiceClient()
@@ -269,29 +238,31 @@ async function maxIssuedInSeries(
   docType: string,
   period: string,
 ): Promise<number> {
+  // ponytail: เรียงตามตัวอักษรใช้ไม่ได้เกิน 9999 (DRAFT-10000 < DRAFT-9999) —
+  // เลขในชุดเดียวกันเพิ่มขึ้นตามเวลาเสมอ จึงเอาแถวล่าสุดมาแกะเลขท้ายพอ
+  const tail = (s: string | null | undefined) => Number(/(\d+)$/.exec(s || '')?.[1] ?? 0) || 0
+
   if (brand === '*' || docType === '*') {
     // ชุดเลขร่างกลาง — DRAFT-NNNN
     const { data } = await supabase
       .from('documents')
-      .select('draft_no')
+      .select('draft_no, created_at')
       .like('draft_no', 'DRAFT-%')
-      .order('draft_no', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(1)
-    const no = (data || [])[0]?.draft_no as string | undefined
-    return no ? Number(no.slice(-4)) || 0 : 0
+    return tail((data || [])[0]?.draft_no as string | undefined)
   }
 
   // doc_no = BRAND-TYPE-YYMM-NNNN; period รายปี (YY) เป็น prefix ของ YYMM
   const prefix = `${brand}-${docType}-${period}`
   const { data } = await supabase
     .from('documents')
-    .select('doc_no')
+    .select('doc_no, issued_at')
     .like('doc_no', `${prefix}%`)
     .not('doc_no', 'is', null)
-  return (data || []).reduce((max: number, r: { doc_no: string | null }) => {
-    const n = Number((r.doc_no || '').slice(-4))
-    return Number.isFinite(n) && n > max ? n : max
-  }, 0)
+    .order('issued_at', { ascending: false })
+    .limit(1)
+  return tail((data || [])[0]?.doc_no as string | undefined)
 }
 
 export async function upsertCounter(input: {

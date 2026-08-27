@@ -3,7 +3,7 @@ import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { DocumentPDF, type DocumentPdfData } from '@/components/pdf/document-pdf'
 import { createServiceClient } from '@/lib/supabase-server'
-import { requireAuth } from '@/lib/auth'
+import { getSession } from '@/app/(authenticated)/documents/session'
 import {
   DOC_TYPES, calcDocumentTotals, calcItemAmount,
   type DocBrandRow, type DocTemplateRow, type DocTypeCode, type DocTypeDef,
@@ -50,9 +50,10 @@ function sampleMeta(def: DocTypeDef, today: string): Record<string, unknown> {
 export async function POST(req: NextRequest) {
   try {
     // /api ไม่ผ่าน proxy.ts — ต้องเช็ค session เองที่นี่ และหน้าแม่แบบเป็น admin-only
-    const session = await requireAuth()
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'admin') {
+    // ใช้ getSession ของโมดูลเอกสาร: รองรับคุกกี้ legacy เหมือน actions ทุกตัว
+    const { userId, role } = await getSession()
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (role !== 'admin') {
       return NextResponse.json({ error: 'เฉพาะ admin เท่านั้น' }, { status: 403 })
     }
 

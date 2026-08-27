@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { requireAuth } from '@/lib/auth'
+import { getSession } from '@/app/(authenticated)/documents/session'
 import { getContinuityReport, getSeriesList } from './actions'
 import ReportsView from './reports-view'
 
@@ -15,19 +15,22 @@ export default async function DocumentReportsPage({
 }: {
   searchParams: Promise<{ brand?: string; type?: string; period?: string }>
 }) {
-  const session = await requireAuth()
-  if (!session) redirect('/login')
+  const session = await getSession()
+  if (!session.userId) redirect('/login')
   if (session.role !== 'admin') redirect('/documents')
 
   const sp = await searchParams
-  const series = await getSeriesList()
 
   const selected =
     sp.brand && sp.type && sp.period
       ? { brand_code: sp.brand, doc_type: sp.type, period: sp.period }
       : null
 
-  const report = selected ? await getContinuityReport(selected) : null
+  // สอง query ไม่ขึ้นต่อกัน — ยิงขนานกันแทนที่จะรอทีละอัน
+  const [series, report] = await Promise.all([
+    getSeriesList(),
+    selected ? getContinuityReport(selected) : Promise.resolve(null),
+  ])
 
   return (
     <ReportsView

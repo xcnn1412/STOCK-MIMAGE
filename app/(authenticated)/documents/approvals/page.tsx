@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { requireAuth } from '@/lib/auth'
+import { getSession } from '@/app/(authenticated)/documents/session'
 import { listPendingApprovals } from './actions'
 import ApprovalsView from './approvals-view'
 
@@ -11,8 +11,8 @@ export const metadata = {
 }
 
 export default async function DocumentApprovalsPage() {
-  const session = await requireAuth()
-  if (!session) redirect('/login')
+  const session = await getSession()
+  if (!session.userId) redirect('/login')
   if (session.role !== 'admin') redirect('/documents')
 
   const rows = await listPendingApprovals()

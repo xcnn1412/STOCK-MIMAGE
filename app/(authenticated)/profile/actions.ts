@@ -58,7 +58,8 @@ export async function getMyProfile() {
 
 // ─── ลายเซ็นสำหรับเอกสาร ────────────────────────────────────
 
-const SIGNATURE_BUCKET = 'avatars'
+// bucket สร้างโดย migration 20260827_create_documents_module.sql (ไม่มี bucket 'avatars' ในระบบ)
+const SIGNATURE_BUCKET = 'doc-assets'
 const SIGNATURE_MAX_BYTES = 1 * 1024 * 1024
 
 /**
@@ -90,13 +91,13 @@ export async function updateSignature(formData: FormData): Promise<{ error?: str
 
   const file = formData.get('file')
   if (!(file instanceof File) || file.size === 0) return { error: 'ไม่พบไฟล์' }
-  if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
-    return { error: 'รองรับเฉพาะไฟล์ PNG หรือ JPG' }
-  }
+  // นามสกุลต้องตรงกับชนิดไฟล์จริงเสมอ — ไม่งั้น @react-pdf/renderer อ่านรูปไม่ออก
+  const ext = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : null
+  if (!ext) return { error: 'รองรับเฉพาะไฟล์ PNG หรือ JPG' }
   if (file.size > SIGNATURE_MAX_BYTES) return { error: 'ไฟล์ต้องไม่เกิน 1MB' }
 
   const supabase = createServiceClient()
-  const path = `signatures/${userId}.jpg`
+  const path = `signatures/${userId}.${ext}`
   const buffer = Buffer.from(await file.arrayBuffer())
 
   const { error: upErr } = await supabase.storage

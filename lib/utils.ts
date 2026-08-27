@@ -56,6 +56,10 @@ export async function compressImage(file: File, maxSizeMB: number = 1, maxDimens
                 return;
             }
 
+            // Output is JPEG (no alpha): paint white first so transparent PNGs
+            // (e.g. signatures) don't come out as black rectangles.
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
             ctx.drawImage(img, 0, 0, width, height);
 
             // Attempt compression

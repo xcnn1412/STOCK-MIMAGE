@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { requireAuth } from '@/lib/auth'
+import { getSession } from '@/app/(authenticated)/documents/session'
 import { getDocumentsDashboard } from './actions'
 import DashboardView from './dashboard-view'
 
@@ -15,8 +15,8 @@ export default async function DocumentsDashboardPage({
 }: {
   searchParams: Promise<{ month?: string }>
 }) {
-  const session = await requireAuth()
-  if (!session) redirect('/login')
+  const session = await getSession()
+  if (!session.userId) redirect('/login')
 
   // ไม่มี ?month= → action ใช้เดือนปัจจุบัน (Asia/Bangkok) เป็นค่าเริ่มต้น
   const sp = await searchParams

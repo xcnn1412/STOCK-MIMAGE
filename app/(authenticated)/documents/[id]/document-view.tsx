@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
-  DOC_TYPES, EDITABLE_STATUSES, PARTY_LABEL, STATUS_LABEL, TRANSITIONS, isHtmlEmpty, sanitizeHtml,
+  DOC_TYPES, EDITABLE_STATUSES, PARTY_LABEL, STATUS_LABEL, canTransition, isHtmlEmpty, sanitizeHtml,
   type DocAction, type DocBrandRow, type DocStatus, type DocumentItemRow,
   type DocumentLogRow, type DocumentRow,
 } from '../doc-types'
@@ -54,18 +54,6 @@ const fmtDate = (v: string | null | undefined) =>
   v ? new Date(v).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'
 const fmtDateTime = (v: string | null | undefined) =>
   v ? new Date(v).toLocaleString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
-
-/** ปุ่มไหนโผล่ — คุมด้วย TRANSITIONS + role/owner เท่านั้น (server ปฏิเสธซ้ำอีกชั้น) */
-function allowed(action: DocAction, status: DocStatus, requiresApproval: boolean, isAdmin: boolean, isOwner: boolean) {
-  const t = TRANSITIONS[action]
-  if (!t.from.includes(status)) return false
-  if (t.adminOnly && !isAdmin) return false
-  if (!isAdmin && !isOwner && (action === 'submit' || action === 'mark_sent' || action === 'close')) return false
-  if (action === 'submit' && !requiresApproval) return false
-  if (action === 'issue' && requiresApproval) return false
-  if (action === 'approve' && !requiresApproval) return false
-  return true
-}
 
 type DialogKind = DocAction | 'delete' | null
 
@@ -160,7 +148,8 @@ export default function DocumentDetailView({
     })
   }
 
-  const show = (a: DocAction) => allowed(a, doc.status, def.requiresApproval, isAdmin, isOwner)
+  // ปุ่มไหนโผล่ — ใช้กติกาชุดเดียวกับ server (canTransition) ไม่แยกลอจิกอีกชุด
+  const show = (a: DocAction) => canTransition(a, doc, role, userId).ok
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-5xl">

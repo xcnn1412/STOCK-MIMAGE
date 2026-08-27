@@ -19,7 +19,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import DocRichTextEditor from '@/components/doc-rich-text-editor'
+import DocRichTextEditor from '../components/doc-rich-text-editor'
 import { compressImage } from '@/lib/utils'
 import { DOC_TYPES, DOC_TYPE_CODES, type DocBrandRow, type DocTypeCode, type VatMode } from '../doc-types'
 import {
@@ -193,8 +193,9 @@ export default function SettingsView({ brands, counters, lockedCodes, templates 
 
   async function onPickLogo(file: File | undefined) {
     if (!file) return
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      setBrandError('รองรับเฉพาะ PNG / JPG / WebP')
+    // @react-pdf/renderer ถอดรหัสได้แค่ JPEG/PNG — WebP จะหายเงียบๆ จากทุก PDF
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      setBrandError('รองรับเฉพาะ PNG หรือ JPG (PDF อ่าน WebP ไม่ได้)')
       return
     }
     if (file.size > 2 * 1024 * 1024) {
@@ -208,10 +209,9 @@ export default function SettingsView({ brands, counters, lockedCodes, templates 
     setBrandError(null)
     setUploading(true)
     try {
-      // ponytail: compressImage คุมด้านยาวสุด 1600px ตายตัวและแปลงเป็น JPEG เสมอ
-      // → ข้าม PNG ไว้ (รักษาพื้นหลังโปร่งใสของโลโก้) ส่วนไฟล์อื่นบีบด้วย maxSizeMB ต่ำๆ
-      // เพื่อบังคับให้ย่อจริง; ไม่แก้ lib/utils เพราะอยู่นอกขอบเขต ticket
-      const compressed = file.type === 'image/png' ? file : await compressImage(file, 0.2)
+      // compressImage แปลงเป็น JPEG เสมอ → ข้าม PNG ไว้ (รักษาพื้นหลังโปร่งใสของโลโก้)
+      // ส่วน JPEG ย่อจริงที่ 800px — เพดาน 1600px ทำให้ไฟล์เล็กถูก early-return ข้ามไป
+      const compressed = file.type === 'image/png' ? file : await compressImage(file, 0.2, 800)
       const fd = new FormData()
       fd.append('file', compressed, compressed.name)
       const res = await uploadBrandLogo(brandForm.code, fd)
@@ -718,7 +718,7 @@ export default function SettingsView({ brands, counters, lockedCodes, templates 
             </div>
 
             <div className="space-y-1 sm:col-span-2">
-              <Label>โลโก้ (PNG / JPG / WebP ≤ 2MB)</Label>
+              <Label>โลโก้ (PNG / JPG ≤ 2MB)</Label>
               <div className="flex items-center gap-3">
                 {brandLogo
                   // eslint-disable-next-line @next/next/no-img-element
@@ -727,7 +727,7 @@ export default function SettingsView({ brands, counters, lockedCodes, templates 
                 <input
                   ref={fileRef}
                   type="file"
-                  accept="image/png,image/jpeg,image/webp"
+                  accept="image/png,image/jpeg"
                   className="hidden"
                   onChange={e => onPickLogo(e.target.files?.[0])}
                 />

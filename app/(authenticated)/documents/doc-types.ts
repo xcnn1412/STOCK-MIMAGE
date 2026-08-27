@@ -226,6 +226,48 @@ export const TRANSITIONS: Record<DocAction, TransitionDef> = {
   close:     { from: ['sent'],                to: 'closed',           adminOnly: false },
 }
 
+/** transition ที่เจ้าของเอกสารทำเองได้ (นอกนั้นดูที่ adminOnly) */
+const OWNER_ACTIONS: DocAction[] = ['submit', 'mark_sent', 'close']
+
+export type TransitionCheck = { ok: true } | { ok: false; reason: string }
+
+/**
+ * แหล่งความจริงเดียวว่า transition นี้ทำได้ไหม — ทั้งฝั่ง server (actions.ts)
+ * และฝั่ง client (ปุ่มใน document-view.tsx) เรียกตัวเดียวกัน
+ * หมายเหตุ: ไม่ตรวจ requiresNote ที่นี่ (ต้องดู note ที่ผู้เรียกส่งมา)
+ */
+export function canTransition(
+  action: DocAction,
+  doc: { status: DocStatus; doc_type: DocTypeCode; created_by: string | null },
+  role: string | undefined,
+  userId: string | undefined,
+): TransitionCheck {
+  const def = TRANSITIONS[action]
+  if (!def) return { ok: false, reason: 'การกระทำไม่ถูกต้อง' }
+
+  const typeDef = DOC_TYPES[doc.doc_type]
+  if (!typeDef) return { ok: false, reason: 'ประเภทเอกสารไม่ถูกต้อง' }
+
+  const isAdmin = role === 'admin'
+  const isOwner = !!userId && doc.created_by === userId
+
+  if (!def.from.includes(doc.status)) return { ok: false, reason: 'สถานะปัจจุบันไม่อนุญาตให้ทำรายการนี้' }
+  if (def.adminOnly && !isAdmin) return { ok: false, reason: 'เฉพาะ admin เท่านั้นที่ทำรายการนี้ได้' }
+  if (OWNER_ACTIONS.includes(action) && !isAdmin && !isOwner) return { ok: false, reason: 'ไม่มีสิทธิ์ทำรายการนี้' }
+
+  if (action === 'submit' && !typeDef.requiresApproval) {
+    return { ok: false, reason: 'เอกสารประเภทนี้ไม่ต้องขออนุมัติ — ใช้ปุ่มออกเอกสารแทน' }
+  }
+  if (action === 'issue' && typeDef.requiresApproval) {
+    return { ok: false, reason: 'เอกสารประเภทนี้ต้องผ่านการอนุมัติก่อน' }
+  }
+  if (action === 'approve' && !typeDef.requiresApproval) {
+    return { ok: false, reason: 'เอกสารประเภทนี้ไม่ต้องอนุมัติ — ใช้ปุ่มออกเอกสารแทน' }
+  }
+
+  return { ok: true }
+}
+
 // ── การคำนวณยอด (pure) ───────────────────────────────────────────────────────
 
 export type VatMode = 'none' | 'exclusive' | 'inclusive'

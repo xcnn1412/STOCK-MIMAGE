@@ -312,7 +312,8 @@ BEGIN
   IF v_doc.doc_no IS NOT NULL THEN
     RAISE EXCEPTION 'เอกสารนี้ออกเลขไปแล้ว (%)', v_doc.doc_no;
   END IF;
-  IF v_doc.status NOT IN ('draft', 'pending_approval') THEN
+  -- 'rejected' ออกเลขได้ด้วย — TRANSITIONS.issue.from = ['draft','rejected'] ฝั่งแอป
+  IF v_doc.status NOT IN ('draft', 'rejected', 'pending_approval') THEN
     RAISE EXCEPTION 'สถานะไม่อนุญาตให้ออกเลข (%)', v_doc.status;
   END IF;
 

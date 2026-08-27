@@ -1,5 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
-import { requireAuth } from '@/lib/auth'
+import { getSession } from '@/app/(authenticated)/documents/session'
 import { getDocument, listRefCandidates } from '../actions'
 import { DOC_TYPES } from '../doc-types'
 import DocumentDetailView from './document-view'
@@ -8,8 +8,8 @@ export const revalidate = 0
 
 export default async function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const session = await requireAuth()
-  if (!session) redirect('/login')
+  const session = await getSession()
+  if (!session.userId) redirect('/login')
 
   const res = await getDocument(id)
   if ('error' in res) notFound()
@@ -28,7 +28,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
       refDocument={res.refDocument}
       referencedBy={res.referencedBy}
       refCandidates={refCandidates}
-      role={session.role}
+      role={session.role ?? 'staff'}
       userId={session.userId}
     />
   )

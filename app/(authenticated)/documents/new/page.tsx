@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { requireAuth } from '@/lib/auth'
+import { getSession } from '@/app/(authenticated)/documents/session'
 import { getBrands } from '../actions'
 import NewDocumentView from './new-document-view'
 
@@ -11,8 +11,8 @@ export const metadata = {
 }
 
 export default async function NewDocumentPage() {
-  const session = await requireAuth()
-  if (!session) redirect('/login')
+  const session = await getSession()
+  if (!session.userId) redirect('/login')
 
   const brands = await getBrands()
 

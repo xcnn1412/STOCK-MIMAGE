@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { requireAuth } from '@/lib/auth'
+import { getSession } from '@/app/(authenticated)/documents/session'
 import { getBrands, listDocuments, type DocumentFilters } from './actions'
 import DocumentsView from './documents-view'
 
@@ -20,8 +20,8 @@ export default async function DocumentsPage({
 }: {
   searchParams: Promise<SearchParams>
 }) {
-  const session = await requireAuth()
-  if (!session) redirect('/login')
+  const session = await getSession()
+  if (!session.userId) redirect('/login')
 
   const sp = await searchParams
   const filters: Required<DocumentFilters> = {
@@ -39,7 +39,7 @@ export default async function DocumentsPage({
       documents={list.data}
       error={list.error || null}
       brands={brands}
-      role={session.role}
+      role={session.role ?? 'staff'}
       filters={filters}
     />
   )

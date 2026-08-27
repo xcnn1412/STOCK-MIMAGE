@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import DocRichTextEditor from '@/components/doc-rich-text-editor'
+import DocRichTextEditor from './doc-rich-text-editor'
 import { cn } from '@/lib/utils'
 import {
   DOC_TYPES, PARTY_LABEL, calcDocumentTotals, isHtmlEmpty,

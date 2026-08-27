@@ -31,11 +31,17 @@ export default function DocRichTextEditor({
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
+      // ปิดทุกอย่างที่ lib/pdf-html.tsx เรนเดอร์ไม่ได้ — ผลลัพธ์เหลือแค่
+      // p / strong / em / ul / ol / li / br เท่านั้น (ที่เหลือจะหายไปเงียบๆ ใน PDF)
       StarterKit.configure({
         heading: false,
         codeBlock: false,
         horizontalRule: false,
         blockquote: false,
+        strike: false,
+        code: false,
+        link: false,
+        underline: false,
       }),
       Placeholder.configure({ placeholder: placeholder || '' }),
     ],

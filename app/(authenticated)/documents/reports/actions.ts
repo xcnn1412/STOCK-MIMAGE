@@ -1,37 +1,8 @@
 'use server'
 
-import { cookies } from 'next/headers'
-import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
+import { requireAdmin } from '../session'
 import { DOC_TYPES, type DocStatus, type DocTypeCode } from '../doc-types'
-
-// ponytail: คัดลอก getSession/requireAdmin จาก settings/actions.ts แทนที่จะ refactor
-// เป็น helper กลาง (documents/actions.ts ถูกแก้โดย agent อื่นพร้อมกัน — ห้ามแตะ)
-async function getSession(): Promise<{ userId?: string; role?: string }> {
-  const session = await requireAuth()
-  if (session) return { userId: session.userId, role: session.role }
-
-  const cookieStore = await cookies()
-  if (cookieStore.get('session_token')?.value) return {}
-  const legacyId = cookieStore.get('session_user_id')?.value
-  if (!legacyId) return {}
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('profiles')
-    .select('id, role, is_approved')
-    .eq('id', legacyId)
-    .single()
-  if (!data || !data.is_approved) return {}
-  return { userId: data.id, role: data.role || 'staff' }
-}
-
-/** ทุก action ในไฟล์นี้เป็น admin-only — ตรวจซ้ำฝั่ง server เสมอ */
-async function requireAdmin(): Promise<{ userId: string } | { error: string }> {
-  const { userId, role } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
-  if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้นที่ดูรายงานเลขเอกสารได้' }
-  return { userId }
-}
 
 const BRAND_CODE_RE = /^[A-Z]{3}$/
 

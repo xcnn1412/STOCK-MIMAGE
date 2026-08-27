@@ -1,37 +1,16 @@
 'use server'
 
-import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
-import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity, type ActionType } from '@/lib/logger'
 import { createNotifications, type NotificationType } from '@/lib/notifications'
+import { getSession } from './session'
 import {
-  DOC_TYPES, TRANSITIONS, EDITABLE_STATUSES, calcDocumentTotals, calcItemAmount, sanitizeMeta,
+  DOC_TYPES, TRANSITIONS, EDITABLE_STATUSES, calcDocumentTotals, calcItemAmount,
+  canTransition, sanitizeMeta,
   type DocAction, type DocBrandRow, type DocTypeCode, type DocumentItemRow,
   type DocumentLogRow, type DocumentRow, type VatMode,
 } from './doc-types'
-
-// Resolve the acting user with a DB-verified role — NEVER trust the raw
-// `session_role` cookie. Same helper as finance/actions.ts.
-// ponytail: คัดลอกมา 20 บรรทัดแทนที่จะ refactor เป็น helper กลาง — ตัด scope ของ ticket นี้
-async function getSession(): Promise<{ userId?: string; role?: string }> {
-  const session = await requireAuth()
-  if (session) return { userId: session.userId, role: session.role }
-
-  const cookieStore = await cookies()
-  if (cookieStore.get('session_token')?.value) return {}
-  const legacyId = cookieStore.get('session_user_id')?.value
-  if (!legacyId) return {}
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('profiles')
-    .select('id, role, is_approved')
-    .eq('id', legacyId)
-    .single()
-  if (!data || !data.is_approved) return {}
-  return { userId: data.id, role: data.role || 'staff' }
-}
 
 const SELECT_DOC = '*, creator:profiles!documents_created_by_fkey(id, full_name)'
 
@@ -81,8 +60,9 @@ export async function listDocuments(filters?: DocumentFilters) {
   if (filters?.type) query = query.eq('doc_type', filters.type)
   if (filters?.status) query = query.eq('status', filters.status)
   if (filters?.q) {
-    const q = filters.q.replace(/[%,]/g, '')
-    query = query.or(`doc_no.ilike.%${q}%,draft_no.ilike.%${q}%,party_name.ilike.%${q}%`)
+    // ตัวอักษรที่ทำให้ไวยากรณ์ .or()/ilike ของ PostgREST เพี้ยน — ตัดทิ้งก่อนเสมอ
+    const q = filters.q.replace(/[%,()"'\\]/g, '').replace(/\s+/g, ' ').trim()
+    if (q) query = query.or(`doc_no.ilike.%${q}%,draft_no.ilike.%${q}%,party_name.ilike.%${q}%`)
   }
   if (filters?.month) {
     // ponytail: บวกเดือนเป็นสตริงตรงๆ — `new Date(...).toISOString()` เลื่อนวันย้อนหลังตาม timezone (+07)
@@ -453,24 +433,11 @@ export async function transitionDocument(id: string, action: DocAction, note?: s
   const doc = docData as unknown as DocumentRow | null
   if (!doc) return { error: 'ไม่พบเอกสาร' }
 
-  const typeDef = DOC_TYPES[doc.doc_type]
-  if (!typeDef) return { error: 'ประเภทเอกสารไม่ถูกต้อง' }
+  // ประตูเดียวที่ตัดสินว่า transition นี้ถูกกฎไหม (ฝั่ง client เรียกตัวเดียวกันคุมปุ่ม)
+  const gate = canTransition(action, doc, role, userId)
+  if (!gate.ok) return { error: gate.reason }
 
-  const isAdmin = role === 'admin'
-  const isOwner = doc.created_by === userId
-
-  if (!def.from.includes(doc.status)) return { error: 'สถานะปัจจุบันไม่อนุญาตให้ทำรายการนี้' }
-  if (def.adminOnly && !isAdmin) return { error: 'เฉพาะ admin เท่านั้นที่ทำรายการนี้ได้' }
   if (def.requiresNote && !note?.trim()) return { error: 'กรุณาระบุเหตุผล' }
-  if (['submit', 'mark_sent', 'close'].includes(action) && !isAdmin && !isOwner) {
-    return { error: 'ไม่มีสิทธิ์ทำรายการนี้' }
-  }
-  if (action === 'issue' && typeDef.requiresApproval) {
-    return { error: 'เอกสารประเภทนี้ต้องผ่านการอนุมัติก่อน' }
-  }
-  if (action === 'approve' && !typeDef.requiresApproval) {
-    return { error: 'เอกสารประเภทนี้ไม่ต้องอนุมัติ — ใช้ปุ่มออกเอกสารแทน' }
-  }
 
   if (action === 'submit' || action === 'issue') {
     const invalid = await validateForIssue(supabase, doc)

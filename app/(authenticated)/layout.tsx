@@ -10,7 +10,6 @@ import WorldCupPopup from '@/components/worldcup/worldcup-popup'
 import { getLicenseStatus } from '@/lib/license'
 import { getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
-import { countPendingApprovals } from './documents/approvals/actions'
 
 export default async function AuthenticatedLayout({
   children,
@@ -75,14 +74,27 @@ export default async function AuthenticatedLayout({
     if (!allowedModules.includes('content')) {
       allowedModules = [...allowedModules, 'content']
     }
+    // admin ต้องเข้าโมดูลเอกสารได้เสมอ — หน้ารออนุมัติ/ตั้งค่า/รายงานเป็นของ admin เท่านั้น
+    if (!allowedModules.includes('documents')) {
+      allowedModules = [...allowedModules, 'documents']
+    }
   }
 
-  // ตัวเลขบนเมนู "รออนุมัติ" — เฉพาะ admin (action คืน 0 ให้คนอื่นอยู่แล้ว)
-  // ponytail: คำนวณสดตอน render ไม่มี cron/cache
+  // ตัวเลขบนเมนู "รออนุมัติ" — เฉพาะ admin
+  // ponytail: นับสดด้วย head-count ตรงนี้ (ไม่เรียก server action ที่ต้อง requireAuth +
+  // query profiles ซ้ำ) และ try/catch ไว้เผื่อ instance ที่ยังไม่ได้รัน migration
   const badges: Record<string, number> = {}
   if (role === 'admin') {
-    const pendingDocs = await countPendingApprovals()
-    if (pendingDocs > 0) badges['/documents/approvals'] = pendingDocs
+    try {
+      const supabase = createServiceClient()
+      const { count } = await supabase
+        .from('documents')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending_approval')
+      if (count && count > 0) badges['/documents/approvals'] = count
+    } catch {
+      // ตารางยังไม่มี — ไม่ต้องมี badge
+    }
   }
 
   const license = getLicenseStatus()
