@@ -85,10 +85,15 @@ export async function listDocuments(filters?: DocumentFilters) {
     query = query.or(`doc_no.ilike.%${q}%,draft_no.ilike.%${q}%,party_name.ilike.%${q}%`)
   }
   if (filters?.month) {
-    const start = `${filters.month}-01`
-    const end = new Date(Number(filters.month.slice(0, 4)), Number(filters.month.slice(5, 7)), 1)
-      .toISOString().slice(0, 10)
-    query = query.gte('doc_date', start).lt('doc_date', end)
+    // ponytail: บวกเดือนเป็นสตริงตรงๆ — `new Date(...).toISOString()` เลื่อนวันย้อนหลังตาม timezone (+07)
+    // ทำให้เอกสารวันสุดท้ายของเดือนหายไปจากผลลัพธ์
+    const y = Number(filters.month.slice(0, 4))
+    const m = Number(filters.month.slice(5, 7))
+    if (y && m) {
+      const start = `${filters.month}-01`
+      const end = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
+      query = query.gte('doc_date', start).lt('doc_date', end)
+    }
   }
 
   const { data, error } = await query

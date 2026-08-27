@@ -5,8 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export async function compressImage(file: File, maxSizeMB: number = 1): Promise<File> {
-    if (file.size <= maxSizeMB * 1024 * 1024) {
+/**
+ * บีบรูปฝั่ง client ก่อนอัปโหลด (ผลลัพธ์เป็น JPEG เสมอเมื่อมีการบีบจริง)
+ *
+ * @param maxSizeMB เพดานขนาดไฟล์ (MB)
+ * @param maxDimension เพดานด้านยาวสุด (px) — ค่าเริ่มต้น 1600 คงพฤติกรรมเดิม
+ *                     ส่งค่าน้อยกว่านี้เพื่อบังคับย่อ เช่น รูปลายเซ็น (400)
+ */
+export async function compressImage(file: File, maxSizeMB: number = 1, maxDimension: number = 1600): Promise<File> {
+    // ข้ามการบีบได้เฉพาะตอนใช้เพดานมาตรฐาน — ถ้าผู้เรียกขอเพดานเล็กกว่า
+    // ต้องย่อจริงเสมอ แม้ไฟล์จะเล็กอยู่แล้ว
+    if (maxDimension >= 1600 && file.size <= maxSizeMB * 1024 * 1024) {
         return file;
     }
 
@@ -24,10 +33,9 @@ export async function compressImage(file: File, maxSizeMB: number = 1): Promise<
             const canvas = document.createElement('canvas');
             
             // Calculate new dimensions (maintain aspect ratio)
-            // Cap max dimension at 1600px for bandwidth optimization
+            // Cap max dimension (default 1600px) for bandwidth optimization
             let width = img.width;
             let height = img.height;
-            const maxDimension = 1600;
 
             if (width > maxDimension || height > maxDimension) {
                 if (width > height) {

@@ -44,6 +44,8 @@ interface SidebarProps {
     licenseExpiresAt?: string | null
     /** WORLDCUP 2026 (temporary) — the user's champion pick, remove after the tournament */
     worldcupTeam?: string | null
+    /** ตัวเลขบนเมนู keyed by href (เช่น { '/documents/approvals': 3 }) */
+    badges?: Record<string, number>
 }
 
 // ============================================================================
@@ -57,6 +59,7 @@ function SidebarGroup({
     getGroupLabel,
     onNavigate,
     role,
+    badges,
 }: {
     group: NavGroup
     collapsed: boolean
@@ -65,6 +68,7 @@ function SidebarGroup({
     getGroupLabel: (key: string) => string
     onNavigate?: () => void
     role?: string
+    badges?: Record<string, number>
 }) {
     const visibleItems = group.items.filter(item => !item.adminOnly || role === 'admin')
     const hasActiveRoute = visibleItems.some(item => isActive(item.href, item.exact))
@@ -128,6 +132,11 @@ function SidebarGroup({
                                 )}
                                 <item.icon className={`h-4 w-4 shrink-0 transition-colors ${active ? accent.color : 'text-zinc-400 dark:text-zinc-500'}`} />
                                 <span className="truncate">{getLabel(item.labelKey)}</span>
+                                {(badges?.[item.href] ?? 0) > 0 && (
+                                    <span className="ml-auto shrink-0 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white tabular-nums">
+                                        {badges![item.href]}
+                                    </span>
+                                )}
                             </Link>
                         )
                     })}
@@ -140,7 +149,7 @@ function SidebarGroup({
 // ============================================================================
 // Main Sidebar Component
 // ============================================================================
-export default function Sidebar({ role, allowedModules = ['stock'], licenseExpiresAt = null, worldcupTeam = null }: SidebarProps) {
+export default function Sidebar({ role, allowedModules = ['stock'], licenseExpiresAt = null, worldcupTeam = null, badges }: SidebarProps) {
     const { t } = useLanguage()
     const pathname = usePathname()
     const [collapsed, setCollapsed] = useState(false)
@@ -274,6 +283,7 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
                         getGroupLabel={getGroupLabel}
                         onNavigate={isMobile ? closeMobile : undefined}
                         role={role}
+                        badges={badges}
                     />
                 ))}
             </nav>

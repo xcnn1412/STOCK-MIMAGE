@@ -10,6 +10,7 @@ import WorldCupPopup from '@/components/worldcup/worldcup-popup'
 import { getLicenseStatus } from '@/lib/license'
 import { getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
+import { countPendingApprovals } from './documents/approvals/actions'
 
 export default async function AuthenticatedLayout({
   children,
@@ -76,12 +77,20 @@ export default async function AuthenticatedLayout({
     }
   }
 
+  // ตัวเลขบนเมนู "รออนุมัติ" — เฉพาะ admin (action คืน 0 ให้คนอื่นอยู่แล้ว)
+  // ponytail: คำนวณสดตอน render ไม่มี cron/cache
+  const badges: Record<string, number> = {}
+  if (role === 'admin') {
+    const pendingDocs = await countPendingApprovals()
+    if (pendingDocs > 0) badges['/documents/approvals'] = pendingDocs
+  }
+
   const license = getLicenseStatus()
   const licenseExpiresAt = license.expiresAt ? license.expiresAt.toISOString() : null
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full flex" suppressHydrationWarning>
-      <Sidebar role={role} allowedModules={allowedModules} licenseExpiresAt={licenseExpiresAt} worldcupTeam={worldcupTeam} />
+      <Sidebar role={role} allowedModules={allowedModules} licenseExpiresAt={licenseExpiresAt} worldcupTeam={worldcupTeam} badges={badges} />
       <SessionTimeout />
       {/* WORLDCUP 2026 (temporary) — champion prediction popup */}
       {userId && <WorldCupPopup hasPicked={!!worldcupTeam} />}
