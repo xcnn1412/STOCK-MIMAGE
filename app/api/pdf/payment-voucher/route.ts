@@ -5,6 +5,7 @@ import { PaymentVoucherPDF } from '@/components/pdf/payment-voucher'
 import type { PaymentVoucherData } from '@/components/pdf/payment-voucher'
 import { createServiceClient } from '@/lib/supabase-server'
 import { requireAuth } from '@/lib/auth'
+import { formatThaiDate } from '@/lib/thai-date'
 import QRCode from 'qrcode'
 
 // Force Node.js runtime for @react-pdf/renderer
@@ -30,22 +31,6 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   const whtAmount = baseAmount * (whtRatePercent / 100)
   const netPayable = totalWithVat - whtAmount
   return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
-}
-
-// ============================================================================
-// Format date to Thai
-// ============================================================================
-function formatThaiDate(dateStr: string): string {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  const thaiMonths = [
-    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
-  ]
-  const day = d.getDate()
-  const month = thaiMonths[d.getMonth()]
-  const year = d.getFullYear() + 543 // พ.ศ.
-  return `${day} ${month} ${year}`
 }
 
 // ============================================================================

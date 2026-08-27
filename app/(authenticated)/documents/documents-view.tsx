@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -24,6 +25,7 @@ function formatDate(value: string | null) {
 // ponytail: ตารางล้วน ไม่มีตัวกรอง — ตัวกรอง/ค้นหามาใน Ticket 3
 export default function DocumentsView({ documents, error, brands }: Props) {
   const { lang } = useLanguage()
+  const router = useRouter()
   const brandName = (code: string) =>
     brands.find(b => b.code === code)?.name_th || code
 
@@ -71,7 +73,11 @@ export default function DocumentsView({ documents, error, brands }: Props) {
               {documents.map(doc => {
                 const status = STATUS_LABEL[doc.status]
                 return (
-                  <TableRow key={doc.id}>
+                  <TableRow
+                    key={doc.id}
+                    className="cursor-pointer"
+                    onClick={() => router.push(`/documents/${doc.id}`)}
+                  >
                     <TableCell className="font-mono">
                       <Link href={`/documents/${doc.id}`} className="hover:underline">
                         {doc.doc_no || doc.draft_no}

@@ -1,0 +1,25 @@
+import { redirect } from 'next/navigation'
+import { requireAuth } from '@/lib/auth'
+import { listBrandsAdmin, listCounters, listLockedBrandCodes } from './actions'
+import SettingsView from './settings-view'
+
+export const revalidate = 0
+
+export const metadata = {
+  title: 'ตั้งค่าเอกสาร — Document Control',
+  description: 'แบรนด์ · ตัวนับเลขที่เอกสาร · แม่แบบ',
+}
+
+export default async function DocumentSettingsPage() {
+  const session = await requireAuth()
+  if (!session) redirect('/login')
+  if (session.role !== 'admin') redirect('/documents')
+
+  const [brands, counters, lockedCodes] = await Promise.all([
+    listBrandsAdmin(),
+    listCounters(),
+    listLockedBrandCodes(),
+  ])
+
+  return <SettingsView brands={brands} counters={counters} lockedCodes={lockedCodes} />
+}

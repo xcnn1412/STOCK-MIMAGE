@@ -109,7 +109,7 @@ export async function getDocument(id: string) {
     return { error: 'ไม่มีสิทธิ์เข้าถึงเอกสารนี้' }
   }
 
-  const [itemsRes, logsRes, brandRes, refRes] = await Promise.all([
+  const [itemsRes, logsRes, brandRes, refRes, refByRes] = await Promise.all([
     supabase.from('document_items').select('*').eq('document_id', id).order('line_no', { ascending: true }),
     supabase
       .from('document_logs')
@@ -120,6 +120,11 @@ export async function getDocument(id: string) {
     doc.ref_document_id
       ? supabase.from('documents').select('id, doc_no, doc_type').eq('id', doc.ref_document_id).single()
       : Promise.resolve({ data: null }),
+    supabase
+      .from('documents')
+      .select('id, doc_no, doc_type, status')
+      .eq('ref_document_id', id)
+      .order('created_at', { ascending: true }),
   ])
 
   return {
@@ -128,7 +133,43 @@ export async function getDocument(id: string) {
     logs: (logsRes.data || []) as unknown as DocumentLogRow[],
     brand: (brandRes.data || null) as unknown as DocBrandRow | null,
     refDocument: (refRes.data || null) as unknown as { id: string; doc_no: string | null; doc_type: string } | null,
+    referencedBy: (refByRes.data || []) as unknown as ReferencedByRow[],
   }
+}
+
+/** เอกสารที่อ้างอิงมายังใบนี้ (การ์ด "เอกสารที่เกี่ยวข้อง") */
+export interface ReferencedByRow {
+  id: string
+  doc_no: string | null
+  doc_type: string
+  status: string
+}
+
+/** ตัวเลือกสำหรับช่อง "อ้างอิงเอกสาร" — เฉพาะใบที่ออกเลขแล้วของแบรนด์เดียวกัน */
+export interface RefCandidate {
+  id: string
+  doc_no: string | null
+  doc_type: string
+  party_name: string | null
+  total: number
+}
+
+export async function listRefCandidates(brand_code: string, types: string[]): Promise<RefCandidate[]> {
+  const { userId } = await getSession()
+  if (!userId || !brand_code || !types?.length) return []
+
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from('documents')
+    .select('id, doc_no, doc_type, party_name, total')
+    .eq('brand_code', brand_code)
+    .in('doc_type', types)
+    .in('status', ['issued', 'sent', 'closed'])
+    .not('doc_no', 'is', null)
+    .order('doc_no', { ascending: false })
+    .limit(100)
+
+  return (data || []) as unknown as RefCandidate[]
 }
 
 // ============================================================================
