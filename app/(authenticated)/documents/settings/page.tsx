@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth'
-import { listBrandsAdmin, listCounters, listLockedBrandCodes } from './actions'
+import { listBrandsAdmin, listCounters, listLockedBrandCodes, listTemplates } from './actions'
 import SettingsView from './settings-view'
 
 export const revalidate = 0
@@ -15,11 +15,14 @@ export default async function DocumentSettingsPage() {
   if (!session) redirect('/login')
   if (session.role !== 'admin') redirect('/documents')
 
-  const [brands, counters, lockedCodes] = await Promise.all([
+  const [brands, counters, lockedCodes, templates] = await Promise.all([
     listBrandsAdmin(),
     listCounters(),
     listLockedBrandCodes(),
+    listTemplates(),
   ])
 
-  return <SettingsView brands={brands} counters={counters} lockedCodes={lockedCodes} />
+  return (
+    <SettingsView brands={brands} counters={counters} lockedCodes={lockedCodes} templates={templates} />
+  )
 }

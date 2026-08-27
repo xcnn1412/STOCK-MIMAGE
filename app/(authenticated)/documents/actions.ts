@@ -7,7 +7,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity, type ActionType } from '@/lib/logger'
 import { createNotifications, type NotificationType } from '@/lib/notifications'
 import {
-  DOC_TYPES, TRANSITIONS, EDITABLE_STATUSES, calcDocumentTotals, calcItemAmount,
+  DOC_TYPES, TRANSITIONS, EDITABLE_STATUSES, calcDocumentTotals, calcItemAmount, sanitizeMeta,
   type DocAction, type DocBrandRow, type DocTypeCode, type DocumentItemRow,
   type DocumentLogRow, type DocumentRow, type VatMode,
 } from './doc-types'
@@ -275,7 +275,8 @@ export async function saveDraft(id: string, payload: SaveDraftPayload) {
       party_id_card: payload.party_id_card ?? null,
       party_birth_date: payload.party_birth_date || null,
       doc_date: payload.doc_date || null,
-      meta: payload.meta ?? {},
+      // ponytail: ฟิลด์ richtext เก็บ HTML — ล้าง <script>/on* ก่อนลง DB (ยามชั้น trust boundary)
+      meta: sanitizeMeta(payload.meta),
       vat_mode,
       wht_rate,
       notes: payload.notes ?? null,

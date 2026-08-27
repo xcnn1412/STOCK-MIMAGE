@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
-  DOC_TYPES, EDITABLE_STATUSES, PARTY_LABEL, STATUS_LABEL, TRANSITIONS,
+  DOC_TYPES, EDITABLE_STATUSES, PARTY_LABEL, STATUS_LABEL, TRANSITIONS, isHtmlEmpty, sanitizeHtml,
   type DocAction, type DocBrandRow, type DocStatus, type DocumentItemRow,
   type DocumentLogRow, type DocumentRow,
 } from '../doc-types'
@@ -457,14 +457,24 @@ function ReadOnlyBody({
           <CardContent className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             {def.metaFields.map(f => {
               const raw = meta[f.key]
+              if (f.type === 'richtext') {
+                const html = String(raw ?? '')
+                return (
+                  <Field
+                    key={f.key}
+                    label={f.label.th}
+                    wide
+                    value={isHtmlEmpty(html) ? '-' : <RichTextRead html={html} />}
+                  />
+                )
+              }
               const text = raw == null || String(raw).trim() === '' ? '-' : String(raw)
-              const wide = f.type === 'richtext' || f.type === 'textarea'
               return (
                 <Field
                   key={f.key}
                   label={f.label.th}
                   value={f.type === 'date' && text !== '-' ? fmtDate(text) : text}
-                  wide={wide}
+                  wide={f.type === 'textarea'}
                 />
               )
             })}
@@ -531,6 +541,20 @@ function Field({ label, value, wide }: { label: string; value: ReactNode; wide?:
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="whitespace-pre-wrap">{value}</div>
     </div>
+  )
+}
+
+/**
+ * แสดง HTML จากฟิลด์ richtext (ผลผลิตของ TipTap ที่ผ่าน sanitize ตอน saveDraft มาแล้ว)
+ * ponytail: repo นี้ไม่ได้ติดตั้ง @tailwindcss/typography — จัดสไตล์ด้วย arbitrary variant
+ * ไม่กี่ตัวแทน แล้ว sanitize ซ้ำตอน render กันข้อมูลเก่าที่บันทึกก่อนมียาม
+ */
+function RichTextRead({ html }: { html: string }) {
+  return (
+    <div
+      className="whitespace-normal [&_p]:mb-1 [&_ul]:mb-1 [&_ol]:mb-1 [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5 [&_li]:my-0.5 [&_strong]:font-semibold [&_em]:italic [&_u]:underline [&_h1]:mt-2 [&_h1]:mb-1 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mt-2 [&_h2]:mb-1 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:font-semibold"
+      dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
+    />
   )
 }
 

@@ -181,6 +181,30 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
   },
 }
 
+// ── HTML (richtext meta) ─────────────────────────────────────────────────────
+// ponytail: HTML ในฟิลด์ richtext มาจาก TipTap ของเราเอง (ไม่มี script/on* อยู่แล้ว)
+// ตัวนี้เป็นแค่ยามที่ trust boundary — regex 3 บรรทัด พอสำหรับสิ่งที่เรา render เอง
+// ไม่ใช่ sanitizer ทั่วไป ถ้าวันไหนรับ HTML จากภายนอกจริงๆ ให้เปลี่ยนไปใช้ DOMPurify
+
+export function sanitizeHtml(html: string): string {
+  return String(html)
+    .replace(/<\s*\/?\s*(script|iframe|object|embed|style|link|meta)\b[^>]*>/gi, '')
+    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/(href|src)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*'|javascript:[^\s>]*)/gi, '')
+}
+
+/** ล้าง string ทุกตัวใน meta ก่อนบันทึกลง DB */
+export function sanitizeMeta(meta: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(meta || {})) out[k] = typeof v === 'string' ? sanitizeHtml(v) : v
+  return out
+}
+
+/** true เมื่อ HTML ไม่มีเนื้อความจริง (TipTap คืน '<p></p>' ตอนว่าง) */
+export function isHtmlEmpty(html: string | null | undefined): boolean {
+  return !String(html || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim()
+}
+
 // ── State machine ────────────────────────────────────────────────────────────
 
 export type DocAction = 'submit' | 'approve' | 'reject' | 'issue' | 'void' | 'mark_sent' | 'close'

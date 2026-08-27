@@ -15,6 +15,7 @@ import { htmlToPdfNodes } from '@/lib/pdf-html'
 import {
   DOC_TYPES,
   PARTY_LABEL,
+  isHtmlEmpty,
   type DocBrandRow,
   type DocTemplateRow,
   type DocTypeCode,
@@ -181,6 +182,37 @@ function KV({ label, value }: { label: string; value: string }) {
   )
 }
 
+/**
+ * เรนเดอร์ metaField 1 ช่อง — richtext/textarea ได้บล็อกของตัวเองพร้อมหัวข้อ
+ * ที่เหลือเป็นแถว label/value
+ * ponytail: ก่อนหน้านี้บล็อก "ไม่ใช่จดหมาย" ยัดทุกชนิดผ่าน metaText() ทำให้
+ * เนื้อหาสัญญา (CT) พิมพ์แท็ก HTML ออกมาดิบๆ — รวมโค้ดสองที่ให้เหลือฟังก์ชันเดียว
+ */
+function renderMetaField(f: MetaField, v: unknown): React.ReactNode {
+  if (v == null || v === '') return null
+
+  if (f.type === 'richtext') {
+    if (isHtmlEmpty(String(v))) return null
+    return (
+      <View style={s.block} key={f.key}>
+        <Text style={s.sectionTitle}>{f.label.th}</Text>
+        {htmlToPdfNodes(String(v), { text: { fontSize: 11.5 } })}
+      </View>
+    )
+  }
+
+  if (f.type === 'textarea') {
+    return (
+      <View style={s.block} key={f.key}>
+        <Text style={s.sectionTitle}>{f.label.th}</Text>
+        <Text style={s.line}>{String(v)}</Text>
+      </View>
+    )
+  }
+
+  return <KV key={f.key} label={f.label.th} value={metaText(f, v)} />
+}
+
 // ============================================================================
 // Main PDF Document
 // ============================================================================
@@ -298,9 +330,7 @@ export function DocumentPDF({ doc, items, brand, template, approver, creator, re
         {/* ── Meta (financial / list groups) ── */}
         {!letter && bodyMetaFields.some((f) => meta[f.key]) && (
           <View style={s.block}>
-            {bodyMetaFields.map((f) =>
-              meta[f.key] ? <KV key={f.key} label={f.label.th} value={metaText(f, meta[f.key])} /> : null
-            )}
+            {bodyMetaFields.map((f) => renderMetaField(f, meta[f.key]))}
           </View>
         )}
 
@@ -414,25 +444,7 @@ export function DocumentPDF({ doc, items, brand, template, approver, creator, re
             ) : null}
             {def.metaFields.map((f) => {
               if (doc.doc_type === 'MM' && (f.key === 'subject' || f.key === 'to')) return null
-              const v = meta[f.key]
-              if (v == null || v === '') return null
-              if (f.type === 'richtext') {
-                return (
-                  <View style={s.block} key={f.key}>
-                    <Text style={s.sectionTitle}>{f.label.th}</Text>
-                    {htmlToPdfNodes(String(v), { text: { fontSize: 11.5 } })}
-                  </View>
-                )
-              }
-              if (f.type === 'textarea') {
-                return (
-                  <View style={s.block} key={f.key}>
-                    <Text style={s.sectionTitle}>{f.label.th}</Text>
-                    <Text style={s.line}>{String(v)}</Text>
-                  </View>
-                )
-              }
-              return <KV key={f.key} label={f.label.th} value={metaText(f, v)} />
+              return renderMetaField(f, meta[f.key])
             })}
           </View>
         )}

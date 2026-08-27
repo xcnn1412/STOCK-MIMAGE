@@ -5,7 +5,10 @@ import { revalidatePath } from 'next/cache'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
-import { DOC_TYPES, type DocBrandRow, type DocTypeCode, type VatMode } from '../doc-types'
+import {
+  DOC_TYPES,
+  type DocBrandRow, type DocTemplateRow, type DocTypeCode, type VatMode,
+} from '../doc-types'
 
 // Resolve the acting user with a DB-verified role — NEVER trust the raw
 // `session_role` cookie.
@@ -355,6 +358,168 @@ export async function upsertCounter(input: {
     period,
     old: existing?.last_number ?? null,
     new: last,
+  })
+  refresh()
+  return {}
+}
+
+// ============================================================================
+// Templates (แม่แบบ) — spec §48-51: บันทึก = เวอร์ชันใหม่เสมอ, ไม่มีการลบ
+// ============================================================================
+
+export interface TemplateRow extends DocTemplateRow {
+  creator?: { id: string; full_name: string | null } | null
+}
+
+export interface TemplateInput {
+  brand_code: string
+  doc_type: string
+  title?: string | null
+  terms?: string | null
+  footer?: string | null
+  signer_label_1?: string | null
+  signer_label_2?: string | null
+  payment_info?: string | null
+}
+
+export async function listTemplates(): Promise<TemplateRow[]> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return []
+
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from('doc_templates')
+    .select('*, creator:profiles!doc_templates_created_by_fkey(id, full_name)')
+    .order('brand_code', { ascending: true })
+    .order('doc_type', { ascending: true })
+    .order('version', { ascending: false })
+  return (data || []) as unknown as TemplateRow[]
+}
+
+function normalizeTemplateTarget(brand_code: string, doc_type: string) {
+  const brand = (brand_code || '').trim().toUpperCase()
+  const docType = (doc_type || '').trim().toUpperCase()
+  if (!BRAND_CODE_RE.test(brand)) return { error: 'รหัสแบรนด์ไม่ถูกต้อง' as const }
+  if (!DOC_TYPES[docType as DocTypeCode]) return { error: 'ประเภทเอกสารไม่ถูกต้อง' as const }
+  return { brand, docType }
+}
+
+const trimOrNull = (v: string | null | undefined) => {
+  const s = (v ?? '').trim()
+  // TipTap คืน '<p></p>' เมื่อว่าง — เก็บเป็น null ให้ PDF ตกไปใช้ค่า default
+  return !s || s === '<p></p>' ? null : s
+}
+
+/**
+ * บันทึกแม่แบบ = insert เวอร์ชันใหม่ (max+1) แล้วใช้งานทันที
+ * ponytail: supabase-js ไม่มี transaction — ปิดตัวเก่าก่อน insert (partial unique index
+ * ยอมให้ active ได้ใบเดียว) ถ้า insert พัง ค่อยเปิดตัวเก่ากลับแบบชดเชยมือ
+ */
+export async function saveTemplateVersion(
+  input: TemplateInput,
+): Promise<{ error?: string; id?: string; version?: number }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+
+  const target = normalizeTemplateTarget(input.brand_code, input.doc_type)
+  if ('error' in target) return { error: target.error }
+  const { brand, docType } = target
+
+  const supabase = createServiceClient()
+
+  const { data: brandRow } = await supabase.from('doc_brands').select('code').eq('code', brand).maybeSingle()
+  if (!brandRow) return { error: `ไม่พบแบรนด์ ${brand}` }
+
+  const { data: existing, error: listErr } = await supabase
+    .from('doc_templates')
+    .select('id, version, is_active')
+    .eq('brand_code', brand)
+    .eq('doc_type', docType)
+  if (listErr) return { error: listErr.message }
+
+  const rows = (existing || []) as { id: string; version: number; is_active: boolean }[]
+  const nextVersion = rows.reduce((max, r) => Math.max(max, Number(r.version) || 0), 0) + 1
+  const current = rows.find(r => r.is_active) || null
+
+  if (current) {
+    const { error } = await supabase.from('doc_templates').update({ is_active: false }).eq('id', current.id)
+    if (error) return { error: error.message }
+  }
+
+  const { data: inserted, error: insErr } = await supabase
+    .from('doc_templates')
+    .insert({
+      brand_code: brand,
+      doc_type: docType,
+      version: nextVersion,
+      title: trimOrNull(input.title),
+      terms: trimOrNull(input.terms),
+      footer: trimOrNull(input.footer),
+      signer_label_1: trimOrNull(input.signer_label_1),
+      signer_label_2: trimOrNull(input.signer_label_2),
+      payment_info: trimOrNull(input.payment_info),
+      is_active: true,
+      created_by: auth.userId,
+    })
+    .select('id, version')
+    .single()
+
+  if (insErr || !inserted) {
+    if (current) await supabase.from('doc_templates').update({ is_active: true }).eq('id', current.id)
+    return { error: insErr?.message || 'บันทึกแม่แบบไม่สำเร็จ' }
+  }
+
+  await logActivity('UPDATE_DOC_TEMPLATE', {
+    brand_code: brand,
+    doc_type: docType,
+    version: nextVersion,
+    previous_version: current?.version ?? null,
+    template_id: inserted.id,
+  })
+  refresh()
+  return { id: inserted.id, version: nextVersion }
+}
+
+/** ย้อนกลับไปใช้เวอร์ชันเก่า (spec §49) — สลับ is_active เท่านั้น ไม่ลบ ไม่ insert */
+export async function activateTemplateVersion(id: string): Promise<{ error?: string }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+
+  const supabase = createServiceClient()
+  const { data: row } = await supabase
+    .from('doc_templates')
+    .select('id, brand_code, doc_type, version, is_active')
+    .eq('id', id)
+    .maybeSingle()
+  if (!row) return { error: 'ไม่พบแม่แบบเวอร์ชันนี้' }
+  if (row.is_active) return {}
+
+  const { data: currentRow } = await supabase
+    .from('doc_templates')
+    .select('id, version')
+    .eq('brand_code', row.brand_code)
+    .eq('doc_type', row.doc_type)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (currentRow) {
+    const { error } = await supabase.from('doc_templates').update({ is_active: false }).eq('id', currentRow.id)
+    if (error) return { error: error.message }
+  }
+
+  const { error } = await supabase.from('doc_templates').update({ is_active: true }).eq('id', id)
+  if (error) {
+    // ชดเชยมือ — ไม่งั้นจะไม่เหลือแถว active เลยสำหรับชุดนี้
+    if (currentRow) await supabase.from('doc_templates').update({ is_active: true }).eq('id', currentRow.id)
+    return { error: error.message }
+  }
+
+  await logActivity('UPDATE_DOC_TEMPLATE', {
+    brand_code: row.brand_code,
+    doc_type: row.doc_type,
+    activated_version: row.version,
+    previous_version: currentRow?.version ?? null,
+    template_id: id,
   })
   refresh()
   return {}

@@ -11,9 +11,10 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import DocRichTextEditor from '@/components/doc-rich-text-editor'
 import { cn } from '@/lib/utils'
 import {
-  DOC_TYPES, PARTY_LABEL, calcDocumentTotals,
+  DOC_TYPES, PARTY_LABEL, calcDocumentTotals, isHtmlEmpty,
   type DocTypeCode, type DocumentItemRow, type DocumentRow, type VatMode,
 } from '../doc-types'
 import {
@@ -366,7 +367,8 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
               const fieldErr = err(`meta.${f.key}`)
               return (
                 <div key={f.key} className={cn('space-y-1.5', wide && 'sm:col-span-2')}>
-                  <Label htmlFor={`meta_${f.key}`}>
+                  {/* ponytail: richtext ไม่มี input ให้ผูก id — ตัด htmlFor ทิ้งไม่ให้ชี้ไปที่ไม่มีอยู่ */}
+                  <Label htmlFor={f.type === 'richtext' ? undefined : `meta_${f.key}`}>
                     {f.label.th}{f.required && <span className="text-destructive"> *</span>}
                   </Label>
                   {f.type === 'select' ? (
@@ -378,11 +380,20 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
                         {(f.options || []).map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                  ) : f.type === 'textarea' || f.type === 'richtext' ? (
-                    // ponytail: richtext = textarea until Ticket 8 swaps in TipTap
+                  ) : f.type === 'richtext' ? (
+                    // ponytail: ตัวเดียวกับที่หน้าตั้งค่าแม่แบบใช้ — ไม่ sync value กลับหลัง mount
+                    // แต่ที่นี่ไม่ต้อง เพราะมีแค่ editor ตัวเองที่แก้ meta[f.key]
+                    <DocRichTextEditor
+                      value={value}
+                      onChange={html => set(isHtmlEmpty(html) ? '' : html)}
+                      minHeight="160px"
+                      placeholder={`พิมพ์${f.label.th}...`}
+                      className={cn(fieldErr && 'border-destructive')}
+                    />
+                  ) : f.type === 'textarea' ? (
                     <Textarea
                       id={`meta_${f.key}`}
-                      rows={f.type === 'richtext' ? 8 : 3}
+                      rows={3}
                       value={value}
                       onChange={e => set(e.target.value)}
                       className={cn(fieldErr && 'border-destructive')}

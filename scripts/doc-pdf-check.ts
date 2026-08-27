@@ -1,6 +1,7 @@
 /**
- * scripts/doc-pdf-check.ts — ตรวจว่า renderer PDF ของโมดูลเอกสารเรนเดอร์ผ่านทั้ง 3 กลุ่ม
- * (การเงิน / รายการอย่างเดียว / จดหมาย) ด้วยข้อมูลปลอมในหน่วยความจำ — ไม่แตะ DB
+ * scripts/doc-pdf-check.ts — ตรวจว่า renderer PDF ของโมดูลเอกสารเรนเดอร์ผ่าน
+ * "ครบทั้ง 13 ประเภท" + 3 เคสตั้งชื่อ (การเงิน / รายการอย่างเดียว / จดหมาย)
+ * ด้วยข้อมูลปลอมในหน่วยความจำ — ไม่แตะ DB
  *
  *   npx tsx scripts/doc-pdf-check.ts        (ต้องรันจาก repo root; ฟอนต์อ่านจาก ./public/fonts)
  *
@@ -12,9 +13,9 @@ import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { DocumentPDF, type DocumentPdfData } from '../components/pdf/document-pdf'
 import {
-  calcDocumentTotals, calcItemAmount,
-  type DocBrandRow, type DocTemplateRow, type DocTypeCode,
-  type DocumentItemRow, type DocumentRow, type VatMode,
+  DOC_TYPES, calcDocumentTotals, calcItemAmount,
+  type DocBrandRow, type DocTemplateRow, type DocTypeCode, type DocTypeDef,
+  type DocumentItemRow, type DocumentRow, type MetaField, type PartyKind, type VatMode,
 } from '../app/(authenticated)/documents/doc-types'
 
 const OUT_DIR =
@@ -122,9 +123,102 @@ const mm: DocumentPdfData = {
   refDoc: null,
 }
 
+// ── 4. ทุกประเภทใน DOC_TYPES — ตัวอย่างครบทุก metaField / party / รายการ / เอกสารอ้างอิง ──
+
+const SAMPLE_RICHTEXT = '<p>ทดสอบ <strong>ตัวหนา</strong></p><ul><li>ข้อ 1</li></ul>'
+
+/** ค่าตัวอย่างต่อชนิดของ metaField — ครอบทั้ง 6 ชนิดใน MetaField['type'] */
+function sampleMetaValue(f: MetaField): unknown {
+  switch (f.type) {
+    case 'date': return '2026-08-27'
+    case 'number': return 12345
+    case 'select': return f.options?.[0] ?? ''
+    case 'richtext': return SAMPLE_RICHTEXT
+    case 'textarea': return `ตัวอย่าง${f.label.th} — ข้อความหลายบรรทัดสำหรับทดสอบการตัดคำภาษาไทยในเอกสาร`
+    default: return `ตัวอย่าง${f.label.th}`
+  }
+}
+
+function sampleMeta(def: DocTypeDef): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const f of def.metaFields) out[f.key] = sampleMetaValue(f)
+  return out
+}
+
+/** ข้อมูลคู่สัญญาตามชนิด party (none = ไม่มีเลย เช่น MM) */
+function sampleParty(kind: PartyKind): Partial<DocumentRow> {
+  if (kind === 'none') {
+    return {
+      party_name: null, party_company: null, party_tax_id: null, party_address: null,
+      party_phone: null, party_email: null, party_id_card: null, party_birth_date: null,
+    }
+  }
+  if (kind === 'applicant' || kind === 'employee') {
+    return {
+      party_name: 'นางสาวสมหญิง ตั้งใจดี', party_company: null, party_tax_id: null,
+      party_address: '55/1 ซอยลาดพร้าว 71 แขวงลาดพร้าว เขตลาดพร้าว กรุงเทพฯ 10230',
+      party_phone: '089-999-1234', party_email: 'somying@example.com',
+      party_id_card: '1103700123456', party_birth_date: '2001-04-15',
+    }
+  }
+  const isVendor = kind === 'vendor'
+  return {
+    party_name: isVendor ? 'คุณวิชัย ผู้ขายดี' : 'คุณสมชาย ใจดี',
+    party_company: isVendor ? 'ห้างหุ้นส่วนจำกัด ซัพพลายเออร์ไทย' : 'บริษัท ลูกค้าดี จำกัด',
+    party_tax_id: '0107500000123',
+    party_address: '99 หมู่ 2 ต.บางพลี อ.บางพลี จ.สมุทรปราการ 10540',
+    party_phone: '081-234-5678', party_email: 'contact@example.com',
+    party_id_card: null, party_birth_date: null,
+  }
+}
+
+const genericItems = makeItems([
+  { d: 'บริการถ่ายภาพในงาน (เต็มวัน)', q: 1, u: 'งาน', p: 18000 },
+  { d: 'อัลบั้มรูป 8x10 พร้อมปกหนัง', q: 2, u: 'เล่ม', p: 2500, disc: 250 },
+  { d: 'ค่าเดินทาง', q: 1, u: 'เที่ยว', p: 1500 },
+])
+
+function buildTypeCase(code: DocTypeCode): DocumentPdfData {
+  const def = DOC_TYPES[code]
+  const items = def.hasItems ? genericItems : []
+  const vat_mode: VatMode = def.hasAmounts ? 'exclusive' : 'none'
+  const wht_rate = def.hasAmounts ? 3 : 0
+  const totals = calcDocumentTotals(def.hasAmounts ? items : [], vat_mode, wht_rate)
+
+  return {
+    doc: makeDoc({
+      id: `00000000-0000-0000-0000-0000000001${code}`,
+      doc_type: code,
+      doc_no: `${code}-MIP-2608-0001`,
+      draft_no: `DR-2569-${code}`,
+      status: 'issued',
+      approved_by: 'u1', approved_at: '2026-08-26T10:00:00Z', issued_at: '2026-08-26T10:00:00Z',
+      ...sampleParty(def.party),
+      meta: sampleMeta(def),
+      vat_mode, wht_rate, ...totals,
+      notes: 'หมายเหตุตัวอย่างสำหรับการทดสอบเรนเดอร์',
+    }),
+    items,
+    brand,
+    template: { ...template, doc_type: code },
+    approver: { full_name: 'คุณผู้จัดการ อนุมัติ', signature_url: null },
+    creator: { full_name: 'ผู้ทดสอบ ระบบ' },
+    refDoc: def.refTypes.length
+      ? { doc_no: `${def.refTypes[0]}-MIP-2608-0009`, doc_type: def.refTypes[0] }
+      : null,
+  }
+}
+
 async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true })
-  const cases: [string, DocumentPdfData][] = [['qt', qt], ['dn', dn], ['mm', mm]]
+  // ponytail: เคสตั้งชื่อใช้ prefix 'case-' เพราะ Windows มองชื่อไฟล์แบบไม่สนตัวพิมพ์
+  // ('qt.pdf' กับ 'QT.pdf' คือไฟล์เดียวกัน) — ไม่งั้นลูป 13 ประเภทจะทับของเดิมทิ้ง
+  const cases: [string, DocumentPdfData][] = [
+    ['case-qt', qt], ['case-dn', dn], ['case-mm', mm],
+    ...(Object.keys(DOC_TYPES) as DocTypeCode[]).map(
+      (code) => [code, buildTypeCase(code)] as [string, DocumentPdfData]
+    ),
+  ]
   let failed = 0
 
   for (const [name, data] of cases) {

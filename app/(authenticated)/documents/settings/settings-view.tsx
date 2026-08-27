@@ -2,7 +2,8 @@
 
 import { useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Pencil, Plus, Upload } from 'lucide-react'
+import { toast } from 'sonner'
+import { Eye, Pencil, Plus, RotateCcw, Save, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -18,17 +19,19 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import DocRichTextEditor from '@/components/doc-rich-text-editor'
 import { compressImage } from '@/lib/utils'
 import { DOC_TYPES, DOC_TYPE_CODES, type DocBrandRow, type DocTypeCode, type VatMode } from '../doc-types'
 import {
-  saveBrand, setBrandActive, uploadBrandLogo, upsertCounter,
-  type BrandInput, type CounterRow,
+  activateTemplateVersion, saveBrand, saveTemplateVersion, setBrandActive, uploadBrandLogo, upsertCounter,
+  type BrandInput, type CounterRow, type TemplateRow,
 } from './actions'
 
 interface Props {
   brands: DocBrandRow[]
   counters: CounterRow[]
   lockedCodes: string[]
+  templates: TemplateRow[]
 }
 
 const EMPTY_BRAND: BrandInput = {
@@ -69,7 +72,57 @@ function formatDateTime(value: string | null) {
   })
 }
 
-export default function SettingsView({ brands, counters, lockedCodes }: Props) {
+function formatDate(value: string | null) {
+  if (!value) return '-'
+  return new Date(value).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+// ── แม่แบบ ───────────────────────────────────────────────────────────────────
+
+interface TemplateFields {
+  title: string
+  terms: string
+  footer: string
+  signer_label_1: string
+  signer_label_2: string
+  payment_info: string
+}
+
+// ponytail: คัดลอกจาก components/pdf/document-pdf.tsx — import ตรงไม่ได้เพราะไฟล์นั้น
+// ดึง @react-pdf/renderer เข้ามาทั้งก้อนใน client bundle
+const SIGNER_1_DEFAULT: Partial<Record<DocTypeCode, string>> = {
+  QT: 'ผู้เสนอราคา', JA: 'ผู้สมัคร', IA: 'ผู้สมัคร', RS: 'ผู้ยื่น',
+}
+
+/** ค่าที่ PDF ใช้อยู่แล้วเมื่อไม่มีแม่แบบ — เอามาโชว์ในฟอร์มให้เห็นว่าจะได้อะไร */
+function defaultTemplateFields(type: DocTypeCode): TemplateFields {
+  const def = DOC_TYPES[type]
+  return {
+    title: `${def.label.th} / ${def.label.en}`,
+    terms: '',
+    footer: '',
+    signer_label_1: SIGNER_1_DEFAULT[type] || 'ผู้ออกเอกสาร',
+    signer_label_2: 'ผู้อนุมัติ',
+    payment_info: '',
+  }
+}
+
+function templateFieldsFrom(row: TemplateRow, type: DocTypeCode): TemplateFields {
+  const d = defaultTemplateFields(type)
+  return {
+    title: row.title || d.title,
+    terms: row.terms || '',
+    footer: row.footer || '',
+    signer_label_1: row.signer_label_1 || d.signer_label_1,
+    signer_label_2: row.signer_label_2 || d.signer_label_2,
+    payment_info: row.payment_info || '',
+  }
+}
+
+/** ข้อมูลการชำระเงินขึ้นเฉพาะ QT/IV (spec §48 และ document-pdf.tsx ก็เช็คแบบเดียวกัน) */
+const PAYMENT_INFO_TYPES: DocTypeCode[] = ['QT', 'IV']
+
+export default function SettingsView({ brands, counters, lockedCodes, templates }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [banner, setBanner] = useState<string | null>(null)
@@ -224,6 +277,35 @@ export default function SettingsView({ brands, counters, lockedCodes }: Props) {
   }
 
   const counterTypeDef = DOC_TYPES[counterForm.doc_type as DocTypeCode]
+  // ── แม่แบบ ────────────────────────────────────────────────────────────────
+  const [tplBrand, setTplBrand] = useState(brands[0]?.code || '')
+  const [tplType, setTplType] = useState<DocTypeCode>('QT')
+
+  const tplVersions = useMemo(
+    () => templates.filter(t => t.brand_code === tplBrand && t.doc_type === tplType),
+    [templates, tplBrand, tplType],
+  )
+  const tplActive = tplVersions.find(t => t.is_active) || null
+
+  function submitTemplate(fields: TemplateFields) {
+    if (!tplBrand) return
+    startTransition(async () => {
+      const res = await saveTemplateVersion({ brand_code: tplBrand, doc_type: tplType, ...fields })
+      if (res.error) { toast.error(res.error); return }
+      toast.success(`บันทึกเป็นเวอร์ชัน ${res.version} และใช้งานแล้ว`)
+      router.refresh()
+    })
+  }
+
+  function activateVersion(id: string, version: number) {
+    startTransition(async () => {
+      const res = await activateTemplateVersion(id)
+      if (res.error) { toast.error(res.error); return }
+      toast.success(`กลับไปใช้เวอร์ชัน ${version} แล้ว`)
+      router.refresh()
+    })
+  }
+
   const periodHint = counterTypeDef?.counter === 'yearly'
     ? 'งวดรายปี — ตัวเลข 2 หลัก (เช่น 26)'
     : 'งวดรายเดือน — ตัวเลข 4 หลัก (เช่น 2608)'
@@ -245,7 +327,7 @@ export default function SettingsView({ brands, counters, lockedCodes }: Props) {
         <TabsList>
           <TabsTrigger value="brands">แบรนด์</TabsTrigger>
           <TabsTrigger value="counters">ตัวนับ</TabsTrigger>
-          <TabsTrigger value="templates" disabled>แม่แบบ (เร็วๆ นี้)</TabsTrigger>
+          <TabsTrigger value="templates">แม่แบบ</TabsTrigger>
         </TabsList>
 
         {/* ── แบรนด์ ───────────────────────────────────────────────────────── */}
@@ -398,7 +480,116 @@ export default function SettingsView({ brands, counters, lockedCodes }: Props) {
           </Card>
         </TabsContent>
 
-        <TabsContent value="templates" />
+        {/* ── แม่แบบ ───────────────────────────────────────────────────────── */}
+        <TabsContent value="templates" className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            แม่แบบแยกตาม <strong>แบรนด์ × ประเภท</strong> · บันทึกทุกครั้ง = เวอร์ชันใหม่ที่ใช้งานทันที (ไม่มีการลบ)
+            · <strong>เอกสารที่ออกเลขแล้วจะยังใช้เวอร์ชันเดิมที่ผูกไว้</strong> ไม่เปลี่ยนตาม
+          </p>
+
+          {brands.length === 0 ? (
+            <Card>
+              <CardContent className="p-6 text-center text-sm text-muted-foreground">
+                ยังไม่มีแบรนด์ — เพิ่มแบรนด์ในแท็บ &ldquo;แบรนด์&rdquo; ก่อน
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-3">
+              {/* ซ้าย: เลือกชุด + ประวัติเวอร์ชัน */}
+              <div className="space-y-3">
+                <Card>
+                  <CardContent className="space-y-3 p-4">
+                    <div className="space-y-1.5">
+                      <Label>แบรนด์</Label>
+                      <Select value={tplBrand} onValueChange={setTplBrand}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="แบรนด์" /></SelectTrigger>
+                        <SelectContent>
+                          {brands.map(b => (
+                            <SelectItem key={b.code} value={b.code}>{b.code} — {b.name_th}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>ประเภทเอกสาร</Label>
+                      <Select value={tplType} onValueChange={v => setTplType(v as DocTypeCode)}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="ประเภท" /></SelectTrigger>
+                        <SelectContent>
+                          {DOC_TYPE_CODES.map(t => (
+                            <SelectItem key={t} value={t}>{t} — {DOC_TYPES[t].label.th}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                      {tplActive ? (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">เวอร์ชัน {tplActive.version}</span>
+                            <Badge variant="secondary">ใช้งานอยู่</Badge>
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            บันทึก {formatDate(tplActive.created_at)} · โดย {tplActive.creator?.full_name || '-'}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-muted-foreground">
+                          ยังไม่มีแม่แบบสำหรับชุดนี้ — PDF ใช้ค่าเริ่มต้นตามประเภทเอกสาร
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-0">
+                    <div className="border-b px-4 py-2 text-sm font-medium">ประวัติเวอร์ชัน</div>
+                    {tplVersions.length === 0 ? (
+                      <p className="p-4 text-sm text-muted-foreground">ยังไม่มีประวัติ</p>
+                    ) : (
+                      <ul className="divide-y">
+                        {tplVersions.map(v => (
+                          <li key={v.id} className="flex items-center gap-2 px-4 py-2.5">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-sm">v{v.version}</span>
+                                {v.is_active && <Badge variant="secondary">ใช้งานอยู่</Badge>}
+                              </div>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {formatDate(v.created_at)} · {v.creator?.full_name || '-'}
+                              </p>
+                            </div>
+                            {!v.is_active && (
+                              <Button
+                                variant="outline" size="sm" disabled={isPending}
+                                onClick={() => activateVersion(v.id, v.version)}
+                              >
+                                <RotateCcw className="size-3.5" />
+                                ใช้เวอร์ชันนี้
+                              </Button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* ขวา: ฟอร์มแก้ไข — key ทำให้ remount (โหลดค่าใหม่เข้าฟอร์ม+editor)
+                  เมื่อเปลี่ยนชุดหรือสลับเวอร์ชัน แทนการ setState ใน effect */}
+              <TemplateForm
+                key={`${tplBrand}-${tplType}-${tplActive?.id || 'none'}`}
+                brandCode={tplBrand}
+                docType={tplType}
+                initial={tplActive ? templateFieldsFrom(tplActive, tplType) : defaultTemplateFields(tplType)}
+                pending={isPending}
+                onSave={submitTemplate}
+              />
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
 
       {/* ── Dialog: แบรนด์ ─────────────────────────────────────────────────── */}
@@ -637,5 +828,125 @@ export default function SettingsView({ brands, counters, lockedCodes }: Props) {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+// ============================================================================
+// ฟอร์มแก้แม่แบบ — แยกออกมาเพื่อให้ parent สั่ง remount ด้วย `key` ได้
+// (React Compiler ห้าม setState ใน effect; remount ง่ายกว่าและรีเซ็ต TipTap ให้ด้วย)
+// ============================================================================
+
+function TemplateForm({
+  brandCode, docType, initial, pending, onSave,
+}: {
+  brandCode: string
+  docType: DocTypeCode
+  initial: TemplateFields
+  pending: boolean
+  onSave: (fields: TemplateFields) => void
+}) {
+  const [form, setForm] = useState<TemplateFields>(initial)
+  const [previewing, setPreviewing] = useState(false)
+
+  const set = (patch: Partial<TemplateFields>) => setForm(f => ({ ...f, ...patch }))
+
+  async function preview() {
+    if (!brandCode) return
+    // เปิดแท็บก่อน await ไม่งั้นโดน popup blocker (ต้องอยู่ใน user gesture)
+    const win = window.open('', '_blank')
+    setPreviewing(true)
+    try {
+      const res = await fetch('/api/pdf/document/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_code: brandCode, doc_type: docType, ...form }),
+      })
+      if (!res.ok) {
+        win?.close()
+        const j = (await res.json().catch(() => ({}))) as { error?: string }
+        toast.error(j.error || 'สร้าง PDF ตัวอย่างไม่สำเร็จ')
+        return
+      }
+      const url = URL.createObjectURL(await res.blob())
+      if (win) win.location.href = url
+      else window.open(url, '_blank')
+    } catch {
+      win?.close()
+      toast.error('สร้าง PDF ตัวอย่างไม่สำเร็จ')
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardContent className="space-y-4 p-4">
+        <div className="space-y-1.5">
+          <Label>ชื่อหัวเอกสาร</Label>
+          <Input
+            value={form.title}
+            onChange={e => set({ title: e.target.value })}
+            placeholder={defaultTemplateFields(docType).title}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>เงื่อนไข / หมายเหตุมาตรฐาน</Label>
+          <DocRichTextEditor
+            value={form.terms}
+            onChange={html => set({ terms: html })}
+            placeholder="เช่น ราคานี้ยังไม่รวมค่าเดินทางต่างจังหวัด…"
+          />
+        </div>
+
+        {PAYMENT_INFO_TYPES.includes(docType) && (
+          <div className="space-y-1.5">
+            <Label>ข้อมูลการชำระเงิน</Label>
+            <Textarea
+              rows={3}
+              value={form.payment_info}
+              onChange={e => set({ payment_info: e.target.value })}
+              placeholder="ธนาคาร / เลขที่บัญชี / ชื่อบัญชี"
+            />
+            <p className="text-xs text-muted-foreground">แสดงเฉพาะใบเสนอราคา (QT) และใบแจ้งหนี้ (IV)</p>
+          </div>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>ป้ายช่องลงนามที่ 1</Label>
+            <Input value={form.signer_label_1} onChange={e => set({ signer_label_1: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>ป้ายช่องลงนามที่ 2</Label>
+            <Input value={form.signer_label_2} onChange={e => set({ signer_label_2: e.target.value })} />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>ข้อความท้ายกระดาษ</Label>
+          <Input
+            value={form.footer}
+            onChange={e => set({ footer: e.target.value })}
+            placeholder="เช่น เอกสารนี้ออกโดยระบบ Document Control"
+          />
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          เอกสารที่ออกเลขแล้วจะยังใช้เวอร์ชันเดิมที่ผูกไว้ — การบันทึกนี้มีผลกับเอกสารที่ออกเลขหลังจากนี้เท่านั้น
+        </p>
+
+        <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
+          <Button variant="outline" onClick={preview} disabled={previewing || !brandCode}>
+            <Eye className="size-4" />
+            {previewing ? 'กำลังสร้าง…' : 'ดูตัวอย่าง PDF'}
+          </Button>
+          <Button onClick={() => onSave(form)} disabled={pending || !brandCode}>
+            <Save className="size-4" />
+            บันทึกเป็นเวอร์ชันใหม่และใช้งาน
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
