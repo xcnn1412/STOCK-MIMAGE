@@ -35,12 +35,84 @@ export type DocTypeCode = (typeof DOC_TYPE_CODES)[number]
 
 export type PartyKind = 'customer' | 'vendor' | 'applicant' | 'employee' | 'none'
 
+/** คอลัมน์ของ metaField ชนิด 'table' */
+export interface MetaColumn {
+  key: string
+  label: string
+  type?: 'text' | 'number'
+}
+
+/** ค่าใน meta ของ metaField ชนิด 'table' — array ของแถว */
+export type MetaTableRow = Record<string, string>
+
 export interface MetaField {
   key: string
   label: { th: string; en: string }
-  type: 'text' | 'date' | 'number' | 'richtext' | 'textarea' | 'select'
+  type:
+    | 'text' | 'date' | 'number' | 'richtext' | 'textarea' | 'select'
+    | 'checkbox' | 'multiselect' | 'table'
   required?: boolean
   options?: string[]
+  /** multiselect: key ใน meta ที่เก็บข้อความหลัง "อื่นๆ ระบุ" (โผล่เมื่อเลือก 'อื่นๆ') */
+  otherKey?: string
+  /** table: คอลัมน์ */
+  columns?: MetaColumn[]
+  /** table: แถวคงที่ — ค่าของคอลัมน์แรกถูกเติมไว้และแก้ไม่ได้ */
+  fixedRows?: string[]
+  /** table (ไม่มี fixedRows): จำนวนแถวสูงสุด (ค่าเริ่มต้น 5) */
+  maxRows?: number
+  /** หัวข้อกลุ่ม — ฟิลด์ที่ติดกันและมี section เดียวกันอยู่ใต้แถบเดียวกัน */
+  section?: string
+  /** คำใบ้ layout: ฟอร์มใช้กริด 6 คอลัมน์ (half=3, third=2, full=6) ค่าเริ่มต้น half */
+  width?: 'half' | 'third' | 'full'
+  /** ข้อความช่วยเหลือเล็กๆ ใต้ช่องกรอก */
+  hint?: string
+  /** แสดงเฉพาะเมื่อ meta[key] === value (ใช้กับช่อง "อื่นๆ ระบุ" ของ select) */
+  showWhen?: { key: string; value: string }
+}
+
+/** จัดฟิลด์ที่ติดกันและมี section เดียวกันเป็นกลุ่ม — ฟอร์ม / มุมมองอ่าน / PDF ใช้ร่วมกัน */
+export function groupMetaFields(fields: MetaField[]): { section?: string; fields: MetaField[] }[] {
+  const out: { section?: string; fields: MetaField[] }[] = []
+  for (const f of fields) {
+    const last = out[out.length - 1]
+    if (last && last.section === f.section) last.fields.push(f)
+    else out.push({ section: f.section, fields: [f] })
+  }
+  return out
+}
+
+/** true = ยังไม่ได้กรอก (ใช้ทั้ง validateForIssue ฝั่ง server และ client) */
+export function isMetaEmpty(f: MetaField, v: unknown): boolean {
+  switch (f.type) {
+    case 'checkbox':    return v !== true
+    case 'multiselect': return !Array.isArray(v) || v.length === 0
+    case 'table':
+      return !Array.isArray(v) || !v.some(
+        r => r && typeof r === 'object' &&
+          Object.values(r as Record<string, unknown>).some(c => String(c ?? '').trim() !== '')
+      )
+    case 'richtext':    return isHtmlEmpty(v == null ? '' : String(v))
+    default:            return v == null || String(v).trim() === ''
+  }
+}
+
+/**
+ * ระยะเวลาปฏิบัติงานสำหรับใบลาออก — คำนวณจาก start → end (ไม่เก็บใน meta)
+ * ponytail: นับปี/เดือนแบบปฏิทิน ไม่ปัดเศษวัน — พอสำหรับช่อง "X ปี Y เดือน" บนกระดาษ
+ */
+export function calcTenure(
+  start: string | null | undefined,
+  end: string | null | undefined
+): { years: number; months: number } | null {
+  if (!start || !end) return null
+  const a = new Date(start)
+  const b = new Date(end)
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return null
+  let months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth())
+  if (b.getDate() < a.getDate()) months--
+  if (months < 0) months = 0
+  return { years: Math.floor(months / 12), months: months % 12 }
 }
 
 export interface DocTypeDef {
@@ -53,6 +125,8 @@ export interface DocTypeDef {
   counter: 'monthly' | 'yearly'
   refTypes: DocTypeCode[]
   refRequired?: boolean
+  /** false = ปิดใช้งานชั่วคราว (ซ่อน/ปฏิเสธตอนสร้าง) — กลุ่มการเงินปิดรอปรับปรุง 2026-08-27 */
+  enabled?: boolean
   metaFields: MetaField[]
 }
 
@@ -66,7 +140,7 @@ export const PARTY_LABEL: Record<PartyKind, { th: string; en: string }> = {
 
 export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
   QT: {
-    code: 'QT', label: { th: 'ใบเสนอราคา', en: 'Quotation' },
+    enabled: false, code: 'QT', label: { th: 'ใบเสนอราคา', en: 'Quotation' },
     party: 'customer', hasItems: true, hasAmounts: true, requiresApproval: true, counter: 'monthly',
     refTypes: [],
     metaFields: [
@@ -74,7 +148,7 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
     ],
   },
   JO: {
-    code: 'JO', label: { th: 'ใบสั่งจ้าง/ยืนยันงาน', en: 'Job Order' },
+    enabled: false, code: 'JO', label: { th: 'ใบสั่งจ้าง/ยืนยันงาน', en: 'Job Order' },
     party: 'customer', hasItems: true, hasAmounts: true, requiresApproval: true, counter: 'monthly',
     refTypes: ['QT'],
     metaFields: [
@@ -84,7 +158,7 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
     ],
   },
   IV: {
-    code: 'IV', label: { th: 'ใบแจ้งหนี้', en: 'Invoice' },
+    enabled: false, code: 'IV', label: { th: 'ใบแจ้งหนี้', en: 'Invoice' },
     party: 'customer', hasItems: true, hasAmounts: true, requiresApproval: true, counter: 'monthly',
     refTypes: ['QT'],
     metaFields: [
@@ -92,13 +166,13 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
     ],
   },
   TX: {
-    code: 'TX', label: { th: 'ใบกำกับภาษี', en: 'Tax Invoice' },
+    enabled: false, code: 'TX', label: { th: 'ใบกำกับภาษี', en: 'Tax Invoice' },
     party: 'customer', hasItems: true, hasAmounts: true, requiresApproval: true, counter: 'yearly',
     refTypes: ['IV', 'RC'],
     metaFields: [],
   },
   RC: {
-    code: 'RC', label: { th: 'ใบเสร็จรับเงิน', en: 'Receipt' },
+    enabled: false, code: 'RC', label: { th: 'ใบเสร็จรับเงิน', en: 'Receipt' },
     party: 'customer', hasItems: true, hasAmounts: true, requiresApproval: true, counter: 'yearly',
     refTypes: ['IV'],
     metaFields: [
@@ -106,7 +180,7 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
     ],
   },
   CN: {
-    code: 'CN', label: { th: 'ใบลดหนี้', en: 'Credit Note' },
+    enabled: false, code: 'CN', label: { th: 'ใบลดหนี้', en: 'Credit Note' },
     party: 'customer', hasItems: true, hasAmounts: true, requiresApproval: true, counter: 'yearly',
     refTypes: ['QT', 'IV', 'TX', 'RC'], refRequired: true,
     metaFields: [
@@ -114,7 +188,7 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
     ],
   },
   PO: {
-    code: 'PO', label: { th: 'ใบสั่งซื้อ', en: 'Purchase Order' },
+    enabled: false, code: 'PO', label: { th: 'ใบสั่งซื้อ', en: 'Purchase Order' },
     party: 'vendor', hasItems: true, hasAmounts: true, requiresApproval: true, counter: 'monthly',
     refTypes: [],
     metaFields: [
@@ -122,7 +196,7 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
     ],
   },
   CT: {
-    code: 'CT', label: { th: 'สัญญาจ้าง', en: 'Contract' },
+    enabled: false, code: 'CT', label: { th: 'สัญญาจ้าง', en: 'Contract' },
     party: 'customer', hasItems: true, hasAmounts: true, requiresApproval: true, counter: 'monthly',
     refTypes: [],
     metaFields: [
@@ -145,38 +219,173 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
       { key: 'body',    label: { th: 'เนื้อหา',  en: 'Body' },    type: 'richtext' },
     ],
   },
+  // ── HR — ตรงกับแบบฟอร์มกระดาษของบริษัท (docs/document/template/*.pdf) ──────
   JA: {
-    code: 'JA', label: { th: 'ใบสมัครงาน', en: 'Job Application' },
+    code: 'JA', label: { th: 'ใบสมัครงาน', en: 'Application for Employment' },
     party: 'applicant', hasItems: false, hasAmounts: false, requiresApproval: false, counter: 'monthly',
     refTypes: [],
     metaFields: [
-      { key: 'position',        label: { th: 'ตำแหน่ง',              en: 'Position' },        type: 'text', required: true },
-      { key: 'expected_salary', label: { th: 'เงินเดือนที่ต้องการ',  en: 'Expected salary' }, type: 'number' },
-      { key: 'available_date',  label: { th: 'วันเริ่มงานได้',       en: 'Available from' },  type: 'date' },
-      { key: 'history',         label: { th: 'ประวัติ',              en: 'History' },         type: 'richtext' },
+      // 1. ตำแหน่งที่สมัคร
+      { section: '1. ตำแหน่งที่สมัคร / Position Applied', key: 'position', label: { th: 'ตำแหน่งที่สมัคร', en: 'Position applied' }, type: 'text', required: true, width: 'third' },
+      { section: '1. ตำแหน่งที่สมัคร / Position Applied', key: 'expected_salary', label: { th: 'เงินเดือนที่ต้องการ (บาท)', en: 'Expected salary (THB)' }, type: 'number', width: 'third' },
+      { section: '1. ตำแหน่งที่สมัคร / Position Applied', key: 'available_date', label: { th: 'วันที่พร้อมเริ่มงาน', en: 'Available from' }, type: 'date', width: 'third' },
+      // 2. ข้อมูลส่วนตัว
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'name_en', label: { th: 'ชื่อ - นามสกุล (ภาษาอังกฤษ)', en: 'Full name (English)' }, type: 'text' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'nickname', label: { th: 'ชื่อเล่น', en: 'Nickname' }, type: 'text', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'age', label: { th: 'อายุ (ปี)', en: 'Age' }, type: 'number', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'nationality', label: { th: 'สัญชาติ', en: 'Nationality' }, type: 'text', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'religion', label: { th: 'ศาสนา', en: 'Religion' }, type: 'text', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'height_cm', label: { th: 'ส่วนสูง (ซม.)', en: 'Height (cm)' }, type: 'number', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'weight_kg', label: { th: 'น้ำหนัก (กก.)', en: 'Weight (kg)' }, type: 'number', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'line_id', label: { th: 'Line ID', en: 'Line ID' }, type: 'text', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'marital_status', label: { th: 'สถานภาพสมรส', en: 'Marital status' }, type: 'select', options: ['โสด', 'สมรส', 'หย่าร้าง', 'หม้าย'] },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'military_status', label: { th: 'สถานภาพทางทหาร (เพศชาย)', en: 'Military status (male)' }, type: 'select', options: ['ได้รับการยกเว้น', 'ผ่านการเกณฑ์ทหารแล้ว', 'ยังไม่ได้เกณฑ์', 'ไม่เกี่ยวข้อง'] },
+      // 3. ประวัติการศึกษา
+      {
+        section: '3. ประวัติการศึกษา / Education Background',
+        key: 'education', label: { th: 'ประวัติการศึกษา', en: 'Education background' }, type: 'table', width: 'full',
+        columns: [
+          { key: 'level', label: 'ระดับการศึกษา' },
+          { key: 'institution', label: 'สถาบันการศึกษา' },
+          { key: 'major', label: 'สาขาวิชา / คณะ' },
+          { key: 'grad_year', label: 'ปีที่จบ' },
+          { key: 'gpa', label: 'เกรดเฉลี่ย' },
+        ],
+        fixedRows: ['มัธยมศึกษา', 'ปวช. / ปวส.', 'ปริญญาตรี', 'ปริญญาโท / อื่นๆ'],
+      },
+      // 4. ความสามารถพิเศษ
+      { section: '4. ความสามารถพิเศษ / Skills', key: 'languages', label: { th: 'ภาษาต่างประเทศ (ระบุระดับ)', en: 'Languages' }, type: 'text' },
+      { section: '4. ความสามารถพิเศษ / Skills', key: 'computer_skills', label: { th: 'คอมพิวเตอร์ / โปรแกรมที่ใช้ได้', en: 'Computer skills' }, type: 'text' },
+      { section: '4. ความสามารถพิเศษ / Skills', key: 'driving_license', label: { th: 'ใบอนุญาตขับขี่ / พาหนะส่วนตัว', en: 'Driving license / vehicle' }, type: 'text' },
+      { section: '4. ความสามารถพิเศษ / Skills', key: 'other_skills', label: { th: 'ความสามารถพิเศษอื่นๆ', en: 'Other skills' }, type: 'text' },
+      // 5. ประวัติการทำงาน
+      {
+        section: '5. ประวัติการทำงาน / Work Experience',
+        key: 'work_experience', label: { th: 'ประวัติการทำงาน', en: 'Work experience' }, type: 'table', width: 'full', maxRows: 3,
+        columns: [
+          { key: 'company', label: 'ชื่อบริษัท' },
+          { key: 'position', label: 'ตำแหน่ง' },
+          { key: 'duration', label: 'ระยะเวลาทำงาน' },
+          { key: 'last_salary', label: 'เงินเดือนล่าสุด' },
+          { key: 'reason_left', label: 'สาเหตุที่ออก' },
+        ],
+      },
+      // 6. บุคคลอ้างอิง
+      { section: '6. บุคคลอ้างอิง / กรณีฉุกเฉิน', key: 'emergency_name', label: { th: 'ชื่อบุคคลที่ติดต่อได้กรณีฉุกเฉิน', en: 'Emergency contact' }, type: 'text', width: 'third' },
+      { section: '6. บุคคลอ้างอิง / กรณีฉุกเฉิน', key: 'emergency_relation', label: { th: 'ความสัมพันธ์', en: 'Relationship' }, type: 'text', width: 'third' },
+      { section: '6. บุคคลอ้างอิง / กรณีฉุกเฉิน', key: 'emergency_phone', label: { th: 'เบอร์โทรศัพท์', en: 'Phone' }, type: 'text', width: 'third' },
+      // 7. PDPA
+      {
+        section: '7. นโยบายความเป็นส่วนตัวและความยินยอมในการเก็บรวบรวมข้อมูลส่วนบุคคล (PDPA)',
+        key: 'pdpa_consent', type: 'checkbox', required: true, width: 'full',
+        label: {
+          th: 'ข้าพเจ้าได้อ่านและรับทราบนโยบายความเป็นส่วนตัวข้างต้นแล้ว และให้ความยินยอมให้บริษัทเก็บรวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลของข้าพเจ้าเพื่อวัตถุประสงค์ในการพิจารณาสมัครงานตามที่ระบุไว้',
+          en: 'I have read and accept the privacy notice and consent to the processing of my personal data for recruitment purposes.',
+        },
+        hint: 'หากท่านไม่ให้ความยินยอม บริษัทอาจไม่สามารถพิจารณาใบสมัครงานของท่านได้',
+      },
     ],
   },
   IA: {
-    code: 'IA', label: { th: 'ใบสมัครนักศึกษาฝึกงาน', en: 'Internship Application' },
+    code: 'IA', label: { th: 'ใบสมัครนักศึกษาฝึกงาน', en: 'Student Internship Application Form' },
     party: 'applicant', hasItems: false, hasAmounts: false, requiresApproval: false, counter: 'monthly',
     refTypes: [],
     metaFields: [
-      { key: 'institution', label: { th: 'สถาบัน',            en: 'Institution' }, type: 'text', required: true },
-      { key: 'faculty',     label: { th: 'คณะ/สาขา',          en: 'Faculty' },     type: 'text' },
-      { key: 'intern_start',label: { th: 'เริ่มฝึกงาน',        en: 'Start date' },  type: 'date' },
-      { key: 'intern_end',  label: { th: 'สิ้นสุดฝึกงาน',      en: 'End date' },    type: 'date' },
-      { key: 'advisor',     label: { th: 'อาจารย์ที่ปรึกษา',   en: 'Advisor' },     type: 'text' },
+      // 1. ตำแหน่ง / สายงาน
+      { section: '1. ตำแหน่ง / สายงานที่ต้องการฝึกงาน', key: 'position', label: { th: 'ตำแหน่ง / แผนกที่ต้องการฝึกงาน', en: 'Internship position / department' }, type: 'text', required: true },
+      { section: '1. ตำแหน่ง / สายงานที่ต้องการฝึกงาน', key: 'intern_start', label: { th: 'วันเริ่ม', en: 'Start date' }, type: 'date', required: true, width: 'third' },
+      { section: '1. ตำแหน่ง / สายงานที่ต้องการฝึกงาน', key: 'intern_end', label: { th: 'วันสิ้นสุด', en: 'End date' }, type: 'date', required: true, width: 'third' },
+      { section: '1. ตำแหน่ง / สายงานที่ต้องการฝึกงาน', key: 'required_hours', label: { th: 'จำนวนวัน/ชั่วโมงฝึกงานที่สถานศึกษากำหนด', en: 'Required days / hours' }, type: 'text', width: 'third' },
+      { section: '1. ตำแหน่ง / สายงานที่ต้องการฝึกงาน', key: 'work_days', label: { th: 'วันที่สะดวกมาฝึกงาน (เช่น จันทร์-ศุกร์ / เว้นวันเรียน)', en: 'Available days' }, type: 'text' },
+      // 2. ข้อมูลส่วนตัว
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'name_en', label: { th: 'ชื่อ - นามสกุล (ภาษาอังกฤษ)', en: 'Full name (English)' }, type: 'text' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'nickname', label: { th: 'ชื่อเล่น', en: 'Nickname' }, type: 'text', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'age', label: { th: 'อายุ (ปี)', en: 'Age' }, type: 'number', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'nationality', label: { th: 'สัญชาติ', en: 'Nationality' }, type: 'text', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'blood_type', label: { th: 'หมู่เลือด', en: 'Blood type' }, type: 'text', width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'medical_condition', label: { th: 'โรคประจำตัว / ข้อจำกัดด้านสุขภาพ (ถ้ามี)', en: 'Medical condition' }, type: 'text' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'vehicle', label: { th: 'ยานพาหนะที่ใช้เดินทางมาทำงาน', en: 'Vehicle' }, type: 'text' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'student_insurance', label: { th: 'ประกันอุบัติเหตุจากสถานศึกษา', en: 'Accident insurance from institution' }, type: 'select', options: ['มี', 'ไม่มี'], width: 'third' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'insurance_company', label: { th: 'บริษัทประกัน / เลขที่กรมธรรม์ (ถ้ามี)', en: 'Insurer / policy no.' }, type: 'text' },
+      { section: '2. ข้อมูลส่วนตัว / Personal Information', key: 'line_id', label: { th: 'Line ID', en: 'Line ID' }, type: 'text', width: 'third' },
+      // 3. ข้อมูลการศึกษา
+      { section: '3. ข้อมูลการศึกษา / Education Information', key: 'institution', label: { th: 'สถานศึกษา', en: 'Institution' }, type: 'text', required: true, width: 'third' },
+      { section: '3. ข้อมูลการศึกษา / Education Information', key: 'faculty', label: { th: 'คณะ', en: 'Faculty' }, type: 'text', width: 'third' },
+      { section: '3. ข้อมูลการศึกษา / Education Information', key: 'major', label: { th: 'สาขาวิชา / ภาควิชา', en: 'Major / department' }, type: 'text', width: 'third' },
+      { section: '3. ข้อมูลการศึกษา / Education Information', key: 'year_level', label: { th: 'ชั้นปีที่กำลังศึกษา', en: 'Year level' }, type: 'text', width: 'third' },
+      { section: '3. ข้อมูลการศึกษา / Education Information', key: 'student_id', label: { th: 'รหัสนักศึกษา', en: 'Student ID' }, type: 'text', width: 'third' },
+      { section: '3. ข้อมูลการศึกษา / Education Information', key: 'gpax', label: { th: 'เกรดเฉลี่ยสะสม (GPAX)', en: 'GPAX' }, type: 'number', width: 'third' },
+      { section: '3. ข้อมูลการศึกษา / Education Information', key: 'advisor', label: { th: 'ชื่ออาจารย์ที่ปรึกษา / ผู้ประสานงานฝึกงาน', en: 'Advisor / coordinator' }, type: 'text' },
+      { section: '3. ข้อมูลการศึกษา / Education Information', key: 'advisor_contact', label: { th: 'เบอร์โทรศัพท์ / อีเมลติดต่ออาจารย์', en: 'Advisor contact' }, type: 'text' },
+      {
+        section: '3. ข้อมูลการศึกษา / Education Information',
+        key: 'evaluation_format', label: { th: 'รูปแบบการประเมินผลที่สถานศึกษาต้องการ', en: 'Required evaluation format' },
+        type: 'multiselect', width: 'full', otherKey: 'evaluation_other',
+        options: ['ส่งแบบประเมินผลกลับสถานศึกษา', 'อาจารย์นิเทศเข้าเยี่ยมชม', 'ส่งรายงาน/สรุปผลการฝึกงาน', 'อื่นๆ'],
+      },
+      // 4. ความสามารถและทักษะ
+      { section: '4. ความสามารถและทักษะ / Skills', key: 'languages', label: { th: 'ภาษาต่างประเทศ (ระบุระดับ)', en: 'Languages' }, type: 'text' },
+      { section: '4. ความสามารถและทักษะ / Skills', key: 'computer_skills', label: { th: 'คอมพิวเตอร์ / โปรแกรมที่ใช้ได้', en: 'Computer skills' }, type: 'text' },
+      { section: '4. ความสามารถและทักษะ / Skills', key: 'activities', label: { th: 'ผลงาน / กิจกรรม / โครงการที่เคยทำ', en: 'Portfolio / activities / projects' }, type: 'textarea', width: 'full' },
+      { section: '4. ความสามารถและทักษะ / Skills', key: 'motivation', label: { th: 'เหตุผลที่สนใจฝึกงานกับบริษัท', en: 'Motivation' }, type: 'textarea', width: 'full' },
+      // 5. เอกสารประกอบ
+      {
+        section: '5. เอกสารประกอบการสมัคร',
+        key: 'attached_docs', label: { th: 'เอกสารประกอบการสมัคร', en: 'Attached documents' },
+        type: 'multiselect', width: 'full', otherKey: 'attached_other',
+        options: ['สำเนาบัตรประจำตัวนักศึกษา', 'สำเนาบัตรประชาชน', 'Transcript', 'หนังสือขอความอนุเคราะห์รับนักศึกษาฝึกงาน', 'รูปถ่าย 1 นิ้ว', 'Portfolio / ผลงาน (ถ้ามี)', 'อื่นๆ'],
+      },
+      // 6. บุคคลที่ติดต่อได้กรณีฉุกเฉิน
+      { section: '6. บุคคลที่ติดต่อได้กรณีฉุกเฉิน', key: 'emergency_name', label: { th: 'ชื่อ-นามสกุล', en: 'Emergency contact' }, type: 'text', width: 'third' },
+      { section: '6. บุคคลที่ติดต่อได้กรณีฉุกเฉิน', key: 'emergency_relation', label: { th: 'ความสัมพันธ์', en: 'Relationship' }, type: 'text', width: 'third' },
+      { section: '6. บุคคลที่ติดต่อได้กรณีฉุกเฉิน', key: 'emergency_phone', label: { th: 'เบอร์โทรศัพท์', en: 'Phone' }, type: 'text', width: 'third' },
+      // 7. PDPA
+      {
+        section: '7. นโยบายความเป็นส่วนตัวและความยินยอมในการเก็บรวบรวมข้อมูลส่วนบุคคล (PDPA)',
+        key: 'pdpa_consent', type: 'checkbox', required: true, width: 'full',
+        label: {
+          th: 'ข้าพเจ้าได้อ่านและรับทราบนโยบายความเป็นส่วนตัวข้างต้นแล้ว และให้ความยินยอมให้บริษัทเก็บรวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลของข้าพเจ้าเพื่อวัตถุประสงค์ในการพิจารณารับนักศึกษาฝึกงานตามที่ระบุไว้',
+          en: 'I have read and accept the privacy notice and consent to the processing of my personal data for internship purposes.',
+        },
+        hint: 'หากท่านไม่ให้ความยินยอม บริษัทอาจไม่สามารถพิจารณาใบสมัครฝึกงานของท่านได้',
+      },
+      // 8. คำรับรองผู้สมัคร
+      {
+        section: '8. คำรับรองผู้สมัคร',
+        key: 'under_20', type: 'checkbox', width: 'full',
+        label: {
+          th: 'ข้าพเจ้ามีอายุต่ำกว่า 20 ปีบริบูรณ์ ณ วันที่สมัคร จึงได้แนบความยินยอมของผู้ปกครองไว้ท้ายเอกสารนี้แล้ว',
+          en: 'I am under 20 years old on the application date and have attached my guardian consent.',
+        },
+      },
+      // 9. ความยินยอมของผู้ปกครอง
+      { section: '9. ความยินยอมของผู้ปกครอง (กรณีนักศึกษาอายุต่ำกว่า 20 ปีบริบูรณ์)', key: 'guardian_name', label: { th: 'ชื่อ-นามสกุลผู้ปกครอง', en: 'Guardian name' }, type: 'text', width: 'third' },
+      { section: '9. ความยินยอมของผู้ปกครอง (กรณีนักศึกษาอายุต่ำกว่า 20 ปีบริบูรณ์)', key: 'guardian_relation', label: { th: 'ความสัมพันธ์กับผู้สมัคร', en: 'Relationship to applicant' }, type: 'text', width: 'third' },
+      { section: '9. ความยินยอมของผู้ปกครอง (กรณีนักศึกษาอายุต่ำกว่า 20 ปีบริบูรณ์)', key: 'guardian_phone', label: { th: 'เบอร์โทรศัพท์', en: 'Phone' }, type: 'text', width: 'third' },
     ],
   },
   RS: {
-    code: 'RS', label: { th: 'ใบลาออก', en: 'Resignation' },
+    code: 'RS', label: { th: 'ใบลาออก', en: 'Resignation Form' },
     party: 'employee', hasItems: false, hasAmounts: false, requiresApproval: true, counter: 'monthly',
     refTypes: [],
     metaFields: [
-      { key: 'position',          label: { th: 'ตำแหน่ง',          en: 'Position' },        type: 'text' },
-      { key: 'department',        label: { th: 'แผนก',             en: 'Department' },      type: 'text' },
-      { key: 'last_working_day',  label: { th: 'วันทำงานสุดท้าย',  en: 'Last working day' }, type: 'date',     required: true },
-      { key: 'reason',            label: { th: 'เหตุผล',           en: 'Reason' },          type: 'textarea', required: true },
+      // ข้อมูลพนักงาน — "รวมระยะเวลาปฏิบัติงาน" คำนวณจาก start_date → last_working_day (ไม่เก็บ)
+      { section: 'ข้อมูลพนักงาน', key: 'position', label: { th: 'ตำแหน่ง', en: 'Position' }, type: 'text', required: true, width: 'third' },
+      { section: 'ข้อมูลพนักงาน', key: 'department', label: { th: 'สังกัดแผนก/ฝ่าย', en: 'Department' }, type: 'text', required: true, width: 'third' },
+      { section: 'ข้อมูลพนักงาน', key: 'employee_id', label: { th: 'รหัสพนักงาน', en: 'Employee ID' }, type: 'text', width: 'third' },
+      { section: 'ข้อมูลพนักงาน', key: 'last_working_day', label: { th: 'วันที่การลาออกมีผล (วันทำงานสุดท้าย)', en: 'Effective date (last working day)' }, type: 'date', required: true, width: 'third' },
+      { section: 'ข้อมูลพนักงาน', key: 'start_date', label: { th: 'เริ่มปฏิบัติงานเมื่อ', en: 'Employment start date' }, type: 'date', width: 'third' },
+      // เหตุผล
+      {
+        section: 'เหตุผลในการลาออก',
+        key: 'reason', label: { th: 'เหตุผลในการลาออก', en: 'Reason for resignation' }, type: 'select', required: true, width: 'full',
+        options: ['เปลี่ยนงาน / ย้ายที่ทำงานใหม่', 'ศึกษาต่อ', 'เหตุผลด้านสุขภาพ', 'เหตุผลส่วนตัว / ครอบครัว', 'ย้ายภูมิลำเนา', 'อื่นๆ'],
+      },
+      { section: 'เหตุผลในการลาออก', key: 'reason_other', label: { th: 'อื่นๆ ระบุ', en: 'Other (specify)' }, type: 'text', width: 'full', showWhen: { key: 'reason', value: 'อื่นๆ' } },
+      // ส่งมอบงาน
+      { section: 'การส่งมอบงานและทรัพย์สินของบริษัท', key: 'handover_to', label: { th: 'ผู้รับมอบงานต่อ (ชื่อ-ตำแหน่ง)', en: 'Handover to (name - position)' }, type: 'text', width: 'full' },
+      { section: 'การส่งมอบงานและทรัพย์สินของบริษัท', key: 'handover_date', label: { th: 'วันที่ส่งมอบงานแล้วเสร็จ', en: 'Handover completion date' }, type: 'date', width: 'third' },
+      { section: 'การส่งมอบงานและทรัพย์สินของบริษัท', key: 'assets_returned', label: { th: 'ทรัพย์สินที่คืนบริษัท (บัตรพนักงาน, อุปกรณ์, เอกสาร ฯลฯ)', en: 'Company assets returned' }, type: 'textarea', width: 'full' },
     ],
   },
 }
@@ -193,11 +402,24 @@ export function sanitizeHtml(html: string): string {
     .replace(/(href|src)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*'|javascript:[^\s>]*)/gi, '')
 }
 
-/** ล้าง string ทุกตัวใน meta ก่อนบันทึกลง DB */
+/**
+ * ล้าง string ทุกตัวใน meta ก่อนบันทึกลง DB
+ * boolean (checkbox) / array (multiselect, table) / object (แถวตาราง) ผ่านได้
+ * โดยลงไปล้าง string ข้างในให้ด้วย
+ */
+function sanitizeValue(v: unknown): unknown {
+  if (typeof v === 'string') return sanitizeHtml(v)
+  if (Array.isArray(v)) return v.map(sanitizeValue)
+  if (v && typeof v === 'object') {
+    const o: Record<string, unknown> = {}
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) o[k] = sanitizeValue(val)
+    return o
+  }
+  return v
+}
+
 export function sanitizeMeta(meta: Record<string, unknown> | null | undefined): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(meta || {})) out[k] = typeof v === 'string' ? sanitizeHtml(v) : v
-  return out
+  return sanitizeValue(meta || {}) as Record<string, unknown>
 }
 
 /** true เมื่อ HTML ไม่มีเนื้อความจริง (TipTap คืน '<p></p>' ตอนว่าง) */

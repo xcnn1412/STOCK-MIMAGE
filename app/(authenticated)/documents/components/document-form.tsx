@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition, type Dispatch, type SetStateAction } from 'react'
 import { toast } from 'sonner'
 import { ArrowDown, ArrowUp, Loader2, Plus, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -14,9 +15,11 @@ import {
 import DocRichTextEditor from './doc-rich-text-editor'
 import { cn } from '@/lib/utils'
 import {
-  DOC_TYPES, PARTY_LABEL, calcDocumentTotals, isHtmlEmpty,
-  type DocTypeCode, type DocumentItemRow, type DocumentRow, type VatMode,
+  DOC_TYPES, PARTY_LABEL, calcDocumentTotals, groupMetaFields, isHtmlEmpty, isMetaEmpty,
+  type DocBrandRow, type DocTypeCode, type DocumentItemRow, type DocumentRow,
+  type MetaField, type MetaTableRow, type VatMode,
 } from '../doc-types'
+import { pdpaText } from '../hr-texts'
 import {
   saveDraft, searchParties,
   type RefCandidate, type SaveDraftPayload,
@@ -94,10 +97,39 @@ export function validateDocumentClient(
   const meta = (payload.meta || {}) as Record<string, unknown>
   for (const f of def.metaFields) {
     if (!f.required) continue
-    const v = meta[f.key]
-    if (v == null || String(v).trim() === '') errors[`meta.${f.key}`] = `กรุณากรอก "${f.label.th}"`
+    if (isMetaEmpty(f, meta[f.key])) {
+      errors[`meta.${f.key}`] =
+        f.type === 'checkbox' ? 'กรุณาติ๊กยืนยันช่องนี้' : `กรุณากรอก "${f.label.th}"`
+    }
   }
   return errors
+}
+
+// ── ค่าเริ่มต้น / layout ของ metaField ──────────────────────────────────────
+
+const WIDTH_CLASS: Record<NonNullable<MetaField['width']>, string> = {
+  half: 'sm:col-span-3',
+  third: 'sm:col-span-2',
+  full: 'sm:col-span-6',
+}
+
+const emptyRow = (f: MetaField): MetaTableRow =>
+  Object.fromEntries((f.columns || []).map(c => [c.key, '']))
+
+function initTable(f: MetaField, raw: unknown): MetaTableRow[] {
+  const firstKey = f.columns?.[0]?.key || 'col0'
+  const rows = Array.isArray(raw) ? (raw as MetaTableRow[]).map(r => ({ ...emptyRow(f), ...(r || {}) })) : []
+  if (f.fixedRows?.length) {
+    return f.fixedRows.map((lbl, i) => ({ ...emptyRow(f), ...(rows[i] || {}), [firstKey]: lbl }))
+  }
+  return rows.length ? rows : [emptyRow(f)]
+}
+
+function initMetaValue(f: MetaField, raw: unknown): unknown {
+  if (f.type === 'checkbox') return raw === true
+  if (f.type === 'multiselect') return Array.isArray(raw) ? raw.map(String) : []
+  if (f.type === 'table') return initTable(f, raw)
+  return raw == null ? '' : String(raw)
 }
 
 // ── component ────────────────────────────────────────────────────────────────
@@ -106,6 +138,8 @@ interface Props {
   doc: DocumentRow
   items: DocumentItemRow[]
   refCandidates: RefCandidate[]
+  /** ใช้แทนชื่อ/ที่อยู่บริษัทในข้อความคงที่ (นโยบาย PDPA ของแบบฟอร์ม HR) */
+  brand?: DocBrandRow | null
   /** เรียกทุกครั้งที่ฟอร์มเปลี่ยน — parent เก็บไว้ใน ref เพื่อ save ก่อน transition */
   onPayloadChange?: (payload: SaveDraftPayload) => void
   /** เรียกหลังบันทึกร่างสำเร็จ */
@@ -121,7 +155,7 @@ const VAT_OPTIONS: { value: VatMode; label: string }[] = [
   { value: 'inclusive', label: 'รวมใน 7%' },
 ]
 
-export default function DocumentForm({ doc, items: initialItems, refCandidates, onPayloadChange, onSaved, errors }: Props) {
+export default function DocumentForm({ doc, items: initialItems, refCandidates, brand, onPayloadChange, onSaved, errors }: Props) {
   const def = DOC_TYPES[doc.doc_type]
   const partyLabel = PARTY_LABEL[def.party].th
   const isPerson = def.party === 'applicant' || def.party === 'employee'
@@ -138,10 +172,13 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
     party_id_card: doc.party_id_card || '',
     party_birth_date: doc.party_birth_date || '',
   })
-  const [meta, setMeta] = useState<Record<string, string>>(() => {
+  const [meta, setMeta] = useState<Record<string, unknown>>(() => {
     const src = (doc.meta || {}) as Record<string, unknown>
-    const out: Record<string, string> = {}
-    for (const f of def.metaFields) out[f.key] = src[f.key] == null ? '' : String(src[f.key])
+    const out: Record<string, unknown> = {}
+    for (const f of def.metaFields) {
+      out[f.key] = initMetaValue(f, src[f.key])
+      if (f.otherKey) out[f.otherKey] = src[f.otherKey] == null ? '' : String(src[f.otherKey])
+    }
     return out
   })
   const [refId, setRefId] = useState(doc.ref_document_id || '')
@@ -166,8 +203,11 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
   const buildPayload = (): SaveDraftPayload => {
     const metaOut: Record<string, unknown> = {}
     for (const f of def.metaFields) {
-      const raw = meta[f.key] ?? ''
-      metaOut[f.key] = f.type === 'number' ? (raw === '' ? null : num(raw)) : raw
+      const raw = meta[f.key]
+      metaOut[f.key] = f.type === 'number'
+        ? (raw === '' || raw == null ? null : num(raw as string))
+        : (raw ?? '')
+      if (f.otherKey) metaOut[f.otherKey] = meta[f.otherKey] ?? ''
     }
     return {
       ...party,
@@ -359,58 +399,31 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
       {def.metaFields.length > 0 && (
         <Card>
           <CardHeader><CardTitle className="text-base">รายละเอียด{def.label.th}</CardTitle></CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            {def.metaFields.map(f => {
-              const wide = f.type === 'richtext' || f.type === 'textarea'
-              const value = meta[f.key] ?? ''
-              const set = (v: string) => setMeta(m => ({ ...m, [f.key]: v }))
-              const fieldErr = err(`meta.${f.key}`)
-              return (
-                <div key={f.key} className={cn('space-y-1.5', wide && 'sm:col-span-2')}>
-                  {/* ponytail: richtext ไม่มี input ให้ผูก id — ตัด htmlFor ทิ้งไม่ให้ชี้ไปที่ไม่มีอยู่ */}
-                  <Label htmlFor={f.type === 'richtext' ? undefined : `meta_${f.key}`}>
-                    {f.label.th}{f.required && <span className="text-destructive"> *</span>}
-                  </Label>
-                  {f.type === 'select' ? (
-                    <Select value={value || undefined} onValueChange={set}>
-                      <SelectTrigger id={`meta_${f.key}`} className={cn('w-full', fieldErr && 'border-destructive')}>
-                        <SelectValue placeholder="เลือก" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(f.options || []).map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  ) : f.type === 'richtext' ? (
-                    // ponytail: ตัวเดียวกับที่หน้าตั้งค่าแม่แบบใช้ — ไม่ sync value กลับหลัง mount
-                    // แต่ที่นี่ไม่ต้อง เพราะมีแค่ editor ตัวเองที่แก้ meta[f.key]
-                    <DocRichTextEditor
-                      value={value}
-                      onChange={html => set(isHtmlEmpty(html) ? '' : html)}
-                      minHeight="160px"
-                      placeholder={`พิมพ์${f.label.th}...`}
-                      className={cn(fieldErr && 'border-destructive')}
-                    />
-                  ) : f.type === 'textarea' ? (
-                    <Textarea
-                      id={`meta_${f.key}`}
-                      rows={3}
-                      value={value}
-                      onChange={e => set(e.target.value)}
-                      className={cn(fieldErr && 'border-destructive')}
-                    />
-                  ) : (
-                    <Input
-                      id={`meta_${f.key}`}
-                      type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
-                      value={value}
-                      onChange={e => set(e.target.value)}
-                      className={cn(fieldErr && 'border-destructive')}
-                    />
-                  )}
-                  {fieldErr && <p className="text-xs text-destructive">{fieldErr}</p>}
+          <CardContent className="space-y-6">
+            {groupMetaFields(def.metaFields).map((g, gi) => (
+              <div key={gi} className="space-y-3">
+                {g.section && (
+                  <div className="rounded-md bg-muted px-3 py-2 text-sm font-semibold">{g.section}</div>
+                )}
+                {g.section?.includes('(PDPA)') && (
+                  <PdpaNotice kind={doc.doc_type === 'IA' ? 'IA' : 'JA'} brand={brand} />
+                )}
+                <div className="grid grid-cols-6 gap-x-4 gap-y-4">
+                  {g.fields.map(f => {
+                    if (f.showWhen && String(meta[f.showWhen.key] ?? '') !== f.showWhen.value) return null
+                    return (
+                      <MetaFieldInput
+                        key={f.key}
+                        field={f}
+                        meta={meta}
+                        setMeta={setMeta}
+                        error={err(`meta.${f.key}`)}
+                      />
+                    )
+                  })}
                 </div>
-              )
-            })}
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}
@@ -561,6 +574,207 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
         </Button>
       </div>
     </div>
+  )
+}
+
+// ── metaField หนึ่งช่อง ─────────────────────────────────────────────────────
+
+type SetMeta = Dispatch<SetStateAction<Record<string, unknown>>>
+
+function MetaFieldInput({
+  field: f, meta, setMeta, error,
+}: {
+  field: MetaField
+  meta: Record<string, unknown>
+  setMeta: SetMeta
+  error?: string
+}) {
+  const set = (v: unknown) => setMeta(m => ({ ...m, [f.key]: v }))
+  const wrap = cn('col-span-6 space-y-1.5', WIDTH_CLASS[f.width ?? 'half'])
+  const str = (meta[f.key] ?? '') as string
+
+  // checkbox: label เป็นข้อความคำยินยอม ไม่ใช่หัวช่อง
+  if (f.type === 'checkbox') {
+    return (
+      <div className={wrap}>
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox
+            id={`meta_${f.key}`}
+            className={cn('mt-0.5', error && 'border-destructive')}
+            checked={meta[f.key] === true}
+            onCheckedChange={v => set(v === true)}
+          />
+          <span>{f.label.th}{f.required && <span className="text-destructive"> *</span>}</span>
+        </label>
+        {f.hint && <p className="pl-6 text-xs text-muted-foreground">{f.hint}</p>}
+        {error && <p className="pl-6 text-xs text-destructive">{error}</p>}
+      </div>
+    )
+  }
+
+  const label = (
+    <Label htmlFor={f.type === 'richtext' || f.type === 'table' ? undefined : `meta_${f.key}`}>
+      {f.label.th}{f.required && <span className="text-destructive"> *</span>}
+    </Label>
+  )
+
+  if (f.type === 'multiselect') {
+    const selected = (Array.isArray(meta[f.key]) ? meta[f.key] : []) as string[]
+    const toggle = (o: string, on: boolean) =>
+      set(on ? [...selected, o] : selected.filter(x => x !== o))
+    return (
+      <div className={wrap}>
+        {label}
+        <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
+          {(f.options || []).map(o => (
+            <label key={o} className="flex items-center gap-2 text-sm">
+              <Checkbox checked={selected.includes(o)} onCheckedChange={v => toggle(o, v === true)} />
+              <span>{o}</span>
+            </label>
+          ))}
+        </div>
+        {f.otherKey && selected.includes('อื่นๆ') && (
+          <Input
+            className="mt-2"
+            placeholder="อื่นๆ ระบุ"
+            value={(meta[f.otherKey] ?? '') as string}
+            onChange={e => setMeta(m => ({ ...m, [f.otherKey!]: e.target.value }))}
+          />
+        )}
+        {f.hint && <p className="text-xs text-muted-foreground">{f.hint}</p>}
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+    )
+  }
+
+  if (f.type === 'table') {
+    const cols = f.columns || []
+    const rows = (Array.isArray(meta[f.key]) ? meta[f.key] : []) as MetaTableRow[]
+    const fixed = !!f.fixedRows?.length
+    const maxRows = f.maxRows ?? 5
+    const setCell = (i: number, key: string, v: string) =>
+      set(rows.map((r, idx) => (idx === i ? { ...r, [key]: v } : r)))
+    return (
+      <div className={cn(wrap, 'space-y-2')}>
+        {label}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                {cols.map(c => <th key={c.key} className="py-2 text-left font-normal">{c.label}</th>)}
+                {!fixed && <th className="w-10 py-2" />}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  {cols.map((c, ci) => (
+                    <td key={c.key} className="py-1.5 pr-2">
+                      {fixed && ci === 0 ? (
+                        <span className="text-sm font-medium">{r[c.key]}</span>
+                      ) : (
+                        <Input
+                          type={c.type === 'number' ? 'number' : 'text'}
+                          value={r[c.key] ?? ''}
+                          onChange={e => setCell(i, c.key, e.target.value)}
+                        />
+                      )}
+                    </td>
+                  ))}
+                  {!fixed && (
+                    <td className="py-1.5">
+                      <Button
+                        type="button" variant="ghost" size="icon"
+                        className="size-7 text-destructive"
+                        onClick={() => set(rows.filter((_, idx) => idx !== i))}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!fixed && rows.length < maxRows && (
+          <Button type="button" variant="outline" size="sm" onClick={() => set([...rows, emptyRow(f)])}>
+            <Plus className="size-4" />
+            เพิ่มแถว
+          </Button>
+        )}
+        {f.hint && <p className="text-xs text-muted-foreground">{f.hint}</p>}
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+    )
+  }
+
+  return (
+    <div className={wrap}>
+      {label}
+      {f.type === 'select' ? (
+        <Select value={str || undefined} onValueChange={set}>
+          <SelectTrigger id={`meta_${f.key}`} className={cn('w-full', error && 'border-destructive')}>
+            <SelectValue placeholder="เลือก" />
+          </SelectTrigger>
+          <SelectContent>
+            {(f.options || []).map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      ) : f.type === 'richtext' ? (
+        // ponytail: ตัวเดียวกับที่หน้าตั้งค่าแม่แบบใช้ — ไม่ sync value กลับหลัง mount
+        // แต่ที่นี่ไม่ต้อง เพราะมีแค่ editor ตัวเองที่แก้ meta[f.key]
+        <DocRichTextEditor
+          value={str}
+          onChange={html => set(isHtmlEmpty(html) ? '' : html)}
+          minHeight="160px"
+          placeholder={`พิมพ์${f.label.th}...`}
+          className={cn(error && 'border-destructive')}
+        />
+      ) : f.type === 'textarea' ? (
+        <Textarea
+          id={`meta_${f.key}`} rows={3} value={str}
+          onChange={e => set(e.target.value)}
+          className={cn(error && 'border-destructive')}
+        />
+      ) : (
+        <Input
+          id={`meta_${f.key}`}
+          type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
+          value={str}
+          onChange={e => set(e.target.value)}
+          className={cn(error && 'border-destructive')}
+        />
+      )}
+      {f.hint && <p className="text-xs text-muted-foreground">{f.hint}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+/** นโยบาย PDPA แบบย่อ (พับไว้) — ข้อความชุดเดียวกับที่พิมพ์ลง PDF */
+function PdpaNotice({ kind, brand }: { kind: 'JA' | 'IA'; brand?: DocBrandRow | null }) {
+  const t = pdpaText(kind, brand?.name_th || '—', brand?.address || '')
+  return (
+    <details className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+      <summary className="cursor-pointer font-medium text-foreground">
+        อ่านนโยบายความเป็นส่วนตัว (PDPA)
+      </summary>
+      <div className="mt-2 space-y-2 leading-relaxed">
+        <p>{t.intro}</p>
+        {t.sections.map(sec => (
+          <div key={sec.title}>
+            <p className="font-semibold text-foreground">{sec.title}</p>
+            {sec.body && <p>{sec.body}</p>}
+            {sec.items && (
+              <ol className="list-inside list-decimal">
+                {sec.items.map(it => <li key={it}>{it}</li>)}
+              </ol>
+            )}
+          </div>
+        ))}
+      </div>
+    </details>
   )
 }
 

@@ -23,6 +23,7 @@ import {
   type DocumentRow,
   type MetaField,
 } from '@/app/(authenticated)/documents/doc-types'
+import { HrFormPDF } from './hr-forms-pdf'
 
 // ============================================================================
 // Font Registration — TH Sarabun New
@@ -191,6 +192,49 @@ function KV({ label, value }: { label: string; value: string }) {
 function renderMetaField(f: MetaField, v: unknown): React.ReactNode {
   if (v == null || v === '') return null
 
+  // ── ชนิดใหม่ (checkbox / multiselect / table) ──
+  // ponytail: JA/IA/RS มีเลย์เอาต์เฉพาะใน hr-forms-pdf.tsx — ตรงนี้เป็นแค่ทางลงนุ่มๆ
+  // ให้ประเภทอื่นที่อาจใช้ชนิดเหล่านี้ในอนาคตไม่พังตอนเรนเดอร์
+  if (f.type === 'checkbox') {
+    return <KV key={f.key} label={f.label.th} value={v === true ? '✓' : '☐'} />
+  }
+
+  if (f.type === 'multiselect') {
+    const list = (Array.isArray(v) ? v : []) as unknown[]
+    if (!list.length) return null
+    return <KV key={f.key} label={f.label.th} value={list.map(String).join(', ')} />
+  }
+
+  if (f.type === 'table') {
+    const cols = f.columns || []
+    const rows = (Array.isArray(v) ? v : []) as Record<string, unknown>[]
+    const filled = rows.filter((r) => r && Object.values(r).some((c) => String(c ?? '').trim() !== ''))
+    if (!cols.length || !filled.length) return null
+    return (
+      <View style={s.block} key={f.key}>
+        <Text style={s.sectionTitle}>{f.label.th}</Text>
+        <View style={s.table}>
+          <View style={s.tHead}>
+            {cols.map((c, i) => (
+              <Text key={c.key} style={[i === cols.length - 1 ? s.cellLast : s.cell, s.cDesc, s.th]}>
+                {c.label}
+              </Text>
+            ))}
+          </View>
+          {filled.map((r, ri) => (
+            <View style={s.tRow} key={ri} wrap={false}>
+              {cols.map((c, i) => (
+                <Text key={c.key} style={[i === cols.length - 1 ? s.cellLast : s.cell, s.cDesc]}>
+                  {String(r[c.key] ?? '')}
+                </Text>
+              ))}
+            </View>
+          ))}
+        </View>
+      </View>
+    )
+  }
+
   if (f.type === 'richtext') {
     if (isHtmlEmpty(String(v))) return null
     return (
@@ -216,7 +260,15 @@ function renderMetaField(f: MetaField, v: unknown): React.ReactNode {
 // ============================================================================
 // Main PDF Document
 // ============================================================================
-export function DocumentPDF({ doc, items, brand, template, approver, creator, refDoc }: DocumentPdfData) {
+/** ประเภทที่มีเลย์เอาต์เฉพาะตามแบบฟอร์มกระดาษ (hr-forms-pdf.tsx) */
+const HR_TYPES: DocTypeCode[] = ['JA', 'IA', 'RS']
+
+export function DocumentPDF(data: DocumentPdfData) {
+  if (HR_TYPES.includes(data.doc.doc_type)) return HrFormPDF(data)
+  return GenericDocumentPDF(data)
+}
+
+function GenericDocumentPDF({ doc, items, brand, template, approver, creator, refDoc }: DocumentPdfData) {
   const def = DOC_TYPES[doc.doc_type] ?? DOC_TYPES.MM
   const meta = (doc.meta || {}) as Record<string, unknown>
   const isDraft = !doc.doc_no

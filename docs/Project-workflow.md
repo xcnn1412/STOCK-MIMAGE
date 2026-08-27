@@ -30,3 +30,7 @@ branch: `feat/documents-module` · เริ่ม 2026-08-27
 ### สิ่งที่ user ต้องทำเอง
 - รัน migration `supabase/migrations/20260827_create_documents_module.sql` บน Supabase SQL Editor (เครื่องนี้ไม่มี `exec_sql` RPC / MCP token / supabase CLI link)
 - จากนั้นรัน `npx tsx scripts/doc-control-check.ts` เพื่อยืนยันกติกาเลข (concurrency, ห้ามลบ/แก้)
+
+### 2026-08-27 (หลัง merge)
+- ปิดกลุ่มการเงิน 8 ประเภท (QT JO IV TX RC CN PO CT) ชั่วคราวด้วย `enabled: false` ใน DOC_TYPES — เปิดกลับโดยลบ flag
+- JA / IA / RS: ฟอร์ม + PDF ตามแบบฟอร์มกระดาษ `docs/document/template/*.pdf` (MetaField เพิ่ม section/checkbox/multiselect/table; renderer `components/pdf/hr-forms-pdf.tsx`; ข้อความ PDPA ใน `documents/hr-texts.ts`)

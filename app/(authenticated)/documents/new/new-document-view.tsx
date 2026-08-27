@@ -121,7 +121,8 @@ export default function NewDocumentView({ brands }: Props) {
                 {group.codes.map(code => {
                   const def = DOC_TYPES[code]
                   // TX ปิดสำหรับแบรนด์ที่ไม่ได้จด VAT (spec §ประเภทเอกสาร)
-                  const disabled = code === 'TX' && !!brand && !brand.vat_registered
+                  const offline = def.enabled === false
+                  const disabled = offline || (code === 'TX' && !!brand && !brand.vat_registered)
                   const active = docType === code
                   return (
                     <button
@@ -129,7 +130,7 @@ export default function NewDocumentView({ brands }: Props) {
                       type="button"
                       disabled={disabled}
                       // ponytail: ไม่มี Tooltip ใน components/ui — ใช้ title attribute
-                      title={disabled ? 'แบรนด์นี้ไม่ได้จดทะเบียน VAT — ออกใบกำกับภาษีไม่ได้' : undefined}
+                      title={offline ? 'ปิดปรับปรุงชั่วคราว' : disabled ? 'แบรนด์นี้ไม่ได้จดทะเบียน VAT — ออกใบกำกับภาษีไม่ได้' : undefined}
                       onClick={() => setDocType(code)}
                       className={cn(
                         'rounded-lg border p-3 text-left transition-colors',
@@ -146,7 +147,12 @@ export default function NewDocumentView({ brands }: Props) {
                         <span className="truncate text-sm font-medium">{def.label.th}</span>
                         {active && <Check className="ml-auto size-4 shrink-0 text-primary" />}
                       </div>
-                      {!def.requiresApproval && (
+                      {offline && (
+                        <span className="mt-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                          ปิดปรับปรุง
+                        </span>
+                      )}
+                      {!offline && !def.requiresApproval && (
                         <span className="mt-2 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
                           ไม่ต้องอนุมัติ
                         </span>

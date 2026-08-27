@@ -17,9 +17,10 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
-  DOC_TYPES, EDITABLE_STATUSES, PARTY_LABEL, STATUS_LABEL, canTransition, isHtmlEmpty, sanitizeHtml,
+  DOC_TYPES, EDITABLE_STATUSES, PARTY_LABEL, STATUS_LABEL, calcTenure, canTransition,
+  groupMetaFields, isHtmlEmpty, sanitizeHtml,
   type DocAction, type DocBrandRow, type DocStatus, type DocumentItemRow,
-  type DocumentLogRow, type DocumentRow,
+  type DocumentLogRow, type DocumentRow, type MetaField, type MetaTableRow,
 } from '../doc-types'
 import {
   deleteDraft, duplicateDocument, saveDraft, transitionDocument,
@@ -274,6 +275,7 @@ export default function DocumentDetailView({
           doc={doc}
           items={items}
           refCandidates={refCandidates}
+          brand={brand}
           errors={errors}
           onPayloadChange={p => { payloadRef.current = p }}
           onSaved={() => router.refresh()}
@@ -443,30 +445,27 @@ function ReadOnlyBody({
       {def.metaFields.length > 0 && (
         <Card>
           <CardHeader><CardTitle className="text-base">รายละเอียด{def.label.th}</CardTitle></CardHeader>
-          <CardContent className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-            {def.metaFields.map(f => {
-              const raw = meta[f.key]
-              if (f.type === 'richtext') {
-                const html = String(raw ?? '')
-                return (
-                  <Field
-                    key={f.key}
-                    label={f.label.th}
-                    wide
-                    value={isHtmlEmpty(html) ? '-' : <RichTextRead html={html} />}
-                  />
-                )
-              }
-              const text = raw == null || String(raw).trim() === '' ? '-' : String(raw)
-              return (
-                <Field
-                  key={f.key}
-                  label={f.label.th}
-                  value={f.type === 'date' && text !== '-' ? fmtDate(text) : text}
-                  wide={f.type === 'textarea'}
-                />
-              )
-            })}
+          <CardContent className="space-y-5">
+            {groupMetaFields(def.metaFields).map((g, gi) => (
+              <div key={gi} className="space-y-2">
+                {g.section && (
+                  <div className="rounded-md bg-muted px-3 py-2 text-sm font-semibold">{g.section}</div>
+                )}
+                <div className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  {g.fields.map(f =>
+                    f.showWhen && String(meta[f.showWhen.key] ?? '') !== f.showWhen.value
+                      ? null
+                      : <MetaFieldRead key={f.key} field={f} meta={meta} />
+                  )}
+                </div>
+                {/* รวมระยะเวลาปฏิบัติงาน (ใบลาออก) — คำนวณ ไม่ได้เก็บใน meta */}
+                {doc.doc_type === 'RS' && g.section === 'ข้อมูลพนักงาน' && tenureText(meta) && (
+                  <div className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                    <Field label="รวมระยะเวลาปฏิบัติงาน" value={tenureText(meta)!} />
+                  </div>
+                )}
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}
@@ -538,6 +537,101 @@ function Field({ label, value, wide }: { label: string; value: ReactNode; wide?:
  * ponytail: repo นี้ไม่ได้ติดตั้ง @tailwindcss/typography — จัดสไตล์ด้วย arbitrary variant
  * ไม่กี่ตัวแทน แล้ว sanitize ซ้ำตอน render กันข้อมูลเก่าที่บันทึกก่อนมียาม
  */
+/** "X ปี Y เดือน" สำหรับใบลาออก — คำนวณจาก start_date → last_working_day */
+function tenureText(meta: Record<string, unknown>): string | null {
+  const t = calcTenure(meta.start_date as string, meta.last_working_day as string)
+  return t ? `${t.years} ปี ${t.months} เดือน` : null
+}
+
+/** metaField หนึ่งช่องในมุมมองอ่านอย่างเดียว */
+function MetaFieldRead({ field: f, meta }: { field: MetaField; meta: Record<string, unknown> }) {
+  const raw = meta[f.key]
+
+  if (f.type === 'richtext') {
+    const html = String(raw ?? '')
+    return <Field label={f.label.th} wide value={isHtmlEmpty(html) ? '-' : <RichTextRead html={html} />} />
+  }
+
+  if (f.type === 'checkbox') {
+    const on = raw === true
+    return (
+      <Field
+        label={on ? 'ยินยอม' : 'ยังไม่ยืนยัน'}
+        wide
+        value={
+          <span className={cn('flex gap-2', !on && 'text-muted-foreground')}>
+            <span aria-hidden>{on ? '✓' : '✗'}</span>
+            <span>{f.label.th}</span>
+          </span>
+        }
+      />
+    )
+  }
+
+  if (f.type === 'multiselect') {
+    const list = (Array.isArray(raw) ? raw : []) as string[]
+    const other = f.otherKey ? String(meta[f.otherKey] ?? '') : ''
+    return (
+      <Field
+        label={f.label.th}
+        wide
+        value={
+          list.length === 0 ? '-' : (
+            <span className="flex flex-wrap gap-1.5">
+              {list.map(v => (
+                <span key={v} className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                  {v === 'อื่นๆ' && other ? `อื่นๆ: ${other}` : v}
+                </span>
+              ))}
+            </span>
+          )
+        }
+      />
+    )
+  }
+
+  if (f.type === 'table') {
+    const cols = f.columns || []
+    const rows = (Array.isArray(raw) ? raw : []) as MetaTableRow[]
+    const filled = rows.filter(r => Object.values(r || {}).some(c => String(c ?? '').trim() !== ''))
+    return (
+      <Field
+        label={f.label.th}
+        wide
+        value={
+          filled.length === 0 ? '-' : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground">
+                    {cols.map(c => <th key={c.key} className="py-1.5 pr-3 text-left font-normal">{c.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filled.map((r, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      {cols.map(c => <td key={c.key} className="py-1.5 pr-3">{r[c.key] || '-'}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+      />
+    )
+  }
+
+  const text = raw == null || String(raw).trim() === '' ? '-' : String(raw)
+  return (
+    <Field
+      label={f.label.th}
+      value={f.type === 'date' && text !== '-' ? fmtDate(text) : text}
+      wide={f.type === 'textarea' || f.width === 'full'}
+    />
+  )
+}
+
 function RichTextRead({ html }: { html: string }) {
   return (
     <div

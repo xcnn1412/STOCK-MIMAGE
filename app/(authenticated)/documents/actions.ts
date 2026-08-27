@@ -7,7 +7,7 @@ import { createNotifications, type NotificationType } from '@/lib/notifications'
 import { getSession } from './session'
 import {
   DOC_TYPES, TRANSITIONS, EDITABLE_STATUSES, calcDocumentTotals, calcItemAmount,
-  canTransition, sanitizeMeta,
+  canTransition, isMetaEmpty, sanitizeMeta,
   type DocAction, type DocBrandRow, type DocTypeCode, type DocumentItemRow,
   type DocumentLogRow, type DocumentRow, type VatMode,
 } from './doc-types'
@@ -175,6 +175,7 @@ export async function createDocument(params: { brand_code: string; doc_type: Doc
 
   const def = DOC_TYPES[params.doc_type]
   if (!def) return { error: 'ประเภทเอกสารไม่ถูกต้อง' }
+  if (def.enabled === false) return { error: 'เอกสารประเภทนี้ปิดปรับปรุงชั่วคราว' }
 
   const supabase = createServiceClient()
   const { data: brandData } = await supabase.from('doc_brands').select('*').eq('code', params.brand_code).single()
@@ -414,8 +415,11 @@ async function validateForIssue(supabase: any, doc: DocumentRow): Promise<string
   const meta = (doc.meta || {}) as Record<string, unknown>
   for (const f of def.metaFields) {
     if (!f.required) continue
-    const v = meta[f.key]
-    if (v == null || String(v).trim() === '') return `กรุณากรอก "${f.label.th}"`
+    if (isMetaEmpty(f, meta[f.key])) {
+      return f.type === 'checkbox'
+        ? `กรุณาติ๊กยืนยัน "${f.label.th}"`
+        : `กรุณากรอก "${f.label.th}"`
+    }
   }
 
   return null

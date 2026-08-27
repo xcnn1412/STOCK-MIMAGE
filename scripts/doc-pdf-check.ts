@@ -127,21 +127,43 @@ const mm: DocumentPdfData = {
 
 const SAMPLE_RICHTEXT = '<p>ทดสอบ <strong>ตัวหนา</strong></p><ul><li>ข้อ 1</li></ul>'
 
-/** ค่าตัวอย่างต่อชนิดของ metaField — ครอบทั้ง 6 ชนิดใน MetaField['type'] */
+/** แถวตัวอย่างของ metaField ชนิด 'table' */
+function sampleTable(f: MetaField): Record<string, string>[] {
+  const cols = f.columns || []
+  const cell = (ci: number, ri: number) =>
+    cols[ci]?.type === 'number' ? String(ri + 1) : `${cols[ci]?.label ?? ''} ${ri + 1}`
+
+  if (f.fixedRows?.length) {
+    // ทุกแถวคงที่กรอกครบ (คอลัมน์แรกเป็นป้ายชื่อระดับ)
+    return f.fixedRows.map((label, ri) =>
+      Object.fromEntries(cols.map((c, ci) => [c.key, ci === 0 ? label : cell(ci, ri)]))
+    )
+  }
+  return [0, 1].map(ri => Object.fromEntries(cols.map((c, ci) => [c.key, cell(ci, ri)])))
+}
+
+/** ค่าตัวอย่างต่อชนิดของ metaField — ครอบทุกชนิดใน MetaField['type'] */
 function sampleMetaValue(f: MetaField): unknown {
   switch (f.type) {
-    case 'date': return '2026-08-27'
+    // start_date ย้อนหลัง เพื่อให้ "รวมระยะเวลาปฏิบัติงาน" ของใบลาออกไม่เป็น 0
+    case 'date': return f.key === 'start_date' ? '2023-03-01' : '2026-08-27'
     case 'number': return 12345
     case 'select': return f.options?.[0] ?? ''
     case 'richtext': return SAMPLE_RICHTEXT
     case 'textarea': return `ตัวอย่าง${f.label.th} — ข้อความหลายบรรทัดสำหรับทดสอบการตัดคำภาษาไทยในเอกสาร`
+    case 'checkbox': return true
+    case 'multiselect': return (f.options ?? []).slice(0, 2)
+    case 'table': return sampleTable(f)
     default: return `ตัวอย่าง${f.label.th}`
   }
 }
 
 function sampleMeta(def: DocTypeDef): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  for (const f of def.metaFields) out[f.key] = sampleMetaValue(f)
+  for (const f of def.metaFields) {
+    out[f.key] = sampleMetaValue(f)
+    if (f.otherKey) out[f.otherKey] = 'อื่นๆ ตัวอย่าง'
+  }
   return out
 }
 

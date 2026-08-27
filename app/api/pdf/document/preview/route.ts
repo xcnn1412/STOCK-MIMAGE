@@ -39,6 +39,10 @@ function sampleMeta(def: DocTypeDef, today: string): Record<string, unknown> {
       f.type === 'date' ? today
       : f.type === 'number' ? 25000
       : f.type === 'select' ? (f.options?.[0] ?? 'ตัวอย่าง')
+      : f.type === 'checkbox' ? true
+      : f.type === 'multiselect' ? (f.options ?? []).slice(0, 2)
+      // ponytail: ตารางปล่อยว่าง — พรีวิวแม่แบบดูหัวตาราง/เส้นก็พอ
+      : f.type === 'table' ? []
       : f.type === 'richtext'
         ? '<p>เนื้อหาตัวอย่างสำหรับดูหน้าตาแม่แบบ <strong>ตัวหนา</strong> และ <em>ตัวเอียง</em></p>'
           + '<ul><li>หัวข้อย่อยที่หนึ่ง</li><li>หัวข้อย่อยที่สอง</li></ul>'
