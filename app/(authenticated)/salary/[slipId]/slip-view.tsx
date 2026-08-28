@@ -94,8 +94,8 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
       const skipped = res.skipped?.length || 0
       toast.success(
         skipped > 0
-          ? `sync ต้นทุน ${res.synced} รายการ · ข้ามรันเนอร์ที่ผูกอีเวนต์ไม่ได้ ${skipped} รายการ`
-          : `sync ต้นทุน ${res.synced} รายการแล้ว`
+          ? `ส่งเข้าต้นทุน ${res.synced} รายการ · ข้ามรันเนอร์ที่ผูกอีเวนต์ไม่ได้ ${skipped} รายการ`
+          : `ส่งเข้าต้นทุน ${res.synced} รายการแล้ว`
       )
       router.refresh()
     })
@@ -181,12 +181,12 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
               <div className="flex flex-col items-start gap-1">
                 <Button variant="outline" disabled={isPending} onClick={runSyncCosts}>
                   <Receipt className="size-4" />
-                  sync ต้นทุนอีกครั้ง
+                  ส่งเข้าต้นทุนอีกครั้ง
                 </Button>
                 <span className="max-w-56 text-xs text-muted-foreground">
                   {slip.costs_synced_at
-                    ? `sync ล่าสุด ${formatThaiDate(slip.costs_synced_at)}`
-                    : 'ยังไม่เคย sync เข้าโมดูลต้นทุน'}
+                    ? `ส่งเข้าต้นทุนล่าสุด ${formatThaiDate(slip.costs_synced_at)}`
+                    : 'ยังไม่ได้ส่งเข้าโมดูลต้นทุน'}
                 </span>
               </div>
             )}

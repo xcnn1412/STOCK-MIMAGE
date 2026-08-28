@@ -14,10 +14,10 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { getSession, requireAdmin } from './session'
-import { fmtMoney, periodLabel, slipTitle } from './format'
+import { fmtMoney, periodLabel, slipTitle, todayBangkok } from './format'
 import {
-  CATCH_UP_DAYS, catchUpStart, computeSlip, hasMissingAmounts, lastFinishedWeek, lineAmount,
-  periodKeyFor, periodRange, selectCheckinsForRun, toEmploymentType, toRunKind,
+  bangkokDate, catchUpStart, computeSlip, hasMissingAmounts, lastFinishedWeek, lineAmount,
+  periodKeyFor, periodRange, selectCheckinsForRun, shiftDay, toEmploymentType, toRunKind,
   weekRangeFor, weekdayOf,
 } from './compute'
 import type {
@@ -206,11 +206,12 @@ export interface SlipEventOption {
 
 const PERIOD_KEY_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 
-/** เลื่อนวันที่ YYYY-MM-DD ไป n วัน (คิดบน UTC — ไม่มีเวลาเข้ามาเกี่ยว จึงไม่เพี้ยน) */
-function shiftDate(dateStr: string, days: number): string {
-  const t = Date.parse(`${dateStr}T00:00:00Z`)
-  if (Number.isNaN(t)) return dateStr
-  return new Date(t + days * 86_400_000).toISOString().slice(0, 10)
+/** ขอบเขต "วันไทย" ของหน้าต่างเก็บตกของงวด → instant UTC ที่ยิง filter ได้ */
+function catchUpWindowISO(periodEnd: string): { fromISO: string; toISO: string } {
+  return {
+    fromISO: new Date(`${catchUpStart(periodEnd)}T00:00:00+07:00`).toISOString(),
+    toISO: new Date(`${periodEnd}T23:59:59.999+07:00`).toISOString(),
+  }
 }
 
 /**
@@ -514,8 +515,7 @@ export async function autoSelectUserIds(run: RunWindow): Promise<string[]> {
   if ('error' in auth) return []
 
   const supabase = createServiceClient()
-  const fromISO = new Date(`${catchUpStart(run.period_end)}T00:00:00+07:00`).toISOString()
-  const toISO = new Date(`${run.period_end}T23:59:59.999+07:00`).toISOString()
+  const { fromISO, toISO } = catchUpWindowISO(run.period_end)
 
   const [checkinsRes, profilesRes] = await Promise.all([
     supabase
@@ -547,24 +547,6 @@ export async function autoSelectUserIds(run: RunWindow): Promise<string[]> {
 // ────────────────────────────────────────────────────────────────────────────
 // ข้อเสนอเปิดงวด + เช็คอินค้างจ่ายที่เลยหน้าต่างเก็บตก (หน้า /salary/runs)
 // ────────────────────────────────────────────────────────────────────────────
-
-/** วันไทยวันนี้ (YYYY-MM-DD) — ไม่พึ่ง timezone ของเครื่อง server */
-function todayBangkok(): string {
-  return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
-}
-
-/** วันไทยของ instant หนึ่ง (YYYY-MM-DD) */
-function bangkokDateOf(iso: string): string {
-  return new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
-}
-
-/** ขอบเขต "วันไทย" ของหน้าต่างเก็บตกของงวด → instant UTC ที่ยิง filter ได้ */
-function catchUpWindowISO(periodEnd: string): { fromISO: string; toISO: string } {
-  return {
-    fromISO: new Date(`${catchUpStart(periodEnd)}T00:00:00+07:00`).toISOString(),
-    toISO: new Date(`${periodEnd}T23:59:59.999+07:00`).toISOString(),
-  }
-}
 
 /** นับคน/เช็คอินหน้างานค้างจ่ายในหน้าต่างเก็บตกของงวดที่จบวันที่ periodEnd */
 async function countUnpaidOnsite(
@@ -674,7 +656,9 @@ export async function listOverdueUnpaidCheckins(): Promise<OverdueCheckinRow[]> 
   if ('error' in auth) return []
 
   const supabase = createServiceClient()
-  const cutoffISO = new Date(Date.now() - CATCH_UP_DAYS * 86_400_000).toISOString()
+  // "เกินหน้าต่างเก็บตก" ต้องนิยามแบบเดียวกับที่งวดใช้: วันไทยก่อน catchUpStart(วันนี้)
+  // (ไม่ใช่ now() − 60 วันบน UTC ซึ่งคลาดกันได้ครึ่งวันจนรายการหลุดเข้า/ออกกล่องเตือนผิด)
+  const cutoffISO = new Date(`${catchUpStart(todayBangkok())}T00:00:00+07:00`).toISOString()
 
   const { data } = await supabase
     .from('staff_checkins')
@@ -701,7 +685,7 @@ export async function listOverdueUnpaidCheckins(): Promise<OverdueCheckinRow[]> 
       id: r.id,
       user_id: r.user_id as string,
       full_name: actorName(names, r.user_id),
-      date: bangkokDateOf(r.checked_in_at),
+      date: bangkokDate(r.checked_in_at),
       event_name: embedded?.name ?? null,
     }
   })
@@ -820,8 +804,7 @@ export async function computeSlips(
   // ขอบเขตเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
   // ดึงกว้างถึงหน้าต่างเก็บตก 60 วัน แล้วให้ selectCheckinsForRun คัดตามชนิดงวด/สถานะจ่าย
   const onsiteFrom = catchUpStart(run.period_end)
-  const fromISO = new Date(`${onsiteFrom}T00:00:00+07:00`).toISOString()
-  const toISO = new Date(`${run.period_end}T23:59:59.999+07:00`).toISOString()
+  const { fromISO, toISO } = catchUpWindowISO(run.period_end)
 
   const [profilesRes, salaryProfilesRes, existingRes, checkinsRes] = await Promise.all([
     // ผู้ใช้ที่ถูกลบไปแล้วจะไม่เจอที่นี่ → ตกไปอยู่ใน skipped ว่า 'ไม่พบผู้ใช้'
@@ -942,12 +925,18 @@ export async function computeSlips(
       adjustments,
     })
 
+    // เช็คอินหน้างานทุกใบที่สลิปนี้กิน — รวมใบที่ไม่ได้สร้างบรรทัดเลย (รันเนอร์/ยังไม่ระบุ
+    // หน้าที่) ไม่งั้นตอนปิดงวดมันไม่ถูกประทับ paid_slip_id แล้วงวดถัดไปจ่ายซ้ำ
+    // (เช็คอินออฟฟิศไม่เข้ากติกาจ่ายครั้งเดียว — ไม่ต้องประทับ)
+    const checkin_ids = checkins.filter(c => c.check_type === 'onsite').map(c => c.id).sort(cmpText)
+
     rows.push({
       run_id: runId,
       user_id: userId,
       status: 'draft',
       employment_type,
       base_salary,
+      checkin_ids,
       lines: result.lines,
       adjustments,
       warnings: result.warnings,
@@ -1160,8 +1149,8 @@ async function listPeriodEvents(
   const { data } = await supabase
     .from('events')
     .select('id, name, event_date')
-    .gte('event_date', shiftDate(periodStart, -7))
-    .lte('event_date', shiftDate(periodEnd, 7))
+    .gte('event_date', shiftDay(periodStart, -7))
+    .lte('event_date', shiftDay(periodEnd, 7))
     .order('event_date', { ascending: true })
 
   type Raw = { id: string; name: string | null; event_date: string | null }
@@ -2120,14 +2109,14 @@ async function syncSlipToCostsInternal(
 
   const syncedAt = new Date().toISOString()
   // guard trigger ของสลิปที่ปิดงวดแล้วอนุญาตให้ costs_synced_at เปลี่ยนได้
-  // (migration 20260829_salary_costs_synced_at.sql)
+  // (migration 20260829_salary_weekly_runs.sql)
   const { error: stampErr } = await supabase
     .from('salary_slips')
     .update({ costs_synced_at: syncedAt })
     .eq('id', slipId)
   if (stampErr) return { error: `บันทึกเวลา sync ไม่สำเร็จ: ${stampErr.message}` }
 
-  await logActivity('SALARY_COSTS_SYNC', { slipId, synced, skipped }, slip.user_id)
+  await logActivity('SYNC_SALARY_TO_COSTS', { slipId, synced, skipped }, slip.user_id)
 
   revalidatePath('/costs')
   return { synced, skipped, synced_at: syncedAt }

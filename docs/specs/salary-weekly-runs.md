@@ -71,7 +71,7 @@
 - เช็คอิน: history + รายงาน admin แสดง badge "จ่ายแล้ว" ลิงก์สลิป (ใช้ `paid_slip_id`)
 
 ### Activity log / แจ้งเตือน
-- ActionType ใหม่: `SALARY_MARK_ALL_PAID`, `SALARY_COSTS_SYNC`; แจ้งเตือนใช้ `salary_finalized` เดิม เปลี่ยนแค่ข้อความ
+- ActionType ใหม่: `SALARY_MARK_ALL_PAID`, `SYNC_SALARY_TO_COSTS`; แจ้งเตือนใช้ `salary_finalized` เดิม เปลี่ยนแค่ข้อความ
 
 ## Testing Decisions
 - `scripts/salary-check.ts` ส่วน A เพิ่ม: A12 weekly ไม่มีฐาน/ไม่มี OT ออฟฟิศ · A13 `selectCheckinsForRun`: เช็คอิน 40 วันก่อน period_end ถูกนับ, 61 วันไม่ถูกนับ, จ่ายแล้วไม่ถูกนับ · A14 monthly ประจำ: ฐาน + OT ออฟฟิศเฉพาะในช่วง · A15 `costsRowsForSlip`: อีเวนต์ 2 งานวันเดียว → runner ไม่ sync, OT ไม่ sync · A16 `lastFinishedWeek` (วันจันทร์/วันอาทิตย์/กลางสัปดาห์)

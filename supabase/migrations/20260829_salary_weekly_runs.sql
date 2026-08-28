@@ -43,6 +43,110 @@ COMMENT ON COLUMN salary_slips.costs_synced_at IS
   'เวลาที่บรรทัดค่าสตาฟของสลิปนี้ถูกเขียนเข้า job_cost_items สำเร็จครั้งล่าสุด (NULL = ยังไม่ sync)';
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- 3b. salary_slips.checkin_ids — เช็คอินทุกใบที่สลิปนี้ "กินไปแล้ว"
+--     บรรทัดสลิปครอบคลุมไม่ครบ: เช็คอินรันเนอร์ (manual_daily) และเช็คอินที่ยัง
+--     ไม่ได้ระบุหน้าที่ ไม่สร้างบรรทัด site/oop จึงไม่มี checkin_id ที่ไหนเลย
+--     → ถ้าอาศัย lines อย่างเดียวจะไม่ถูกประทับ แล้วงวดถัดไปที่ทับกันจ่ายซ้ำ
+--     คอลัมน์นี้เก็บ id ของเช็คอิน "หน้างาน" ที่ถูกเลือกเข้าสลิปตอนคำนวณทุกใบ
+-- ────────────────────────────────────────────────────────────────────────────
+ALTER TABLE salary_slips ADD COLUMN IF NOT EXISTS checkin_ids UUID[] NOT NULL DEFAULT '{}';
+
+COMMENT ON COLUMN salary_slips.checkin_ids IS
+  'เช็คอินหน้างานทุกใบที่สลิปนี้กิน (รวมรันเนอร์/ไม่มีหน้าที่ ที่ไม่มีบรรทัด) — finalize_salary_slip ประทับ paid_slip_id ให้ทั้งชุด';
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 3c. Guard ของสลิป — เพิ่ม checkin_ids เข้าคอลัมน์ที่ห้ามเปลี่ยนหลังปิดงวด
+--     (ฟังก์ชันเดิมอยู่ใน 20260828_create_salary_module.sql §7 ซึ่งรันบน prod ไปแล้ว
+--      จึงต้อง CREATE OR REPLACE ทั้งตัวที่นี่ — เนื้อในเหมือนเดิมทุกบรรทัด
+--      ยกเว้นบรรทัด checkin_ids ที่เพิ่มเข้ามา; costs_synced_at ยังเปลี่ยนได้ตั้งใจ)
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.salary_slips_guard_finalized()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF COALESCE(current_setting('app.allow_salary_purge', true), '') = 'on' THEN
+    IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.status IS DISTINCT FROM 'draft' THEN
+      RAISE EXCEPTION 'ห้ามลบสลิปที่ปิดงวดแล้ว';
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF OLD.status IN ('finalized', 'paid') THEN
+    -- ห้ามถอยสถานะ; finalized ไปได้แค่ paid, paid ไปไหนไม่ได้
+    IF NEW.status IS DISTINCT FROM OLD.status
+       AND NOT (OLD.status = 'finalized' AND NEW.status = 'paid') THEN
+      RAISE EXCEPTION 'ห้ามแก้ไขสลิปที่ปิดงวดแล้ว';
+    END IF;
+
+    -- อนุญาตเฉพาะ: status, paid_at, paid_by, costs_synced_at, updated_at
+    IF NEW.id              IS DISTINCT FROM OLD.id
+    OR NEW.run_id          IS DISTINCT FROM OLD.run_id
+    OR NEW.user_id         IS DISTINCT FROM OLD.user_id
+    OR NEW.employment_type IS DISTINCT FROM OLD.employment_type
+    OR NEW.base_salary     IS DISTINCT FROM OLD.base_salary
+    OR NEW.lines           IS DISTINCT FROM OLD.lines
+    OR NEW.checkin_ids     IS DISTINCT FROM OLD.checkin_ids
+    OR NEW.adjustments     IS DISTINCT FROM OLD.adjustments
+    OR NEW.warnings        IS DISTINCT FROM OLD.warnings
+    OR NEW.total           IS DISTINCT FROM OLD.total
+    OR NEW.computed_at     IS DISTINCT FROM OLD.computed_at
+    OR NEW.finalized_at    IS DISTINCT FROM OLD.finalized_at
+    OR NEW.finalized_by    IS DISTINCT FROM OLD.finalized_by
+    OR NEW.created_at      IS DISTINCT FROM OLD.created_at
+    THEN
+      RAISE EXCEPTION 'ห้ามแก้ไขสลิปที่ปิดงวดแล้ว';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END $$;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 3d. Guard ของเช็คอิน — เช็คอินที่ถูกจ่ายในสลิปแล้ว ห้ามแก้ตัวเลข/ห้ามลบ
+--     ไม่งั้นแก้ duties/เวลา/อีเวนต์ย้อนหลังได้ ทั้งที่เงินจ่ายออกไปตามตัวเลขเดิม
+--     เปลี่ยนได้อยู่: paid_slip_id เอง (FK ON DELETE SET NULL + RPC ประทับ),
+--     note, province, district, พิกัด, รูป, updated_at ฯลฯ
+--     ยกเว้นเมื่อ GUC app.allow_salary_purge = 'on' (convention เดียวกับ guard สลิป)
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.staff_checkins_guard_paid()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF OLD.paid_slip_id IS NULL
+     OR COALESCE(current_setting('app.allow_salary_purge', true), '') = 'on' THEN
+    IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'เช็คอินนี้ถูกจ่ายในสลิปแล้ว ลบไม่ได้';
+  END IF;
+
+  IF NEW.user_id         IS DISTINCT FROM OLD.user_id
+  OR NEW.check_type      IS DISTINCT FROM OLD.check_type
+  OR NEW.checked_in_at   IS DISTINCT FROM OLD.checked_in_at
+  OR NEW.checked_out_at  IS DISTINCT FROM OLD.checked_out_at
+  OR NEW.duties          IS DISTINCT FROM OLD.duties
+  OR NEW.out_of_province IS DISTINCT FROM OLD.out_of_province
+  OR NEW.event_id        IS DISTINCT FROM OLD.event_id
+  THEN
+    RAISE EXCEPTION 'เช็คอินนี้ถูกจ่ายในสลิปแล้ว แก้ไขไม่ได้';
+  END IF;
+
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS staff_checkins_guard_paid ON staff_checkins;
+CREATE TRIGGER staff_checkins_guard_paid
+  BEFORE UPDATE OR DELETE ON staff_checkins
+  FOR EACH ROW EXECUTE FUNCTION public.staff_checkins_guard_paid();
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- 4. finalize_salary_slip — ปิดงวดสลิป + ประทับ paid_slip_id ใน transaction เดียว
 --    ล็อกสลิปและแถวเช็คอินก่อน เพื่อกันสองงวดที่ทับกันปิดพร้อมกันแล้วจ่ายซ้ำ
 --    guard trigger เดิมยังทำงาน (ที่นี่เปลี่ยนแค่ draft → finalized ซึ่ง guard อนุญาต)
@@ -55,12 +159,14 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_status TEXT;
-  v_lines  JSONB;
-  v_ids    UUID[];
-  v_date   TEXT;
+  v_status   TEXT;
+  v_lines    JSONB;
+  v_ids      UUID[];
+  v_line_ids UUID[];
+  v_date     TEXT;
 BEGIN
-  SELECT status, lines INTO v_status, v_lines
+  SELECT status, lines, COALESCE(checkin_ids, '{}'::UUID[])
+    INTO v_status, v_lines, v_ids
   FROM salary_slips WHERE id = p_slip_id FOR UPDATE;
 
   IF NOT FOUND THEN
@@ -70,13 +176,16 @@ BEGIN
     RAISE EXCEPTION 'สลิปนี้ปิดงวดแล้ว';
   END IF;
 
-  -- เช็คอินที่สลิปนี้จ่ายให้ = checkin_id ของบรรทัด (บรรทัด OT/รันเนอร์ไม่มี → ข้าม)
-  SELECT COALESCE(array_agg(DISTINCT x.cid), '{}'::UUID[]) INTO v_ids
+  -- เช็คอินที่สลิปนี้จ่ายให้ = checkin_ids ที่บันทึกไว้ตอนคำนวณ ∪ checkin_id ในบรรทัด
+  -- (union เพราะสลิปร่างที่คำนวณไว้ก่อนมีคอลัมน์ checkin_ids ยังมีแต่บรรทัด)
+  SELECT COALESCE(array_agg(DISTINCT x.cid), '{}'::UUID[]) INTO v_line_ids
   FROM (
     SELECT (e ->> 'checkin_id')::UUID AS cid
     FROM jsonb_array_elements(COALESCE(v_lines, '[]'::JSONB)) e
     WHERE e ->> 'checkin_id' IS NOT NULL
   ) x;
+
+  v_ids := ARRAY(SELECT DISTINCT u FROM unnest(v_ids || v_line_ids) u WHERE u IS NOT NULL);
 
   IF COALESCE(array_length(v_ids, 1), 0) > 0 THEN
     -- ล็อกเรียงตาม id — สองงวดที่ปิดพร้อมกันจะเข้าคิวกัน ไม่ deadlock
@@ -106,7 +215,7 @@ REVOKE ALL ON FUNCTION public.finalize_salary_slip(UUID, UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.finalize_salary_slip(UUID, UUID) TO service_role;
 
 COMMENT ON FUNCTION public.finalize_salary_slip(UUID, UUID) IS
-  'ปิดงวดสลิปร่าง + ประทับ paid_slip_id ให้เช็คอินในบรรทัด — ถ้าเช็คอินถูกจ่ายในสลิปอื่นแล้วจะ RAISE';
+  'ปิดงวดสลิปร่าง + ประทับ paid_slip_id ให้เช็คอินใน checkin_ids รวมกับที่อยู่ในบรรทัด — ถ้าเช็คอินถูกจ่ายในสลิปอื่นแล้วจะ RAISE';
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 5. Backfill — สลิปที่ปิดงวด/จ่ายไปแล้วก่อน deploy ต้องประทับย้อนหลัง

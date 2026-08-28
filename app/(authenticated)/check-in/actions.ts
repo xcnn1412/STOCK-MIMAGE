@@ -495,7 +495,7 @@ export async function adminDeleteCheckin(checkinId: string) {
 
   if (error) {
     console.error('Admin delete error:', error)
-    return { error: 'เกิดข้อผิดพลาดในการลบ' }
+    return { error: error.message || 'เกิดข้อผิดพลาดในการลบ' }
   }
 
   // ลบรูปเช็คอิน/เช็คเอาต์ออกจาก Storage ไม่ให้กลายเป็น orphan
@@ -625,7 +625,7 @@ export async function adminEditCheckin(formData: FormData) {
 
   if (error) {
     console.error('Admin edit error:', error)
-    return { error: 'เกิดข้อผิดพลาดในการแก้ไข' }
+    return { error: error.message || 'เกิดข้อผิดพลาดในการแก้ไข' }
   }
 
   // ฟิลด์เหล่านี้กระทบยอดในสลิปเงินเดือน → ต้องมีร่องรอยใน activity log
@@ -1062,7 +1062,7 @@ export async function updateMyCheckinEvent(checkinId: string, rawEventRef: strin
 
   if (error) {
     console.error('Update my checkin event error:', error)
-    return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+    return { error: error.message || 'เกิดข้อผิดพลาดในการบันทึก' }
   }
 
   revalidatePath('/check-in')
@@ -1110,7 +1110,7 @@ export async function updateMyCheckinLocation(
 
   if (error) {
     console.error('Update my checkin location error:', error)
-    return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+    return { error: error.message || 'เกิดข้อผิดพลาดในการบันทึก' }
   }
 
   await logActivity('UPDATE_CHECKIN_LOCATION', {
@@ -1223,7 +1223,7 @@ export async function adminUpdateCheckinEvent(checkinId: string, rawEventRef: st
 
   if (error) {
     console.error('Update checkin event error:', error)
-    return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+    return { error: error.message || 'เกิดข้อผิดพลาดในการบันทึก' }
   }
 
   revalidatePath('/check-in/report')

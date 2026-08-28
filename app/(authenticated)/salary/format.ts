@@ -1,8 +1,33 @@
 // ============================================================================
-// ตัวจัดรูปแบบที่ทุกหน้าในโมดูลเงินเดือนใช้ร่วมกัน — pure ล้วน ใช้ได้ทั้ง server/client
+// ตัวจัดรูปแบบ + ป้ายชื่อที่ทุกหน้าในโมดูลเงินเดือนใช้ร่วมกัน — ใช้ได้ทั้ง server/client
+// (pure ทั้งหมด ยกเว้น todayBangkok() ที่อ่านนาฬิกา)
 // ============================================================================
 
 import { THAI_MONTHS } from '@/lib/thai-date'
+import type { LineKind, RunKind } from './compute'
+
+/** ป้ายชนิดงวด — ใช้ร่วมกันทุกหน้าในโมดูล (อย่านิยามซ้ำในแต่ละ view) */
+export const RUN_KIND_LABEL: Record<RunKind, string> = {
+  monthly: 'รายเดือน',
+  weekly: 'รายสัปดาห์',
+  custom: 'กำหนดเอง',
+}
+
+/** ป้ายชนิดบรรทัดในสลิป — ใช้ทั้งตารางในเว็บและ PDF */
+export const LINE_KIND_LABEL: Record<LineKind, string> = {
+  ot: 'OT',
+  site: 'ค่าสตาฟ',
+  oop: 'เบิ้ลต่างจังหวัด',
+  runner: 'รันเนอร์',
+}
+
+/**
+ * วันไทยวันนี้ (YYYY-MM-DD) — ไม่พึ่ง timezone ของเครื่อง (server หรือ browser)
+ * ฟังก์ชันเดียวในไฟล์นี้ที่อ่านนาฬิกา จึงไม่ deterministic โดยตั้งใจ
+ */
+export function todayBangkok(): string {
+  return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
 
 /** จำนวนเงิน — รูปแบบเดียวกับโมดูลการเงิน/ต้นทุน (ทศนิยม 2 ตำแหน่ง) */
 export function fmtMoney(n: number | string | null | undefined): string {

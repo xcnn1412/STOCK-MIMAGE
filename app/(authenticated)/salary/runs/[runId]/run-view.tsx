@@ -26,9 +26,9 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, periodLabel, slipTitle } from '../../format'
+import { RUN_KIND_LABEL, fmtMoney, periodLabel, slipTitle } from '../../format'
 import { SlipStatusBadge } from '../../components/slip-status-badge'
-import type { EmploymentType, RunKind } from '../../compute'
+import type { EmploymentType } from '../../compute'
 import type { SalaryProfileListRow } from '../../settings/actions'
 import {
   computeSlips, deleteSlip, exportTransferExcel, finalizeRemainingSlips, finalizeSlip,
@@ -51,12 +51,6 @@ const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
   fulltime: 'ประจำ',
   freelance: 'ฟรีแลนซ์',
   intern: 'นักศึกษาฝึกงาน',
-}
-
-const KIND_LABEL: Record<RunKind, string> = {
-  monthly: 'รายเดือน',
-  weekly: 'รายสัปดาห์',
-  custom: 'กำหนดเอง',
 }
 
 const ALL = '__all__'
@@ -279,7 +273,7 @@ export default function RunView({
           </Link>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold">งวด{periodLabel(run)}</h1>
-            <Badge variant="outline">{KIND_LABEL[run.kind]}</Badge>
+            <Badge variant="outline">{RUN_KIND_LABEL[run.kind]}</Badge>
           </div>
           <p className="text-sm text-muted-foreground">
             {formatThaiDate(run.period_start)} – {formatThaiDate(run.period_end)}

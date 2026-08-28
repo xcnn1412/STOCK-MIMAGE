@@ -5,19 +5,12 @@ import { CalendarClock, ChevronRight, FileDown, Settings, Wallet } from 'lucide-
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, slipTitle } from './format'
-import type { RunKind } from './compute'
+import { RUN_KIND_LABEL, fmtMoney, slipTitle } from './format'
 import type { MySlipRow } from './actions'
 
 interface Props {
   slips: MySlipRow[]
   isAdmin: boolean
-}
-
-const KIND_LABEL: Record<RunKind, string> = {
-  monthly: 'รายเดือน',
-  weekly: 'รายสัปดาห์',
-  custom: 'กำหนดเอง',
 }
 
 export default function SalaryView({ slips, isAdmin }: Props) {
@@ -74,7 +67,7 @@ export default function SalaryView({ slips, isAdmin }: Props) {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{slipTitle(s)}</span>
-                        <Badge variant="outline">{KIND_LABEL[s.kind]}</Badge>
+                        <Badge variant="outline">{RUN_KIND_LABEL[s.kind]}</Badge>
                         <Badge
                           variant="outline"
                           className={

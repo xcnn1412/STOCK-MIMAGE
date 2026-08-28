@@ -23,8 +23,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { formatThaiDate } from '@/lib/thai-date'
-import { periodLabel } from '../format'
-import { lastFinishedWeek, periodRange, weekRangeFor, weekdayOf, type RunKind } from '../compute'
+import { RUN_KIND_LABEL, periodLabel, todayBangkok } from '../format'
+import {
+  CATCH_UP_DAYS, lastFinishedWeek, periodRange, weekRangeFor, weekdayOf, type RunKind,
+} from '../compute'
 import {
   createSalaryRun,
   type CreateRunInput, type OverdueCheckinRow, type RunListRow, type RunSuggestion,
@@ -43,20 +45,9 @@ interface Props {
 const PERIOD_KEY_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-const KIND_LABEL: Record<RunKind, string> = {
-  monthly: 'รายเดือน',
-  weekly: 'รายสัปดาห์',
-  custom: 'กำหนดเอง',
-}
-
 /** 'YYYY-MM' ของเดือนปัจจุบันตามเวลาไทย (ไม่พึ่ง timezone ของเครื่องผู้ใช้) */
 function currentPeriodKey(): string {
   return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 7)
-}
-
-/** วันไทยวันนี้ (YYYY-MM-DD) */
-function todayBangkok(): string {
-  return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
 export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Props) {
@@ -174,7 +165,7 @@ export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Prop
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div className="min-w-0">
               <p className="font-medium">
-                งวด{s.kind === 'weekly' ? 'สัปดาห์' : 'เดือน'} {s.label} ยังไม่เปิด
+                งวด{RUN_KIND_LABEL[s.kind]} {s.label} ยังไม่เปิด
               </p>
               <p className="text-sm text-muted-foreground">
                 {formatThaiDate(s.start)} – {formatThaiDate(s.end)} · {s.users} คน ·{' '}
@@ -199,7 +190,7 @@ export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Prop
           >
             <AlertTriangle className="size-4 shrink-0" />
             <span className="flex-1">
-              เช็คอินหน้างานค้างจ่ายเกิน 60 วัน {overdue.length} รายการ
+              เช็คอินหน้างานค้างจ่ายเกิน {CATCH_UP_DAYS} วัน {overdue.length} รายการ
             </span>
             {showOverdue ? (
               <ChevronDown className="size-4 shrink-0" />
@@ -257,7 +248,7 @@ export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Prop
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{KIND_LABEL[r.kind]}</Badge>
+                      <Badge variant="outline">{RUN_KIND_LABEL[r.kind]}</Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatThaiDate(r.period_start)} – {formatThaiDate(r.period_end)}

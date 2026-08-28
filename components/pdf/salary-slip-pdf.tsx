@@ -3,11 +3,10 @@ import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/rendere
 import path from 'path'
 import { numberToThaiBahtText } from '@/lib/thai-baht-text'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, slipTitle } from '@/app/(authenticated)/salary/format'
+import { LINE_KIND_LABEL, fmtMoney, slipTitle } from '@/app/(authenticated)/salary/format'
 import {
   lineAmount,
   type EmploymentType,
-  type LineKind,
   type SalaryAdjustment,
   type SalaryLine,
 } from '@/app/(authenticated)/salary/compute'
@@ -63,14 +62,6 @@ export interface SalarySlipPdfData {
   slip: SalarySlipPdfSlip
   /** วันที่พิมพ์ — ส่งเข้ามาได้เพื่อให้ผลลัพธ์คงที่ (สคริปต์ตรวจ) ไม่ส่ง = วันนี้ */
   printedAt?: string | Date
-}
-
-// ป้ายชนิดบรรทัด — ข้อความชุดเดียวกับตารางในเว็บ (components/slip-lines-table.tsx)
-const KIND_LABEL: Record<LineKind, string> = {
-  ot: 'OT',
-  site: 'ค่าสตาฟ',
-  oop: 'เบิ้ลต่างจังหวัด',
-  runner: 'รันเนอร์',
 }
 
 const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
@@ -167,7 +158,7 @@ function signedMoney(n: number): string {
  * เติมซ้ำจะได้ 'OT · OT 2.5 ชม.' ส่วนบรรทัดค่าสตาฟที่ label เป็นชื่อหน้าที่ยังต้องมี)
  */
 function describeLine(line: SalaryLine): string {
-  const kind = KIND_LABEL[line.kind]
+  const kind = LINE_KIND_LABEL[line.kind]
   return line.label.startsWith(kind) ? line.label : `${kind} · ${line.label}`
 }
 

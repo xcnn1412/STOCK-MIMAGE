@@ -168,3 +168,80 @@ BEGIN
   RAISE NOTICE 'B14b %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
     CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
 END $$;
+
+-- ============================================================================
+-- B15–B16 — เช็คอินที่ไม่มีบรรทัดในสลิป (checkin_ids) + guard เช็คอินที่จ่ายแล้ว
+-- เช็คอินทดสอบใช้ note ขึ้นต้น 'ZZTEST-guardpaid' แล้วล้างทิ้งตอนจบ
+-- ============================================================================
+DO $$
+DECLARE
+  u1 uuid; run_d uuid; slip_d uuid; c1 uuid; c2 uuid; n int; v text;
+BEGIN
+  SELECT id INTO u1 FROM profiles WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1;
+  IF u1 IS NULL THEN RAISE EXCEPTION 'ต้องมี profiles อย่างน้อย 1 คน'; END IF;
+
+  -- เผื่อรอบก่อนค้าง (ลบงวดก่อน paid_slip_id จึงถูกล้างด้วย ON DELETE SET NULL)
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-d');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-guardpaid%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-09-08 10:00+07', 'ZZTEST-guardpaid') RETURNING id INTO c1;
+  -- c2 = เช็คอินรันเนอร์/ยังไม่ระบุหน้าที่ → ไม่มีบรรทัดในสลิป มีแต่ใน checkin_ids
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-09-09 10:00+07', 'ZZTEST-guardpaid') RETURNING id INTO c2;
+
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('weekly', 'ZZTEST-paidonce-d', '2026-09-07', '2026-09-13') RETURNING id INTO run_d;
+  INSERT INTO salary_slips(run_id, user_id, checkin_ids, lines, total)
+    VALUES (run_d, u1, ARRAY[c1, c2], jsonb_build_array(
+      jsonb_build_object('key', 'site:2026-09-08:d', 'kind', 'site', 'date', '2026-09-08',
+                         'checkin_id', c1, 'label', 'ค่าสตาฟ', 'computed_amount', 700, 'amount', 700)
+    ), 700) RETURNING id INTO slip_d;
+
+  PERFORM finalize_salary_slip(slip_d, u1);
+
+  SELECT count(*) INTO n FROM staff_checkins WHERE id IN (c1, c2) AND paid_slip_id = slip_d;
+  RAISE NOTICE 'B15 %: เช็คอินใน checkin_ids ที่ไม่มีบรรทัดถูกประทับด้วย (stamped=%)',
+    CASE WHEN n = 2 THEN 'ok' ELSE 'FAIL' END, n;
+
+  -- ── guard: เช็คอินที่จ่ายแล้วแก้ตัวเลขไม่ได้ ลบไม่ได้ ────────────────────
+  BEGIN
+    UPDATE staff_checkins SET checked_in_at = checked_in_at + INTERVAL '1 hour' WHERE id = c1;
+    RAISE NOTICE 'B16 FAIL: แก้เวลาเช็คอินที่จ่ายแล้วได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B16 ok blocked: %', SQLERRM; END;
+
+  BEGIN
+    DELETE FROM staff_checkins WHERE id = c1;
+    RAISE NOTICE 'B16b FAIL: ลบเช็คอินที่จ่ายแล้วได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B16b ok blocked: %', SQLERRM; END;
+
+  -- note/จังหวัด ฯลฯ ไม่กระทบยอด — ต้องยังแก้ได้
+  UPDATE staff_checkins SET note = 'ZZTEST-guardpaid-edited' WHERE id = c1;
+  SELECT note INTO v FROM staff_checkins WHERE id = c1;
+  RAISE NOTICE 'B16c %: แก้ note ของเช็คอินที่จ่ายแล้วยังได้ (note=%)',
+    CASE WHEN v = 'ZZTEST-guardpaid-edited' THEN 'ok' ELSE 'FAIL' END, v;
+
+  -- GUC เดียวกับ guard สลิป → ข้ามได้ (ทางที่ purge_test_salary_run ใช้)
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  UPDATE staff_checkins SET checked_out_at = TIMESTAMPTZ '2026-09-08 19:00+07' WHERE id = c1;
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+  SELECT count(*) INTO n FROM staff_checkins WHERE id = c1 AND checked_out_at IS NOT NULL;
+  RAISE NOTICE 'B16d %: GUC app.allow_salary_purge=on ข้าม guard ได้ (updated=%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  BEGIN
+    UPDATE staff_checkins SET out_of_province = true WHERE id = c1;
+    RAISE NOTICE 'B16e FAIL: guard ไม่กลับมาทำงานหลัง reset GUC';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B16e ok blocked หลัง reset GUC: %', SQLERRM; END;
+
+  -- ── ล้างของทดสอบ ────────────────────────────────────────────────────────
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-d');
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-guardpaid%';
+
+  SELECT count(*) INTO n FROM salary_runs WHERE period_key = 'ZZTEST-paidonce-d';
+  SELECT n + count(*) INTO n FROM staff_checkins WHERE note LIKE 'ZZTEST-guardpaid%';
+  RAISE NOTICE 'B16f %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
+    CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
+END $$;
