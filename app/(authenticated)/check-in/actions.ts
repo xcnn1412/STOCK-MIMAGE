@@ -109,11 +109,6 @@ export async function checkIn(formData: FormData) {
         .from('staff_checkins')
         .update({ checked_out_at: endOfCheckinDay, note: newNote })
         .eq('id', orphan.id)
-
-      // Trigger expense for onsite orphans (work was done — staff deserves the rate)
-      if (orphan.check_type === 'onsite' && orphan.event_id) {
-        await autoCreateExpenseFromCheckin(supabase, orphan.id, userId, orphan.event_id)
-      }
     }
 
     // Recent active sessions — block, user can manage them via UI
@@ -221,7 +216,7 @@ export async function adminCheckIn(formData: FormData) {
   const baseNote = note ? `[Admin] ${note}` : `[Admin] สร้างโดย Admin`
   const finalNote = sourceRefTag ? `${baseNote} ${sourceRefTag}` : baseNote
 
-  const { data: inserted, error } = await supabase
+  const { error } = await supabase
     .from('staff_checkins')
     .insert({
       user_id: targetUserId,
@@ -231,176 +226,14 @@ export async function adminCheckIn(formData: FormData) {
       checked_out_at: checkedOutAt,
       note: finalNote,
     })
-    .select('id')
-    .single()
 
   if (error) {
     console.error('Admin check-in error:', error)
     return { error: 'เกิดข้อผิดพลาดในการ Check-in' }
   }
 
-  // Auto-create expense claim if on-site with checkout
-  if (checkedOutAt && checkType === 'onsite' && resolvedEventId && inserted?.id) {
-    await autoCreateExpenseFromCheckin(supabase, inserted.id, targetUserId, resolvedEventId)
-  }
-
   revalidatePath('/check-in')
   return { success: true }
-}
-
-// ─── Auto-create Expense Claim from On-site Check-out ──────
-
-async function autoCreateExpenseFromCheckin(
-  supabase: ReturnType<typeof createServiceClient>,
-  checkinId: string,
-  userId: string,
-  eventId: string
-) {
-  try {
-    // 1. ป้องกันสร้างซ้ำ
-    const { data: existing } = await supabase
-      .from('expense_claims')
-      .select('id')
-      .eq('from_checkin_id', checkinId)
-      .maybeSingle()
-
-    if (existing) return // already created
-
-    // 2. ดึงข้อมูล Event
-    const { data: event } = await supabase
-      .from('events')
-      .select('id, name, event_date, crm_lead_id')
-      .eq('id', eventId)
-      .single()
-
-    if (!event) return
-
-    // 3. หา/สร้าง job_cost_events record (auto-import)
-    let jobEventId: string | null = null
-    const { data: existingJce } = await supabase
-      .from('job_cost_events')
-      .select('id')
-      .eq('source_event_id', eventId)
-      .maybeSingle()
-
-    if (existingJce) {
-      jobEventId = existingJce.id
-    } else {
-      // Auto-import via costs module
-      const { importEventFromStock } = await import('../costs/actions')
-      const importResult = await importEventFromStock(eventId)
-      if (importResult.error) {
-        jobEventId = (importResult as any).existingId || null
-      } else {
-        jobEventId = importResult.id || null
-      }
-    }
-
-    // 4. ดึง Staff Roles (ทีมงาน & หน้าที่)
-    const rolesSet = new Set<string>()
-
-    const { data: eStaff } = await supabase
-      .from('event_staff')
-      .select('role')
-      .eq('event_id', eventId)
-      .eq('user_id', userId)
-
-    eStaff?.forEach(e => rolesSet.add(e.role))
-    // Roles come from event_staff only. Staff is per-event now; the old union with
-    // crm_lead_staff (by lead_id) would pull in roles from sibling sub-events sharing
-    // the same CRM lead — wrong for wage calculation.
-
-    // 5. ดึง Role Settings (rate + auto_calc per role) & Global auto_calc toggle
-    const [{ data: roleSettings }, { data: globalSettings }] = await Promise.all([
-      supabase
-        .from('crm_settings')
-        .select('value, label_th, price, auto_calc')
-        .eq('category', 'staff_role')
-        .in('value', Array.from(rolesSet.size > 0 ? rolesSet : ['__none__'])),
-      supabase
-        .from('finance_auto_calc_settings')
-        .select('key, value')
-        .eq('key', 'auto_calc_enabled')
-        .maybeSingle(),
-    ])
-
-    const globalAutoCalcEnabled = globalSettings?.value === 'true'
-
-    // แปลง role values → labels (Thai) + structured data
-    const staffRolesData: { role: string; label: string }[] =
-      roleSettings?.map(s => ({ role: s.value, label: s.label_th || s.value })) ||
-      Array.from(rolesSet).map(r => ({ role: r, label: r }))
-
-    // 6. คำนวณ rate อัตโนมัติ (ใช้ role ที่ rate สูงสุดและเปิด auto_calc)
-    let autoRate = 0
-    let autoCalcUsed = false
-    let autoCalcRoleName = ''
-
-    if (globalAutoCalcEnabled && roleSettings && roleSettings.length > 0) {
-      // หา role ที่ auto_calc = true และ price สูงสุด
-      const autoCalcRoles = roleSettings
-        .filter(r => r.auto_calc === true && Number(r.price || 0) > 0)
-        .sort((a, b) => Number(b.price || 0) - Number(a.price || 0))
-
-      if (autoCalcRoles.length > 0) {
-        autoRate = Number(autoCalcRoles[0].price)
-        autoCalcUsed = true
-        autoCalcRoleName = autoCalcRoles[0].label_th || autoCalcRoles[0].value
-      }
-    }
-
-    // 7. Generate claim number
-    const now = new Date()
-    const prefix = `EXP-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
-    const { count } = await supabase
-      .from('expense_claims')
-      .select('id', { count: 'exact', head: true })
-      .like('claim_number', `${prefix}%`)
-    const seq = (count || 0) + 1
-    const claimNumber = `${prefix}-${String(seq).padStart(3, '0')}`
-
-    // 8. ดึงข้อมูลธนาคารของ staff
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('full_name, bank_name, bank_account_number, account_holder_name')
-      .eq('id', userId)
-      .single()
-
-    const eventName = event.name.length > 60 ? event.name.substring(0, 60) + '...' : event.name
-
-    // Auto-calc note
-    const autoCalcNote = autoCalcUsed
-      ? `[Auto] คำนวณจาก role: ${autoCalcRoleName} (฿${autoRate.toLocaleString()})`
-      : null
-
-    // 9. สร้างใบเบิก (ใส่ rate อัตโนมัติถ้าเปิด)
-    await supabase.from('expense_claims').insert({
-      claim_number: claimNumber,
-      claim_type: 'event',
-      job_event_id: jobEventId,
-      title: `ค่าสตาฟ - ${eventName}`,
-      category: 'staff',
-      amount: autoRate,
-      unit_price: autoRate,
-      unit: 'บาท',
-      quantity: 1,
-      expense_date: event.event_date || now.toISOString().split('T')[0],
-      vat_mode: 'none',
-      include_vat: false,
-      withholding_tax_rate: 0,
-      notes: autoCalcNote,
-      staff_roles: staffRolesData.length > 0 ? staffRolesData : null,
-      submitted_by: userId,
-      from_checkin_id: checkinId,
-      status: 'pending',
-      bank_name: profile?.bank_name || null,
-      bank_account_number: profile?.bank_account_number || null,
-      account_holder_name: profile?.account_holder_name || null,
-    })
-  } catch (err) {
-    console.error('Auto-create expense from checkin error:', err)
-    // ไม่ throw — ไม่ให้กระทบ check-out flow
-  }
 }
 
 // ─── Check-out ────────────────────────────────────────────
@@ -435,17 +268,6 @@ export async function checkOut(formData: FormData) {
   if (error) {
     console.error('Check-out error:', error)
     return { error: 'เกิดข้อผิดพลาดในการ Check-out' }
-  }
-
-  // Auto-create expense claim สำหรับงาน on-site
-  const { data: checkinRecord } = await supabase
-    .from('staff_checkins')
-    .select('check_type, event_id')
-    .eq('id', checkinId)
-    .single()
-
-  if (checkinRecord?.check_type === 'onsite' && checkinRecord.event_id) {
-    await autoCreateExpenseFromCheckin(supabase, checkinId, userId, checkinRecord.event_id)
   }
 
   revalidatePath('/check-in')
@@ -504,11 +326,6 @@ export async function quickCheckoutStale(checkinId: string) {
   if (error) {
     console.error('Quick checkout error:', error)
     return { error: 'เกิดข้อผิดพลาด' }
-  }
-
-  // Auto-create expense claim สำหรับงาน on-site (เหมือน checkOut ปกติ)
-  if (record.check_type === 'onsite' && record.event_id) {
-    await autoCreateExpenseFromCheckin(supabase, checkinId, userId, record.event_id)
   }
 
   revalidatePath('/check-in')
@@ -1167,9 +984,11 @@ export async function adminUpdateCheckinEvent(checkinId: string, rawEventRef: st
 // Two-phase strategy:
 //
 //   Phase 1 (exact, preferred): match via `expense_claims.from_checkin_id`.
-//     When the user originally checked out on-site, autoCreateExpenseFromCheckin
-//     wrote a row in expense_claims linking the checkin to a job_cost_events
-//     row. That link survives even when the original `events` row is later
+//     HISTORICAL DATA ONLY — check-out used to auto-create a "ค่าสตาฟ" expense
+//     claim linking the checkin to a job_cost_events row. That behaviour was
+//     removed when the salary module took over staff pay (ADR-0001), so no new
+//     rows carry `from_checkin_id`; the old ones are still the best link we
+//     have, and it survives even when the original `events` row is later
 //     deleted. We resolve back to the real events.id via jce.source_event_id
 //     when present (set event_id directly), or fall back to a [ref:jce:UUID]
 //     marker so the report fetcher still surfaces the event name.
