@@ -28,7 +28,7 @@ export const EDITABLE_STATUSES: DocStatus[] = ['draft', 'rejected']
 // ── ประเภทเอกสาร ─────────────────────────────────────────────────────────────
 
 export const DOC_TYPE_CODES = [
-  'QT', 'JO', 'IV', 'TX', 'RC', 'CN', 'PO', 'CT', 'DN', 'MM', 'JA', 'IA', 'RS',
+  'QT', 'JO', 'IV', 'TX', 'RC', 'CN', 'PO', 'CT', 'DN', 'MM', 'JA', 'IA', 'RS', 'SC',
 ] as const
 
 export type DocTypeCode = (typeof DOC_TYPE_CODES)[number]
@@ -388,7 +388,35 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
       { section: 'การส่งมอบงานและทรัพย์สินของบริษัท', key: 'assets_returned', label: { th: 'ทรัพย์สินที่คืนบริษัท (บัตรพนักงาน, อุปกรณ์, เอกสาร ฯลฯ)', en: 'Company assets returned' }, type: 'textarea', width: 'full' },
     ],
   },
+  SC: {
+    code: 'SC', label: { th: 'หนังสือรับรองเงินเดือน', en: 'Salary Certificate' },
+    party: 'employee', hasItems: false, hasAmounts: false, requiresApproval: true, counter: 'monthly',
+    refTypes: [],
+    metaFields: [
+      // ข้อมูลพนักงาน — เติมจากตั้งค่าเงินเดือน (salary_profiles) + โปรไฟล์ ไม่ให้พนักงานแก้เอง
+      { section: 'ข้อมูลพนักงาน', key: 'position', label: { th: 'ตำแหน่ง', en: 'Position' }, type: 'text', required: true, width: 'third' },
+      { section: 'ข้อมูลพนักงาน', key: 'department', label: { th: 'แผนก/ฝ่าย', en: 'Department' }, type: 'text', width: 'third' },
+      { section: 'ข้อมูลพนักงาน', key: 'start_date', label: { th: 'วันเริ่มปฏิบัติงาน', en: 'Employment start date' }, type: 'date', required: true, width: 'third' },
+      { section: 'ข้อมูลพนักงาน', key: 'base_salary', label: { th: 'เงินเดือน (บาท/เดือน)', en: 'Monthly salary (THB)' }, type: 'number', required: true, width: 'third' },
+      // วัตถุประสงค์ — ผู้ขอกรอกเองได้เสมอ
+      { section: 'วัตถุประสงค์', key: 'purpose', label: { th: 'วัตถุประสงค์', en: 'Purpose' }, type: 'text', required: true, width: 'full', hint: 'เช่น ยื่นขอสินเชื่อกับธนาคาร, ยื่นขอวีซ่า, ใช้เป็นหลักฐานประกอบการสมัครเรียน' },
+    ],
+  },
 }
+
+// ── SC — ฟิลด์ที่ระบบเป็นคนเติม ไม่ใช่ผู้ขอ ──────────────────────────────────
+// พนักงานออกหนังสือรับรองเงินเดือนให้ตัวเองได้ แต่ต้องรับรอง "ตัวเลขของบริษัท"
+// ไม่ใช่ตัวเลขที่พิมพ์เอง — สองรายการนี้จึงเป็นแหล่งความจริงเดียวของทั้ง
+// ยามฝั่ง server (actions.ts::saveDraft) และช่องที่ล็อกไว้ในฟอร์ม (document-form.tsx)
+// admin แก้ได้ตามปกติ (เช่น ออกให้พนักงานที่ข้อมูลยังไม่ครบ)
+
+/** คอลัมน์ party_* ของ SC ที่ derive จาก profiles ของเจ้าของเอกสาร */
+export const SC_LOCKED_PARTY_KEYS = [
+  'party_name', 'party_id_card', 'party_address', 'party_phone', 'party_email', 'party_birth_date',
+] as const
+
+/** คีย์ใน meta ของ SC ที่ derive จาก salary_profiles + profiles (นอกนั้น = purpose ผู้ขอกรอกเอง) */
+export const SC_LOCKED_META_KEYS = ['position', 'department', 'start_date', 'base_salary'] as const
 
 // ── HTML (richtext meta) ─────────────────────────────────────────────────────
 // ponytail: HTML ในฟิลด์ richtext มาจาก TipTap ของเราเอง (ไม่มี script/on* อยู่แล้ว)

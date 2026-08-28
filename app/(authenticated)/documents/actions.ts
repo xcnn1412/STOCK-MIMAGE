@@ -4,9 +4,11 @@ import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity, type ActionType } from '@/lib/logger'
 import { createNotifications, type NotificationType } from '@/lib/notifications'
+import { formatAddress, parseAddress } from '@/lib/thai-address'
 import { getSession } from './session'
 import {
-  DOC_TYPES, TRANSITIONS, EDITABLE_STATUSES, calcDocumentTotals, calcItemAmount,
+  DOC_TYPES, TRANSITIONS, EDITABLE_STATUSES, SC_LOCKED_META_KEYS, SC_LOCKED_PARTY_KEYS,
+  calcDocumentTotals, calcItemAmount,
   canTransition, isMetaEmpty, sanitizeMeta,
   type DocAction, type DocBrandRow, type DocTypeCode, type DocumentItemRow,
   type DocumentLogRow, type DocumentRow, type VatMode,
@@ -158,6 +160,90 @@ export async function listRefCandidates(brand_code: string, types: string[]): Pr
 }
 
 // ============================================================================
+// SC — หนังสือรับรองเงินเดือน: ค่าตั้งต้นจากข้อมูลของพนักงานเอง
+// ผู้ขอไม่ได้พิมพ์เงินเดือน/ตำแหน่งเอง — ระบบอ่านจาก salary_profiles + profiles
+// (ที่เดียว ใช้ทั้งตอนสร้างร่าง, ตอนบันทึก และหน้าเลือกประเภทเอกสาร)
+// ============================================================================
+
+// ponytail: ไม่ export — ไฟล์ 'use server' export ได้เฉพาะ async function (type ไม่นับ เพราะถูกลบตอน compile)
+const NO_SALARY_PROFILE_MSG =
+  'ยังไม่มีข้อมูลเงินเดือนของคุณ — ติดต่อ admin ให้ตั้งค่าในเมนูเงินเดือนก่อน'
+
+/** ค่าที่ระบบเติมให้เอง — คีย์ตรงกับคอลัมน์ documents และคีย์ใน meta */
+export interface SalaryCertificateDefaults {
+  party_name: string | null
+  party_id_card: string | null
+  party_address: string | null
+  party_phone: string | null
+  party_email: string | null
+  party_birth_date: string | null
+  meta: {
+    position: string
+    department: string
+    start_date: string | null
+    base_salary: number
+  }
+}
+
+/**
+ * อ่านค่าตั้งต้นของ SC สำหรับ user คนหนึ่ง
+ * ponytail: query แบบ untyped เหมือน action อื่นในโมดูลนี้ (database.types.ts ยังไม่มี salary_profiles)
+ */
+async function scDefaultsFor(
+  supabase: any,
+  userId: string
+): Promise<{ error: string } | { defaults: SalaryCertificateDefaults }> {
+  const [profileRes, salaryRes] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('full_name, national_id, address, phone, department')
+      .eq('id', userId)
+      .maybeSingle(),
+    supabase
+      .from('salary_profiles')
+      .select('position, start_date, base_salary')
+      .eq('user_id', userId)
+      .maybeSingle(),
+  ])
+
+  const salary = salaryRes.data as
+    | { position: string | null; start_date: string | null; base_salary: number | string | null }
+    | null
+  if (!salary) return { error: NO_SALARY_PROFILE_MSG }
+
+  const p = (profileRes.data || {}) as Record<string, string | null>
+  // ที่อยู่ในโปรไฟล์เก็บเป็น JSON (lib/thai-address.ts) — แปลงเป็นบรรทัดเดียวสำหรับหัวเอกสาร
+  const address = p.address ? formatAddress(parseAddress(p.address)) : ''
+
+  return {
+    defaults: {
+      party_name: p.full_name || null,
+      party_id_card: p.national_id || null,
+      party_address: address || null,
+      party_phone: p.phone || null,
+      party_email: null, // profiles ไม่มีคอลัมน์อีเมล
+      party_birth_date: null, // profiles ไม่มีคอลัมน์วันเกิด
+      meta: {
+        position: salary.position || '',
+        department: p.department || '',
+        start_date: salary.start_date || null,
+        base_salary: Number(salary.base_salary ?? 0),
+      },
+    },
+  }
+}
+
+/**
+ * ให้หน้าเลือกประเภทเอกสารเรียกก่อนสร้างร่าง SC — ไม่มีข้อมูลเงินเดือนก็บอกตั้งแต่ต้น
+ * แทนที่จะปล่อยให้สร้างร่างเปล่าแล้วไปตันตอนส่งอนุมัติ
+ */
+export async function getSalaryCertificateDefaults() {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+  return scDefaultsFor(createServiceClient(), userId)
+}
+
+// ============================================================================
 // Create / Save / Delete / Duplicate
 // ============================================================================
 
@@ -185,6 +271,15 @@ export async function createDocument(params: { brand_code: string; doc_type: Doc
     return { error: 'แบรนด์นี้ไม่ได้จดทะเบียน VAT — ออกใบกำกับภาษีไม่ได้' }
   }
 
+  // SC: ร่างเกิดมาพร้อมข้อมูลของผู้ขอเลย — ไม่มีข้อมูลเงินเดือนก็ไม่ให้สร้าง
+  let seed: Record<string, unknown> = {}
+  if (params.doc_type === 'SC') {
+    const res = await scDefaultsFor(supabase, userId)
+    if ('error' in res) return { error: res.error }
+    const { meta, ...party } = res.defaults
+    seed = { ...party, meta }
+  }
+
   const draft_no = await nextDraftNo(supabase, userId)
   if (!draft_no) return { error: 'ออกเลขร่างไม่สำเร็จ' }
 
@@ -198,6 +293,7 @@ export async function createDocument(params: { brand_code: string; doc_type: Doc
       vat_mode: def.hasAmounts ? brand.default_vat_mode : 'none',
       wht_rate: def.hasAmounts ? brand.default_wht_rate : 0,
       created_by: userId,
+      ...seed,
     })
     .select('id')
     .single()
@@ -244,20 +340,50 @@ export async function saveDraft(id: string, payload: SaveDraftPayload) {
   const wht_rate = def?.hasAmounts ? Number(payload.wht_rate || 0) : 0
   const totals = calcDocumentTotals(items, vat_mode, wht_rate)
 
+  const partyOut: Record<string, string | null> = {
+    party_name: payload.party_name ?? null,
+    party_company: payload.party_company ?? null,
+    party_tax_id: payload.party_tax_id ?? null,
+    party_address: payload.party_address ?? null,
+    party_phone: payload.party_phone ?? null,
+    party_email: payload.party_email ?? null,
+    party_id_card: payload.party_id_card ?? null,
+    party_birth_date: payload.party_birth_date || null,
+  }
+  const metaOut = sanitizeMeta(payload.meta)
+
+  // ── ยาม SC ────────────────────────────────────────────────────────────────
+  // พนักงานออกหนังสือรับรองเงินเดือนให้ตัวเองได้ แต่ตัวเลขต้องมาจากฐานข้อมูล
+  // ไม่ใช่จาก payload — ทิ้งค่าที่ client ส่งมาแล้ว derive ใหม่ฝั่ง server เสมอ
+  // (เจ้าของเอกสารคือผู้ถูกรับรอง; admin แก้ได้ตามที่กรอก)
+  if (doc.doc_type === 'SC' && role !== 'admin') {
+    const res = await scDefaultsFor(supabase, doc.created_by || userId)
+    // ข้อมูลเงินเดือนหาย (ถูกลบหลังสร้างร่าง) → คงค่าเดิมใน DB ไว้ ไม่รับของ client
+    const src = 'error' in res
+      ? {
+          party: Object.fromEntries(
+            SC_LOCKED_PARTY_KEYS.map(k => [k, (doc as unknown as Record<string, string | null>)[k] ?? null])
+          ) as Record<string, string | null>,
+          meta: Object.fromEntries(
+            SC_LOCKED_META_KEYS.map(k => [k, ((doc.meta || {}) as Record<string, unknown>)[k] ?? null])
+          ) as Record<string, unknown>,
+        }
+      : {
+          party: res.defaults as unknown as Record<string, string | null>,
+          meta: res.defaults.meta as unknown as Record<string, unknown>,
+        }
+
+    for (const k of SC_LOCKED_PARTY_KEYS) partyOut[k] = src.party[k] ?? null
+    for (const k of SC_LOCKED_META_KEYS) metaOut[k] = src.meta[k] ?? null
+  }
+
   const { error: upErr } = await supabase
     .from('documents')
     .update({
-      party_name: payload.party_name ?? null,
-      party_company: payload.party_company ?? null,
-      party_tax_id: payload.party_tax_id ?? null,
-      party_address: payload.party_address ?? null,
-      party_phone: payload.party_phone ?? null,
-      party_email: payload.party_email ?? null,
-      party_id_card: payload.party_id_card ?? null,
-      party_birth_date: payload.party_birth_date || null,
+      ...partyOut,
       doc_date: payload.doc_date || null,
       // ponytail: ฟิลด์ richtext เก็บ HTML — ล้าง <script>/on* ก่อนลง DB (ยามชั้น trust boundary)
-      meta: sanitizeMeta(payload.meta),
+      meta: metaOut,
       vat_mode,
       wht_rate,
       notes: payload.notes ?? null,
@@ -320,6 +446,15 @@ export async function duplicateDocument(id: string) {
   if (!doc) return { error: 'ไม่พบเอกสาร' }
   if (role !== 'admin' && !doc.doc_no && doc.created_by !== userId) return { error: 'ไม่มีสิทธิ์เข้าถึงเอกสารนี้' }
 
+  // SC: คัดลอกใบของคนอื่นแล้วส่งขออนุมัติไม่ได้ — non-admin ได้ข้อมูลของตัวเองเสมอ
+  let scSeed: Record<string, unknown> = {}
+  if (doc.doc_type === 'SC' && role !== 'admin') {
+    const res = await scDefaultsFor(supabase, userId)
+    if ('error' in res) return { error: res.error }
+    const { meta, ...party } = res.defaults
+    scSeed = { ...party, meta: { ...((doc.meta || {}) as Record<string, unknown>), ...meta } }
+  }
+
   const draft_no = await nextDraftNo(supabase, userId)
   if (!draft_no) return { error: 'ออกเลขร่างไม่สำเร็จ' }
 
@@ -339,6 +474,7 @@ export async function duplicateDocument(id: string) {
       party_id_card: doc.party_id_card,
       party_birth_date: doc.party_birth_date,
       meta: doc.meta ?? {},
+      ...scSeed,
       vat_mode: doc.vat_mode,
       wht_rate: doc.wht_rate,
       subtotal: doc.subtotal,

@@ -10,18 +10,20 @@ import {
 } from '@react-pdf/renderer'
 import path from 'path'
 import { formatThaiDate } from '@/lib/thai-date'
+import { numberToThaiBahtText } from '@/lib/thai-baht-text'
 import {
   DOC_TYPES, calcTenure,
   type DocTypeDef, type MetaColumn, type MetaField, type MetaTableRow,
 } from '@/app/(authenticated)/documents/doc-types'
 import {
-  HR_THEME, IA_DECLARATION, JA_DECLARATION, RS_DECLARATION,
-  companyName, iaGuardianConsent, pdpaText,
+  HR_THEME, IA_DECLARATION, JA_DECLARATION, RS_DECLARATION, SC_CLOSING,
+  companyName, iaGuardianConsent, pdpaText, scCertificateBody,
 } from '@/app/(authenticated)/documents/hr-texts'
 import type { DocumentPdfData } from './document-pdf'
 
 // ============================================================================
 // แบบฟอร์ม HR — ใบสมัครงาน (JA) / ใบสมัครนักศึกษาฝึกงาน (IA) / ใบลาออก (RS)
+// / หนังสือรับรองเงินเดือน (SC)
 // เลย์เอาต์ตามแบบฟอร์มกระดาษของบริษัท (docs/document/template/*.pdf)
 // ที่เหลืออีก 10 ประเภทยังใช้ document-pdf.tsx ตัวเดิม
 // ============================================================================
@@ -813,11 +815,86 @@ export function ResignationPDF(data: DocumentPdfData) {
 }
 
 // ============================================================================
+// SC — หนังสือรับรองเงินเดือน / Salary Certificate
+// จดหมายหัวบริษัท: หัวกระดาษ → เลขที่/วันที่ พ.ศ. → ชื่อเรื่อง → เนื้อความ → ลงนาม
+// ============================================================================
+
+export function SalaryCertificatePDF(data: DocumentPdfData) {
+  const { doc, brand, approver } = data
+  const def = DOC_TYPES.SC
+  const meta = (doc.meta || {}) as Record<string, unknown>
+  const color = HR_THEME.SC
+  const { value, str } = makeField(def, meta)
+
+  const docDate = formatThaiDate(doc.doc_date || doc.created_at)
+  const approved = ['issued', 'sent', 'closed'].includes(doc.status)
+  const salary = Number(meta.base_salary ?? 0)
+
+  const paragraphs = scCertificateBody({
+    nameTh: brand?.name_th || '',
+    employee: doc.party_name || '',
+    idCard: doc.party_id_card || '',
+    position: str('position'),
+    department: str('department'),
+    startDate: value('start_date'),
+    salary: salary > 0 ? salary.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '',
+    salaryWords: salary > 0 ? numberToThaiBahtText(salary) : '',
+    purpose: str('purpose'),
+  })
+
+  return (
+    <Document>
+      <Page size="A4" style={s.page}>
+        <Chrome doc={doc} />
+        <FormHeader data={data} color={color} right="docno" />
+        <View style={[s.thickRule, { borderBottomColor: color }]} />
+
+        <Text style={[s.title, { color }]}>{def.label.th}</Text>
+        <Text style={s.subtitle}>{def.label.en}</Text>
+        <VoidNote doc={doc} />
+
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, marginBottom: 14 }}>
+          <Text style={{ fontSize: 11.5 }}>วันที่</Text>
+          <Text style={{ fontSize: 11.5, textDecoration: 'underline', width: 170, textAlign: 'center' }}>
+            {docDate || ' '}
+          </Text>
+        </View>
+
+        {paragraphs.map((p, i) => (
+          <Text key={i} style={[s.para, { fontSize: 12.5, lineHeight: 1.75, marginBottom: 10 }]}>
+            {`        ${p}`}
+          </Text>
+        ))}
+
+        <Text style={[s.para, { fontSize: 12.5, marginTop: 4 }]}>
+          {`        ${SC_CLOSING} ${docDate || '......../......../........'}`}
+        </Text>
+
+        {/* ลงนามผู้มีอำนาจ — ลายเซ็นขึ้นเมื่ออนุมัติแล้วเท่านั้น (เหมือนใบลาออก) */}
+        <View style={[s.signWrap, { justifyContent: 'flex-end', marginTop: 24 }]} wrap={false}>
+          <SignBox
+            label="ลงชื่อกรรมการ / ผู้มีอำนาจลงนาม"
+            name={approved ? approver?.full_name : null}
+            signatureUrl={approved ? approver?.signature_url : null}
+            dateText={approved && doc.approved_at ? `วันที่ ${formatThaiDate(doc.approved_at)}` : undefined}
+          />
+        </View>
+
+        <Text style={[s.hint, { marginTop: 18 }]}>
+          หนังสือฉบับนี้ออกโดยระบบเอกสารของบริษัท และมีผลสมบูรณ์เมื่อผ่านการอนุมัติและมีเลขที่เอกสารกำกับ
+        </Text>
+      </Page>
+    </Document>
+  )
+}
+
+// ============================================================================
 // ตัวสลับตามประเภท — document-pdf.tsx เรียกตัวนี้
 // ============================================================================
 
 export function HrFormPDF(data: DocumentPdfData) {
   if (data.doc.doc_type === 'IA') return InternshipApplicationPDF(data)
   if (data.doc.doc_type === 'RS') return ResignationPDF(data)
+  if (data.doc.doc_type === 'SC') return SalaryCertificatePDF(data)
   return JobApplicationPDF(data)
 }

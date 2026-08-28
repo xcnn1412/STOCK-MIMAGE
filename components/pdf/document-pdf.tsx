@@ -261,7 +261,7 @@ function renderMetaField(f: MetaField, v: unknown): React.ReactNode {
 // Main PDF Document
 // ============================================================================
 /** ประเภทที่มีเลย์เอาต์เฉพาะตามแบบฟอร์มกระดาษ (hr-forms-pdf.tsx) */
-const HR_TYPES: DocTypeCode[] = ['JA', 'IA', 'RS']
+const HR_TYPES: DocTypeCode[] = ['JA', 'IA', 'RS', 'SC']
 
 export function DocumentPDF(data: DocumentPdfData) {
   if (HR_TYPES.includes(data.doc.doc_type)) return HrFormPDF(data)

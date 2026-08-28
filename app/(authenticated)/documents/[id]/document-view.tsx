@@ -277,6 +277,7 @@ export default function DocumentDetailView({
           refCandidates={refCandidates}
           brand={brand}
           errors={errors}
+          role={role}
           onPayloadChange={p => { payloadRef.current = p }}
           onSaved={() => router.refresh()}
         />
