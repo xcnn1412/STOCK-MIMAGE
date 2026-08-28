@@ -84,6 +84,17 @@ const fulltime: SalarySlipPdfData = {
     lines: fulltimeLines,
     adjustments: fulltimeAdjustments,
     total: fulltimeTotal,
+    // เคยจ่ายไปแล้วด้วยยอดเก่า แล้วถูกเปิดแก้ + ปิดงวดใหม่ → ต้องมีทั้งประวัติและส่วนต่าง
+    reopen_history: [
+      {
+        at: '2026-08-27T06:00:00Z',
+        by_name: 'แอดมินหนึ่ง',
+        reason: 'เวลาออกวันที่ 5 ผิด',
+        total_before: fulltimeTotal - 200,
+        total_after: fulltimeTotal,
+      },
+    ],
+    paid_total: fulltimeTotal - 200,
     finalized_at: '2026-08-26T03:00:00Z',
     paid_at: '2026-08-27T04:30:00Z',
     period_key: '2026-08',
@@ -190,6 +201,11 @@ const cases: Case[] = [
       'ยอดสุทธิ',
       'เอกสารนี้ออกโดยระบบ',
       '28 สิงหาคม 2569',
+      'ประวัติการแก้ไข',
+      'ครั้งที่ 1 วันที่ 27 สิงหาคม 2569',
+      'เวลาออกวันที่ 5 ผิด',
+      'ยอดที่จ่ายไปแล้ว',
+      '(ต้องโอนเพิ่ม)',
     ],
     // ป้ายชนิดต้องไม่ซ้ำกับ label ที่ขึ้นต้นด้วยชื่อชนิดอยู่แล้ว + สลิปที่ปิดงวดแล้วไม่มีลายน้ำ
     notExpect: ['OT · OT', 'เบิ้ลต่างจังหวัด · เบิ้ลต่างจังหวัด', 'ร่าง / DRAFT'],

@@ -35,6 +35,16 @@ Font.register({
  * route ส่ง `SlipDetail` เข้ามาได้ตรงๆ ส่วนสคริปต์ตรวจสร้าง fixture ได้เองโดยไม่ต้อง
  * แตะ actions ('use server' — import เข้ามาในคอมโพเนนต์ที่ใช้ร่วมกันไม่ควรทำ)
  */
+/** หนึ่งครั้งที่สลิปถูกเปิดกลับมาแก้หลังปิดงวด — subset ของ ReopenEntry ใน actions.ts */
+export interface SalarySlipPdfReopen {
+  at: string
+  by_name: string | null
+  reason: string
+  total_before: number
+  /** null = ยังไม่ได้ปิดงวดใหม่ */
+  total_after: number | null
+}
+
 export interface SalarySlipPdfSlip {
   id: string
   status: 'draft' | 'finalized' | 'paid'
@@ -45,6 +55,10 @@ export interface SalarySlipPdfSlip {
   lines: SalaryLine[]
   adjustments: SalaryAdjustment[]
   total: number
+  /** ประวัติการเปิดแก้หลังปิดงวด — ไม่ส่ง/ว่าง = ไม่พิมพ์หัวข้อ "ประวัติการแก้ไข" */
+  reopen_history?: SalarySlipPdfReopen[] | null
+  /** ยอดที่จ่ายไปครั้งล่าสุด — ต่างจาก total เมื่อสลิปถูกเปิดแก้หลังจ่ายแล้ว */
+  paid_total?: number | null
   finalized_at: string | null
   paid_at: string | null
   period_key: string
@@ -131,6 +145,11 @@ const s = StyleSheet.create({
   netLabel: { fontSize: 15, fontWeight: 'bold' },
   netValue: { fontSize: 15, fontWeight: 'bold', textAlign: 'right', width: 110 },
   bahtText: { fontSize: 11.5, fontWeight: 'bold', textAlign: 'right', marginTop: 3 },
+  // ── ประวัติการแก้ไข ──
+  histBox: { marginTop: 10, borderTopWidth: 0.5, borderTopColor: '#999', paddingTop: 5 },
+  histTitle: { fontSize: 11.5, fontWeight: 'bold', marginBottom: 2 },
+  histLine: { fontSize: 10.5, color: '#444', marginBottom: 1 },
+  histDiff: { fontSize: 10.5, fontWeight: 'bold', color: '#b45309', marginTop: 2 },
   // ── Footer / watermark ──
   footer: { position: 'absolute', bottom: 20, left: 36, right: 36, textAlign: 'center' },
   footerText: { fontSize: 9.5, color: '#666' },
@@ -213,6 +232,14 @@ export function SalarySlipPDF({ slip, printedAt }: SalarySlipPdfData) {
 
   const hasAdjustments = slip.adjustments.length > 0
   const printedLabel = formatThaiDate(printedAt ? new Date(printedAt) : new Date())
+
+  // ── ประวัติการเปิดแก้ + ส่วนต่างของสลิปที่จ่ายไปแล้วแต่ถูกเปิดแก้ ──
+  const reopens = slip.reopen_history || []
+  const paidTotal = slip.paid_total === null || slip.paid_total === undefined
+    ? null
+    : Number(slip.paid_total)
+  const paidDiff = paidTotal === null ? 0 : Number((Number(slip.total) - paidTotal).toFixed(2))
+  const showPaidDiff = paidTotal !== null && paidDiff !== 0
 
   return (
     <Document>
@@ -337,6 +364,34 @@ export function SalarySlipPDF({ slip, printedAt }: SalarySlipPdfData) {
             <Text style={s.bahtText}>({numberToThaiBahtText(Number(slip.total) || 0)})</Text>
           </View>
         </View>
+
+        {/* ── ประวัติการแก้ไข — สลิปที่ถูกเปิดกลับมาแก้หลังปิดงวดต้องตามรอยได้ ── */}
+        {(reopens.length > 0 || showPaidDiff) && (
+          <View style={s.histBox} wrap={false}>
+            {reopens.length > 0 && (
+              <>
+                <Text style={s.histTitle}>ประวัติการแก้ไข</Text>
+                {reopens.map((r, i) => (
+                  <Text style={s.histLine} key={`${r.at}-${i}`}>
+                    {`ครั้งที่ ${i + 1} วันที่ ${formatThaiDate(r.at)} `}
+                    {`โดย ${r.by_name || 'ไม่ทราบชื่อ'} เหตุผล: ${r.reason} `}
+                    {`ยอด ${fmtMoney(r.total_before)} → `}
+                    {r.total_after === null || r.total_after === undefined
+                      ? 'กำลังแก้ไข'
+                      : fmtMoney(r.total_after)}
+                  </Text>
+                ))}
+              </>
+            )}
+            {showPaidDiff && (
+              <Text style={s.histDiff}>
+                {`ยอดที่จ่ายไปแล้ว ${fmtMoney(paidTotal)} · `}
+                {`ส่วนต่าง ${paidDiff > 0 ? '+' : '-'}${fmtMoney(Math.abs(paidDiff))} `}
+                {paidDiff > 0 ? '(ต้องโอนเพิ่ม)' : '(ต้องหักคืน)'}
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* ── ท้ายกระดาษ ── */}
         <View style={s.footer} fixed>

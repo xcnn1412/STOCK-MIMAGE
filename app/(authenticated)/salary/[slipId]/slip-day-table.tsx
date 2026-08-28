@@ -42,6 +42,8 @@ interface Props {
   events: SlipEventOption[]
   /** admin + สลิปร่างเท่านั้น — ที่เหลืออ่านอย่างเดียว (server ตรวจซ้ำทุก action) */
   editable: boolean
+  /** วันไทยที่เพิ่งถูกคลิกจาก checklist งานค้าง — แถวของวันนั้นถูกไฮไลต์ชั่วคราว */
+  highlightDate?: string | null
   /** สลิปที่ action คืนกลับมาหลังบันทึก — ตัวเรียกเก็บไว้ใน state */
   onSlipChange: (slip: SlipDetail) => void
 }
@@ -81,7 +83,7 @@ function isMissing(l: SalaryLine): boolean {
 }
 
 export default function SlipDayTable({
-  slip, checkins, duties, events, editable, onSlipChange,
+  slip, checkins, duties, events, editable, highlightDate, onSlipChange,
 }: Props) {
   const router = useRouter()
   const days = groupSlipByDay(slip.lines, checkins, slip.warnings)
@@ -182,14 +184,19 @@ export default function SlipDayTable({
                 <tr
                   key={c ? c.id : day.date}
                   id={idx === 0 ? `day-${day.date}` : undefined}
-                  className={cn('border-b align-top', paidElsewhere && 'text-muted-foreground')}
+                  className={cn(
+                    'border-b align-top',
+                    paidElsewhere && 'text-muted-foreground',
+                    // คลิกจาก checklist งานค้าง — ไฮไลต์ทุกแถวย่อยของวันนั้น 2 วิ
+                    highlightDate === day.date && 'ring-2 ring-amber-400 ring-inset'
+                  )}
                 >
                   {idx === 0 && (
                     <td rowSpan={span} className="px-3 py-2.5 whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
                         <span>{formatThaiDate(day.date)}</span>
                         {day.warnings.length > 0 && (
-                          // checklist ที่คลิกไปแก้ได้อยู่ใน #29 — ตอนนี้บอกด้วย tooltip ก่อน
+                          // รายละเอียด/ปุ่ม "ยอมรับ" อยู่ใน checklist งานค้างเหนือตาราง
                           <span
                             title={day.warnings.map(w => w.message).join('\n')}
                             aria-label={`คำเตือน ${day.warnings.length} ข้อ`}
