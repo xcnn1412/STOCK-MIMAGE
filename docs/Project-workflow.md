@@ -55,6 +55,8 @@ tickets = sub-issues ของ #9 (tracer bullets, blocked-by จริงบน
 | 10 | #19 | Ship: whats-new + สอบทาน i18n + ติ๊ก Project-workflow + `tsc`/`npm run build` ทั้งโปรเจกต์ (AC1–AC7) | 3, 8, 9 | [ ] |
 
 ### สิ่งที่ user ต้องทำเอง (หลัง ship)
-- รัน `supabase/migrations/20260828_create_salary_module.sql` บน Supabase SQL Editor แล้วรัน `npx tsx scripts/salary-check.ts`
-- กรอกโปรไฟล์เงินเดือนทุกคนใน `/salary/settings` และเปิด module `salary` ให้ผู้ใช้จาก `/users` ก่อนเปิดงวดแรก
+- รัน migration 3 ไฟล์บน Supabase SQL Editor **ตามลำดับ** (ทุกไฟล์ idempotent รันซ้ำได้): `20260828_create_salary_module.sql` → `20260828_add_sc_doc_type.sql` → `20260828_notifications_allow_salary_slip.sql` — จากนั้นวาง `scripts/salary-trigger-check.sql` ใน SQL Editor รันเพื่อยืนยัน guard (ทุกบรรทัด NOTICE ต้องขึ้น ok)
+- ⚠️ ต้องรัน migration ก่อน deploy โค้ด: เช็คอิน "ไปหน้างาน" ของทุกคนจะถูกบล็อกจนกว่าจะมีตาราง `salary_duties` (ฟอร์มขึ้น "ยังไม่มีรายการหน้าที่หน้างานในระบบ")
+- กรอกโปรไฟล์เงินเดือนทุกคนใน `/salary/settings` และเปิด module `salary` ให้ผู้ใช้จาก `/users` ก่อนเปิดงวดแรก (หนังสือรับรองเงินเดือนก็ต้องมีโปรไฟล์เงินเดือนก่อน)
 - ปิดใบเบิกค่าสตาฟที่ค้างอยู่ก่อนวันเปิดใช้ให้จบตาม flow การเงินเดิม (ระบบไม่สร้างใบใหม่จากเช็คอินอีก)
+- เครื่องนี้: Docker Desktop content store เสียหลังดิสก์ C: เต็มระหว่าง pull image (`supabase start` ใช้ไม่ได้) — ถ้าจะใช้ local stack อีกต้อง reset Docker data (ลบ image/volume ทั้งหมด รวม volume `supabase_db_stock` เดิม) และเคลียร์พื้นที่ C: (`docker_data.vhdx` 16.45 GB)
