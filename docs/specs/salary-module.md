@@ -90,7 +90,7 @@
   - `adjustments[]` = `{ id, label, amount }` (± ได้)
   - ponytail: JSONB แทนตารางบรรทัด — สลิปคือ snapshot อ่านทั้งก้อนเสมอ ไม่ query ข้ามบรรทัด
 - **DB trigger** บน `salary_slips`: BEFORE UPDATE ถ้า `OLD.status IN ('finalized','paid')` ห้ามเปลี่ยนคอลัมน์อื่นนอกจาก `status` (ไป `paid` เท่านั้น), `paid_at`, `paid_by`, `updated_at`; BEFORE DELETE ถ้า status ≠ draft → RAISE — ครอบคลุม service role (pattern เดียวกับ `documents`)
-- `notifications`: type ใหม่ `salary_finalized`, reference_type `salary_slip` (CHECK ถูกผ่อนไว้แล้วใน migration documents)
+- `notifications`: type ใหม่ `salary_finalized`, reference_type `salary_slip` — migration documents ดรอป CHECK ของ `type` แต่**ใส่ CHECK ของ `reference_type` กลับแบบปิด** จึงต้องมี migration `20260828_notifications_allow_salary_slip.sql` เพิ่ม `'salary_slip'` (พบตอนทำ ticket 7)
 - RLS: เปิดตาม pattern repo (service role ผ่าน; `salary_profiles`/`salary_slips` ไม่มี policy ให้ anon/authenticated อ่าน) — สิทธิ์จริงบังคับใน server actions + trigger
 
 ### เครื่องคำนวณ (`app/(authenticated)/salary/compute.ts` — pure function ไม่แตะ DB)
