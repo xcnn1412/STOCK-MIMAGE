@@ -15,9 +15,12 @@ import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { getSession, requireAdmin } from './session'
 import { fmtMoney, periodLabel } from './format'
-import { computeSlip, hasMissingAmounts, lineAmount, periodRange, toEmploymentType } from './compute'
+import {
+  catchUpStart, computeSlip, hasMissingAmounts, lineAmount, periodKeyFor, periodRange,
+  selectCheckinsForRun, toEmploymentType, toRunKind, weekRangeFor, weekdayOf,
+} from './compute'
 import type {
-  CheckinInput, EmploymentType, SalaryAdjustment, SalaryLine, SalaryWarning,
+  CheckinInput, EmploymentType, RunKind, RunWindow, SalaryAdjustment, SalaryLine, SalaryWarning,
 } from './compute'
 import { getSalarySettings, listDuties } from './settings/actions'
 import type { SalaryDutyRow } from './settings/actions'
@@ -43,6 +46,7 @@ export interface MySlipRow {
 /** งวดคำนวณ + จำนวนสลิปแต่ละสถานะ (หน้า /salary/runs) */
 export interface RunListRow {
   id: string
+  kind: RunKind
   period_key: string
   period_start: string
   period_end: string
@@ -57,6 +61,7 @@ export interface RunListRow {
 /** หัวงวด (หน้า /salary/runs/[runId]) */
 export interface RunHeader {
   id: string
+  kind: RunKind
   period_key: string
   period_start: string
   period_end: string
@@ -191,6 +196,7 @@ type CheckinRaw = {
   duties: string[] | null
   out_of_province: boolean | null
   note: string | null
+  paid_slip_id?: string | null
   // PostgREST คืน to-one เป็น object แต่บางเวอร์ชันห่อเป็น array — รับทั้งสองแบบ
   events: { name: string | null } | { name: string | null }[] | null
 }
@@ -219,6 +225,7 @@ function toCheckinInput(raw: CheckinRaw): CheckinInput {
     event_name,
     duties: Array.isArray(raw.duties) ? raw.duties : [],
     out_of_province: !!raw.out_of_province,
+    paid_slip_id: raw.paid_slip_id ?? null,
   }
 }
 
@@ -314,13 +321,14 @@ export async function listRuns(): Promise<RunListRow[]> {
   const [runsRes, slipsRes] = await Promise.all([
     supabase
       .from('salary_runs')
-      .select('id, period_key, period_start, period_end, note, created_at')
-      .order('period_key', { ascending: false }),
+      .select('id, kind, period_key, period_start, period_end, note, created_at')
+      .order('period_end', { ascending: false }),
     supabase.from('salary_slips').select('run_id, status'),
   ])
 
   type RunRaw = {
     id: string
+    kind: string | null
     period_key: string
     period_start: string
     period_end: string
@@ -338,7 +346,7 @@ export async function listRuns(): Promise<RunListRow[]> {
 
   return ((runsRes.data || []) as unknown as RunRaw[]).map(r => {
     const c = counts.get(r.id) ?? { draft: 0, finalized: 0, paid: 0 }
-    return { ...r, ...c, slips: c.draft + c.finalized + c.paid }
+    return { ...r, kind: toRunKind(r.kind), ...c, slips: c.draft + c.finalized + c.paid }
   })
 }
 
@@ -346,21 +354,74 @@ export async function listRuns(): Promise<RunListRow[]> {
 // เปิดงวด
 // ────────────────────────────────────────────────────────────────────────────
 
+/** ตัวเลือกเปิดงวด — งวดเดือนเลือกเดือน, งวดสัปดาห์เลือกวันจันทร์, กำหนดเองเลือกช่วง */
+export type CreateRunInput =
+  | { kind: 'monthly'; month: string }
+  | { kind: 'weekly'; start: string }
+  | { kind: 'custom'; start: string; end: string }
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** งวดกำหนดเองยาวได้ไม่เกินเท่านี้ — กันเผลอเลือกช่วงข้ามปี */
+const MAX_CUSTOM_DAYS = 62
+
+/** จำนวนวันของช่วง (รวมปลายทั้งสองฝั่ง) */
+function daysInRange(start: string, end: string): number {
+  return Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000) + 1
+}
+
+/** แปลงตัวเลือกเป็นช่วงวัน + period_key — คืน error เป็นข้อความไทยเมื่อกรอกไม่ถูก */
+function resolveRunRange(
+  input: CreateRunInput,
+  cutoffDay: number
+): { error: string } | { kind: RunKind; key: string; start: string; end: string } {
+  if (input.kind === 'monthly') {
+    const month = (input.month || '').trim()
+    if (!PERIOD_KEY_RE.test(month)) return { error: 'งวดต้องอยู่ในรูปแบบ YYYY-MM (เช่น 2026-08)' }
+    const { start, end } = periodRange(month, cutoffDay)
+    return { kind: 'monthly', key: month, start, end }
+  }
+
+  if (input.kind === 'weekly') {
+    const start = (input.start || '').trim()
+    if (!DATE_RE.test(start)) return { error: 'วันเริ่มงวดต้องอยู่ในรูปแบบ YYYY-MM-DD' }
+    if (weekdayOf(start) !== 1) return { error: 'งวดรายสัปดาห์ต้องเริ่มวันจันทร์' }
+    const range = weekRangeFor(start)
+    return { kind: 'weekly', key: periodKeyFor('weekly', range.start, range.end), ...range }
+  }
+
+  const start = (input.start || '').trim()
+  const end = (input.end || '').trim()
+  if (!DATE_RE.test(start) || !DATE_RE.test(end)) {
+    return { error: 'วันเริ่ม–วันสิ้นสุดต้องอยู่ในรูปแบบ YYYY-MM-DD' }
+  }
+  if (start > end) return { error: 'วันเริ่มงวดต้องไม่เกินวันสิ้นสุด' }
+  if (daysInRange(start, end) > MAX_CUSTOM_DAYS) {
+    return { error: `งวดกำหนดเองยาวได้ไม่เกิน ${MAX_CUSTOM_DAYS} วัน` }
+  }
+  return { kind: 'custom', key: periodKeyFor('custom', start, end), start, end }
+}
+
 /**
- * เปิดงวดใหม่จาก 'YYYY-MM' — ช่วงวันที่มาจากวันตัดรอบ "ปัจจุบัน" แล้วถูกแช่ไว้ใน
- * period_start/period_end (เปลี่ยนวันตัดรอบทีหลังไม่ย้อนไปแก้งวดที่เปิดไปแล้ว)
+ * เปิดงวดใหม่ — งวดเดือนได้ช่วงวันจากวันตัดรอบ "ปัจจุบัน" แล้วแช่ไว้ใน period_start/period_end
+ * (เปลี่ยนวันตัดรอบทีหลังไม่ย้อนไปแก้งวดที่เปิดไปแล้ว); งวดสัปดาห์/กำหนดเองเก็บช่วงที่เลือกตรงๆ
+ *
+ * ไม่มีการกันงวดทับซ้อนอีกต่อไป — กติกา "เช็คอินจ่ายได้ครั้งเดียว" (staff_checkins.paid_slip_id)
+ * ทำหน้าที่นั้นแทน จึงเปิดงวดสัปดาห์ซ้อนในช่วงงวดเดือนได้โดยไม่จ่ายซ้ำ
+ *
+ * autoCompute = คำนวณสลิปให้ทุกคนที่ควรอยู่ในงวดทันทีหลังเปิด (autoSelectUserIds)
  */
 export async function createSalaryRun(
-  periodKey: string
-): Promise<{ error?: string; id?: string }> {
+  input: CreateRunInput,
+  opts?: { autoCompute?: boolean }
+): Promise<{ error?: string; id?: string; computed?: number }> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
 
-  const key = (periodKey || '').trim()
-  if (!PERIOD_KEY_RE.test(key)) return { error: 'งวดต้องอยู่ในรูปแบบ YYYY-MM (เช่น 2026-08)' }
-
   const { cutoff_day } = await getSalarySettings()
-  const { start, end } = periodRange(key, cutoff_day)
+  const resolved = resolveRunRange(input, cutoff_day)
+  if ('error' in resolved) return { error: resolved.error }
+  const { kind, key, start, end } = resolved
 
   const supabase = createServiceClient()
   const { data: dupe } = await supabase
@@ -370,25 +431,9 @@ export async function createSalaryRun(
     .maybeSingle()
   if (dupe) return { error: `งวด${periodLabel(key)}ถูกเปิดไว้แล้ว` }
 
-  // งวดเก่าเก็บช่วงวันที่ตายตัวตอนเปิด — ถ้า admin เปลี่ยนวันตัดรอบระหว่างทาง ช่วงของงวดใหม่
-  // อาจทับ/เว้นช่องกับงวดเดิม → เช็คอินวันเดียวกันถูกจ่ายซ้ำ (หรือไม่ถูกจ่ายเลย) ต้องกันที่นี่
-  const { data: overlap } = await supabase
-    .from('salary_runs')
-    .select('period_key, period_start, period_end')
-    .lte('period_start', end)
-    .gte('period_end', start)
-    .limit(1)
-    .maybeSingle()
-  if (overlap) {
-    const o = overlap as unknown as { period_key: string; period_start: string; period_end: string }
-    return {
-      error: `ช่วงวันที่ ${start} – ${end} ทับกับงวด${periodLabel(o.period_key)} (${o.period_start} – ${o.period_end}) — ถ้าเพิ่งเปลี่ยนวันตัดรอบ ให้ตั้งกลับหรือปรับให้ต่อเนื่องกับงวดเดิมก่อน`,
-    }
-  }
-
   const { data, error } = await supabase
     .from('salary_runs')
-    .insert({ period_key: key, period_start: start, period_end: end, created_by: auth.userId })
+    .insert({ kind, period_key: key, period_start: start, period_end: end, created_by: auth.userId })
     .select('id')
     .single()
   if (error || !data) {
@@ -398,9 +443,57 @@ export async function createSalaryRun(
   }
 
   const id = (data as unknown as { id: string }).id
-  await logActivity('CREATE_SALARY_RUN', { period_key: key, period_start: start, period_end: end })
+  await logActivity('CREATE_SALARY_RUN', { kind, period_key: key, period_start: start, period_end: end })
+
+  let computed: number | undefined
+  if (opts?.autoCompute) {
+    const userIds = await autoSelectUserIds({ kind, period_start: start, period_end: end })
+    // ไม่มีใครเข้าเกณฑ์ = งวดว่าง (ไม่ใช่ error) — admin ติ๊กคนเองในหน้างวดได้
+    computed = userIds.length === 0 ? 0 : (await computeSlips(id, userIds)).computed ?? 0
+  }
+
   revalidatePath('/salary/runs')
-  return { id }
+  return { id, computed }
+}
+
+/**
+ * คนที่ควรถูกติ๊กไว้ให้เองในงวดหนึ่ง
+ * - ทุกชนิดงวด: ใครก็ตามที่มีเช็คอินหน้างาน "ค้างจ่าย" ในหน้าต่างเก็บตกของงวด
+ * - งวดเดือนเพิ่ม: ประจำ/ฝึกงานทุกคนที่มีโปรไฟล์เงินเดือน (ต้องได้เงินเดือนฐานแม้ไม่ได้ออกงาน)
+ */
+export async function autoSelectUserIds(run: RunWindow): Promise<string[]> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return []
+
+  const supabase = createServiceClient()
+  const fromISO = new Date(`${catchUpStart(run.period_end)}T00:00:00+07:00`).toISOString()
+  const toISO = new Date(`${run.period_end}T23:59:59.999+07:00`).toISOString()
+
+  const [checkinsRes, profilesRes] = await Promise.all([
+    supabase
+      .from('staff_checkins')
+      .select('user_id')
+      .eq('check_type', 'onsite')
+      .is('paid_slip_id', null)
+      .gte('checked_in_at', fromISO)
+      .lte('checked_in_at', toISO),
+    run.kind === 'monthly'
+      ? supabase
+          .from('salary_profiles')
+          .select('user_id')
+          .in('employment_type', ['fulltime', 'intern'])
+      : Promise.resolve({ data: [] as { user_id: string }[] }),
+  ])
+
+  const ids = new Set<string>()
+  for (const r of ((checkinsRes.data || []) as unknown as { user_id: string | null }[])) {
+    if (r.user_id) ids.add(r.user_id)
+  }
+  for (const r of ((profilesRes.data || []) as unknown as { user_id: string | null }[])) {
+    if (r.user_id) ids.add(r.user_id)
+  }
+  // ลำดับคงที่ — แถวจาก PostgREST ไม่รับประกันลำดับ
+  return Array.from(ids).sort(cmpText)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -415,11 +508,14 @@ export async function getRun(runId: string): Promise<{ error: string } | RunDeta
   const supabase = createServiceClient()
   const { data: runRaw } = await supabase
     .from('salary_runs')
-    .select('id, period_key, period_start, period_end, note, created_at')
+    .select('id, kind, period_key, period_start, period_end, note, created_at')
     .eq('id', runId)
     .maybeSingle()
   if (!runRaw) return { error: 'ไม่พบงวดนี้' }
-  const run = runRaw as unknown as RunHeader
+  const run: RunHeader = {
+    ...(runRaw as unknown as RunHeader),
+    kind: toRunKind((runRaw as unknown as { kind?: unknown }).kind),
+  }
 
   const { data: slipsRaw } = await supabase
     .from('salary_slips')
@@ -486,17 +582,30 @@ export async function computeSlips(
   const supabase = createServiceClient()
   const { data: runRaw } = await supabase
     .from('salary_runs')
-    .select('id, period_start, period_end')
+    .select('id, kind, period_start, period_end')
     .eq('id', runId)
     .maybeSingle()
   if (!runRaw) return { error: 'ไม่พบงวดนี้' }
-  const run = runRaw as unknown as { id: string; period_start: string; period_end: string }
+  const runRow = runRaw as unknown as {
+    id: string
+    kind?: unknown
+    period_start: string
+    period_end: string
+  }
+  const run: RunWindow & { id: string } = {
+    id: runRow.id,
+    kind: toRunKind(runRow.kind),
+    period_start: runRow.period_start,
+    period_end: runRow.period_end,
+  }
 
   // listDuties() คืนทุกหน้าที่รวมที่ปิดใช้งาน — ตั้งใจ: สลิปเก่าอาจอ้างรหัสที่เพิ่งปิดไป
   const [settings, duties] = await Promise.all([getSalarySettings(), listDuties()])
 
-  // ขอบเขตงวดเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
-  const fromISO = new Date(`${run.period_start}T00:00:00+07:00`).toISOString()
+  // ขอบเขตเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
+  // ดึงกว้างถึงหน้าต่างเก็บตก 60 วัน แล้วให้ selectCheckinsForRun คัดตามชนิดงวด/สถานะจ่าย
+  const onsiteFrom = catchUpStart(run.period_end)
+  const fromISO = new Date(`${onsiteFrom}T00:00:00+07:00`).toISOString()
   const toISO = new Date(`${run.period_end}T23:59:59.999+07:00`).toISOString()
 
   const [profilesRes, salaryProfilesRes, existingRes, checkinsRes] = await Promise.all([
@@ -514,7 +623,7 @@ export async function computeSlips(
     supabase
       .from('staff_checkins')
       .select(
-        'id, user_id, check_type, checked_in_at, checked_out_at, event_id, duties, out_of_province, note, events:event_id(name)'
+        'id, user_id, check_type, checked_in_at, checked_out_at, event_id, duties, out_of_province, note, paid_slip_id, events:event_id(name)'
       )
       .in('user_id', ids)
       .gte('checked_in_at', fromISO)
@@ -595,6 +704,10 @@ export async function computeSlips(
     const base_salary = Number(sp.base_salary || 0)
     const adjustments: SalaryAdjustment[] = Array.isArray(prev?.adjustments) ? prev.adjustments : []
 
+    // เช็คอินที่เข้าสลิปนี้ได้จริง — ตัดที่จ่ายไปแล้ว (ยกเว้นที่สลิปใบนี้เองจ่าย) และ
+    // ตัดเช็คอินออฟฟิศออกเมื่อไม่ใช่งวดเดือน ก่อนส่งเข้าเครื่องคำนวณ
+    const checkins = selectCheckinsForRun(checkinsByUser.get(userId) || [], run, prev?.id)
+
     const result = computeSlip({
       profile: {
         employment_type,
@@ -603,11 +716,13 @@ export async function computeSlips(
         work_end: sp.work_end || '19:00',
         ot_rate: Number(sp.ot_rate || 0),
       },
-      checkins: checkinsByUser.get(userId) || [],
+      checkins,
       duties,
       oopRate: settings.out_of_province_rate,
       periodStart: run.period_start,
       periodEnd: run.period_end,
+      runKind: run.kind,
+      onsiteFrom,
       previousLines: Array.isArray(prev?.lines) ? prev.lines : undefined,
       adjustments,
     })
@@ -1264,7 +1379,11 @@ function toFinalizable(raw: FinalizeRaw): FinalizableSlip {
 
 /**
  * ปิดงวดสลิปร่างหนึ่งใบ — ผู้เรียกตรวจสิทธิ์ admin + สถานะ draft มาแล้ว
- * เขียนเฉพาะ status/finalized_at/finalized_by (ตัวเลขทั้งหมดคงเดิม) → log → แจ้งเตือนเจ้าของ
+ *
+ * การเปลี่ยนสถานะ + ประทับ paid_slip_id ให้เช็คอินในบรรทัด ทำใน RPC finalize_salary_slip
+ * ที่ฐานข้อมูล (ล็อกแถว + transaction เดียว) — ถ้ามีเช็คอินถูกจ่ายในสลิปอื่นไปก่อน
+ * (เปิดสองงวดทับกันแล้วปิดอีกงวดก่อน) RPC จะปฏิเสธพร้อมข้อความไทยให้คำนวณใหม่
+ * จากนั้นค่อย log → แจ้งเตือนเจ้าของ
  */
 async function finalizeOne(
   supabase: ReturnType<typeof createServiceClient>,
@@ -1275,20 +1394,12 @@ async function finalizeOne(
   // spec §7: amount = null (รันเนอร์ที่ยังไม่กรอก) นับเป็น 0 ในยอด — ปิดงวดทั้งอย่างนั้นไม่ได้
   if (hasMissingAmounts(slip.lines)) return { error: RUNNER_MISSING_ERROR }
 
-  const { data: updated, error } = await supabase
-    .from('salary_slips')
-    .update({
-      status: 'finalized',
-      finalized_at: new Date().toISOString(),
-      finalized_by: adminId,
-    })
-    .eq('id', slip.id)
-    // กันสลิปที่ถูกปิดงวดคั่นระหว่างที่เราโหลดมา (เปิดสองหน้าต่างพร้อมกัน)
-    .eq('status', 'draft')
-    .select('id')
-  if (error) return { error: `ปิดงวดไม่สำเร็จ: ${error.message}` }
-  // ไม่มีแถวถูกแก้ = มีคนปิดงวดใบนี้ไปก่อนแล้ว — ห้าม log/แจ้งเตือนซ้ำ
-  if (!updated || updated.length === 0) return { error: 'สลิปนี้ปิดงวดแล้ว' }
+  const { error } = await supabase.rpc('finalize_salary_slip', {
+    p_slip_id: slip.id,
+    p_user_id: adminId,
+  })
+  // ข้อความจาก RPC เป็นภาษาไทยอยู่แล้ว (ไม่พบสลิป / ปิดงวดแล้ว / เช็คอินถูกจ่ายในสลิปอื่น)
+  if (error) return { error: error.message || 'ปิดงวดไม่สำเร็จ' }
 
   await logActivity(
     'FINALIZE_SALARY_SLIP',

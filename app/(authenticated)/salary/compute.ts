@@ -17,6 +17,16 @@ export function toEmploymentType(v: unknown): EmploymentType {
   return v === 'freelance' || v === 'intern' ? v : 'fulltime'
 }
 
+/** ชนิดงวด — monthly (เดือน, มีเงินเดือนฐาน) / weekly (จันทร์–อาทิตย์) / custom */
+export type RunKind = 'monthly' | 'weekly' | 'custom'
+
+export function toRunKind(v: unknown): RunKind {
+  return v === 'weekly' || v === 'custom' ? v : 'monthly'
+}
+
+/** หน้าต่าง "เก็บตก" — เช็คอินหน้างานที่ยังไม่ถูกจ่ายย้อนหลังได้ไม่เกินกี่วันจากวันสิ้นงวด */
+export const CATCH_UP_DAYS = 60
+
 export interface SalaryProfileInput {
   employment_type: EmploymentType
   base_salary: number
@@ -38,6 +48,8 @@ export interface CheckinInput {
   /** รหัสหน้าที่ (salary_duties.code) */
   duties: string[]
   out_of_province: boolean
+  /** สลิปที่จ่ายเช็คอินนี้ไปแล้ว (null/undefined = ยังไม่ถูกจ่าย) */
+  paid_slip_id?: string | null
 }
 
 export interface DutyInput {
@@ -88,6 +100,15 @@ export interface ComputeInput {
   /** YYYY-MM-DD (รวมปลายทั้งสองฝั่ง) */
   periodStart: string
   periodEnd: string
+  /** ชนิดงวด — ไม่ส่ง = monthly (ผู้เรียกเก่า/เทสต์เดิมได้พฤติกรรมเดิม) */
+  runKind?: RunKind
+  /**
+   * วันแรกที่เช็คอิน "หน้างาน" ยังนับเข้าสลิปได้ (YYYY-MM-DD)
+   * ไม่ส่ง = periodStart สำหรับงวดเดือน / periodEnd − 60 วันสำหรับงวดสัปดาห์-กำหนดเอง
+   * ผู้เรียกจริง (actions.ts) ส่งวันเก็บตกเข้ามาเสมอ — เช็คอินค้างจ่ายจากงวดก่อนจึงตกมาในงวดนี้ได้
+   * (เช็คอินออฟฟิศไม่เกี่ยว — ใช้ periodStart เสมอ)
+   */
+  onsiteFrom?: string
   /** บรรทัดของการคำนวณครั้งก่อน — ใช้คงค่าที่แก้มือไว้ */
   previousLines?: SalaryLine[]
   adjustments?: SalaryAdjustment[]
@@ -176,6 +197,87 @@ export function periodRange(periodKey: string, cutoffDay: number): { start: stri
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) }
 }
 
+/** เลื่อนวันที่ YYYY-MM-DD ไป n วัน (คิดบน UTC — ไม่มีเวลาเข้ามาเกี่ยว จึงไม่เพี้ยน) */
+export function shiftDay(date: string, days: number): string {
+  const t = Date.parse(`${date}T00:00:00Z`)
+  if (Number.isNaN(t)) return date
+  return new Date(t + days * 86_400_000).toISOString().slice(0, 10)
+}
+
+/** วันแรกที่เช็คอินหน้างานค้างจ่ายยังตกเข้างวดที่จบวันที่ periodEnd ได้ */
+export function catchUpStart(periodEnd: string): string {
+  return shiftDay(periodEnd, -CATCH_UP_DAYS)
+}
+
+/** ช่วงงวดเท่าที่ตัวเลือกเช็คอินต้องรู้ */
+export interface RunWindow {
+  kind: RunKind
+  period_start: string
+  period_end: string
+}
+
+/** แถวเช็คอินขั้นต่ำที่ selectCheckinsForRun ต้องใช้ (รับแถวจาก DB หรือ CheckinInput ก็ได้) */
+export interface SelectableCheckin {
+  check_type: 'office' | 'onsite' | 'remote'
+  /** ISO instant */
+  checked_in_at: string
+  paid_slip_id?: string | null
+}
+
+/**
+ * เลือกเช็คอินที่ "ควรอยู่ในสลิปของงวดนี้"
+ * - onsite: ยังไม่ถูกจ่าย (หรือถูกจ่ายโดยสลิปใบนี้เอง) และอยู่ใน [periodEnd − 60 วัน, periodEnd]
+ *   → งวดทับซ้อนกันได้โดยไม่จ่ายซ้ำ และเช็คอินที่ตกงวดก่อนถูกเก็บตกอัตโนมัติ
+ * - office: เฉพาะงวดเดือน และเฉพาะในช่วงงวด (ใช้คิด OT ที่ไปกับเงินเดือนฐาน)
+ * - remote: ไม่นับเลย
+ * slipId = สลิปที่กำลังคำนวณใหม่ — เช็คอินที่ประทับด้วยสลิปใบนี้ยังต้องอยู่ในสลิปเดิม
+ */
+export function selectCheckinsForRun<T extends SelectableCheckin>(
+  checkins: T[],
+  run: RunWindow,
+  slipId?: string | null
+): T[] {
+  const onsiteFrom = catchUpStart(run.period_end)
+
+  return checkins.filter(c => {
+    const date = bangkokDate(c.checked_in_at)
+    if (date > run.period_end) return false
+
+    if (c.check_type === 'onsite') {
+      if (date < onsiteFrom) return false
+      return !c.paid_slip_id || (!!slipId && c.paid_slip_id === slipId)
+    }
+    if (c.check_type === 'office') return run.kind === 'monthly' && date >= run.period_start
+    return false
+  })
+}
+
+/** สัปดาห์จันทร์–อาทิตย์ที่เริ่มวันจันทร์ mondayDate */
+export function weekRangeFor(mondayDate: string): { start: string; end: string } {
+  return { start: mondayDate, end: shiftDay(mondayDate, 6) }
+}
+
+/** วันในสัปดาห์ของวันที่ YYYY-MM-DD (0 = อาทิตย์) */
+export function weekdayOf(date: string): number {
+  return new Date(`${date}T00:00:00Z`).getUTCDay()
+}
+
+/**
+ * สัปดาห์จันทร์–อาทิตย์ล่าสุดที่ "จบแล้ว" ณ วันไทย todayBangkokDate
+ * (อาทิตย์ของสัปดาห์นั้นต้องก่อนวันนี้ — วันอาทิตย์วันนี้ยังไม่ถือว่าจบ)
+ */
+export function lastFinishedWeek(todayBangkokDate: string): { start: string; end: string } {
+  const dow = weekdayOf(todayBangkokDate)
+  const end = shiftDay(todayBangkokDate, -(dow === 0 ? 7 : dow))
+  return { start: shiftDay(end, -6), end }
+}
+
+/** period_key ของงวด — เดือน 'YYYY-MM' / สัปดาห์-กำหนดเอง 'YYYY-MM-DD_YYYY-MM-DD' */
+export function periodKeyFor(kind: RunKind, start: string, end: string): string {
+  // งวดเดือนใช้เดือนของวันสิ้นงวด (วันตัดรอบอยู่ในเดือนนั้นเสมอ)
+  return kind === 'monthly' ? end.slice(0, 7) : `${start}_${end}`
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // computeSlip
 // ────────────────────────────────────────────────────────────────────────────
@@ -183,15 +285,23 @@ export function periodRange(periodKey: string, cutoffDay: number): { start: stri
 export function computeSlip(input: ComputeInput): ComputeResult {
   const { profile, duties, oopRate, periodStart, periodEnd } = input
   const dutyByCode = new Map(duties.map(d => [d.code, d]))
+  const runKind = input.runKind ?? 'monthly'
 
-  // 1. ขอบเขต: ประจำ/ฝึกงาน = office + onsite, ฟรีแลนซ์ = onsite เท่านั้น, ไม่นับ remote
-  const allowedTypes: CheckinInput['check_type'][] =
-    profile.employment_type === 'freelance' ? ['onsite'] : ['office', 'onsite']
+  // 1. ขอบเขต
+  //    - onsite: นับทุกชนิดงวด ตั้งแต่ onsiteFrom ถึงวันสิ้นงวด (เก็บตกงวดก่อนได้)
+  //    - office: เฉพาะงวดเดือนของประจำ/ฝึกงาน และเฉพาะในช่วงงวด (OT ออฟฟิศไปกับเงินเดือนฐาน)
+  //    - remote: ไม่นับเลย
+  const officeCounts = runKind === 'monthly' && profile.employment_type !== 'freelance'
+  const onsiteFrom = input.onsiteFrom
+    ?? (runKind === 'monthly' ? periodStart : shiftDay(periodEnd, -CATCH_UP_DAYS))
 
   const scoped = input.checkins
     .map(c => ({ c, date: bangkokDate(c.checked_in_at) }))
     .filter(({ c, date }) =>
-      allowedTypes.includes(c.check_type) && date >= periodStart && date <= periodEnd)
+      date <= periodEnd && (
+        c.check_type === 'onsite' ? date >= onsiteFrom
+          : c.check_type === 'office' ? officeCounts && date >= periodStart
+            : false))
     // เรียงให้ผลลัพธ์ (โดยเฉพาะ warnings) เสถียรไม่ว่า input จะมาลำดับไหน
     .sort((a, b) => cmp(a.date, b.date) || cmp(a.c.checked_in_at, b.c.checked_in_at) || cmp(a.c.id, b.c.id))
 
@@ -370,7 +480,10 @@ export function computeSlip(input: ComputeInput): ComputeResult {
     cmp(a.date, b.date) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || cmp(a.label, b.label) || cmp(a.key, b.key))
   warnings.sort((a, b) => cmp(a.date, b.date) || cmp(a.code, b.code) || cmp(a.checkin_id ?? '', b.checkin_id ?? ''))
 
-  const base = profile.employment_type === 'freelance' ? 0 : profile.base_salary
+  // เงินเดือนฐานมีเฉพาะงวดเดือนของประจำ/ฝึกงาน — งวดสัปดาห์/กำหนดเองได้เฉพาะค่าออกงาน
+  const base = runKind === 'monthly' && profile.employment_type !== 'freelance'
+    ? profile.base_salary
+    : 0
   const lineTotal = lines.reduce((sum, l) => sum + lineAmount(l), 0)
   const adjustTotal = (input.adjustments ?? []).reduce((sum, a) => sum + a.amount, 0)
 

@@ -50,7 +50,7 @@ export default function RunsView({ runs, cutoffDay }: Props) {
 
   function submit() {
     startTransition(async () => {
-      const res = await createSalaryRun(periodKey)
+      const res = await createSalaryRun({ kind: 'monthly', month: periodKey })
       if (res.error || !res.id) {
         toast.error(res.error || 'เปิดงวดไม่สำเร็จ')
         return

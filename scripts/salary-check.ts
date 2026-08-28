@@ -14,9 +14,12 @@ import { config } from 'dotenv'
 import {
   computeSlip,
   hasMissingAmounts,
+  lastFinishedWeek,
   periodRange,
+  selectCheckinsForRun,
   type CheckinInput,
   type DutyInput,
+  type RunKind,
   type SalaryLine,
   type SalaryProfileInput,
 } from '../app/(authenticated)/salary/compute'
@@ -72,6 +75,8 @@ const FREELANCE: SalaryProfileInput = {
 const FREELANCE_LATE: SalaryProfileInput = { ...FREELANCE, work_end: '20:00' }
 
 const PERIOD = { periodStart: '2026-07-26', periodEnd: '2026-08-25' }
+/** งวดสัปดาห์ จันทร์ 31 ส.ค. – อาทิตย์ 6 ก.ย. 2026 */
+const WEEK = { periodStart: '2026-08-31', periodEnd: '2026-09-06' }
 const OOP_RATE = 300
 
 let checkinSeq = 0
@@ -298,6 +303,101 @@ function partA() {
     })
     assertEq(siteLines(r).map(l => l.date), ['2026-07-26', '2026-08-25'], 'เข้าเฉพาะ 26 ก.ค. และ 25 ส.ค.')
     assertEq(r.total, 1400, 'total = 700 × 2')
+  }
+
+  // ── 12. งวดสัปดาห์: ไม่มีเงินเดือนฐาน ไม่มี OT ออฟฟิศ แต่ได้ค่าออกงาน + OT หน้างาน ──
+  console.log('\n[A12] weekly run: no base salary, no office OT, onsite still pays')
+  {
+    const r = computeSlip({
+      profile: FULLTIME,
+      checkins: [
+        checkin({
+          check_type: 'office',
+          checked_in_at: ts('2026-09-01', '09:00'), checked_out_at: ts('2026-09-01', '20:30'),
+        }),
+        checkin({
+          checked_in_at: ts('2026-09-02', '08:00'), checked_out_at: ts('2026-09-02', '21:00'),
+          duties: ['onsite_staff'],
+        }),
+      ],
+      duties: DUTIES,
+      oopRate: OOP_RATE,
+      periodStart: WEEK.periodStart,
+      periodEnd: WEEK.periodEnd,
+      runKind: 'weekly',
+    })
+    assertEq(otLines(r).map(l => l.date), ['2026-09-02'], 'OT มาจากเช็คอินหน้างานเท่านั้น')
+    assertEq(otLines(r)[0]?.hours, 4, 'OT = 4 ชม. (ก่อน 2 + หลัง 2)')
+    assertEq(siteLines(r)[0]?.amount, 700, 'ค่าสตาฟ 700')
+    assertEq(r.total, 1100, 'total = 400 + 700 (ไม่มีเงินเดือนฐาน 15000)')
+  }
+
+  // ── 13. selectCheckinsForRun — เก็บตก 60 วัน / จ่ายแล้วไม่ซ้ำ / office เฉพาะงวดเดือน ──
+  console.log('\n[A13] selectCheckinsForRun: catch-up window, paid-once, office by kind')
+  {
+    const rows = [
+      { id: 'in40', check_type: 'onsite' as const, checked_in_at: ts('2026-07-28', '10:00'), paid_slip_id: null },
+      { id: 'out61', check_type: 'onsite' as const, checked_in_at: ts('2026-07-07', '10:00'), paid_slip_id: null },
+      { id: 'paidOther', check_type: 'onsite' as const, checked_in_at: ts('2026-09-02', '10:00'), paid_slip_id: 'slip-other' },
+      { id: 'paidSelf', check_type: 'onsite' as const, checked_in_at: ts('2026-09-03', '10:00'), paid_slip_id: 'slip-self' },
+      { id: 'office', check_type: 'office' as const, checked_in_at: ts('2026-09-04', '10:00'), paid_slip_id: null },
+      { id: 'after', check_type: 'onsite' as const, checked_in_at: ts('2026-09-07', '10:00'), paid_slip_id: null },
+      { id: 'remote', check_type: 'remote' as const, checked_in_at: ts('2026-09-04', '10:00'), paid_slip_id: null },
+    ]
+    const weekly = { kind: 'weekly' as RunKind, period_start: '2026-08-31', period_end: '2026-09-06' }
+
+    assertEq(
+      selectCheckinsForRun(rows, weekly).map(r => r.id),
+      ['in40'],
+      'งวดสัปดาห์: เอาเฉพาะ onsite ค้างจ่ายใน 60 วัน (61 วัน/จ่ายแล้ว/office/remote/หลังงวด ตกหมด)'
+    )
+    assertEq(
+      selectCheckinsForRun(rows, weekly, 'slip-self').map(r => r.id),
+      ['in40', 'paidSelf'],
+      'เช็คอินที่สลิปใบนี้เองจ่าย ยังอยู่ตอนคำนวณใหม่'
+    )
+    assertEq(
+      selectCheckinsForRun(rows, { ...weekly, kind: 'monthly' }).map(r => r.id),
+      ['in40', 'office'],
+      'งวดเดือน: office ในช่วงงวดถูกนับด้วย'
+    )
+    assertEq(
+      selectCheckinsForRun(
+        [{ id: 'officeEarly', check_type: 'office' as const, checked_in_at: ts('2026-08-20', '10:00'), paid_slip_id: null }],
+        { ...weekly, kind: 'monthly' }
+      ).map(r => r.id),
+      [],
+      'office ก่อนวันเริ่มงวดไม่ถูกนับแม้เป็นงวดเดือน'
+    )
+  }
+
+  // ── 14. งวดเดือนของประจำ: ฐาน + OT ออฟฟิศเฉพาะในช่วงงวด ────────────────
+  console.log('\n[A14] monthly fulltime: base salary + office OT inside the period only')
+  {
+    const r = run(FULLTIME, [
+      checkin({
+        check_type: 'office',
+        checked_in_at: ts('2026-08-05', '09:00'), checked_out_at: ts('2026-08-05', '20:30'),
+      }),
+      checkin({
+        check_type: 'office',
+        checked_in_at: ts('2026-07-20', '09:00'), checked_out_at: ts('2026-07-20', '20:30'),
+      }),
+    ])
+    assertEq(otLines(r).map(l => l.date), ['2026-08-05'], 'OT ออฟฟิศเฉพาะวันที่อยู่ในช่วงงวด')
+    assertEq(r.total, 15250, 'total = ฐาน 15000 + OT 250')
+  }
+
+  // ── 16. สัปดาห์ล่าสุดที่จบแล้ว (จันทร์–อาทิตย์) ────────────────────────
+  console.log('\n[A16] lastFinishedWeek (Monday / Sunday / mid-week)')
+  {
+    const week = { start: '2026-08-31', end: '2026-09-06' }
+    assertEq(lastFinishedWeek('2026-09-09'), week, 'วันพุธ 9 ก.ย. → 31 ส.ค. – 6 ก.ย.')
+    assertEq(lastFinishedWeek('2026-09-07'), week, 'วันจันทร์ 7 ก.ย. → สัปดาห์ที่เพิ่งจบ')
+    assertEq(
+      lastFinishedWeek('2026-09-06'), { start: '2026-08-24', end: '2026-08-30' },
+      'วันอาทิตย์ 6 ก.ย. → สัปดาห์ก่อนหน้า (วันนี้ยังไม่จบสัปดาห์)'
+    )
   }
 }
 
