@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowLeft, Landmark, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, BanknoteArrowUp, Landmark, Lock, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -16,7 +16,11 @@ import { fmtMoney, periodLabel } from '../format'
 import { SlipStatusBadge } from '../components/slip-status-badge'
 import SlipLinesTable from '../components/slip-lines-table'
 import SlipCheckinsTable from '../components/slip-checkins-table'
-import { recomputeSlip, type SlipCheckinRow, type SlipDetail } from '../actions'
+import { hasMissingAmounts } from '../compute'
+import {
+  finalizeSlip, markSlipPaid, recomputeSlip,
+  type SlipCheckinRow, type SlipDetail,
+} from '../actions'
 import type { SalaryDutyRow } from '../settings/actions'
 
 interface Props {
@@ -32,6 +36,8 @@ const EMPLOYMENT_LABEL = { fulltime: 'ประจำ', freelance: 'ฟรีแ
 export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
   const router = useRouter()
   const [confirmRecompute, setConfirmRecompute] = useState(false)
+  const [confirmFinalize, setConfirmFinalize] = useState(false)
+  const [confirmPaid, setConfirmPaid] = useState(false)
   const [isPending, startTransition] = useTransition()
 
   const name = slip.full_name || slip.nickname || '(ไม่มีชื่อ)'
@@ -39,6 +45,9 @@ export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
   // แก้ได้เฉพาะ admin + สลิปร่าง — เจ้าของสลิปและสลิปที่ปิดงวดแล้วอ่านอย่างเดียว
   // (ทุก action ตรวจซ้ำฝั่ง server และ trigger ที่ DB กันอีกชั้น)
   const editable = isAdmin && slip.status === 'draft'
+  // เกณฑ์เดียวกับที่ finalizeSlip ใช้ฝั่ง server — ปุ่มจึงไม่พาไปเจอ error ที่รู้ล่วงหน้าอยู่แล้ว
+  const missingAmounts = hasMissingAmounts(slip.lines)
+  const todayLabel = formatThaiDate(new Date())
 
   function runRecompute() {
     startTransition(async () => {
@@ -49,6 +58,32 @@ export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
         return
       }
       toast.success('คำนวณสลิปใหม่แล้ว')
+      router.refresh()
+    })
+  }
+
+  function runFinalize() {
+    startTransition(async () => {
+      const res = await finalizeSlip(slip.id)
+      setConfirmFinalize(false)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('ปิดงวดสลิปแล้ว — แจ้งเตือนเจ้าของสลิปเรียบร้อย')
+      router.refresh()
+    })
+  }
+
+  function runMarkPaid() {
+    startTransition(async () => {
+      const res = await markSlipPaid(slip.id)
+      setConfirmPaid(false)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('บันทึกว่าจ่ายแล้ว')
       router.refresh()
     })
   }
@@ -76,15 +111,38 @@ export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
               <SlipStatusBadge status={slip.status} />
             </div>
           </div>
-          <div className="flex items-start gap-3">
+          <div className="flex flex-wrap items-start gap-3">
             {editable && (
-              <Button
-                variant="outline"
-                disabled={isPending}
-                onClick={() => setConfirmRecompute(true)}
-              >
-                <RefreshCw className="size-4" />
-                คำนวณใหม่
+              <>
+                <Button
+                  variant="outline"
+                  disabled={isPending}
+                  onClick={() => setConfirmRecompute(true)}
+                >
+                  <RefreshCw className="size-4" />
+                  คำนวณใหม่
+                </Button>
+                <div className="flex flex-col items-start gap-1">
+                  <Button
+                    disabled={isPending || missingAmounts}
+                    onClick={() => setConfirmFinalize(true)}
+                    title={missingAmounts ? 'กรอกยอดรันเนอร์ให้ครบก่อนปิดงวด' : 'ปิดงวดสลิปใบนี้'}
+                  >
+                    <Lock className="size-4" />
+                    ปิดงวด
+                  </Button>
+                  {missingAmounts && (
+                    <span className="max-w-48 text-xs text-amber-700 dark:text-amber-500">
+                      กรอกยอดรันเนอร์ให้ครบก่อนปิดงวด
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+            {isAdmin && slip.status === 'finalized' && (
+              <Button disabled={isPending} onClick={() => setConfirmPaid(true)}>
+                <BanknoteArrowUp className="size-4" />
+                จ่ายแล้ว
               </Button>
             )}
             <div className="text-right">
@@ -160,8 +218,18 @@ export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
 
       <p className="text-xs text-muted-foreground">
         {slip.computed_at && <>คำนวณล่าสุด {formatThaiDate(slip.computed_at)}</>}
-        {slip.finalized_at && <> · ปิดงวด {formatThaiDate(slip.finalized_at)}</>}
-        {slip.paid_at && <> · จ่ายแล้ว {formatThaiDate(slip.paid_at)}</>}
+        {slip.finalized_at && (
+          <>
+            {' · '}ปิดงวด {formatThaiDate(slip.finalized_at)}
+            {slip.finalized_by_name ? ` โดย ${slip.finalized_by_name}` : ''}
+          </>
+        )}
+        {slip.paid_at && (
+          <>
+            {' · '}จ่ายแล้ว {formatThaiDate(slip.paid_at)}
+            {slip.paid_by_name ? ` โดย ${slip.paid_by_name}` : ''}
+          </>
+        )}
       </p>
 
       <AlertDialog
@@ -180,6 +248,46 @@ export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
             <AlertDialogCancel disabled={isPending}>ยกเลิก</AlertDialogCancel>
             <AlertDialogAction onClick={runRecompute} disabled={isPending}>
               คำนวณใหม่
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmFinalize}
+        onOpenChange={v => { if (!v) setConfirmFinalize(false) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>ปิดงวดสลิปของ{name}</AlertDialogTitle>
+            <AlertDialogDescription>
+              ปิดงวดแล้วจะแก้ตัวเลขไม่ได้อีก (ลบก็ไม่ได้ — ฐานข้อมูลปฏิเสธให้เอง)
+              ยอดสุทธิที่จะปิด {fmtMoney(slip.total)} บาท ·
+              {name}จะได้รับแจ้งเตือนและเห็นสลิปใบนี้ทันที
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction onClick={runFinalize} disabled={isPending}>
+              ปิดงวด
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmPaid} onOpenChange={v => { if (!v) setConfirmPaid(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>บันทึกว่าจ่ายแล้ว</AlertDialogTitle>
+            <AlertDialogDescription>
+              บันทึกว่าโอนเงินให้{name} {fmtMoney(slip.total)} บาทแล้ว
+              โดยลงวันที่ {todayLabel} และชื่อผู้กดไว้ในสลิป
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction onClick={runMarkPaid} disabled={isPending}>
+              จ่ายแล้ว
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

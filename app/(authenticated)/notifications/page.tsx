@@ -22,6 +22,7 @@ function getUrl(item: NotificationItem): string {
     case 'expense_claim': return `/finance/${item.reference_id}`
     case 'kpi_evaluation':return `/kpi/reports`
     case 'crm_lead':      return `/crm/${item.reference_id}`
+    case 'salary_slip':   return `/salary/${item.reference_id}`
     default:              return '/dashboard'
   }
 }

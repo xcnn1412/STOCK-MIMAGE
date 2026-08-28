@@ -12,9 +12,10 @@
 import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
+import { createNotifications } from '@/lib/notifications'
 import { getSession, requireAdmin } from './session'
-import { periodLabel } from './format'
-import { computeSlip, lineAmount, periodRange } from './compute'
+import { fmtMoney, periodLabel } from './format'
+import { computeSlip, hasMissingAmounts, lineAmount, periodRange } from './compute'
 import type {
   CheckinInput, EmploymentType, SalaryAdjustment, SalaryLine, SalaryWarning,
 } from './compute'
@@ -111,6 +112,9 @@ export interface SlipDetail {
   computed_at: string | null
   finalized_at: string | null
   paid_at: string | null
+  /** ชื่อคนที่กดปิดงวด / กดจ่ายแล้ว (null = ยังไม่ถึงขั้นนั้น หรือผู้ใช้ถูกลบไปแล้ว) */
+  finalized_by_name: string | null
+  paid_by_name: string | null
   period_key: string
   period_start: string
   period_end: string
@@ -216,6 +220,16 @@ async function namesByUserId(
   return new Map(
     ((data || []) as unknown as Raw[]).map(p => [p.id, { full_name: p.full_name, nickname: p.nickname }])
   )
+}
+
+/** ชื่อที่แสดงของคนหนึ่งจากผลของ namesByUserId — ไม่มี id / หาไม่เจอ = null */
+function actorName(
+  names: Map<string, { full_name: string | null; nickname: string | null }>,
+  userId: string | null
+): string | null {
+  if (!userId) return null
+  const who = names.get(userId)
+  return who ? who.full_name || who.nickname || null : null
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -664,7 +678,7 @@ export async function getSlipForView(
   const { data } = await supabase
     .from('salary_slips')
     .select(
-      'id, run_id, user_id, status, employment_type, base_salary, lines, adjustments, warnings, total, computed_at, finalized_at, paid_at'
+      'id, run_id, user_id, status, employment_type, base_salary, lines, adjustments, warnings, total, computed_at, finalized_at, finalized_by, paid_at, paid_by'
     )
     .eq('id', slipId)
     .maybeSingle()
@@ -683,13 +697,15 @@ export async function getSlipForView(
     total: number | string | null
     computed_at: string | null
     finalized_at: string | null
+    finalized_by: string | null
     paid_at: string | null
+    paid_by: string | null
   }
   const raw = data as unknown as SlipRaw
 
   if (!isAdmin && (raw.user_id !== userId || raw.status === 'draft')) return { error: 'ไม่พบสลิป' }
 
-  const [runRes, profileRes] = await Promise.all([
+  const [runRes, profileRes, actors] = await Promise.all([
     supabase
       .from('salary_runs')
       .select('period_key, period_start, period_end')
@@ -700,6 +716,8 @@ export async function getSlipForView(
       .select('full_name, nickname, bank_name, bank_account_number, account_holder_name')
       .eq('id', raw.user_id)
       .maybeSingle(),
+    // คนกดปิดงวด/จ่ายแล้ว — ยังไม่มีใครกด = ลิสต์ว่าง แล้ว namesByUserId คืนทันทีโดยไม่ยิง query
+    namesByUserId(supabase, [raw.finalized_by, raw.paid_by].filter((v): v is string => !!v)),
   ])
 
   const runRow = (runRes.data || {}) as unknown as Partial<RunHeader>
@@ -725,6 +743,8 @@ export async function getSlipForView(
     computed_at: raw.computed_at,
     finalized_at: raw.finalized_at,
     paid_at: raw.paid_at,
+    finalized_by_name: actorName(actors, raw.finalized_by),
+    paid_by_name: actorName(actors, raw.paid_by),
     period_key: runRow.period_key || '',
     period_start: runRow.period_start || '',
     period_end: runRow.period_end || '',
@@ -1116,5 +1136,239 @@ export async function recomputeSlip(
   if (skipped) return { error: `คำนวณใหม่ไม่สำเร็จ — ${skipped.reason}` }
 
   revalidatePath(`/salary/${slipId}`)
+  return { success: true }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ปิดงวด / จ่ายแล้ว
+//
+// ปิดงวดแล้วสลิปถูกล็อกที่ฐานข้อมูล (guard trigger §7 ของ migration ปฏิเสธการแก้
+// ตัวเลขและการลบ) — action ในหมวดนี้จึงตรวจสิทธิ์/สถานะ/ความครบของยอดให้จบฝั่ง
+// server ก่อนเสมอ เพื่อให้ผู้ใช้ได้ข้อความไทย ไม่ใช่ข้อความ exception จาก Postgres
+// ────────────────────────────────────────────────────────────────────────────
+
+/** ผลของ "ปิดงวดที่เหลือทั้งหมด" — ใบที่ปิดไม่ได้ไม่หยุดใบอื่น */
+export interface FinalizeRemainingResult {
+  error?: string
+  finalized?: number
+  skipped?: SkippedUser[]
+}
+
+/** สลิปที่กำลังจะปิดงวด — เท่าที่ finalizeOne ต้องใช้ */
+type FinalizableSlip = {
+  id: string
+  run_id: string
+  user_id: string
+  lines: SalaryLine[]
+  total: number
+}
+
+/** คอลัมน์ที่ทั้งปิดงวดใบเดียวและปิดที่เหลือทั้งหมดอ่านเหมือนกัน */
+const FINALIZE_COLUMNS = 'id, run_id, user_id, status, lines, total'
+
+const RUNNER_MISSING_ERROR = 'ยังมีรันเนอร์ที่ไม่ได้กรอกยอด — กรอกก่อนปิดงวด'
+
+type FinalizeRaw = {
+  id: string
+  run_id: string
+  user_id: string
+  status: SlipStatus
+  lines: SalaryLine[] | null
+  total: number | string | null
+}
+
+function toFinalizable(raw: FinalizeRaw): FinalizableSlip {
+  return {
+    id: raw.id,
+    run_id: raw.run_id,
+    user_id: raw.user_id,
+    lines: Array.isArray(raw.lines) ? raw.lines : [],
+    total: Number(raw.total || 0),
+  }
+}
+
+/**
+ * ปิดงวดสลิปร่างหนึ่งใบ — ผู้เรียกตรวจสิทธิ์ admin + สถานะ draft มาแล้ว
+ * เขียนเฉพาะ status/finalized_at/finalized_by (ตัวเลขทั้งหมดคงเดิม) → log → แจ้งเตือนเจ้าของ
+ */
+async function finalizeOne(
+  supabase: ReturnType<typeof createServiceClient>,
+  slip: FinalizableSlip,
+  periodKey: string,
+  adminId: string
+): Promise<{ error?: string }> {
+  // spec §7: amount = null (รันเนอร์ที่ยังไม่กรอก) นับเป็น 0 ในยอด — ปิดงวดทั้งอย่างนั้นไม่ได้
+  if (hasMissingAmounts(slip.lines)) return { error: RUNNER_MISSING_ERROR }
+
+  const { data: updated, error } = await supabase
+    .from('salary_slips')
+    .update({
+      status: 'finalized',
+      finalized_at: new Date().toISOString(),
+      finalized_by: adminId,
+    })
+    .eq('id', slip.id)
+    // กันสลิปที่ถูกปิดงวดคั่นระหว่างที่เราโหลดมา (เปิดสองหน้าต่างพร้อมกัน)
+    .eq('status', 'draft')
+    .select('id')
+  if (error) return { error: `ปิดงวดไม่สำเร็จ: ${error.message}` }
+  // ไม่มีแถวถูกแก้ = มีคนปิดงวดใบนี้ไปก่อนแล้ว — ห้าม log/แจ้งเตือนซ้ำ
+  if (!updated || updated.length === 0) return { error: 'สลิปนี้ปิดงวดแล้ว' }
+
+  await logActivity(
+    'FINALIZE_SALARY_SLIP',
+    { slipId: slip.id, runId: slip.run_id, total: slip.total },
+    slip.user_id
+  )
+
+  // ลิงก์ /salary/[slipId] ประกอบจาก reference_type + reference_id ในกระดิ่ง
+  // (admin ที่ปิดงวดสลิปของตัวเองไม่ได้แจ้งเตือน — createNotifications กรอง actor ออกให้)
+  await createNotifications({
+    userIds: [slip.user_id],
+    type: 'salary_finalized',
+    title: `สลิปเงินเดือนงวด${periodLabel(periodKey)} ปิดงวดแล้ว`,
+    body: `ยอดสุทธิ ${fmtMoney(slip.total)} บาท`,
+    referenceType: 'salary_slip',
+    referenceId: slip.id,
+    actorId: adminId,
+  })
+
+  return {}
+}
+
+/** หน้าที่ต้องรีเฟรชหลังสถานะสลิปเปลี่ยน (รวมหน้า "สลิปของฉัน" ของเจ้าของด้วย) */
+function revalidateSlipPaths(slipId: string, runId: string) {
+  revalidatePath(`/salary/${slipId}`)
+  revalidatePath(`/salary/runs/${runId}`)
+  revalidatePath('/salary/runs')
+  revalidatePath('/salary')
+}
+
+/** ปิดงวดสลิปใบเดียว — หลังจากนี้แก้ตัวเลขไม่ได้อีก */
+export async function finalizeSlip(slipId: string): Promise<{ error?: string; success?: boolean }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+  if (!slipId) return { error: 'ไม่พบสลิป' }
+
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from('salary_slips')
+    .select(FINALIZE_COLUMNS)
+    .eq('id', slipId)
+    .maybeSingle()
+  if (!data) return { error: 'ไม่พบสลิป' }
+
+  const raw = data as unknown as FinalizeRaw
+  if (raw.status !== 'draft') return { error: 'สลิปนี้ปิดงวดแล้ว' }
+
+  const { data: runRaw } = await supabase
+    .from('salary_runs')
+    .select('period_key')
+    .eq('id', raw.run_id)
+    .maybeSingle()
+  const periodKey = (runRaw as unknown as { period_key?: string } | null)?.period_key || ''
+
+  const res = await finalizeOne(supabase, toFinalizable(raw), periodKey, auth.userId)
+  if (res.error) return { error: res.error }
+
+  revalidateSlipPaths(slipId, raw.run_id)
+  return { success: true }
+}
+
+/**
+ * ปิดงวดสลิปร่างที่เหลือทั้งงวดในครั้งเดียว (spec user story 18)
+ * ใบที่ยังกรอกยอดรันเนอร์ไม่ครบถูกข้ามพร้อมเหตุผล — ไม่หยุดใบที่เหลือ
+ */
+export async function finalizeRemainingSlips(runId: string): Promise<FinalizeRemainingResult> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+  if (!runId) return { error: 'ไม่พบงวดนี้' }
+
+  const supabase = createServiceClient()
+  const { data: runRaw } = await supabase
+    .from('salary_runs')
+    .select('id, period_key')
+    .eq('id', runId)
+    .maybeSingle()
+  if (!runRaw) return { error: 'ไม่พบงวดนี้' }
+  const periodKey = (runRaw as unknown as { period_key: string }).period_key
+
+  const { data, error } = await supabase
+    .from('salary_slips')
+    .select(FINALIZE_COLUMNS)
+    .eq('run_id', runId)
+    .eq('status', 'draft')
+  if (error) return { error: `อ่านสลิปในงวดไม่สำเร็จ: ${error.message}` }
+
+  const rows = (data || []) as unknown as FinalizeRaw[]
+  if (rows.length === 0) return { finalized: 0, skipped: [] }
+
+  const names = await namesByUserId(supabase, rows.map(r => r.user_id))
+  const skipped: SkippedUser[] = []
+  let finalized = 0
+
+  for (const row of rows) {
+    const res = await finalizeOne(supabase, toFinalizable(row), periodKey, auth.userId)
+    if (res.error) {
+      skipped.push({
+        user_id: row.user_id,
+        name: actorName(names, row.user_id) || 'ไม่ทราบชื่อ',
+        reason: res.error,
+      })
+      continue
+    }
+    finalized += 1
+    revalidatePath(`/salary/${row.id}`)
+  }
+  // ลำดับคงที่ — แถวจาก PostgREST ไม่รับประกันลำดับ
+  skipped.sort((a, b) => cmpText(a.name, b.name))
+
+  revalidatePath(`/salary/runs/${runId}`)
+  revalidatePath('/salary/runs')
+  revalidatePath('/salary')
+  return { finalized, skipped }
+}
+
+/** ทำเครื่องหมายว่าโอนเงินแล้ว — ได้เฉพาะสลิปที่ปิดงวดแล้ว (ไม่มีแจ้งเตือน) */
+export async function markSlipPaid(slipId: string): Promise<{ error?: string; success?: boolean }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+  if (!slipId) return { error: 'ไม่พบสลิป' }
+
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from('salary_slips')
+    .select('id, run_id, user_id, status, total')
+    .eq('id', slipId)
+    .maybeSingle()
+  if (!data) return { error: 'ไม่พบสลิป' }
+
+  const slip = data as unknown as {
+    id: string
+    run_id: string
+    user_id: string
+    status: SlipStatus
+    total: number | string | null
+  }
+  if (slip.status === 'draft') return { error: 'ต้องปิดงวดก่อน' }
+  if (slip.status === 'paid') return { error: 'จ่ายแล้ว' }
+
+  const { data: updated, error } = await supabase
+    .from('salary_slips')
+    .update({ status: 'paid', paid_at: new Date().toISOString(), paid_by: auth.userId })
+    .eq('id', slipId)
+    // guard trigger อนุญาตเฉพาะ finalized → paid — กันสลิปที่เพิ่งถูกกดจ่ายจากอีกหน้าต่าง
+    .eq('status', 'finalized')
+    .select('id')
+  if (error) return { error: `บันทึกไม่สำเร็จ: ${error.message}` }
+  if (!updated || updated.length === 0) return { error: 'จ่ายแล้ว' }
+
+  await logActivity(
+    'MARK_SALARY_PAID',
+    { slipId: slip.id, runId: slip.run_id, total: Number(slip.total || 0) },
+    slip.user_id
+  )
+
+  revalidateSlipPaths(slipId, slip.run_id)
   return { success: true }
 }

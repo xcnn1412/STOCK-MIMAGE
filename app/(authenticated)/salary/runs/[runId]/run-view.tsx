@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, ArrowLeft, Calculator, Eye, RefreshCw, Search, Trash2, Users,
+  AlertTriangle, ArrowLeft, BanknoteArrowUp, Calculator, Eye, Lock, RefreshCw,
+  Search, Trash2, Users,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -30,7 +31,7 @@ import { SlipStatusBadge } from '../../components/slip-status-badge'
 import type { EmploymentType } from '../../compute'
 import type { SalaryProfileListRow } from '../../settings/actions'
 import {
-  computeSlips, deleteSlip,
+  computeSlips, deleteSlip, finalizeRemainingSlips, finalizeSlip, markSlipPaid,
   type RunHeader, type RunSlipRow, type SkippedUser,
 } from '../../actions'
 
@@ -64,6 +65,15 @@ export default function RunView({ run, slips, people, departments }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [skipped, setSkipped] = useState<SkippedUser[]>([])
   const [deleteTarget, setDeleteTarget] = useState<RunSlipRow | null>(null)
+
+  // ── ปิดงวด / จ่ายแล้ว ────────────────────────────────────────────────────
+  /** สลิปที่กำลังยืนยันเปลี่ยนสถานะ — dialog เดียวใช้ได้ทั้งสองปุ่ม */
+  const [statusTarget, setStatusTarget] = useState<
+    { slip: RunSlipRow; action: 'finalize' | 'paid' } | null
+  >(null)
+  const [confirmFinalizeAll, setConfirmFinalizeAll] = useState(false)
+  /** คนที่ปิดงวดไม่ได้ตอนกด "ปิดงวดที่เหลือทั้งหมด" ครั้งล่าสุด */
+  const [finalizeSkipped, setFinalizeSkipped] = useState<SkippedUser[]>([])
 
   /** สถานะสลิปของแต่ละคนในงวดนี้ — ใช้ทำป้ายในรายชื่อ */
   const slipByUser = useMemo(() => new Map(slips.map(s => [s.user_id, s])), [slips])
@@ -150,7 +160,48 @@ export default function RunView({ run, slips, people, departments }: Props) {
     })
   }
 
+  /** ยืนยันปุ่มในแถว — ปิดงวด (ร่าง) หรือ จ่ายแล้ว (ปิดงวดแล้ว) */
+  function confirmStatusChange() {
+    const target = statusTarget
+    if (!target) return
+    const { slip, action } = target
+    startTransition(async () => {
+      const res = action === 'finalize' ? await finalizeSlip(slip.id) : await markSlipPaid(slip.id)
+      setStatusTarget(null)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      toast.success(
+        action === 'finalize'
+          ? `ปิดงวดสลิปของ${displayName(slip)}แล้ว`
+          : `บันทึกว่าจ่ายเงินให้${displayName(slip)}แล้ว`
+      )
+      router.refresh()
+    })
+  }
+
+  function runFinalizeAll() {
+    startTransition(async () => {
+      const res = await finalizeRemainingSlips(run.id)
+      setConfirmFinalizeAll(false)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      const list = res.skipped || []
+      const finalized = res.finalized || 0
+      setFinalizeSkipped(list)
+      if (finalized === 0 && list.length === 0) toast.error('ไม่มีสลิปร่างให้ปิดงวด')
+      else if (finalized === 0) toast.error(`ปิดงวดไม่สำเร็จ — ข้ามทั้งหมด ${list.length} คน`)
+      else if (list.length > 0) toast.success(`ปิดงวด ${finalized} คน · ข้าม ${list.length} คน`)
+      else toast.success(`ปิดงวด ${finalized} คนแล้ว`)
+      router.refresh()
+    })
+  }
+
   const slipTotal = slips.reduce((sum, s) => sum + s.total, 0)
+  const draftCount = slips.filter(s => s.status === 'draft').length
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -314,14 +365,43 @@ export default function RunView({ run, slips, people, departments }: Props) {
         <CardContent className="p-0">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
             <h2 className="font-medium">สลิปในงวดนี้</h2>
-            <p className="text-sm text-muted-foreground">
-              {slips.length} สลิป · ยอดรวม{' '}
-              <span className="font-semibold tabular-nums text-foreground">
-                {fmtMoney(slipTotal)}
-              </span>{' '}
-              บาท
-            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-muted-foreground">
+                {slips.length} สลิป · ยอดรวม{' '}
+                <span className="font-semibold tabular-nums text-foreground">
+                  {fmtMoney(slipTotal)}
+                </span>{' '}
+                บาท
+              </p>
+              <Button
+                variant="outline"
+                disabled={isPending || draftCount === 0}
+                onClick={() => setConfirmFinalizeAll(true)}
+                title={
+                  draftCount === 0
+                    ? 'ไม่มีสลิปร่างเหลือในงวดนี้'
+                    : `ปิดงวดสลิปร่างที่เหลือ ${draftCount} ใบ`
+                }
+              >
+                <Lock className="size-4" />
+                ปิดงวดที่เหลือทั้งหมด{draftCount > 0 ? ` (${draftCount})` : ''}
+              </Button>
+            </div>
           </div>
+
+          {/* ผลการปิดงวดครั้งล่าสุด — ใครยังปิดไม่ได้เพราะอะไร */}
+          {finalizeSkipped.length > 0 && (
+            <div className="border-b border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+              <p className="font-medium text-amber-800 dark:text-amber-400">
+                ยังปิดงวดไม่ได้ {finalizeSkipped.length} คน
+              </p>
+              <ul className="mt-1 space-y-0.5 text-amber-700 dark:text-amber-500">
+                {finalizeSkipped.map(s => (
+                  <li key={s.user_id}>{s.name} — {s.reason}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {slips.length === 0 ? (
             <p className="p-10 text-center text-sm text-muted-foreground">
@@ -411,6 +491,16 @@ export default function RunView({ run, slips, people, departments }: Props) {
                               variant="ghost"
                               size="sm"
                               disabled={isPending}
+                              onClick={() => setStatusTarget({ slip: s, action: 'finalize' })}
+                              title="ปิดงวดสลิปใบนี้ — ปิดแล้วแก้ตัวเลขไม่ได้อีก"
+                            >
+                              <Lock className="size-4" />
+                              ปิดงวด
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={isPending}
                               onClick={() => setDeleteTarget(s)}
                               className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
                               title="เอาคนนี้ออกจากงวด"
@@ -418,6 +508,18 @@ export default function RunView({ run, slips, people, departments }: Props) {
                               <Trash2 className="size-4" />
                             </Button>
                           </>
+                        )}
+                        {s.status === 'finalized' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isPending}
+                            onClick={() => setStatusTarget({ slip: s, action: 'paid' })}
+                            title="บันทึกว่าโอนเงินให้คนนี้แล้ว"
+                          >
+                            <BanknoteArrowUp className="size-4" />
+                            จ่ายแล้ว
+                          </Button>
                         )}
                       </div>
                     </TableCell>
@@ -447,6 +549,59 @@ export default function RunView({ run, slips, people, departments }: Props) {
               className="bg-red-600 text-white hover:bg-red-700"
             >
               ลบสลิป
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!statusTarget} onOpenChange={v => { if (!v) setStatusTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {statusTarget?.action === 'paid' ? 'บันทึกว่าจ่ายแล้ว' : 'ปิดงวดสลิป'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {statusTarget?.action === 'paid' ? (
+                <>
+                  บันทึกว่าโอนเงินให้{statusTarget ? displayName(statusTarget.slip) : 'คนนี้'}{' '}
+                  {statusTarget ? fmtMoney(statusTarget.slip.total) : '0'} บาทแล้ว
+                  โดยลงวันที่ {formatThaiDate(new Date())} และชื่อผู้กดไว้ในสลิป
+                </>
+              ) : (
+                <>
+                  ปิดงวดสลิปของ{statusTarget ? displayName(statusTarget.slip) : 'คนนี้'} ยอดสุทธิ{' '}
+                  {statusTarget ? fmtMoney(statusTarget.slip.total) : '0'} บาท —
+                  ปิดงวดแล้วจะแก้ตัวเลขไม่ได้อีก และเจ้าของสลิปจะได้รับแจ้งเตือนทันที
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmStatusChange} disabled={isPending}>
+              {statusTarget?.action === 'paid' ? 'จ่ายแล้ว' : 'ปิดงวด'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmFinalizeAll}
+        onOpenChange={v => { if (!v) setConfirmFinalizeAll(false) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>ปิดงวดที่เหลือทั้งหมด</AlertDialogTitle>
+            <AlertDialogDescription>
+              ปิดงวดสลิปร่างที่เหลือในงวด{periodLabel(run.period_key)} ทั้งหมด {draftCount} ใบ —
+              ปิดงวดแล้วจะแก้ตัวเลขไม่ได้อีก และเจ้าของสลิปแต่ละใบจะได้รับแจ้งเตือน
+              ใบที่ยังกรอกยอดรันเนอร์ไม่ครบจะถูกข้ามไว้ให้กรอกก่อน
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction onClick={runFinalizeAll} disabled={isPending}>
+              ปิดงวดที่เหลือ
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
