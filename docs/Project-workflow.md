@@ -66,3 +66,22 @@ tickets = sub-issues ของ #9 (tracer bullets, blocked-by จริงบน
 - กรอกโปรไฟล์เงินเดือนทุกคนใน `/salary/settings` และเปิด module `salary` ให้ผู้ใช้จาก `/users` ก่อนเปิดงวดแรก (หนังสือรับรองเงินเดือนก็ต้องมีโปรไฟล์เงินเดือนก่อน)
 - ปิดใบเบิกค่าสตาฟที่ค้างอยู่ก่อนวันเปิดใช้ให้จบตาม flow การเงินเดิม (ระบบไม่สร้างใบใหม่จากเช็คอินอีก)
 - เครื่องนี้: Docker Desktop content store เสียหลังดิสก์ C: เต็มระหว่าง pull image (`supabase start` ใช้ไม่ได้) — ถ้าจะใช้ local stack อีกต้อง reset Docker data (ลบ image/volume ทั้งหมด รวม volume `supabase_db_stock` เดิม) และเคลียร์พื้นที่ C: (`docker_data.vhdx` 16.45 GB)
+
+## งวดรายสัปดาห์ + จ่ายเช็คอินครั้งเดียว + sync ต้นทุน — spec: `docs/specs/salary-weekly-runs.md`
+
+branch: `feat/salary-weekly-runs` (ยังไม่สร้าง) · วางแผนเสร็จ 2026-08-28 (grill รอบสอง Q1–Q16) · issue #20 (`ready-for-agent`) · ศัพท์ใหม่ใน `CONTEXT.md`: งวดคำนวณ 3 ชนิด, จ่ายได้ครั้งเดียว, เก็บตก, สรุปยอดโอน, สลิปค่าจ้าง
+
+tickets = sub-issues ของ #20 (tracer bullets, blocked-by จริงบน GitHub) · baseline `tsc` วัดก่อนเริ่ม (ต้อง commit งาน "ประเภทการจ้าง intern" ที่ค้างใน working tree ก่อน)
+
+| # | Issue | Ticket | Blocked by | สถานะ |
+|---|---|---|---|---|
+| 1 | #21 | แกน: migration `20260829_salary_weekly_runs.sql` (`salary_runs.kind`, `staff_checkins.paid_slip_id`, `costs_synced_at`, RPC `finalize_salary_slip`, backfill) + `computeSlip(runKind)` + `selectCheckinsForRun`/`lastFinishedWeek` + `createSalaryRun` ทุกชนิด (ถอด overlap check) + finalize ผ่าน RPC + script A12–A14/A16, B12–B14 | — | [ ] |
+| 2 | #22 | UI งวดสัปดาห์: `getRunSuggestions` แบนเนอร์ "เปิดและคำนวณ" + กล่องค้างเกิน 60 วัน + ฟอร์มเลือกชนิดงวด + ติ๊กคนให้เอง + "สลิปค่าจ้าง" ทั่ว UI/PDF/แจ้งเตือน + badge จ่ายแล้วในเช็คอิน | 1 | [ ] |
+| 3 | #23 | สรุปยอดโอน (ชื่อ/ธนาคาร/เลขบัญชี/ยอด/สถานะ) + Excel (`xlsx`) + `markAllPaid` | 1 | [ ] |
+| 4 | #24 | Sync ต้นทุน: `salary/costs-sync.ts` (`costsRowsForSlip` pure + `syncSlipToCosts` → `job_cost_items` staff, auto `importEventFromStock`, notes key idempotent, runner เฉพาะวันอีเวนต์เดียว) + ปุ่ม sync อีกครั้ง + A15 + อัปเดต ADR-0001 | 1 | [ ] |
+| 5 | #25 | Ship: whats-new (entry + ขั้นงวดสัปดาห์ในคู่มือ) + ติ๊กตารางนี้ + `tsc`/`npm run build` (AC1–AC7) | 2, 3, 4 | [ ] |
+
+### สิ่งที่ user ต้องทำเอง (หลัง ship)
+- รัน `20260829_salary_weekly_runs.sql` บน prod **ก่อน deploy** (มี backfill `paid_slip_id` ให้สลิปที่ปิดไปแล้ว) แล้วรัน `scripts/salary-trigger-check.sql` ซ้ำ (B1–B14)
+- กรอกธนาคาร/เลขบัญชีใน `/users` ให้ฟรีแลนซ์ทุกคนก่อนงวดสัปดาห์แรก (สรุปยอดโอนจะเตือนช่องว่าง)
+- สลิปที่ปิดงวดไปก่อน deploy ไม่ถูก sync เข้า Costs อัตโนมัติ — กด "sync ต้นทุนอีกครั้ง" ในสลิปถ้าต้องการ
