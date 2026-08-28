@@ -103,7 +103,7 @@ tickets = sub-issues ของ #26 (blocked-by จริงบน GitHub) · bas
 | 1 | #27 | แกน: migration `20260830_salary_slip_reopen.sql` (accepted_warnings, reopen_history, paid_history/paid_total, RPC `reopen_salary_slip`) + `groupSlipByDay`/`pendingItems` + actions (reopenSlip, accept warning, editSlipCheckin/addSlipCheckin/setRunnerAmounts, finalize บล็อกงานค้าง, Costs reconcile) + notification `salary_reopened` + A18–A19, B18–B21 | — | [x] 2026-08-28 74fe94f |
 | 2 | #28 | UI เดสก์ท็อป: ตารางรายวันแก้ inline (inline-cells) + ท้ายตาราง + ลบตารางเก่า 3 ไฟล์ | 1 | [x] 2026-08-28 8a3941d |
 | 3 | #29 | UI หัว sticky + checklist งานค้าง (กระโดด/ยอมรับ) + dialog เปิดแก้ไข + ประวัติ + ส่วนต่างการจ่าย + PDF | 1, 2 | [x] 2026-08-28 df07214 |
-| 4 | #30 | มือถือการ์ดรายวัน + พนักงานอ่านอย่างเดียว + whats-new + build (AC1–AC7) | 2, 3 | [x] 2026-08-28 รอ commit |
+| 4 | #30 | มือถือการ์ดรายวัน + พนักงานอ่านอย่างเดียว + whats-new + build (AC1–AC7) | 2, 3 | [x] 2026-08-28 56b57ee |
 
 ### สิ่งที่ user ต้องทำเอง (หลัง ship)
 - รัน `20260830_salary_slip_reopen.sql` บน prod ก่อน deploy
