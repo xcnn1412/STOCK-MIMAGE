@@ -92,17 +92,18 @@ tickets = sub-issues ของ #20 (tracer bullets, blocked-by จริงบ�
 - กรอกธนาคาร/เลขบัญชีใน `/users` ให้ฟรีแลนซ์ทุกคนก่อนงวดสัปดาห์แรก (สรุปยอดโอนจะเตือนช่องว่าง)
 - สลิปที่ปิดงวดไปก่อน deploy ไม่ถูก sync เข้า Costs อัตโนมัติ — กด "sync ต้นทุนอีกครั้ง" ในสลิปถ้าต้องการ
 
-## หน้าสลิปแบบรายวัน + งานค้าง + เปิดแก้ไขหลังปิดงวด — spec: 
-branch:  (ยังไม่สร้าง) · วางแผนเสร็จ 2026-08-28 (grill Q1–Q12) · issue #26 () · ศัพท์ใหม่ใน : มุมมองรายวัน, งานค้างก่อนปิดงวด, ยอมรับคำเตือน, เปิดแก้ไข, ส่วนต่างการจ่าย
+## หน้าสลิปแบบรายวัน + งานค้าง + เปิดแก้ไขหลังปิดงวด — spec: `docs/specs/salary-slip-daily-ui.md`
 
-tickets = sub-issues ของ #26 (blocked-by จริงบน GitHub) · baseline  = 7
+branch: `feat/salary-slip-daily-ui` (ยังไม่สร้าง) · วางแผนเสร็จ 2026-08-28 (grill Q1–Q12) · issue #26 (`ready-for-agent`) · ศัพท์ใหม่ใน `CONTEXT.md`: มุมมองรายวัน, งานค้างก่อนปิดงวด, ยอมรับคำเตือน, เปิดแก้ไข, ส่วนต่างการจ่าย
+
+tickets = sub-issues ของ #26 (blocked-by จริงบน GitHub) · baseline `tsc` = 7
 
 | # | Issue | Ticket | Blocked by | สถานะ |
 |---|---|---|---|---|
-| 1 | #27 | แกน: migration  (accepted_warnings, reopen_history, paid_history/paid_total, RPC ) + / + actions (reopenSlip, accept warning, editSlipCheckin/addSlipCheckin/setRunnerAmounts, finalize บล็อกงานค้าง, Costs reconcile) + notification  + A18–A19, B18–B21 | — | [ ] |
+| 1 | #27 | แกน: migration `20260830_salary_slip_reopen.sql` (accepted_warnings, reopen_history, paid_history/paid_total, RPC `reopen_salary_slip`) + `groupSlipByDay`/`pendingItems` + actions (reopenSlip, accept warning, editSlipCheckin/addSlipCheckin/setRunnerAmounts, finalize บล็อกงานค้าง, Costs reconcile) + notification `salary_reopened` + A18–A19, B18–B21 | — | [ ] |
 | 2 | #28 | UI เดสก์ท็อป: ตารางรายวันแก้ inline (inline-cells) + ท้ายตาราง + ลบตารางเก่า 3 ไฟล์ | 1 | [ ] |
 | 3 | #29 | UI หัว sticky + checklist งานค้าง (กระโดด/ยอมรับ) + dialog เปิดแก้ไข + ประวัติ + ส่วนต่างการจ่าย + PDF | 1, 2 | [ ] |
 | 4 | #30 | มือถือการ์ดรายวัน + พนักงานอ่านอย่างเดียว + whats-new + build (AC1–AC7) | 2, 3 | [ ] |
 
 ### สิ่งที่ user ต้องทำเอง (หลัง ship)
-- รัน  บน prod ก่อน deploy
+- รัน `20260830_salary_slip_reopen.sql` บน prod ก่อน deploy
