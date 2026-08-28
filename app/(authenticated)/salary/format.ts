@@ -4,7 +4,14 @@
 // ============================================================================
 
 import { THAI_MONTHS } from '@/lib/thai-date'
-import type { LineKind, RunKind } from './compute'
+import type { EmploymentType, LineKind, RunKind } from './compute'
+
+/** ป้ายประเภทการจ้าง — ใช้ร่วมกันทุกหน้าและ PDF (อย่านิยามซ้ำในแต่ละ view) */
+export const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
+  fulltime: 'ประจำ',
+  freelance: 'ฟรีแลนซ์',
+  intern: 'นักศึกษาฝึกงาน',
+}
 
 /** ป้ายชนิดงวด — ใช้ร่วมกันทุกหน้าในโมดูล (อย่านิยามซ้ำในแต่ละ view) */
 export const RUN_KIND_LABEL: Record<RunKind, string> = {
@@ -42,6 +49,18 @@ const THAI_MONTHS_SHORT = [
 
 const MONTH_KEY_RE = /^(\d{4})-(\d{2})$/
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/**
+ * วันเดียวแบบสั้น — '28 ส.ค. 69' (พ.ศ. สองหลัก)
+ * ใช้บนการ์ดรายวันของมือถือที่พื้นที่หัวการ์ดแคบ; รับเฉพาะ 'YYYY-MM-DD' (วันไทย)
+ */
+export function shortThaiDate(date: string | null | undefined): string {
+  const m = DATE_RE.exec((date || '').trim())
+  if (!m) return date || ''
+  const month = THAI_MONTHS_SHORT[Number(m[2]) - 1]
+  if (!month) return date || ''
+  return `${Number(m[3])} ${month} ${beShort(Number(m[1]))}`
+}
 /** period_key ของงวดสัปดาห์/กำหนดเอง = 'YYYY-MM-DD_YYYY-MM-DD' */
 const RANGE_KEY_RE = /^(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$/
 

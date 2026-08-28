@@ -100,10 +100,15 @@ tickets = sub-issues ของ #26 (blocked-by จริงบน GitHub) · bas
 
 | # | Issue | Ticket | Blocked by | สถานะ |
 |---|---|---|---|---|
-| 1 | #27 | แกน: migration `20260830_salary_slip_reopen.sql` (accepted_warnings, reopen_history, paid_history/paid_total, RPC `reopen_salary_slip`) + `groupSlipByDay`/`pendingItems` + actions (reopenSlip, accept warning, editSlipCheckin/addSlipCheckin/setRunnerAmounts, finalize บล็อกงานค้าง, Costs reconcile) + notification `salary_reopened` + A18–A19, B18–B21 | — | [ ] |
-| 2 | #28 | UI เดสก์ท็อป: ตารางรายวันแก้ inline (inline-cells) + ท้ายตาราง + ลบตารางเก่า 3 ไฟล์ | 1 | [ ] |
-| 3 | #29 | UI หัว sticky + checklist งานค้าง (กระโดด/ยอมรับ) + dialog เปิดแก้ไข + ประวัติ + ส่วนต่างการจ่าย + PDF | 1, 2 | [ ] |
-| 4 | #30 | มือถือการ์ดรายวัน + พนักงานอ่านอย่างเดียว + whats-new + build (AC1–AC7) | 2, 3 | [ ] |
+| 1 | #27 | แกน: migration `20260830_salary_slip_reopen.sql` (accepted_warnings, reopen_history, paid_history/paid_total, RPC `reopen_salary_slip`) + `groupSlipByDay`/`pendingItems` + actions (reopenSlip, accept warning, editSlipCheckin/addSlipCheckin/setRunnerAmounts, finalize บล็อกงานค้าง, Costs reconcile) + notification `salary_reopened` + A18–A19, B18–B21 | — | [x] 2026-08-28 74fe94f |
+| 2 | #28 | UI เดสก์ท็อป: ตารางรายวันแก้ inline (inline-cells) + ท้ายตาราง + ลบตารางเก่า 3 ไฟล์ | 1 | [x] 2026-08-28 8a3941d |
+| 3 | #29 | UI หัว sticky + checklist งานค้าง (กระโดด/ยอมรับ) + dialog เปิดแก้ไข + ประวัติ + ส่วนต่างการจ่าย + PDF | 1, 2 | [x] 2026-08-28 df07214 |
+| 4 | #30 | มือถือการ์ดรายวัน + พนักงานอ่านอย่างเดียว + whats-new + build (AC1–AC7) | 2, 3 | [x] 2026-08-28 56b57ee |
+
+### Code review round (2026-08-28,  8 มุม → แก้ 1 รอบ d81bdb8)
+- เงิน/ข้อมูล: พนักงานเห็นชื่อหน้าที่เป็นโค้ด (listDuties ติด admin gate) → อ่าน salary_duties ตรง · ฟรีแลนซ์เห็นบรรทัดฐานที่ไม่รวมยอด → เก็บฐาน 0 + ซ่อน · เวลาออก ≤ เข้า ถูกตีเป็นข้ามคืนเงียบๆ (OT 23 ชม.) → ถามยืนยันก่อน (ทั้งแก้และเพิ่ม, adminCheckIn รับ checkout_date) · แก้เช็คอินสำเร็จแต่คำนวณล้มแล้ว UI ย้อนค่า → refresh เสมอ + ข้อความชัด · แก้เวลาของเช็คอินที่ยังไม่มีหน้าที่ถูกปฏิเสธ → บังคับหน้าที่เฉพาะตอนตั้งหน้าที่/เปลี่ยนประเภท · สรุปยอดโอนไม่หักยอดที่จ่ายไปแล้วหลังเปิดแก้ → คอลัมน์ due + Excel · สลิปเคยจ่ายแล้วเปิดแก้แล้วลบได้ → บล็อกทั้ง app + trigger (B22) · หน้างวดนับคำเตือนดิบ → pending_count ฝั่ง server · RPC ปิดงวดไม่เช็ครันเนอร์ว่าง → RAISE (B23) · จ่ายแล้วทั้งหมดล้มกลางทาง → ทำต่อ + log + รายงาน failed · ยอมรับคำเตือนใช้ slip เก่าจาก closure → คืน slip จาก server · pending key รันเนอร์รวมวันเดียวกัน → key ต่อบรรทัด · check-in actions อ่านแต่ cookie เก่า → fallback getSessionLight
+- Dedupe: bangkokParts / isMissingAmount / isAcceptable / REOPEN_MIN_REASON ใน compute.ts, EMPLOYMENT_LABEL ใน format.ts (ลบ 4 สำเนา), useDayView ใช้ร่วม table/cards; logActivity ครบ (ADD/EDIT_SALARY_CHECKIN, UNACCEPT_SALARY_WARNING, SET_RUNNER_AMOUNTS); index job_cost_items.notes (partial)
+- ตั้งใจไม่แก้ (ponytail): guard trigger เป็น blocklist (ไม่กลับเป็น allowlist) · pending check ยังอยู่ฝั่ง app ยกเว้นรันเนอร์ · accepted key อิง date (ย้ายวันแล้วต้องยอมรับใหม่ — ตั้งใจ) · Costs sync คีย์ใน notes (แก้ note ในโมดูลต้นทุนจะทำให้ซ้ำ) · paid_history read-modify-write ฝั่ง app · reloadSlip โหลดเต็มทุกครั้งที่แก้ (เพดานหลักสิบบรรทัด) · table+cards mount พร้อมกัน (CSS toggle) · ไม่ regen database.types · จังหวัด/เขตแก้จากหน้าสลิปไม่ได้แล้ว (ดู/แก้ที่ประวัติเช็คอิน; ตจว. ยังสลับได้ในสลิป)
 
 ### สิ่งที่ user ต้องทำเอง (หลัง ship)
 - รัน `20260830_salary_slip_reopen.sql` บน prod ก่อน deploy

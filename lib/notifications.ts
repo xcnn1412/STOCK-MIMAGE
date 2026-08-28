@@ -29,6 +29,7 @@ export type NotificationType =
   | 'doc_rejected'
   | 'doc_voided'
   | 'salary_finalized'
+  | 'salary_reopened'
 
 export type ReferenceType =
   | 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation' | 'crm_lead' | 'document' | 'salary_slip'

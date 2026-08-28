@@ -88,6 +88,11 @@ export interface SalaryWarning {
   code: 'no_checkout' | 'no_duty' | 'no_event' | 'runner_missing' | 'override_dropped'
   date: string
   checkin_id?: string
+  /**
+   * บรรทัดที่คำเตือนนี้พูดถึง (ใช้กับ override_dropped ที่ไม่ผูกกับเช็คอิน)
+   * — ทำให้คำเตือนสองบรรทัดของวันเดียวกันไม่ยุบเป็นงานค้างข้อเดียว
+   */
+  line_key?: string
   message: string
 }
 
@@ -152,6 +157,16 @@ export function bangkokDate(iso: string): string {
   return new Date(new Date(iso).getTime() + BANGKOK_OFFSET).toISOString().slice(0, 10)
 }
 
+/**
+ * instant → (วันไทย, เวลาไทย 'HH:MM') — ตัวเดียวที่ทั้ง server action และช่องใน
+ * ตารางรายวันใช้ (อย่านิยาม bkkParts/bangkokParts ซ้ำในไฟล์อื่นอีก)
+ * ผู้เรียกต้องมั่นใจว่า iso ใช้ได้ (ตรวจด้วย Date.parse ก่อนถ้ามาจากผู้ใช้)
+ */
+export function bangkokParts(iso: string): { date: string; time: string } {
+  const s = new Date(new Date(iso).getTime() + BANGKOK_OFFSET).toISOString()
+  return { date: s.slice(0, 10), time: s.slice(11, 16) }
+}
+
 /** เที่ยงคืนของวันไทย D บนแกนเวลาเดียวกับ bangkokMinutes() */
 function dayStartMinutes(date: string): number {
   return Math.floor(Date.parse(`${date}T00:00:00Z`) / MS_PER_MINUTE)
@@ -179,10 +194,18 @@ export function lineAmount(l: SalaryLine): number {
   return l.amount ?? l.computed_amount ?? 0
 }
 
+/** บรรทัดที่ยังไม่มียอด (รันเนอร์ที่ยังไม่กรอก) — นิยามเดียวทั้งโมดูล */
+export function isMissingAmount(l: SalaryLine): boolean {
+  return l.amount === null || l.amount === undefined
+}
+
 /** มีบรรทัดที่ยังไม่กรอกยอดหรือไม่ — ใช้บล็อกการปิดงวด */
 export function hasMissingAmounts(lines: SalaryLine[]): boolean {
-  return lines.some(l => l.amount === null || l.amount === undefined)
+  return lines.some(isMissingAmount)
 }
+
+/** ความยาวขั้นต่ำของเหตุผลตอน "เปิดแก้ไข" สลิปที่ปิดงวดแล้ว (UI/action/RPC ใช้ค่าเดียวกัน) */
+export const REOPEN_MIN_REASON = 10
 
 /**
  * ช่วงวันของงวดจากวันตัดรอบ
@@ -472,7 +495,7 @@ export function computeSlip(input: ComputeInput): ComputeResult {
     const wasManual = !!prev.override_note?.trim() || (prev.kind === 'runner' && prev.amount != null)
     if (wasManual && !newKeys.has(prev.key)) {
       warnings.push({
-        code: 'override_dropped', date: prev.date,
+        code: 'override_dropped', date: prev.date, line_key: prev.key,
         message: `ค่าที่แก้มือไว้ "${prev.label}" (${prev.date}) หายไปหลังคำนวณใหม่ เพราะบรรทัดเดิมไม่มีแล้ว — ตรวจและแก้มือซ้ำถ้าจำเป็น`,
       })
     }
@@ -513,4 +536,229 @@ function mergeIntervals(intervals: Array<[number, number]>): Array<[number, numb
     else out.push([from, to])
   }
   return out
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// มุมมองรายวัน + งานค้างก่อนปิดงวด (spec: docs/specs/salary-slip-daily-ui.md)
+// pure ล้วนเหมือนส่วนบน — ใช้ร่วมกันทั้งตารางเดสก์ท็อป การ์ดมือถือ และหน้าพนักงาน
+// ────────────────────────────────────────────────────────────────────────────
+
+/** เช็คอินเท่าที่มุมมองรายวันต้องรู้ — รับแถวเต็มจาก getSlipForView ได้ตรงๆ */
+export interface DayCheckin {
+  id: string
+  check_type: 'office' | 'onsite' | 'remote'
+  /** ISO instant */
+  checked_in_at: string
+  checked_out_at: string | null
+  event_id: string | null
+  event_name?: string | null
+  duties: string[]
+  out_of_province: boolean
+  /** สลิปที่จ่ายเช็คอินนี้ไปแล้ว — ไม่ใช่สลิปที่กำลังดู = "จ่ายในสลิปอื่น" */
+  paid_slip_id?: string | null
+}
+
+/** เช็คอินหนึ่งใบในแถววัน พร้อมบรรทัดเงินที่เกิดจากมัน */
+export interface DayCheckinRow<C extends DayCheckin = DayCheckin> {
+  checkin: C
+  /** ค่าสตาฟของเช็คอินใบนี้ (หลายหน้าที่ = หลายบรรทัด) */
+  siteLines: SalaryLine[]
+  /** เบิ้ลต่างจังหวัดของเช็คอินใบนี้ (มีได้อย่างมาก 1) */
+  oopLine?: SalaryLine
+}
+
+/** หนึ่งวันไทยในสลิป = 1 แถวในตาราง / 1 การ์ดบนมือถือ */
+export interface DayRow<C extends DayCheckin = DayCheckin> {
+  /** YYYY-MM-DD ตามเวลาไทย */
+  date: string
+  checkins: DayCheckinRow<C>[]
+  /** OT ของวันนั้น (คิดรวมทั้งวัน จึงมีได้อย่างมาก 1 บรรทัด) */
+  otLine?: SalaryLine
+  /** รันเนอร์ของวันนั้น (1 บรรทัดต่อหน้าที่ manual_daily) */
+  runnerLines: SalaryLine[]
+  warnings: SalaryWarning[]
+  /** ผลรวมยอดของทุกบรรทัดที่อยู่ในวันนี้ (รวมบรรทัดที่ไม่ผูกกับเช็คอินที่แสดง) */
+  dayTotal: number
+}
+
+/**
+ * บรรทัดเงิน + เช็คอิน + คำเตือน → แถวรายวัน เรียงตามวัน
+ * วันที่มีเช็คอิน 2 ครั้ง = 1 DayRow ที่มี 2 แถวย่อย
+ * วันที่มีแต่บรรทัดเงิน (เช่น รันเนอร์ที่เช็คอินถูกกรองออก) ก็ยังได้แถวของตัวเอง
+ */
+export function groupSlipByDay<C extends DayCheckin>(
+  lines: SalaryLine[],
+  checkins: C[],
+  warnings: SalaryWarning[]
+): DayRow<C>[] {
+  const byDate = new Map<string, DayRow<C>>()
+
+  const rowFor = (date: string): DayRow<C> => {
+    let row = byDate.get(date)
+    if (!row) {
+      row = { date, checkins: [], runnerLines: [], warnings: [], dayTotal: 0 }
+      byDate.set(date, row)
+    }
+    return row
+  }
+
+  // เช็คอินก่อน — ลำดับแถวย่อยในวันเดียวกันเรียงตามเวลาเข้า
+  const sortedCheckins = [...checkins].sort(
+    (a, b) => cmp(a.checked_in_at, b.checked_in_at) || cmp(a.id, b.id)
+  )
+  const subRowById = new Map<string, DayCheckinRow<C>>()
+  for (const c of sortedCheckins) {
+    const sub: DayCheckinRow<C> = { checkin: c, siteLines: [] }
+    subRowById.set(c.id, sub)
+    rowFor(bangkokDate(c.checked_in_at)).checkins.push(sub)
+  }
+
+  // บรรทัดเงิน — เกาะวันของตัวเองเสมอ (line.date = วันไทยของเช็คอิน)
+  for (const line of lines) {
+    const row = rowFor(line.date)
+    row.dayTotal = round2(row.dayTotal + lineAmount(line))
+
+    if (line.kind === 'ot') {
+      row.otLine = line
+    } else if (line.kind === 'runner') {
+      row.runnerLines.push(line)
+    } else {
+      const sub = line.checkin_id ? subRowById.get(line.checkin_id) : undefined
+      if (!sub) continue // เช็คอินถูกกรองออก (จ่ายในสลิปอื่น) — ยอดยังนับใน dayTotal
+      if (line.kind === 'site') sub.siteLines.push(line)
+      else sub.oopLine = line
+    }
+  }
+
+  for (const w of warnings) rowFor(w.date).warnings.push(w)
+
+  return Array.from(byDate.values()).sort((a, b) => cmp(a.date, b.date))
+}
+
+// ── งานค้างก่อนปิดงวด ────────────────────────────────────────────────────────
+
+/** คำเตือนที่ admin กด "ยอมรับ" แล้ว — เก็บใน salary_slips.accepted_warnings */
+export interface AcceptedWarning {
+  /** `${code}:${date}:${checkin_id ?? ''}` */
+  key: string
+  /** id ของ admin ที่กดยอมรับ */
+  by: string
+  /** ISO instant */
+  at: string
+}
+
+export interface PendingItem {
+  key: string
+  date: string
+  checkin_id?: string
+  /** ข้อความที่บอกว่าค้างอะไร (ระบุหน้าที่/บรรทัดได้) — ว่างได้ ตัวเรียกใช้ป้ายกลุ่มแทน */
+  label?: string
+  accepted: boolean
+}
+
+export interface PendingGroup {
+  code: SalaryWarning['code']
+  label: string
+  items: PendingItem[]
+}
+
+export interface PendingResult {
+  /** จำนวนที่ยัง "ไม่ได้ยอมรับ" — ปิดงวดได้เมื่อเป็น 0 */
+  count: number
+  groups: PendingGroup[]
+}
+
+/** ป้ายกลุ่มงานค้างที่ผู้ใช้เห็นใน checklist */
+export const PENDING_LABELS: Record<SalaryWarning['code'], string> = {
+  no_checkout: 'ไม่มีเวลาออก',
+  no_event: 'ไม่ได้ผูกอีเวนต์',
+  no_duty: 'ไม่ได้ติ๊กหน้าที่',
+  runner_missing: 'รันเนอร์ยังไม่กรอก',
+  override_dropped: 'ค่าที่แก้มือหาย',
+}
+
+/** ลำดับกลุ่มใน checklist — คงที่ ไม่ขึ้นกับลำดับของ warnings */
+const PENDING_ORDER: SalaryWarning['code'][] = [
+  'runner_missing', 'no_checkout', 'no_event', 'no_duty', 'override_dropped',
+]
+
+/**
+ * คีย์ของงานค้างหนึ่งรายการ — ตัวเดียวกับที่เก็บใน accepted_warnings
+ * ส่วนท้ายเป็น "ตัวระบุรายการ" ในวันนั้น: เช็คอิน (คำเตือนที่ผูกเช็คอิน) หรือ
+ * คีย์บรรทัด (รันเนอร์ / ค่าที่แก้มือหาย ซึ่งวันเดียวกันมีได้หลายรายการ)
+ */
+export function pendingKey(code: string, date: string, itemId?: string | null): string {
+  return `${code}:${date}:${itemId ?? ''}`
+}
+
+/** ยอมรับไม่ได้ — รันเนอร์ต้องกรอกยอด (พิมพ์ 0 ได้ แต่จะข้ามไม่ได้) */
+const NOT_ACCEPTABLE: SalaryWarning['code'] = 'runner_missing'
+
+/** คำเตือนชนิดนี้กด "ยอมรับ" ข้ามได้ไหม — ใช้ทั้งใน checklist และใน acceptSlipWarning */
+export function isAcceptable(code: string): boolean {
+  return code !== NOT_ACCEPTABLE
+}
+
+/**
+ * งานค้างที่ต้องเคลียร์ก่อนปิดงวด
+ *
+ * - `runner_missing` มาจากบรรทัดรันเนอร์ที่ `amount === null` โดยตรง (ไม่ใช่จาก warnings)
+ *   — คำเตือนกับบรรทัดอาจไม่ตรงกันชั่วคราวระหว่างกรอก · คีย์เป็นรายบรรทัด
+ *   (`runner_missing:<date>:<line.key>`) เพราะวันเดียวมีรันเนอร์ได้หลายหน้าที่
+ * - `override_dropped` คีย์ด้วย `line_key` ของคำเตือน — วันเดียวมีได้หลายบรรทัด
+ * - รายการที่ถูกยอมรับแล้วยังอยู่ในกลุ่ม (แสดงจางๆ) แต่ไม่ถูกนับใน `count`
+ * - คีย์ที่ยอมรับไว้แต่ปัจจุบันไม่มีงานค้างนั้นแล้ว = ทิ้งไปเงียบๆ ไม่ต้องล้างเอง
+ */
+export function pendingItems(
+  warnings: SalaryWarning[],
+  accepted: AcceptedWarning[],
+  lines: SalaryLine[]
+): PendingResult {
+  const acceptedKeys = new Set((accepted ?? []).map(a => a.key))
+  const byKey = new Map<string, PendingItem & { code: SalaryWarning['code'] }>()
+
+  const add = (
+    code: SalaryWarning['code'],
+    date: string,
+    itemId: string | undefined,
+    detail: { checkinId?: string; label?: string }
+  ) => {
+    const key = pendingKey(code, date, itemId)
+    if (byKey.has(key)) return
+    byKey.set(key, {
+      code,
+      key,
+      date,
+      checkin_id: detail.checkinId,
+      label: detail.label,
+      accepted: isAcceptable(code) && acceptedKeys.has(key),
+    })
+  }
+
+  for (const w of warnings ?? []) {
+    if (w.code === NOT_ACCEPTABLE) continue // มาจากบรรทัดแทน
+    // ค่าที่แก้มือหายไม่ผูกกับเช็คอิน — แยกรายการด้วยคีย์บรรทัดแทน
+    const itemId = w.code === 'override_dropped' ? (w.line_key ?? w.checkin_id) : w.checkin_id
+    add(w.code, w.date, itemId, { checkinId: w.checkin_id, label: w.message })
+  }
+  for (const l of lines ?? []) {
+    // วันเดียวมีรันเนอร์ได้หลายหน้าที่ — คีย์ต่อบรรทัด ไม่งั้นยุบเหลือรายการเดียว
+    if (l.kind === 'runner' && isMissingAmount(l)) {
+      add(NOT_ACCEPTABLE, l.date, l.key, { label: l.label })
+    }
+  }
+
+  const all = Array.from(byKey.values()).sort(
+    (a, b) => cmp(a.date, b.date) || cmp(a.key, b.key)
+  )
+
+  const groups: PendingGroup[] = []
+  for (const code of PENDING_ORDER) {
+    const items = all
+      .filter(i => i.code === code)
+      .map(({ key, date, checkin_id, label, accepted }) => ({ key, date, checkin_id, label, accepted }))
+    if (items.length > 0) groups.push({ code, label: PENDING_LABELS[code], items })
+  }
+
+  return { count: all.filter(i => !i.accepted).length, groups }
 }

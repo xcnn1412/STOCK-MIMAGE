@@ -5,13 +5,25 @@ import { reverseGeocodeThai } from '@/lib/reverse-geocode'
 import { logActivity } from '@/lib/logger'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
+import { getSessionLight } from '@/lib/auth'
 import type { DutyInput } from '../salary/compute'
 
+/**
+ * ผู้ใช้ที่กำลังทำรายการ — คุกกี้ legacy ก่อน แล้วค่อยตกไปที่ session_token
+ *
+ * โมดูลอื่น (เช่นหน้าสลิปเงินเดือนที่เรียก adminEditCheckin/adminCheckIn ต่อ) ใช้
+ * session แบบโทเคนล้วนได้ ถ้าอ่านแต่คุกกี้ legacy ที่นี่ การแก้เช็คอินจากในสลิป
+ * จะเด้ง 'Unauthorized' ทั้งที่ล็อกอินเป็น admin อยู่
+ */
 async function getSession() {
   const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
-  const role = cookieStore.get('session_role')?.value || 'staff'
-  return { userId, role }
+  const legacyId = cookieStore.get('session_user_id')?.value
+  if (legacyId) {
+    return { userId: legacyId, role: cookieStore.get('session_role')?.value || 'staff' }
+  }
+
+  const light = await getSessionLight()
+  return { userId: light.userId, role: light.role || 'staff' }
 }
 
 // ─── หน้าที่หน้างาน (salary_duties) ───────────────────────
@@ -250,6 +262,9 @@ export async function adminCheckIn(formData: FormData) {
   const checkinDate = formData.get('checkin_date') as string // YYYY-MM-DD
   const checkinTime = formData.get('checkin_time') as string // HH:mm
   const checkoutTime = formData.get('checkout_time') as string || null // HH:mm (optional)
+  // วันที่ออก (optional) — ไม่ส่งมา = วันเดียวกับวันที่เข้า · กะข้ามคืนต้องส่งมาเอง
+  // (รูปแบบเดียวกับ adminEditCheckin — ระบบไม่เดา +1 วันให้)
+  const checkoutDate = formData.get('checkout_date') as string || null // YYYY-MM-DD
   const note = formData.get('note') as string || null
   // ฟิลด์ของโมดูลเงินเดือน — ใช้เฉพาะ onsite
   const isOnsite = checkType === 'onsite'
@@ -276,7 +291,10 @@ export async function adminCheckIn(formData: FormData) {
   // Build checkout timestamp if provided
   let checkedOutAt: string | null = null
   if (checkoutTime) {
-    checkedOutAt = new Date(`${checkinDate}T${checkoutTime}:00+07:00`).toISOString()
+    const outDate = checkoutDate || checkinDate
+    const out = new Date(`${outDate}T${checkoutTime}:00+07:00`)
+    if (isNaN(out.getTime())) return { error: 'วันที่/เวลาออกไม่ถูกต้อง' }
+    checkedOutAt = out.toISOString()
     // Validate checkout is after checkin
     if (new Date(checkedOutAt) <= new Date(checkedInAt)) {
       return { error: 'เวลาออกต้องหลังเวลาเข้า' }
@@ -544,8 +562,11 @@ export async function adminEditCheckin(formData: FormData) {
     updates.duties = []
     updates.out_of_province = false
   }
-  // onsite ต้องมีหน้าที่ ≥ 1 เสมอ (กติกาเดียวกับ checkIn/adminCheckIn) — ตรวจกับค่าหลังแก้
-  {
+  // onsite ต้องมีหน้าที่ ≥ 1 — แต่บังคับเฉพาะตอนที่ฟอร์ม "แตะเรื่องหน้าที่" จริงๆ
+  // (ส่ง duties_set มา) หรือกำลังเปลี่ยนประเภทเป็น onsite เท่านั้น
+  // ไม่งั้นการแก้แค่เวลา/ตจว. ของเช็คอินเก่าที่ยังไม่ได้ติ๊กหน้าที่จะถูกปฏิเสธทั้งที่ไม่เกี่ยว
+  // (คำเตือน no_duty ในสลิปตามเรื่องหน้าที่ที่ยังขาดอยู่แล้ว)
+  if (dutiesSet || checkType === 'onsite') {
     const { data: current } = await supabase
       .from('staff_checkins')
       .select('check_type, duties')

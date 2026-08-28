@@ -1,25 +1,35 @@
 'use client'
 
+// ============================================================================
+// หน้าสลิปหนึ่งใบ — spec: docs/specs/salary-slip-daily-ui.md
+//
+// ประกอบร่าง: SlipHeader (ติดขอบบน) → PendingChecklist
+//            → SlipDayTable (≥ md) / SlipDayCards (< md)
+//            → บัญชีรับเงิน → ReopenHistory → บรรทัดสรุปท้ายหน้า
+//
+// ที่นี่เป็นเจ้าของ "สถานะสลิปฝั่ง client" ตัวเดียว (ทุกการแก้ในตารางคืนสลิปใหม่มา)
+// และเป็นที่เดียวที่ถือ dialog ยืนยัน: ปิดงวด / จ่ายแล้ว / เปิดแก้ไข / คำนวณใหม่ทั้งใบ
+// ============================================================================
+
 import { useState, useTransition } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import {
-  AlertTriangle, ArrowLeft, BanknoteArrowUp, FileDown, Landmark, Lock, RefreshCw, Receipt,
-} from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Landmark } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, slipTitle } from '../format'
-import { SlipStatusBadge } from '../components/slip-status-badge'
-import SlipLinesTable from '../components/slip-lines-table'
-import SlipCheckinsTable from '../components/slip-checkins-table'
-import { hasMissingAmounts } from '../compute'
+import { fmtMoney } from '../format'
+import SlipDayTable from './slip-day-table'
+import SlipDayCards from './slip-day-cards'
+import SlipHeader from './components/slip-header'
+import PendingChecklist from './components/pending-checklist'
+import ReopenDialog from './components/reopen-dialog'
+import ReopenHistory from './components/reopen-history'
+import { useHighlightRow } from './components/use-highlight-row'
+import { pendingItems } from '../compute'
 import {
   finalizeSlip, markSlipPaid, recomputeSlip, syncSlipToCosts,
   type SlipCheckinRow, type SlipDetail, type SlipEventOption,
@@ -29,52 +39,46 @@ import type { SalaryDutyRow } from '../settings/actions'
 interface Props {
   slip: SlipDetail
   isAdmin: boolean
-  /** ข้อมูลต้นทางในงวด — ว่างเสมอเมื่อไม่ใช่ admin */
+  /** เช็คอินของงวด — admin ได้ทั้งงวด (แก้ได้) · เจ้าของได้เฉพาะที่จ่ายในสลิปนี้ */
   checkins: SlipCheckinRow[]
   duties: SalaryDutyRow[]
   /** ตัวเลือกอีเวนต์รอบๆ งวด สำหรับผูกเช็คอิน — ว่างเสมอเมื่อไม่ใช่ admin */
   events: SlipEventOption[]
 }
 
-const EMPLOYMENT_LABEL = { fulltime: 'ประจำ', freelance: 'ฟรีแลนซ์', intern: 'นักศึกษาฝึกงาน' } as const
-
-export default function SlipView({ slip, isAdmin, checkins, duties, events }: Props) {
+export default function SlipView({ slip: initialSlip, isAdmin, checkins, duties, events }: Props) {
   const router = useRouter()
-  const [confirmRecompute, setConfirmRecompute] = useState(false)
+  // ตารางรายวันคืนสลิปที่คำนวณใหม่แล้วกลับมาทุกครั้งที่แก้ — เก็บไว้ใน state
+  // เพื่อให้ยอด/งานค้างบนหัวขยับทันทีโดยไม่ต้องรอ server component รอบใหม่
+  const [slip, setSlip] = useState(initialSlip)
+  const [seenSlip, setSeenSlip] = useState(initialSlip)
+  if (seenSlip !== initialSlip) {
+    setSeenSlip(initialSlip)
+    setSlip(initialSlip)
+  }
+
   const [confirmFinalize, setConfirmFinalize] = useState(false)
   const [confirmPaid, setConfirmPaid] = useState(false)
+  const [recomputeOpen, setRecomputeOpen] = useState(false)
+  const [reopenOpen, setReopenOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const { highlightDate, jumpToDay } = useHighlightRow()
 
   const name = slip.full_name || slip.nickname || '(ไม่มีชื่อ)'
   const hasBank = !!(slip.bank_name || slip.bank_account_number || slip.account_holder_name)
   // แก้ได้เฉพาะ admin + สลิปร่าง — เจ้าของสลิปและสลิปที่ปิดงวดแล้วอ่านอย่างเดียว
   // (ทุก action ตรวจซ้ำฝั่ง server และ trigger ที่ DB กันอีกชั้น)
   const editable = isAdmin && slip.status === 'draft'
-  // เกณฑ์เดียวกับที่ /api/pdf/salary/[slipId] บังคับ (ผ่าน getSlipForView ตัวเดียวกัน) —
-  // admin โหลดได้ทุกสถานะ (ร่างได้ PDF ที่มีลายน้ำ "ร่าง") เจ้าของได้เฉพาะที่ปิดงวดแล้ว
-  const canDownloadPdf = isAdmin || slip.status !== 'draft'
   // เกณฑ์เดียวกับที่ finalizeSlip ใช้ฝั่ง server — ปุ่มจึงไม่พาไปเจอ error ที่รู้ล่วงหน้าอยู่แล้ว
-  const missingAmounts = hasMissingAmounts(slip.lines)
+  const pendingCount = pendingItems(slip.warnings, slip.accepted_warnings, slip.lines).count
   const todayLabel = formatThaiDate(new Date())
-
-  function runRecompute() {
-    startTransition(async () => {
-      const res = await recomputeSlip(slip.id)
-      setConfirmRecompute(false)
-      if (res.error) {
-        toast.error(res.error)
-        return
-      }
-      toast.success('คำนวณสลิปใหม่แล้ว')
-      router.refresh()
-    })
-  }
 
   function runFinalize() {
     startTransition(async () => {
       const res = await finalizeSlip(slip.id)
       setConfirmFinalize(false)
       if (res.error) {
+        // ฝั่ง server อาจปฏิเสธด้วยเหตุที่หน้าจอยังไม่รู้ (เช่น "ยังมีงานค้าง…") — บอกตรงๆ
         toast.error(res.error)
         return
       }
@@ -114,143 +118,67 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
     })
   }
 
+  /** คำนวณทั้งใบใหม่จากต้นทาง — ใช้เมื่อ rate card เปลี่ยน (ค่าที่แก้มือยังอยู่) */
+  function runRecompute() {
+    startTransition(async () => {
+      const res = await recomputeSlip(slip.id)
+      setRecomputeOpen(false)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      toast.success('คำนวณสลิปใหม่แล้ว')
+      router.refresh()
+    })
+  }
+
   return (
     <div className="p-4 md:p-6 space-y-4">
-      {/* ── หัวสลิป ────────────────────────────────────────────────────────── */}
-      <div className="space-y-1">
-        <Link
-          href={isAdmin ? `/salary/runs/${slip.run_id}` : '/salary'}
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          {isAdmin ? 'กลับไปหน้างวด' : 'สลิปของฉัน'}
-        </Link>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold">{name}</h1>
-            <p className="text-sm text-muted-foreground">
-              {slipTitle(slip)} ·{' '}
-              {formatThaiDate(slip.period_start)} – {formatThaiDate(slip.period_end)}
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <SlipStatusBadge status={slip.status} />
-              <Badge variant="outline">{EMPLOYMENT_LABEL[slip.employment_type]}</Badge>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-start gap-3">
-            {canDownloadPdf && (
-              <Button variant="outline" asChild>
-                <a
-                  href={`/api/pdf/salary/${slip.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <FileDown className="size-4" />
-                  ดาวน์โหลด PDF
-                </a>
-              </Button>
-            )}
-            {editable && (
-              <>
-                <Button
-                  variant="outline"
-                  disabled={isPending}
-                  onClick={() => setConfirmRecompute(true)}
-                >
-                  <RefreshCw className="size-4" />
-                  คำนวณใหม่
-                </Button>
-                <div className="flex flex-col items-start gap-1">
-                  <Button
-                    disabled={isPending || missingAmounts}
-                    onClick={() => setConfirmFinalize(true)}
-                    title={missingAmounts ? 'กรอกยอดรันเนอร์ให้ครบก่อนปิดงวด' : 'ปิดงวดสลิปใบนี้'}
-                  >
-                    <Lock className="size-4" />
-                    ปิดงวด
-                  </Button>
-                  {missingAmounts && (
-                    <span className="max-w-48 text-xs text-amber-700 dark:text-amber-500">
-                      กรอกยอดรันเนอร์ให้ครบก่อนปิดงวด
-                    </span>
-                  )}
-                </div>
-              </>
-            )}
-            {isAdmin && slip.status !== 'draft' && (
-              <div className="flex flex-col items-start gap-1">
-                <Button variant="outline" disabled={isPending} onClick={runSyncCosts}>
-                  <Receipt className="size-4" />
-                  ส่งเข้าต้นทุนอีกครั้ง
-                </Button>
-                <span className="max-w-56 text-xs text-muted-foreground">
-                  {slip.costs_synced_at
-                    ? `ส่งเข้าต้นทุนล่าสุด ${formatThaiDate(slip.costs_synced_at)}`
-                    : 'ยังไม่ได้ส่งเข้าโมดูลต้นทุน'}
-                </span>
-              </div>
-            )}
-            {isAdmin && slip.status === 'finalized' && (
-              <Button disabled={isPending} onClick={() => setConfirmPaid(true)}>
-                <BanknoteArrowUp className="size-4" />
-                จ่ายแล้ว
-              </Button>
-            )}
-            <div className="text-right">
-              <div className="text-2xl font-semibold tabular-nums">{fmtMoney(slip.total)}</div>
-              <div className="text-xs text-muted-foreground">ยอดสุทธิ (บาท)</div>
-            </div>
-          </div>
-        </div>
+      <SlipHeader
+        slip={slip}
+        isAdmin={isAdmin}
+        pendingCount={pendingCount}
+        busy={isPending}
+        onFinalize={() => setConfirmFinalize(true)}
+        onMarkPaid={() => setConfirmPaid(true)}
+        onReopen={() => setReopenOpen(true)}
+        onSyncCosts={runSyncCosts}
+        onRecompute={() => setRecomputeOpen(true)}
+      />
+
+      {/* ── งานค้างก่อนปิดงวด — คลิกแล้วเลื่อนไปแถววันนั้นในตาราง ─────────────── */}
+      <PendingChecklist
+        slip={slip}
+        editable={editable}
+        onJump={jumpToDay}
+        onSlipChange={setSlip}
+      />
+
+      {/* ── มุมมองรายวัน — เดสก์ท็อปเป็นตาราง มือถือเป็นการ์ด (สลับด้วย CSS) ──
+          ทั้งคู่อ่านจาก groupSlipByDay ชุดเดียวกัน แต่ id ของวันไม่ชนกัน
+          (ตาราง = day-<date> · การ์ด = day-<date>-m) ให้ jumpToDay เลือกได้ */}
+      <div className="hidden md:block">
+        <SlipDayTable
+          slip={slip}
+          checkins={checkins}
+          duties={duties}
+          events={events}
+          editable={editable}
+          highlightDate={highlightDate}
+          onSlipChange={setSlip}
+        />
       </div>
-
-      {/* ── คำเตือน — ข้อมูลต้นทางที่ยังไม่ครบ (แก้ในตารางเช็คอินด้านล่างแล้วคำนวณใหม่) ── */}
-      {slip.warnings.length > 0 && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
-          <p className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-400">
-            <AlertTriangle className="size-4" />
-            คำเตือน {slip.warnings.length} ข้อ
-          </p>
-          <ul className="mt-1.5 space-y-0.5 text-sm text-amber-700 dark:text-amber-500">
-            {slip.warnings.map((w, i) => (
-              <li key={`${w.code}-${w.date}-${w.checkin_id || i}`}>• {w.message}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* ── รายการในสลิป ───────────────────────────────────────────────────── */}
-      <Card>
-        <CardContent className="p-0">
-          <SlipLinesTable
-            lines={slip.lines}
-            adjustments={slip.adjustments}
-            employmentType={slip.employment_type}
-            baseSalary={slip.base_salary}
-            total={slip.total}
-            slipId={slip.id}
-            editable={editable}
-          />
-        </CardContent>
-      </Card>
-
-      {/* ── ข้อมูลต้นทางในงวด (admin เท่านั้น) ─────────────────────────────── */}
-      {isAdmin && (
-        <Card>
-          <CardContent className="p-4">
-            <SlipCheckinsTable
-              slipId={slip.id}
-              userId={slip.user_id}
-              periodStart={slip.period_start}
-              periodEnd={slip.period_end}
-              checkins={checkins}
-              duties={duties}
-              events={events}
-              editable={editable}
-            />
-          </CardContent>
-        </Card>
-      )}
+      <div className="md:hidden">
+        <SlipDayCards
+          slip={slip}
+          checkins={checkins}
+          duties={duties}
+          events={events}
+          editable={editable}
+          highlightDate={highlightDate}
+          onSlipChange={setSlip}
+        />
+      </div>
 
       {/* ── บัญชีรับเงิน (แสดงอย่างเดียว — แก้ที่หน้าโปรไฟล์) ─────────────────── */}
       {hasBank && (
@@ -267,6 +195,8 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
           </CardContent>
         </Card>
       )}
+
+      <ReopenHistory slip={slip} />
 
       <p className="text-xs text-muted-foreground">
         {slip.computed_at && <>คำนวณล่าสุด {formatThaiDate(slip.computed_at)}</>}
@@ -285,27 +215,6 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
       </p>
 
       <AlertDialog
-        open={confirmRecompute}
-        onOpenChange={v => { if (!v) setConfirmRecompute(false) }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>คำนวณสลิปใหม่</AlertDialogTitle>
-            <AlertDialogDescription>
-              ดึงข้อมูลต้นทาง (เช็คอิน หน้าที่ จังหวัด อัตราล่าสุด) ในงวดนี้มาคิดใหม่ทั้งใบ —
-              บรรทัดที่แก้มือไว้ ยอดรันเนอร์ที่กรอกแล้ว และรายการปรับมือ ยังคงอยู่เหมือนเดิม
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPending}>ยกเลิก</AlertDialogCancel>
-            <AlertDialogAction onClick={runRecompute} disabled={isPending}>
-              คำนวณใหม่
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
         open={confirmFinalize}
         onOpenChange={v => { if (!v) setConfirmFinalize(false) }}
       >
@@ -313,7 +222,7 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
           <AlertDialogHeader>
             <AlertDialogTitle>ปิดงวดสลิปของ{name}</AlertDialogTitle>
             <AlertDialogDescription>
-              ปิดงวดแล้วจะแก้ตัวเลขไม่ได้อีก (ลบก็ไม่ได้ — ฐานข้อมูลปฏิเสธให้เอง)
+              ปิดงวดแล้วจะแก้ตัวเลขไม่ได้อีก (ต้องกด &quot;เปิดแก้ไข&quot; ในเมนู ⋯ ก่อน)
               ยอดสุทธิที่จะปิด {fmtMoney(slip.total)} บาท ·
               {name}จะได้รับแจ้งเตือนและเห็นสลิปใบนี้ทันที
             </AlertDialogDescription>
@@ -344,6 +253,26 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={recomputeOpen} onOpenChange={v => { if (!v) setRecomputeOpen(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>คำนวณใหม่ทั้งใบ</AlertDialogTitle>
+            <AlertDialogDescription>
+              ดึงเช็คอินกับอัตราค่าตอบแทนปัจจุบันมาคิดใหม่ทั้งใบ —
+              ค่าที่แก้มือจะคงอยู่ (ยกเว้นบรรทัดที่ไม่มีอยู่แล้ว ระบบจะเตือนให้ทราบ)
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction onClick={runRecompute} disabled={isPending}>
+              คำนวณใหม่
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <ReopenDialog slip={slip} open={reopenOpen} onOpenChange={setReopenOpen} />
     </div>
   )
 }

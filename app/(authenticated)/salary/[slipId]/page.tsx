@@ -21,7 +21,8 @@ export default async function SalarySlipPage({ params }: { params: Promise<{ sli
   const res = await getSlipForView(slipId)
   if ('error' in res) notFound()
 
-  // checkins/duties/events (ข้อมูลต้นทางในงวด) ว่างเสมอเมื่อไม่ใช่ admin — บังคับใน action
+  // ไม่ใช่ admin = เจ้าของสลิป: ได้เช็คอินของตัวเองเฉพาะที่จ่ายในสลิปใบนี้ (อ่านอย่างเดียว)
+  // + รายชื่อหน้าที่ไว้แปลงรหัสเป็นชื่อ แต่ไม่ได้ลิสต์อีเวนต์ของทั้งบริษัท — บังคับใน action
   return (
     <SlipView
       slip={res.slip}

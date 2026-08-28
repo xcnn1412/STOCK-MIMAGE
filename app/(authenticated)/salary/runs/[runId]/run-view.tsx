@@ -26,9 +26,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatThaiDate } from '@/lib/thai-date'
-import { RUN_KIND_LABEL, fmtMoney, periodLabel, slipTitle } from '../../format'
+import { EMPLOYMENT_LABEL, RUN_KIND_LABEL, fmtMoney, periodLabel, slipTitle } from '../../format'
 import { SlipStatusBadge } from '../../components/slip-status-badge'
-import type { EmploymentType } from '../../compute'
 import type { SalaryProfileListRow } from '../../settings/actions'
 import {
   computeSlips, deleteSlip, exportTransferExcel, finalizeRemainingSlips, finalizeSlip,
@@ -45,12 +44,6 @@ interface Props {
   suggestedUserIds: string[]
   /** สรุปยอดโอนของสลิปที่ปิดงวดแล้ว — null เมื่ออ่านไม่ได้ */
   transfer: TransferSummary | null
-}
-
-const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
-  fulltime: 'ประจำ',
-  freelance: 'ฟรีแลนซ์',
-  intern: 'นักศึกษาฝึกงาน',
 }
 
 const ALL = '__all__'
@@ -247,12 +240,20 @@ export default function RunView({
     startTransition(async () => {
       const res = await markAllPaid(run.id)
       setConfirmPayAll(false)
+      router.refresh()
       if (res.error) {
         toast.error(res.error)
         return
       }
+      // บางใบอาจล้มระหว่างทาง — ที่เหลือถูกบันทึกไปแล้ว ต้องบอกทั้งสองส่วน
+      const failed = res.failed?.length || 0
+      if (failed > 0) {
+        toast.warning(
+          `บันทึกว่าจ่ายแล้ว ${res.count} คน · ไม่สำเร็จ ${failed} คน (${res.failed?.[0]?.error ?? ''})`
+        )
+        return
+      }
       toast.success(`บันทึกว่าจ่ายแล้ว ${res.count} คน`)
-      router.refresh()
     })
   }
 
@@ -475,7 +476,7 @@ export default function RunView({
                   <TableHead>ประเภทการจ้าง</TableHead>
                   <TableHead className="text-right">ยอดสุทธิ</TableHead>
                   <TableHead>สถานะ</TableHead>
-                  <TableHead>คำเตือน</TableHead>
+                  <TableHead>งานค้าง</TableHead>
                   <TableHead className="text-right">จัดการ</TableHead>
                 </TableRow>
               </TableHeader>
@@ -499,24 +500,26 @@ export default function RunView({
                       {fmtMoney(s.total)}
                     </TableCell>
                     <TableCell><SlipStatusBadge status={s.status} /></TableCell>
+                    {/* งานค้าง = คำเตือนที่ยังไม่ได้ "ยอมรับ" (เกณฑ์เดียวกับปุ่มปิดงวด)
+                        ไม่ใช่จำนวนคำเตือนดิบ — ที่ยอมรับแล้วไม่ค้างงานอีก */}
                     <TableCell>
-                      {s.warnings.length === 0 ? (
+                      {s.pending_count === 0 ? (
                         <span className="text-xs text-muted-foreground">–</span>
                       ) : (
                         <Popover>
                           <PopoverTrigger asChild>
                             <button
                               type="button"
-                              title={`มีคำเตือน ${s.warnings.length} ข้อ`}
+                              title={`งานค้าง ${s.pending_count} รายการ`}
                               className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-500"
                             >
                               <AlertTriangle className="size-3.5" />
-                              {s.warnings.length}
+                              งานค้าง {s.pending_count}
                             </button>
                           </PopoverTrigger>
                           <PopoverContent align="start" className="w-80">
                             <p className="mb-2 text-sm font-medium">
-                              คำเตือน {s.warnings.length} ข้อ
+                              งานค้าง {s.pending_count} รายการ
                             </p>
                             <ul className="space-y-1 text-xs text-muted-foreground">
                               {s.warnings.map((w, i) => (
@@ -557,16 +560,20 @@ export default function RunView({
                               <Lock className="size-4" />
                               ปิดงวด
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={isPending}
-                              onClick={() => setDeleteTarget(s)}
-                              className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
-                              title="เอาคนนี้ออกจากงวด"
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
+                            {/* สลิปที่เคยปิดงวด/จ่ายแล้ว (ถูกเปิดแก้) ลบไม่ได้ —
+                                ประวัติการจ่ายจะหายไปด้วย · action + trigger กันอีกสองชั้น */}
+                            {!s.reopened && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={isPending}
+                                onClick={() => setDeleteTarget(s)}
+                                className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+                                title="เอาคนนี้ออกจากงวด"
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            )}
                           </>
                         )}
                         {s.status === 'finalized' && (
@@ -637,7 +644,7 @@ export default function RunView({
                   <TableHead>ชื่อ</TableHead>
                   <TableHead>ธนาคาร</TableHead>
                   <TableHead>เลขบัญชี</TableHead>
-                  <TableHead className="text-right">ยอด</TableHead>
+                  <TableHead className="text-right">ยอดโอน</TableHead>
                   <TableHead>สถานะ</TableHead>
                 </TableRow>
               </TableHeader>
@@ -665,7 +672,14 @@ export default function RunView({
                         {r.bank_account_number || '–'}
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums">
-                        {fmtMoney(r.total)}
+                        {fmtMoney(r.due)}
+                        {/* สลิปที่จ่ายไปแล้วแล้วถูกเปิดแก้ + ปิดงวดใหม่ — โอนรอบนี้แค่ส่วนต่าง */}
+                        {r.status === 'finalized' && r.paid_total !== null && (
+                          <p className="text-xs font-normal text-muted-foreground">
+                            จ่ายไปแล้ว {fmtMoney(r.paid_total)} · ส่วนต่าง{' '}
+                            {r.due >= 0 ? '+' : '-'}{fmtMoney(Math.abs(r.due))}
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell><SlipStatusBadge status={r.status} /></TableCell>
                     </TableRow>
@@ -767,7 +781,7 @@ export default function RunView({
             <AlertDialogDescription>
               ปิดงวดสลิปร่างที่เหลือในงวด{periodLabel(run)} ทั้งหมด {draftCount} ใบ —
               ปิดงวดแล้วจะแก้ตัวเลขไม่ได้อีก และเจ้าของสลิปแต่ละใบจะได้รับแจ้งเตือน
-              ใบที่ยังกรอกยอดรันเนอร์ไม่ครบจะถูกข้ามไว้ให้กรอกก่อน
+              ใบที่ยังมีงานค้างจะถูกข้ามไว้ให้แก้หรือกด &quot;ยอมรับ&quot; ก่อน
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
