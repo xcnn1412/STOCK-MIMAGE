@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { getCheckinReportData } from '../actions'
+import { getCheckinReportData, getActiveDuties } from '../actions'
 import { getJobEventsForSelect } from '../../finance/actions'
 import CheckinReportView from './report-view'
 
@@ -27,9 +27,10 @@ export default async function CheckinReportPage() {
   const lastDay = new Date(year, bangkokNow.getMonth() + 1, 0).getDate()
   const endDate = `${year}-${month}-${String(lastDay).padStart(2, '0')}`
 
-  const [data, allEvents] = await Promise.all([
+  const [data, allEvents, duties] = await Promise.all([
     getCheckinReportData(startDate, endDate),
     getJobEventsForSelect(),
+    getActiveDuties(),
   ])
 
   return (
@@ -37,6 +38,7 @@ export default async function CheckinReportPage() {
       initialRecords={data.records as any[]}
       staff={data.staff as any[]}
       allEvents={allEvents}
+      duties={duties}
       defaultStart={startDate}
       defaultEnd={endDate}
       isAdmin={isAdmin}

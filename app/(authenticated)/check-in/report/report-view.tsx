@@ -13,7 +13,10 @@ import {
 import {
   getCheckinReportData, updateStaffWorkSettings, adminDeleteCheckin,
   adminUpdateCheckinEvent, backfillCheckinEvents, updateMyCheckinEvent,
+  adminEditCheckin,
 } from '../actions'
+import type { DutyInput } from '../../salary/compute'
+import { THAI_PROVINCES } from '@/lib/thai-address'
 import EventSelectCombobox from '../../finance/new/event-select-combobox'
 
 // ─── Types ─────────────────────────────────────────────────
@@ -28,6 +31,11 @@ interface CheckinRecord {
   event_id: string | null
   latitude: number | null
   longitude: number | null
+  // ── โมดูลเงินเดือน (มีเฉพาะ onsite) ──
+  duties?: string[] | null
+  province?: string | null
+  district?: string | null
+  out_of_province?: boolean | null
   profiles: { id: string; full_name: string | null; nickname: string | null } | null
   events: { id: string; name: string } | null
   assigned_roles?: { role: string; label: string; color: string }[]
@@ -55,6 +63,7 @@ interface Props {
   initialRecords: CheckinRecord[]
   staff: StaffMember[]
   allEvents: EventOption[]
+  duties: DutyInput[]
   defaultStart: string
   defaultEnd: string
   isAdmin: boolean
@@ -94,6 +103,18 @@ function isLateCheckin(checkedInAt: string, lateHour: number, lateMinute: number
   return hour > lateHour || (hour === lateHour && minute > lateMinute)
 }
 
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000
+
+/** ISO instant → 'YYYY-MM-DD' เวลาไทย (ค่าเริ่มต้นของ <input type="date">) */
+function bangkokDateInput(iso: string): string {
+  return new Date(new Date(iso).getTime() + BANGKOK_OFFSET_MS).toISOString().split('T')[0]
+}
+
+/** ISO instant → 'HH:mm' เวลาไทย (ค่าเริ่มต้นของ <input type="time">) */
+function bangkokTimeInput(iso: string): string {
+  return new Date(new Date(iso).getTime() + BANGKOK_OFFSET_MS).toISOString().slice(11, 16)
+}
+
 function getCheckinHour(checkedInAt: string): number {
   const d = new Date(checkedInAt)
   const hour = d.getUTCHours() + 7
@@ -102,12 +123,25 @@ function getCheckinHour(checkedInAt: string): number {
 
 // ─── Main Component ────────────────────────────────────────
 
-export default function CheckinReportView({ initialRecords, staff, allEvents, defaultStart, defaultEnd, isAdmin, currentUserId }: Props) {
+export default function CheckinReportView({ initialRecords, staff, allEvents, duties, defaultStart, defaultEnd, isAdmin, currentUserId }: Props) {
   const router = useRouter()
   const [records, setRecords] = useState<CheckinRecord[]>(initialRecords)
   const [editingCheckin, setEditingCheckin] = useState<CheckinRecord | null>(null)
   const [editingEventRef, setEditingEventRef] = useState<string>('')
   const [savingEdit, setSavingEdit] = useState(false)
+  // ── ฟิลด์โมดูลเงินเดือนใน modal แก้ไข (admin เท่านั้น) ──
+  const [editDuties, setEditDuties] = useState<string[]>([])
+  const [editProvince, setEditProvince] = useState('')
+  const [editDistrict, setEditDistrict] = useState('')
+  const [editOutOfProvince, setEditOutOfProvince] = useState(false)
+  const [editInDate, setEditInDate] = useState('')
+  const [editInTime, setEditInTime] = useState('')
+  const [editOutDate, setEditOutDate] = useState('')
+  const [editOutTime, setEditOutTime] = useState('')
+
+  // code → ชื่อไทยของหน้าที่หน้างาน (หน้าที่ที่ถูกปิดไปแล้วจะโชว์ code ดิบ)
+  const dutyNames: Record<string, string> = {}
+  duties.forEach(d => { dutyNames[d.code] = d.name_th })
   const [backfilling, setBackfilling] = useState(false)
   const [backfillResult, setBackfillResult] = useState<{
     fixed: number; fixedByExpense: number; fixedByDate: number
@@ -198,6 +232,15 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
 
   function openEditCheckin(r: CheckinRecord) {
     setEditingCheckin(r)
+    // ฟิลด์โมดูลเงินเดือน + เวลา — ใช้เฉพาะฝั่ง admin แต่ prefill ไว้เสมอเพื่อความง่าย
+    setEditDuties(r.duties || [])
+    setEditProvince(r.province || '')
+    setEditDistrict(r.district || '')
+    setEditOutOfProvince(!!r.out_of_province)
+    setEditInDate(bangkokDateInput(r.checked_in_at))
+    setEditInTime(bangkokTimeInput(r.checked_in_at))
+    setEditOutDate(r.checked_out_at ? bangkokDateInput(r.checked_out_at) : '')
+    setEditOutTime(r.checked_out_at ? bangkokTimeInput(r.checked_out_at) : '')
     // Pre-fill the picker with the current event reference, if any.
     const currentEv = r.events
     if (currentEv?.id) {
@@ -221,17 +264,41 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
     if (!editingCheckin) return
     setSavingEdit(true)
     try {
-      const action = isAdmin ? adminUpdateCheckinEvent : updateMyCheckinEvent
-      const result = await action(editingCheckin.id, editingEventRef || null)
-      if (result.error) {
-        alert(result.error)
-      } else {
-        await refreshRecords()
-        setEditingCheckin(null)
-        setEditingEventRef('')
+      // 1) อีเวนต์ — เจ้าของ record หรือ admin ก็ได้ (ล้าง link ใช้ปุ่ม "ลบ link" แยก)
+      if (editingEventRef) {
+        const action = isAdmin ? adminUpdateCheckinEvent : updateMyCheckinEvent
+        const result = await action(editingCheckin.id, editingEventRef)
+        if (result.error) { alert(result.error); setSavingEdit(false); return }
       }
+
+      // 2) หน้าที่ / จังหวัด / ต่างจังหวัด / เวลาเข้า-ออก — admin เท่านั้น
+      if (isAdmin) {
+        const fd = new FormData()
+        fd.set('checkin_id', editingCheckin.id)
+        editDuties.forEach(code => fd.append('duties', code))
+        fd.set('province', editProvince)
+        fd.set('district', editDistrict)
+        fd.set('out_of_province', editOutOfProvince ? 'true' : 'false')
+        if (editInDate && editInTime) {
+          fd.set('checkin_date', editInDate)
+          fd.set('checkin_time', editInTime)
+        }
+        if (editOutTime) {
+          fd.set('checkout_date', editOutDate || editInDate)
+          fd.set('checkout_time', editOutTime)
+        } else if (editingCheckin.checked_out_at) {
+          // ลบเวลาออกในฟอร์ม = ตั้งกลับเป็น "ยังไม่ check-out"
+          fd.set('clear_checkout', 'true')
+        }
+        const result = await adminEditCheckin(fd)
+        if (result.error) { alert(result.error); setSavingEdit(false); return }
+      }
+
+      await refreshRecords()
+      setEditingCheckin(null)
+      setEditingEventRef('')
     } catch (e) {
-      console.error('Edit checkin event error:', e)
+      console.error('Edit checkin error:', e)
       alert('เกิดข้อผิดพลาด')
     }
     setSavingEdit(false)
@@ -354,6 +421,10 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
         'ละติจูด-ลองจิจูด': r.latitude && r.longitude ? `${r.latitude.toFixed(6)}, ${r.longitude.toFixed(6)}` : '',
         'อีเวนต์': r.events?.name || '',
         'หน้าที่': r.assigned_roles?.map(role => role.label).join(', ') || '',
+        'หน้าที่หน้างาน': (r.duties || []).map(code => dutyNames[code] || code).join(', '),
+        'จังหวัด': r.province || '',
+        'เขต/อำเภอ': r.district || '',
+        'ต่างจังหวัด': r.out_of_province ? 'ใช่' : '',
         'หมายเหตุ': r.note || ''
       })
 
@@ -900,7 +971,7 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ชั่วโมง</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ประเภท</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">อีเวนต์ & หน้าที่</th>
-                          <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">แผนที่ (GPS)</th>
+                          <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">ตำแหน่ง (GPS)</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">รูป</th>
                           <th className="px-4 py-2.5 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">หมายเหตุ</th>
                           <th className="px-4 py-2.5 text-center text-[10px] font-bold text-zinc-400 uppercase tracking-wider">จัดการ</th>
@@ -955,6 +1026,17 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
                                 ) : (
                                   <span className="text-zinc-300 dark:text-zinc-600 text-xs">—</span>
                                 )}
+                                {/* หน้าที่หน้างาน (โมดูลเงินเดือน) — คนละชุดกับบทบาทในอีเวนต์ด้านบน */}
+                                {r.check_type === 'onsite' && (r.duties || []).length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-1.5 max-w-[180px]">
+                                    {(r.duties || []).map(code => (
+                                      <span key={code}
+                                        className="inline-flex items-center px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[9px] font-bold">
+                                        {dutyNames[code] || code}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-4 py-2.5">
                                 {r.latitude && r.longitude ? (
@@ -969,6 +1051,21 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
                                   </a>
                                 ) : (
                                   <span className="text-zinc-300 dark:text-zinc-600">—</span>
+                                )}
+                                {/* จังหวัด/เขต + ป้ายต่างจังหวัด (เฉพาะ onsite) */}
+                                {r.check_type === 'onsite' && (r.province || r.out_of_province) && (
+                                  <div className="flex flex-wrap items-center gap-1 mt-1.5 max-w-[160px]">
+                                    {r.province && (
+                                      <span className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">
+                                        {r.province}{r.district ? ` · ${r.district}` : ''}
+                                      </span>
+                                    )}
+                                    {r.out_of_province && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[9px] font-bold">
+                                        ตจว.
+                                      </span>
+                                    )}
+                                  </div>
                                 )}
                               </td>
                               <td className="px-4 py-2.5">
@@ -1239,11 +1336,11 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
       {editingCheckin && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => { if (!savingEdit) { setEditingCheckin(null); setEditingEventRef('') } }}>
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-md"
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-zinc-100 dark:border-zinc-800">
               <div>
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">แก้ไขอีเวนต์ของ Check-in</h3>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{isAdmin ? 'แก้ไข Check-in' : 'แก้ไขอีเวนต์ของ Check-in'}</h3>
                 <p className="text-xs text-zinc-400 mt-0.5">
                   {editingCheckin.profiles?.full_name || editingCheckin.profiles?.nickname || '—'} · {formatDate(editingCheckin.checked_in_at)} {formatTime(editingCheckin.checked_in_at)}
                 </p>
@@ -1263,6 +1360,96 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
               <p className="text-[10px] text-zinc-400">
                 เลือกจากรายการ events ที่เปิดอยู่, event_closures (อีเวนต์ที่ปิดไปแล้ว), หรือ job_cost_events — ระบบจะ resolve เป็น event_id หรือเก็บ ref ใน note ให้อัตโนมัติ
               </p>
+
+              {/* ── ข้อมูลสำหรับคิดค่าแรง (admin เท่านั้น) ── */}
+              {isAdmin && (
+                <div className="pt-3 mt-1 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">หน้าที่หน้างาน</label>
+                    {duties.length === 0 ? (
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400">ยังไม่มีรายการหน้าที่หน้างานในระบบ</p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        {duties.map(d => {
+                          const checked = editDuties.includes(d.code)
+                          return (
+                            <button key={d.code} type="button"
+                              onClick={() => setEditDuties(prev => prev.includes(d.code) ? prev.filter(c => c !== d.code) : [...prev, d.code])}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-xs font-semibold transition-all ${
+                                checked
+                                  ? 'border-zinc-900 dark:border-white bg-zinc-900 dark:bg-white text-white dark:text-zinc-900'
+                                  : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300'
+                              }`}>
+                              <span className={`h-3.5 w-3.5 rounded-[4px] border flex items-center justify-center shrink-0 text-[9px] leading-none ${
+                                checked ? 'border-white/70 dark:border-zinc-900/70' : 'border-zinc-300 dark:border-zinc-600'
+                              }`}>
+                                {checked ? '✓' : ''}
+                              </span>
+                              <span className="truncate">{d.name_th}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-zinc-400">ไม่ติ๊กเลย = คงหน้าที่เดิมไว้ (ไม่แก้)</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">จังหวัด</label>
+                      <select value={editProvince} onChange={e => setEditProvince(e.target.value)}
+                        className="w-full h-10 px-3 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700">
+                        <option value="">— ไม่ระบุ —</option>
+                        {editProvince && !(THAI_PROVINCES as readonly string[]).includes(editProvince) && (
+                          <option value={editProvince}>{editProvince}</option>
+                        )}
+                        {THAI_PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">เขต / อำเภอ</label>
+                      <input type="text" value={editDistrict} onChange={e => setEditDistrict(e.target.value)}
+                        className="w-full h-10 px-3 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700" />
+                    </div>
+                  </div>
+
+                  <button type="button" onClick={() => setEditOutOfProvince(v => !v)}
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-semibold transition-all ${
+                      editOutOfProvince
+                        ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300'
+                        : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-500'
+                    }`}>
+                    <span className={`h-3.5 w-3.5 rounded-[4px] border flex items-center justify-center shrink-0 text-[9px] leading-none ${
+                      editOutOfProvince ? 'border-amber-500' : 'border-zinc-300 dark:border-zinc-600'
+                    }`}>
+                      {editOutOfProvince ? '✓' : ''}
+                    </span>
+                    ต่างจังหวัด (คิดเบิ้ลต่างจังหวัด)
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">เวลาเข้า</label>
+                      <div className="flex gap-2">
+                        <input type="date" value={editInDate} onChange={e => setEditInDate(e.target.value)}
+                          className="flex-1 min-w-0 h-10 px-2 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-xs outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700" />
+                        <input type="time" value={editInTime} onChange={e => setEditInTime(e.target.value)}
+                          className="w-24 h-10 px-2 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-xs outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">เวลาออก</label>
+                      <div className="flex gap-2">
+                        <input type="date" value={editOutDate} onChange={e => setEditOutDate(e.target.value)}
+                          className="flex-1 min-w-0 h-10 px-2 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-xs outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700" />
+                        <input type="time" value={editOutTime} onChange={e => setEditOutTime(e.target.value)}
+                          className="w-24 h-10 px-2 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-xs outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700" />
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-zinc-400">ลบเวลาออกทิ้ง = กลับเป็น &quot;ยังไม่ Check-out&quot; · กะข้ามคืนให้ตั้งวันที่ออกเป็นวันถัดไป</p>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 p-5 pt-0">
@@ -1288,7 +1475,7 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, de
                 ยกเลิก
               </button>
               <button
-                disabled={savingEdit || !editingEventRef}
+                disabled={savingEdit || (!isAdmin && !editingEventRef)}
                 onClick={handleSaveEdit}
                 className="h-10 px-5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-40 transition-colors active:scale-[0.98]">
                 {savingEdit ? 'กำลังบันทึก...' : 'บันทึก'}
