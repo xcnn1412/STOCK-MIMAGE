@@ -297,3 +297,124 @@ BEGIN
   RAISE NOTICE 'B17c %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
     CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
 END $$;
+
+-- ============================================================================
+-- B18–B21 — เปิดแก้ไขสลิปหลังปิดงวด (supabase/migrations/20260830_salary_slip_reopen.sql)
+-- เช็คอินทดสอบใช้ note ขึ้นต้น 'ZZTEST-reopen' แล้วล้างทิ้งตอนจบ
+-- ============================================================================
+DO $$
+DECLARE
+  u1 uuid; run_f uuid; run_g uuid; slip_f uuid; slip_g uuid; c1 uuid;
+  n int; st text; h jsonb;
+BEGIN
+  SELECT id INTO u1 FROM profiles WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1;
+  IF u1 IS NULL THEN RAISE EXCEPTION 'ต้องมี profiles อย่างน้อย 1 คน'; END IF;
+
+  -- เผื่อรอบก่อนค้าง
+  PERFORM purge_test_salary_run('ZZTEST-reopen-f');
+  PERFORM purge_test_salary_run('ZZTEST-reopen-g');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-reopen%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-11-03 10:00+07', 'ZZTEST-reopen') RETURNING id INTO c1;
+
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('weekly', 'ZZTEST-reopen-f', '2026-11-02', '2026-11-08') RETURNING id INTO run_f;
+  INSERT INTO salary_slips(run_id, user_id, checkin_ids, lines, total)
+    VALUES (run_f, u1, ARRAY[c1], jsonb_build_array(
+      jsonb_build_object('key', 'site:2026-11-03:f', 'kind', 'site', 'date', '2026-11-03',
+                         'checkin_id', c1, 'label', 'ค่าสตาฟ', 'computed_amount', 700, 'amount', 700)
+    ), 700) RETURNING id INTO slip_f;
+
+  PERFORM finalize_salary_slip(slip_f, u1);
+
+  -- ── B18: เปิดแก้สลิปที่ปิดงวดแล้ว → draft + ปลดประทับ + ประวัติ 1 รายการ ──
+  PERFORM reopen_salary_slip(slip_f, u1, 'แอดมินทดสอบ', 'แก้เวลาเข้าออกของวันที่ 3 ที่กรอกผิด');
+
+  SELECT status, reopen_history INTO st, h FROM salary_slips WHERE id = slip_f;
+  SELECT count(*) INTO n FROM staff_checkins WHERE id = c1 AND paid_slip_id IS NULL;
+  RAISE NOTICE 'B18 %: reopen finalized → draft + ปลดประทับ + history 1 (status=% unstamped=% len=% was_paid=% total_before=%)',
+    CASE WHEN st = 'draft' AND n = 1
+              AND jsonb_array_length(h) = 1
+              AND (h -> 0 ->> 'was_paid') = 'false'
+              AND (h -> 0 ->> 'total_before')::numeric = 700
+              AND (h -> 0 ->> 'total_after') IS NULL
+              AND (h -> 0 ->> 'refinalized_at') IS NULL
+              AND (h -> 0 ->> 'reason') = 'แก้เวลาเข้าออกของวันที่ 3 ที่กรอกผิด'
+         THEN 'ok' ELSE 'FAIL' END,
+    st, n, jsonb_array_length(h), h -> 0 ->> 'was_paid', h -> 0 ->> 'total_before';
+
+  SELECT count(*) INTO n FROM salary_slips
+   WHERE id = slip_f AND finalized_at IS NULL AND finalized_by IS NULL;
+  RAISE NOTICE 'B18b %: finalized_at/finalized_by ถูกล้าง (%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  -- ── B19: เหตุผลสั้นกว่า 10 ตัวอักษร → RAISE ────────────────────────────
+  -- ปิดงวดใหม่ผ่าน RPC ก่อน — ประวัติรายการแรกจึงถูกปิดท้าย (total_after = 700)
+  PERFORM finalize_salary_slip(slip_f, u1);
+  BEGIN
+    PERFORM reopen_salary_slip(slip_f, u1, 'แอดมินทดสอบ', 'สั้นไป');
+    RAISE NOTICE 'B19 FAIL: เปิดแก้ด้วยเหตุผลสั้นกว่า 10 ตัวอักษรได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B19 ok blocked: %', SQLERRM; END;
+
+  SELECT status INTO st FROM salary_slips WHERE id = slip_f;
+  RAISE NOTICE 'B19b %: สลิปยังปิดงวดอยู่หลังถูกปฏิเสธ (status=%)',
+    CASE WHEN st = 'finalized' THEN 'ok' ELSE 'FAIL' END, st;
+
+  -- ── B20: ปิดงวดใหม่ → ประทับกลับ + total_after/refinalized_at ถูกเติม ──
+  PERFORM reopen_salary_slip(slip_f, u1, 'แอดมินทดสอบ', 'ปรับยอดใหม่ตามใบเสร็จที่เพิ่งได้มา');
+  UPDATE salary_slips SET total = 900 WHERE id = slip_f;   -- สลิปเป็นร่างแล้ว แก้ยอดได้
+  PERFORM finalize_salary_slip(slip_f, u1);
+
+  SELECT status, reopen_history INTO st, h FROM salary_slips WHERE id = slip_f;
+  SELECT count(*) INTO n FROM staff_checkins WHERE id = c1 AND paid_slip_id = slip_f;
+  RAISE NOTICE 'B20 %: ปิดงวดใหม่ → ประทับกลับ + ปิดท้ายประวัติ (status=% stamped=% len=% total_after=% refinalized=%)',
+    CASE WHEN st = 'finalized' AND n = 1
+              AND jsonb_array_length(h) = 2
+              AND (h -> 1 ->> 'total_after')::numeric = 900
+              AND (h -> 1 ->> 'refinalized_at') IS NOT NULL
+              -- รายการแรกถูกปิดท้ายไปแล้วตอนปิดงวดครั้งก่อน ต้องไม่ถูกเขียนทับ
+              AND (h -> 0 ->> 'total_after')::numeric = 700
+         THEN 'ok' ELSE 'FAIL' END,
+    st, n, jsonb_array_length(h), h -> 1 ->> 'total_after', h -> 1 ->> 'refinalized_at';
+
+  -- ── B21: สลิปร่างธรรมดา เปิดแก้ไม่ได้ ──────────────────────────────────
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('weekly', 'ZZTEST-reopen-g', '2026-11-09', '2026-11-15') RETURNING id INTO run_g;
+  INSERT INTO salary_slips(run_id, user_id, total) VALUES (run_g, u1, 0) RETURNING id INTO slip_g;
+
+  BEGIN
+    PERFORM reopen_salary_slip(slip_g, u1, 'แอดมินทดสอบ', 'ลองเปิดแก้สลิปที่ยังเป็นร่างอยู่');
+    RAISE NOTICE 'B21 FAIL: เปิดแก้สลิปร่างได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B21 ok blocked: %', SQLERRM; END;
+
+  -- ── B21b: guard ยังห้ามแก้ accepted_warnings/reopen_history หลังปิดงวด ──
+  BEGIN
+    UPDATE salary_slips SET accepted_warnings = '[{"key":"hack"}]'::jsonb WHERE id = slip_f;
+    RAISE NOTICE 'B21b FAIL: แก้ accepted_warnings ของสลิปที่ปิดงวดได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B21b ok blocked: %', SQLERRM; END;
+
+  -- paid_total/paid_history ต้องเปลี่ยนได้ตอน finalized → paid
+  UPDATE salary_slips
+  SET status = 'paid', paid_at = now(), paid_by = u1, paid_total = 900,
+      paid_history = jsonb_build_array(jsonb_build_object('at', now(), 'by', u1, 'total', 900))
+  WHERE id = slip_f;
+  SELECT count(*) INTO n FROM salary_slips
+   WHERE id = slip_f AND status = 'paid' AND paid_total = 900 AND jsonb_array_length(paid_history) = 1;
+  RAISE NOTICE 'B21c %: paid_total/paid_history เขียนได้ตอนกด "จ่ายแล้ว" (%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  -- ── ล้างของทดสอบ ────────────────────────────────────────────────────────
+  PERFORM purge_test_salary_run('ZZTEST-reopen-f');
+  PERFORM purge_test_salary_run('ZZTEST-reopen-g');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-reopen%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  SELECT count(*) INTO n FROM salary_runs WHERE period_key LIKE 'ZZTEST-reopen-%';
+  SELECT n + count(*) INTO n FROM staff_checkins WHERE note LIKE 'ZZTEST-reopen%';
+  RAISE NOTICE 'B21d %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
+    CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
+END $$;

@@ -13,16 +13,20 @@
 import { config } from 'dotenv'
 import {
   computeSlip,
+  groupSlipByDay,
   hasMissingAmounts,
   lastFinishedWeek,
   onsiteFromFor,
+  pendingItems,
   periodRange,
   selectCheckinsForRun,
+  type AcceptedWarning,
   type CheckinInput,
   type DutyInput,
   type RunKind,
   type SalaryLine,
   type SalaryProfileInput,
+  type SalaryWarning,
 } from '../app/(authenticated)/salary/compute'
 // pure ล้วน ไม่มี 'use server' → เทสต์ import ตรงได้โดยไม่ลาก next/headers เข้ามา
 import { costsRowsForSlip } from '../app/(authenticated)/salary/costs-sync'
@@ -502,6 +506,101 @@ function partA() {
       ['catchup'],
       'งวดสัปดาห์ 31 ส.ค. – 6 ก.ย. ยังเก็บตกเช็คอิน 10 ก.ค. ได้'
     )
+  }
+
+  // ── 18. มุมมองรายวัน: 2 เช็คอินวันเดียว → 1 แถว 2 แถวย่อย, OT/รันเนอร์เกาะวัน ──
+  console.log('\n[A18] groupSlipByDay: two check-ins on one day, OT/runner attach to the day')
+  {
+    const c1: CheckinInput = {
+      id: 'c1', check_type: 'onsite',
+      checked_in_at: ts('2026-08-05', '08:00'), checked_out_at: ts('2026-08-05', '20:00'),
+      event_id: 'e1', event_name: 'งาน A', duties: ['onsite_staff'], out_of_province: false,
+    }
+    const c2: CheckinInput = {
+      id: 'c2', check_type: 'onsite',
+      checked_in_at: ts('2026-08-05', '21:00'), checked_out_at: ts('2026-08-05', '23:00'),
+      event_id: 'e2', event_name: 'งาน B', duties: ['deliver_booth', 'runner'], out_of_province: true,
+    }
+    const c3: CheckinInput = {
+      id: 'c3', check_type: 'onsite',
+      checked_in_at: ts('2026-08-06', '10:00'), checked_out_at: ts('2026-08-06', '18:00'),
+      event_id: 'e1', event_name: 'งาน A', duties: ['onsite_staff'], out_of_province: false,
+    }
+    const checkins = [c1, c2, c3]
+    const res = computeSlip({
+      profile: FREELANCE, checkins, duties: DUTIES, oopRate: 500, ...PERIOD,
+    })
+    const days = groupSlipByDay(res.lines, checkins, res.warnings)
+
+    assertEq(days.map(d => d.date), ['2026-08-05', '2026-08-06'], 'ได้ 2 วัน เรียงตามวันที่')
+    assertEq(days[0].checkins.map(s => s.checkin.id), ['c1', 'c2'], 'วันที่ 5 มี 2 แถวย่อย เรียงตามเวลาเข้า')
+    assertEq(days[0].checkins[0].siteLines.map(l => l.duty), ['onsite_staff'], 'แถวย่อย c1 ได้ค่าสตาฟของตัวเอง')
+    assertEq(days[0].checkins[0].oopLine, undefined, 'c1 ไม่ได้ไปต่างจังหวัด → ไม่มีบรรทัดเบิ้ล')
+    assertEq(days[0].checkins[1].siteLines.map(l => l.duty), ['deliver_booth'], 'แถวย่อย c2 ได้ค่าสตาฟของตัวเอง')
+    assertEq(days[0].checkins[1].oopLine?.computed_amount, 500, 'บรรทัดเบิ้ลเกาะแถวย่อย c2')
+    // OT ของวันที่ 5 = ก่อน 10:00 (2 ชม.) + หลัง 19:00 (1 + 2 ชม.) = 5 ชม. × 100
+    assertEq(days[0].otLine?.computed_amount, 500, 'OT ของทั้งวันเป็นบรรทัดเดียวเกาะวัน ไม่เกาะแถวย่อย')
+    assertEq(days[0].runnerLines.map(l => l.key), ['runner:2026-08-05:runner'], 'บรรทัดรันเนอร์เกาะวัน')
+    assertEq(days[0].dayTotal, 1850, 'รวมวันที่ 5 = OT 500 + ค่าสตาฟ 700 + 150 + เบิ้ล 500 (รันเนอร์ยังไม่กรอก = 0)')
+    assertEq(days[1].checkins.map(s => s.checkin.id), ['c3'], 'วันที่ 6 มีแถวย่อยเดียว')
+    assertEq(days[1].otLine, undefined, 'วันที่ 6 ไม่มี OT')
+    assertEq(days[1].dayTotal, 700, 'รวมวันที่ 6 = ค่าสตาฟ 700')
+    assertEq(
+      days.reduce((s, d) => s + d.dayTotal, 0), res.total,
+      'ผลรวมของทุกวัน = ยอดสุทธิของสลิป (ฟรีแลนซ์ ไม่มีฐาน/รายการปรับมือ)'
+    )
+  }
+
+  // ── 19. งานค้างก่อนปิดงวด: ยอมรับแล้วไม่นับ / รันเนอร์ null นับ / คีย์ค้างถูกทิ้ง ──
+  console.log('\n[A19] pendingItems: accepted excluded, runner null counted, stale accepted ignored')
+  {
+    const warnings: SalaryWarning[] = [
+      { code: 'no_checkout', date: '2026-08-05', checkin_id: 'c1', message: 'x' },
+      { code: 'no_event', date: '2026-08-06', checkin_id: 'c3', message: 'x' },
+      { code: 'override_dropped', date: '2026-08-07', message: 'x' },
+      // คำเตือนรันเนอร์ถูกมองข้าม — รายการจริงมาจากบรรทัดด้านล่าง
+      { code: 'runner_missing', date: '2026-08-05', message: 'x' },
+    ]
+    const lines: SalaryLine[] = [
+      { key: 'runner:2026-08-05:runner', kind: 'runner', date: '2026-08-05', duty: 'runner', label: 'รันเนอร์ · 1 เช็คอิน', computed_amount: 0, amount: null },
+      { key: 'runner:2026-08-06:runner', kind: 'runner', date: '2026-08-06', duty: 'runner', label: 'รันเนอร์ · 1 เช็คอิน', computed_amount: 0, amount: 300 },
+    ]
+
+    const none = pendingItems(warnings, [], lines)
+    assertEq(none.count, 4, 'ยังไม่ยอมรับอะไร → ค้าง 4 (ไม่มีเวลาออก, ไม่ผูกอีเวนต์, ค่าแก้มือหาย, รันเนอร์ 1 วัน)')
+    assertEq(
+      none.groups.map(g => g.code),
+      ['runner_missing', 'no_checkout', 'no_event', 'override_dropped'],
+      'กลุ่มเรียงตามลำดับคงที่ (รันเนอร์ยังไม่กรอกมาก่อน)'
+    )
+    assertEq(
+      none.groups.find(g => g.code === 'runner_missing')!.items.map(i => i.key),
+      ['runner_missing:2026-08-05:'],
+      'รันเนอร์ที่ amount = null นับ · ที่กรอก 300 แล้วไม่นับ'
+    )
+
+    const accepted: AcceptedWarning[] = [
+      { key: 'no_checkout:2026-08-05:c1', by: 'admin', at: '2026-08-20T03:00:00.000Z' },
+      // คีย์ที่คำเตือนหายไปแล้ว — ต้องถูกมองข้ามเงียบๆ ไม่โผล่เป็นรายการค้าง
+      { key: 'no_event:2999-01-01:zz', by: 'admin', at: '2026-08-20T03:00:00.000Z' },
+    ]
+    const some = pendingItems(warnings, accepted, lines)
+    assertEq(some.count, 3, 'ยอมรับ "ไม่มีเวลาออก" แล้ว → เหลือค้าง 3')
+    assertEq(
+      some.groups.find(g => g.code === 'no_checkout')!.items[0].accepted, true,
+      'รายการที่ยอมรับแล้วยังอยู่ในกลุ่ม (แสดงจางๆ) แต่ไม่ถูกนับ'
+    )
+    assertEq(
+      some.groups.flatMap(g => g.items.map(i => i.key)).includes('no_event:2999-01-01:zz'), false,
+      'คีย์ที่ยอมรับไว้แต่ไม่มีงานค้างนั้นแล้ว ถูกทิ้ง'
+    )
+
+    const runnerAccepted = pendingItems(
+      warnings,
+      [...accepted, { key: 'runner_missing:2026-08-05:', by: 'admin', at: '2026-08-20T03:00:00.000Z' }],
+      lines
+    )
+    assertEq(runnerAccepted.count, 3, 'รันเนอร์ยอมรับไม่ได้ — ยังนับเป็นงานค้างแม้มีคีย์ในรายการยอมรับ')
   }
 }
 

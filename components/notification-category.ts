@@ -61,6 +61,7 @@ export const TYPE_CONFIG: Record<string, TypeConfig> = {
   doc_rejected:                { icon: '📕', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',             label: 'เอกสารถูกตีกลับ' },
   doc_voided:                  { icon: '🚫', color: 'bg-neutral-200 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400', label: 'เอกสารถูกยกเลิก' },
   salary_finalized:            { icon: '💰', color: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-400',        label: 'สลิปเงินเดือน' },
+  salary_reopened:             { icon: '✏️', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', label: 'สลิปเงินเดือน' },
 }
 
 export const DEFAULT_TYPE_CONFIG: TypeConfig = {

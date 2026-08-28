@@ -156,6 +156,8 @@ export type ActionType =
     | 'SALARY_MARK_ALL_PAID'
     | 'SYNC_SALARY_TO_COSTS'
     | 'DELETE_SALARY_SLIP'
+    | 'REOPEN_SALARY_SLIP'
+    | 'ACCEPT_SALARY_WARNING'
     | 'UPDATE_CHECKIN_DUTIES'
     | 'UPDATE_CHECKIN_LOCATION'
     // User Profile
