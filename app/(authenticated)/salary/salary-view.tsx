@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { CalendarClock, ChevronRight, Settings, Wallet } from 'lucide-react'
+import { CalendarClock, ChevronRight, FileDown, Settings, Wallet } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatThaiDate } from '@/lib/thai-date'
@@ -57,11 +57,12 @@ export default function SalaryView({ slips, isAdmin }: Props) {
         <Card>
           <CardContent className="p-0">
             <ul className="divide-y">
+              {/* ลิงก์ PDF อยู่นอก <Link> — <a> ซ้อนใน <a> เป็น HTML ที่ไม่ถูกต้อง */}
               {slips.map(s => (
-                <li key={s.id}>
+                <li key={s.id} className="flex items-stretch">
                   <Link
                     href={`/salary/${s.id}`}
-                    className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50"
+                    className="flex flex-1 items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -87,6 +88,16 @@ export default function SalaryView({ slips, isAdmin }: Props) {
                     </div>
                     <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                   </Link>
+                  <a
+                    href={`/api/pdf/salary/${s.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="ดาวน์โหลด PDF"
+                    aria-label={`ดาวน์โหลด PDF สลิปงวด${periodLabel(s.period_key)}`}
+                    className="flex items-center border-l px-4 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                  >
+                    <FileDown className="size-4" />
+                  </a>
                 </li>
               ))}
             </ul>

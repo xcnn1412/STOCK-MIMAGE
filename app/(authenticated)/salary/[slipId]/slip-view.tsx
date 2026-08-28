@@ -4,7 +4,10 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowLeft, BanknoteArrowUp, Landmark, Lock, RefreshCw } from 'lucide-react'
+import {
+  AlertTriangle, ArrowLeft, BanknoteArrowUp, FileDown, Landmark, Lock, RefreshCw,
+} from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -45,6 +48,9 @@ export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
   // แก้ได้เฉพาะ admin + สลิปร่าง — เจ้าของสลิปและสลิปที่ปิดงวดแล้วอ่านอย่างเดียว
   // (ทุก action ตรวจซ้ำฝั่ง server และ trigger ที่ DB กันอีกชั้น)
   const editable = isAdmin && slip.status === 'draft'
+  // เกณฑ์เดียวกับที่ /api/pdf/salary/[slipId] บังคับ (ผ่าน getSlipForView ตัวเดียวกัน) —
+  // admin โหลดได้ทุกสถานะ (ร่างได้ PDF ที่มีลายน้ำ "ร่าง") เจ้าของได้เฉพาะที่ปิดงวดแล้ว
+  const canDownloadPdf = isAdmin || slip.status !== 'draft'
   // เกณฑ์เดียวกับที่ finalizeSlip ใช้ฝั่ง server — ปุ่มจึงไม่พาไปเจอ error ที่รู้ล่วงหน้าอยู่แล้ว
   const missingAmounts = hasMissingAmounts(slip.lines)
   const todayLabel = formatThaiDate(new Date())
@@ -104,14 +110,26 @@ export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
             <h1 className="text-2xl font-semibold">{name}</h1>
             <p className="text-sm text-muted-foreground">
               งวด{periodLabel(slip.period_key)} ·{' '}
-              {formatThaiDate(slip.period_start)} – {formatThaiDate(slip.period_end)} ·{' '}
-              {EMPLOYMENT_LABEL[slip.employment_type]}
+              {formatThaiDate(slip.period_start)} – {formatThaiDate(slip.period_end)}
             </p>
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <SlipStatusBadge status={slip.status} />
+              <Badge variant="outline">{EMPLOYMENT_LABEL[slip.employment_type]}</Badge>
             </div>
           </div>
           <div className="flex flex-wrap items-start gap-3">
+            {canDownloadPdf && (
+              <Button variant="outline" asChild>
+                <a
+                  href={`/api/pdf/salary/${slip.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <FileDown className="size-4" />
+                  ดาวน์โหลด PDF
+                </a>
+              </Button>
+            )}
             {editable && (
               <>
                 <Button

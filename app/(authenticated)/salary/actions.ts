@@ -120,6 +120,8 @@ export interface SlipDetail {
   period_end: string
   full_name: string | null
   nickname: string | null
+  /** แผนกจาก profiles — ใช้ในหัวสลิป PDF (ว่างได้) */
+  department: string | null
   /** บัญชีธนาคารจาก profiles — แสดงอย่างเดียว โมดูลนี้ไม่แก้ */
   bank_name: string | null
   bank_account_number: string | null
@@ -713,7 +715,7 @@ export async function getSlipForView(
       .maybeSingle(),
     supabase
       .from('profiles')
-      .select('full_name, nickname, bank_name, bank_account_number, account_holder_name')
+      .select('full_name, nickname, department, bank_name, bank_account_number, account_holder_name')
       .eq('id', raw.user_id)
       .maybeSingle(),
     // คนกดปิดงวด/จ่ายแล้ว — ยังไม่มีใครกด = ลิสต์ว่าง แล้ว namesByUserId คืนทันทีโดยไม่ยิง query
@@ -724,6 +726,7 @@ export async function getSlipForView(
   const who = (profileRes.data || {}) as unknown as {
     full_name?: string | null
     nickname?: string | null
+    department?: string | null
     bank_name?: string | null
     bank_account_number?: string | null
     account_holder_name?: string | null
@@ -750,6 +753,7 @@ export async function getSlipForView(
     period_end: runRow.period_end || '',
     full_name: who.full_name ?? null,
     nickname: who.nickname ?? null,
+    department: who.department ?? null,
     bank_name: who.bank_name ?? null,
     bank_account_number: who.bank_account_number ?? null,
     account_holder_name: who.account_holder_name ?? null,
