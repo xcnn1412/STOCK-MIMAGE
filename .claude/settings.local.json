@@ -10,5 +10,9 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(npx next *)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ],
+  "enableAllProjectMcpServers": true
 }

@@ -168,3 +168,17 @@ Fable5: ตรวจกับ criteria → JSON {pass, score, passed_ids, failur
 - Server actions return `{ error: string }` on failure or redirect/`revalidatePath` on success. The codebase is inconsistent here (some throw); prefer the `{ error }` shape for new actions to match the dominant pattern.
 - shadcn components live in `components/ui/`. Shared business components (sidebar, navbar, notification bell, PDF renderers) live in `components/`. Per-module components live under `app/(authenticated)/<module>/components/`.
 - Use `cn()` from `lib/utils.ts` for class merging; `compressImage()` in the same file is the standard pre-upload step (caps at 1600px, ~0.75 JPEG quality).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for `xcnn1412/STOCK-MIMAGE` (via the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/domain-modeling`). See `docs/agents/domain.md`.
