@@ -1458,6 +1458,12 @@ async function saveDraftSlip(
 }
 
 /**
+ * ผลของ action ที่แก้สลิปร่างทีละจุด — คืนสลิปที่บันทึกแล้วกลับไปด้วย
+ * (หน้าสลิปเอาไปอัปเดต state ตรงๆ ไม่ต้องรีเฟรชทั้งหน้า)
+ */
+export type SlipMutationResult = { error?: string; success?: boolean; slip?: SlipDetail }
+
+/**
  * แก้มือทับหนึ่งบรรทัด — เก็บทั้งค่าที่ระบบคำนวณ (`computed_amount`) และค่าที่แก้
  * เหตุผลบังคับทุกชนิดยกเว้นรันเนอร์ (บรรทัดรันเนอร์ใช้ช่องนี้เป็น "กรอกยอดรันเนอร์"
  * ซึ่งเป็นการกรอกครั้งแรก ไม่ใช่การทับค่าที่ระบบคิด)
@@ -1467,7 +1473,7 @@ export async function overrideSlipLine(
   lineKey: string,
   amount: number,
   note: string
-): Promise<{ error?: string; success?: boolean }> {
+): Promise<SlipMutationResult> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
 
@@ -1508,14 +1514,15 @@ export async function overrideSlipLine(
     },
     slip.user_id
   )
-  return { success: true }
+  const reloaded = await reloadSlip(slip.id)
+  return 'error' in reloaded ? { success: true } : { success: true, slip: reloaded.slip }
 }
 
 /** คืนบรรทัดกลับไปใช้ค่าที่ระบบคำนวณ (รันเนอร์กลับไปเป็น "ยังไม่กรอก") */
 export async function clearSlipLineOverride(
   slipId: string,
   lineKey: string
-): Promise<{ error?: string; success?: boolean }> {
+): Promise<SlipMutationResult> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
 
@@ -1551,7 +1558,8 @@ export async function clearSlipLineOverride(
     },
     slip.user_id
   )
-  return { success: true }
+  const reloaded = await reloadSlip(slip.id)
+  return 'error' in reloaded ? { success: true } : { success: true, slip: reloaded.slip }
 }
 
 /** เพิ่มรายการปรับมือ (โบนัส / หัก / ประกันสังคม ฯลฯ) — จำนวนติดลบได้ */
@@ -1559,7 +1567,7 @@ export async function addSlipAdjustment(
   slipId: string,
   label: string,
   amount: number
-): Promise<{ error?: string; success?: boolean }> {
+): Promise<SlipMutationResult> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
 
@@ -1590,14 +1598,15 @@ export async function addSlipAdjustment(
     { slip_id: slip.id, run_id: slip.run_id, adjustment },
     slip.user_id
   )
-  return { success: true }
+  const reloaded = await reloadSlip(slip.id)
+  return 'error' in reloaded ? { success: true } : { success: true, slip: reloaded.slip }
 }
 
 /** ลบรายการปรับมือหนึ่งรายการออกจากสลิปร่าง */
 export async function removeSlipAdjustment(
   slipId: string,
   adjustmentId: string
-): Promise<{ error?: string; success?: boolean }> {
+): Promise<SlipMutationResult> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
 
@@ -1621,7 +1630,8 @@ export async function removeSlipAdjustment(
     { slip_id: slip.id, run_id: slip.run_id, adjustment: removed, removed: true },
     slip.user_id
   )
-  return { success: true }
+  const reloaded = await reloadSlip(slip.id)
+  return 'error' in reloaded ? { success: true } : { success: true, slip: reloaded.slip }
 }
 
 /**
