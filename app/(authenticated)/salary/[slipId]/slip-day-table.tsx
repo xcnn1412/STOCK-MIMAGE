@@ -19,17 +19,15 @@ import { cn } from '@/lib/utils'
 import { formatThaiDate } from '@/lib/thai-date'
 import { fmtMoney } from '../format'
 import type { SlipCheckinRow, SlipDetail, SlipEventOption } from '../actions'
-import { groupSlipByDay } from '../compute'
+import { bangkokParts, shiftDay } from '../compute'
 import type { SalaryDutyRow } from '../settings/actions'
 import {
   DutiesCell, EventCell, MoneyCell, RunnerCell, TimeCell, ToggleCell,
 } from './components/inline-cells'
-import {
-  bkkParts, checkoutDateFor, CHECK_TYPE_LABEL, isMissing, toISO,
-} from './components/day-view-utils'
+import { CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
 import SlipFooter from './components/slip-footer'
-import { useSlipEdits } from './components/use-slip-edits'
+import { useDayView, useSlipEdits } from './components/use-slip-edits'
 
 interface Props {
   slip: SlipDetail
@@ -51,17 +49,10 @@ const COLUMNS = 10
 export default function SlipDayTable({
   slip, checkins, duties, events, editable, highlightDate, onSlipChange,
 }: Props) {
-  const days = groupSlipByDay(slip.lines, checkins, slip.warnings)
-  const dutyName = new Map(duties.map(d => [d.code, d.name_th]))
+  const { days, dutyName, emptyRunnerKeys, applyRunnerKey } =
+    useDayView(slip, checkins, duties, editable)
   const { saveCheckin, saveOverride, clearOverride, saveRunner, applyRunnerToEmpty } =
     useSlipEdits(slip.id, onSlipChange)
-
-  // รันเนอร์ทั้งใบ — ใช้ตัดสินว่าช่องไหนได้ปุ่ม "ใช้ยอดนี้กับวันที่ยังว่าง"
-  const runnerLines = days.flatMap(d => d.runnerLines)
-  const emptyRunnerKeys = runnerLines.filter(isMissing).map(l => l.key)
-  const firstFilledRunner = runnerLines.find(l => !isMissing(l))
-  const applyRunnerKey =
-    editable && firstFilledRunner && emptyRunnerKeys.length > 0 ? firstFilledRunner.key : null
 
   return (
     <div className="overflow-x-auto rounded-md border">
@@ -100,8 +91,8 @@ export default function SlipDayTable({
               const paidElsewhere = !!c?.paid_slip_id && c.paid_slip_id !== slip.id
               const rowEditable = editable && !!c && !paidElsewhere
               const onsite = c?.check_type === 'onsite'
-              const inAt = c ? bkkParts(c.checked_in_at) : null
-              const outAt = c?.checked_out_at ? bkkParts(c.checked_out_at) : null
+              const inAt = c ? bangkokParts(c.checked_in_at) : null
+              const outAt = c?.checked_out_at ? bangkokParts(c.checked_out_at) : null
               const oopLine = sub?.oopLine
               const otLine = day.otLine
 
@@ -160,12 +151,13 @@ export default function SlipDayTable({
                             placeholder="ยังไม่ออก"
                             disabled={!rowEditable}
                             ariaLabel={`เวลาออก ${day.date}`}
-                            onSave={t =>
+                            overnightFrom={inAt}
+                            onSave={(t, overnight) =>
                               saveCheckin(c.id, {
                                 checked_out_at:
                                   t === null
                                     ? null
-                                    : toISO(checkoutDateFor(inAt.date, inAt.time, t), t),
+                                    : toISO(overnight ? shiftDay(inAt.date, 1) : inAt.date, t),
                               })
                             }
                           />

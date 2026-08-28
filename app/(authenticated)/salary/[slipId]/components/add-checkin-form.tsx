@@ -16,8 +16,11 @@ import { toast } from 'sonner'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { addSlipCheckin, type SlipDetail, type SlipEventOption } from '../../actions'
+import { shiftDay } from '../../compute'
+import { shortThaiDate } from '../../format'
 import type { SalaryDutyRow } from '../../settings/actions'
 import { DutiesCell, EventCell, ToggleCell } from './inline-cells'
+import { isOvernight } from './day-view-utils'
 import PanelRow from './panel-row'
 
 /** หน้าตาของฟอร์ม — แถวในตาราง หรือ บล็อกเรียงแนวตั้ง */
@@ -51,6 +54,8 @@ export default function AddCheckinForm({
   const [selectedDuties, setSelectedDuties] = useState<string[]>([])
   const [eventId, setEventId] = useState<string | null>(null)
   const [outOfProvince, setOutOfProvince] = useState(false)
+  // เวลาออก ≤ เวลาเข้า = อาจเป็นกะข้ามคืน — ต้องกดยืนยันก่อนถึงจะบันทึกเป็นวันถัดไป
+  const [confirmOvernight, setConfirmOvernight] = useState(false)
   const [isPending, startTransition] = useTransition()
 
   const isRow = variant === 'row'
@@ -63,6 +68,7 @@ export default function AddCheckinForm({
     setSelectedDuties([])
     setEventId(null)
     setOutOfProvince(false)
+    setConfirmOvernight(false)
   }
 
   function submit() {
@@ -76,16 +82,26 @@ export default function AddCheckinForm({
       toast.error('วันที่อยู่นอกช่วงงวดนี้ — จะไม่ถูกนำมาคิดในสลิปใบนี้')
       return
     }
+    if (isOvernight(inTime, outTime) && !confirmOvernight) {
+      setConfirmOvernight(true)
+      return
+    }
+    save(isOvernight(inTime, outTime))
+  }
 
+  function save(overnight: boolean) {
     startTransition(async () => {
       const res = await addSlipCheckin(slipId, {
         date,
         checkin_time: inTime,
         checkout_time: outTime || null,
+        overnight,
         duties: selectedDuties,
         event_id: eventId,
         out_of_province: outOfProvince,
       })
+      // refresh ทั้งกรณีสำเร็จและล้มเหลว — เช็คอินอาจถูกเพิ่มไปแล้วแต่คำนวณใหม่ล้ม
+      router.refresh()
       if ('error' in res) {
         toast.error(res.error)
         return
@@ -93,9 +109,37 @@ export default function AddCheckinForm({
       onSlipChange(res.slip)
       reset()
       toast.success('เพิ่มเช็คอินแล้ว')
-      router.refresh()
     })
   }
+
+  // แถบยืนยันกะข้ามคืน — โผล่แทนที่ปุ่มปกติจนกว่าจะยืนยันหรือยกเลิก
+  const overnightConfirm = confirmOvernight && (
+    <span className="inline-flex flex-wrap items-center justify-end gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+      <span>
+        เวลาออกก่อนเวลาเข้า — บันทึกเป็นออกวันถัดไป ({shortThaiDate(shiftDay(date, 1))}{' '}
+        {outTime})?
+      </span>
+      <Button
+        type="button"
+        size="sm"
+        className="h-6 px-2 text-xs"
+        disabled={isPending}
+        onClick={() => { setConfirmOvernight(false); save(true) }}
+      >
+        ยืนยัน
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-6 px-2 text-xs"
+        disabled={isPending}
+        onClick={() => setConfirmOvernight(false)}
+      >
+        ยกเลิก
+      </Button>
+    </span>
+  )
 
   function onEnter(e: KeyboardEvent) {
     if (e.key === 'Enter') { e.preventDefault(); submit() }
@@ -171,10 +215,12 @@ export default function AddCheckinForm({
         <td className="px-3 py-2.5">{eventField}</td>
         <td className="px-3 py-2.5">{oopField}</td>
         <td colSpan={columns - 5} className="px-3 py-2.5 text-right">
-          <Button type="button" size="sm" className="h-7" disabled={isPending} onClick={submit}>
-            <Plus className="size-4" />
-            เพิ่มเช็คอินที่ลืม
-          </Button>
+          {overnightConfirm || (
+            <Button type="button" size="sm" className="h-7" disabled={isPending} onClick={submit}>
+              <Plus className="size-4" />
+              เพิ่มเช็คอินที่ลืม
+            </Button>
+          )}
         </td>
       </tr>
     )
@@ -188,6 +234,7 @@ export default function AddCheckinForm({
       <PanelRow label="หน้าที่">{dutiesField}</PanelRow>
       <PanelRow label="อีเวนต์">{eventField}</PanelRow>
       <PanelRow label="ตจว.">{oopField}</PanelRow>
+      {overnightConfirm}
       <Button type="button" className="w-full" disabled={isPending} onClick={submit}>
         <Plus className="size-4" />
         เพิ่มเช็คอินที่ลืม

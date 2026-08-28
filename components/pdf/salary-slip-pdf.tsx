@@ -3,7 +3,7 @@ import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/rendere
 import path from 'path'
 import { numberToThaiBahtText } from '@/lib/thai-baht-text'
 import { formatThaiDate } from '@/lib/thai-date'
-import { LINE_KIND_LABEL, fmtMoney, slipTitle } from '@/app/(authenticated)/salary/format'
+import { EMPLOYMENT_LABEL, LINE_KIND_LABEL, fmtMoney, slipTitle } from '@/app/(authenticated)/salary/format'
 import {
   lineAmount,
   type EmploymentType,
@@ -76,12 +76,6 @@ export interface SalarySlipPdfData {
   slip: SalarySlipPdfSlip
   /** วันที่พิมพ์ — ส่งเข้ามาได้เพื่อให้ผลลัพธ์คงที่ (สคริปต์ตรวจ) ไม่ส่ง = วันนี้ */
   printedAt?: string | Date
-}
-
-const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
-  fulltime: 'ประจำ',
-  freelance: 'ฟรีแลนซ์',
-  intern: 'นักศึกษาฝึกงาน',
 }
 
 // ============================================================================

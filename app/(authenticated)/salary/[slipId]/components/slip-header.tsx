@@ -22,7 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, slipTitle } from '../../format'
+import { EMPLOYMENT_LABEL, fmtMoney, slipTitle } from '../../format'
 import { SlipStatusBadge } from '../../components/slip-status-badge'
 import type { SlipDetail } from '../../actions'
 
@@ -39,12 +39,6 @@ interface Props {
   onSyncCosts: () => void
   onRecompute: () => void
 }
-
-const EMPLOYMENT_LABEL = {
-  fulltime: 'ประจำ',
-  freelance: 'ฟรีแลนซ์',
-  intern: 'นักศึกษาฝึกงาน',
-} as const
 
 export default function SlipHeader({
   slip, isAdmin, pendingCount, busy,

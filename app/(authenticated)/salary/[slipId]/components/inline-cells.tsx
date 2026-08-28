@@ -26,7 +26,9 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { fmtMoney } from '../../format'
+import { fmtMoney, shortThaiDate } from '../../format'
+import { shiftDay } from '../../compute'
+import { isOvernight } from './day-view-utils'
 import type { SlipEventOption } from '../../actions'
 import type { SalaryDutyRow } from '../../settings/actions'
 
@@ -127,21 +129,31 @@ export function focusNextEmptyRunner(current: HTMLInputElement): boolean {
 interface TimeCellProps {
   /** 'HH:MM' ตามเวลาไทย · null = ยังไม่มีเวลานี้ */
   value: string | null
-  onSave: (next: string | null) => Promise<SaveResult>
+  /** `overnight` = ผู้ใช้ยืนยันแล้วว่าเวลานี้คือ "ออกวันถัดไป" */
+  onSave: (next: string | null, overnight?: boolean) => Promise<SaveResult>
   disabled?: boolean
   /** ล้างค่าว่างได้ไหม — เวลาออกล้างได้ (= ยังไม่ออก) เวลาเข้าล้างไม่ได้ */
   allowClear?: boolean
   placeholder?: string
   ariaLabel: string
+  /**
+   * วัน/เวลาเข้าของเช็คอินใบเดียวกัน — ใส่เมื่อช่องนี้เป็น "เวลาออก"
+   * เวลาออกที่ไม่มากกว่าเวลาเข้าจะถามยืนยันก่อนว่าให้บันทึกเป็นวันถัดไปไหม
+   * (ไม่มีการเดา +1 วันให้เงียบๆ อีก)
+   */
+  overnightFrom?: { date: string; time: string } | null
 }
 
 export function TimeCell({
   value, onSave, disabled, allowClear = false, placeholder = '—', ariaLabel,
+  overnightFrom = null,
 }: TimeCellProps) {
   const { flash, run } = useCellSave()
   const [shown, setShown] = useDraftValue(value, v => v ?? '')
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  // เวลาออกที่รอผู้ใช้ยืนยันว่าเป็น "ออกวันถัดไป" (null = ไม่มีอะไรค้าง)
+  const [pendingOvernight, setPendingOvernight] = useState<string | null>(null)
   // Enter แล้ว blur ตามมาทันที — กันไม่ให้ยิงบันทึกซ้ำสองรอบ
   const doneRef = useRef(false)
 
@@ -157,6 +169,11 @@ export function TimeCell({
     setEditing(false)
   }
 
+  function save(next: string | null, overnight: boolean) {
+    setShown(next)
+    run(() => onSave(next, overnight), () => setShown(undefined))
+  }
+
   function commit() {
     if (doneRef.current) return
     doneRef.current = true
@@ -168,8 +185,45 @@ export function TimeCell({
       toast.error('เวลาเข้าจะว่างไม่ได้')
       return
     }
-    setShown(next)
-    run(() => onSave(next), () => setShown(undefined))
+    // ออกก่อนเข้า = อาจเป็นกะข้ามคืน หรืออาจพิมพ์ผิด — ต้องให้ยืนยันก่อนเสมอ
+    if (next !== null && overnightFrom && isOvernight(overnightFrom.time, next)) {
+      setPendingOvernight(next)
+      return
+    }
+    save(next, false)
+  }
+
+  if (pendingOvernight !== null && overnightFrom) {
+    const nextDay = shiftDay(overnightFrom.date, 1)
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+        <span>
+          เวลาออกก่อนเวลาเข้า — บันทึกเป็นออกวันถัดไป ({shortThaiDate(nextDay)}{' '}
+          {pendingOvernight})?
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          className="h-6 px-2 text-xs"
+          onClick={() => {
+            const next = pendingOvernight
+            setPendingOvernight(null)
+            save(next, true)
+          }}
+        >
+          ยืนยัน
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-6 px-2 text-xs"
+          onClick={() => setPendingOvernight(null)}
+        >
+          ยกเลิก
+        </Button>
+      </span>
+    )
   }
 
   if (editing) {

@@ -4,7 +4,14 @@
 // ============================================================================
 
 import { THAI_MONTHS } from '@/lib/thai-date'
-import type { LineKind, RunKind } from './compute'
+import type { EmploymentType, LineKind, RunKind } from './compute'
+
+/** ป้ายประเภทการจ้าง — ใช้ร่วมกันทุกหน้าและ PDF (อย่านิยามซ้ำในแต่ละ view) */
+export const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
+  fulltime: 'ประจำ',
+  freelance: 'ฟรีแลนซ์',
+  intern: 'นักศึกษาฝึกงาน',
+}
 
 /** ป้ายชนิดงวด — ใช้ร่วมกันทุกหน้าในโมดูล (อย่านิยามซ้ำในแต่ละ view) */
 export const RUN_KIND_LABEL: Record<RunKind, string> = {

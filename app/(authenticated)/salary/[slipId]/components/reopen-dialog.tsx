@@ -3,7 +3,7 @@
 // ============================================================================
 // "เปิดแก้ไข" สลิปที่ปิดงวด/จ่ายแล้ว — spec §"เปิดแก้ไขหลังปิดงวด"
 //
-// บังคับเหตุผล ≥ 10 ตัวอักษร (เกณฑ์เดียวกับ reopenSlip และ RPC ที่ฐานข้อมูล)
+// บังคับเหตุผลยาวอย่างน้อย REOPEN_MIN_REASON ตัวอักษร (เกณฑ์เดียวกับ reopenSlip และ RPC)
 // สลิปที่จ่ายไปแล้วมีกล่องเตือนเพิ่มว่าส่วนต่างต้องโอนเพิ่ม/หักคืนเอง
 // ============================================================================
 
@@ -19,15 +19,13 @@ import { Textarea } from '@/components/ui/textarea'
 import { formatThaiDate } from '@/lib/thai-date'
 import { fmtMoney } from '../../format'
 import { reopenSlip, type SlipDetail } from '../../actions'
+import { REOPEN_MIN_REASON } from '../../compute'
 
 interface Props {
   slip: SlipDetail
   open: boolean
   onOpenChange: (open: boolean) => void
 }
-
-/** ความยาวเหตุผลขั้นต่ำ — ตรงกับ reopenSlip() และ RPC reopen_salary_slip */
-const MIN_REASON = 10
 
 export default function ReopenDialog({ slip, open, onOpenChange }: Props) {
   const router = useRouter()
@@ -36,7 +34,7 @@ export default function ReopenDialog({ slip, open, onOpenChange }: Props) {
 
   const name = slip.full_name || slip.nickname || '(ไม่มีชื่อ)'
   const trimmed = reason.trim()
-  const tooShort = trimmed.length < MIN_REASON
+  const tooShort = trimmed.length < REOPEN_MIN_REASON
   const wasPaid = slip.status === 'paid'
 
   function submit() {
@@ -91,8 +89,8 @@ export default function ReopenDialog({ slip, open, onOpenChange }: Props) {
             disabled={isPending}
           />
           <p className="text-xs text-muted-foreground">
-            {trimmed.length}/{MIN_REASON} ตัวอักษร
-            {tooShort ? ' · ต้องยาวอย่างน้อย 10 ตัวอักษร' : ' · ครบแล้ว'}
+            {trimmed.length}/{REOPEN_MIN_REASON} ตัวอักษร
+            {tooShort ? ` · ต้องยาวอย่างน้อย ${REOPEN_MIN_REASON} ตัวอักษร` : ' · ครบแล้ว'}
           </p>
         </div>
 

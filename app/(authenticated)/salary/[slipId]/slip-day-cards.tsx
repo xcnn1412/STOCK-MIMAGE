@@ -7,7 +7,7 @@
 // บรรทัดย่อยต่อเช็คอิน (ประเภท · เข้า–ออก · หน้าที่ · ตจว.) แตะการ์ดแล้วเปิด
 // "แผงแก้" ใต้การ์ด — ช่องชุดเดียวกับตารางเดสก์ท็อป แต่เรียงแนวตั้งเป็นป้าย/ค่า
 //
-// ใช้ groupSlipByDay/useSlipEdits/SlipFooter/AddCheckinForm ร่วมกับตารางเดสก์ท็อป
+// ใช้ useDayView/useSlipEdits/SlipFooter/AddCheckinForm ร่วมกับตารางเดสก์ท็อป
 // ทั้งคู่ถูก render พร้อมกันแล้วสลับด้วย CSS — id ของการ์ดจึงลงท้าย '-m'
 // เพื่อไม่ให้ชนกับ id ของแถวในตาราง (jumpToDay เลือกตัวที่มองเห็นอยู่)
 // ============================================================================
@@ -18,18 +18,18 @@ import { AlertTriangle, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { fmtMoney, shortThaiDate } from '../format'
 import type { SlipCheckinRow, SlipDetail, SlipEventOption } from '../actions'
-import { groupSlipByDay, type DayRow, type SalaryLine } from '../compute'
+import {
+  bangkokParts, isMissingAmount, shiftDay, type DayRow, type SalaryLine,
+} from '../compute'
 import type { SalaryDutyRow } from '../settings/actions'
 import {
   DutiesCell, EventCell, MoneyCell, RunnerCell, TimeCell, ToggleCell,
 } from './components/inline-cells'
-import {
-  bkkParts, checkoutDateFor, CHECK_TYPE_LABEL, isMissing, toISO,
-} from './components/day-view-utils'
+import { CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
 import PanelRow from './components/panel-row'
 import SlipFooter from './components/slip-footer'
-import { useSlipEdits, type SlipEdits } from './components/use-slip-edits'
+import { useDayView, useSlipEdits, type SlipEdits } from './components/use-slip-edits'
 
 interface Props {
   slip: SlipDetail
@@ -48,16 +48,9 @@ interface Props {
 export default function SlipDayCards({
   slip, checkins, duties, events, editable, highlightDate, onSlipChange,
 }: Props) {
-  const days = groupSlipByDay(slip.lines, checkins, slip.warnings)
-  const dutyName = new Map(duties.map(d => [d.code, d.name_th]))
+  const { days, dutyName, emptyRunnerKeys, applyRunnerKey } =
+    useDayView(slip, checkins, duties, editable)
   const edits = useSlipEdits(slip.id, onSlipChange)
-
-  // รันเนอร์ทั้งใบ — ใช้ตัดสินว่าช่องไหนได้ปุ่ม "ใช้ยอดนี้กับวันที่ยังว่าง"
-  const runnerLines = days.flatMap(d => d.runnerLines)
-  const emptyRunnerKeys = runnerLines.filter(isMissing).map(l => l.key)
-  const firstFilledRunner = runnerLines.find(l => !isMissing(l))
-  const applyRunnerKey =
-    editable && firstFilledRunner && emptyRunnerKeys.length > 0 ? firstFilledRunner.key : null
 
   return (
     <div className="space-y-2">
@@ -192,8 +185,8 @@ function DayCard({
       <div className="space-y-1 px-3 pb-2.5 text-xs text-muted-foreground">
         {day.checkins.map(sub => {
           const c = sub.checkin
-          const inAt = bkkParts(c.checked_in_at)
-          const outAt = c.checked_out_at ? bkkParts(c.checked_out_at) : null
+          const inAt = bangkokParts(c.checked_in_at)
+          const outAt = c.checked_out_at ? bangkokParts(c.checked_out_at) : null
           const names = c.duties.map(code => dutyName.get(code) || code).join(', ')
           const paidElsewhere = !!c.paid_slip_id && c.paid_slip_id !== slipId
           return (
@@ -228,8 +221,8 @@ function DayCard({
             const paidElsewhere = !!c.paid_slip_id && c.paid_slip_id !== slipId
             const rowEditable = !paidElsewhere
             const onsite = c.check_type === 'onsite'
-            const inAt = bkkParts(c.checked_in_at)
-            const outAt = c.checked_out_at ? bkkParts(c.checked_out_at) : null
+            const inAt = bangkokParts(c.checked_in_at)
+            const outAt = c.checked_out_at ? bangkokParts(c.checked_out_at) : null
             const oopLine = sub.oopLine
 
             return (
@@ -259,10 +252,13 @@ function DayCard({
                     placeholder="ยังไม่ออก"
                     disabled={!rowEditable}
                     ariaLabel={`เวลาออก ${day.date}`}
-                    onSave={t =>
+                    overnightFrom={inAt}
+                    onSave={(t, overnight) =>
                       edits.saveCheckin(c.id, {
                         checked_out_at:
-                          t === null ? null : toISO(checkoutDateFor(inAt.date, inAt.time, t), t),
+                          t === null
+                            ? null
+                            : toISO(overnight ? shiftDay(inAt.date, 1) : inAt.date, t),
                       })
                     }
                   />
@@ -312,6 +308,7 @@ function DayCard({
                       amount={l.amount}
                       computed={l.computed_amount}
                       overrideNote={l.override_note}
+                      disabled={!editable}
                       ariaLabel={`ค่าสตาฟ ${l.label}`}
                       onSave={(amount, note) => edits.saveOverride(l.key, amount, note)}
                       onClear={() => edits.clearOverride(l.key)}
@@ -325,6 +322,7 @@ function DayCard({
                       amount={oopLine.amount}
                       computed={oopLine.computed_amount}
                       overrideNote={oopLine.override_note}
+                      disabled={!editable}
                       ariaLabel={`เบิ้ลต่างจังหวัด ${day.date}`}
                       onSave={(amount, note) => edits.saveOverride(oopLine.key, amount, note)}
                       onClear={() => edits.clearOverride(oopLine.key)}
@@ -346,6 +344,7 @@ function DayCard({
                     amount={otLine.amount}
                     computed={otLine.computed_amount}
                     overrideNote={otLine.override_note}
+                    disabled={!editable}
                     ariaLabel={`OT ${day.date}`}
                     onSave={(amount, note) => edits.saveOverride(otLine.key, amount, note)}
                     onClear={() => edits.clearOverride(otLine.key)}
@@ -357,6 +356,7 @@ function DayCard({
                 <PanelRow key={l.key} label="รันเนอร์">
                   <RunnerCell
                     value={l.amount ?? null}
+                    disabled={!editable}
                     ariaLabel={`ยอดรันเนอร์ ${day.date}`}
                     onSave={amount => edits.saveRunner(l.key, amount)}
                     onApplyToEmpty={
@@ -384,7 +384,7 @@ function DayCard({
 function amountSummary(day: DayRow<SlipCheckinRow>, dutyName: Map<string, string>): string {
   const parts: string[] = []
   const money = (l: SalaryLine) =>
-    isMissing(l) ? 'ยังไม่กรอก' : `${fmtMoney(l.amount)} บาท`
+    isMissingAmount(l) ? 'ยังไม่กรอก' : `${fmtMoney(l.amount)} บาท`
 
   for (const sub of day.checkins) {
     for (const l of sub.siteLines) {

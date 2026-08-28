@@ -557,7 +557,9 @@ function partA() {
     const warnings: SalaryWarning[] = [
       { code: 'no_checkout', date: '2026-08-05', checkin_id: 'c1', message: 'x' },
       { code: 'no_event', date: '2026-08-06', checkin_id: 'c3', message: 'x' },
-      { code: 'override_dropped', date: '2026-08-07', message: 'x' },
+      // ค่าแก้มือหายสองบรรทัดในวันเดียวกัน — คีย์แยกด้วย line_key จึงต้องนับ 2 ไม่ใช่ 1
+      { code: 'override_dropped', date: '2026-08-07', line_key: 'site:2026-08-07:cx:a', message: 'x' },
+      { code: 'override_dropped', date: '2026-08-07', line_key: 'site:2026-08-07:cx:b', message: 'x' },
       // คำเตือนรันเนอร์ถูกมองข้าม — รายการจริงมาจากบรรทัดด้านล่าง
       { code: 'runner_missing', date: '2026-08-05', message: 'x' },
     ]
@@ -567,7 +569,7 @@ function partA() {
     ]
 
     const none = pendingItems(warnings, [], lines)
-    assertEq(none.count, 4, 'ยังไม่ยอมรับอะไร → ค้าง 4 (ไม่มีเวลาออก, ไม่ผูกอีเวนต์, ค่าแก้มือหาย, รันเนอร์ 1 วัน)')
+    assertEq(none.count, 5, 'ยังไม่ยอมรับอะไร → ค้าง 5 (ไม่มีเวลาออก, ไม่ผูกอีเวนต์, ค่าแก้มือหาย 2, รันเนอร์ 1 วัน)')
     assertEq(
       none.groups.map(g => g.code),
       ['runner_missing', 'no_checkout', 'no_event', 'override_dropped'],
@@ -575,8 +577,17 @@ function partA() {
     )
     assertEq(
       none.groups.find(g => g.code === 'runner_missing')!.items.map(i => i.key),
-      ['runner_missing:2026-08-05:'],
-      'รันเนอร์ที่ amount = null นับ · ที่กรอก 300 แล้วไม่นับ'
+      ['runner_missing:2026-08-05:runner:2026-08-05:runner'],
+      'รันเนอร์ที่ amount = null นับ (คีย์ต่อบรรทัด) · ที่กรอก 300 แล้วไม่นับ'
+    )
+    assertEq(
+      none.groups.find(g => g.code === 'runner_missing')!.items[0].label,
+      'รันเนอร์ · 1 เช็คอิน',
+      'รายการรันเนอร์บอกได้ว่าเป็นหน้าที่ไหน (ใช้ชื่อบรรทัด)'
+    )
+    assertEq(
+      none.groups.find(g => g.code === 'override_dropped')!.items.length, 2,
+      'ค่าแก้มือหายสองบรรทัดของวันเดียวกัน แยกเป็น 2 รายการ ไม่ยุบเหลือ 1'
     )
 
     const accepted: AcceptedWarning[] = [
@@ -585,7 +596,7 @@ function partA() {
       { key: 'no_event:2999-01-01:zz', by: 'admin', at: '2026-08-20T03:00:00.000Z' },
     ]
     const some = pendingItems(warnings, accepted, lines)
-    assertEq(some.count, 3, 'ยอมรับ "ไม่มีเวลาออก" แล้ว → เหลือค้าง 3')
+    assertEq(some.count, 4, 'ยอมรับ "ไม่มีเวลาออก" แล้ว → เหลือค้าง 4')
     assertEq(
       some.groups.find(g => g.code === 'no_checkout')!.items[0].accepted, true,
       'รายการที่ยอมรับแล้วยังอยู่ในกลุ่ม (แสดงจางๆ) แต่ไม่ถูกนับ'
@@ -597,10 +608,17 @@ function partA() {
 
     const runnerAccepted = pendingItems(
       warnings,
-      [...accepted, { key: 'runner_missing:2026-08-05:', by: 'admin', at: '2026-08-20T03:00:00.000Z' }],
+      [
+        ...accepted,
+        {
+          key: 'runner_missing:2026-08-05:runner:2026-08-05:runner',
+          by: 'admin',
+          at: '2026-08-20T03:00:00.000Z',
+        },
+      ],
       lines
     )
-    assertEq(runnerAccepted.count, 3, 'รันเนอร์ยอมรับไม่ได้ — ยังนับเป็นงานค้างแม้มีคีย์ในรายการยอมรับ')
+    assertEq(runnerAccepted.count, 4, 'รันเนอร์ยอมรับไม่ได้ — ยังนับเป็นงานค้างแม้มีคีย์ในรายการยอมรับ')
   }
 }
 

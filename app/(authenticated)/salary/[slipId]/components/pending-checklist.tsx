@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatThaiDate } from '@/lib/thai-date'
 import { acceptSlipWarning, unacceptSlipWarning, type SlipDetail } from '../../actions'
-import { pendingItems, pendingKey, type AcceptedWarning } from '../../compute'
+import { isAcceptable, pendingItems } from '../../compute'
 
 interface Props {
   slip: SlipDetail
@@ -29,9 +29,6 @@ interface Props {
   onSlipChange: (slip: SlipDetail) => void
 }
 
-/** ยอมรับไม่ได้ — รันเนอร์ต้องกรอกยอด (พิมพ์ 0 ได้) ตรงกับกติกาใน compute.ts/actions.ts */
-const NOT_ACCEPTABLE = 'runner_missing'
-
 export default function PendingChecklist({ slip, editable, onJump, onSlipChange }: Props) {
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [, startTransition] = useTransition()
@@ -42,42 +39,23 @@ export default function PendingChecklist({ slip, editable, onJump, onSlipChange 
     0
   )
 
-  // ข้อความสั้นของแต่ละรายการมาจากคำเตือนต้นทาง (รันเนอร์ไม่มีคำเตือน → ใช้ป้ายกลุ่มแทน)
-  const messageByKey = new Map(
-    slip.warnings.map(w => [pendingKey(w.code, w.date, w.checkin_id), w.message])
-  )
-
   if (!editable) return null
   if (pending.count === 0 && acceptedCount === 0) return null
 
-  function setAccepted(next: AcceptedWarning[]) {
-    onSlipChange({ ...slip, accepted_warnings: next })
-  }
-
-  function accept(key: string) {
+  /**
+   * ยอมรับ/ถอนการยอมรับ — ใช้สลิปที่ action คืนกลับมาเสมอ
+   * (ถ้าประกอบเองจาก slip ใน closure จะทับผลของการแก้ที่เกิดคั่นระหว่างรอ server)
+   */
+  function runAccept(key: string, fn: typeof acceptSlipWarning) {
     setBusyKey(key)
     startTransition(async () => {
-      const res = await acceptSlipWarning(slip.id, key)
+      const res = await fn(slip.id, key)
       setBusyKey(null)
       if (res.error) {
         toast.error(res.error)
         return
       }
-      // ยอดค้างบนหัวสลิปต้องขยับทันที — action คืนแค่ success จึงเติมรายการเองฝั่ง client
-      setAccepted([...slip.accepted_warnings, { key, by: '', at: new Date().toISOString() }])
-    })
-  }
-
-  function unaccept(key: string) {
-    setBusyKey(key)
-    startTransition(async () => {
-      const res = await unacceptSlipWarning(slip.id, key)
-      setBusyKey(null)
-      if (res.error) {
-        toast.error(res.error)
-        return
-      }
-      setAccepted(slip.accepted_warnings.filter(a => a.key !== key))
+      if (res.slip) onSlipChange(res.slip)
     })
   }
 
@@ -111,7 +89,8 @@ export default function PendingChecklist({ slip, editable, onJump, onSlipChange 
             </p>
             <ul className="mt-1 space-y-0.5">
               {group.items.map(item => {
-                const message = messageByKey.get(item.key) || group.label
+                // label ของรายการ = ข้อความคำเตือน หรือชื่อบรรทัดรันเนอร์ (บอกหน้าที่)
+                const message = item.label || group.label
                 const busy = busyKey === item.key
                 return (
                   <li
@@ -133,12 +112,12 @@ export default function PendingChecklist({ slip, editable, onJump, onSlipChange 
                       <span className="truncate opacity-90">· {message}</span>
                     </button>
 
-                    {group.code !== NOT_ACCEPTABLE && (
+                    {isAcceptable(group.code) && (
                       item.accepted ? (
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={() => unaccept(item.key)}
+                          onClick={() => runAccept(item.key, unacceptSlipWarning)}
                           className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
                         >
                           ยกเลิกการยอมรับ
@@ -150,7 +129,7 @@ export default function PendingChecklist({ slip, editable, onJump, onSlipChange 
                           variant="outline"
                           className="h-6 px-2 text-xs"
                           disabled={busy}
-                          onClick={() => accept(item.key)}
+                          onClick={() => runAccept(item.key, acceptSlipWarning)}
                         >
                           <Check className="size-3" />
                           ยอมรับ

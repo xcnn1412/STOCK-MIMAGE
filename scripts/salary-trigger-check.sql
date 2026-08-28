@@ -1,6 +1,7 @@
 -- ตรวจ guard trigger + finalize_salary_slip ของ salary_slips หลังรัน migration เงินเดือน
 -- (supabase/migrations/20260828_create_salary_module.sql + 20260829_salary_weekly_runs.sql)
 -- รันได้ทั้งใน Supabase SQL Editor และ psql — ใช้โปรไฟล์จริง 2 คนแรก, สร้างงวดทดสอบ 'ZZTEST-*' แล้ว purge ทิ้งตอนจบ
+-- (+ 20260830_salary_slip_reopen.sql — B18–B23)
 -- ผลลัพธ์อ่านจาก NOTICE: ทุกข้อต้องขึ้น "ok" — ถ้ามี "FAIL" แปลว่า trigger ไม่ทำงาน
 -- (ponytail: ใช้แทน scripts/salary-check.ts ส่วน B เมื่อไม่มี local stack + PostgREST)
 DO $$
@@ -416,5 +417,94 @@ BEGIN
   SELECT count(*) INTO n FROM salary_runs WHERE period_key LIKE 'ZZTEST-reopen-%';
   SELECT n + count(*) INTO n FROM staff_checkins WHERE note LIKE 'ZZTEST-reopen%';
   RAISE NOTICE 'B21d %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
+    CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
+END $$;
+
+-- ============================================================================
+-- B22–B23 — ลบสลิปที่เคยปิดงวด/จ่ายแล้วไม่ได้ + ปิดงวดทั้งที่รันเนอร์ยังว่างไม่ได้
+-- (supabase/migrations/20260830_salary_slip_reopen.sql §2, §4)
+-- ============================================================================
+DO $$
+DECLARE
+  u1 uuid; run_h uuid; run_i uuid; slip_h uuid; slip_i uuid; c1 uuid; n int; st text;
+BEGIN
+  SELECT id INTO u1 FROM profiles WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1;
+  IF u1 IS NULL THEN RAISE EXCEPTION 'ต้องมี profiles อย่างน้อย 1 คน'; END IF;
+
+  -- เผื่อรอบก่อนค้าง
+  PERFORM purge_test_salary_run('ZZTEST-guard-h');
+  PERFORM purge_test_salary_run('ZZTEST-guard-i');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-guard%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-11-17 10:00+07', 'ZZTEST-guard') RETURNING id INTO c1;
+
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('weekly', 'ZZTEST-guard-h', '2026-11-16', '2026-11-22') RETURNING id INTO run_h;
+
+  -- ── B22: สลิปที่ถูกเปิดแก้ (กลับเป็นร่าง แต่มีประวัติ) ลบไม่ได้ ─────────
+  INSERT INTO salary_slips(run_id, user_id, checkin_ids, lines, total)
+    VALUES (run_h, u1, ARRAY[c1], jsonb_build_array(
+      jsonb_build_object('key', 'site:2026-11-17:h', 'kind', 'site', 'date', '2026-11-17',
+                         'checkin_id', c1, 'label', 'ค่าสตาฟ', 'computed_amount', 700, 'amount', 700)
+    ), 700) RETURNING id INTO slip_h;
+
+  PERFORM finalize_salary_slip(slip_h, u1);
+  PERFORM reopen_salary_slip(slip_h, u1, 'แอดมินทดสอบ', 'เปิดแก้เพื่อทดสอบว่าลบสลิปนี้ไม่ได้');
+
+  SELECT status INTO st FROM salary_slips WHERE id = slip_h;
+  RAISE NOTICE 'B22a %: สลิปกลับเป็นร่างแล้ว (status=%)',
+    CASE WHEN st = 'draft' THEN 'ok' ELSE 'FAIL' END, st;
+
+  BEGIN
+    DELETE FROM salary_slips WHERE id = slip_h;
+    RAISE NOTICE 'B22 FAIL: ลบสลิปร่างที่เคยปิดงวด/ถูกเปิดแก้ได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B22 ok blocked: %', SQLERRM; END;
+
+  SELECT count(*) INTO n FROM salary_slips WHERE id = slip_h;
+  RAISE NOTICE 'B22b %: สลิปยังอยู่หลังถูกปฏิเสธ (%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  -- ── B23: บรรทัดรันเนอร์ที่ amount = null → ปิดงวดไม่ได้ ─────────────────
+  -- salary_slips มี UNIQUE(run_id, user_id) → ใบที่สองของคนเดิมต้องอยู่คนละงวด
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('weekly', 'ZZTEST-guard-i', '2026-11-23', '2026-11-29') RETURNING id INTO run_i;
+  INSERT INTO salary_slips(run_id, user_id, lines, total)
+    VALUES (run_i, u1, jsonb_build_array(
+      jsonb_build_object('key', 'runner:2026-11-24:runner', 'kind', 'runner', 'date', '2026-11-24',
+                         'duty', 'runner', 'label', 'รันเนอร์ · 1 เช็คอิน',
+                         'computed_amount', 0, 'amount', NULL)
+    ), 0) RETURNING id INTO slip_i;
+
+  BEGIN
+    PERFORM finalize_salary_slip(slip_i, u1);
+    RAISE NOTICE 'B23 FAIL: ปิดงวดทั้งที่รันเนอร์ยังไม่กรอกยอดได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B23 ok blocked: %', SQLERRM; END;
+
+  SELECT status INTO st FROM salary_slips WHERE id = slip_i;
+  RAISE NOTICE 'B23b %: สลิปยังเป็นร่างหลังถูกปฏิเสธ (status=%)',
+    CASE WHEN st = 'draft' THEN 'ok' ELSE 'FAIL' END, st;
+
+  -- กรอกยอดแล้วต้องปิดงวดได้
+  UPDATE salary_slips
+     SET lines = jsonb_set(lines, '{0,amount}', '250'::jsonb), total = 250
+   WHERE id = slip_i;
+  PERFORM finalize_salary_slip(slip_i, u1);
+  SELECT status INTO st FROM salary_slips WHERE id = slip_i;
+  RAISE NOTICE 'B23c %: กรอกยอดรันเนอร์แล้วปิดงวดได้ (status=%)',
+    CASE WHEN st = 'finalized' THEN 'ok' ELSE 'FAIL' END, st;
+
+  -- ── ล้างของทดสอบ ────────────────────────────────────────────────────────
+  PERFORM purge_test_salary_run('ZZTEST-guard-h');
+  PERFORM purge_test_salary_run('ZZTEST-guard-i');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-guard%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  SELECT count(*) INTO n FROM salary_runs WHERE period_key LIKE 'ZZTEST-guard%';
+  SELECT n + count(*) INTO n FROM staff_checkins WHERE note LIKE 'ZZTEST-guard%';
+  RAISE NOTICE 'B23d %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
     CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
 END $$;

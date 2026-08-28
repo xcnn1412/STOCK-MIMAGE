@@ -21,7 +21,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney } from '../format'
+import { EMPLOYMENT_LABEL, fmtMoney } from '../format'
 import type { EmploymentType } from '../compute'
 import {
   createSalaryDuty, updateSalaryDuty, updateSalarySettings, upsertSalaryProfile,
@@ -38,12 +38,6 @@ interface Props {
 const PAY_MODE_LABEL: Record<DutyFormInput['pay_mode'], string> = {
   per_checkin: 'คิดต่อครั้ง',
   manual_daily: 'กรอกมือรายวัน',
-}
-
-const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
-  fulltime: 'ประจำ',
-  freelance: 'ฟรีแลนซ์',
-  intern: 'นักศึกษาฝึกงาน',
 }
 
 const EMPTY_DUTY: DutyFormInput = {

@@ -39,7 +39,9 @@ export default function SlipFooter({
 
   const rows = (
     <>
-      {slip.base_salary > 0 && (
+      {/* ฟรีแลนซ์ไม่มีเงินเดือนฐาน — สลิปเก่าที่เก็บฐานติดมาก็ห้ามโชว์
+          (ยอดสุทธิไม่ได้รวมฐานไว้ ถ้าโชว์บรรทัดนี้ตัวเลขจะบวกไม่ลง) */}
+      {slip.employment_type !== 'freelance' && slip.base_salary > 0 && (
         <FooterRow
           {...rowProps}
           rowClass="border-t"

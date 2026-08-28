@@ -50,6 +50,12 @@ BEGIN
     IF OLD.status IS DISTINCT FROM 'draft' THEN
       RAISE EXCEPTION 'ห้ามลบสลิปที่ปิดงวดแล้ว';
     END IF;
+    -- สลิปที่ถูกเปิดแก้กลับมาเป็น "ร่าง" แต่เคยปิดงวด/จ่ายไปแล้ว — ลบทิ้งไม่ได้
+    -- (ประวัติการจ่ายกับประวัติการเปิดแก้จะหายไปทั้งชุด) ให้ปิดงวดใหม่แทน
+    IF COALESCE(OLD.paid_history, '[]'::JSONB) <> '[]'::JSONB
+    OR COALESCE(OLD.reopen_history, '[]'::JSONB) <> '[]'::JSONB THEN
+      RAISE EXCEPTION 'สลิปที่เคยปิดงวด/จ่ายแล้ว ลบไม่ได้ — ปิดงวดใหม่แทน';
+    END IF;
     RETURN OLD;
   END IF;
 
@@ -190,6 +196,17 @@ BEGIN
     RAISE EXCEPTION 'สลิปนี้ปิดงวดแล้ว';
   END IF;
 
+  -- รันเนอร์ที่ยังไม่กรอกยอด (amount = null หรือไม่มีคีย์) ห้ามปิดงวด —
+  -- ด่านสุดท้ายที่ฐานข้อมูล เผื่อผู้เรียกข้าม pendingItems ไป (สคริปต์/หน้าอื่น)
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(COALESCE(v_lines, '[]'::JSONB)) e
+    WHERE e ->> 'kind' = 'runner'
+      AND (e -> 'amount' IS NULL OR jsonb_typeof(e -> 'amount') = 'null')
+  ) THEN
+    RAISE EXCEPTION 'ยังมีรันเนอร์ที่ไม่ได้กรอกยอด';
+  END IF;
+
   -- เช็คอินที่สลิปนี้จ่ายให้ = checkin_ids ที่บันทึกไว้ตอนคำนวณ ∪ checkin_id ในบรรทัด
   -- (union เพราะสลิปร่างที่คำนวณไว้ก่อนมีคอลัมน์ checkin_ids ยังมีแต่บรรทัด)
   SELECT COALESCE(array_agg(DISTINCT x.cid), '{}'::UUID[]) INTO v_line_ids
@@ -240,4 +257,20 @@ REVOKE ALL ON FUNCTION public.finalize_salary_slip(UUID, UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.finalize_salary_slip(UUID, UUID) TO service_role;
 
 COMMENT ON FUNCTION public.finalize_salary_slip(UUID, UUID) IS
-  'ปิดงวดสลิปร่าง + ประทับ paid_slip_id ให้เช็คอินใน checkin_ids รวมกับที่อยู่ในบรรทัด + ปิดท้ายประวัติการเปิดแก้ล่าสุด — ถ้าเช็คอินถูกจ่ายในสลิปอื่นแล้วจะ RAISE';
+  'ปิดงวดสลิปร่าง + ประทับ paid_slip_id ให้เช็คอินใน checkin_ids รวมกับที่อยู่ในบรรทัด + ปิดท้ายประวัติการเปิดแก้ล่าสุด — บล็อกเมื่อยังมีรันเนอร์ไม่กรอกยอด หรือเช็คอินถูกจ่ายในสลิปอื่นแล้ว';
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 5. ดัชนีให้ syncSlipToCosts — reconcile เต็มยิง `notes LIKE 'salary_slip::<id>::%'`
+--    ทุกครั้งที่ปิดงวด/กด "ส่งเข้าต้นทุนอีกครั้ง" · text_pattern_ops ทำให้ LIKE
+--    แบบ prefix ใช้ดัชนีได้ และ partial index ครอบเฉพาะแถวของโมดูลเงินเดือน
+--
+--    ห่อด้วย DO block เพราะคอนเทนเนอร์ทดสอบ (pgcheck) ไม่มีตาราง job_cost_items
+-- ────────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'job_cost_items') THEN
+    CREATE INDEX IF NOT EXISTS job_cost_items_salary_notes_idx
+      ON job_cost_items (notes text_pattern_ops)
+      WHERE notes LIKE 'salary_slip::%';
+  END IF;
+END $$;

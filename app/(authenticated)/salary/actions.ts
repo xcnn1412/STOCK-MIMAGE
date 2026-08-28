@@ -16,9 +16,10 @@ import { createNotifications } from '@/lib/notifications'
 import { getSession, requireAdmin } from './session'
 import { fmtMoney, periodLabel, slipTitle, todayBangkok } from './format'
 import {
-  bangkokDate, catchUpStart, computeSlip, lastFinishedWeek, lineAmount,
-  onsiteFromFor, pendingItems, periodKeyFor, periodRange, selectCheckinsForRun, shiftDay,
-  toEmploymentType, toRunKind, weekRangeFor, weekdayOf,
+  bangkokDate, bangkokParts, catchUpStart, computeSlip, isAcceptable, isMissingAmount,
+  lastFinishedWeek, lineAmount, onsiteFromFor, pendingItems, periodKeyFor, periodRange,
+  REOPEN_MIN_REASON, selectCheckinsForRun, shiftDay, toEmploymentType, toRunKind, weekRangeFor,
+  weekdayOf,
 } from './compute'
 import type {
   AcceptedWarning, CheckinInput, EmploymentType, RunKind, RunWindow, SalaryAdjustment, SalaryLine,
@@ -116,6 +117,10 @@ export interface RunSlipRow {
   employment_type: EmploymentType
   total: number
   warnings: SalaryWarning[]
+  /** งานค้างที่ยังไม่ได้ยอมรับ (pendingItems().count) — เกณฑ์เดียวกับที่ปิดงวดใช้ */
+  pending_count: number
+  /** เคยปิดงวด/จ่ายแล้วมาก่อน (ถูกเปิดแก้) — ลบไม่ได้แม้ตอนนี้เป็นร่าง */
+  reopened: boolean
   computed_at: string | null
   finalized_at: string | null
   paid_at: string | null
@@ -788,9 +793,13 @@ export async function getRun(runId: string): Promise<{ error: string } | RunDeta
     kind: toRunKind((runRaw as unknown as { kind?: unknown }).kind),
   }
 
+  // lines/accepted_warnings ดึงมาเพื่อคำนวณ "งานค้าง" ฝั่ง server เท่านั้น —
+  // ไม่ส่งต่อไปหน้าจอ (บรรทัดเงินทั้งงวดหนักเกินจำเป็นสำหรับตารางรายชื่อ)
   const { data: slipsRaw } = await supabase
     .from('salary_slips')
-    .select('id, user_id, status, employment_type, total, warnings, computed_at, finalized_at, paid_at')
+    .select(
+      'id, user_id, status, employment_type, total, warnings, accepted_warnings, lines, paid_history, reopen_history, computed_at, finalized_at, paid_at'
+    )
     .eq('run_id', runId)
 
   type SlipRaw = {
@@ -800,6 +809,10 @@ export async function getRun(runId: string): Promise<{ error: string } | RunDeta
     employment_type: EmploymentType
     total: number | string | null
     warnings: SalaryWarning[] | null
+    accepted_warnings: AcceptedWarning[] | null
+    lines: SalaryLine[] | null
+    paid_history: PaidEntry[] | null
+    reopen_history: ReopenEntry[] | null
     computed_at: string | null
     finalized_at: string | null
     paid_at: string | null
@@ -810,6 +823,7 @@ export async function getRun(runId: string): Promise<{ error: string } | RunDeta
   const slips: RunSlipRow[] = slipRows
     .map(s => {
       const who = names.get(s.user_id)
+      const warnings = Array.isArray(s.warnings) ? s.warnings : []
       return {
         id: s.id,
         user_id: s.user_id,
@@ -818,7 +832,15 @@ export async function getRun(runId: string): Promise<{ error: string } | RunDeta
         status: s.status,
         employment_type: toEmploymentType(s.employment_type),
         total: Number(s.total || 0),
-        warnings: Array.isArray(s.warnings) ? s.warnings : [],
+        warnings,
+        pending_count: pendingItems(
+          warnings,
+          Array.isArray(s.accepted_warnings) ? s.accepted_warnings : [],
+          Array.isArray(s.lines) ? s.lines : []
+        ).count,
+        reopened:
+          (Array.isArray(s.paid_history) && s.paid_history.length > 0) ||
+          (Array.isArray(s.reopen_history) && s.reopen_history.length > 0),
         computed_at: s.computed_at,
         finalized_at: s.finalized_at,
         paid_at: s.paid_at,
@@ -1011,10 +1033,12 @@ export async function computeSlips(
       user_id: userId,
       status: 'draft',
       employment_type,
-      // snapshot "ฐานในสลิปใบนี้" — งวดสัปดาห์/กำหนดเองไม่มีเงินเดือนฐาน (compute.ts §7)
-      // เก็บ 0 ไว้เลย เพื่อให้ recalcTotal (แก้มือ/รายการปรับ) ได้ยอดตรงกับ computeSlip
-      // โดยไม่ต้องรู้ชนิดงวด — ไม่งั้นแก้บรรทัดทีเดียวยอดเด้งเป็น ฐาน + บรรทัด
-      base_salary: run.kind === 'monthly' ? base_salary : 0,
+      // snapshot "ฐานในสลิปใบนี้" — ฟรีแลนซ์ไม่มีฐานทุกชนิดงวด และงวดสัปดาห์/กำหนดเอง
+      // ก็ไม่มีฐาน (compute.ts §7) · เก็บ 0 ไว้เลย เพื่อให้ recalcTotal (แก้มือ/รายการปรับ)
+      // ได้ยอดตรงกับ computeSlip โดยไม่ต้องรู้ชนิดงวด — ไม่งั้นแก้บรรทัดทีเดียวยอดเด้ง
+      // เป็น ฐาน + บรรทัด และท้ายสลิปก็จะโชว์ "เงินเดือนฐาน" ที่ไม่ได้ถูกรวมในยอดสุทธิ
+      base_salary:
+        run.kind === 'monthly' && employment_type !== 'freelance' ? base_salary : 0,
       checkin_ids,
       lines: result.lines,
       adjustments,
@@ -1065,7 +1089,7 @@ export async function deleteSlip(slipId: string): Promise<{ error?: string; succ
   const supabase = createServiceClient()
   const { data } = await supabase
     .from('salary_slips')
-    .select('id, run_id, user_id, status')
+    .select('id, run_id, user_id, status, paid_history, reopen_history')
     .eq('id', slipId)
     .maybeSingle()
   if (!data) return { error: 'ไม่พบสลิปนี้' }
@@ -1075,8 +1099,18 @@ export async function deleteSlip(slipId: string): Promise<{ error?: string; succ
     run_id: string
     user_id: string
     status: SlipStatus
+    paid_history: PaidEntry[] | null
+    reopen_history: ReopenEntry[] | null
   }
   if (slip.status !== 'draft') return { error: 'สลิปที่ปิดงวดแล้วลบไม่ได้' }
+  // สลิปที่เคยปิดงวด/จ่ายแล้วแล้วถูกเปิดแก้ กลับมาเป็น "ร่าง" ก็จริง แต่ลบทิ้งไม่ได้ —
+  // เช็คอินถูกปลดประทับไปแล้ว ถ้าลบใบนี้ ประวัติการจ่าย/การเปิดแก้จะหายไปทั้งชุด
+  // (guard trigger กันอีกชั้นที่ฐานข้อมูล)
+  const everPaid = Array.isArray(slip.paid_history) && slip.paid_history.length > 0
+  const everReopened = Array.isArray(slip.reopen_history) && slip.reopen_history.length > 0
+  if (everPaid || everReopened) {
+    return { error: 'สลิปที่เคยปิดงวด/จ่ายแล้ว ลบไม่ได้ — ปิดงวดใหม่แทน' }
+  }
 
   const { error } = await supabase.from('salary_slips').delete().eq('id', slipId)
   if (error) return { error: `ลบไม่สำเร็จ: ${error.message}` }
@@ -1218,7 +1252,7 @@ export async function getSlipForView(
   if (!isAdmin) {
     const [ownCheckins, duties] = await Promise.all([
       listOwnerSlipCheckins(supabase, raw.user_id, slip.id),
-      listDuties(),
+      listDutyRows(supabase),
     ])
     return { slip, isAdmin, checkins: ownCheckins, duties, events: [] }
   }
@@ -1231,10 +1265,34 @@ export async function getSlipForView(
   }
   const [checkins, duties, events] = await Promise.all([
     listSlipCheckins(supabase, slip.user_id, slip.id, runWindow),
-    listDuties(),
+    listDutyRows(supabase),
     listPeriodEvents(supabase, onsiteFromFor(runWindow), slip.period_end),
   ])
   return { slip, isAdmin, checkins, duties, events }
+}
+
+/**
+ * rate card ทั้งใบ (รวมหน้าที่ที่ปิดใช้งานแล้ว) โดยไม่ผ่านด่าน admin
+ *
+ * listDuties() ใน settings/actions ตรวจ requireAdmin แล้วคืน [] — เจ้าของสลิปจึงได้
+ * รายการว่างและมุมมองรายวันแปลรหัสหน้าที่เป็นชื่อไทยไม่ได้ (เห็นเป็น 'onsite_staff')
+ * ที่นี่อ่านตรงจากตารางแทน เพราะสิทธิ์ถูกตรวจโดยผู้เรียก (getSlipForView) ไปแล้ว
+ * และ rate card ไม่ใช่ข้อมูลส่วนบุคคลของใคร
+ */
+async function listDutyRows(
+  supabase: ReturnType<typeof createServiceClient>
+): Promise<SalaryDutyRow[]> {
+  const { data } = await supabase
+    .from('salary_duties')
+    .select('code, name_th, rate, pay_mode, is_active, sort_order')
+    .order('sort_order', { ascending: true })
+    .order('code', { ascending: true })
+
+  return ((data || []) as unknown as SalaryDutyRow[]).map(d => ({
+    ...d,
+    rate: Number(d.rate || 0),
+    sort_order: Number(d.sort_order || 0),
+  }))
 }
 
 /**
@@ -1405,7 +1463,7 @@ function recalcTotal(
 function syncRunnerWarnings(lines: SalaryLine[], warnings: SalaryWarning[]): SalaryWarning[] {
   const next = warnings.filter(w => w.code !== 'runner_missing')
   for (const l of lines) {
-    if (l.kind !== 'runner' || (l.amount !== null && l.amount !== undefined)) continue
+    if (l.kind !== 'runner' || !isMissingAmount(l)) continue
     next.push({
       code: 'runner_missing',
       date: l.date,
@@ -1724,19 +1782,16 @@ export interface AddSlipCheckinInput {
   checkin_time: string
   /** HH:MM — ไม่ใส่ = ยังไม่ออก (ไม่คิด OT) */
   checkout_time?: string | null
+  /**
+   * ผู้ใช้ยืนยันแล้วว่าเวลาออกเป็นของ "วันถัดไป" (กะข้ามคืน)
+   * ถ้าไม่ส่ง เวลาออกที่ ≤ เวลาเข้าจะถูกปฏิเสธ — ไม่มีการเดา +1 วันให้เงียบๆ
+   */
+  overnight?: boolean
   duties: string[]
   event_id?: string | null
   province?: string | null
   district?: string | null
   out_of_province?: boolean
-}
-
-/** ISO instant → คู่ (วันไทย, เวลาไทย) ที่ action ของโมดูลเช็คอินรับ */
-function bangkokParts(iso: string): { date: string; time: string } | null {
-  const t = Date.parse(iso)
-  if (Number.isNaN(t)) return null
-  const s = new Date(t + 7 * 60 * 60 * 1000).toISOString()
-  return { date: s.slice(0, 10), time: s.slice(11, 16) }
 }
 
 /** สลิปที่คำนวณใหม่แล้ว — รูปเดียวกับที่หน้าเพจได้จาก getSlipForView */
@@ -1785,8 +1840,8 @@ export async function editSlipCheckin(
     touched = true
   }
   if (patch.checked_in_at !== undefined) {
+    if (Number.isNaN(Date.parse(patch.checked_in_at))) return { error: 'เวลาเข้าไม่ถูกต้อง' }
     const p = bangkokParts(patch.checked_in_at)
-    if (!p) return { error: 'เวลาเข้าไม่ถูกต้อง' }
     // adminEditCheckin บังคับให้วันที่กับเวลาเข้ามาคู่กันเสมอ
     fd.set('checkin_date', p.date)
     fd.set('checkin_time', p.time)
@@ -1796,8 +1851,8 @@ export async function editSlipCheckin(
     if (patch.checked_out_at === null) {
       fd.set('clear_checkout', 'true')
     } else {
+      if (Number.isNaN(Date.parse(patch.checked_out_at))) return { error: 'เวลาออกไม่ถูกต้อง' }
       const p = bangkokParts(patch.checked_out_at)
-      if (!p) return { error: 'เวลาออกไม่ถูกต้อง' }
       // ส่งวันที่ออกไปด้วยเสมอ — กะข้ามคืนจึงไม่ถูกดึงกลับมาเป็นวันเดียวกับเวลาเข้า
       fd.set('checkout_date', p.date)
       fd.set('checkout_time', p.time)
@@ -1814,9 +1869,11 @@ export async function editSlipCheckin(
     touched = true
   }
 
+  let saved = false
   if (touched) {
     const res = await adminEditCheckin(fd)
     if (res.error) return { error: res.error }
+    saved = true
   }
 
   // adminEditCheckin ไม่แตะ event_id — ต้องยิง action แยกและให้เสร็จก่อนคำนวณใหม่
@@ -1826,10 +1883,26 @@ export async function editSlipCheckin(
       patch.event_id ? `stock:${patch.event_id}` : null
     )
     if (linked.error) return { error: linked.error }
+    saved = true
+  }
+
+  if (saved) {
+    await logActivity(
+      'EDIT_SALARY_CHECKIN',
+      { slipId: slip.id, checkinId, patch: Object.keys(patch) },
+      slip.user_id
+    )
   }
 
   const recomputed = await recomputeSlip(slipId)
-  if (recomputed.error) return { error: recomputed.error }
+  if (recomputed.error) {
+    // เช็คอินถูกแก้ไปแล้วจริง — ข้อความต้องบอกให้ชัด ไม่งั้น admin คิดว่าไม่มีอะไรเกิดขึ้น
+    return {
+      error: saved
+        ? `แก้เช็คอินแล้ว แต่คำนวณใหม่ไม่สำเร็จ: ${recomputed.error}`
+        : recomputed.error,
+    }
+  }
   return reloadSlip(slipId)
 }
 
@@ -1857,7 +1930,12 @@ export async function addSlipCheckin(
   fd.set('check_type', 'onsite')
   fd.set('checkin_date', input.date)
   fd.set('checkin_time', input.checkin_time)
-  if (input.checkout_time) fd.set('checkout_time', input.checkout_time)
+  if (input.checkout_time) {
+    fd.set('checkout_time', input.checkout_time)
+    // กะข้ามคืนต้องถูกยืนยันจากหน้าจอก่อน — ที่นี่แค่แปลงเป็นวันที่ออกให้ adminCheckIn
+    // (ไม่ยืนยัน = ไม่ส่ง checkout_date แล้ว adminCheckIn จะปฏิเสธ "เวลาออกต้องหลังเวลาเข้า")
+    if (input.overnight) fd.set('checkout_date', shiftDay(input.date, 1))
+  }
   fd.set('duties_set', '1')
   for (const code of input.duties) fd.append('duties', code)
   // adminCheckIn รับ event_id เป็นรูปแบบมีพรีฟิกซ์ — `stock:UUID` = events.id ตรงๆ
@@ -1870,8 +1948,23 @@ export async function addSlipCheckin(
   const res = await adminCheckIn(fd)
   if (res.error) return { error: res.error }
 
+  await logActivity(
+    'ADD_SALARY_CHECKIN',
+    {
+      slipId: slip.id,
+      runId: slip.run_id,
+      date: input.date,
+      duties: input.duties,
+      overnight: !!input.overnight,
+    },
+    slip.user_id
+  )
+
   const recomputed = await recomputeSlip(slipId)
-  if (recomputed.error) return { error: recomputed.error }
+  // เช็คอินถูกเพิ่มไปแล้วจริง — ต้องบอกให้ชัดว่าเหลือแค่ขั้นคำนวณใหม่ที่ล้ม
+  if (recomputed.error) {
+    return { error: `เพิ่มเช็คอินแล้ว แต่คำนวณใหม่ไม่สำเร็จ: ${recomputed.error}` }
+  }
   return reloadSlip(slipId)
 }
 
@@ -1909,8 +2002,8 @@ export async function setRunnerAmounts(
   if (saved.error) return { error: saved.error }
 
   await logActivity(
-    'OVERRIDE_SALARY_LINE',
-    { slip_id: slip.id, run_id: slip.run_id, runner: applied },
+    'SET_RUNNER_AMOUNTS',
+    { slipId: slip.id, runId: slip.run_id, runner: applied },
     slip.user_id
   )
   return reloadSlip(slipId)
@@ -1941,7 +2034,7 @@ async function saveAcceptedWarnings(
 export async function acceptSlipWarning(
   slipId: string,
   key: string
-): Promise<{ error?: string; success?: boolean }> {
+): Promise<SlipMutationResult> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
 
@@ -1956,31 +2049,35 @@ export async function acceptSlipWarning(
   const pending = pendingItems(slip.warnings, slip.accepted_warnings, slip.lines)
   const group = pending.groups.find(g => g.items.some(i => i.key === wanted))
   if (!group) return { error: 'ไม่พบคำเตือนนี้ในสลิป' }
-  if (group.code === 'runner_missing') {
+  if (!isAcceptable(group.code)) {
     return { error: 'รันเนอร์ต้องกรอกยอด — ยอมรับข้ามไม่ได้ (กรอก 0 ได้ถ้าวันนั้นไม่มีค่ารันเนอร์)' }
   }
-  if (slip.accepted_warnings.some(a => a.key === wanted)) return { success: true }
+  if (!slip.accepted_warnings.some(a => a.key === wanted)) {
+    const next: AcceptedWarning[] = [
+      ...slip.accepted_warnings,
+      { key: wanted, by: auth.userId, at: new Date().toISOString() },
+    ]
+    const saved = await saveAcceptedWarnings(supabase, slip, next)
+    if (saved.error) return { error: saved.error }
 
-  const next: AcceptedWarning[] = [
-    ...slip.accepted_warnings,
-    { key: wanted, by: auth.userId, at: new Date().toISOString() },
-  ]
-  const saved = await saveAcceptedWarnings(supabase, slip, next)
-  if (saved.error) return { error: saved.error }
+    await logActivity(
+      'ACCEPT_SALARY_WARNING',
+      { slipId: slip.id, runId: slip.run_id, key: wanted },
+      slip.user_id
+    )
+  }
 
-  await logActivity(
-    'ACCEPT_SALARY_WARNING',
-    { slipId: slip.id, runId: slip.run_id, key: wanted },
-    slip.user_id
-  )
-  return { success: true }
+  // คืนสลิปล่าสุดกลับไป — หน้าจอจะได้ไม่ต้องประกอบรายการยอมรับเองแล้วทับผลการแก้อื่น
+  const reloaded = await reloadSlip(slipId)
+  if ('error' in reloaded) return { error: reloaded.error }
+  return { success: true, slip: reloaded.slip }
 }
 
 /** ถอนการยอมรับคำเตือน — กลับมานับเป็นงานค้างอีกครั้ง */
 export async function unacceptSlipWarning(
   slipId: string,
   key: string
-): Promise<{ error?: string; success?: boolean }> {
+): Promise<SlipMutationResult> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
 
@@ -1993,11 +2090,20 @@ export async function unacceptSlipWarning(
   const { slip } = loaded
 
   const next = slip.accepted_warnings.filter(a => a.key !== wanted)
-  if (next.length === slip.accepted_warnings.length) return { success: true }
+  if (next.length !== slip.accepted_warnings.length) {
+    const saved = await saveAcceptedWarnings(supabase, slip, next)
+    if (saved.error) return { error: saved.error }
 
-  const saved = await saveAcceptedWarnings(supabase, slip, next)
-  if (saved.error) return { error: saved.error }
-  return { success: true }
+    await logActivity(
+      'UNACCEPT_SALARY_WARNING',
+      { slipId: slip.id, runId: slip.run_id, key: wanted },
+      slip.user_id
+    )
+  }
+
+  const reloaded = await reloadSlip(slipId)
+  if ('error' in reloaded) return { error: reloaded.error }
+  return { success: true, slip: reloaded.slip }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -2285,7 +2391,9 @@ export async function reopenSlip(
   if (!slipId) return { error: 'ไม่พบสลิป' }
 
   const trimmed = (reason || '').trim()
-  if (trimmed.length < 10) return { error: 'เหตุผลต้องยาวอย่างน้อย 10 ตัวอักษร' }
+  if (trimmed.length < REOPEN_MIN_REASON) {
+    return { error: `เหตุผลต้องยาวอย่างน้อย ${REOPEN_MIN_REASON} ตัวอักษร` }
+  }
 
   const supabase = createServiceClient()
   const { data } = await supabase
@@ -2352,13 +2460,22 @@ export interface TransferRow {
   full_name: string | null
   bank_name: string | null
   bank_account_number: string | null
+  /** ยอดสุทธิของสลิปตอนนี้ */
   total: number
+  /** ยอดที่จ่ายไปแล้วครั้งล่าสุด (null = ยังไม่เคยจ่าย) */
+  paid_total: number | null
+  /**
+   * ยอดที่ต้องโอนจริงในรอบนี้
+   * สลิปที่เคยจ่ายแล้วถูกเปิดแก้และปิดงวดใหม่ = total − paid_total (ส่วนต่าง ติดลบได้)
+   * ที่เหลือ = total
+   */
+  due: number
   status: 'finalized' | 'paid'
 }
 
 export interface TransferSummary {
   rows: TransferRow[]
-  /** ยอดรวมที่ต้องโอนทั้งงวด (รวมทั้งที่จ่ายแล้วและยังไม่จ่าย) */
+  /** ยอดรวมที่ต้องโอนทั้งงวด (ผลรวมของ due — สลิปที่จ่ายไปแล้วบางส่วนนับเฉพาะส่วนต่าง) */
   sum_total: number
   count_finalized: number
   count_paid: number
@@ -2380,7 +2497,7 @@ export async function getTransferSummary(
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('salary_slips')
-    .select('id, user_id, status, total')
+    .select('id, user_id, status, total, paid_total')
     .eq('run_id', runId)
     .in('status', ['finalized', 'paid'])
   if (error) return { error: `อ่านสลิปในงวดไม่สำเร็จ: ${error.message}` }
@@ -2390,6 +2507,7 @@ export async function getTransferSummary(
     user_id: string
     status: 'finalized' | 'paid'
     total: number | string | null
+    paid_total: number | string | null
   }
   const slipRows = (data || []) as unknown as Raw[]
   if (slipRows.length === 0) {
@@ -2413,13 +2531,20 @@ export async function getTransferSummary(
   const rows: TransferRow[] = slipRows
     .map(s => {
       const who = banks.get(s.user_id)
+      const total = Number(s.total || 0)
+      const paidTotal =
+        s.paid_total === null || s.paid_total === undefined ? null : Number(s.paid_total)
       return {
         slip_id: s.id,
         user_id: s.user_id,
         full_name: who?.full_name || who?.nickname || null,
         bank_name: who?.bank_name ?? null,
         bank_account_number: who?.bank_account_number ?? null,
-        total: Number(s.total || 0),
+        total,
+        paid_total: paidTotal,
+        // สลิปที่จ่ายไปแล้วแล้วถูกเปิดแก้ + ปิดงวดใหม่ = ต้องโอนแค่ "ส่วนต่าง"
+        // (ติดลบ = ต้องหักคืน) ไม่ใช่ยอดเต็มอีกรอบ
+        due: s.status === 'finalized' && paidTotal !== null ? round2(total - paidTotal) : total,
         status: s.status,
       }
     })
@@ -2428,7 +2553,7 @@ export async function getTransferSummary(
 
   return {
     rows,
-    sum_total: round2(rows.reduce((sum, r) => sum + r.total, 0)),
+    sum_total: round2(rows.reduce((sum, r) => sum + r.due, 0)),
     count_finalized: rows.filter(r => r.status === 'finalized').length,
     count_paid: rows.filter(r => r.status === 'paid').length,
     missing_bank: rows.filter(r => !r.bank_name || !r.bank_account_number).length,
@@ -2465,7 +2590,10 @@ export async function exportTransferExcel(
     'ชื่อ': r.full_name || '(ไม่มีชื่อ)',
     'ธนาคาร': r.bank_name || '',
     'เลขบัญชี': r.bank_account_number || '',
-    'ยอดโอน': r.total,
+    'ยอดสุทธิ': r.total,
+    // สลิปที่เปิดแก้หลังจ่ายแล้ว: ยอดโอนรอบนี้คือส่วนต่าง ไม่ใช่ยอดเต็ม
+    'จ่ายไปแล้ว': r.paid_total ?? '',
+    'ยอดโอน': r.due,
     'สถานะ': TRANSFER_STATUS_LABEL[r.status],
   }))
   sheetRows.push({
@@ -2473,6 +2601,8 @@ export async function exportTransferExcel(
     'ชื่อ': 'รวม',
     'ธนาคาร': '',
     'เลขบัญชี': '',
+    'ยอดสุทธิ': '',
+    'จ่ายไปแล้ว': '',
     'ยอดโอน': summary.sum_total,
     'สถานะ': '',
   })
@@ -2488,9 +2618,16 @@ export async function exportTransferExcel(
  * "จ่ายแล้วทั้งหมด" — สลิปที่ปิดงวดแล้วทั้งงวดกลายเป็นจ่ายแล้วใน UPDATE เดียว
  * guard trigger ที่ DB อนุญาตเฉพาะ finalized → paid อยู่แล้ว สลิปร่างจึงไม่ถูกแตะ
  */
-export async function markAllPaid(
-  runId: string
-): Promise<{ error?: string; success?: boolean; count?: number }> {
+export interface MarkAllPaidResult {
+  error?: string
+  success?: boolean
+  /** จำนวนใบที่บันทึกสำเร็จ */
+  count?: number
+  /** ใบที่บันทึกไม่สำเร็จ — ที่เหลือถูกบันทึกไปแล้ว ไม่ได้ย้อนกลับ */
+  failed?: Array<{ slipId: string; error: string }>
+}
+
+export async function markAllPaid(runId: string): Promise<MarkAllPaidResult> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
   if (!runId) return { error: 'ไม่พบงวดนี้' }
@@ -2514,6 +2651,7 @@ export async function markAllPaid(
 
   const paidAt = new Date().toISOString()
   const paid: Array<{ id: string; user_id: string; total: number }> = []
+  const failed: Array<{ slipId: string; error: string }> = []
   for (const row of pending) {
     const total = Number(row.total || 0)
     const { data: updated, error: updErr } = await supabase
@@ -2532,24 +2670,36 @@ export async function markAllPaid(
       // guard trigger อนุญาตเฉพาะ finalized → paid — ใบที่ถูกกดจ่าย/เปิดแก้คั่นจะถูกข้าม
       .eq('status', 'finalized')
       .select('id')
-    if (updErr) return { error: `บันทึกไม่สำเร็จ: ${updErr.message}` }
+    // ใบเดียวล้มต้องไม่ทำให้ที่เหลือไม่ถูกบันทึก — เก็บไว้รายงานท้ายสุดแทน
+    if (updErr) {
+      failed.push({ slipId: row.id, error: updErr.message })
+      continue
+    }
     if (updated && updated.length > 0) paid.push({ id: row.id, user_id: row.user_id, total })
   }
 
   const ids = paid.map(r => r.id)
-  if (ids.length === 0) return { error: 'ไม่มีสลิปที่รอโอนในงวดนี้' }
 
-  await logActivity('SALARY_MARK_ALL_PAID', { runId, count: ids.length })
-  // + แถวต่อคน รูปเดียวกับ markSlipPaid — ไม่งั้นประวัติของพนักงานคนหนึ่งจะไม่มีร่องรอยว่าจ่ายวันไหน
-  for (const s of paid) {
-    await logActivity('MARK_SALARY_PAID', { slipId: s.id, runId, total: s.total }, s.user_id)
+  if (ids.length > 0) {
+    await logActivity('SALARY_MARK_ALL_PAID', { runId, count: ids.length })
+    // + แถวต่อคน รูปเดียวกับ markSlipPaid — ไม่งั้นประวัติของพนักงานคนหนึ่งจะไม่มีร่องรอยว่าจ่ายวันไหน
+    for (const s of paid) {
+      await logActivity('MARK_SALARY_PAID', { slipId: s.id, runId, total: s.total }, s.user_id)
+    }
   }
 
+  // revalidate เสมอ — แม้ทั้งชุดจะล้ม บางใบก็อาจถูกกดจ่ายจากที่อื่นไปแล้ว
   for (const id of ids) revalidatePath(`/salary/${id}`)
   revalidatePath(`/salary/runs/${runId}`)
   revalidatePath('/salary/runs')
   revalidatePath('/salary')
-  return { success: true, count: ids.length }
+
+  if (ids.length === 0) {
+    return failed.length > 0
+      ? { error: `บันทึกไม่สำเร็จทั้ง ${failed.length} ใบ: ${failed[0].error}`, count: 0, failed }
+      : { error: 'ไม่มีสลิปที่รอโอนในงวดนี้', count: 0, failed }
+  }
+  return { success: true, count: ids.length, failed }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
