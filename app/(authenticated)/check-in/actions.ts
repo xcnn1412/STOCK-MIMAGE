@@ -1,14 +1,73 @@
 'use server'
 
 import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
+import { reverseGeocodeThai } from '@/lib/reverse-geocode'
+import { logActivity } from '@/lib/logger'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
+import type { DutyInput } from '../salary/compute'
 
 async function getSession() {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
   const role = cookieStore.get('session_role')?.value || 'staff'
   return { userId, role }
+}
+
+// ─── หน้าที่หน้างาน (salary_duties) ───────────────────────
+//
+// รหัสหน้าที่ถูกเก็บเป็น text[] ใน staff_checkins.duties แล้วโมดูลเงินเดือนเอาไปคูณ
+// อัตราตอนคำนวณสลิป — ดังนั้นทุกจุดที่เขียน duties ต้องผ่าน validateDutyCodes ก่อน
+// ไม่งั้นจะได้รหัสมั่วที่คำนวณเงินไม่ออก
+
+/** อ่าน duties จาก FormData (ส่งซ้ำหลาย entry ชื่อเดียวกัน) — trim + ตัดค่าว่าง + ตัดซ้ำ */
+function readDutyCodes(formData: FormData): string[] {
+  return Array.from(new Set(
+    formData.getAll('duties').map(v => String(v).trim()).filter(Boolean)
+  ))
+}
+
+/** คืนข้อความ error ถ้ามีรหัสที่ไม่มีใน salary_duties, คืน null ถ้าผ่านหมด */
+async function validateDutyCodes(
+  supabase: ReturnType<typeof createServiceClient>,
+  codes: string[]
+): Promise<string | null> {
+  if (codes.length === 0) return null
+
+  // รับเฉพาะหน้าที่ที่เปิดใช้อยู่ — หน้าที่ที่ admin ปิดแล้วต้องเลือกไม่ได้แม้ส่ง FormData ตรงๆ
+  // (compute ใช้อัตราของหน้าที่ที่ปิดแล้วได้ แต่เฉพาะกับเช็คอินเก่าที่บันทึกไว้ก่อนปิด)
+  const { data, error } = await supabase
+    .from('salary_duties')
+    .select('code')
+    .in('code', codes)
+    .eq('is_active', true)
+
+  if (error) {
+    console.error('Duty codes lookup error:', error)
+    return 'ตรวจสอบหน้าที่หน้างานไม่สำเร็จ'
+  }
+
+  const known = new Set((data || []).map((d: { code: string }) => d.code))
+  const unknown = codes.filter(c => !known.has(c))
+  if (unknown.length > 0) return `ไม่พบหน้าที่หน้างานหรือหน้าที่ถูกปิดใช้งาน: ${unknown.join(', ')}`
+  return null
+}
+
+/** rate card ที่เปิดใช้อยู่ — ใช้ render checkbox ในฟอร์มเช็คอิน */
+export async function getActiveDuties(): Promise<DutyInput[]> {
+  const supabase = createServiceClient()
+
+  const { data, error } = await supabase
+    .from('salary_duties')
+    .select('code, name_th, rate, pay_mode, is_active')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+
+  if (error) {
+    console.error('Get active duties error:', error)
+    return []
+  }
+  return (data || []) as unknown as DutyInput[]
 }
 
 // ─── Upload Check-in Photo ────────────────────────────────
@@ -62,6 +121,8 @@ export async function checkIn(formData: FormData) {
   const accuracy = formData.get('accuracy') ? Number(formData.get('accuracy')) : null
   const note = formData.get('note') as string || null
   const photoBase64 = formData.get('photo') as string || null
+  // หน้าที่หน้างานใช้เฉพาะ onsite — ประเภทอื่นเก็บ [] เสมอ
+  const duties = checkType === 'onsite' ? readDutyCodes(formData) : []
 
   if (!photoBase64) {
     return { error: 'กรุณาถ่ายรูป Check-in' }
@@ -72,8 +133,17 @@ export async function checkIn(formData: FormData) {
   if (checkType === 'onsite' && !eventId) {
     return { error: 'กรุณาเลือกอีเวนต์' }
   }
-
   const supabase = createServiceClient()
+
+  if (checkType === 'onsite' && duties.length === 0) {
+    // fail-open: ถ้าระบบยังไม่มี rate card เลย (migration ยังไม่รัน / admin ปิดทุกหน้าที่)
+    // อย่าบล็อกการเช็คอินของทั้งบริษัท — สลิปจะขึ้น warning "ไม่มีหน้าที่" ให้ admin เติมทีหลัง
+    const active = await getActiveDuties()
+    if (active.length > 0) return { error: 'กรุณาเลือกหน้าที่หน้างานอย่างน้อย 1 อย่าง' }
+  }
+
+  const dutyError = await validateDutyCodes(supabase, duties)
+  if (dutyError) return { error: dutyError }
 
   // Guard: only one active session per check_type at a time.
   // Office / onsite / remote run independently, but you can't have two
@@ -109,11 +179,6 @@ export async function checkIn(formData: FormData) {
         .from('staff_checkins')
         .update({ checked_out_at: endOfCheckinDay, note: newNote })
         .eq('id', orphan.id)
-
-      // Trigger expense for onsite orphans (work was done — staff deserves the rate)
-      if (orphan.check_type === 'onsite' && orphan.event_id) {
-        await autoCreateExpenseFromCheckin(supabase, orphan.id, userId, orphan.event_id)
-      }
     }
 
     // Recent active sessions — block, user can manage them via UI
@@ -135,6 +200,7 @@ export async function checkIn(formData: FormData) {
       longitude,
       accuracy,
       note,
+      duties,
     })
     .select('id')
     .single()
@@ -144,14 +210,27 @@ export async function checkIn(formData: FormData) {
     return { error: 'เกิดข้อผิดพลาดในการ Check-in' }
   }
 
-  // Upload photo if provided
-  if (photoBase64 && inserted?.id) {
-    const photoUrl = await uploadCheckinPhoto(supabase, userId, inserted.id, photoBase64)
-    if (photoUrl) {
-      await supabase
-        .from('staff_checkins')
-        .update({ photo_url: photoUrl })
-        .eq('id', inserted.id)
+  // ทุกอย่างหลัง insert เป็น best-effort — เช็คอินสำเร็จไปแล้ว ห้ามคืน error ทับ
+  if (inserted?.id) {
+    const postUpdates: Record<string, unknown> = {}
+
+    // Upload photo if provided
+    if (photoBase64) {
+      const photoUrl = await uploadCheckinPhoto(supabase, userId, inserted.id, photoBase64)
+      if (photoUrl) postUpdates.photo_url = photoUrl
+    }
+
+    // เติมจังหวัด/เขตจากพิกัด (เฉพาะ onsite) — ล้มเหลว/timeout = ปล่อยว่าง ผู้ใช้แก้เองได้
+    if (checkType === 'onsite' && latitude !== null && longitude !== null) {
+      const geo = await reverseGeocodeThai(latitude, longitude)
+      if (geo.province || geo.district) {
+        postUpdates.province = geo.province
+        postUpdates.district = geo.district
+      }
+    }
+
+    if (Object.keys(postUpdates).length > 0) {
+      await supabase.from('staff_checkins').update(postUpdates).eq('id', inserted.id)
     }
   }
 
@@ -172,12 +251,24 @@ export async function adminCheckIn(formData: FormData) {
   const checkinTime = formData.get('checkin_time') as string // HH:mm
   const checkoutTime = formData.get('checkout_time') as string || null // HH:mm (optional)
   const note = formData.get('note') as string || null
+  // ฟิลด์ของโมดูลเงินเดือน — ใช้เฉพาะ onsite
+  const isOnsite = checkType === 'onsite'
+  const duties = isOnsite ? readDutyCodes(formData) : []
+  const province = isOnsite ? (formData.get('province') as string || '').trim() || null : null
+  const district = isOnsite ? (formData.get('district') as string || '').trim() || null : null
+  const outOfProvince = isOnsite && formData.get('out_of_province') === 'true'
 
   if (!targetUserId) return { error: 'กรุณาเลือกพนักงาน' }
   if (!checkinDate) return { error: 'กรุณาเลือกวันที่' }
   if (!checkinTime) return { error: 'กรุณาเลือกเวลา' }
+  if (isOnsite && duties.length === 0) {
+    return { error: 'กรุณาเลือกหน้าที่หน้างานอย่างน้อย 1 อย่าง' }
+  }
 
   const supabase = createServiceClient()
+
+  const dutyError = await validateDutyCodes(supabase, duties)
+  if (dutyError) return { error: dutyError }
 
   // Build timestamp from date + time in Bangkok timezone
   const checkedInAt = new Date(`${checkinDate}T${checkinTime}:00+07:00`).toISOString()
@@ -221,7 +312,7 @@ export async function adminCheckIn(formData: FormData) {
   const baseNote = note ? `[Admin] ${note}` : `[Admin] สร้างโดย Admin`
   const finalNote = sourceRefTag ? `${baseNote} ${sourceRefTag}` : baseNote
 
-  const { data: inserted, error } = await supabase
+  const { error } = await supabase
     .from('staff_checkins')
     .insert({
       user_id: targetUserId,
@@ -230,177 +321,19 @@ export async function adminCheckIn(formData: FormData) {
       checked_in_at: checkedInAt,
       checked_out_at: checkedOutAt,
       note: finalNote,
+      duties,
+      province,
+      district,
+      out_of_province: outOfProvince,
     })
-    .select('id')
-    .single()
 
   if (error) {
     console.error('Admin check-in error:', error)
     return { error: 'เกิดข้อผิดพลาดในการ Check-in' }
   }
 
-  // Auto-create expense claim if on-site with checkout
-  if (checkedOutAt && checkType === 'onsite' && resolvedEventId && inserted?.id) {
-    await autoCreateExpenseFromCheckin(supabase, inserted.id, targetUserId, resolvedEventId)
-  }
-
   revalidatePath('/check-in')
   return { success: true }
-}
-
-// ─── Auto-create Expense Claim from On-site Check-out ──────
-
-async function autoCreateExpenseFromCheckin(
-  supabase: ReturnType<typeof createServiceClient>,
-  checkinId: string,
-  userId: string,
-  eventId: string
-) {
-  try {
-    // 1. ป้องกันสร้างซ้ำ
-    const { data: existing } = await supabase
-      .from('expense_claims')
-      .select('id')
-      .eq('from_checkin_id', checkinId)
-      .maybeSingle()
-
-    if (existing) return // already created
-
-    // 2. ดึงข้อมูล Event
-    const { data: event } = await supabase
-      .from('events')
-      .select('id, name, event_date, crm_lead_id')
-      .eq('id', eventId)
-      .single()
-
-    if (!event) return
-
-    // 3. หา/สร้าง job_cost_events record (auto-import)
-    let jobEventId: string | null = null
-    const { data: existingJce } = await supabase
-      .from('job_cost_events')
-      .select('id')
-      .eq('source_event_id', eventId)
-      .maybeSingle()
-
-    if (existingJce) {
-      jobEventId = existingJce.id
-    } else {
-      // Auto-import via costs module
-      const { importEventFromStock } = await import('../costs/actions')
-      const importResult = await importEventFromStock(eventId)
-      if (importResult.error) {
-        jobEventId = (importResult as any).existingId || null
-      } else {
-        jobEventId = importResult.id || null
-      }
-    }
-
-    // 4. ดึง Staff Roles (ทีมงาน & หน้าที่)
-    const rolesSet = new Set<string>()
-
-    const { data: eStaff } = await supabase
-      .from('event_staff')
-      .select('role')
-      .eq('event_id', eventId)
-      .eq('user_id', userId)
-
-    eStaff?.forEach(e => rolesSet.add(e.role))
-    // Roles come from event_staff only. Staff is per-event now; the old union with
-    // crm_lead_staff (by lead_id) would pull in roles from sibling sub-events sharing
-    // the same CRM lead — wrong for wage calculation.
-
-    // 5. ดึง Role Settings (rate + auto_calc per role) & Global auto_calc toggle
-    const [{ data: roleSettings }, { data: globalSettings }] = await Promise.all([
-      supabase
-        .from('crm_settings')
-        .select('value, label_th, price, auto_calc')
-        .eq('category', 'staff_role')
-        .in('value', Array.from(rolesSet.size > 0 ? rolesSet : ['__none__'])),
-      supabase
-        .from('finance_auto_calc_settings')
-        .select('key, value')
-        .eq('key', 'auto_calc_enabled')
-        .maybeSingle(),
-    ])
-
-    const globalAutoCalcEnabled = globalSettings?.value === 'true'
-
-    // แปลง role values → labels (Thai) + structured data
-    const staffRolesData: { role: string; label: string }[] =
-      roleSettings?.map(s => ({ role: s.value, label: s.label_th || s.value })) ||
-      Array.from(rolesSet).map(r => ({ role: r, label: r }))
-
-    // 6. คำนวณ rate อัตโนมัติ (ใช้ role ที่ rate สูงสุดและเปิด auto_calc)
-    let autoRate = 0
-    let autoCalcUsed = false
-    let autoCalcRoleName = ''
-
-    if (globalAutoCalcEnabled && roleSettings && roleSettings.length > 0) {
-      // หา role ที่ auto_calc = true และ price สูงสุด
-      const autoCalcRoles = roleSettings
-        .filter(r => r.auto_calc === true && Number(r.price || 0) > 0)
-        .sort((a, b) => Number(b.price || 0) - Number(a.price || 0))
-
-      if (autoCalcRoles.length > 0) {
-        autoRate = Number(autoCalcRoles[0].price)
-        autoCalcUsed = true
-        autoCalcRoleName = autoCalcRoles[0].label_th || autoCalcRoles[0].value
-      }
-    }
-
-    // 7. Generate claim number
-    const now = new Date()
-    const prefix = `EXP-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
-    const { count } = await supabase
-      .from('expense_claims')
-      .select('id', { count: 'exact', head: true })
-      .like('claim_number', `${prefix}%`)
-    const seq = (count || 0) + 1
-    const claimNumber = `${prefix}-${String(seq).padStart(3, '0')}`
-
-    // 8. ดึงข้อมูลธนาคารของ staff
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('full_name, bank_name, bank_account_number, account_holder_name')
-      .eq('id', userId)
-      .single()
-
-    const eventName = event.name.length > 60 ? event.name.substring(0, 60) + '...' : event.name
-
-    // Auto-calc note
-    const autoCalcNote = autoCalcUsed
-      ? `[Auto] คำนวณจาก role: ${autoCalcRoleName} (฿${autoRate.toLocaleString()})`
-      : null
-
-    // 9. สร้างใบเบิก (ใส่ rate อัตโนมัติถ้าเปิด)
-    await supabase.from('expense_claims').insert({
-      claim_number: claimNumber,
-      claim_type: 'event',
-      job_event_id: jobEventId,
-      title: `ค่าสตาฟ - ${eventName}`,
-      category: 'staff',
-      amount: autoRate,
-      unit_price: autoRate,
-      unit: 'บาท',
-      quantity: 1,
-      expense_date: event.event_date || now.toISOString().split('T')[0],
-      vat_mode: 'none',
-      include_vat: false,
-      withholding_tax_rate: 0,
-      notes: autoCalcNote,
-      staff_roles: staffRolesData.length > 0 ? staffRolesData : null,
-      submitted_by: userId,
-      from_checkin_id: checkinId,
-      status: 'pending',
-      bank_name: profile?.bank_name || null,
-      bank_account_number: profile?.bank_account_number || null,
-      account_holder_name: profile?.account_holder_name || null,
-    })
-  } catch (err) {
-    console.error('Auto-create expense from checkin error:', err)
-    // ไม่ throw — ไม่ให้กระทบ check-out flow
-  }
 }
 
 // ─── Check-out ────────────────────────────────────────────
@@ -435,17 +368,6 @@ export async function checkOut(formData: FormData) {
   if (error) {
     console.error('Check-out error:', error)
     return { error: 'เกิดข้อผิดพลาดในการ Check-out' }
-  }
-
-  // Auto-create expense claim สำหรับงาน on-site
-  const { data: checkinRecord } = await supabase
-    .from('staff_checkins')
-    .select('check_type, event_id')
-    .eq('id', checkinId)
-    .single()
-
-  if (checkinRecord?.check_type === 'onsite' && checkinRecord.event_id) {
-    await autoCreateExpenseFromCheckin(supabase, checkinId, userId, checkinRecord.event_id)
   }
 
   revalidatePath('/check-in')
@@ -504,11 +426,6 @@ export async function quickCheckoutStale(checkinId: string) {
   if (error) {
     console.error('Quick checkout error:', error)
     return { error: 'เกิดข้อผิดพลาด' }
-  }
-
-  // Auto-create expense claim สำหรับงาน on-site (เหมือน checkOut ปกติ)
-  if (record.check_type === 'onsite' && record.event_id) {
-    await autoCreateExpenseFromCheckin(supabase, checkinId, userId, record.event_id)
   }
 
   revalidatePath('/check-in')
@@ -608,6 +525,97 @@ export async function adminEditCheckin(formData: FormData) {
   if (note !== null) updates.note = note
   if (clearCheckout) updates.checked_out_at = null
 
+  // ─── ฟิลด์โมดูลเงินเดือน (ทุกอันไม่บังคับ — ไม่ส่งมา = ไม่แก้) ───
+  //
+  // duties: ส่งซ้ำหลาย entry + ฟอร์มที่มีช่องหน้าที่ต้องส่ง duties_set=1 ด้วย —
+  // "ไม่มี duties_set" = ไม่แตะของเดิม (ฟอร์มเก่าอย่างปุ่มล้าง check-out จึงยังใช้
+  // action นี้ได้โดยไม่ลบหน้าที่ทิ้ง) / "มี duties_set แต่ว่าง" = ตั้งใจเอาออกทั้งหมด
+  const dutiesSet = formData.get('duties_set') === '1'
+  const duties = readDutyCodes(formData)
+  if (dutiesSet || duties.length > 0) {
+    if (duties.length > 0) {
+      const dutyError = await validateDutyCodes(supabase, duties)
+      if (dutyError) return { error: dutyError }
+    }
+    updates.duties = duties
+  }
+  // เปลี่ยนประเภทออกจาก onsite = ข้อมูลค่าสตาฟของเดิมใช้ไม่ได้แล้ว ล้างทิ้ง
+  if (checkType && checkType !== 'onsite') {
+    updates.duties = []
+    updates.out_of_province = false
+  }
+  // onsite ต้องมีหน้าที่ ≥ 1 เสมอ (กติกาเดียวกับ checkIn/adminCheckIn) — ตรวจกับค่าหลังแก้
+  {
+    const { data: current } = await supabase
+      .from('staff_checkins')
+      .select('check_type, duties')
+      .eq('id', checkinId)
+      .single()
+    if (!current) return { error: 'ไม่พบ record' }
+    const finalType = (updates.check_type as string | undefined) ?? current.check_type
+    const finalDuties = (updates.duties as string[] | undefined) ?? ((current.duties as string[] | null) ?? [])
+    if (finalType === 'onsite' && finalDuties.length === 0) {
+      return { error: 'เช็คอิน "ไปหน้างาน" ต้องมีหน้าที่หน้างานอย่างน้อย 1 อย่าง' }
+    }
+  }
+
+  const provinceRaw = formData.get('province')
+  if (provinceRaw !== null) updates.province = String(provinceRaw).trim() || null
+  const districtRaw = formData.get('district')
+  if (districtRaw !== null) updates.district = String(districtRaw).trim() || null
+
+  // ต่างจังหวัดมีความหมายเฉพาะ onsite — ถ้ากำลังเปลี่ยนประเภทออกจาก onsite ให้คงค่าที่ล้างไว้ด้านบน
+  const oopRaw = formData.get('out_of_province')
+  if (!(checkType && checkType !== 'onsite')) {
+    if (oopRaw === 'true') updates.out_of_province = true
+    else if (oopRaw === 'false') updates.out_of_province = false
+  }
+
+  // ─── เวลาเข้า/ออก — รับเป็นคู่ YYYY-MM-DD + HH:mm (เวลาไทย) ───
+  const checkinDate = (formData.get('checkin_date') as string | null) || null
+  const checkinTime = (formData.get('checkin_time') as string | null) || null
+  const checkoutDate = (formData.get('checkout_date') as string | null) || null
+  const checkoutTime = (formData.get('checkout_time') as string | null) || null
+
+  if (checkinDate || checkinTime || checkoutTime) {
+    const { data: existing } = await supabase
+      .from('staff_checkins')
+      .select('id, checked_in_at, checked_out_at')
+      .eq('id', checkinId)
+      .single()
+
+    if (!existing) return { error: 'ไม่พบ record' }
+
+    let newCheckedInAt: string | null = null
+    if (checkinDate || checkinTime) {
+      if (!checkinDate || !checkinTime) return { error: 'กรุณาระบุทั้งวันที่และเวลาเข้า' }
+      const d = new Date(`${checkinDate}T${checkinTime}:00+07:00`)
+      if (isNaN(d.getTime())) return { error: 'วันที่/เวลาเข้าไม่ถูกต้อง' }
+      newCheckedInAt = d.toISOString()
+      updates.checked_in_at = newCheckedInAt
+    }
+
+    let newCheckedOutAt: string | null = null
+    if (checkoutTime && !clearCheckout) {
+      // ไม่ส่งวันที่ออกมา = วันเดียวกับเวลาเข้า (กะข้ามคืนให้ส่ง checkout_date มาด้วย)
+      const bangkokOffset = 7 * 60 * 60 * 1000
+      const baseDate = checkoutDate
+        || checkinDate
+        || new Date(new Date(existing.checked_in_at).getTime() + bangkokOffset).toISOString().split('T')[0]
+      const d = new Date(`${baseDate}T${checkoutTime}:00+07:00`)
+      if (isNaN(d.getTime())) return { error: 'วันที่/เวลาออกไม่ถูกต้อง' }
+      newCheckedOutAt = d.toISOString()
+      updates.checked_out_at = newCheckedOutAt
+    }
+
+    // เทียบกับค่าที่จะเป็นผลลัพธ์จริงหลังบันทึก (ของใหม่ถ้ามี ไม่งั้นของเดิม)
+    const effectiveIn = newCheckedInAt || existing.checked_in_at
+    const effectiveOut = clearCheckout ? null : (newCheckedOutAt || existing.checked_out_at)
+    if (effectiveIn && effectiveOut && new Date(effectiveOut) <= new Date(effectiveIn)) {
+      return { error: 'เวลาออกต้องหลังเวลาเข้า' }
+    }
+  }
+
   if (Object.keys(updates).length === 0) return { error: 'ไม่มีข้อมูลที่จะแก้ไข' }
 
   const { error } = await supabase
@@ -620,7 +628,12 @@ export async function adminEditCheckin(formData: FormData) {
     return { error: 'เกิดข้อผิดพลาดในการแก้ไข' }
   }
 
+  // ฟิลด์เหล่านี้กระทบยอดในสลิปเงินเดือน → ต้องมีร่องรอยใน activity log
+  await logActivity('UPDATE_CHECKIN_DUTIES', { checkin_id: checkinId, ...updates })
+
   revalidatePath('/check-in')
+  revalidatePath('/check-in/history')
+  revalidatePath('/check-in/report')
   return { success: true }
 }
 
@@ -856,7 +869,7 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
   // Non-admins see only their own records; admins see everyone's.
   let recordsQuery = supabase
     .from('staff_checkins')
-    .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, checkout_photo_url, event_id, events:event_id(id, name, crm_lead_id), profiles:user_id(id, full_name, nickname)')
+    .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, checkout_photo_url, event_id, duties, province, district, out_of_province, events:event_id(id, name, crm_lead_id), profiles:user_id(id, full_name, nickname)')
     .gte('checked_in_at', startISO)
     .lte('checked_in_at', endISO)
     .order('checked_in_at', { ascending: true })
@@ -1057,6 +1070,61 @@ export async function updateMyCheckinEvent(checkinId: string, rawEventRef: strin
   return { success: true }
 }
 
+// ─── User: Fix province/district of own check-in ────────
+//
+// จังหวัดมาจาก reverse geocode ซึ่งพลาดได้ (พิกัดคาบเส้น / GPS เพี้ยน) — พนักงาน
+// แก้ของตัวเองได้ ส่วนหน้าที่หน้างานแก้ทีหลังไม่ได้ (เป็นของ admin ตาม spec).
+// Ownership เช็คแบบเดียวกับ updateMyCheckinEvent — ทั้งตอน SELECT และใน WHERE ของ UPDATE
+
+export async function updateMyCheckinLocation(
+  checkinId: string,
+  province: string | null,
+  district: string | null,
+) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+  if (!checkinId) return { error: 'ไม่พบ record' }
+
+  const supabase = createServiceClient()
+
+  const { data: existing } = await supabase
+    .from('staff_checkins')
+    .select('id, user_id, check_type')
+    .eq('id', checkinId)
+    .eq('user_id', userId)
+    .single()
+
+  if (!existing) return { error: 'ไม่พบ record หรือไม่ใช่ของคุณ' }
+  if (existing.check_type !== 'onsite') {
+    return { error: 'แก้ไขจังหวัดได้เฉพาะ Check-in ประเภท "ไปหน้างาน" เท่านั้น' }
+  }
+
+  const { error } = await supabase
+    .from('staff_checkins')
+    .update({
+      province: province?.trim() || null,
+      district: district?.trim() || null,
+    })
+    .eq('id', checkinId)
+    .eq('user_id', userId)
+
+  if (error) {
+    console.error('Update my checkin location error:', error)
+    return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+  }
+
+  await logActivity('UPDATE_CHECKIN_LOCATION', {
+    checkin_id: checkinId,
+    province: province?.trim() || null,
+    district: district?.trim() || null,
+  })
+
+  revalidatePath('/check-in')
+  revalidatePath('/check-in/history')
+  revalidatePath('/check-in/report')
+  return { success: true }
+}
+
 // ─── Update Staff Work Settings (Admin Only) ──────────────
 
 export async function updateStaffWorkSettings(
@@ -1167,9 +1235,11 @@ export async function adminUpdateCheckinEvent(checkinId: string, rawEventRef: st
 // Two-phase strategy:
 //
 //   Phase 1 (exact, preferred): match via `expense_claims.from_checkin_id`.
-//     When the user originally checked out on-site, autoCreateExpenseFromCheckin
-//     wrote a row in expense_claims linking the checkin to a job_cost_events
-//     row. That link survives even when the original `events` row is later
+//     HISTORICAL DATA ONLY — check-out used to auto-create a "ค่าสตาฟ" expense
+//     claim linking the checkin to a job_cost_events row. That behaviour was
+//     removed when the salary module took over staff pay (ADR-0001), so no new
+//     rows carry `from_checkin_id`; the old ones are still the best link we
+//     have, and it survives even when the original `events` row is later
 //     deleted. We resolve back to the real events.id via jce.source_event_id
 //     when present (set event_id directly), or fall back to a [ref:jce:UUID]
 //     marker so the report fetcher still surfaces the event name.

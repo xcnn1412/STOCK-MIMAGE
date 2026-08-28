@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -8,19 +8,23 @@ import { AlertTriangle, ArrowLeft, Check, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
-import { createDocument } from '../actions'
+import { formatThaiDate } from '@/lib/thai-date'
+import { createDocument, getSalaryCertificateDefaults, type SalaryCertificateDefaults } from '../actions'
 import { DOC_TYPES, type DocBrandRow, type DocTypeCode } from '../doc-types'
 
 interface Props {
   brands: DocBrandRow[]
 }
 
-// กลุ่มประเภทเอกสารบนหน้าเลือก (13 รหัสตาม spec)
+// กลุ่มประเภทเอกสารบนหน้าเลือก (14 รหัสตาม spec)
 const TYPE_GROUPS: { title: string; codes: DocTypeCode[] }[] = [
   { title: 'การเงิน', codes: ['QT', 'JO', 'IV', 'TX', 'RC', 'CN', 'PO', 'CT'] },
   { title: 'ทั่วไป', codes: ['DN', 'MM'] },
-  { title: 'บุคคล (HR)', codes: ['JA', 'IA', 'RS'] },
+  { title: 'บุคคล (HR)', codes: ['JA', 'IA', 'RS', 'SC'] },
 ]
+
+const fmtMoney = (n: number) =>
+  n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export default function NewDocumentView({ brands }: Props) {
   const router = useRouter()
@@ -28,11 +32,28 @@ export default function NewDocumentView({ brands }: Props) {
   const [docType, setDocType] = useState<DocTypeCode | ''>('')
   const [pending, startTransition] = useTransition()
 
+  // SC: ดูข้อมูลเงินเดือนของตัวเองก่อนสร้าง — ไม่มีก็บอกตั้งแต่หน้านี้ ไม่ต้องไปตันทีหลัง
+  const [sc, setSc] = useState<{ loading: boolean; error?: string; defaults?: SalaryCertificateDefaults }>({ loading: false })
+  // ponytail: โหลดตอนกดเลือกประเภท ไม่ใช่ใน useEffect — กันคำตอบเก่ามาทับด้วย seq
+  const scSeq = useRef(0)
+
+  const chooseType = (code: DocTypeCode) => {
+    setDocType(code)
+    const seq = ++scSeq.current
+    if (code !== 'SC') { setSc({ loading: false }); return }
+    setSc({ loading: true })
+    getSalaryCertificateDefaults().then(res => {
+      if (seq !== scSeq.current) return
+      setSc('error' in res ? { loading: false, error: res.error } : { loading: false, defaults: res.defaults })
+    })
+  }
+
   const brand = brands.find(b => b.code === brandCode) || null
   const missingTax = !!brand && (!brand.tax_id?.trim() || !brand.address?.trim())
+  const scBlocked = docType === 'SC' && (sc.loading || !!sc.error)
 
   const handleCreate = () => {
-    if (!brandCode || !docType) return
+    if (!brandCode || !docType || scBlocked) return
     startTransition(async () => {
       const res = await createDocument({ brand_code: brandCode, doc_type: docType })
       if ('error' in res && res.error) {
@@ -131,7 +152,7 @@ export default function NewDocumentView({ brands }: Props) {
                       disabled={disabled}
                       // ponytail: ไม่มี Tooltip ใน components/ui — ใช้ title attribute
                       title={offline ? 'ปิดปรับปรุงชั่วคราว' : disabled ? 'แบรนด์นี้ไม่ได้จดทะเบียน VAT — ออกใบกำกับภาษีไม่ได้' : undefined}
-                      onClick={() => setDocType(code)}
+                      onClick={() => chooseType(code)}
                       className={cn(
                         'rounded-lg border p-3 text-left transition-colors',
                         disabled
@@ -172,12 +193,54 @@ export default function NewDocumentView({ brands }: Props) {
         </div>
       )}
 
+      {/* ── SC: ข้อมูลที่ระบบจะเติมให้ ────────────────────────────────────── */}
+      {docType === 'SC' && (
+        sc.loading ? (
+          <div className="flex items-center gap-2 rounded-md border p-3 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            กำลังตรวจข้อมูลเงินเดือนของคุณ...
+          </div>
+        ) : sc.error ? (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span>{sc.error}</span>
+          </div>
+        ) : sc.defaults ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">ข้อมูลที่ระบบจะเติมให้</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+              <ScRow label="ชื่อ-นามสกุล" value={sc.defaults.party_name} />
+              <ScRow label="เลขประจำตัวประชาชน" value={sc.defaults.party_id_card} />
+              <ScRow label="ตำแหน่ง" value={sc.defaults.meta.position} />
+              <ScRow label="แผนก/ฝ่าย" value={sc.defaults.meta.department} />
+              <ScRow label="วันเริ่มปฏิบัติงาน" value={formatThaiDate(sc.defaults.meta.start_date)} />
+              <ScRow label="เงินเดือน" value={`${fmtMoney(sc.defaults.meta.base_salary)} บาท/เดือน`} />
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                ข้อมูลชุดนี้มาจากตั้งค่าเงินเดือนและโปรไฟล์ของคุณ แก้ในเอกสารเองไม่ได้ —
+                หากไม่ถูกต้องให้ติดต่อ admin ส่วนที่กรอกเองคือ &ldquo;วัตถุประสงค์&rdquo;
+              </p>
+            </CardContent>
+          </Card>
+        ) : null
+      )}
+
       <div className="flex justify-end">
-        <Button onClick={handleCreate} disabled={!brandCode || !docType || pending}>
+        <Button onClick={handleCreate} disabled={!brandCode || !docType || pending || scBlocked}>
           {pending && <Loader2 className="size-4 animate-spin" />}
           สร้างร่าง
         </Button>
       </div>
+    </div>
+  )
+}
+
+function ScRow({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="flex justify-between gap-3 border-b py-1 last:border-0">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-medium">{value?.trim() ? value : '-'}</span>
     </div>
   )
 }

@@ -28,8 +28,10 @@ export type NotificationType =
   | 'doc_approved'
   | 'doc_rejected'
   | 'doc_voided'
+  | 'salary_finalized'
 
-export type ReferenceType = 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation' | 'crm_lead' | 'document'
+export type ReferenceType =
+  | 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation' | 'crm_lead' | 'document' | 'salary_slip'
 
 interface CreateNotificationParams {
   userIds: string[]

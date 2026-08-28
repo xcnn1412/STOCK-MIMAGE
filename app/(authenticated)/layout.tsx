@@ -78,6 +78,10 @@ export default async function AuthenticatedLayout({
     if (!allowedModules.includes('documents')) {
       allowedModules = [...allowedModules, 'documents']
     }
+    // admin ต้องเข้าโมดูลเงินเดือนได้เสมอ — หน้างวดคำนวณ/ตั้งค่าเป็นของ admin เท่านั้น
+    if (!allowedModules.includes('salary')) {
+      allowedModules = [...allowedModules, 'salary']
+    }
   }
 
   // ตัวเลขบนเมนู "รออนุมัติ" — เฉพาะ admin

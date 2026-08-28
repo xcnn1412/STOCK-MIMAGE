@@ -6,11 +6,13 @@ import {
   Building2, MapPin, Home, MapPinCheck, LogOut,
   Navigation, AlertCircle, CheckCircle2, CalendarDays, Users, History,
   ShieldCheck, UserPlus, Clock, Fingerprint, Sparkles, Undo2, Trash2, RotateCcw,
-  Camera, X, ImageIcon
+  Camera, X, ImageIcon, Edit3
 } from 'lucide-react'
-import { checkIn, checkOut, adminCheckIn, undoCheckout, quickCheckoutStale, adminDeleteCheckin, adminEditCheckin } from './actions'
+import { checkIn, checkOut, adminCheckIn, undoCheckout, quickCheckoutStale, adminDeleteCheckin, adminEditCheckin, updateMyCheckinLocation } from './actions'
 import LeaveSection from './leave-section'
 import type { LeaveRecord } from './leave-actions'
+import type { DutyInput } from '../salary/compute'
+import { THAI_PROVINCES } from '@/lib/thai-address'
 import EventSelectCombobox from '../finance/new/event-select-combobox'
 import Link from 'next/link'
 
@@ -70,8 +72,61 @@ interface CheckinRecord {
   note: string | null
   photo_url: string | null
   checkout_photo_url: string | null
+  // ── โมดูลเงินเดือน (มีเฉพาะ onsite) ──
+  duties?: string[] | null
+  province?: string | null
+  district?: string | null
+  out_of_province?: boolean | null
   profiles?: { id: string; full_name: string; nickname: string | null } | null
   events?: { id: string; name: string } | null
+}
+
+/** ป้ายหน้าที่ + จังหวัด/เขต + "ตจว." ของเช็คอิน onsite (แสดงอย่างเดียว) */
+function CheckinTags({
+  record,
+  dutyNames,
+  onEditLocation,
+}: {
+  record: CheckinRecord
+  dutyNames: Record<string, string>
+  onEditLocation?: () => void
+}) {
+  if (record.check_type !== 'onsite') return null
+  const codes = record.duties || []
+  const locationLabel = record.province
+    ? `${record.province}${record.district ? ` · ${record.district}` : ''}`
+    : 'ไม่ระบุจังหวัด'
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {codes.map(code => (
+        <span key={code}
+          className="inline-flex items-center px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[10px] font-semibold">
+          {dutyNames[code] || code}
+        </span>
+      ))}
+      {record.out_of_province && (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[10px] font-bold">
+          ตจว.
+        </span>
+      )}
+      {onEditLocation ? (
+        <button type="button" onClick={onEditLocation}
+          title="แก้ไขจังหวัด/เขต"
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-colors ${
+            record.province
+              ? 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+              : 'border-dashed border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+          }`}>
+          📍 {locationLabel} <Edit3 className="h-2.5 w-2.5" />
+        </button>
+      ) : (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 text-[10px] font-semibold">
+          📍 {locationLabel}
+        </span>
+      )}
+    </div>
+  )
 }
 
 interface TodayEvent {
@@ -113,6 +168,7 @@ export default function CheckInView({
   role,
   myLeaves,
   pendingLeaves,
+  duties,
 }: {
   todayCheckins: CheckinRecord[]
   myHistory: CheckinRecord[]
@@ -123,9 +179,13 @@ export default function CheckInView({
   role: string
   myLeaves: LeaveRecord[]
   pendingLeaves: LeaveRecord[]
+  duties: DutyInput[]
 }) {
   const router = useRouter()
   const isAdmin = role === 'admin'
+  // code → ชื่อไทย สำหรับ render ป้ายหน้าที่ (หน้าที่ที่ถูกปิดไปแล้วจะโชว์ code ดิบ)
+  const dutyNames: Record<string, string> = {}
+  duties.forEach(d => { dutyNames[d.code] = d.name_th })
   // All of today's check-ins by current user (for display)
   const myTodayCheckins = todayCheckins.filter(c => c.user_id === userId)
   // Active sessions — one per check_type can run concurrently. Sorted oldest-first.
@@ -147,6 +207,11 @@ export default function CheckInView({
   // Auto-pick the only event when there's exactly one today — saves a tap.
   const [eventId, setEventId] = useState(todayEvents.length === 1 ? todayEvents[0].id : '')
   const [note, setNote] = useState('')
+  // หน้าที่หน้างานของรอบที่กำลังจะเช็คอิน (บังคับ ≥ 1 เมื่อ onsite)
+  // null = ผู้ใช้ยังไม่แตะ → ใช้ค่า default ที่คำนวณจากอีเวนต์ที่เลือก (ดู dutiesDefault)
+  const [selectedDuties, setSelectedDuties] = useState<string[] | null>(null)
+  // แก้จังหวัด/เขตของเช็คอินตัวเอง — เก็บ record ที่กำลังแก้ (null = ปิด modal)
+  const [editingLocation, setEditingLocation] = useState<CheckinRecord | null>(null)
 
   // Most recent remote note — surfaced as a one-tap "ใช้ note ครั้งก่อน"
   // shortcut so WFH-from-the-same-place users don't retype every day.
@@ -189,6 +254,10 @@ export default function CheckInView({
   const [adminTime, setAdminTime] = useState('09:00')
   const [adminNote, setAdminNote] = useState('')
   const [adminCheckoutTime, setAdminCheckoutTime] = useState('')
+  const [adminDuties, setAdminDuties] = useState<string[]>([])
+  const [adminProvince, setAdminProvince] = useState('')
+  const [adminDistrict, setAdminDistrict] = useState('')
+  const [adminOutOfProvince, setAdminOutOfProvince] = useState(false)
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminError, setAdminError] = useState('')
   const [adminSuccess, setAdminSuccess] = useState('')
@@ -225,13 +294,30 @@ export default function CheckInView({
     }
   }, [checkType, todayEvents, eventId])
 
+  // Default หน้าที่: ติ๊ก "ออกงานสตาฟ" ให้เองเมื่ออีเวนต์ที่เลือกมีบทบาทของเราอยู่แล้ว
+  // คิดตอน render (ไม่ใช่ effect) — พอผู้ใช้แตะเองครั้งแรก selectedDuties จะไม่เป็น null
+  // อีกต่อไป ค่าที่ผู้ใช้เลือกจึงชนะ default เสมอ
+  const selectedEventHasRoles = checkType === 'onsite'
+    && (todayEvents.find(e => e.id === eventId)?.assigned_roles?.length ?? 0) > 0
+  const dutiesDefault = selectedEventHasRoles && duties.some(d => d.code === 'onsite_staff')
+    ? ['onsite_staff']
+    : []
+  const effectiveDuties = selectedDuties ?? dutiesDefault
+
+  function toggleDuty(code: string) {
+    setSelectedDuties(prev => {
+      const base = prev ?? dutiesDefault
+      return base.includes(code) ? base.filter(c => c !== code) : [...base, code]
+    })
+  }
+
   // Single entry point for picking a check_type from the form. Resets the
   // event selection when leaving onsite, and auto-opens the camera the first
   // time so the user doesn't need a second tap on "แตะเพื่อถ่ายรูป". Skips
   // the auto-camera if a photo is already taken (user is just adjusting type).
   function selectType(newType: 'office' | 'onsite' | 'remote') {
     setCheckType(newType)
-    if (newType !== 'onsite') setEventId('')
+    if (newType !== 'onsite') { setEventId(''); setSelectedDuties(null) }
     if (!photoBase64 && !compressing) {
       requestAnimationFrame(() => fileInputRef.current?.click())
     }
@@ -307,12 +393,14 @@ export default function CheckInView({
     const fd = new FormData()
     fd.set('check_type', checkType)
     if (checkType === 'onsite' && eventId) fd.set('event_id', eventId)
+    // duties ส่งเป็น entry ซ้ำชื่อเดียวกัน — server อ่านด้วย formData.getAll('duties')
+    if (checkType === 'onsite') effectiveDuties.forEach(code => fd.append('duties', code))
     if (gps) { fd.set('latitude', String(gps.lat)); fd.set('longitude', String(gps.lng)); fd.set('accuracy', String(gps.accuracy)) }
     if (note) fd.set('note', note)
     if (photoBase64) fd.set('photo', photoBase64)
     const result = await checkIn(fd)
     if (result.error) setError(result.error)
-    else { setSuccess('Check-in สำเร็จ!'); setPhotoPreview(null); setPhotoBase64(null); router.refresh() }
+    else { setSuccess('Check-in สำเร็จ!'); setPhotoPreview(null); setPhotoBase64(null); setSelectedDuties(null); router.refresh() }
     setLoading(false)
   }
 
@@ -342,14 +430,32 @@ export default function CheckInView({
     fd.set('target_user_id', adminTargetUser)
     fd.set('check_type', adminCheckType)
     if (adminCheckType === 'onsite' && adminEventId) fd.set('event_id', adminEventId)
+    if (adminCheckType === 'onsite') {
+      adminDuties.forEach(code => fd.append('duties', code))
+      if (adminProvince) fd.set('province', adminProvince)
+      if (adminDistrict) fd.set('district', adminDistrict)
+      fd.set('out_of_province', adminOutOfProvince ? 'true' : 'false')
+    }
     fd.set('checkin_date', adminDate)
     fd.set('checkin_time', adminTime)
     if (adminCheckoutTime) fd.set('checkout_time', adminCheckoutTime)
     if (adminNote) fd.set('note', adminNote)
     const result = await adminCheckIn(fd)
     if (result.error) setAdminError(result.error)
-    else { setAdminSuccess('สร้าง Check-in สำเร็จ!'); setAdminTargetUser(''); setAdminDate(''); setAdminNote(''); setAdminCheckoutTime(''); router.refresh() }
+    else {
+      setAdminSuccess('สร้าง Check-in สำเร็จ!')
+      setAdminTargetUser(''); setAdminDate(''); setAdminNote(''); setAdminCheckoutTime('')
+      setAdminDuties([]); setAdminProvince(''); setAdminDistrict(''); setAdminOutOfProvince(false)
+      router.refresh()
+    }
     setAdminLoading(false)
+  }
+
+  async function handleSaveLocation(checkinId: string, province: string, district: string) {
+    const result = await updateMyCheckinLocation(checkinId, province || null, district || null)
+    if (result.error) { alert(result.error); return }
+    setEditingLocation(null)
+    router.refresh()
   }
 
   const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
@@ -453,6 +559,8 @@ export default function CheckInView({
               now={nowMs}
               sharedPhoto={lastCheckoutPhoto}
               onSharedPhotoCapture={setLastCheckoutPhoto}
+              dutyNames={dutyNames}
+              onEditLocation={() => setEditingLocation(session)}
             />
           ))}
         </div>
@@ -466,9 +574,13 @@ export default function CheckInView({
           </p>
           <div className="space-y-1">
             {myTodayCheckins.filter(c => c.checked_out_at).map(c => (
-              <div key={c.id} className="flex items-center justify-between text-xs text-zinc-500">
-                <span>{CHECK_TYPES.find(t => t.key === c.check_type)?.emoji} {CHECK_TYPES.find(t => t.key === c.check_type)?.label}</span>
-                <span className="font-mono tabular-nums">{formatTime(c.checked_in_at)} — {formatTime(c.checked_out_at!)}</span>
+              <div key={c.id} className="space-y-1">
+                <div className="flex items-center justify-between text-xs text-zinc-500">
+                  <span>{CHECK_TYPES.find(t => t.key === c.check_type)?.emoji} {CHECK_TYPES.find(t => t.key === c.check_type)?.label}</span>
+                  <span className="font-mono tabular-nums">{formatTime(c.checked_in_at)} — {formatTime(c.checked_out_at!)}</span>
+                </div>
+                {/* หน้าที่ + จังหวัด ของรอบ onsite ที่ปิดไปแล้ววันนี้ (ยังแก้จังหวัดได้) */}
+                <CheckinTags record={c} dutyNames={dutyNames} onEditLocation={() => setEditingLocation(c)} />
               </div>
             ))}
           </div>
@@ -554,6 +666,48 @@ export default function CheckInView({
                     </div>
                   )
                 })()}
+              </div>
+            )}
+
+            {/* หน้าที่หน้างาน — ใช้คิดค่าสตาฟในโมดูลเงินเดือน (ติ๊กได้หลายอย่าง) */}
+            {checkType === 'onsite' && (
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                  🧰 หน้าที่หน้างาน <span className="text-red-500 text-xs">(จำเป็น · เลือกได้หลายอย่าง)</span>
+                </label>
+                {duties.length === 0 ? (
+                  <p className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 rounded-xl px-3 py-2.5 border border-amber-100 dark:border-amber-900/30">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" /> ยังไม่มีรายการหน้าที่หน้างานในระบบ — กรุณาติดต่อ Admin
+                  </p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      {duties.map(d => {
+                        const checked = effectiveDuties.includes(d.code)
+                        return (
+                          <button key={d.code} type="button" onClick={() => toggleDuty(d.code)}
+                            className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-left text-xs font-semibold transition-all duration-200 active:scale-[0.98] ${
+                              checked
+                                ? 'border-zinc-900 dark:border-white bg-zinc-900 dark:bg-white text-white dark:text-zinc-900'
+                                : 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
+                            }`}>
+                            <span className={`h-4 w-4 rounded-[5px] border flex items-center justify-center shrink-0 text-[10px] leading-none ${
+                              checked ? 'border-white/70 dark:border-zinc-900/70' : 'border-zinc-300 dark:border-zinc-600'
+                            }`}>
+                              {checked ? '✓' : ''}
+                            </span>
+                            <span className="truncate">{d.name_th}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {effectiveDuties.length === 0 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        เลือกหน้าที่อย่างน้อย 1 อย่างก่อนเช็คอิน
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -663,7 +817,7 @@ export default function CheckInView({
                 event name so a misclick on the wrong event is obvious before
                 hitting Submit. */}
             <button onClick={handleCheckIn}
-              disabled={loading || !photoBase64 || (checkType === 'onsite' && !eventId) || (checkType === 'remote' && !note)}
+              disabled={loading || !photoBase64 || (checkType === 'onsite' && (!eventId || effectiveDuties.length === 0)) || (checkType === 'remote' && !note)}
               className="w-full flex items-center justify-center gap-2.5 py-4 px-4 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-bold text-base hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-zinc-900/20 dark:shadow-white/10 hover:shadow-xl hover:scale-[1.01] active:scale-[0.99]">
               <Fingerprint className="h-5 w-5" />
               {loading ? 'กำลังบันทึก...' : (() => {
@@ -736,7 +890,13 @@ export default function CheckInView({
               {/* Type */}
               <div className="flex gap-2">
                 {CHECK_TYPES.map(type => (
-                  <button key={type.key} onClick={() => { setAdminCheckType(type.key); if (type.key !== 'onsite') setAdminEventId('') }}
+                  <button key={type.key} onClick={() => {
+                      setAdminCheckType(type.key)
+                      if (type.key !== 'onsite') {
+                        setAdminEventId(''); setAdminDuties([])
+                        setAdminProvince(''); setAdminDistrict(''); setAdminOutOfProvince(false)
+                      }
+                    }}
                     className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                       adminCheckType === type.key
                         ? 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900'
@@ -751,6 +911,73 @@ export default function CheckInView({
                 <EventSelectCombobox events={allEvents} value={adminEventId} onChange={setAdminEventId} />
               )}
 
+              {/* หน้าที่หน้างาน + จังหวัด/เขต + ต่างจังหวัด (เฉพาะ onsite) */}
+              {adminCheckType === 'onsite' && (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-zinc-600 dark:text-zinc-400">
+                      หน้าที่หน้างาน <span className="text-red-500">*</span>
+                    </label>
+                    {duties.length === 0 ? (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">ยังไม่มีรายการหน้าที่หน้างานในระบบ</p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        {duties.map(d => {
+                          const checked = adminDuties.includes(d.code)
+                          return (
+                            <button key={d.code} type="button"
+                              onClick={() => setAdminDuties(prev => prev.includes(d.code) ? prev.filter(c => c !== d.code) : [...prev, d.code])}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left text-xs font-semibold transition-all ${
+                                checked
+                                  ? 'border-zinc-900 dark:border-white bg-zinc-900 dark:bg-white text-white dark:text-zinc-900'
+                                  : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300'
+                              }`}>
+                              <span className={`h-4 w-4 rounded-[5px] border flex items-center justify-center shrink-0 text-[10px] leading-none ${
+                                checked ? 'border-white/70 dark:border-zinc-900/70' : 'border-zinc-300 dark:border-zinc-600'
+                              }`}>
+                                {checked ? '✓' : ''}
+                              </span>
+                              <span className="truncate">{d.name_th}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-semibold text-zinc-600 dark:text-zinc-400">จังหวัด</label>
+                      <select value={adminProvince} onChange={e => setAdminProvince(e.target.value)}
+                        className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700">
+                        <option value="">— ไม่ระบุ —</option>
+                        {THAI_PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-semibold text-zinc-600 dark:text-zinc-400">เขต / อำเภอ</label>
+                      <input type="text" value={adminDistrict} onChange={e => setAdminDistrict(e.target.value)}
+                        placeholder="เช่น บางรัก"
+                        className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 placeholder:text-zinc-300 dark:placeholder:text-zinc-600" />
+                    </div>
+                  </div>
+
+                  <button type="button" onClick={() => setAdminOutOfProvince(v => !v)}
+                    className={`w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                      adminOutOfProvince
+                        ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300'
+                        : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-500'
+                    }`}>
+                    <span className={`h-4 w-4 rounded-[5px] border flex items-center justify-center shrink-0 text-[10px] leading-none ${
+                      adminOutOfProvince ? 'border-amber-500' : 'border-zinc-300 dark:border-zinc-600'
+                    }`}>
+                      {adminOutOfProvince ? '✓' : ''}
+                    </span>
+                    ต่างจังหวัด (คิดเบิ้ลต่างจังหวัด)
+                  </button>
+                </div>
+              )}
+
               <textarea value={adminNote} onChange={e => setAdminNote(e.target.value)} rows={2}
                 placeholder="เหตุผล เช่น พนักงานลืม check-in..."
                 className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none resize-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 placeholder:text-zinc-300 dark:placeholder:text-zinc-600" />
@@ -759,7 +986,7 @@ export default function CheckInView({
               {adminSuccess && <div className="text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl px-4 py-3 border border-emerald-100 dark:border-emerald-900/30"><Sparkles className="h-4 w-4 inline mr-1.5" />{adminSuccess}</div>}
 
               <button onClick={handleAdminCheckIn}
-                disabled={adminLoading || !adminTargetUser || !adminDate || !adminTime}
+                disabled={adminLoading || !adminTargetUser || !adminDate || !adminTime || (adminCheckType === 'onsite' && adminDuties.length === 0)}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-zinc-700 dark:bg-zinc-300 text-white dark:text-zinc-900 font-semibold hover:bg-zinc-600 dark:hover:bg-zinc-400 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                 <UserPlus className="h-4.5 w-4.5" /> {adminLoading ? 'กำลังสร้าง...' : 'สร้าง Check-in'}
               </button>
@@ -808,6 +1035,11 @@ export default function CheckInView({
                     <p className="text-xs text-zinc-400 truncate">
                       {type?.label}{c.events && ` · ${(c.events as any).name}`}{c.note && ` · ${c.note}`}
                     </p>
+                    {c.check_type === 'onsite' && (
+                      <div className="mt-1">
+                        <CheckinTags record={c} dutyNames={dutyNames} />
+                      </div>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300 tabular-nums">{formatTime(c.checked_in_at)}</p>
@@ -857,11 +1089,16 @@ export default function CheckInView({
               const type = CHECK_TYPES.find(t => t.key === c.check_type)
               return (
                 <div key={c.id} className="flex items-center justify-between px-4 py-3">
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <span className="text-base">{type?.emoji || '🏢'}</span>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{type?.label || c.check_type}</p>
                       {c.events && <p className="text-[11px] text-zinc-400 truncate max-w-[160px]">{(c.events as any).name}</p>}
+                      {c.check_type === 'onsite' && (
+                        <div className="mt-1">
+                          <CheckinTags record={c} dutyNames={dutyNames} onEditLocation={() => setEditingLocation(c)} />
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="text-right">
@@ -942,6 +1179,15 @@ export default function CheckInView({
         )
       })()}
 
+      {/* ══════════════ แก้ไขจังหวัด/เขต (ของตัวเอง) ══════════════ */}
+      {editingLocation && (
+        <LocationEditModal
+          record={editingLocation}
+          onCancel={() => setEditingLocation(null)}
+          onSave={(province, district) => handleSaveLocation(editingLocation.id, province, district)}
+        />
+      )}
+
       {/* ══════════════ PHOTO LIGHTBOX ══════════════ */}
       {showPhotoLightbox && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
@@ -961,6 +1207,85 @@ export default function CheckInView({
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// <LocationEditModal> — พนักงานแก้จังหวัด/เขตของเช็คอิน onsite ตัวเอง
+// (ระบบเดาจากพิกัดตอนเช็คอิน ซึ่งพลาดได้ถ้า GPS เพี้ยนหรืออยู่คาบเส้น)
+// ─────────────────────────────────────────────────────────────────────
+
+function LocationEditModal({
+  record,
+  onCancel,
+  onSave,
+}: {
+  record: CheckinRecord
+  onCancel: () => void
+  onSave: (province: string, district: string) => Promise<void>
+}) {
+  const [province, setProvince] = useState(record.province || '')
+  const [district, setDistrict] = useState(record.district || '')
+  const [saving, setSaving] = useState(false)
+
+  // ค่าที่ระบบเดามาอาจไม่ตรงชื่อจังหวัดมาตรฐาน — ใส่เป็นตัวเลือกแรกไว้ไม่ให้หายตอนบันทึก
+  const provinceList: readonly string[] =
+    record.province && !(THAI_PROVINCES as readonly string[]).includes(record.province)
+      ? [record.province, ...THAI_PROVINCES]
+      : THAI_PROVINCES
+
+  const dateLabel = new Date(record.checked_in_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
+  const timeLabel = new Date(record.checked_in_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={() => { if (!saving) onCancel() }}>
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-sm"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-zinc-100 dark:border-zinc-800">
+          <div>
+            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">แก้ไขจังหวัด / เขต</h3>
+            <p className="text-xs text-zinc-400 mt-0.5">{dateLabel} {timeLabel}</p>
+          </div>
+          <button onClick={onCancel} disabled={saving}
+            className="h-8 w-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors disabled:opacity-40">
+            <X className="h-4 w-4 text-zinc-500" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">จังหวัด</label>
+            <select value={province} onChange={e => setProvince(e.target.value)}
+              className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700">
+              <option value="">— ไม่ระบุ —</option>
+              {provinceList.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">เขต / อำเภอ</label>
+            <input type="text" value={district} onChange={e => setDistrict(e.target.value)}
+              placeholder="เช่น บางรัก (ไม่บังคับ)"
+              className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 placeholder:text-zinc-300 dark:placeholder:text-zinc-600" />
+          </div>
+          <p className="text-[10px] text-zinc-400">
+            ระบบเดาจากตำแหน่งตอนเช็คอิน — ถ้าไม่ตรงแก้ได้ที่นี่ (แก้ได้เฉพาะเช็คอินของตัวเอง)
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 p-5 pt-0">
+          <button onClick={onCancel} disabled={saving}
+            className="h-10 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40">
+            ยกเลิก
+          </button>
+          <button disabled={saving}
+            onClick={async () => { setSaving(true); await onSave(province, district); setSaving(false) }}
+            className="h-10 px-5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-40 transition-colors active:scale-[0.98]">
+            {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // <ActiveSessionCard> — one card per un-checked-out session.
 // Each card owns its checkout-photo state so multiple active sessions
 // (e.g. office + onsite) can be managed independently.
@@ -974,11 +1299,16 @@ function ActiveSessionCard({
   now,
   sharedPhoto,
   onSharedPhotoCapture,
+  dutyNames,
+  onEditLocation,
 }: {
   session: CheckinRecord
   cameraMode: 'user' | 'environment'
   onLightbox: (url: string) => void
   onRefresh: () => void
+  // code → ชื่อไทยของหน้าที่หน้างาน (สำหรับป้ายบนการ์ด onsite)
+  dutyNames: Record<string, string>
+  onEditLocation: () => void
   // Bangkok-clock timestamp from the parent's ticking state — passed in so the
   // stale check stays a pure render (no `Date.now()` mid-render).
   now: number
@@ -1125,6 +1455,9 @@ function ActiveSessionCard({
           </button>
         )}
       </div>
+
+      {/* หน้าที่หน้างาน + จังหวัด (แก้ได้) — เฉพาะ onsite */}
+      <CheckinTags record={session} dutyNames={dutyNames} onEditLocation={onEditLocation} />
 
       {session.note && (
         <div className="text-sm text-zinc-600 dark:text-zinc-300 bg-white/60 dark:bg-zinc-800/40 rounded-xl px-4 py-2.5">

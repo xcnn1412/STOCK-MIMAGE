@@ -49,6 +49,8 @@ function getNotificationUrl(item: NotificationItem): string {
       return `/crm/${item.reference_id}`
     case 'document':
       return `/documents/${item.reference_id}`
+    case 'salary_slip':
+      return `/salary/${item.reference_id}`
     default:
       return '/dashboard'
   }

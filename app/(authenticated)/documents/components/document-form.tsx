@@ -15,7 +15,8 @@ import {
 import DocRichTextEditor from './doc-rich-text-editor'
 import { cn } from '@/lib/utils'
 import {
-  DOC_TYPES, PARTY_LABEL, calcDocumentTotals, groupMetaFields, isHtmlEmpty, isMetaEmpty,
+  DOC_TYPES, PARTY_LABEL, SC_LOCKED_META_KEYS, SC_LOCKED_PARTY_KEYS,
+  calcDocumentTotals, groupMetaFields, isHtmlEmpty, isMetaEmpty,
   type DocBrandRow, type DocTypeCode, type DocumentItemRow, type DocumentRow,
   type MetaField, type MetaTableRow, type VatMode,
 } from '../doc-types'
@@ -146,6 +147,8 @@ interface Props {
   onSaved?: () => void
   /** ข้อความ error รายฟิลด์จาก validateDocumentClient() ของ parent */
   errors?: Record<string, string>
+  /** บทบาทผู้ใช้ — SC ล็อกช่องที่ระบบเติมให้สำหรับคนที่ไม่ใช่ admin */
+  role?: string
 }
 
 const WHT_OPTIONS = [0, 1, 2, 3, 5]
@@ -155,10 +158,16 @@ const VAT_OPTIONS: { value: VatMode; label: string }[] = [
   { value: 'inclusive', label: 'รวมใน 7%' },
 ]
 
-export default function DocumentForm({ doc, items: initialItems, refCandidates, brand, onPayloadChange, onSaved, errors }: Props) {
+export default function DocumentForm({ doc, items: initialItems, refCandidates, brand, onPayloadChange, onSaved, errors, role }: Props) {
   const def = DOC_TYPES[doc.doc_type]
   const partyLabel = PARTY_LABEL[def.party].th
   const isPerson = def.party === 'applicant' || def.party === 'employee'
+
+  // SC: ตำแหน่ง/แผนก/วันเริ่มงาน/เงินเดือน + ข้อมูลผู้ถูกรับรอง มาจากฐานข้อมูล ไม่ใช่จากช่องกรอก
+  // ล็อกไว้ให้ตรงกับยามฝั่ง server (actions.ts::saveDraft) — admin แก้ได้
+  const scLocked = doc.doc_type === 'SC' && role !== 'admin'
+  const lockedParty = (k: string) => scLocked && (SC_LOCKED_PARTY_KEYS as readonly string[]).includes(k)
+  const lockedMeta = (k: string) => scLocked && (SC_LOCKED_META_KEYS as readonly string[]).includes(k)
 
   const [docDate, setDocDate] = useState(doc.doc_date || '')
   const [notes, setNotes] = useState(doc.notes || '')
@@ -322,7 +331,14 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
       {/* ── คู่สัญญา ────────────────────────────────────────────────────── */}
       {def.party !== 'none' && (
         <Card>
-          <CardHeader><CardTitle className="text-base">ข้อมูล{partyLabel}</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">ข้อมูล{partyLabel}</CardTitle>
+            {scLocked && (
+              <p className="text-xs text-muted-foreground">
+                ข้อมูลชุดนี้ระบบเติมจากโปรไฟล์และตั้งค่าเงินเดือนของคุณ แก้ที่นี่ไม่ได้ — หากไม่ถูกต้องให้ติดต่อ admin
+              </p>
+            )}
+          </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="relative space-y-1.5">
               <Label htmlFor="party_name">ชื่อ{partyLabel} <span className="text-destructive">*</span></Label>
@@ -330,6 +346,7 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
                 id="party_name"
                 autoComplete="off"
                 value={party.party_name}
+                disabled={lockedParty('party_name')}
                 onChange={e => onPartyNameChange(e.target.value)}
                 onBlur={() => setTimeout(() => setShowSug(false), 150)}
                 className={cn(err('party_name') && 'border-destructive')}
@@ -369,25 +386,25 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="party_phone">เบอร์โทร</Label>
-              <Input id="party_phone" value={party.party_phone} onChange={e => setParty(p => ({ ...p, party_phone: e.target.value }))} />
+              <Input id="party_phone" value={party.party_phone} disabled={lockedParty('party_phone')} onChange={e => setParty(p => ({ ...p, party_phone: e.target.value }))} />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="party_address">ที่อยู่</Label>
-              <Textarea id="party_address" rows={2} value={party.party_address} onChange={e => setParty(p => ({ ...p, party_address: e.target.value }))} />
+              <Textarea id="party_address" rows={2} value={party.party_address} disabled={lockedParty('party_address')} onChange={e => setParty(p => ({ ...p, party_address: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="party_email">อีเมล</Label>
-              <Input id="party_email" type="email" value={party.party_email} onChange={e => setParty(p => ({ ...p, party_email: e.target.value }))} />
+              <Input id="party_email" type="email" value={party.party_email} disabled={lockedParty('party_email')} onChange={e => setParty(p => ({ ...p, party_email: e.target.value }))} />
             </div>
             {isPerson && (
               <>
                 <div className="space-y-1.5">
                   <Label htmlFor="party_id_card">เลขบัตรประชาชน</Label>
-                  <Input id="party_id_card" value={party.party_id_card} onChange={e => setParty(p => ({ ...p, party_id_card: e.target.value }))} />
+                  <Input id="party_id_card" value={party.party_id_card} disabled={lockedParty('party_id_card')} onChange={e => setParty(p => ({ ...p, party_id_card: e.target.value }))} />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="party_birth_date">วันเกิด</Label>
-                  <Input id="party_birth_date" type="date" value={party.party_birth_date} onChange={e => setParty(p => ({ ...p, party_birth_date: e.target.value }))} />
+                  <Input id="party_birth_date" type="date" value={party.party_birth_date} disabled={lockedParty('party_birth_date')} onChange={e => setParty(p => ({ ...p, party_birth_date: e.target.value }))} />
                 </div>
               </>
             )}
@@ -418,6 +435,7 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
                         meta={meta}
                         setMeta={setMeta}
                         error={err(`meta.${f.key}`)}
+                        disabled={lockedMeta(f.key)}
                       />
                     )
                   })}
@@ -582,12 +600,14 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
 type SetMeta = Dispatch<SetStateAction<Record<string, unknown>>>
 
 function MetaFieldInput({
-  field: f, meta, setMeta, error,
+  field: f, meta, setMeta, error, disabled,
 }: {
   field: MetaField
   meta: Record<string, unknown>
   setMeta: SetMeta
   error?: string
+  /** ช่องที่ระบบเติมให้เอง (SC) — แสดงค่าแต่แก้ไม่ได้ */
+  disabled?: boolean
 }) {
   const set = (v: unknown) => setMeta(m => ({ ...m, [f.key]: v }))
   const wrap = cn('col-span-6 space-y-1.5', WIDTH_CLASS[f.width ?? 'half'])
@@ -602,6 +622,7 @@ function MetaFieldInput({
             id={`meta_${f.key}`}
             className={cn('mt-0.5', error && 'border-destructive')}
             checked={meta[f.key] === true}
+            disabled={disabled}
             onCheckedChange={v => set(v === true)}
           />
           <span>{f.label.th}{f.required && <span className="text-destructive"> *</span>}</span>
@@ -713,7 +734,7 @@ function MetaFieldInput({
     <div className={wrap}>
       {label}
       {f.type === 'select' ? (
-        <Select value={str || undefined} onValueChange={set}>
+        <Select value={str || undefined} onValueChange={set} disabled={disabled}>
           <SelectTrigger id={`meta_${f.key}`} className={cn('w-full', error && 'border-destructive')}>
             <SelectValue placeholder="เลือก" />
           </SelectTrigger>
@@ -734,6 +755,7 @@ function MetaFieldInput({
       ) : f.type === 'textarea' ? (
         <Textarea
           id={`meta_${f.key}`} rows={3} value={str}
+          disabled={disabled}
           onChange={e => set(e.target.value)}
           className={cn(error && 'border-destructive')}
         />
@@ -742,6 +764,7 @@ function MetaFieldInput({
           id={`meta_${f.key}`}
           type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
           value={str}
+          disabled={disabled}
           onChange={e => set(e.target.value)}
           className={cn(error && 'border-destructive')}
         />

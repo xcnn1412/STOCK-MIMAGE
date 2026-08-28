@@ -1,17 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { Settings, ContactRound, Banknote, ChevronRight, Calculator, Megaphone } from 'lucide-react'
+import { Settings, ContactRound, Banknote, ChevronRight, Megaphone } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import FinanceSettingsView from '@/app/(authenticated)/finance/settings/finance-settings-view'
 import CrmSettingsView from '@/app/(authenticated)/crm/settings/settings-view'
-import RateConfigView from '@/app/(authenticated)/finance/settings/rate-config-view'
 import MetaTokenSettings from '@/app/(authenticated)/content-planner/meta-token-settings'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
 import type { CrmSetting } from '@/app/(authenticated)/crm/crm-dashboard'
-import type { StaffRoleRate, AutoCalcSetting } from '@/app/(authenticated)/finance/rate-config-actions'
 
-type SettingsSection = 'finance' | 'rate_config' | 'crm' | 'content'
+type SettingsSection = 'finance' | 'crm' | 'content'
 
 const sections: {
   key: SettingsSection
@@ -28,14 +26,6 @@ const sections: {
     shadow: 'shadow-emerald-500/25',
     activeText: 'text-emerald-700 dark:text-emerald-300',
     activeBg: 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800',
-  },
-  {
-    key: 'rate_config',
-    icon: Calculator,
-    gradient: 'from-violet-500 to-purple-600',
-    shadow: 'shadow-violet-500/25',
-    activeText: 'text-violet-700 dark:text-violet-300',
-    activeBg: 'bg-violet-50/80 dark:bg-violet-950/40 border-violet-200 dark:border-violet-800',
   },
   {
     key: 'crm',
@@ -61,8 +51,6 @@ const labels = {
     subtitle: 'Manage system-wide settings for all modules',
     finance: 'Finance & Costs',
     financeDesc: 'Expense categories, sub-items, and tax settings',
-    rate_config: 'Rate Config',
-    rate_configDesc: 'Staff pay rates & auto-calculation per role',
     crm: 'CRM',
     crmDesc: 'Packages, customer types, and lead sources',
     content: 'Content (Meta API)',
@@ -73,8 +61,6 @@ const labels = {
     subtitle: 'จัดการการตั้งค่าทั้งหมดของแต่ละโมดูล',
     finance: 'การเงิน & ต้นทุน',
     financeDesc: 'หมวดค่าใช้จ่าย, รายการย่อย, ภาษี',
-    rate_config: 'Rate Config',
-    rate_configDesc: 'อัตราค่าจ้าง & คำนวณอัตโนมัติตามหน้าที่',
     crm: 'CRM',
     crmDesc: 'แพ็กเกจ, ประเภทลูกค้า, แหล่งที่มา',
     content: 'คอนเทนต์ (Meta API)',
@@ -87,12 +73,10 @@ interface Props {
   categoryItems: CategoryItem[]
   staffProfiles: StaffProfile[]
   crmSettings: CrmSetting[]
-  roleRates: StaffRoleRate[]
-  autoCalcSettings: AutoCalcSetting[]
   metaToken: { connected: boolean; hint: string | null }
 }
 
-export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, roleRates, autoCalcSettings, metaToken }: Props) {
+export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken }: Props) {
   const { locale } = useLocale()
   const t = labels[locale] || labels.th
   const [activeSection, setActiveSection] = useState<SettingsSection>('finance')
@@ -111,7 +95,7 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
       </div>
 
       {/* Section Selector Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {sections.map(section => {
           const Icon = section.icon
           const isActive = activeSection === section.key
@@ -155,7 +139,7 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
 
               {/* Active line indicator */}
               {isActive && (
-                <span className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-linear-to-b from-current to-current opacity-60" style={{ color: section.key === 'finance' ? '#10b981' : section.key === 'rate_config' ? '#8b5cf6' : '#3b82f6' }} />
+                <span className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-linear-to-b from-current to-current opacity-60" style={{ color: section.key === 'finance' ? '#10b981' : '#3b82f6' }} />
               )}
             </button>
           )
@@ -171,11 +155,6 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
               categoryItems={categoryItems}
               staffProfiles={staffProfiles}
             />
-          </div>
-        )}
-        {activeSection === 'rate_config' && (
-          <div className="animate-in fade-in slide-in-from-left-2 duration-300">
-            <RateConfigView roleRates={roleRates} autoCalcSettings={autoCalcSettings} />
           </div>
         )}
         {activeSection === 'crm' && (

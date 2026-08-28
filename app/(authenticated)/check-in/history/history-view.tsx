@@ -4,7 +4,9 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Building2, MapPin, Home, ArrowLeft, Clock, CalendarDays, X, Edit3 } from 'lucide-react'
 import Link from 'next/link'
-import { updateMyCheckinEvent } from '../actions'
+import { updateMyCheckinEvent, updateMyCheckinLocation } from '../actions'
+import type { DutyInput } from '../../salary/compute'
+import { THAI_PROVINCES } from '@/lib/thai-address'
 import EventSelectCombobox from '../../finance/new/event-select-combobox'
 
 interface CheckinRecord {
@@ -17,6 +19,11 @@ interface CheckinRecord {
   latitude: number | null
   longitude: number | null
   photo_url: string | null
+  // ── โมดูลเงินเดือน (มีเฉพาะ onsite) ──
+  duties?: string[] | null
+  province?: string | null
+  district?: string | null
+  out_of_province?: boolean | null
   events?: { id: string; name: string } | null
 }
 
@@ -31,12 +38,46 @@ interface EventOption {
 const TYPE_ICONS = { office: Building2, onsite: MapPin, remote: Home } as const
 const TYPE_LABELS = { office: 'เข้าออฟฟิศ', onsite: 'ไปหน้างาน', remote: 'WFH / นอกสถานที่' } as const
 
-export default function HistoryView({ history, allEvents }: { history: CheckinRecord[]; allEvents: EventOption[] }) {
+export default function HistoryView({ history, allEvents, duties }: {
+  history: CheckinRecord[]
+  allEvents: EventOption[]
+  duties: DutyInput[]
+}) {
   const router = useRouter()
   const [showPhotoLightbox, setShowPhotoLightbox] = useState<string | null>(null)
   const [editingCheckin, setEditingCheckin] = useState<CheckinRecord | null>(null)
   const [editingEventRef, setEditingEventRef] = useState<string>('')
   const [savingEdit, setSavingEdit] = useState(false)
+  // แก้จังหวัด/เขตของเช็คอินตัวเอง
+  const [editingLocation, setEditingLocation] = useState<CheckinRecord | null>(null)
+  const [locProvince, setLocProvince] = useState('')
+  const [locDistrict, setLocDistrict] = useState('')
+  const [savingLocation, setSavingLocation] = useState(false)
+
+  // code → ชื่อไทยของหน้าที่หน้างาน (หน้าที่ที่ถูกปิดไปแล้วจะโชว์ code ดิบ)
+  const dutyNames: Record<string, string> = {}
+  duties.forEach(d => { dutyNames[d.code] = d.name_th })
+
+  function openEditLocation(c: CheckinRecord) {
+    setEditingLocation(c)
+    setLocProvince(c.province || '')
+    setLocDistrict(c.district || '')
+  }
+
+  async function handleSaveLocation() {
+    if (!editingLocation) return
+    setSavingLocation(true)
+    const result = await updateMyCheckinLocation(editingLocation.id, locProvince || null, locDistrict || null)
+    if (result.error) alert(result.error)
+    else { setEditingLocation(null); router.refresh() }
+    setSavingLocation(false)
+  }
+
+  // ค่าที่ระบบเดามาอาจไม่ตรงชื่อจังหวัดมาตรฐาน — ใส่เป็นตัวเลือกแรกไว้ไม่ให้หายตอนบันทึก
+  const provinceList: readonly string[] =
+    editingLocation?.province && !(THAI_PROVINCES as readonly string[]).includes(editingLocation.province)
+      ? [editingLocation.province, ...THAI_PROVINCES]
+      : THAI_PROVINCES
 
   function openEditCheckin(c: CheckinRecord) {
     setEditingCheckin(c)
@@ -150,6 +191,32 @@ export default function HistoryView({ history, allEvents }: { history: CheckinRe
                             <span className="text-xs text-zinc-400 truncate">• {(c.events as any).name}</span>
                           )}
                         </div>
+                        {/* หน้าที่หน้างาน + จังหวัด/เขต + ป้ายต่างจังหวัด (เฉพาะ onsite) */}
+                        {c.check_type === 'onsite' && (
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            {(c.duties || []).map(code => (
+                              <span key={code}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[10px] font-semibold">
+                                {dutyNames[code] || code}
+                              </span>
+                            ))}
+                            {c.out_of_province && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[10px] font-bold">
+                                ตจว.
+                              </span>
+                            )}
+                            <button type="button" onClick={() => openEditLocation(c)}
+                              title="แก้ไขจังหวัด/เขต"
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold transition-colors ${
+                                c.province
+                                  ? 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                  : 'border-dashed border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+                              }`}>
+                              📍 {c.province ? `${c.province}${c.district ? ` · ${c.district}` : ''}` : 'ไม่ระบุจังหวัด'}
+                              <Edit3 className="h-2.5 w-2.5" />
+                            </button>
+                          </div>
+                        )}
                         {c.note && (
                           <p className="text-xs text-zinc-400 mt-0.5 truncate">💬 {c.note}</p>
                         )}
@@ -248,6 +315,59 @@ export default function HistoryView({ history, allEvents }: { history: CheckinRe
                 onClick={handleSaveEdit}
                 className="h-10 px-5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-40 transition-colors active:scale-[0.98]">
                 {savingEdit ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Province / District Modal */}
+      {editingLocation && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => { if (!savingLocation) setEditingLocation(null) }}>
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl w-full max-w-sm"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-zinc-100 dark:border-zinc-800">
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">แก้ไขจังหวัด / เขต</h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {formatDate(editingLocation.checked_in_at)} {formatTime(editingLocation.checked_in_at)}
+                </p>
+              </div>
+              <button onClick={() => setEditingLocation(null)} disabled={savingLocation}
+                className="h-8 w-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors disabled:opacity-40">
+                <X className="h-4 w-4 text-zinc-500" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">จังหวัด</label>
+                <select value={locProvince} onChange={e => setLocProvince(e.target.value)}
+                  className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700">
+                  <option value="">— ไม่ระบุ —</option>
+                  {provinceList.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">เขต / อำเภอ</label>
+                <input type="text" value={locDistrict} onChange={e => setLocDistrict(e.target.value)}
+                  placeholder="เช่น บางรัก (ไม่บังคับ)"
+                  className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm outline-none focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 placeholder:text-zinc-300 dark:placeholder:text-zinc-600" />
+              </div>
+              <p className="text-[10px] text-zinc-400">
+                ระบบเดาจากตำแหน่งตอนเช็คอิน — ถ้าไม่ตรงแก้ได้ที่นี่ (แก้ได้เฉพาะเช็คอินของตัวเอง)
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 p-5 pt-0">
+              <button onClick={() => setEditingLocation(null)} disabled={savingLocation}
+                className="h-10 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40">
+                ยกเลิก
+              </button>
+              <button onClick={handleSaveLocation} disabled={savingLocation}
+                className="h-10 px-5 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-40 transition-colors active:scale-[0.98]">
+                {savingLocation ? 'กำลังบันทึก...' : 'บันทึก'}
               </button>
             </div>
           </div>
