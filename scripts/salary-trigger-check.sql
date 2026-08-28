@@ -1,5 +1,6 @@
--- ตรวจ guard trigger ของ salary_slips หลังรัน supabase/migrations/20260828_create_salary_module.sql
--- รันได้ทั้งใน Supabase SQL Editor และ psql — ใช้โปรไฟล์จริง 2 คนแรก, สร้างงวดทดสอบ 'ZZTEST-trigger' แล้ว purge ทิ้งตอนจบ
+-- ตรวจ guard trigger + finalize_salary_slip ของ salary_slips หลังรัน migration เงินเดือน
+-- (supabase/migrations/20260828_create_salary_module.sql + 20260829_salary_weekly_runs.sql)
+-- รันได้ทั้งใน Supabase SQL Editor และ psql — ใช้โปรไฟล์จริง 2 คนแรก, สร้างงวดทดสอบ 'ZZTEST-*' แล้ว purge ทิ้งตอนจบ
 -- ผลลัพธ์อ่านจาก NOTICE: ทุกข้อต้องขึ้น "ok" — ถ้ามี "FAIL" แปลว่า trigger ไม่ทำงาน
 -- (ponytail: ใช้แทน scripts/salary-check.ts ส่วน B เมื่อไม่มี local stack + PostgREST)
 DO $$
@@ -62,4 +63,237 @@ BEGIN
   RAISE NOTICE 'B11 duties=% cutoff=% oop=%', n,
     (SELECT value FROM app_settings WHERE key = 'salary_cutoff_day'),
     (SELECT value FROM app_settings WHERE key = 'salary_out_of_province_rate');
+END $$;
+
+-- ============================================================================
+-- B12–B14 — เช็คอินจ่ายได้ครั้งเดียว (supabase/migrations/20260829_salary_weekly_runs.sql)
+-- ใช้ profiles คนแรก + เช็คอินทดสอบ note = 'ZZTEST-paidonce' แล้วล้างทิ้งตอนจบ
+-- ============================================================================
+DO $$
+DECLARE
+  u1 uuid; run_a uuid; run_b uuid; run_c uuid;
+  slip_a uuid; slip_b uuid; slip_c uuid;
+  c1 uuid; c2 uuid; c3 uuid; n int; st text;
+BEGIN
+  SELECT id INTO u1 FROM profiles WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1;
+  IF u1 IS NULL THEN RAISE EXCEPTION 'ต้องมี profiles อย่างน้อย 1 คน'; END IF;
+
+  -- เผื่อรอบก่อนค้าง (ลบงวดก่อน — paid_slip_id ถูกล้างเองด้วย ON DELETE SET NULL)
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-a');
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-b');
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-c');
+  DELETE FROM staff_checkins WHERE note = 'ZZTEST-paidonce';
+
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-09-02 10:00+07', 'ZZTEST-paidonce') RETURNING id INTO c1;
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-09-03 10:00+07', 'ZZTEST-paidonce') RETURNING id INTO c2;
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-09-04 10:00+07', 'ZZTEST-paidonce') RETURNING id INTO c3;
+
+  -- ── งวดสัปดาห์ + สลิปที่อ้างเช็คอิน 2 ใบ → ปิดงวดผ่าน RPC ────────────────
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('weekly', 'ZZTEST-paidonce-a', '2026-08-31', '2026-09-06') RETURNING id INTO run_a;
+  INSERT INTO salary_slips(run_id, user_id, lines, total)
+    VALUES (run_a, u1, jsonb_build_array(
+      jsonb_build_object('key', 'site:2026-09-02:a', 'kind', 'site', 'date', '2026-09-02',
+                         'checkin_id', c1, 'label', 'ค่าสตาฟ', 'computed_amount', 700, 'amount', 700),
+      jsonb_build_object('key', 'site:2026-09-03:a', 'kind', 'site', 'date', '2026-09-03',
+                         'checkin_id', c2, 'label', 'ค่าสตาฟ', 'computed_amount', 700, 'amount', 700),
+      jsonb_build_object('key', 'ot:2026-09-02', 'kind', 'ot', 'date', '2026-09-02',
+                         'label', 'OT 1 ชม.', 'computed_amount', 100, 'amount', 100)
+    ), 1500) RETURNING id INTO slip_a;
+
+  PERFORM finalize_salary_slip(slip_a, u1);
+
+  SELECT status INTO st FROM salary_slips WHERE id = slip_a;
+  SELECT count(*) INTO n FROM staff_checkins WHERE id IN (c1, c2) AND paid_slip_id = slip_a;
+  RAISE NOTICE 'B13 %: finalize ประทับ paid_slip_id ครบ (stamped=% status=%)',
+    CASE WHEN n = 2 AND st = 'finalized' THEN 'ok' ELSE 'FAIL' END, n, st;
+
+  -- ── งวดที่ทับกัน แล้วสลิปอ้างเช็คอินใบเดิม → ต้องถูกปฏิเสธ ───────────────
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('custom', 'ZZTEST-paidonce-b', '2026-09-01', '2026-09-10') RETURNING id INTO run_b;
+  INSERT INTO salary_slips(run_id, user_id, lines, total)
+    VALUES (run_b, u1, jsonb_build_array(
+      jsonb_build_object('key', 'site:2026-09-02:b', 'kind', 'site', 'date', '2026-09-02',
+                         'checkin_id', c1, 'label', 'ค่าสตาฟ', 'computed_amount', 700, 'amount', 700)
+    ), 700) RETURNING id INTO slip_b;
+
+  BEGIN
+    PERFORM finalize_salary_slip(slip_b, u1);
+    RAISE NOTICE 'B12 FAIL: ปิดงวดสลิปที่มีเช็คอินถูกจ่ายไปแล้วได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B12 ok blocked: %', SQLERRM; END;
+
+  SELECT status INTO st FROM salary_slips WHERE id = slip_b;
+  RAISE NOTICE 'B12b %: สลิปที่ถูกปฏิเสธยังเป็นร่าง (status=%)',
+    CASE WHEN st = 'draft' THEN 'ok' ELSE 'FAIL' END, st;
+
+  -- ── backfill: สลิปที่ปิดงวดไปก่อน migration (paid_slip_id ยังว่าง) ───────
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('weekly', 'ZZTEST-paidonce-c', '2026-08-31', '2026-09-06') RETURNING id INTO run_c;
+  INSERT INTO salary_slips(run_id, user_id, lines, total)
+    VALUES (run_c, u1, jsonb_build_array(
+      jsonb_build_object('key', 'site:2026-09-04:c', 'kind', 'site', 'date', '2026-09-04',
+                         'checkin_id', c3, 'label', 'ค่าสตาฟ', 'computed_amount', 700, 'amount', 700)
+    ), 700) RETURNING id INTO slip_c;
+  -- ปิดงวดตรงๆ ไม่ผ่าน RPC = สภาพเดียวกับสลิปเก่าก่อน deploy
+  UPDATE salary_slips SET status = 'finalized', finalized_at = now() WHERE id = slip_c;
+
+  -- คำสั่งเดียวกับข้อ 5 ของ migration (ที่นี่จำกัดเฉพาะสลิปทดสอบ)
+  UPDATE staff_checkins c
+  SET paid_slip_id = s.id
+  FROM salary_slips s
+  CROSS JOIN LATERAL (
+    SELECT (e ->> 'checkin_id')::UUID AS cid
+    FROM jsonb_array_elements(COALESCE(s.lines, '[]'::JSONB)) e
+    WHERE e ->> 'checkin_id' IS NOT NULL
+  ) x
+  WHERE s.status IN ('finalized', 'paid')
+    AND s.id = slip_c
+    AND c.id = x.cid
+    AND c.paid_slip_id IS NULL;
+
+  SELECT count(*) INTO n FROM staff_checkins WHERE id = c3 AND paid_slip_id = slip_c;
+  RAISE NOTICE 'B14 %: backfill ประทับสลิปเก่าให้เช็คอินที่ยังว่าง (stamped=%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  -- ── ล้างของทดสอบ ────────────────────────────────────────────────────────
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-a');
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-b');
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-c');
+  DELETE FROM staff_checkins WHERE note = 'ZZTEST-paidonce';
+
+  SELECT count(*) INTO n FROM salary_runs WHERE period_key LIKE 'ZZTEST-paidonce-%';
+  RAISE NOTICE 'B14b %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
+    CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
+END $$;
+
+-- ============================================================================
+-- B15–B16 — เช็คอินที่ไม่มีบรรทัดในสลิป (checkin_ids) + guard เช็คอินที่จ่ายแล้ว
+-- เช็คอินทดสอบใช้ note ขึ้นต้น 'ZZTEST-guardpaid' แล้วล้างทิ้งตอนจบ
+-- ============================================================================
+DO $$
+DECLARE
+  u1 uuid; run_d uuid; slip_d uuid; c1 uuid; c2 uuid; n int; v text;
+BEGIN
+  SELECT id INTO u1 FROM profiles WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1;
+  IF u1 IS NULL THEN RAISE EXCEPTION 'ต้องมี profiles อย่างน้อย 1 คน'; END IF;
+
+  -- เผื่อรอบก่อนค้าง (ลบงวดก่อน paid_slip_id จึงถูกล้างด้วย ON DELETE SET NULL)
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-d');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-guardpaid%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-09-08 10:00+07', 'ZZTEST-guardpaid') RETURNING id INTO c1;
+  -- c2 = เช็คอินรันเนอร์/ยังไม่ระบุหน้าที่ → ไม่มีบรรทัดในสลิป มีแต่ใน checkin_ids
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-09-09 10:00+07', 'ZZTEST-guardpaid') RETURNING id INTO c2;
+
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('weekly', 'ZZTEST-paidonce-d', '2026-09-07', '2026-09-13') RETURNING id INTO run_d;
+  INSERT INTO salary_slips(run_id, user_id, checkin_ids, lines, total)
+    VALUES (run_d, u1, ARRAY[c1, c2], jsonb_build_array(
+      jsonb_build_object('key', 'site:2026-09-08:d', 'kind', 'site', 'date', '2026-09-08',
+                         'checkin_id', c1, 'label', 'ค่าสตาฟ', 'computed_amount', 700, 'amount', 700)
+    ), 700) RETURNING id INTO slip_d;
+
+  PERFORM finalize_salary_slip(slip_d, u1);
+
+  SELECT count(*) INTO n FROM staff_checkins WHERE id IN (c1, c2) AND paid_slip_id = slip_d;
+  RAISE NOTICE 'B15 %: เช็คอินใน checkin_ids ที่ไม่มีบรรทัดถูกประทับด้วย (stamped=%)',
+    CASE WHEN n = 2 THEN 'ok' ELSE 'FAIL' END, n;
+
+  -- ── guard: เช็คอินที่จ่ายแล้วแก้ตัวเลขไม่ได้ ลบไม่ได้ ────────────────────
+  BEGIN
+    UPDATE staff_checkins SET checked_in_at = checked_in_at + INTERVAL '1 hour' WHERE id = c1;
+    RAISE NOTICE 'B16 FAIL: แก้เวลาเช็คอินที่จ่ายแล้วได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B16 ok blocked: %', SQLERRM; END;
+
+  BEGIN
+    DELETE FROM staff_checkins WHERE id = c1;
+    RAISE NOTICE 'B16b FAIL: ลบเช็คอินที่จ่ายแล้วได้';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B16b ok blocked: %', SQLERRM; END;
+
+  -- note/จังหวัด ฯลฯ ไม่กระทบยอด — ต้องยังแก้ได้
+  UPDATE staff_checkins SET note = 'ZZTEST-guardpaid-edited' WHERE id = c1;
+  SELECT note INTO v FROM staff_checkins WHERE id = c1;
+  RAISE NOTICE 'B16c %: แก้ note ของเช็คอินที่จ่ายแล้วยังได้ (note=%)',
+    CASE WHEN v = 'ZZTEST-guardpaid-edited' THEN 'ok' ELSE 'FAIL' END, v;
+
+  -- GUC เดียวกับ guard สลิป → ข้ามได้ (ทางที่ purge_test_salary_run ใช้)
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  UPDATE staff_checkins SET checked_out_at = TIMESTAMPTZ '2026-09-08 19:00+07' WHERE id = c1;
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+  SELECT count(*) INTO n FROM staff_checkins WHERE id = c1 AND checked_out_at IS NOT NULL;
+  RAISE NOTICE 'B16d %: GUC app.allow_salary_purge=on ข้าม guard ได้ (updated=%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  BEGIN
+    UPDATE staff_checkins SET out_of_province = true WHERE id = c1;
+    RAISE NOTICE 'B16e FAIL: guard ไม่กลับมาทำงานหลัง reset GUC';
+  EXCEPTION WHEN raise_exception THEN RAISE NOTICE 'B16e ok blocked หลัง reset GUC: %', SQLERRM; END;
+
+  -- ── ล้างของทดสอบ ────────────────────────────────────────────────────────
+  PERFORM purge_test_salary_run('ZZTEST-paidonce-d');
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-guardpaid%';
+
+  SELECT count(*) INTO n FROM salary_runs WHERE period_key = 'ZZTEST-paidonce-d';
+  SELECT n + count(*) INTO n FROM staff_checkins WHERE note LIKE 'ZZTEST-guardpaid%';
+  RAISE NOTICE 'B16f %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
+    CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
+END $$;
+
+-- ============================================================================
+-- B17 — backfill ครอบเช็คอินหน้างานที่ "ไม่มีบรรทัดในสลิป" ของงวดเก่า
+-- (งวดเดือนเดิมจ่ายเช็คอินหน้างานทุกใบในช่วงงวด — รันเนอร์/ยังไม่ระบุหน้าที่ก็จ่ายไปแล้ว)
+-- เรียก salary_backfill_paid_slip_ids() ตัวเดียวกับที่ migration ข้อ 5 เรียก
+-- ============================================================================
+DO $$
+DECLARE
+  u1 uuid; run_e uuid; slip_e uuid; c1 uuid; n int;
+BEGIN
+  SELECT id INTO u1 FROM profiles WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1;
+  IF u1 IS NULL THEN RAISE EXCEPTION 'ต้องมี profiles อย่างน้อย 1 คน'; END IF;
+
+  -- เผื่อรอบก่อนค้าง
+  PERFORM purge_test_salary_run('ZZTEST-backfill-e');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-backfill%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  -- เช็คอินหน้างานในช่วงงวด ที่ไม่มีบรรทัดไหนอ้างถึงเลย
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-10-06 10:00+07', 'ZZTEST-backfill') RETURNING id INTO c1;
+
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('monthly', 'ZZTEST-backfill-e', '2026-10-05', '2026-10-11') RETURNING id INTO run_e;
+  -- สลิปเก่าก่อน deploy: lines ว่าง + checkin_ids ว่าง + ปิดงวดตรงๆ ไม่ผ่าน RPC
+  INSERT INTO salary_slips(run_id, user_id, lines, checkin_ids, total)
+    VALUES (run_e, u1, '[]'::jsonb, '{}'::uuid[], 0) RETURNING id INTO slip_e;
+  UPDATE salary_slips SET status = 'finalized', finalized_at = now() WHERE id = slip_e;
+
+  PERFORM salary_backfill_paid_slip_ids();
+
+  SELECT count(*) INTO n FROM staff_checkins WHERE id = c1 AND paid_slip_id = slip_e;
+  RAISE NOTICE 'B17 %: backfill ประทับเช็คอินหน้างานในช่วงงวดที่ไม่มีบรรทัด (stamped=%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  PERFORM salary_backfill_paid_slip_ids();
+  SELECT count(*) INTO n FROM staff_checkins WHERE id = c1 AND paid_slip_id = slip_e;
+  RAISE NOTICE 'B17b %: รัน backfill ซ้ำไม่เปลี่ยนของเดิม (stamped=%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  -- ── ล้างของทดสอบ ────────────────────────────────────────────────────────
+  PERFORM purge_test_salary_run('ZZTEST-backfill-e');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-backfill%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  SELECT count(*) INTO n FROM salary_runs WHERE period_key = 'ZZTEST-backfill-e';
+  SELECT n + count(*) INTO n FROM staff_checkins WHERE note LIKE 'ZZTEST-backfill%';
+  RAISE NOTICE 'B17c %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
+    CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
 END $$;

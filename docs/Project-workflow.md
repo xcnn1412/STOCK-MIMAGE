@@ -69,19 +69,25 @@ tickets = sub-issues ของ #9 (tracer bullets, blocked-by จริงบน
 
 ## งวดรายสัปดาห์ + จ่ายเช็คอินครั้งเดียว + sync ต้นทุน — spec: `docs/specs/salary-weekly-runs.md`
 
-branch: `feat/salary-weekly-runs` (ยังไม่สร้าง) · วางแผนเสร็จ 2026-08-28 (grill รอบสอง Q1–Q16) · issue #20 (`ready-for-agent`) · ศัพท์ใหม่ใน `CONTEXT.md`: งวดคำนวณ 3 ชนิด, จ่ายได้ครั้งเดียว, เก็บตก, สรุปยอดโอน, สลิปค่าจ้าง
+branch: `feat/salary-weekly-runs` · วางแผนเสร็จ 2026-08-28 (grill รอบสอง Q1–Q16) · issue #20 (`ready-for-agent`) · ศัพท์ใหม่ใน `CONTEXT.md`: งวดคำนวณ 3 ชนิด, จ่ายได้ครั้งเดียว, เก็บตก, สรุปยอดโอน, สลิปค่าจ้าง
 
-tickets = sub-issues ของ #20 (tracer bullets, blocked-by จริงบน GitHub) · baseline `tsc` วัดก่อนเริ่ม (ต้อง commit งาน "ประเภทการจ้าง intern" ที่ค้างใน working tree ก่อน)
+tickets = sub-issues ของ #20 (tracer bullets, blocked-by จริงบน GitHub) · baseline `tsc` วัดก่อนเริ่ม = 7 (intern work committed 12fcc35 ก่อนเริ่ม)
 
 | # | Issue | Ticket | Blocked by | สถานะ |
 |---|---|---|---|---|
-| 1 | #21 | แกน: migration `20260829_salary_weekly_runs.sql` (`salary_runs.kind`, `staff_checkins.paid_slip_id`, `costs_synced_at`, RPC `finalize_salary_slip`, backfill) + `computeSlip(runKind)` + `selectCheckinsForRun`/`lastFinishedWeek` + `createSalaryRun` ทุกชนิด (ถอด overlap check) + finalize ผ่าน RPC + script A12–A14/A16, B12–B14 | — | [ ] |
-| 2 | #22 | UI งวดสัปดาห์: `getRunSuggestions` แบนเนอร์ "เปิดและคำนวณ" + กล่องค้างเกิน 60 วัน + ฟอร์มเลือกชนิดงวด + ติ๊กคนให้เอง + "สลิปค่าจ้าง" ทั่ว UI/PDF/แจ้งเตือน + badge จ่ายแล้วในเช็คอิน | 1 | [ ] |
-| 3 | #23 | สรุปยอดโอน (ชื่อ/ธนาคาร/เลขบัญชี/ยอด/สถานะ) + Excel (`xlsx`) + `markAllPaid` | 1 | [ ] |
-| 4 | #24 | Sync ต้นทุน: `salary/costs-sync.ts` (`costsRowsForSlip` pure + `syncSlipToCosts` → `job_cost_items` staff, auto `importEventFromStock`, notes key idempotent, runner เฉพาะวันอีเวนต์เดียว) + ปุ่ม sync อีกครั้ง + A15 + อัปเดต ADR-0001 | 1 | [ ] |
-| 5 | #25 | Ship: whats-new (entry + ขั้นงวดสัปดาห์ในคู่มือ) + ติ๊กตารางนี้ + `tsc`/`npm run build` (AC1–AC7) | 2, 3, 4 | [ ] |
+| 1 | #21 | แกน: migration `20260829_salary_weekly_runs.sql` (`salary_runs.kind`, `staff_checkins.paid_slip_id`, `costs_synced_at`, RPC `finalize_salary_slip`, backfill) + `computeSlip(runKind)` + `selectCheckinsForRun`/`lastFinishedWeek` + `createSalaryRun` ทุกชนิด (ถอด overlap check) + finalize ผ่าน RPC + script A12–A14/A16, B12–B14 | — | [x] 2026-08-28 fb76cf4 — script A ผ่านครบ (A12–A14, A16), B1–B14 ผ่านบน Postgres 17 container, migration รันซ้ำได้ |
+| 2 | #22 | UI งวดสัปดาห์: `getRunSuggestions` แบนเนอร์ "เปิดและคำนวณ" + กล่องค้างเกิน 60 วัน + ฟอร์มเลือกชนิดงวด + ติ๊กคนให้เอง + "สลิปค่าจ้าง" ทั่ว UI/PDF/แจ้งเตือน + badge จ่ายแล้วในเช็คอิน | 1 | [x] 2026-08-28 135e530 — tsc = 7, badge จ่ายแล้วใน history + report ของเช็คอิน |
+| 3 | #23 | สรุปยอดโอน (ชื่อ/ธนาคาร/เลขบัญชี/ยอด/สถานะ) + Excel (`xlsx`) + `markAllPaid` | 1 | [x] 2026-08-28 bd0bbd9 — Excel สร้างฝั่ง server ส่ง base64 (รายงานเช็คอินเดิมเป็น client-side) |
+| 4 | #24 | Sync ต้นทุน: `salary/costs-sync.ts` (`costsRowsForSlip` pure + `syncSlipToCosts` → `job_cost_items` staff, auto `importEventFromStock`, notes key idempotent, runner เฉพาะวันอีเวนต์เดียว) + ปุ่ม sync อีกครั้ง + A15 + อัปเดต ADR-0001 | 1 | [x] 2026-08-28 bd0bbd9 — A15 ผ่าน; โหลดเช็คอินด้วย `paid_slip_id` (ไม่ใช่แค่ id ในบรรทัด) เพื่อให้รันเนอร์หาอีเวนต์เจอ; trigger เดิมอนุญาต `costs_synced_at` อยู่แล้ว ไม่ต้องมี migration เพิ่ม |
+| 5 | #25 | Ship: whats-new (entry + ขั้นงวดสัปดาห์ในคู่มือ) + ติ๊กตารางนี้ + `tsc`/`npm run build` (AC1–AC7) | 2, 3, 4 | [x] 2026-08-28 f599456 (+cfa4c9a whats-new entry ที่ตกจาก CRLF) — AC1 tsc = 7 · AC2 script A ผ่านครบ (A12–A17) · AC3 B1–B17 บน Postgres 17 · AC4 build exit 0 · AC5–AC7 ✓ |
+
+### Code review round (2026-08-28, `/code-review main high` 8 มุม → 2 รอบแก้)
+- รอบ 1 (cfa4c9a): เช็คอินที่มีแต่หน้าที่รันเนอร์/ไม่มีหน้าที่ไม่ถูกประทับ `paid_slip_id` (จ่ายซ้ำได้) → เพิ่ม `salary_slips.checkin_ids` เขียนตอนคำนวณ RPC ประทับจาก union · admin แก้/ลบเช็คอินที่จ่ายแล้วได้ → trigger `staff_checkins_guard_paid` (บล็อกคอลัมน์ที่มีผลกับเงิน + DELETE, ผ่อนด้วย GUC เดิม) · กล่องค้างเกิน 60 วันใช้ UTC → วันไทย + `CATCH_UP_DAYS` ใน view · ลบ helper ซ้ำ (bangkokDateOf, shiftDate, catch-up window ×3, KIND_LABEL ×3, todayBangkok ×2) · `SYNC_SALARY_TO_COSTS` ตาม convention · คำว่า "sync" ใน UI → "ส่งเข้าต้นทุน" · whats-new entry ใหม่หายเพราะ replace ไม่ match CRLF
+- รอบ 2 (fc41a46): `recalcTotal` บวกฐานในงวดสัปดาห์ (แก้มือครั้งแรกยอดกระโดดทั้งเดือน) → สลิปนอกงวดเดือนเก็บ `base_salary = 0` · เปลี่ยนวันตัดรอบแล้วงวดเดือนทับกัน OT ออฟฟิศจ่ายซ้ำ (office ไม่ถูกประทับ) → คืน overlap guard เฉพาะ monthly-vs-monthly (AC5 แก้ตาม) · backfill ข้ามเช็คอินรันเนอร์ของสลิปเก่า → `salary_backfill_paid_slip_ids()` ประทับทุก onsite ในช่วงงวดของสลิปที่ปิดแล้ว · ตารางเช็คอิน/อีเวนต์ในสลิปไม่ครอบช่วงเก็บตก → ใช้ `selectCheckinsForRun` เดียวกัน + badge "จ่ายในสลิปอื่นแล้ว" · custom > 60 วันตกเช็คอินต้นช่วง → `onsiteFromFor(run) = min(period_start, period_end − 60d)` · จ่ายแล้วทั้งหมด log ต่อสลิป (targetUserId) · autoCompute กลืน error → toast
+- ตั้งใจไม่แก้ (ponytail): ปิดงวดที่เหลือทั้งหมด sync ต้นทุนทีละสลิป (N× round-trip; เพดานหลักสิบคน) · `job_cost_items.notes` ไม่มี index · Excel สรุปยอดโอนสร้างฝั่ง server (โมดูลอื่นทำฝั่ง client) · computeSlip ยังกรองเช็คอินซ้ำกับ `selectCheckinsForRun` (A11 lock ไว้) · re-sync ไม่ย้าย `job_event_id` (trigger กันเปลี่ยน event ของเช็คอินที่จ่ายแล้วอยู่แล้ว) · หน้า runs ยิง query ซ้ำหลายรอบ
 
 ### สิ่งที่ user ต้องทำเอง (หลัง ship)
+- ⚠️ รัน migration **ก่อน deploy** — รายงานเช็คอิน (`/check-in/report`) select `paid_slip_id` แล้ว ถ้า deploy ก่อนรัน SQL รายงานจะว่างทุกคน
 - รัน `20260829_salary_weekly_runs.sql` บน prod **ก่อน deploy** (มี backfill `paid_slip_id` ให้สลิปที่ปิดไปแล้ว) แล้วรัน `scripts/salary-trigger-check.sql` ซ้ำ (B1–B14)
 - กรอกธนาคาร/เลขบัญชีใน `/users` ให้ฟรีแลนซ์ทุกคนก่อนงวดสัปดาห์แรก (สรุปยอดโอนจะเตือนช่องว่าง)
 - สลิปที่ปิดงวดไปก่อน deploy ไม่ถูก sync เข้า Costs อัตโนมัติ — กด "sync ต้นทุนอีกครั้ง" ในสลิปถ้าต้องการ

@@ -24,6 +24,8 @@ interface CheckinRecord {
   province?: string | null
   district?: string | null
   out_of_province?: boolean | null
+  /** สลิปที่จ่ายเช็คอินนี้ไปแล้ว (โมดูลเงินเดือน) — null = ยังไม่ถูกจ่าย */
+  paid_slip_id?: string | null
   events?: { id: string; name: string } | null
 }
 
@@ -188,7 +190,7 @@ export default function HistoryView({ history, allEvents, duties }: {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</span>
                           {c.events && (
-                            <span className="text-xs text-zinc-400 truncate">• {(c.events as any).name}</span>
+                            <span className="text-xs text-zinc-400 truncate">• {c.events.name}</span>
                           )}
                         </div>
                         {/* หน้าที่หน้างาน + จังหวัด/เขต + ป้ายต่างจังหวัด (เฉพาะ onsite) */}
@@ -215,6 +217,16 @@ export default function HistoryView({ history, allEvents, duties }: {
                               📍 {c.province ? `${c.province}${c.district ? ` · ${c.district}` : ''}` : 'ไม่ระบุจังหวัด'}
                               <Edit3 className="h-2.5 w-2.5" />
                             </button>
+                            {/* จ่ายไปกับสลิปไหนแล้ว (โมดูลเงินเดือน) — หน้าสลิปตรวจสิทธิ์เอง */}
+                            {c.paid_slip_id && (
+                              <Link
+                                href={`/salary/${c.paid_slip_id}`}
+                                title="เช็คอินนี้จ่ายไปแล้ว — เปิดสลิป"
+                                className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors"
+                              >
+                                จ่ายแล้ว
+                              </Link>
+                            )}
                           </div>
                         )}
                         {c.note && (

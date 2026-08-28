@@ -9,7 +9,7 @@
 ## Solution
 
 1. **งวดมีชนิด** — `salary_runs.kind` = `monthly` (เดิม) | `weekly` (จันทร์–อาทิตย์) | `custom` (ช่วงวันที่ตามใจ) — ฟอร์มเปิดงวดเดียวกัน ต่างแค่วิธีเลือกช่วง
-2. **เช็คอินจ่ายได้ครั้งเดียว** — `staff_checkins.paid_slip_id` ตั้งตอนปิดงวดของสลิป ทุกชนิดงวดใช้กติกาเดียว: ดึง **เช็คอินหน้างานที่ยังไม่จ่าย** ที่ `checkin_at ≤ period_end` และย้อนไม่เกิน 60 วัน (เก็บตก) → งวดทับซ้อนกันได้โดยไม่จ่ายซ้ำ; กติกากันงวดทับใน `createSalaryRun` เดิมจึงถูกถอดออก
+2. **เช็คอินจ่ายได้ครั้งเดียว** — `staff_checkins.paid_slip_id` ตั้งตอนปิดงวดของสลิป ทุกชนิดงวดใช้กติกาเดียว: ดึง **เช็คอินหน้างานที่ยังไม่จ่าย** ที่ `checkin_at ≤ period_end` และย้อนไม่เกิน 60 วัน (เก็บตก) → งวดทับซ้อนกันได้โดยไม่จ่ายซ้ำ; กติกากันงวดทับใน `createSalaryRun` จึงถูกถอดออกสำหรับงวดสัปดาห์/กำหนดเอง — **แต่ "งวดเดือนทับงวดเดือน" ยังถูกปฏิเสธ** เพราะเช็คอิน **ออฟฟิศ** ไม่ถูกประทับ `paid_slip_id` (มีแต่หน้างาน) OT ออฟฟิศของวันที่อยู่ในสองงวดเดือนจึงถูกจ่ายซ้ำได้
 3. **เปิดงวดคลิกเดียว** — หน้า `/salary/runs` มีแบนเนอร์ "สัปดาห์ที่แล้ว (1–7 ก.ย.) ยังไม่เปิด [เปิดและคำนวณ]" → ระบบเปิดงวด + ติ๊กทุกคนที่มีเช็คอินค้างจ่าย + คำนวณให้ทันที admin เหลือแค่ตรวจ → ปิดงวดที่เหลือ → ดู **สรุปยอดโอน** (ชื่อ/ธนาคาร/เลขบัญชี/ยอด) + Excel → **จ่ายแล้วทั้งหมด**
 4. **sync ต้นทุน** — เมื่อปิดงวดสลิป บรรทัดค่าสตาฟ/เบิ้ล ตจว./รันเนอร์ ที่ผูกอีเวนต์ได้ → `job_cost_items` (category `staff`) ของอีเวนต์นั้นใน Costs โดย auto-import อีเวนต์เข้า Costs ให้เหมือนพฤติกรรมเดิมของใบเบิก ใช้กับงวดทุกชนิด
 
@@ -55,7 +55,7 @@
 - คีย์บรรทัดเดิม (`site:date:checkin:duty` …) ใช้ต่อ ไม่เปลี่ยน → override คงอยู่
 
 ### Actions (`salary/actions.ts`, ไฟล์ใหม่ `salary/costs-sync.ts`)
-- `createSalaryRun({kind, month? | start, end}, {autoCompute})` → period_key/label ตามชนิด; ถอด overlap check; `custom` ยาวไม่เกิน 62 วัน; ถ้า `autoCompute` เรียก `computeSlips(run, autoSelectUserIds(run))`
+- `createSalaryRun({kind, month? | start, end}, {autoCompute})` → period_key/label ตามชนิด; overlap check เหลือเฉพาะ **monthly ทับ monthly** (OT ออฟฟิศจ่ายครั้งเดียวไม่ได้ — ดู Solution §2) สัปดาห์/กำหนดเองเปิดทับได้อิสระ; `custom` ยาวไม่เกิน 62 วัน; ถ้า `autoCompute` เรียก `computeSlips(run, autoSelectUserIds(run))`
 - `autoSelectUserIds(run)`: distinct `user_id` ของเช็คอิน onsite ค้างจ่ายในช่วง ∪ (monthly: โปรไฟล์ fulltime/intern ทั้งหมด)
 - `getRunSuggestions()`: สัปดาห์ที่จบแล้วล่าสุดที่ไม่มี run weekly period_key นั้น + งวดเดือนที่ `period_end < วันนี้` และยังไม่มี; พร้อมนับคน/เช็คอินค้าง
 - `listOverdueUnpaidCheckins()`: onsite, `paid_slip_id IS NULL`, `checkin_at < now − 60d`
@@ -71,7 +71,7 @@
 - เช็คอิน: history + รายงาน admin แสดง badge "จ่ายแล้ว" ลิงก์สลิป (ใช้ `paid_slip_id`)
 
 ### Activity log / แจ้งเตือน
-- ActionType ใหม่: `SALARY_MARK_ALL_PAID`, `SALARY_COSTS_SYNC`; แจ้งเตือนใช้ `salary_finalized` เดิม เปลี่ยนแค่ข้อความ
+- ActionType ใหม่: `SALARY_MARK_ALL_PAID`, `SYNC_SALARY_TO_COSTS`; แจ้งเตือนใช้ `salary_finalized` เดิม เปลี่ยนแค่ข้อความ
 
 ## Testing Decisions
 - `scripts/salary-check.ts` ส่วน A เพิ่ม: A12 weekly ไม่มีฐาน/ไม่มี OT ออฟฟิศ · A13 `selectCheckinsForRun`: เช็คอิน 40 วันก่อน period_end ถูกนับ, 61 วันไม่ถูกนับ, จ่ายแล้วไม่ถูกนับ · A14 monthly ประจำ: ฐาน + OT ออฟฟิศเฉพาะในช่วง · A15 `costsRowsForSlip`: อีเวนต์ 2 งานวันเดียว → runner ไม่ sync, OT ไม่ sync · A16 `lastFinishedWeek` (วันจันทร์/วันอาทิตย์/กลางสัปดาห์)
@@ -86,7 +86,7 @@
 | AC2 | `npx tsx scripts/salary-check.ts` ส่วน A ผ่านครบ (เดิม + A12–A16) | รันคำสั่ง |
 | AC3 | migration ใหม่ + RPC ผ่าน `scripts/salary-trigger-check.sql` B1–B14 บน Postgres 17 container | docker exec psql |
 | AC4 | `npm run build` exit 0 | รันคำสั่ง |
-| AC5 | grep: `createSalaryRun` ไม่มี overlap check เหลือ; `finalizeSlip` เรียก RPC `finalize_salary_slip`; `importEventFromStock` ถูกเรียกจาก `salary/costs-sync.ts`; `markAllPaid` + `exportTransferExcel` export จาก actions | grep |
+| AC5 | grep: `createSalaryRun` กันทับเฉพาะ `kind = 'monthly'` (weekly/custom ไม่กัน); `finalizeSlip` เรียก RPC `finalize_salary_slip`; `importEventFromStock` ถูกเรียกจาก `salary/costs-sync.ts`; `markAllPaid` + `exportTransferExcel` export จาก actions | grep |
 | AC6 | หน้า `/salary/runs` render แบนเนอร์จาก `getRunSuggestions` และกล่องจาก `listOverdueUnpaidCheckins` (grep ใน runs-view/page) | grep |
 | AC7 | `UpdateEntry` ใหม่บนสุดของ `whats-new/updates.ts` + `docs/Project-workflow.md` ติ๊ก ticket | อ่าน |
 

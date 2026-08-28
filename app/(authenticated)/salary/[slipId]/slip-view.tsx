@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, ArrowLeft, BanknoteArrowUp, FileDown, Landmark, Lock, RefreshCw,
+  AlertTriangle, ArrowLeft, BanknoteArrowUp, FileDown, Landmark, Lock, RefreshCw, Receipt,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,13 +15,13 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, periodLabel } from '../format'
+import { fmtMoney, slipTitle } from '../format'
 import { SlipStatusBadge } from '../components/slip-status-badge'
 import SlipLinesTable from '../components/slip-lines-table'
 import SlipCheckinsTable from '../components/slip-checkins-table'
 import { hasMissingAmounts } from '../compute'
 import {
-  finalizeSlip, markSlipPaid, recomputeSlip,
+  finalizeSlip, markSlipPaid, recomputeSlip, syncSlipToCosts,
   type SlipCheckinRow, type SlipDetail, type SlipEventOption,
 } from '../actions'
 import type { SalaryDutyRow } from '../settings/actions'
@@ -83,6 +83,24 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
     })
   }
 
+  /** ดันบรรทัดค่าสตาฟเข้าโมดูลต้นทุนอีกครั้ง — ปลอดภัยที่จะกดซ้ำ (แถวเดิมถูกอัปเดต) */
+  function runSyncCosts() {
+    startTransition(async () => {
+      const res = await syncSlipToCosts(slip.id)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      const skipped = res.skipped?.length || 0
+      toast.success(
+        skipped > 0
+          ? `ส่งเข้าต้นทุน ${res.synced} รายการ · ข้ามรันเนอร์ที่ผูกอีเวนต์ไม่ได้ ${skipped} รายการ`
+          : `ส่งเข้าต้นทุน ${res.synced} รายการแล้ว`
+      )
+      router.refresh()
+    })
+  }
+
   function runMarkPaid() {
     startTransition(async () => {
       const res = await markSlipPaid(slip.id)
@@ -111,7 +129,7 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
           <div>
             <h1 className="text-2xl font-semibold">{name}</h1>
             <p className="text-sm text-muted-foreground">
-              งวด{periodLabel(slip.period_key)} ·{' '}
+              {slipTitle(slip)} ·{' '}
               {formatThaiDate(slip.period_start)} – {formatThaiDate(slip.period_end)}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -158,6 +176,19 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
                   )}
                 </div>
               </>
+            )}
+            {isAdmin && slip.status !== 'draft' && (
+              <div className="flex flex-col items-start gap-1">
+                <Button variant="outline" disabled={isPending} onClick={runSyncCosts}>
+                  <Receipt className="size-4" />
+                  ส่งเข้าต้นทุนอีกครั้ง
+                </Button>
+                <span className="max-w-56 text-xs text-muted-foreground">
+                  {slip.costs_synced_at
+                    ? `ส่งเข้าต้นทุนล่าสุด ${formatThaiDate(slip.costs_synced_at)}`
+                    : 'ยังไม่ได้ส่งเข้าโมดูลต้นทุน'}
+                </span>
+              </div>
             )}
             {isAdmin && slip.status === 'finalized' && (
               <Button disabled={isPending} onClick={() => setConfirmPaid(true)}>

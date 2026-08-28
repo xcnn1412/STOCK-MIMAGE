@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { CalendarPlus, MapPin, Pencil } from 'lucide-react'
@@ -123,6 +124,8 @@ export default function SlipCheckinsTable({
               {checkins.map(c => {
                 const inAt = bkkParts(c.checked_in_at)
                 const outAt = c.checked_out_at ? bkkParts(c.checked_out_at) : null
+                // จ่ายไปแล้วในสลิปใบอื่น — สลิปนี้ไม่ได้กินเช็คอินนี้ และแก้ไม่ได้ (guard ที่ DB ด้วย)
+                const paidElsewhere = !!c.paid_slip_id && c.paid_slip_id !== slipId
                 return (
                   <tr key={c.id} className="border-b last:border-b-0">
                     <td className="px-3 py-2.5 whitespace-nowrap">
@@ -135,7 +138,15 @@ export default function SlipCheckinsTable({
                       </div>
                     </td>
                     <td className="px-3 py-2.5 text-muted-foreground">
-                      {CHECK_TYPE_LABEL[c.check_type]}
+                      <div>{CHECK_TYPE_LABEL[c.check_type]}</div>
+                      {paidElsewhere && (
+                        <Link
+                          href={`/salary/${c.paid_slip_id}`}
+                          className="mt-0.5 inline-flex rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 hover:underline dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400"
+                        >
+                          จ่ายในสลิปอื่นแล้ว
+                        </Link>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-muted-foreground">
                       {c.event_name || (c.event_id ? 'อีเวนต์ (อ้างอิง)' : '–')}
@@ -175,16 +186,20 @@ export default function SlipCheckinsTable({
                     </td>
                     {editable && (
                       <td className="px-3 py-2.5 text-right">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => setEditing(c)}
-                        >
-                          <Pencil className="size-3.5" />
-                          แก้ไข
-                        </Button>
+                        {paidElsewhere ? (
+                          <span className="text-xs text-muted-foreground">–</span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => setEditing(c)}
+                          >
+                            <Pencil className="size-3.5" />
+                            แก้ไข
+                          </Button>
+                        )}
                       </td>
                     )}
                   </tr>

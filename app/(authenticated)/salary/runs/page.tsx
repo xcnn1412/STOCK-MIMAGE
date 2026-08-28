@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '../session'
-import { listRuns } from '../actions'
+import { getRunSuggestions, listOverdueUnpaidCheckins, listRuns } from '../actions'
 import { getSalarySettings } from '../settings/actions'
 import RunsView from './runs-view'
 
@@ -18,7 +18,20 @@ export default async function SalaryRunsPage() {
   if (session.role !== 'admin') redirect('/salary')
 
   // วันตัดรอบส่งไปให้ dialog "เปิดงวด" พรีวิวช่วงวันที่ก่อนกดยืนยัน
-  const [runs, settings] = await Promise.all([listRuns(), getSalarySettings()])
+  // ข้อเสนอ + เช็คอินค้างเกินหน้าต่างเก็บตก = แบนเนอร์/กล่องเตือนบนสุดของหน้า
+  const [runs, settings, suggestions, overdue] = await Promise.all([
+    listRuns(),
+    getSalarySettings(),
+    getRunSuggestions(),
+    listOverdueUnpaidCheckins(),
+  ])
 
-  return <RunsView runs={runs} cutoffDay={settings.cutoff_day} />
+  return (
+    <RunsView
+      runs={runs}
+      cutoffDay={settings.cutoff_day}
+      suggestions={suggestions}
+      overdue={overdue}
+    />
+  )
 }

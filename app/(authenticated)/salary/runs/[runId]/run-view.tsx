@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, ArrowLeft, BanknoteArrowUp, Calculator, Eye, Lock, RefreshCw,
-  Search, Trash2, Users,
+  AlertTriangle, ArrowLeft, BanknoteArrowUp, Calculator, Eye, FileSpreadsheet, Landmark,
+  Lock, RefreshCw, Search, Trash2, Users,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,13 +26,14 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, periodLabel } from '../../format'
+import { RUN_KIND_LABEL, fmtMoney, periodLabel, slipTitle } from '../../format'
 import { SlipStatusBadge } from '../../components/slip-status-badge'
 import type { EmploymentType } from '../../compute'
 import type { SalaryProfileListRow } from '../../settings/actions'
 import {
-  computeSlips, deleteSlip, finalizeRemainingSlips, finalizeSlip, markSlipPaid,
-  type RunHeader, type RunSlipRow, type SkippedUser,
+  computeSlips, deleteSlip, exportTransferExcel, finalizeRemainingSlips, finalizeSlip,
+  markAllPaid, markSlipPaid,
+  type RunHeader, type RunSlipRow, type SkippedUser, type TransferSummary,
 } from '../../actions'
 
 interface Props {
@@ -40,6 +41,10 @@ interface Props {
   slips: RunSlipRow[]
   people: SalaryProfileListRow[]
   departments: string[]
+  /** คนที่ระบบติ๊กไว้ให้เองตั้งแต่เปิดหน้า (ยังไม่มีสลิปในงวดนี้) */
+  suggestedUserIds: string[]
+  /** สรุปยอดโอนของสลิปที่ปิดงวดแล้ว — null เมื่ออ่านไม่ได้ */
+  transfer: TransferSummary | null
 }
 
 const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
@@ -55,7 +60,26 @@ function displayName(p: { full_name: string | null; nickname: string | null }): 
   return p.full_name || p.nickname || '(ไม่มีชื่อ)'
 }
 
-export default function RunView({ run, slips, people, departments }: Props) {
+/** base64 จาก server → ไฟล์ที่เบราว์เซอร์ดาวน์โหลด (ไม่มี endpoint ไฟล์แยก) */
+function downloadBase64(base64: string, filename: string) {
+  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+  const url = URL.createObjectURL(
+    new Blob([bytes], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+  )
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+export default function RunView({
+  run, slips, people, departments, suggestedUserIds, transfer,
+}: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
@@ -63,7 +87,11 @@ export default function RunView({ run, slips, people, departments }: Props) {
   const [dept, setDept] = useState(ALL)
   const [employment, setEmployment] = useState(ALL)
   const [q, setQ] = useState('')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  // ติ๊กให้เองตั้งแต่เปิดหน้า — เฉพาะคนที่ตั้งค่าเงินเดือนแล้ว (คนอื่นติ๊กไม่ได้อยู่ดี)
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    const configured = new Set(people.filter(p => p.configured).map(p => p.user_id))
+    return new Set(suggestedUserIds.filter(id => configured.has(id)))
+  })
   const [skipped, setSkipped] = useState<SkippedUser[]>([])
   const [deleteTarget, setDeleteTarget] = useState<RunSlipRow | null>(null)
 
@@ -73,6 +101,7 @@ export default function RunView({ run, slips, people, departments }: Props) {
     { slip: RunSlipRow; action: 'finalize' | 'paid' } | null
   >(null)
   const [confirmFinalizeAll, setConfirmFinalizeAll] = useState(false)
+  const [confirmPayAll, setConfirmPayAll] = useState(false)
   /** คนที่ปิดงวดไม่ได้ตอนกด "ปิดงวดที่เหลือทั้งหมด" ครั้งล่าสุด */
   const [finalizeSkipped, setFinalizeSkipped] = useState<SkippedUser[]>([])
 
@@ -201,6 +230,32 @@ export default function RunView({ run, slips, people, departments }: Props) {
     })
   }
 
+  // ── สรุปยอดโอน ───────────────────────────────────────────────────────────
+  function runExportExcel() {
+    startTransition(async () => {
+      const res = await exportTransferExcel(run.id)
+      if ('error' in res) {
+        toast.error(res.error)
+        return
+      }
+      downloadBase64(res.base64, res.filename)
+      toast.success('ดาวน์โหลดไฟล์ Excel แล้ว')
+    })
+  }
+
+  function runMarkAllPaid() {
+    startTransition(async () => {
+      const res = await markAllPaid(run.id)
+      setConfirmPayAll(false)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      toast.success(`บันทึกว่าจ่ายแล้ว ${res.count} คน`)
+      router.refresh()
+    })
+  }
+
   const slipTotal = slips.reduce((sum, s) => sum + s.total, 0)
   const draftCount = slips.filter(s => s.status === 'draft').length
 
@@ -216,7 +271,10 @@ export default function RunView({ run, slips, people, departments }: Props) {
             <ArrowLeft className="size-4" />
             งวดคำนวณ
           </Link>
-          <h1 className="text-2xl font-semibold">งวด{periodLabel(run.period_key)}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold">งวด{periodLabel(run)}</h1>
+            <Badge variant="outline">{RUN_KIND_LABEL[run.kind]}</Badge>
+          </div>
           <p className="text-sm text-muted-foreground">
             {formatThaiDate(run.period_start)} – {formatThaiDate(run.period_end)}
             {run.note ? ` · ${run.note}` : ''}
@@ -366,7 +424,7 @@ export default function RunView({ run, slips, people, departments }: Props) {
       <Card>
         <CardContent className="p-0">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
-            <h2 className="font-medium">สลิปในงวดนี้</h2>
+            <h2 className="font-medium">{slipTitle(run)}</h2>
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-muted-foreground">
                 {slips.length} สลิป · ยอดรวม{' '}
@@ -533,13 +591,125 @@ export default function RunView({ run, slips, people, departments }: Props) {
         </CardContent>
       </Card>
 
+      {/* ── สรุปยอดโอน — โผล่เมื่อมีสลิปที่ปิดงวดแล้วอย่างน้อยหนึ่งใบ ─────────── */}
+      {transfer && transfer.rows.length > 0 && (
+        <Card>
+          <CardContent className="p-0">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
+              <div>
+                <h2 className="flex items-center gap-2 font-medium">
+                  <Landmark className="size-4 text-muted-foreground" />
+                  สรุปยอดโอน ({transfer.rows.length} คน)
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  รอโอน {transfer.count_finalized} คน · จ่ายแล้ว {transfer.count_paid} คน
+                  {transfer.missing_bank > 0 && (
+                    <span className="text-red-600 dark:text-red-400">
+                      {' '}· ยังไม่มีบัญชี {transfer.missing_bank} คน
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" disabled={isPending} onClick={runExportExcel}>
+                  <FileSpreadsheet className="size-4" />
+                  ดาวน์โหลด Excel
+                </Button>
+                <Button
+                  disabled={isPending || transfer.count_finalized === 0}
+                  onClick={() => setConfirmPayAll(true)}
+                  title={
+                    transfer.count_finalized === 0
+                      ? 'ไม่มีสลิปที่รอโอนในงวดนี้'
+                      : `บันทึกว่าจ่ายแล้ว ${transfer.count_finalized} คน`
+                  }
+                >
+                  <BanknoteArrowUp className="size-4" />
+                  จ่ายแล้วทั้งหมด
+                  {transfer.count_finalized > 0 ? ` (${transfer.count_finalized})` : ''}
+                </Button>
+              </div>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ชื่อ</TableHead>
+                  <TableHead>ธนาคาร</TableHead>
+                  <TableHead>เลขบัญชี</TableHead>
+                  <TableHead className="text-right">ยอด</TableHead>
+                  <TableHead>สถานะ</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {transfer.rows.map(r => {
+                  const noBank = !r.bank_name || !r.bank_account_number
+                  return (
+                    <TableRow key={r.slip_id}>
+                      <TableCell className="font-medium">
+                        <Link href={`/salary/${r.slip_id}`} className="hover:underline">
+                          {r.full_name || '(ไม่มีชื่อ)'}
+                        </Link>
+                        {noBank && (
+                          <p className="text-xs font-normal text-red-600 dark:text-red-400">
+                            ยังไม่กรอกบัญชีใน /users
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell className={noBank ? 'text-red-600 dark:text-red-400' : ''}>
+                        {r.bank_name || '–'}
+                      </TableCell>
+                      <TableCell
+                        className={`tabular-nums ${noBank ? 'text-red-600 dark:text-red-400' : ''}`}
+                      >
+                        {r.bank_account_number || '–'}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {fmtMoney(r.total)}
+                      </TableCell>
+                      <TableCell><SlipStatusBadge status={r.status} /></TableCell>
+                    </TableRow>
+                  )
+                })}
+                <TableRow className="bg-muted/40">
+                  <TableCell colSpan={3} className="font-medium">รวม</TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums">
+                    {fmtMoney(transfer.sum_total)}
+                  </TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      <AlertDialog open={confirmPayAll} onOpenChange={v => { if (!v) setConfirmPayAll(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>จ่ายแล้วทั้งหมด</AlertDialogTitle>
+            <AlertDialogDescription>
+              บันทึกว่าโอนเงินให้ทุกคนที่รอโอนในงวด{periodLabel(run)} ทั้งหมด{' '}
+              {transfer?.count_finalized ?? 0} คนแล้ว โดยลงวันที่ {formatThaiDate(new Date())}{' '}
+              และชื่อผู้กดไว้ในสลิปทุกใบ — สลิปร่างที่ยังไม่ปิดงวดไม่ถูกแตะ
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction onClick={runMarkAllPaid} disabled={isPending}>
+              จ่ายแล้วทั้งหมด
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={!!deleteTarget} onOpenChange={v => { if (!v) setDeleteTarget(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>ลบสลิปร่าง</AlertDialogTitle>
             <AlertDialogDescription>
               เอา{deleteTarget ? displayName(deleteTarget) : 'คนนี้'}ออกจากงวด
-              {periodLabel(run.period_key)} — ค่าที่แก้มือและรายการปรับมือในสลิปนี้จะหายไปด้วย
+              {periodLabel(run)} — ค่าที่แก้มือและรายการปรับมือในสลิปนี้จะหายไปด้วย
               คำนวณใหม่ได้ภายหลัง
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -595,7 +765,7 @@ export default function RunView({ run, slips, people, departments }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>ปิดงวดที่เหลือทั้งหมด</AlertDialogTitle>
             <AlertDialogDescription>
-              ปิดงวดสลิปร่างที่เหลือในงวด{periodLabel(run.period_key)} ทั้งหมด {draftCount} ใบ —
+              ปิดงวดสลิปร่างที่เหลือในงวด{periodLabel(run)} ทั้งหมด {draftCount} ใบ —
               ปิดงวดแล้วจะแก้ตัวเลขไม่ได้อีก และเจ้าของสลิปแต่ละใบจะได้รับแจ้งเตือน
               ใบที่ยังกรอกยอดรันเนอร์ไม่ครบจะถูกข้ามไว้ให้กรอกก่อน
             </AlertDialogDescription>

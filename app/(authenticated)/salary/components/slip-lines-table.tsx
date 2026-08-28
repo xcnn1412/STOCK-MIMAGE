@@ -16,17 +16,10 @@ import { Check, Plus, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney } from '../format'
+import { LINE_KIND_LABEL, fmtMoney } from '../format'
 import { addSlipAdjustment, clearSlipLineOverride, overrideSlipLine, removeSlipAdjustment } from '../actions'
 import { lineAmount, type EmploymentType, type LineKind, type SalaryAdjustment, type SalaryLine } from '../compute'
 import LineOverridePopover from './line-override-popover'
-
-const KIND_LABEL: Record<LineKind, string> = {
-  ot: 'OT',
-  site: 'ค่าสตาฟ',
-  oop: 'เบิ้ลต่างจังหวัด',
-  runner: 'รันเนอร์',
-}
 
 const KIND_CLASS: Record<LineKind, string> = {
   ot: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400',
@@ -77,8 +70,9 @@ export default function SlipLinesTable({
         </thead>
 
         <tbody>
-          {/* เงินเดือนฐาน — เฉพาะพนักงานประจำ (ฟรีแลนซ์ไม่มีบรรทัดนี้) */}
-          {employmentType !== 'freelance' && (
+          {/* เงินเดือนฐาน — เฉพาะพนักงานประจำ (ฟรีแลนซ์ไม่มีบรรทัดนี้)
+              ฐาน = 0 คืองวดสัปดาห์/กำหนดเอง (ไม่มีเงินเดือนฐาน) → ไม่ต้องขึ้นแถว 0.00 ให้งง */}
+          {employmentType !== 'freelance' && baseSalary > 0 && (
             <tr className="border-b">
               <td className="px-4 py-2.5 font-medium">เงินเดือนฐาน</td>
               <td className="px-4 py-2.5 text-right font-medium tabular-nums">
@@ -109,7 +103,7 @@ export default function SlipLinesTable({
                       <span
                         className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${KIND_CLASS[l.kind]}`}
                       >
-                        {KIND_LABEL[l.kind]}
+                        {LINE_KIND_LABEL[l.kind]}
                       </span>
                       <span>{l.label}</span>
                     </div>

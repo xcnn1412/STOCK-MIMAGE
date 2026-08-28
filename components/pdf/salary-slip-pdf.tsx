@@ -3,11 +3,10 @@ import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/rendere
 import path from 'path'
 import { numberToThaiBahtText } from '@/lib/thai-baht-text'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, periodLabel } from '@/app/(authenticated)/salary/format'
+import { LINE_KIND_LABEL, fmtMoney, slipTitle } from '@/app/(authenticated)/salary/format'
 import {
   lineAmount,
   type EmploymentType,
-  type LineKind,
   type SalaryAdjustment,
   type SalaryLine,
 } from '@/app/(authenticated)/salary/compute'
@@ -39,6 +38,8 @@ Font.register({
 export interface SalarySlipPdfSlip {
   id: string
   status: 'draft' | 'finalized' | 'paid'
+  /** ชนิดงวด — ไม่ส่ง = งวดเดือน (สลิปเก่า/fixture ของสคริปต์ตรวจ) */
+  kind?: string | null
   employment_type: EmploymentType
   base_salary: number
   lines: SalaryLine[]
@@ -61,14 +62,6 @@ export interface SalarySlipPdfData {
   slip: SalarySlipPdfSlip
   /** วันที่พิมพ์ — ส่งเข้ามาได้เพื่อให้ผลลัพธ์คงที่ (สคริปต์ตรวจ) ไม่ส่ง = วันนี้ */
   printedAt?: string | Date
-}
-
-// ป้ายชนิดบรรทัด — ข้อความชุดเดียวกับตารางในเว็บ (components/slip-lines-table.tsx)
-const KIND_LABEL: Record<LineKind, string> = {
-  ot: 'OT',
-  site: 'ค่าสตาฟ',
-  oop: 'เบิ้ลต่างจังหวัด',
-  runner: 'รันเนอร์',
 }
 
 const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
@@ -165,7 +158,7 @@ function signedMoney(n: number): string {
  * เติมซ้ำจะได้ 'OT · OT 2.5 ชม.' ส่วนบรรทัดค่าสตาฟที่ label เป็นชื่อหน้าที่ยังต้องมี)
  */
 function describeLine(line: SalaryLine): string {
-  const kind = KIND_LABEL[line.kind]
+  const kind = LINE_KIND_LABEL[line.kind]
   return line.label.startsWith(kind) ? line.label : `${kind} · ${line.label}`
 }
 
@@ -204,6 +197,8 @@ export function SalarySlipPDF({ slip, printedAt }: SalarySlipPdfData) {
 
   const name = slip.full_name || slip.nickname || '(ไม่มีชื่อ)'
   const base = isFulltime ? Number(slip.base_salary || 0) : 0
+  // ฐาน = 0 คืองวดสัปดาห์/กำหนดเอง (ไม่มีเงินเดือนฐาน) → ไม่ต้องพิมพ์แถว 0.00
+  const showBase = isFulltime && base > 0
   const linesTotal = slip.lines.reduce((sum, l) => sum + lineAmount(l), 0)
   const adjustTotal = slip.adjustments.reduce((sum, a) => sum + Number(a.amount || 0), 0)
   // "รวมบรรทัด" = ทุกแถวในตารางด้านบน (ฐาน + บรรทัดที่คำนวณ) — บวกกับรายการปรับมือ
@@ -232,8 +227,8 @@ export function SalarySlipPDF({ slip, printedAt }: SalarySlipPdfData) {
         {/* ── หัวสลิป ── */}
         <View style={s.header}>
           <View>
-            <Text style={s.title}>สลิปเงินเดือน</Text>
-            <Text style={s.period}>งวด{periodLabel(slip.period_key)}</Text>
+            {/* งวดเดือน = "สลิปเงินเดือน …" · งวดสัปดาห์/กำหนดเอง = "สลิปค่าจ้าง …" */}
+            <Text style={s.title}>{slipTitle(slip)}</Text>
             <Text style={s.period}>
               {formatThaiDate(slip.period_start)} – {formatThaiDate(slip.period_end)}
             </Text>
@@ -266,7 +261,7 @@ export function SalarySlipPDF({ slip, printedAt }: SalarySlipPdfData) {
           </View>
 
           {/* เงินเดือนฐาน — เฉพาะพนักงานประจำ (ฟรีแลนซ์ไม่มีบรรทัดนี้ ตาม compute.ts §7) */}
-          {isFulltime && (
+          {showBase && (
             <View style={s.tRow} wrap={false}>
               <Text style={[s.cell, s.cDate]}>—</Text>
               <Text style={[s.cell, s.cDesc]}>เงินเดือนฐาน</Text>

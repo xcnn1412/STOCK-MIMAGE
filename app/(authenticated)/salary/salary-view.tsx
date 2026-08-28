@@ -5,7 +5,7 @@ import { CalendarClock, ChevronRight, FileDown, Settings, Wallet } from 'lucide-
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, periodLabel } from './format'
+import { RUN_KIND_LABEL, fmtMoney, slipTitle } from './format'
 import type { MySlipRow } from './actions'
 
 interface Props {
@@ -19,7 +19,7 @@ export default function SalaryView({ slips, isAdmin }: Props) {
       <div>
         <h1 className="text-2xl font-semibold">สลิปของฉัน</h1>
         <p className="text-sm text-muted-foreground">
-          สลิปเงินเดือนที่ปิดงวดแล้ว เรียงจากงวดล่าสุด
+          สลิปเงินเดือน/ค่าจ้างที่ปิดงวดแล้ว เรียงจากงวดล่าสุด
         </p>
       </div>
 
@@ -47,7 +47,7 @@ export default function SalaryView({ slips, isAdmin }: Props) {
         <Card>
           <CardContent className="flex flex-col items-center gap-2 p-10 text-center">
             <Wallet className="size-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">ยังไม่มีสลิปเงินเดือน</p>
+            <p className="text-sm text-muted-foreground">ยังไม่มีสลิป</p>
             <p className="text-xs text-muted-foreground">
               สลิปจะขึ้นที่นี่เมื่อ admin ปิดงวดของคุณแล้ว
             </p>
@@ -65,8 +65,9 @@ export default function SalaryView({ slips, isAdmin }: Props) {
                     className="flex flex-1 items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{periodLabel(s.period_key)}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{slipTitle(s)}</span>
+                        <Badge variant="outline">{RUN_KIND_LABEL[s.kind]}</Badge>
                         <Badge
                           variant="outline"
                           className={
@@ -93,7 +94,7 @@ export default function SalaryView({ slips, isAdmin }: Props) {
                     target="_blank"
                     rel="noopener noreferrer"
                     title="ดาวน์โหลด PDF"
-                    aria-label={`ดาวน์โหลด PDF สลิปงวด${periodLabel(s.period_key)}`}
+                    aria-label={`ดาวน์โหลด PDF ${slipTitle(s)}`}
                     className="flex items-center border-l px-4 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
                   >
                     <FileDown className="size-4" />

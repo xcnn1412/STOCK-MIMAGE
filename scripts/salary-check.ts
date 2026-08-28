@@ -14,12 +14,18 @@ import { config } from 'dotenv'
 import {
   computeSlip,
   hasMissingAmounts,
+  lastFinishedWeek,
+  onsiteFromFor,
   periodRange,
+  selectCheckinsForRun,
   type CheckinInput,
   type DutyInput,
+  type RunKind,
   type SalaryLine,
   type SalaryProfileInput,
 } from '../app/(authenticated)/salary/compute'
+// pure ล้วน ไม่มี 'use server' → เทสต์ import ตรงได้โดยไม่ลาก next/headers เข้ามา
+import { costsRowsForSlip } from '../app/(authenticated)/salary/costs-sync'
 
 config({ path: '.env.local' })
 
@@ -72,6 +78,8 @@ const FREELANCE: SalaryProfileInput = {
 const FREELANCE_LATE: SalaryProfileInput = { ...FREELANCE, work_end: '20:00' }
 
 const PERIOD = { periodStart: '2026-07-26', periodEnd: '2026-08-25' }
+/** งวดสัปดาห์ จันทร์ 31 ส.ค. – อาทิตย์ 6 ก.ย. 2026 */
+const WEEK = { periodStart: '2026-08-31', periodEnd: '2026-09-06' }
 const OOP_RATE = 300
 
 let checkinSeq = 0
@@ -298,6 +306,202 @@ function partA() {
     })
     assertEq(siteLines(r).map(l => l.date), ['2026-07-26', '2026-08-25'], 'เข้าเฉพาะ 26 ก.ค. และ 25 ส.ค.')
     assertEq(r.total, 1400, 'total = 700 × 2')
+  }
+
+  // ── 12. งวดสัปดาห์: ไม่มีเงินเดือนฐาน ไม่มี OT ออฟฟิศ แต่ได้ค่าออกงาน + OT หน้างาน ──
+  console.log('\n[A12] weekly run: no base salary, no office OT, onsite still pays')
+  {
+    const r = computeSlip({
+      profile: FULLTIME,
+      checkins: [
+        checkin({
+          check_type: 'office',
+          checked_in_at: ts('2026-09-01', '09:00'), checked_out_at: ts('2026-09-01', '20:30'),
+        }),
+        checkin({
+          checked_in_at: ts('2026-09-02', '08:00'), checked_out_at: ts('2026-09-02', '21:00'),
+          duties: ['onsite_staff'],
+        }),
+      ],
+      duties: DUTIES,
+      oopRate: OOP_RATE,
+      periodStart: WEEK.periodStart,
+      periodEnd: WEEK.periodEnd,
+      runKind: 'weekly',
+    })
+    assertEq(otLines(r).map(l => l.date), ['2026-09-02'], 'OT มาจากเช็คอินหน้างานเท่านั้น')
+    assertEq(otLines(r)[0]?.hours, 4, 'OT = 4 ชม. (ก่อน 2 + หลัง 2)')
+    assertEq(siteLines(r)[0]?.amount, 700, 'ค่าสตาฟ 700')
+    assertEq(r.total, 1100, 'total = 400 + 700 (ไม่มีเงินเดือนฐาน 15000)')
+  }
+
+  // ── 13. selectCheckinsForRun — เก็บตก 60 วัน / จ่ายแล้วไม่ซ้ำ / office เฉพาะงวดเดือน ──
+  console.log('\n[A13] selectCheckinsForRun: catch-up window, paid-once, office by kind')
+  {
+    const rows = [
+      { id: 'in40', check_type: 'onsite' as const, checked_in_at: ts('2026-07-28', '10:00'), paid_slip_id: null },
+      { id: 'out61', check_type: 'onsite' as const, checked_in_at: ts('2026-07-07', '10:00'), paid_slip_id: null },
+      { id: 'paidOther', check_type: 'onsite' as const, checked_in_at: ts('2026-09-02', '10:00'), paid_slip_id: 'slip-other' },
+      { id: 'paidSelf', check_type: 'onsite' as const, checked_in_at: ts('2026-09-03', '10:00'), paid_slip_id: 'slip-self' },
+      { id: 'office', check_type: 'office' as const, checked_in_at: ts('2026-09-04', '10:00'), paid_slip_id: null },
+      { id: 'after', check_type: 'onsite' as const, checked_in_at: ts('2026-09-07', '10:00'), paid_slip_id: null },
+      { id: 'remote', check_type: 'remote' as const, checked_in_at: ts('2026-09-04', '10:00'), paid_slip_id: null },
+    ]
+    const weekly = { kind: 'weekly' as RunKind, period_start: '2026-08-31', period_end: '2026-09-06' }
+
+    assertEq(
+      selectCheckinsForRun(rows, weekly).map(r => r.id),
+      ['in40'],
+      'งวดสัปดาห์: เอาเฉพาะ onsite ค้างจ่ายใน 60 วัน (61 วัน/จ่ายแล้ว/office/remote/หลังงวด ตกหมด)'
+    )
+    assertEq(
+      selectCheckinsForRun(rows, weekly, 'slip-self').map(r => r.id),
+      ['in40', 'paidSelf'],
+      'เช็คอินที่สลิปใบนี้เองจ่าย ยังอยู่ตอนคำนวณใหม่'
+    )
+    assertEq(
+      selectCheckinsForRun(rows, { ...weekly, kind: 'monthly' }).map(r => r.id),
+      ['in40', 'office'],
+      'งวดเดือน: office ในช่วงงวดถูกนับด้วย'
+    )
+    assertEq(
+      selectCheckinsForRun(
+        [{ id: 'officeEarly', check_type: 'office' as const, checked_in_at: ts('2026-08-20', '10:00'), paid_slip_id: null }],
+        { ...weekly, kind: 'monthly' }
+      ).map(r => r.id),
+      [],
+      'office ก่อนวันเริ่มงวดไม่ถูกนับแม้เป็นงวดเดือน'
+    )
+  }
+
+  // ── 14. งวดเดือนของประจำ: ฐาน + OT ออฟฟิศเฉพาะในช่วงงวด ────────────────
+  console.log('\n[A14] monthly fulltime: base salary + office OT inside the period only')
+  {
+    const r = run(FULLTIME, [
+      checkin({
+        check_type: 'office',
+        checked_in_at: ts('2026-08-05', '09:00'), checked_out_at: ts('2026-08-05', '20:30'),
+      }),
+      checkin({
+        check_type: 'office',
+        checked_in_at: ts('2026-07-20', '09:00'), checked_out_at: ts('2026-07-20', '20:30'),
+      }),
+    ])
+    assertEq(otLines(r).map(l => l.date), ['2026-08-05'], 'OT ออฟฟิศเฉพาะวันที่อยู่ในช่วงงวด')
+    assertEq(r.total, 15250, 'total = ฐาน 15000 + OT 250')
+  }
+
+  // ── 15. บรรทัดสลิป → แถวต้นทุน (job_cost_items) ────────────────────────
+  console.log('\n[A15] costsRowsForSlip: site/oop ผูกอีเวนต์, OT ไม่ sync, runner เฉพาะวันอีเวนต์เดียว')
+  {
+    // k1 = 5 ส.ค. อีเวนต์ e1 (site + oop) · k2/k3 = 6 ส.ค. คนละอีเวนต์ (รันเนอร์ผูกไม่ได้)
+    // k4 = 7 ส.ค. อีเวนต์เดียว (รันเนอร์ผูกได้) · k5 = 8 ส.ค. อีเวนต์ e4 (บรรทัดยอด 0)
+    const checkins = [
+      { id: 'k1', event_id: 'e1', checked_in_at: ts('2026-08-05', '09:00') },
+      { id: 'k2', event_id: 'e1', checked_in_at: ts('2026-08-06', '09:00') },
+      { id: 'k3', event_id: 'e2', checked_in_at: ts('2026-08-06', '14:00') },
+      { id: 'k4', event_id: 'e3', checked_in_at: ts('2026-08-07', '09:00') },
+      { id: 'k5', event_id: 'e4', checked_in_at: ts('2026-08-08', '09:00') },
+    ]
+    const lines: SalaryLine[] = [
+      // แก้มือทับ 700 → 900: แถวต้นทุนต้องใช้ยอดหลังแก้มือ
+      {
+        key: 'site:2026-08-05:k1:onsite_staff', kind: 'site', date: '2026-08-05', checkin_id: 'k1',
+        duty: 'onsite_staff', label: 'ออกงานสตาฟ', computed_amount: 700, amount: 900,
+        override_note: 'งานยาว',
+      },
+      {
+        key: 'oop:2026-08-05:k1', kind: 'oop', date: '2026-08-05', checkin_id: 'k1',
+        label: 'เบิ้ลต่างจังหวัด', computed_amount: 300, amount: 300,
+      },
+      { key: 'ot:2026-08-05', kind: 'ot', date: '2026-08-05', label: 'OT 2 ชม.', hours: 2, computed_amount: 200, amount: 200 },
+      { key: 'runner:2026-08-06:runner', kind: 'runner', date: '2026-08-06', duty: 'runner', label: 'รันเนอร์ · 2 เช็คอิน', computed_amount: 0, amount: 500 },
+      { key: 'runner:2026-08-07:runner', kind: 'runner', date: '2026-08-07', duty: 'runner', label: 'รันเนอร์ · 1 เช็คอิน', computed_amount: 0, amount: 400 },
+      // ยอด 0 — ไม่มีประโยชน์ในต้นทุน ไม่ต้องมีแถว
+      {
+        key: 'site:2026-08-08:k5:deliver_booth', kind: 'site', date: '2026-08-08', checkin_id: 'k5',
+        duty: 'deliver_booth', label: 'ส่งโฟโต้บูธ', computed_amount: 150, amount: 0,
+      },
+    ]
+    const dutyNames = Object.fromEntries(DUTIES.map(d => [d.code, d.name_th]))
+    const { rows, skipped } = costsRowsForSlip(
+      { id: 'slip1', user_id: 'u1', lines }, checkins, 'สมชาย ใจดี', dutyNames
+    )
+
+    assertEq(rows.length, 3, 'ได้ 3 แถว (site + oop วันที่ 5 ส.ค. และรันเนอร์วันที่ 7 ส.ค.)')
+    assertEq(
+      rows.map(r => [r.event_id, r.amount, r.cost_date]),
+      [['e1', 900, '2026-08-05'], ['e1', 300, '2026-08-05'], ['e3', 400, '2026-08-07']],
+      'อีเวนต์/ยอด (หลังแก้มือ)/วันที่ของแต่ละแถว'
+    )
+    assertEq(
+      rows.map(r => r.description),
+      ['ค่าสตาฟ สมชาย ใจดี — ออกงานสตาฟ', 'เบิ้ลต่างจังหวัด สมชาย ใจดี', 'รันเนอร์ สมชาย ใจดี'],
+      'คำอธิบายของแต่ละแถว'
+    )
+    assertEq(
+      rows.map(r => r.notes),
+      [
+        'salary_slip::slip1::site:2026-08-05:k1:onsite_staff',
+        'salary_slip::slip1::oop:2026-08-05:k1',
+        'salary_slip::slip1::runner:2026-08-07:runner',
+      ],
+      'คีย์ notes (idempotent) ตรงรูป salary_slip::<slipId>::<line.key>'
+    )
+    assert(!rows.some(r => r.notes.includes('ot:')), 'บรรทัด OT ไม่ถูก sync')
+    assert(!rows.some(r => r.cost_date === '2026-08-08'), 'บรรทัด site ยอด 0 ไม่ถูก sync')
+    assertEq(
+      skipped, [{ key: 'runner:2026-08-06:runner', reason: 'costs_runner_skipped' }],
+      'รันเนอร์วันที่มี 2 อีเวนต์ถูกข้ามพร้อมเหตุผล'
+    )
+  }
+
+  // ── 16. สัปดาห์ล่าสุดที่จบแล้ว (จันทร์–อาทิตย์) ────────────────────────
+  console.log('\n[A16] lastFinishedWeek (Monday / Sunday / mid-week)')
+  {
+    const week = { start: '2026-08-31', end: '2026-09-06' }
+    assertEq(lastFinishedWeek('2026-09-09'), week, 'วันพุธ 9 ก.ย. → 31 ส.ค. – 6 ก.ย.')
+    assertEq(lastFinishedWeek('2026-09-07'), week, 'วันจันทร์ 7 ก.ย. → สัปดาห์ที่เพิ่งจบ')
+    assertEq(
+      lastFinishedWeek('2026-09-06'), { start: '2026-08-24', end: '2026-08-30' },
+      'วันอาทิตย์ 6 ก.ย. → สัปดาห์ก่อนหน้า (วันนี้ยังไม่จบสัปดาห์)'
+    )
+  }
+
+  // ── 17. งวดกำหนดเองที่ยาวกว่าหน้าต่างเก็บตก 60 วัน ต้องครอบคลุมทั้งช่วง ────
+  console.log('\n[A17] onsiteFromFor: long custom run covers its whole range, short run still catches up')
+  {
+    const early = {
+      id: 'early', check_type: 'onsite' as const,
+      checked_in_at: ts('2026-07-01', '10:00'), paid_slip_id: null,
+    }
+    // 2026-07-01 – 2026-08-31 = 62 วัน (ยาวกว่า 60) — วันแรกของงวดต้องไม่ถูกตัดทิ้ง
+    const longCustom = {
+      kind: 'custom' as RunKind, period_start: '2026-07-01', period_end: '2026-08-31',
+    }
+    assertEq(onsiteFromFor(longCustom), '2026-07-01', 'งวดกำหนดเอง 62 วัน → ขอบล่าง = วันเริ่มงวด')
+    assertEq(
+      selectCheckinsForRun([early], longCustom).map(r => r.id),
+      ['early'],
+      'เช็คอินวันแรกของงวดกำหนดเอง 62 วัน ยังอยู่ในสลิป'
+    )
+
+    // งวดสัปดาห์สั้นๆ ยังเก็บตกย้อนหลัง 60 วันเหมือนเดิม
+    const weekly = {
+      kind: 'weekly' as RunKind, period_start: '2026-08-31', period_end: '2026-09-06',
+    }
+    assertEq(onsiteFromFor(weekly), '2026-07-08', 'งวดสัปดาห์ → ขอบล่าง = วันสิ้นงวด − 60 วัน')
+    assertEq(
+      selectCheckinsForRun(
+        [{
+          id: 'catchup', check_type: 'onsite' as const,
+          checked_in_at: ts('2026-07-10', '10:00'), paid_slip_id: null,
+        }],
+        weekly
+      ).map(r => r.id),
+      ['catchup'],
+      'งวดสัปดาห์ 31 ส.ค. – 6 ก.ย. ยังเก็บตกเช็คอิน 10 ก.ค. ได้'
+    )
   }
 }
 
