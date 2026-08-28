@@ -90,26 +90,31 @@ export async function updateUserRole(userId: string, role: string) {
     revalidatePath('/users')
 }
 
+// Soft delete — ตั้ง deleted_at + is_blocked (gate เดิมทุกจุดเช็ค is_blocked อยู่แล้ว) แถวยังอยู่ กู้คืนได้ใน DB
 export async function deleteUser(userId: string) {
     const cookieStore = await cookies()
     const sessionUserId = cookieStore.get('session_user_id')?.value
-    if (!sessionUserId) {
-        return { error: 'Unauthorized: No active session' }
+    const sessionRole = cookieStore.get('session_role')?.value
+    if (!sessionUserId || sessionRole !== 'admin') {
+        return { error: 'เฉพาะ admin เท่านั้น' }
+    }
+    if (userId === sessionUserId) {
+        return { error: 'ลบบัญชีตัวเองไม่ได้' }
     }
 
     const supabase = createServiceClient()
-    
+
     const { error } = await supabase
       .from('profiles')
-      .delete()
+      .update({ deleted_at: new Date().toISOString(), is_blocked: true, active_session_id: null } as Record<string, unknown>)
       .eq('id', userId)
-  
+
     if (error) {
       console.error(error)
-      return { error: 'Failed to delete user' }
+      return { error: 'ลบผู้ใช้ไม่สำเร็จ (ตรวจสอบว่ารัน migration deleted_at แล้ว)' }
     }
 
-    await logActivity('DELETE_USER', {}, userId)
+    await logActivity('DELETE_USER', { soft: true }, userId)
   
     revalidatePath('/users')
 }

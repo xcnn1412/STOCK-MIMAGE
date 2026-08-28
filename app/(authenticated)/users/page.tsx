@@ -16,6 +16,7 @@ export default async function UserManagementPage() {
     const { data: users } = await supabase
         .from('profiles')
         .select('*')
+        .is('deleted_at', null)
         .order('created_at', { ascending: false })
 
     // Fetch latest login log for each user
