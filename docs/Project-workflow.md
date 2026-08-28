@@ -34,3 +34,27 @@ branch: `feat/documents-module` · เริ่ม 2026-08-27
 ### 2026-08-27 (หลัง merge)
 - ปิดกลุ่มการเงิน 8 ประเภท (QT JO IV TX RC CN PO CT) ชั่วคราวด้วย `enabled: false` ใน DOC_TYPES — เปิดกลับโดยลบ flag
 - JA / IA / RS: ฟอร์ม + PDF ตามแบบฟอร์มกระดาษ `docs/document/template/*.pdf` (MetaField เพิ่ม section/checkbox/multiselect/table; renderer `components/pdf/hr-forms-pdf.tsx`; ข้อความ PDPA ใน `documents/hr-texts.ts`)
+
+## โมดูลเงินเดือน (`/salary`) — spec: `docs/specs/salary-module.md`
+
+branch: `feat/salary-module` · วางแผนเสร็จ 2026-08-28 (grill Q1–Q29) · issue #9 (`ready-for-agent`) · ศัพท์: `CONTEXT.md` · ADR-0001
+
+tickets = sub-issues ของ #9 (tracer bullets, blocked-by จริงบน GitHub) · baseline `tsc` ก่อนเริ่ม: 7 errors (finance/[id]/claim-detail-view.tsx เดิม)
+
+| # | Issue | Ticket | Blocked by | สถานะ |
+|---|---|---|---|---|
+| 1 | #10 | Prefactor: เลิกสร้างใบเบิกค่าสตาฟอัตโนมัติจากเช็คอิน (ADR-0001) — ลบฟังก์ชัน + 4 จุดเรียก, ซ่อน UI ค่าสตาฟอัตโนมัติในตั้งค่าการเงิน | — | [ ] |
+| 2 | #11 | แกนคำนวณ: migration ทั้งโมดูล (คอลัมน์เช็คอิน, `salary_duties`+seed, `salary_profiles`, `salary_runs`, `salary_slips`+trigger, app_settings keys) + `computeSlip` (pure) + `scripts/salary-check.ts` A/B | — | [ ] |
+| 3 | #12 | เช็คอินติ๊กหน้าที่ (บังคับ ≥1) + reverse geocode จังหวัด/เขต + dropdown + ฟอร์ม admin ย้อนหลัง + ประวัติ/รายงานแสดง + ขยาย `adminEditCheckin` | 1, 2 | [ ] |
+| 4 | #13 | โมดูล `/salary` (nav/proxy/auto-grant/toggle ใน `/users`) + `/salary/settings`: วันตัดรอบ, อัตรา ตจว., rate card CRUD, โปรไฟล์เงินเดือนต่อคน + `/salary` empty state | 2 | [ ] |
+| 5 | #14 | งวดคำนวณ: เปิดงวด (เดือนละ 1) → เลือกคน (แผนก/ประเภทการจ้าง/ชื่อ) → คำนวณ → สลิปร่าง + warnings + หน้าอ่านสลิป (admin) + ลบสลิปร่าง | 3, 4 | [ ] |
+| 6 | #15 | แก้สลิปร่าง: แก้มือทับ (เหตุผลบังคับ) / รันเนอร์รายวัน / รายการปรับมือ / แก้เช็คอินจากในสลิป → คำนวณใหม่คง override | 5 | [ ] |
+| 7 | #16 | ปิดงวดทีละสลิป + ปิดที่เหลือทั้งหมด (บล็อกถ้ารันเนอร์ null) + จ่ายแล้ว + แจ้งเตือน `salary_finalized` + logActivity | 6 | [ ] |
+| 8 | #17 | พนักงาน: `/salary` (finalized/paid ของตัวเอง) + `/salary/[id]` (เจ้าของ-หรือ-admin) + PDF `/api/pdf/salary/[id]` | 7 | [ ] |
+| 9 | #18 | หนังสือรับรองเงินเดือน `SC` ในโมดูลเอกสาร: prefill จากโปรไฟล์เงินเดือน (read-only สำหรับ user) + อนุมัติ → เลขที่ + PDF จดหมาย | 4 | [ ] |
+| 10 | #19 | Ship: whats-new + สอบทาน i18n + ติ๊ก Project-workflow + `tsc`/`npm run build` ทั้งโปรเจกต์ (AC1–AC7) | 3, 8, 9 | [ ] |
+
+### สิ่งที่ user ต้องทำเอง (หลัง ship)
+- รัน `supabase/migrations/20260828_create_salary_module.sql` บน Supabase SQL Editor แล้วรัน `npx tsx scripts/salary-check.ts`
+- กรอกโปรไฟล์เงินเดือนทุกคนใน `/salary/settings` และเปิด module `salary` ให้ผู้ใช้จาก `/users` ก่อนเปิดงวดแรก
+- ปิดใบเบิกค่าสตาฟที่ค้างอยู่ก่อนวันเปิดใช้ให้จบตาม flow การเงินเดิม (ระบบไม่สร้างใบใหม่จากเช็คอินอีก)
