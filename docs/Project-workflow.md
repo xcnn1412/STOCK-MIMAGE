@@ -43,10 +43,10 @@ tickets = sub-issues ของ #9 (tracer bullets, blocked-by จริงบน
 
 | # | Issue | Ticket | Blocked by | สถานะ |
 |---|---|---|---|---|
-| 1 | #10 | Prefactor: เลิกสร้างใบเบิกค่าสตาฟอัตโนมัติจากเช็คอิน (ADR-0001) — ลบฟังก์ชัน + 4 จุดเรียก, ซ่อน UI ค่าสตาฟอัตโนมัติในตั้งค่าการเงิน | — | [ ] |
-| 2 | #11 | แกนคำนวณ: migration ทั้งโมดูล (คอลัมน์เช็คอิน, `salary_duties`+seed, `salary_profiles`, `salary_runs`, `salary_slips`+trigger, app_settings keys) + `computeSlip` (pure) + `scripts/salary-check.ts` A/B | — | [ ] |
-| 3 | #12 | เช็คอินติ๊กหน้าที่ (บังคับ ≥1) + reverse geocode จังหวัด/เขต + dropdown + ฟอร์ม admin ย้อนหลัง + ประวัติ/รายงานแสดง + ขยาย `adminEditCheckin` | 1, 2 | [ ] |
-| 4 | #13 | โมดูล `/salary` (nav/proxy/auto-grant/toggle ใน `/users`) + `/salary/settings`: วันตัดรอบ, อัตรา ตจว., rate card CRUD, โปรไฟล์เงินเดือนต่อคน + `/salary` empty state | 2 | [ ] |
+| 1 | #10 | Prefactor: เลิกสร้างใบเบิกค่าสตาฟอัตโนมัติจากเช็คอิน (ADR-0001) — ลบฟังก์ชัน + 4 จุดเรียก, ซ่อน UI ค่าสตาฟอัตโนมัติในตั้งค่าการเงิน | — | [x] 2026-08-28 76be26a — grep = 0, tsc = baseline |
+| 2 | #11 | แกนคำนวณ: migration ทั้งโมดูล (คอลัมน์เช็คอิน, `salary_duties`+seed, `salary_profiles`, `salary_runs`, `salary_slips`+trigger, app_settings keys) + `computeSlip` (pure) + `scripts/salary-check.ts` A/B | — | [x] 2026-08-28 4d5140d + 443ba82 — script A 11/11; migration + trigger ตรวจบน Postgres 17 (container) ด้วย `scripts/salary-trigger-check.sql` B1–B11 ผ่าน (local stack เต็มรูปแบบ start ไม่ได้: Docker content store เสียหลังดิสก์ C: เต็ม) |
+| 3 | #12 | เช็คอินติ๊กหน้าที่ (บังคับ ≥1) + reverse geocode จังหวัด/เขต + dropdown + ฟอร์ม admin ย้อนหลัง + ประวัติ/รายงานแสดง + ขยาย `adminEditCheckin` | 1, 2 | [x] 2026-08-28 62f9e80 + 9db8f22 — geocode ทดสอบจริง กทม./นนทบุรี/ชลบุรี ถูกต้อง |
+| 4 | #13 | โมดูล `/salary` (nav/proxy/auto-grant/toggle ใน `/users`) + `/salary/settings`: วันตัดรอบ, อัตรา ตจว., rate card CRUD, โปรไฟล์เงินเดือนต่อคน + `/salary` empty state | 2 | [x] 2026-08-28 c1e8d46 — nav label อยู่ใน `lib/dictionary.ts` (ไม่ใช่ lib/i18n), toggle ใน /users มาจาก `ALL_MODULES` อัตโนมัติ |
 | 5 | #14 | งวดคำนวณ: เปิดงวด (เดือนละ 1) → เลือกคน (แผนก/ประเภทการจ้าง/ชื่อ) → คำนวณ → สลิปร่าง + warnings + หน้าอ่านสลิป (admin) + ลบสลิปร่าง | 3, 4 | [ ] |
 | 6 | #15 | แก้สลิปร่าง: แก้มือทับ (เหตุผลบังคับ) / รันเนอร์รายวัน / รายการปรับมือ / แก้เช็คอินจากในสลิป → คำนวณใหม่คง override | 5 | [ ] |
 | 7 | #16 | ปิดงวดทีละสลิป + ปิดที่เหลือทั้งหมด (บล็อกถ้ารันเนอร์ null) + จ่ายแล้ว + แจ้งเตือน `salary_finalized` + logActivity | 6 | [ ] |
