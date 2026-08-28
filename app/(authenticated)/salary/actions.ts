@@ -1211,7 +1211,17 @@ export async function getSlipForView(
     account_holder_name: who.account_holder_name ?? null,
   }
 
-  if (!isAdmin) return { slip, isAdmin, checkins: [], duties: [], events: [] }
+  // เจ้าของสลิป: เห็นมุมมองรายวันของตัวเองแบบอ่านอย่างเดียว จึงต้องได้เช็คอินที่
+  // ถูกจ่ายในสลิปใบนี้ + รายชื่อหน้าที่ (ไว้แปลงรหัสเป็นชื่อไทย) แต่ไม่ได้ลิสต์
+  // อีเวนต์ทั้งช่วงงวด (เป็นข้อมูลของทั้งบริษัท และไม่มีช่องให้เลือกอยู่แล้ว —
+  // ชื่ออีเวนต์ที่ผูกไว้ติดมากับแถวเช็คอินเอง)
+  if (!isAdmin) {
+    const [ownCheckins, duties] = await Promise.all([
+      listOwnerSlipCheckins(supabase, raw.user_id, slip.id),
+      listDuties(),
+    ])
+    return { slip, isAdmin, checkins: ownCheckins, duties, events: [] }
+  }
 
   // ขอบเขตของตาราง/ตัวเลือกในหน้าสลิป = ขอบเขตเดียวกับที่เครื่องคำนวณใช้ (onsiteFromFor)
   const runWindow: RunWindow = {
@@ -1255,6 +1265,65 @@ async function listPeriodEvents(
   }))
 }
 
+/** คอลัมน์ของ staff_checkins ที่มุมมองรายวันในหน้าสลิปต้องใช้ (ชื่ออีเวนต์ฝังมาด้วย) */
+const SLIP_CHECKIN_COLUMNS =
+  'id, check_type, checked_in_at, checked_out_at, event_id, duties, province, district, out_of_province, note, paid_slip_id, events:event_id(name)'
+
+type SlipCheckinRaw = {
+  id: string
+  check_type: CheckinInput['check_type']
+  checked_in_at: string
+  checked_out_at: string | null
+  event_id: string | null
+  duties: string[] | null
+  province: string | null
+  district: string | null
+  out_of_province: boolean | null
+  note: string | null
+  paid_slip_id: string | null
+  // PostgREST คืน to-one เป็น object แต่บางเวอร์ชันห่อเป็น array — รับทั้งสองแบบ
+  events: { name: string | null } | { name: string | null }[] | null
+}
+
+function toSlipCheckinRow(r: SlipCheckinRaw): SlipCheckinRow {
+  const embedded = Array.isArray(r.events) ? r.events[0] : r.events
+  return {
+    id: r.id,
+    check_type: r.check_type,
+    checked_in_at: r.checked_in_at,
+    checked_out_at: r.checked_out_at,
+    event_id: r.event_id,
+    event_name: embedded?.name ?? null,
+    duties: Array.isArray(r.duties) ? r.duties : [],
+    province: r.province,
+    district: r.district,
+    out_of_province: !!r.out_of_province,
+    note: r.note,
+    paid_slip_id: r.paid_slip_id,
+  }
+}
+
+/**
+ * เช็คอินที่เจ้าของสลิป (ไม่ใช่ admin) เห็นในมุมมองรายวัน — อ่านอย่างเดียว
+ * เจ้าของเห็นสลิปได้เฉพาะตอนปิดงวด/จ่ายแล้ว ซึ่งเช็คอินของงวดถูกประทับ
+ * `paid_slip_id = slip.id` ไว้แล้ว ชุดนี้จึงตรงกับที่คิดเงินในสลิปพอดี
+ * (สลิปที่ถูกเปิดแก้กลับเป็นร่าง = เจ้าของมองไม่เห็นทั้งใบอยู่แล้ว)
+ */
+async function listOwnerSlipCheckins(
+  supabase: ReturnType<typeof createServiceClient>,
+  userId: string,
+  slipId: string
+): Promise<SlipCheckinRow[]> {
+  const { data } = await supabase
+    .from('staff_checkins')
+    .select(SLIP_CHECKIN_COLUMNS)
+    .eq('user_id', userId)
+    .eq('paid_slip_id', slipId)
+    .order('checked_in_at', { ascending: true })
+
+  return ((data || []) as unknown as SlipCheckinRaw[]).map(toSlipCheckinRow)
+}
+
 /**
  * เช็คอินที่แสดงในหน้าสลิป — ใช้ตัวเลือกตัวเดียวกับเครื่องคำนวณ (selectCheckinsForRun)
  * คือเช็คอินหน้างานค้างจ่ายตั้งแต่ onsiteFromFor(run) ถึงวันสิ้นงวด + เช็คอินออฟฟิศ
@@ -1276,52 +1345,18 @@ async function listSlipCheckins(
 
   const { data } = await supabase
     .from('staff_checkins')
-    .select(
-      'id, check_type, checked_in_at, checked_out_at, event_id, duties, province, district, out_of_province, note, paid_slip_id, events:event_id(name)'
-    )
+    .select(SLIP_CHECKIN_COLUMNS)
     .eq('user_id', userId)
     .gte('checked_in_at', fromISO)
     .lte('checked_in_at', toISO)
     .order('checked_in_at', { ascending: true })
 
-  type Raw = {
-    id: string
-    check_type: CheckinInput['check_type']
-    checked_in_at: string
-    checked_out_at: string | null
-    event_id: string | null
-    duties: string[] | null
-    province: string | null
-    district: string | null
-    out_of_province: boolean | null
-    note: string | null
-    paid_slip_id: string | null
-    // PostgREST คืน to-one เป็น object แต่บางเวอร์ชันห่อเป็น array — รับทั้งสองแบบ
-    events: { name: string | null } | { name: string | null }[] | null
-  }
-
-  const rows = (data || []) as unknown as Raw[]
+  const rows = (data || []) as unknown as SlipCheckinRaw[]
   const selected = new Set(selectCheckinsForRun(rows, run, slipId).map(r => r.id))
 
   return rows
     .filter(r => selected.has(r.id) || (!!r.paid_slip_id && r.paid_slip_id !== slipId))
-    .map(r => {
-      const embedded = Array.isArray(r.events) ? r.events[0] : r.events
-      return {
-        id: r.id,
-        check_type: r.check_type,
-        checked_in_at: r.checked_in_at,
-        checked_out_at: r.checked_out_at,
-        event_id: r.event_id,
-        event_name: embedded?.name ?? null,
-        duties: Array.isArray(r.duties) ? r.duties : [],
-        province: r.province,
-        district: r.district,
-        out_of_province: !!r.out_of_province,
-        note: r.note,
-        paid_slip_id: r.paid_slip_id,
-      }
-    })
+    .map(toSlipCheckinRow)
 }
 
 // ────────────────────────────────────────────────────────────────────────────

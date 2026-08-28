@@ -90,10 +90,14 @@ export default function SlipHeader({
           </div>
         </div>
 
-        {/* ── ขวา: ยอด + งานค้าง + ปุ่มหลักปุ่มเดียว + เมนูรอง ──────────────── */}
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <div className="text-right">
-            <div className="text-2xl font-semibold tabular-nums">{fmtMoney(slip.total)}</div>
+        {/* ── ขวา: ยอด + งานค้าง + ปุ่มหลักปุ่มเดียว + เมนูรอง ────────────────
+            จอแคบ: บล็อกนี้ลงบรรทัดของตัวเอง ยอด/ป้าย/เมนู ⋯ อยู่บรรทัดเดียวกัน
+            ส่วนปุ่มหลักตกไปเต็มความกว้างข้างล่าง (order-last) — เมนูจึงกดถึงเสมอ */}
+        <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2 md:w-auto">
+          <div className="mr-auto text-left sm:mr-0 sm:text-right">
+            <div className="text-xl font-semibold tabular-nums md:text-2xl">
+              {fmtMoney(slip.total)}
+            </div>
             <div className="text-xs text-muted-foreground">ยอดสุทธิ (บาท)</div>
           </div>
 
@@ -108,8 +112,12 @@ export default function SlipHeader({
 
           {isAdmin && isDraft && (
             // disabled แล้ว title ไม่ขึ้นในบางเบราว์เซอร์ — ครอบ span ไว้ให้ hover เจอเสมอ
-            <span title={finalizeHint}>
-              <Button disabled={busy || blocked} onClick={onFinalize}>
+            <span title={finalizeHint} className="order-last w-full sm:order-0 sm:w-auto">
+              <Button
+                className="w-full sm:w-auto"
+                disabled={busy || blocked}
+                onClick={onFinalize}
+              >
                 <Lock className="size-4" />
                 {blocked ? `ปิดงวด (ค้าง ${pendingCount})` : 'ปิดงวด'}
               </Button>
@@ -117,7 +125,11 @@ export default function SlipHeader({
           )}
 
           {isAdmin && slip.status === 'finalized' && (
-            <Button disabled={busy} onClick={onMarkPaid}>
+            <Button
+              className="order-last w-full sm:order-0 sm:w-auto"
+              disabled={busy}
+              onClick={onMarkPaid}
+            >
               <BanknoteArrowUp className="size-4" />
               จ่ายแล้ว
             </Button>

@@ -102,9 +102,13 @@ function useDraftValue<T>(value: T, keyOf: (v: T) => string): [T, (next: T | und
 /**
  * โฟกัสช่องรันเนอร์ถัดไปที่ยังว่าง (Tab จากช่องรันเนอร์)
  * ใช้ attribute ร่วม `data-runner-input` แทนการส่ง ref ข้ามแถวทั้งตาราง
+ * ตารางเดสก์ท็อปกับการ์ดมือถืออยู่ใน DOM พร้อมกัน (สลับด้วย CSS) จึงนับเฉพาะ
+ * ช่องที่มองเห็นอยู่จริง — ไม่งั้น Tab จะไปโฟกัสช่องในฝั่งที่ถูกซ่อนแล้วเงียบไป
  */
 export function focusNextEmptyRunner(current: HTMLInputElement): boolean {
-  const all = Array.from(document.querySelectorAll<HTMLInputElement>('[data-runner-input]'))
+  const all = Array.from(
+    document.querySelectorAll<HTMLInputElement>('[data-runner-input]')
+  ).filter(el => el === current || el.offsetParent !== null)
   const from = all.indexOf(current)
   for (let i = from + 1; i < all.length; i++) {
     if (all[i].value.trim() === '') {

@@ -3,7 +3,8 @@
 // ============================================================================
 // หน้าสลิปหนึ่งใบ — spec: docs/specs/salary-slip-daily-ui.md
 //
-// ประกอบร่าง: SlipHeader (ติดขอบบน) → PendingChecklist → SlipDayTable
+// ประกอบร่าง: SlipHeader (ติดขอบบน) → PendingChecklist
+//            → SlipDayTable (≥ md) / SlipDayCards (< md)
 //            → บัญชีรับเงิน → ReopenHistory → บรรทัดสรุปท้ายหน้า
 //
 // ที่นี่เป็นเจ้าของ "สถานะสลิปฝั่ง client" ตัวเดียว (ทุกการแก้ในตารางคืนสลิปใหม่มา)
@@ -22,6 +23,7 @@ import {
 import { formatThaiDate } from '@/lib/thai-date'
 import { fmtMoney } from '../format'
 import SlipDayTable from './slip-day-table'
+import SlipDayCards from './slip-day-cards'
 import SlipHeader from './components/slip-header'
 import PendingChecklist from './components/pending-checklist'
 import ReopenDialog from './components/reopen-dialog'
@@ -37,7 +39,7 @@ import type { SalaryDutyRow } from '../settings/actions'
 interface Props {
   slip: SlipDetail
   isAdmin: boolean
-  /** ข้อมูลต้นทางในงวด — ว่างเสมอเมื่อไม่ใช่ admin */
+  /** เช็คอินของงวด — admin ได้ทั้งงวด (แก้ได้) · เจ้าของได้เฉพาะที่จ่ายในสลิปนี้ */
   checkins: SlipCheckinRow[]
   duties: SalaryDutyRow[]
   /** ตัวเลือกอีเวนต์รอบๆ งวด สำหรับผูกเช็คอิน — ว่างเสมอเมื่อไม่ใช่ admin */
@@ -152,16 +154,31 @@ export default function SlipView({ slip: initialSlip, isAdmin, checkins, duties,
         onSlipChange={setSlip}
       />
 
-      {/* ── ตารางรายวัน — ข้อมูลต้นทางกับเงินของวันเดียวกันอยู่แถวเดียว ─────── */}
-      <SlipDayTable
-        slip={slip}
-        checkins={checkins}
-        duties={duties}
-        events={events}
-        editable={editable}
-        highlightDate={highlightDate}
-        onSlipChange={setSlip}
-      />
+      {/* ── มุมมองรายวัน — เดสก์ท็อปเป็นตาราง มือถือเป็นการ์ด (สลับด้วย CSS) ──
+          ทั้งคู่อ่านจาก groupSlipByDay ชุดเดียวกัน แต่ id ของวันไม่ชนกัน
+          (ตาราง = day-<date> · การ์ด = day-<date>-m) ให้ jumpToDay เลือกได้ */}
+      <div className="hidden md:block">
+        <SlipDayTable
+          slip={slip}
+          checkins={checkins}
+          duties={duties}
+          events={events}
+          editable={editable}
+          highlightDate={highlightDate}
+          onSlipChange={setSlip}
+        />
+      </div>
+      <div className="md:hidden">
+        <SlipDayCards
+          slip={slip}
+          checkins={checkins}
+          duties={duties}
+          events={events}
+          editable={editable}
+          highlightDate={highlightDate}
+          onSlipChange={setSlip}
+        />
+      </div>
 
       {/* ── บัญชีรับเงิน (แสดงอย่างเดียว — แก้ที่หน้าโปรไฟล์) ─────────────────── */}
       {hasBank && (

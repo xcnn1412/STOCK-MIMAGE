@@ -13,26 +13,23 @@
 // ส่วนแถวเช็คอิน/อีเวนต์มาจาก server component ของหน้าเพจ
 // ============================================================================
 
-import { useState, useTransition, type KeyboardEvent } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { toast } from 'sonner'
-import { AlertTriangle, Plus, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatThaiDate } from '@/lib/thai-date'
 import { fmtMoney } from '../format'
-import {
-  addSlipAdjustment, addSlipCheckin, clearSlipLineOverride, editSlipCheckin,
-  overrideSlipLine, removeSlipAdjustment, setRunnerAmounts,
-  type SlipCheckinPatch, type SlipCheckinRow, type SlipDetail, type SlipEventOption,
-} from '../actions'
-import { groupSlipByDay, shiftDay, type SalaryLine } from '../compute'
+import type { SlipCheckinRow, SlipDetail, SlipEventOption } from '../actions'
+import { groupSlipByDay } from '../compute'
 import type { SalaryDutyRow } from '../settings/actions'
 import {
-  DutiesCell, EventCell, MoneyCell, RunnerCell, TimeCell, ToggleCell, type SaveResult,
+  DutiesCell, EventCell, MoneyCell, RunnerCell, TimeCell, ToggleCell,
 } from './components/inline-cells'
+import {
+  bkkParts, checkoutDateFor, CHECK_TYPE_LABEL, isMissing, toISO,
+} from './components/day-view-utils'
+import AddCheckinForm from './components/add-checkin-form'
+import SlipFooter from './components/slip-footer'
+import { useSlipEdits } from './components/use-slip-edits'
 
 interface Props {
   slip: SlipDetail
@@ -48,95 +45,23 @@ interface Props {
   onSlipChange: (slip: SlipDetail) => void
 }
 
-const CHECK_TYPE_LABEL: Record<SlipCheckinRow['check_type'], string> = {
-  office: 'ออฟฟิศ',
-  onsite: 'หน้างาน',
-  remote: 'นอกสถานที่',
-}
-
-const BANGKOK_OFFSET = 7 * 60 * 60 * 1000
-
 /** จำนวนคอลัมน์ของตาราง — ใช้กับ colSpan ของแถวท้ายตาราง */
 const COLUMNS = 10
-
-/** instant → (วันไทย, เวลาไทย) สำหรับใส่ใน <input type="time"> */
-function bkkParts(iso: string): { date: string; time: string } {
-  const s = new Date(new Date(iso).getTime() + BANGKOK_OFFSET).toISOString()
-  return { date: s.slice(0, 10), time: s.slice(11, 16) }
-}
-
-/** (วันไทย, เวลาไทย) → instant */
-function toISO(date: string, time: string): string {
-  return new Date(`${date}T${time}:00+07:00`).toISOString()
-}
-
-/**
- * วันของเวลาออกเมื่อแก้เฉพาะ "เวลา" ในแถว — เวลาออกที่ไม่มากกว่าเวลาเข้าถือเป็นกะข้ามคืน
- * (ตารางรายวันมีช่องเวลาอย่างเดียว ไม่มีช่องวันที่ออกแยกเหมือนไดอะล็อกเดิม)
- */
-function checkoutDateFor(inDate: string, inTime: string, outTime: string): string {
-  return outTime <= inTime ? shiftDay(inDate, 1) : inDate
-}
-
-function isMissing(l: SalaryLine): boolean {
-  return l.amount === null || l.amount === undefined
-}
 
 export default function SlipDayTable({
   slip, checkins, duties, events, editable, highlightDate, onSlipChange,
 }: Props) {
-  const router = useRouter()
   const days = groupSlipByDay(slip.lines, checkins, slip.warnings)
   const dutyName = new Map(duties.map(d => [d.code, d.name_th]))
+  const { saveCheckin, saveOverride, clearOverride, saveRunner, applyRunnerToEmpty } =
+    useSlipEdits(slip.id, onSlipChange)
 
   // รันเนอร์ทั้งใบ — ใช้ตัดสินว่าช่องไหนได้ปุ่ม "ใช้ยอดนี้กับวันที่ยังว่าง"
   const runnerLines = days.flatMap(d => d.runnerLines)
-  const emptyRunners = runnerLines.filter(isMissing)
+  const emptyRunnerKeys = runnerLines.filter(isMissing).map(l => l.key)
   const firstFilledRunner = runnerLines.find(l => !isMissing(l))
   const applyRunnerKey =
-    editable && firstFilledRunner && emptyRunners.length > 0 ? firstFilledRunner.key : null
-
-  // ── ตัวห่อ action: ทุกตัวคืน SaveResult ให้ช่องในแถวใช้ตรงๆ ──────────────
-
-  async function saveCheckin(checkinId: string, patch: SlipCheckinPatch): Promise<SaveResult> {
-    const res = await editSlipCheckin(slip.id, checkinId, patch)
-    if ('error' in res) return { error: res.error }
-    onSlipChange(res.slip)
-    // action คืนมาแค่สลิป — แถวเช็คอิน/อีเวนต์ต้องให้ server component โหลดใหม่
-    router.refresh()
-    return {}
-  }
-
-  async function saveOverride(key: string, amount: number, note: string): Promise<SaveResult> {
-    const res = await overrideSlipLine(slip.id, key, amount, note)
-    if (res.error) return { error: res.error }
-    if (res.slip) onSlipChange(res.slip)
-    return {}
-  }
-
-  async function clearOverride(key: string): Promise<SaveResult> {
-    const res = await clearSlipLineOverride(slip.id, key)
-    if (res.error) return { error: res.error }
-    if (res.slip) onSlipChange(res.slip)
-    return {}
-  }
-
-  async function saveRunner(key: string, amount: number | null): Promise<SaveResult> {
-    if (amount === null) return clearOverride(key)
-    const res = await setRunnerAmounts(slip.id, [{ key, amount }])
-    if ('error' in res) return { error: res.error }
-    onSlipChange(res.slip)
-    return {}
-  }
-
-  async function applyRunnerToEmpty(amount: number): Promise<SaveResult> {
-    const entries = emptyRunners.map(l => ({ key: l.key, amount }))
-    if (entries.length === 0) return {}
-    const res = await setRunnerAmounts(slip.id, entries)
-    if ('error' in res) return { error: res.error }
-    onSlipChange(res.slip)
-    return {}
-  }
+    editable && firstFilledRunner && emptyRunnerKeys.length > 0 ? firstFilledRunner.key : null
 
   return (
     <div className="overflow-x-auto rounded-md border">
@@ -385,7 +310,9 @@ export default function SlipDayTable({
                               ariaLabel={`ยอดรันเนอร์ ${day.date}`}
                               onSave={amount => saveRunner(l.key, amount)}
                               onApplyToEmpty={
-                                applyRunnerKey === l.key ? applyRunnerToEmpty : undefined
+                                applyRunnerKey === l.key
+                                  ? amount => applyRunnerToEmpty(emptyRunnerKeys, amount)
+                                  : undefined
                               }
                             />
                           ))}
@@ -405,310 +332,27 @@ export default function SlipDayTable({
           })}
 
           {editable && (
-            <AddCheckinRow
+            <AddCheckinForm
               slipId={slip.id}
               periodStart={slip.period_start}
               periodEnd={slip.period_end}
               duties={duties}
               events={events}
               onSlipChange={onSlipChange}
+              variant="row"
+              columns={COLUMNS}
             />
           )}
         </tbody>
 
-        <tfoot>
-          {slip.base_salary > 0 && (
-            <tr className="border-t">
-              <td colSpan={COLUMNS - 1} className="px-3 py-2.5 font-medium">
-                เงินเดือนฐาน
-              </td>
-              <td className="px-3 py-2.5 text-right font-medium tabular-nums">
-                {fmtMoney(slip.base_salary)}
-              </td>
-            </tr>
-          )}
-
-          {slip.adjustments.map((a, i) => (
-            <tr key={a.id || `adj-${i}`} className="border-t">
-              <td colSpan={COLUMNS - 1} className="px-3 py-2 text-muted-foreground">
-                รายการปรับมือ · {a.label || '(ไม่มีชื่อรายการ)'}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                <span className="inline-flex items-center justify-end gap-1">
-                  <span className={Number(a.amount || 0) < 0 ? 'text-red-600 dark:text-red-400' : ''}>
-                    {fmtMoney(a.amount)}
-                  </span>
-                  {editable && (
-                    <RemoveAdjustmentButton
-                      slipId={slip.id}
-                      adjustmentId={a.id}
-                      label={a.label}
-                      onSlipChange={onSlipChange}
-                    />
-                  )}
-                </span>
-              </td>
-            </tr>
-          ))}
-
-          {editable && (
-            <AddAdjustmentRow slipId={slip.id} onSlipChange={onSlipChange} />
-          )}
-
-          <tr className="border-t bg-muted/60">
-            <td colSpan={COLUMNS - 1} className="px-3 py-3 font-semibold">
-              ยอดสุทธิ
-            </td>
-            <td className="px-3 py-3 text-right text-base font-semibold tabular-nums">
-              {fmtMoney(slip.total)}
-            </td>
-          </tr>
-        </tfoot>
+        <SlipFooter
+          slip={slip}
+          editable={editable}
+          onSlipChange={onSlipChange}
+          variant="table"
+          columns={COLUMNS}
+        />
       </table>
     </div>
-  )
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// แถวท้ายตาราง
-// ────────────────────────────────────────────────────────────────────────────
-
-/**
- * "เพิ่มเช็คอินที่ลืม" — กรอกวันที่/เวลา/หน้าที่/อีเวนต์ในแถวเดียวแล้ว Enter
- * ใช้ช่องชุดเดียวกับในแถวปกติ โดยให้ onSave เก็บลง state แทนการยิง server
- */
-function AddCheckinRow({
-  slipId, periodStart, periodEnd, duties, events, onSlipChange,
-}: {
-  slipId: string
-  periodStart: string
-  periodEnd: string
-  duties: SalaryDutyRow[]
-  events: SlipEventOption[]
-  onSlipChange: (slip: SlipDetail) => void
-}) {
-  const router = useRouter()
-  const [date, setDate] = useState('')
-  const [inTime, setInTime] = useState('')
-  const [outTime, setOutTime] = useState('')
-  const [selectedDuties, setSelectedDuties] = useState<string[]>([])
-  const [eventId, setEventId] = useState<string | null>(null)
-  const [outOfProvince, setOutOfProvince] = useState(false)
-  const [isPending, startTransition] = useTransition()
-
-  function reset() {
-    setDate('')
-    setInTime('')
-    setOutTime('')
-    setSelectedDuties([])
-    setEventId(null)
-    setOutOfProvince(false)
-  }
-
-  function submit() {
-    if (!date) { toast.error('กรุณาเลือกวันที่'); return }
-    if (!inTime) { toast.error('กรุณาระบุเวลาเข้า'); return }
-    if (selectedDuties.length === 0) {
-      toast.error('กรุณาเลือกหน้าที่หน้างานอย่างน้อย 1 อย่าง')
-      return
-    }
-    if (periodStart && periodEnd && (date < periodStart || date > periodEnd)) {
-      toast.error('วันที่อยู่นอกช่วงงวดนี้ — จะไม่ถูกนำมาคิดในสลิปใบนี้')
-      return
-    }
-
-    startTransition(async () => {
-      const res = await addSlipCheckin(slipId, {
-        date,
-        checkin_time: inTime,
-        checkout_time: outTime || null,
-        duties: selectedDuties,
-        event_id: eventId,
-        out_of_province: outOfProvince,
-      })
-      if ('error' in res) {
-        toast.error(res.error)
-        return
-      }
-      onSlipChange(res.slip)
-      reset()
-      toast.success('เพิ่มเช็คอินแล้ว')
-      router.refresh()
-    })
-  }
-
-  function onEnter(e: KeyboardEvent) {
-    if (e.key === 'Enter') { e.preventDefault(); submit() }
-  }
-
-  return (
-    <tr className="border-b bg-muted/20">
-      <td className="px-3 py-2.5">
-        <input
-          type="date"
-          value={date}
-          min={periodStart || undefined}
-          max={periodEnd || undefined}
-          aria-label="วันที่ของเช็คอินที่ลืม"
-          onChange={e => setDate(e.target.value)}
-          onKeyDown={onEnter}
-          className="border-input h-7 rounded-md border bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30"
-        />
-      </td>
-      <td className="px-3 py-2.5">
-        <div className="flex items-center gap-1">
-          <input
-            type="time"
-            value={inTime}
-            aria-label="เวลาเข้าของเช็คอินที่ลืม"
-            onChange={e => setInTime(e.target.value)}
-            onKeyDown={onEnter}
-            className="border-input h-7 w-26 rounded-md border bg-transparent px-2 text-sm tabular-nums shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30"
-          />
-          <span className="text-muted-foreground">–</span>
-          <input
-            type="time"
-            value={outTime}
-            aria-label="เวลาออกของเช็คอินที่ลืม"
-            onChange={e => setOutTime(e.target.value)}
-            onKeyDown={onEnter}
-            className="border-input h-7 w-26 rounded-md border bg-transparent px-2 text-sm tabular-nums shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30"
-          />
-        </div>
-      </td>
-      <td className="px-3 py-2.5">
-        <DutiesCell
-          value={selectedDuties}
-          duties={duties}
-          ariaLabel="หน้าที่ของเช็คอินที่ลืม"
-          onSave={async next => { setSelectedDuties(next); return {} }}
-        />
-      </td>
-      <td className="px-3 py-2.5">
-        <EventCell
-          value={eventId}
-          events={events}
-          onSave={async next => { setEventId(next); return {} }}
-        />
-      </td>
-      <td className="px-3 py-2.5">
-        <ToggleCell
-          value={outOfProvince}
-          ariaLabel="ต่างจังหวัดของเช็คอินที่ลืม"
-          onSave={async next => { setOutOfProvince(next); return {} }}
-        />
-      </td>
-      <td colSpan={COLUMNS - 5} className="px-3 py-2.5 text-right">
-        <Button type="button" size="sm" className="h-7" disabled={isPending} onClick={submit}>
-          <Plus className="size-4" />
-          เพิ่มเช็คอินที่ลืม
-        </Button>
-      </td>
-    </tr>
-  )
-}
-
-/** เพิ่มรายการปรับมือในแถว — จำนวนติดลบได้ (หัก) แต่เป็นศูนย์ไม่ได้ */
-function AddAdjustmentRow({
-  slipId, onSlipChange,
-}: {
-  slipId: string
-  onSlipChange: (slip: SlipDetail) => void
-}) {
-  const [label, setLabel] = useState('')
-  const [amount, setAmount] = useState('')
-  const [isPending, startTransition] = useTransition()
-
-  function add() {
-    const value = Number(amount)
-    if (!label.trim()) { toast.error('กรุณาระบุชื่อรายการ'); return }
-    if (amount.trim() === '' || !Number.isFinite(value) || value === 0) {
-      toast.error('จำนวนเงินต้องเป็นตัวเลขที่ไม่ใช่ศูนย์')
-      return
-    }
-    startTransition(async () => {
-      const res = await addSlipAdjustment(slipId, label, value)
-      if (res.error) {
-        toast.error(res.error)
-        return
-      }
-      if (res.slip) onSlipChange(res.slip)
-      setLabel('')
-      setAmount('')
-    })
-  }
-
-  return (
-    <tr className="border-t">
-      <td colSpan={COLUMNS - 1} className="px-3 py-2">
-        <Input
-          value={label}
-          onChange={e => setLabel(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
-          placeholder="เพิ่มรายการปรับมือ เช่น โบนัส / หักประกันสังคม"
-          aria-label="ชื่อรายการปรับมือ"
-          className="h-8 max-w-96"
-        />
-      </td>
-      <td className="px-3 py-2 text-right">
-        <span className="inline-flex items-center justify-end gap-1">
-          <Input
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            value={amount}
-            onChange={e => setAmount(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
-            placeholder="± จำนวน"
-            aria-label="จำนวนเงินของรายการปรับมือ"
-            className="h-8 w-28 text-right tabular-nums"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2"
-            disabled={isPending}
-            onClick={add}
-            title="เพิ่มรายการปรับมือ"
-          >
-            <Plus className="size-4" />
-          </Button>
-        </span>
-      </td>
-    </tr>
-  )
-}
-
-function RemoveAdjustmentButton({
-  slipId, adjustmentId, label, onSlipChange,
-}: {
-  slipId: string
-  adjustmentId: string
-  label: string
-  onSlipChange: (slip: SlipDetail) => void
-}) {
-  const [isPending, startTransition] = useTransition()
-
-  return (
-    <button
-      type="button"
-      disabled={isPending}
-      title={`ลบรายการ ${label}`}
-      aria-label={`ลบรายการ ${label}`}
-      onClick={() =>
-        startTransition(async () => {
-          const res = await removeSlipAdjustment(slipId, adjustmentId)
-          if (res.error) {
-            toast.error(res.error)
-            return
-          }
-          if (res.slip) onSlipChange(res.slip)
-        })
-      }
-      className="rounded p-0.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
-    >
-      <X className="size-3.5" />
-    </button>
   )
 }
