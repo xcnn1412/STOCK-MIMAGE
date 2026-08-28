@@ -25,6 +25,11 @@ import type {
 } from './compute'
 import { getSalarySettings, listDuties } from './settings/actions'
 import type { SalaryDutyRow } from './settings/actions'
+import { costsRowsForSlip } from './costs-sync'
+import type { CostsSkip, CostsSyncCheckin } from './costs-sync'
+// ADR-0001: ค่าสตาฟไม่ผ่านใบเบิกอีกแล้ว — สลิปที่ปิดงวดดัน job_cost_items เข้า Costs เอง
+// และ import อีเวนต์เข้าโมดูลต้นทุนให้เหมือนพฤติกรรมเดิมของใบเบิก
+import { importEventFromStock } from '../costs/actions'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -149,6 +154,8 @@ export interface SlipDetail {
   computed_at: string | null
   finalized_at: string | null
   paid_at: string | null
+  /** เวลาที่บรรทัดค่าสตาฟถูก sync เข้าโมดูลต้นทุนสำเร็จครั้งล่าสุด (null = ยังไม่เคย) */
+  costs_synced_at: string | null
   /** ชื่อคนที่กดปิดงวด / กดจ่ายแล้ว (null = ยังไม่ถึงขั้นนั้น หรือผู้ใช้ถูกลบไปแล้ว) */
   finalized_by_name: string | null
   paid_by_name: string | null
@@ -1046,7 +1053,7 @@ export async function getSlipForView(
   const { data } = await supabase
     .from('salary_slips')
     .select(
-      'id, run_id, user_id, status, employment_type, base_salary, lines, adjustments, warnings, total, computed_at, finalized_at, finalized_by, paid_at, paid_by'
+      'id, run_id, user_id, status, employment_type, base_salary, lines, adjustments, warnings, total, computed_at, finalized_at, finalized_by, paid_at, paid_by, costs_synced_at'
     )
     .eq('id', slipId)
     .maybeSingle()
@@ -1068,6 +1075,7 @@ export async function getSlipForView(
     finalized_by: string | null
     paid_at: string | null
     paid_by: string | null
+    costs_synced_at: string | null
   }
   const raw = data as unknown as SlipRaw
 
@@ -1113,6 +1121,7 @@ export async function getSlipForView(
     computed_at: raw.computed_at,
     finalized_at: raw.finalized_at,
     paid_at: raw.paid_at,
+    costs_synced_at: raw.costs_synced_at,
     finalized_by_name: actorName(actors, raw.finalized_by),
     paid_by_name: actorName(actors, raw.paid_by),
     period_key: runRow.period_key || '',
@@ -1637,6 +1646,15 @@ async function finalizeOne(
     actorId: adminId,
   })
 
+  // sync ต้นทุนเข้า Costs — ล้มเหลวห้ามทำให้ปิดงวดล้ม (สลิปปิดไปแล้วใน RPC)
+  // admin กด "sync ต้นทุนอีกครั้ง" ในหน้าสลิปได้ภายหลัง
+  try {
+    const sync = await syncSlipToCostsInternal(supabase, slip.id, adminId)
+    if (sync.error) console.error(`[salary] sync ต้นทุนของสลิป ${slip.id} ไม่สำเร็จ: ${sync.error}`)
+  } catch (err) {
+    console.error(`[salary] sync ต้นทุนของสลิป ${slip.id} ไม่สำเร็จ:`, err)
+  }
+
   return {}
 }
 
@@ -1775,4 +1793,356 @@ export async function markSlipPaid(slipId: string): Promise<{ error?: string; su
 
   revalidateSlipPaths(slipId, slip.run_id)
   return { success: true }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// สรุปยอดโอน — ตารางโอนเงินท้ายงวด + Excel + "จ่ายแล้วทั้งหมด"
+// (spec §คำนวณ/ปิดงวด — เฉพาะสลิปที่ปิดงวดแล้ว ร่างไม่เกี่ยว)
+// ────────────────────────────────────────────────────────────────────────────
+
+/** หนึ่งบรรทัดในตารางสรุปยอดโอน */
+export interface TransferRow {
+  slip_id: string
+  user_id: string
+  full_name: string | null
+  bank_name: string | null
+  bank_account_number: string | null
+  total: number
+  status: 'finalized' | 'paid'
+}
+
+export interface TransferSummary {
+  rows: TransferRow[]
+  /** ยอดรวมที่ต้องโอนทั้งงวด (รวมทั้งที่จ่ายแล้วและยังไม่จ่าย) */
+  sum_total: number
+  count_finalized: number
+  count_paid: number
+  /** จำนวนคนที่ยังไม่กรอกธนาคาร/เลขบัญชีใน /users — โอนไม่ได้จนกว่าจะกรอก */
+  missing_bank: number
+}
+
+/**
+ * ตารางสรุปยอดโอนของงวดหนึ่ง — สลิปที่ปิดงวดแล้ว (finalized/paid) พร้อมบัญชีรับเงิน
+ * ชื่อ/ธนาคารมาจาก profiles (join ฝั่ง JS ตาม pattern เดียวกับ getRun)
+ */
+export async function getTransferSummary(
+  runId: string
+): Promise<{ error: string } | TransferSummary> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+  if (!runId) return { error: 'ไม่พบงวดนี้' }
+
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('salary_slips')
+    .select('id, user_id, status, total')
+    .eq('run_id', runId)
+    .in('status', ['finalized', 'paid'])
+  if (error) return { error: `อ่านสลิปในงวดไม่สำเร็จ: ${error.message}` }
+
+  type Raw = {
+    id: string
+    user_id: string
+    status: 'finalized' | 'paid'
+    total: number | string | null
+  }
+  const slipRows = (data || []) as unknown as Raw[]
+  if (slipRows.length === 0) {
+    return { rows: [], sum_total: 0, count_finalized: 0, count_paid: 0, missing_bank: 0 }
+  }
+
+  const { data: bankRaw } = await supabase
+    .from('profiles')
+    .select('id, full_name, nickname, bank_name, bank_account_number')
+    .in('id', Array.from(new Set(slipRows.map(s => s.user_id))))
+
+  type BankRaw = {
+    id: string
+    full_name: string | null
+    nickname: string | null
+    bank_name: string | null
+    bank_account_number: string | null
+  }
+  const banks = new Map(((bankRaw || []) as unknown as BankRaw[]).map(p => [p.id, p]))
+
+  const rows: TransferRow[] = slipRows
+    .map(s => {
+      const who = banks.get(s.user_id)
+      return {
+        slip_id: s.id,
+        user_id: s.user_id,
+        full_name: who?.full_name || who?.nickname || null,
+        bank_name: who?.bank_name ?? null,
+        bank_account_number: who?.bank_account_number ?? null,
+        total: Number(s.total || 0),
+        status: s.status,
+      }
+    })
+    // ชื่อมาจากอีก query จึงเรียงฝั่ง JS (คนไม่มีชื่อไปท้ายตาราง)
+    .sort((a, b) => cmpText(a.full_name || 'zzz', b.full_name || 'zzz'))
+
+  return {
+    rows,
+    sum_total: round2(rows.reduce((sum, r) => sum + r.total, 0)),
+    count_finalized: rows.filter(r => r.status === 'finalized').length,
+    count_paid: rows.filter(r => r.status === 'paid').length,
+    missing_bank: rows.filter(r => !r.bank_name || !r.bank_account_number).length,
+  }
+}
+
+const TRANSFER_STATUS_LABEL: Record<'finalized' | 'paid', string> = {
+  finalized: 'รอโอน',
+  paid: 'จ่ายแล้ว',
+}
+
+/**
+ * ไฟล์ Excel ของตารางสรุปยอดโอน — สร้างฝั่ง server แล้วส่ง base64 ให้ client แปลงเป็นไฟล์
+ * (คอลัมน์เดียวกับตารางบนหน้าจอ + แถว "รวม" ท้ายสุด)
+ */
+export async function exportTransferExcel(
+  runId: string
+): Promise<{ error: string } | { base64: string; filename: string }> {
+  const summary = await getTransferSummary(runId)
+  if ('error' in summary) return { error: summary.error }
+  if (summary.rows.length === 0) return { error: 'ยังไม่มีสลิปที่ปิดงวดในงวดนี้' }
+
+  const supabase = createServiceClient()
+  const { data: runRaw } = await supabase
+    .from('salary_runs')
+    .select('period_key')
+    .eq('id', runId)
+    .maybeSingle()
+  const periodKey = (runRaw as unknown as { period_key?: string } | null)?.period_key || runId
+
+  const XLSX = await import('xlsx')
+  const sheetRows: Array<Record<string, string | number>> = summary.rows.map((r, i) => ({
+    'ลำดับ': i + 1,
+    'ชื่อ': r.full_name || '(ไม่มีชื่อ)',
+    'ธนาคาร': r.bank_name || '',
+    'เลขบัญชี': r.bank_account_number || '',
+    'ยอดโอน': r.total,
+    'สถานะ': TRANSFER_STATUS_LABEL[r.status],
+  }))
+  sheetRows.push({
+    'ลำดับ': '',
+    'ชื่อ': 'รวม',
+    'ธนาคาร': '',
+    'เลขบัญชี': '',
+    'ยอดโอน': summary.sum_total,
+    'สถานะ': '',
+  })
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetRows), 'สรุปยอดโอน')
+  const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' }) as string
+
+  return { base64, filename: `transfer-${periodKey}.xlsx` }
+}
+
+/**
+ * "จ่ายแล้วทั้งหมด" — สลิปที่ปิดงวดแล้วทั้งงวดกลายเป็นจ่ายแล้วใน UPDATE เดียว
+ * guard trigger ที่ DB อนุญาตเฉพาะ finalized → paid อยู่แล้ว สลิปร่างจึงไม่ถูกแตะ
+ */
+export async function markAllPaid(
+  runId: string
+): Promise<{ error?: string; success?: boolean; count?: number }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+  if (!runId) return { error: 'ไม่พบงวดนี้' }
+
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('salary_slips')
+    .update({ status: 'paid', paid_at: new Date().toISOString(), paid_by: auth.userId })
+    .eq('run_id', runId)
+    .eq('status', 'finalized')
+    .select('id')
+  if (error) return { error: `บันทึกไม่สำเร็จ: ${error.message}` }
+
+  const ids = ((data || []) as unknown as Array<{ id: string }>).map(r => r.id)
+  if (ids.length === 0) return { error: 'ไม่มีสลิปที่รอโอนในงวดนี้' }
+
+  await logActivity('SALARY_MARK_ALL_PAID', { runId, count: ids.length })
+
+  for (const id of ids) revalidatePath(`/salary/${id}`)
+  revalidatePath(`/salary/runs/${runId}`)
+  revalidatePath('/salary/runs')
+  revalidatePath('/salary')
+  return { success: true, count: ids.length }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Sync ต้นทุน — บรรทัดค่าสตาฟ/เบิ้ล ตจว./รันเนอร์ ของสลิปที่ปิดงวดแล้ว
+//                → job_cost_items (category 'staff') ของอีเวนต์นั้นในโมดูลต้นทุน
+//
+// ADR-0001 ลบใบเบิกค่าสตาฟอัตโนมัติทิ้ง — นี่คือทางเดียวที่ต้นทุนสตาฟต่ออีเวนต์
+// กลับเข้า Costs · เรียกซ้ำได้ (จับคู่แถวเดิมด้วยคีย์ notes salary_slip::<slipId>::<line.key>)
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface SyncCostsResult {
+  error?: string
+  /** จำนวนแถวต้นทุนที่เขียน (insert + update) */
+  synced?: number
+  /** บรรทัดรันเนอร์ที่ผูกอีเวนต์ไม่ได้ — สลิปปิดงวดแล้วจึงเขียน warning ลงสลิปไม่ได้ */
+  skipped?: CostsSkip[]
+  synced_at?: string
+}
+
+/** สลิปที่ปิดงวดแล้ว เท่าที่การ sync ต้นทุนต้องใช้ */
+type SyncableSlip = {
+  id: string
+  user_id: string
+  status: SlipStatus
+  lines: SalaryLine[] | null
+  finalized_by: string | null
+}
+
+/**
+ * เขียนบรรทัดค่าสตาฟของสลิปหนึ่งเข้าโมดูลต้นทุน — ผู้เรียกตรวจสิทธิ์ admin มาแล้ว
+ * เรียกซ้ำได้ปลอดภัย (แถวเดิมถูกอัปเดตด้วยคีย์ notes ไม่เพิ่มแถวใหม่)
+ */
+async function syncSlipToCostsInternal(
+  supabase: ReturnType<typeof createServiceClient>,
+  slipId: string,
+  actorId: string
+): Promise<SyncCostsResult> {
+  const { data } = await supabase
+    .from('salary_slips')
+    .select('id, user_id, status, lines, finalized_by')
+    .eq('id', slipId)
+    .maybeSingle()
+  if (!data) return { error: 'ไม่พบสลิป' }
+
+  const slip = data as unknown as SyncableSlip
+  if (slip.status === 'draft') return { error: 'ต้องปิดงวดก่อนจึง sync ต้นทุนได้' }
+
+  const lines = Array.isArray(slip.lines) ? slip.lines : []
+
+  // เช็คอินที่สลิปนี้จ่าย — ทั้งที่ผูกกับบรรทัดตรงๆ และที่ถูกประทับ paid_slip_id ตอนปิดงวด
+  // (บรรทัดรันเนอร์ไม่มี checkin_id จึงต้องพึ่ง paid_slip_id เพื่อรู้ว่าวันนั้นไปอีเวนต์ไหน)
+  const lineCheckinIds = Array.from(
+    new Set(lines.map(l => l.checkin_id).filter((v): v is string => !!v))
+  )
+  const CHECKIN_COLUMNS = 'id, event_id, checked_in_at'
+  const [byId, byStamp] = await Promise.all([
+    lineCheckinIds.length > 0
+      ? supabase.from('staff_checkins').select(CHECKIN_COLUMNS).in('id', lineCheckinIds)
+      : Promise.resolve({ data: [] }),
+    supabase.from('staff_checkins').select(CHECKIN_COLUMNS).eq('paid_slip_id', slipId),
+  ])
+  const checkins = new Map<string, CostsSyncCheckin>()
+  for (const raw of [
+    ...((byId.data || []) as unknown as CostsSyncCheckin[]),
+    ...((byStamp.data || []) as unknown as CostsSyncCheckin[]),
+  ]) {
+    checkins.set(raw.id, raw)
+  }
+
+  const [profileRes, duties] = await Promise.all([
+    supabase.from('profiles').select('full_name, nickname').eq('id', slip.user_id).maybeSingle(),
+    listDuties(),
+  ])
+  const who = (profileRes.data || {}) as unknown as {
+    full_name?: string | null
+    nickname?: string | null
+  }
+  const fullName = who.full_name || who.nickname || 'ไม่ทราบชื่อ'
+  const dutyNames: Record<string, string> = {}
+  for (const d of duties) dutyNames[d.code] = d.name_th
+
+  const { rows, skipped } = costsRowsForSlip(
+    { id: slip.id, user_id: slip.user_id, lines },
+    Array.from(checkins.values()),
+    fullName,
+    dutyNames
+  )
+
+  const recordedBy = actorId || slip.finalized_by || null
+
+  // อีเวนต์ที่ยังไม่อยู่ในโมดูลต้นทุน → import ให้เหมือนพฤติกรรมเดิมของใบเบิกค่าสตาฟ
+  const jobEventByEvent = new Map<string, string>()
+  for (const eventId of Array.from(new Set(rows.map(r => r.event_id)))) {
+    const { data: existing } = await supabase
+      .from('job_cost_events')
+      .select('id')
+      .eq('source_event_id', eventId)
+      .maybeSingle()
+    if (existing) {
+      jobEventByEvent.set(eventId, (existing as unknown as { id: string }).id)
+      continue
+    }
+    // { success, id } เมื่อสร้างใหม่ · { error, existingId } เมื่อเพิ่งถูก import คู่ขนาน
+    const imported = (await importEventFromStock(eventId)) as {
+      id?: string
+      existingId?: string
+      error?: string
+    }
+    const jobEventId = imported.id || imported.existingId || null
+    if (jobEventId) jobEventByEvent.set(eventId, jobEventId)
+    else console.error(`[salary] import event ${eventId} เข้าต้นทุนไม่สำเร็จ: ${imported.error}`)
+  }
+
+  // อีเวนต์ที่ import ไม่ได้ → ข้ามแถวนั้นไว้ (กด sync อีกครั้งได้ภายหลัง)
+  const wanted = rows.filter(r => jobEventByEvent.has(r.event_id))
+
+  // แถวที่เคย sync ไว้ — จับคู่ด้วยคีย์ notes (unique ต่อบรรทัดสลิป)
+  const existingByNotes = new Map<string, string>()
+  if (wanted.length > 0) {
+    const { data: existingRaw } = await supabase
+      .from('job_cost_items')
+      .select('id, notes')
+      .in('notes', wanted.map(r => r.notes))
+    for (const r of (existingRaw || []) as unknown as Array<{ id: string; notes: string | null }>) {
+      if (r.notes) existingByNotes.set(r.notes, r.id)
+    }
+  }
+
+  let synced = 0
+  for (const row of wanted) {
+    const existingId = existingByNotes.get(row.notes)
+    const { error } = existingId
+      ? await supabase
+        .from('job_cost_items')
+        .update({ amount: row.amount, description: row.description, cost_date: row.cost_date })
+        .eq('id', existingId)
+      : await supabase.from('job_cost_items').insert({
+        job_event_id: jobEventByEvent.get(row.event_id)!,
+        category: 'staff',
+        description: row.description,
+        amount: row.amount,
+        cost_date: row.cost_date,
+        recorded_by: recordedBy,
+        notes: row.notes,
+      })
+    if (error) return { error: `เขียนต้นทุนไม่สำเร็จ: ${error.message}` }
+    synced += 1
+  }
+
+  const syncedAt = new Date().toISOString()
+  // guard trigger ของสลิปที่ปิดงวดแล้วอนุญาตให้ costs_synced_at เปลี่ยนได้
+  // (migration 20260829_salary_costs_synced_at.sql)
+  const { error: stampErr } = await supabase
+    .from('salary_slips')
+    .update({ costs_synced_at: syncedAt })
+    .eq('id', slipId)
+  if (stampErr) return { error: `บันทึกเวลา sync ไม่สำเร็จ: ${stampErr.message}` }
+
+  await logActivity('SALARY_COSTS_SYNC', { slipId, synced, skipped }, slip.user_id)
+
+  revalidatePath('/costs')
+  return { synced, skipped, synced_at: syncedAt }
+}
+
+/** ปุ่ม "sync ต้นทุนอีกครั้ง" ในสลิปที่ปิดงวดแล้ว (admin) */
+export async function syncSlipToCosts(slipId: string): Promise<SyncCostsResult> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+  if (!slipId) return { error: 'ไม่พบสลิป' }
+
+  const supabase = createServiceClient()
+  const res = await syncSlipToCostsInternal(supabase, slipId, auth.userId)
+  if (res.error) return res
+
+  revalidatePath(`/salary/${slipId}`)
+  return res
 }

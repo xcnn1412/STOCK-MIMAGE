@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { DEPARTMENTS } from '@/lib/departments'
 import { getSession } from '../../session'
-import { getRun } from '../../actions'
+import { getRun, getTransferSummary } from '../../actions'
 import { listSalaryProfiles } from '../../settings/actions'
 import RunView from './run-view'
 
@@ -23,7 +23,11 @@ export default async function SalaryRunPage({ params }: { params: Promise<{ runI
   const res = await getRun(runId)
   if ('error' in res) notFound()
 
-  const people = await listSalaryProfiles()
+  const [people, transferRes] = await Promise.all([
+    listSalaryProfiles(),
+    // สรุปยอดโอน — ว่างจนกว่าจะมีสลิปที่ปิดงวดแล้วในงวดนี้
+    getTransferSummary(runId),
+  ])
 
   return (
     <RunView
@@ -32,6 +36,7 @@ export default async function SalaryRunPage({ params }: { params: Promise<{ runI
       people={people}
       departments={DEPARTMENTS}
       suggestedUserIds={res.suggestedUserIds}
+      transfer={'error' in transferRes ? null : transferRes}
     />
   )
 }

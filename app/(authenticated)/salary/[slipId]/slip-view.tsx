@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, ArrowLeft, BanknoteArrowUp, FileDown, Landmark, Lock, RefreshCw,
+  AlertTriangle, ArrowLeft, BanknoteArrowUp, FileDown, Landmark, Lock, RefreshCw, Receipt,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,7 +21,7 @@ import SlipLinesTable from '../components/slip-lines-table'
 import SlipCheckinsTable from '../components/slip-checkins-table'
 import { hasMissingAmounts } from '../compute'
 import {
-  finalizeSlip, markSlipPaid, recomputeSlip,
+  finalizeSlip, markSlipPaid, recomputeSlip, syncSlipToCosts,
   type SlipCheckinRow, type SlipDetail, type SlipEventOption,
 } from '../actions'
 import type { SalaryDutyRow } from '../settings/actions'
@@ -79,6 +79,24 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
         return
       }
       toast.success('ปิดงวดสลิปแล้ว — แจ้งเตือนเจ้าของสลิปเรียบร้อย')
+      router.refresh()
+    })
+  }
+
+  /** ดันบรรทัดค่าสตาฟเข้าโมดูลต้นทุนอีกครั้ง — ปลอดภัยที่จะกดซ้ำ (แถวเดิมถูกอัปเดต) */
+  function runSyncCosts() {
+    startTransition(async () => {
+      const res = await syncSlipToCosts(slip.id)
+      if (res.error) {
+        toast.error(res.error)
+        return
+      }
+      const skipped = res.skipped?.length || 0
+      toast.success(
+        skipped > 0
+          ? `sync ต้นทุน ${res.synced} รายการ · ข้ามรันเนอร์ที่ผูกอีเวนต์ไม่ได้ ${skipped} รายการ`
+          : `sync ต้นทุน ${res.synced} รายการแล้ว`
+      )
       router.refresh()
     })
   }
@@ -158,6 +176,19 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
                   )}
                 </div>
               </>
+            )}
+            {isAdmin && slip.status !== 'draft' && (
+              <div className="flex flex-col items-start gap-1">
+                <Button variant="outline" disabled={isPending} onClick={runSyncCosts}>
+                  <Receipt className="size-4" />
+                  sync ต้นทุนอีกครั้ง
+                </Button>
+                <span className="max-w-56 text-xs text-muted-foreground">
+                  {slip.costs_synced_at
+                    ? `sync ล่าสุด ${formatThaiDate(slip.costs_synced_at)}`
+                    : 'ยังไม่เคย sync เข้าโมดูลต้นทุน'}
+                </span>
+              </div>
             )}
             {isAdmin && slip.status === 'finalized' && (
               <Button disabled={isPending} onClick={() => setConfirmPaid(true)}>

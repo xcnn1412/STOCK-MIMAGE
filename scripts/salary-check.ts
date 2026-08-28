@@ -23,6 +23,8 @@ import {
   type SalaryLine,
   type SalaryProfileInput,
 } from '../app/(authenticated)/salary/compute'
+// pure ล้วน ไม่มี 'use server' → เทสต์ import ตรงได้โดยไม่ลาก next/headers เข้ามา
+import { costsRowsForSlip } from '../app/(authenticated)/salary/costs-sync'
 
 config({ path: '.env.local' })
 
@@ -386,6 +388,71 @@ function partA() {
     ])
     assertEq(otLines(r).map(l => l.date), ['2026-08-05'], 'OT ออฟฟิศเฉพาะวันที่อยู่ในช่วงงวด')
     assertEq(r.total, 15250, 'total = ฐาน 15000 + OT 250')
+  }
+
+  // ── 15. บรรทัดสลิป → แถวต้นทุน (job_cost_items) ────────────────────────
+  console.log('\n[A15] costsRowsForSlip: site/oop ผูกอีเวนต์, OT ไม่ sync, runner เฉพาะวันอีเวนต์เดียว')
+  {
+    // k1 = 5 ส.ค. อีเวนต์ e1 (site + oop) · k2/k3 = 6 ส.ค. คนละอีเวนต์ (รันเนอร์ผูกไม่ได้)
+    // k4 = 7 ส.ค. อีเวนต์เดียว (รันเนอร์ผูกได้) · k5 = 8 ส.ค. อีเวนต์ e4 (บรรทัดยอด 0)
+    const checkins = [
+      { id: 'k1', event_id: 'e1', checked_in_at: ts('2026-08-05', '09:00') },
+      { id: 'k2', event_id: 'e1', checked_in_at: ts('2026-08-06', '09:00') },
+      { id: 'k3', event_id: 'e2', checked_in_at: ts('2026-08-06', '14:00') },
+      { id: 'k4', event_id: 'e3', checked_in_at: ts('2026-08-07', '09:00') },
+      { id: 'k5', event_id: 'e4', checked_in_at: ts('2026-08-08', '09:00') },
+    ]
+    const lines: SalaryLine[] = [
+      // แก้มือทับ 700 → 900: แถวต้นทุนต้องใช้ยอดหลังแก้มือ
+      {
+        key: 'site:2026-08-05:k1:onsite_staff', kind: 'site', date: '2026-08-05', checkin_id: 'k1',
+        duty: 'onsite_staff', label: 'ออกงานสตาฟ', computed_amount: 700, amount: 900,
+        override_note: 'งานยาว',
+      },
+      {
+        key: 'oop:2026-08-05:k1', kind: 'oop', date: '2026-08-05', checkin_id: 'k1',
+        label: 'เบิ้ลต่างจังหวัด', computed_amount: 300, amount: 300,
+      },
+      { key: 'ot:2026-08-05', kind: 'ot', date: '2026-08-05', label: 'OT 2 ชม.', hours: 2, computed_amount: 200, amount: 200 },
+      { key: 'runner:2026-08-06:runner', kind: 'runner', date: '2026-08-06', duty: 'runner', label: 'รันเนอร์ · 2 เช็คอิน', computed_amount: 0, amount: 500 },
+      { key: 'runner:2026-08-07:runner', kind: 'runner', date: '2026-08-07', duty: 'runner', label: 'รันเนอร์ · 1 เช็คอิน', computed_amount: 0, amount: 400 },
+      // ยอด 0 — ไม่มีประโยชน์ในต้นทุน ไม่ต้องมีแถว
+      {
+        key: 'site:2026-08-08:k5:deliver_booth', kind: 'site', date: '2026-08-08', checkin_id: 'k5',
+        duty: 'deliver_booth', label: 'ส่งโฟโต้บูธ', computed_amount: 150, amount: 0,
+      },
+    ]
+    const dutyNames = Object.fromEntries(DUTIES.map(d => [d.code, d.name_th]))
+    const { rows, skipped } = costsRowsForSlip(
+      { id: 'slip1', user_id: 'u1', lines }, checkins, 'สมชาย ใจดี', dutyNames
+    )
+
+    assertEq(rows.length, 3, 'ได้ 3 แถว (site + oop วันที่ 5 ส.ค. และรันเนอร์วันที่ 7 ส.ค.)')
+    assertEq(
+      rows.map(r => [r.event_id, r.amount, r.cost_date]),
+      [['e1', 900, '2026-08-05'], ['e1', 300, '2026-08-05'], ['e3', 400, '2026-08-07']],
+      'อีเวนต์/ยอด (หลังแก้มือ)/วันที่ของแต่ละแถว'
+    )
+    assertEq(
+      rows.map(r => r.description),
+      ['ค่าสตาฟ สมชาย ใจดี — ออกงานสตาฟ', 'เบิ้ลต่างจังหวัด สมชาย ใจดี', 'รันเนอร์ สมชาย ใจดี'],
+      'คำอธิบายของแต่ละแถว'
+    )
+    assertEq(
+      rows.map(r => r.notes),
+      [
+        'salary_slip::slip1::site:2026-08-05:k1:onsite_staff',
+        'salary_slip::slip1::oop:2026-08-05:k1',
+        'salary_slip::slip1::runner:2026-08-07:runner',
+      ],
+      'คีย์ notes (idempotent) ตรงรูป salary_slip::<slipId>::<line.key>'
+    )
+    assert(!rows.some(r => r.notes.includes('ot:')), 'บรรทัด OT ไม่ถูก sync')
+    assert(!rows.some(r => r.cost_date === '2026-08-08'), 'บรรทัด site ยอด 0 ไม่ถูก sync')
+    assertEq(
+      skipped, [{ key: 'runner:2026-08-06:runner', reason: 'costs_runner_skipped' }],
+      'รันเนอร์วันที่มี 2 อีเวนต์ถูกข้ามพร้อมเหตุผล'
+    )
   }
 
   // ── 16. สัปดาห์ล่าสุดที่จบแล้ว (จันทร์–อาทิตย์) ────────────────────────

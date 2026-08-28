@@ -148,7 +148,7 @@ function bangkokMinutes(iso: string): number {
 }
 
 /** วันที่ไทย (YYYY-MM-DD) ของ instant หนึ่ง */
-function bangkokDate(iso: string): string {
+export function bangkokDate(iso: string): string {
   return new Date(new Date(iso).getTime() + BANGKOK_OFFSET).toISOString().slice(0, 10)
 }
 
