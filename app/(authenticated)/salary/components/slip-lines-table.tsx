@@ -78,7 +78,7 @@ export default function SlipLinesTable({
 
         <tbody>
           {/* เงินเดือนฐาน — เฉพาะพนักงานประจำ (ฟรีแลนซ์ไม่มีบรรทัดนี้) */}
-          {employmentType === 'fulltime' && (
+          {employmentType !== 'freelance' && (
             <tr className="border-b">
               <td className="px-4 py-2.5 font-medium">เงินเดือนฐาน</td>
               <td className="px-4 py-2.5 text-right font-medium tabular-nums">

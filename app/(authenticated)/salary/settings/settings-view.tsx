@@ -43,6 +43,7 @@ const PAY_MODE_LABEL: Record<DutyFormInput['pay_mode'], string> = {
 const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
   fulltime: 'ประจำ',
   freelance: 'ฟรีแลนซ์',
+  intern: 'นักศึกษาฝึกงาน',
 }
 
 const EMPTY_DUTY: DutyFormInput = {
@@ -391,6 +392,7 @@ export default function SettingsView({ settings, duties, profiles, departments }
                 <TableHeader>
                   <TableRow>
                     <TableHead>ชื่อ</TableHead>
+                    <TableHead>ชื่อเล่น</TableHead>
                     <TableHead>แผนก</TableHead>
                     <TableHead>ประเภทการจ้าง</TableHead>
                     <TableHead className="text-right">เงินเดือนฐาน</TableHead>
@@ -404,7 +406,7 @@ export default function SettingsView({ settings, duties, profiles, departments }
                 <TableBody>
                   {filteredProfiles.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                      <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                         ไม่พบผู้ใช้ที่ตรงกับตัวกรอง
                       </TableCell>
                     </TableRow>
@@ -424,6 +426,7 @@ export default function SettingsView({ settings, duties, profiles, departments }
                           )}
                         </div>
                       </TableCell>
+                      <TableCell>{p.nickname || '-'}</TableCell>
                       <TableCell className="text-muted-foreground">{p.department || '-'}</TableCell>
                       <TableCell>
                         {p.configured ? EMPLOYMENT_LABEL[p.employment_type] : '-'}
@@ -564,6 +567,7 @@ export default function SettingsView({ settings, duties, profiles, departments }
                   <SelectContent>
                     <SelectItem value="fulltime">{EMPLOYMENT_LABEL.fulltime}</SelectItem>
                     <SelectItem value="freelance">{EMPLOYMENT_LABEL.freelance}</SelectItem>
+                    <SelectItem value="intern">{EMPLOYMENT_LABEL.intern}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -36,7 +36,7 @@ interface Props {
   events: SlipEventOption[]
 }
 
-const EMPLOYMENT_LABEL = { fulltime: 'ประจำ', freelance: 'ฟรีแลนซ์' } as const
+const EMPLOYMENT_LABEL = { fulltime: 'ประจำ', freelance: 'ฟรีแลนซ์', intern: 'นักศึกษาฝึกงาน' } as const
 
 export default function SlipView({ slip, isAdmin, checkins, duties, events }: Props) {
   const router = useRouter()

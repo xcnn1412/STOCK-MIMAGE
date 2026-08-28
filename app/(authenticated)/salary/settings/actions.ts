@@ -13,7 +13,7 @@ import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { requireAdmin } from '../session'
-import type { DutyInput, EmploymentType } from '../compute'
+import { toEmploymentType, type DutyInput, type EmploymentType } from '../compute'
 
 const CUTOFF_KEY = 'salary_cutoff_day'
 const OOP_RATE_KEY = 'salary_out_of_province_rate'
@@ -25,7 +25,7 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 const PAY_MODES: DutyInput['pay_mode'][] = ['per_checkin', 'manual_daily']
-const EMPLOYMENT_TYPES: EmploymentType[] = ['fulltime', 'freelance']
+const EMPLOYMENT_TYPES: EmploymentType[] = ['fulltime', 'freelance', 'intern']
 
 function refresh() {
   revalidatePath('/salary/settings')
@@ -297,7 +297,7 @@ export async function listSalaryProfiles(): Promise<SalaryProfileListRow[]> {
       department: u.department,
       role: u.role,
       configured: !!p,
-      employment_type: (p?.employment_type === 'freelance' ? 'freelance' : 'fulltime') as EmploymentType,
+      employment_type: toEmploymentType(p?.employment_type),
       base_salary: Number(p?.base_salary || 0),
       work_start: toClock(p?.work_start, '10:00'),
       work_end: toClock(p?.work_end, '19:00'),

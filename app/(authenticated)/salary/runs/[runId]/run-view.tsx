@@ -45,6 +45,7 @@ interface Props {
 const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
   fulltime: 'ประจำ',
   freelance: 'ฟรีแลนซ์',
+  intern: 'นักศึกษาฝึกงาน',
 }
 
 const ALL = '__all__'
@@ -270,6 +271,7 @@ export default function RunView({ run, slips, people, departments }: Props) {
                 <SelectItem value={ALL}>ทุกประเภทการจ้าง</SelectItem>
                 <SelectItem value="fulltime">ประจำ</SelectItem>
                 <SelectItem value="freelance">ฟรีแลนซ์</SelectItem>
+                <SelectItem value="intern">นักศึกษาฝึกงาน</SelectItem>
               </SelectContent>
             </Select>
           </div>

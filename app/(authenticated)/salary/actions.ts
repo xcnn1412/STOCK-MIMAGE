@@ -15,7 +15,7 @@ import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { getSession, requireAdmin } from './session'
 import { fmtMoney, periodLabel } from './format'
-import { computeSlip, hasMissingAmounts, lineAmount, periodRange } from './compute'
+import { computeSlip, hasMissingAmounts, lineAmount, periodRange, toEmploymentType } from './compute'
 import type {
   CheckinInput, EmploymentType, SalaryAdjustment, SalaryLine, SalaryWarning,
 } from './compute'
@@ -449,7 +449,7 @@ export async function getRun(runId: string): Promise<{ error: string } | RunDeta
         full_name: who?.full_name ?? null,
         nickname: who?.nickname ?? null,
         status: s.status,
-        employment_type: (s.employment_type === 'freelance' ? 'freelance' : 'fulltime') as EmploymentType,
+        employment_type: toEmploymentType(s.employment_type),
         total: Number(s.total || 0),
         warnings: Array.isArray(s.warnings) ? s.warnings : [],
         computed_at: s.computed_at,
@@ -591,7 +591,7 @@ export async function computeSlips(
     }
 
     const employment_type: EmploymentType =
-      sp.employment_type === 'freelance' ? 'freelance' : 'fulltime'
+      toEmploymentType(sp.employment_type)
     const base_salary = Number(sp.base_salary || 0)
     const adjustments: SalaryAdjustment[] = Array.isArray(prev?.adjustments) ? prev.adjustments : []
 
@@ -780,7 +780,7 @@ export async function getSlipForView(
     run_id: raw.run_id,
     user_id: raw.user_id,
     status: raw.status,
-    employment_type: raw.employment_type === 'freelance' ? 'freelance' : 'fulltime',
+    employment_type: toEmploymentType(raw.employment_type),
     base_salary: Number(raw.base_salary || 0),
     lines: Array.isArray(raw.lines) ? raw.lines : [],
     adjustments: Array.isArray(raw.adjustments) ? raw.adjustments : [],
@@ -926,7 +926,7 @@ function round2(n: number): number {
 function recalcTotal(
   slip: Pick<DraftSlip, 'employment_type' | 'base_salary' | 'lines' | 'adjustments'>
 ): number {
-  const base = slip.employment_type === 'fulltime' ? slip.base_salary : 0
+  const base = slip.employment_type === 'freelance' ? 0 : slip.base_salary
   const lineTotal = slip.lines.reduce((sum, l) => sum + lineAmount(l), 0)
   const adjustTotal = slip.adjustments.reduce((sum, a) => sum + Number(a.amount || 0), 0)
   return round2(base + lineTotal + adjustTotal)
@@ -989,7 +989,7 @@ async function loadDraftSlip(
       id: raw.id,
       run_id: raw.run_id,
       user_id: raw.user_id,
-      employment_type: raw.employment_type === 'freelance' ? 'freelance' : 'fulltime',
+      employment_type: toEmploymentType(raw.employment_type),
       base_salary: Number(raw.base_salary || 0),
       lines: Array.isArray(raw.lines) ? raw.lines : [],
       adjustments: Array.isArray(raw.adjustments) ? raw.adjustments : [],

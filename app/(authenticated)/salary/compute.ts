@@ -10,7 +10,12 @@
 // Types
 // ────────────────────────────────────────────────────────────────────────────
 
-export type EmploymentType = 'fulltime' | 'freelance'
+export type EmploymentType = 'fulltime' | 'freelance' | 'intern'
+
+// ponytail: intern คิดแบบเดียวกับ fulltime (มีฐาน + office/onsite) — ต่างเฉพาะป้ายชื่อ
+export function toEmploymentType(v: unknown): EmploymentType {
+  return v === 'freelance' || v === 'intern' ? v : 'fulltime'
+}
 
 export interface SalaryProfileInput {
   employment_type: EmploymentType
@@ -179,9 +184,9 @@ export function computeSlip(input: ComputeInput): ComputeResult {
   const { profile, duties, oopRate, periodStart, periodEnd } = input
   const dutyByCode = new Map(duties.map(d => [d.code, d]))
 
-  // 1. ขอบเขต: ประจำ = office + onsite, ฟรีแลนซ์ = onsite เท่านั้น, ไม่นับ remote
+  // 1. ขอบเขต: ประจำ/ฝึกงาน = office + onsite, ฟรีแลนซ์ = onsite เท่านั้น, ไม่นับ remote
   const allowedTypes: CheckinInput['check_type'][] =
-    profile.employment_type === 'fulltime' ? ['office', 'onsite'] : ['onsite']
+    profile.employment_type === 'freelance' ? ['onsite'] : ['office', 'onsite']
 
   const scoped = input.checkins
     .map(c => ({ c, date: bangkokDate(c.checked_in_at) }))
@@ -365,7 +370,7 @@ export function computeSlip(input: ComputeInput): ComputeResult {
     cmp(a.date, b.date) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || cmp(a.label, b.label) || cmp(a.key, b.key))
   warnings.sort((a, b) => cmp(a.date, b.date) || cmp(a.code, b.code) || cmp(a.checkin_id ?? '', b.checkin_id ?? ''))
 
-  const base = profile.employment_type === 'fulltime' ? profile.base_salary : 0
+  const base = profile.employment_type === 'freelance' ? 0 : profile.base_salary
   const lineTotal = lines.reduce((sum, l) => sum + lineAmount(l), 0)
   const adjustTotal = (input.adjustments ?? []).reduce((sum, a) => sum + a.amount, 0)
 

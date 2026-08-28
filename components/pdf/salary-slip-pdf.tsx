@@ -74,6 +74,7 @@ const KIND_LABEL: Record<LineKind, string> = {
 const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
   fulltime: 'ประจำ',
   freelance: 'ฟรีแลนซ์',
+  intern: 'นักศึกษาฝึกงาน',
 }
 
 // ============================================================================
@@ -198,7 +199,7 @@ function InfoItem({ label, value }: { label: string; value: string | null | unde
 // ============================================================================
 export function SalarySlipPDF({ slip, printedAt }: SalarySlipPdfData) {
   const isDraft = slip.status === 'draft'
-  const isFulltime = slip.employment_type === 'fulltime'
+  const isFulltime = slip.employment_type !== 'freelance' // ประจำ + ฝึกงาน มีฐาน
   const status = statusInfo(slip)
 
   const name = slip.full_name || slip.nickname || '(ไม่มีชื่อ)'
