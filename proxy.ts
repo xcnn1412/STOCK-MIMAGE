@@ -13,6 +13,8 @@ const MODULE_ROUTES: Record<string, string[]> = {
   content: ['/content-planner'],
   finance: ['/finance'],
   // duplicated from lib/nav-config.ts — Edge runtime can't import lucide icons
+  salary: ['/salary'],
+  // duplicated from lib/nav-config.ts — Edge runtime can't import lucide icons
   documents: ['/documents'],
   salesboard: ['/sales-board'],
   admin: ['/logs', '/users', '/security'],
@@ -157,6 +159,10 @@ export async function proxy(request: NextRequest) {
           // Admins always reach the documents module (approvals/settings/reports are admin-only)
           if (data.role === 'admin' && !allowedModules.includes('documents')) {
             allowedModules = [...allowedModules, 'documents']
+          }
+          // Admins always reach the salary module (runs/settings are admin-only)
+          if (data.role === 'admin' && !allowedModules.includes('salary')) {
+            allowedModules = [...allowedModules, 'salary']
           }
         }
       }
