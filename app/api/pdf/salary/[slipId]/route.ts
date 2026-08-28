@@ -45,8 +45,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ slipId: st
     )
 
     // ทุกท่อนของชื่อไฟล์กรองเหลือ ASCII ก่อน — กันทั้งชื่อไทยและอักขระที่ทำให้ header เพี้ยน
+    // งวดเดือน = สลิปเงินเดือน (salary) · งวดสัปดาห์/กำหนดเอง = สลิปค่าจ้าง (wage)
+    const prefix = slip.kind === 'monthly' ? 'salary-slip' : 'wage-slip'
     const period = asciiTag(slip.period_key, 'slip')
-    const filename = `salary-slip-${period}-${asciiTag(slip.nickname, slip.id)}.pdf`
+    const filename = `${prefix}-${period}-${asciiTag(slip.nickname, slip.id)}.pdf`
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {

@@ -15,7 +15,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, periodLabel } from '../format'
+import { fmtMoney, slipTitle } from '../format'
 import { SlipStatusBadge } from '../components/slip-status-badge'
 import SlipLinesTable from '../components/slip-lines-table'
 import SlipCheckinsTable from '../components/slip-checkins-table'
@@ -111,7 +111,7 @@ export default function SlipView({ slip, isAdmin, checkins, duties, events }: Pr
           <div>
             <h1 className="text-2xl font-semibold">{name}</h1>
             <p className="text-sm text-muted-foreground">
-              งวด{periodLabel(slip.period_key)} ·{' '}
+              {slipTitle(slip)} ·{' '}
               {formatThaiDate(slip.period_start)} – {formatThaiDate(slip.period_end)}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">

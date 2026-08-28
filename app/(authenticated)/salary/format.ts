@@ -79,3 +79,19 @@ export function periodLabel(run: string | PeriodLabelRun | null | undefined): st
   if (!month) return run
   return `${month} ${Number(m[1]) + 543}`
 }
+
+/** งวดนี้เป็นงวดเดือนหรือไม่ — สตริงรูปช่วง (YYYY-MM-DD_YYYY-MM-DD) ถือว่าไม่ใช่ */
+function isMonthlyRun(run: string | PeriodLabelRun): boolean {
+  if (typeof run === 'string') return !RANGE_KEY_RE.test(run)
+  if (run.kind) return run.kind === 'monthly'
+  return !RANGE_KEY_RE.test(run.period_key || '')
+}
+
+/**
+ * ชื่อสลิปที่ผู้ใช้เห็น — งวดเดือนเป็น "เงินเดือน" ที่เหลือเป็น "ค่าจ้าง"
+ * 'สลิปเงินเดือน สิงหาคม 2569' / 'สลิปค่าจ้าง 1–7 ก.ย. 69'
+ */
+export function slipTitle(run: string | PeriodLabelRun | null | undefined): string {
+  if (!run) return 'สลิปเงินเดือน'
+  return `${isMonthlyRun(run) ? 'สลิปเงินเดือน' : 'สลิปค่าจ้าง'} ${periodLabel(run)}`
+}

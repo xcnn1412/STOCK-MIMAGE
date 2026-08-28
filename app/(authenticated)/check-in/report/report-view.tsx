@@ -36,6 +36,8 @@ interface CheckinRecord {
   province?: string | null
   district?: string | null
   out_of_province?: boolean | null
+  /** สลิปที่จ่ายเช็คอินนี้ไปแล้ว (โมดูลเงินเดือน) — null = ยังไม่ถูกจ่าย */
+  paid_slip_id?: string | null
   profiles: { id: string; full_name: string | null; nickname: string | null } | null
   events: { id: string; name: string } | null
   assigned_roles?: { role: string; label: string; color: string }[]
@@ -170,7 +172,9 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, du
   const [staffSettingsMap, setStaffSettingsMap] = useState<Record<string, {
     standard_hours: number | null; late_hour: number | null; late_minute: number | null; ot_threshold: number | null
   }>>(() => {
-    const m: Record<string, any> = {}
+    const m: Record<string, {
+      standard_hours: number | null; late_hour: number | null; late_minute: number | null; ot_threshold: number | null
+    }> = {}
     staff.forEach(s => {
       if (s.standard_hours != null || s.late_hour != null || s.late_minute != null || s.ot_threshold != null) {
         m[s.id] = { standard_hours: s.standard_hours, late_hour: s.late_hour, late_minute: s.late_minute, ot_threshold: s.ot_threshold }
@@ -1037,6 +1041,17 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, du
                                       </span>
                                     ))}
                                   </div>
+                                )}
+                                {/* จ่ายไปกับสลิปไหนแล้ว (โมดูลเงินเดือน) — หน้าสลิปตรวจสิทธิ์เอง */}
+                                {r.paid_slip_id && (
+                                  <Link
+                                    href={`/salary/${r.paid_slip_id}`}
+                                    onClick={e => e.stopPropagation()}
+                                    title="เช็คอินนี้จ่ายไปแล้ว — เปิดสลิป"
+                                    className="inline-flex items-center px-1.5 py-0.5 mt-1.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[9px] font-bold hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors"
+                                  >
+                                    จ่ายแล้ว
+                                  </Link>
                                 )}
                               </td>
                               <td className="px-4 py-2.5">

@@ -26,9 +26,9 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, periodLabel } from '../../format'
+import { fmtMoney, periodLabel, slipTitle } from '../../format'
 import { SlipStatusBadge } from '../../components/slip-status-badge'
-import type { EmploymentType } from '../../compute'
+import type { EmploymentType, RunKind } from '../../compute'
 import type { SalaryProfileListRow } from '../../settings/actions'
 import {
   computeSlips, deleteSlip, finalizeRemainingSlips, finalizeSlip, markSlipPaid,
@@ -40,12 +40,20 @@ interface Props {
   slips: RunSlipRow[]
   people: SalaryProfileListRow[]
   departments: string[]
+  /** คนที่ระบบติ๊กไว้ให้เองตั้งแต่เปิดหน้า (ยังไม่มีสลิปในงวดนี้) */
+  suggestedUserIds: string[]
 }
 
 const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
   fulltime: 'ประจำ',
   freelance: 'ฟรีแลนซ์',
   intern: 'นักศึกษาฝึกงาน',
+}
+
+const KIND_LABEL: Record<RunKind, string> = {
+  monthly: 'รายเดือน',
+  weekly: 'รายสัปดาห์',
+  custom: 'กำหนดเอง',
 }
 
 const ALL = '__all__'
@@ -55,7 +63,7 @@ function displayName(p: { full_name: string | null; nickname: string | null }): 
   return p.full_name || p.nickname || '(ไม่มีชื่อ)'
 }
 
-export default function RunView({ run, slips, people, departments }: Props) {
+export default function RunView({ run, slips, people, departments, suggestedUserIds }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
@@ -63,7 +71,11 @@ export default function RunView({ run, slips, people, departments }: Props) {
   const [dept, setDept] = useState(ALL)
   const [employment, setEmployment] = useState(ALL)
   const [q, setQ] = useState('')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  // ติ๊กให้เองตั้งแต่เปิดหน้า — เฉพาะคนที่ตั้งค่าเงินเดือนแล้ว (คนอื่นติ๊กไม่ได้อยู่ดี)
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    const configured = new Set(people.filter(p => p.configured).map(p => p.user_id))
+    return new Set(suggestedUserIds.filter(id => configured.has(id)))
+  })
   const [skipped, setSkipped] = useState<SkippedUser[]>([])
   const [deleteTarget, setDeleteTarget] = useState<RunSlipRow | null>(null)
 
@@ -216,7 +228,10 @@ export default function RunView({ run, slips, people, departments }: Props) {
             <ArrowLeft className="size-4" />
             งวดคำนวณ
           </Link>
-          <h1 className="text-2xl font-semibold">งวด{periodLabel(run.period_key)}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold">งวด{periodLabel(run)}</h1>
+            <Badge variant="outline">{KIND_LABEL[run.kind]}</Badge>
+          </div>
           <p className="text-sm text-muted-foreground">
             {formatThaiDate(run.period_start)} – {formatThaiDate(run.period_end)}
             {run.note ? ` · ${run.note}` : ''}
@@ -366,7 +381,7 @@ export default function RunView({ run, slips, people, departments }: Props) {
       <Card>
         <CardContent className="p-0">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
-            <h2 className="font-medium">สลิปในงวดนี้</h2>
+            <h2 className="font-medium">{slipTitle(run)}</h2>
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-muted-foreground">
                 {slips.length} สลิป · ยอดรวม{' '}
@@ -539,7 +554,7 @@ export default function RunView({ run, slips, people, departments }: Props) {
             <AlertDialogTitle>ลบสลิปร่าง</AlertDialogTitle>
             <AlertDialogDescription>
               เอา{deleteTarget ? displayName(deleteTarget) : 'คนนี้'}ออกจากงวด
-              {periodLabel(run.period_key)} — ค่าที่แก้มือและรายการปรับมือในสลิปนี้จะหายไปด้วย
+              {periodLabel(run)} — ค่าที่แก้มือและรายการปรับมือในสลิปนี้จะหายไปด้วย
               คำนวณใหม่ได้ภายหลัง
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -595,7 +610,7 @@ export default function RunView({ run, slips, people, departments }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>ปิดงวดที่เหลือทั้งหมด</AlertDialogTitle>
             <AlertDialogDescription>
-              ปิดงวดสลิปร่างที่เหลือในงวด{periodLabel(run.period_key)} ทั้งหมด {draftCount} ใบ —
+              ปิดงวดสลิปร่างที่เหลือในงวด{periodLabel(run)} ทั้งหมด {draftCount} ใบ —
               ปิดงวดแล้วจะแก้ตัวเลขไม่ได้อีก และเจ้าของสลิปแต่ละใบจะได้รับแจ้งเตือน
               ใบที่ยังกรอกยอดรันเนอร์ไม่ครบจะถูกข้ามไว้ให้กรอกก่อน
             </AlertDialogDescription>

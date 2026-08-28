@@ -869,7 +869,7 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
   // Non-admins see only their own records; admins see everyone's.
   let recordsQuery = supabase
     .from('staff_checkins')
-    .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, checkout_photo_url, event_id, duties, province, district, out_of_province, events:event_id(id, name, crm_lead_id), profiles:user_id(id, full_name, nickname)')
+    .select('id, user_id, check_type, checked_in_at, checked_out_at, note, latitude, longitude, photo_url, checkout_photo_url, event_id, duties, province, district, out_of_province, paid_slip_id, events:event_id(id, name, crm_lead_id), profiles:user_id(id, full_name, nickname)')
     .gte('checked_in_at', startISO)
     .lte('checked_in_at', endISO)
     .order('checked_in_at', { ascending: true })

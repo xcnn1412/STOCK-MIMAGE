@@ -26,6 +26,12 @@ export default async function SalaryRunPage({ params }: { params: Promise<{ runI
   const people = await listSalaryProfiles()
 
   return (
-    <RunView run={res.run} slips={res.slips} people={people} departments={DEPARTMENTS} />
+    <RunView
+      run={res.run}
+      slips={res.slips}
+      people={people}
+      departments={DEPARTMENTS}
+      suggestedUserIds={res.suggestedUserIds}
+    />
   )
 }

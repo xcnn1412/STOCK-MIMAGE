@@ -3,7 +3,7 @@ import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/rendere
 import path from 'path'
 import { numberToThaiBahtText } from '@/lib/thai-baht-text'
 import { formatThaiDate } from '@/lib/thai-date'
-import { fmtMoney, periodLabel } from '@/app/(authenticated)/salary/format'
+import { fmtMoney, slipTitle } from '@/app/(authenticated)/salary/format'
 import {
   lineAmount,
   type EmploymentType,
@@ -39,6 +39,8 @@ Font.register({
 export interface SalarySlipPdfSlip {
   id: string
   status: 'draft' | 'finalized' | 'paid'
+  /** ชนิดงวด — ไม่ส่ง = งวดเดือน (สลิปเก่า/fixture ของสคริปต์ตรวจ) */
+  kind?: string | null
   employment_type: EmploymentType
   base_salary: number
   lines: SalaryLine[]
@@ -232,8 +234,8 @@ export function SalarySlipPDF({ slip, printedAt }: SalarySlipPdfData) {
         {/* ── หัวสลิป ── */}
         <View style={s.header}>
           <View>
-            <Text style={s.title}>สลิปเงินเดือน</Text>
-            <Text style={s.period}>งวด{periodLabel(slip.period_key)}</Text>
+            {/* งวดเดือน = "สลิปเงินเดือน …" · งวดสัปดาห์/กำหนดเอง = "สลิปค่าจ้าง …" */}
+            <Text style={s.title}>{slipTitle(slip)}</Text>
             <Text style={s.period}>
               {formatThaiDate(slip.period_start)} – {formatThaiDate(slip.period_end)}
             </Text>

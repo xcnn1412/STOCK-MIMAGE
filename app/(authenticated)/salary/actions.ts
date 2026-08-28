@@ -14,10 +14,11 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { getSession, requireAdmin } from './session'
-import { fmtMoney, periodLabel } from './format'
+import { fmtMoney, periodLabel, slipTitle } from './format'
 import {
-  catchUpStart, computeSlip, hasMissingAmounts, lineAmount, periodKeyFor, periodRange,
-  selectCheckinsForRun, toEmploymentType, toRunKind, weekRangeFor, weekdayOf,
+  CATCH_UP_DAYS, catchUpStart, computeSlip, hasMissingAmounts, lastFinishedWeek, lineAmount,
+  periodKeyFor, periodRange, selectCheckinsForRun, toEmploymentType, toRunKind,
+  weekRangeFor, weekdayOf,
 } from './compute'
 import type {
   CheckinInput, EmploymentType, RunKind, RunWindow, SalaryAdjustment, SalaryLine, SalaryWarning,
@@ -35,12 +36,39 @@ export type SlipStatus = 'draft' | 'finalized' | 'paid'
 export interface MySlipRow {
   id: string
   status: 'finalized' | 'paid'
+  /** ชนิดงวด — ป้ายชื่อสลิปแยก "เงินเดือน" (monthly) กับ "ค่าจ้าง" (weekly/custom) */
+  kind: RunKind
   total: number
   finalized_at: string | null
   paid_at: string | null
   period_key: string
   period_start: string
   period_end: string
+}
+
+/** ข้อเสนอ "งวดนี้ยังไม่เปิด" บนหน้า /salary/runs — คลิกเดียวเปิด+คำนวณ */
+export interface RunSuggestion {
+  kind: 'weekly' | 'monthly'
+  /** งวดเดือน: 'YYYY-MM' ที่ส่งเข้า createSalaryRun (งวดสัปดาห์ไม่มี) */
+  month?: string
+  start: string
+  end: string
+  /** ชื่องวดที่ผู้ใช้เห็น (periodLabel) */
+  label: string
+  /** จำนวนคนที่ควรได้สลิปในงวดนี้ */
+  users: number
+  /** จำนวนเช็คอินหน้างานค้างจ่ายในหน้าต่างเก็บตกของงวด */
+  checkins: number
+}
+
+/** เช็คอินหน้างานค้างจ่ายที่เลยหน้าต่างเก็บตกไปแล้ว — ต้องเปิดงวดกำหนดเองย้อนหลัง */
+export interface OverdueCheckinRow {
+  id: string
+  user_id: string
+  full_name: string | null
+  /** วันเช็คอินตามเวลาไทย (YYYY-MM-DD) */
+  date: string
+  event_name?: string | null
 }
 
 /** งวดคำนวณ + จำนวนสลิปแต่ละสถานะ (หน้า /salary/runs) */
@@ -87,6 +115,8 @@ export interface RunSlipRow {
 export interface RunDetail {
   run: RunHeader
   slips: RunSlipRow[]
+  /** คนที่ควรถูกติ๊กไว้ให้เองในหน้างวด (autoSelectUserIds ลบคนที่มีสลิปแล้ว) */
+  suggestedUserIds: string[]
 }
 
 /** คนที่ถูกข้ามตอนคำนวณ พร้อมเหตุผลที่แสดงให้ admin เห็น */
@@ -108,6 +138,8 @@ export interface SlipDetail {
   run_id: string
   user_id: string
   status: SlipStatus
+  /** ชนิดงวดของสลิป — ใช้เลือกคำว่า "สลิปเงินเดือน" / "สลิปค่าจ้าง" */
+  kind: RunKind
   employment_type: EmploymentType
   base_salary: number
   lines: SalaryLine[]
@@ -273,13 +305,20 @@ export async function listMySlips(): Promise<MySlipRow[]> {
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('salary_slips')
-    .select('id, status, total, finalized_at, paid_at, run:salary_runs(period_key, period_start, period_end)')
+    .select(
+      'id, status, total, finalized_at, paid_at, run:salary_runs(kind, period_key, period_start, period_end)'
+    )
     .eq('user_id', userId)
     .in('status', ['finalized', 'paid'])
 
   if (error || !data) return []
 
-  type RunEmbed = { period_key: string; period_start: string; period_end: string }
+  type RunEmbed = {
+    kind: string | null
+    period_key: string
+    period_start: string
+    period_end: string
+  }
   type Raw = {
     id: string
     status: 'finalized' | 'paid'
@@ -295,6 +334,7 @@ export async function listMySlips(): Promise<MySlipRow[]> {
     return {
       id: r.id,
       status: r.status,
+      kind: toRunKind(run?.kind),
       total: Number(r.total || 0),
       finalized_at: r.finalized_at,
       paid_at: r.paid_at,
@@ -304,8 +344,9 @@ export async function listMySlips(): Promise<MySlipRow[]> {
     }
   })
 
-  // เรียงฝั่ง JS — order ตามคอลัมน์ของตารางที่ embed มาไม่เสถียรใน PostgREST
-  return rows.sort((a, b) => (a.period_key < b.period_key ? 1 : a.period_key > b.period_key ? -1 : 0))
+  // เรียงฝั่ง JS ตามวันสิ้นงวดใหม่สุดก่อน — งวดสัปดาห์กับงวดเดือนคละกัน period_key
+  // จึงเรียงไม่ได้ (คนละรูปแบบ) และ order ของตารางที่ embed มาไม่เสถียรใน PostgREST
+  return rows.sort((a, b) => cmpText(b.period_end, a.period_end) || cmpText(b.period_key, a.period_key))
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -497,6 +538,169 @@ export async function autoSelectUserIds(run: RunWindow): Promise<string[]> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ข้อเสนอเปิดงวด + เช็คอินค้างจ่ายที่เลยหน้าต่างเก็บตก (หน้า /salary/runs)
+// ────────────────────────────────────────────────────────────────────────────
+
+/** วันไทยวันนี้ (YYYY-MM-DD) — ไม่พึ่ง timezone ของเครื่อง server */
+function todayBangkok(): string {
+  return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+/** วันไทยของ instant หนึ่ง (YYYY-MM-DD) */
+function bangkokDateOf(iso: string): string {
+  return new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+/** ขอบเขต "วันไทย" ของหน้าต่างเก็บตกของงวด → instant UTC ที่ยิง filter ได้ */
+function catchUpWindowISO(periodEnd: string): { fromISO: string; toISO: string } {
+  return {
+    fromISO: new Date(`${catchUpStart(periodEnd)}T00:00:00+07:00`).toISOString(),
+    toISO: new Date(`${periodEnd}T23:59:59.999+07:00`).toISOString(),
+  }
+}
+
+/** นับคน/เช็คอินหน้างานค้างจ่ายในหน้าต่างเก็บตกของงวดที่จบวันที่ periodEnd */
+async function countUnpaidOnsite(
+  supabase: ReturnType<typeof createServiceClient>,
+  periodEnd: string
+): Promise<{ users: Set<string>; checkins: number }> {
+  const { fromISO, toISO } = catchUpWindowISO(periodEnd)
+  const { data } = await supabase
+    .from('staff_checkins')
+    .select('user_id')
+    .eq('check_type', 'onsite')
+    .is('paid_slip_id', null)
+    .gte('checked_in_at', fromISO)
+    .lte('checked_in_at', toISO)
+
+  const rows = (data || []) as unknown as { user_id: string | null }[]
+  const users = new Set<string>()
+  for (const r of rows) if (r.user_id) users.add(r.user_id)
+  return { users, checkins: rows.length }
+}
+
+/**
+ * งวดที่ "ถึงเวลาเปิดแล้วแต่ยังไม่เปิด" — สูงสุด 2 ใบ (สัปดาห์ล่าสุดที่จบแล้ว + เดือนที่ตัดรอบแล้ว)
+ * ใช้ทำแบนเนอร์ "เปิดและคำนวณ" คลิกเดียวในหน้า /salary/runs
+ *
+ * งวดสัปดาห์ที่ไม่มีทั้งคนและเช็คอินค้างจ่ายถูกตัดทิ้ง (ไม่มีอะไรให้จ่าย)
+ * งวดเดือนเสนอเสมอ — ประจำ/ฝึกงานต้องได้เงินเดือนฐานแม้ไม่มีใครออกงานเลย
+ */
+export async function getRunSuggestions(): Promise<RunSuggestion[]> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return []
+
+  const supabase = createServiceClient()
+  const { cutoff_day } = await getSalarySettings()
+  const today = todayBangkok()
+
+  const week = lastFinishedWeek(today)
+  const weekKey = periodKeyFor('weekly', week.start, week.end)
+
+  // งวดเดือนล่าสุดที่ตัดรอบไปแล้ว — ถอยจากเดือนนี้ทีละเดือนจนเจอเดือนที่ period_end ผ่านไปแล้ว
+  let month = today.slice(0, 7)
+  let monthRange = periodRange(month, cutoff_day)
+  for (let i = 0; i < 3 && monthRange.end >= today; i += 1) {
+    const [y, m] = month.split('-').map(Number)
+    month = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7)
+    monthRange = periodRange(month, cutoff_day)
+  }
+  const monthFinished = monthRange.end < today
+
+  const { data: existing } = await supabase
+    .from('salary_runs')
+    .select('period_key')
+    .in('period_key', [weekKey, month])
+  const opened = new Set(
+    ((existing || []) as unknown as { period_key: string }[]).map(r => r.period_key)
+  )
+
+  const suggestions: RunSuggestion[] = []
+
+  if (!opened.has(weekKey)) {
+    const { users, checkins } = await countUnpaidOnsite(supabase, week.end)
+    // ไม่มีคนและไม่มีเช็คอินค้าง = ไม่มีอะไรให้จ่ายในสัปดาห์นั้น — ไม่ต้องรบกวน admin
+    if (users.size > 0 || checkins > 0) {
+      suggestions.push({
+        kind: 'weekly',
+        start: week.start,
+        end: week.end,
+        label: periodLabel({ kind: 'weekly', period_start: week.start, period_end: week.end }),
+        users: users.size,
+        checkins,
+      })
+    }
+  }
+
+  if (monthFinished && !opened.has(month)) {
+    const [{ users, checkins }, profilesRes] = await Promise.all([
+      countUnpaidOnsite(supabase, monthRange.end),
+      supabase.from('salary_profiles').select('user_id').in('employment_type', ['fulltime', 'intern']),
+    ])
+    const ids = new Set(users)
+    for (const r of ((profilesRes.data || []) as unknown as { user_id: string | null }[])) {
+      if (r.user_id) ids.add(r.user_id)
+    }
+    suggestions.push({
+      kind: 'monthly',
+      month,
+      start: monthRange.start,
+      end: monthRange.end,
+      label: periodLabel(month),
+      users: ids.size,
+      checkins,
+    })
+  }
+
+  return suggestions
+}
+
+/** เพดานรายการที่ส่งกลับให้กล่องเตือน — กันหน้าเว็บบวมเมื่อค้างสะสมเยอะ */
+const OVERDUE_LIMIT = 200
+
+/**
+ * เช็คอินหน้างานค้างจ่ายที่เก่ากว่าหน้าต่างเก็บตก — งวดปกติดึงไม่ถึงแล้ว
+ * admin ต้องเปิดงวด "กำหนดเอง" ย้อนหลังหรือใช้รายการปรับมือ (เรียงเก่าสุดก่อน)
+ */
+export async function listOverdueUnpaidCheckins(): Promise<OverdueCheckinRow[]> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return []
+
+  const supabase = createServiceClient()
+  const cutoffISO = new Date(Date.now() - CATCH_UP_DAYS * 86_400_000).toISOString()
+
+  const { data } = await supabase
+    .from('staff_checkins')
+    .select('id, user_id, checked_in_at, events:event_id(name)')
+    .eq('check_type', 'onsite')
+    .is('paid_slip_id', null)
+    .lt('checked_in_at', cutoffISO)
+    .order('checked_in_at', { ascending: true })
+    .limit(OVERDUE_LIMIT)
+
+  type Raw = {
+    id: string
+    user_id: string | null
+    checked_in_at: string
+    // PostgREST คืน to-one เป็น object แต่บางเวอร์ชันห่อเป็น array — รับทั้งสองแบบ
+    events: { name: string | null } | { name: string | null }[] | null
+  }
+  const rows = ((data || []) as unknown as Raw[]).filter(r => !!r.user_id)
+  const names = await namesByUserId(supabase, rows.map(r => r.user_id as string))
+
+  return rows.map(r => {
+    const embedded = Array.isArray(r.events) ? r.events[0] : r.events
+    return {
+      id: r.id,
+      user_id: r.user_id as string,
+      full_name: actorName(names, r.user_id),
+      date: bangkokDateOf(r.checked_in_at),
+      event_name: embedded?.name ?? null,
+    }
+  })
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // หน้างวด — หัวงวด + ตารางสลิป
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -556,7 +760,11 @@ export async function getRun(runId: string): Promise<{ error: string } | RunDeta
     // เรียงฝั่ง JS — ชื่อคนมาจากอีก query จึงสั่ง order ที่ DB ไม่ได้
     .sort((a, b) => cmpText(a.full_name || a.nickname || '', b.full_name || b.nickname || ''))
 
-  return { run, slips }
+  // ติ๊กให้เองเฉพาะคนที่ยังไม่มีสลิปในงวดนี้ — คนที่มีสลิปแล้วใช้ปุ่ม "คำนวณใหม่" ในตาราง
+  const hasSlip = new Set(slips.map(s => s.user_id))
+  const suggestedUserIds = (await autoSelectUserIds(run)).filter(id => !hasSlip.has(id))
+
+  return { run, slips, suggestedUserIds }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -868,7 +1076,7 @@ export async function getSlipForView(
   const [runRes, profileRes, actors] = await Promise.all([
     supabase
       .from('salary_runs')
-      .select('period_key, period_start, period_end')
+      .select('kind, period_key, period_start, period_end')
       .eq('id', raw.run_id)
       .maybeSingle(),
     supabase
@@ -880,7 +1088,7 @@ export async function getSlipForView(
     namesByUserId(supabase, [raw.finalized_by, raw.paid_by].filter((v): v is string => !!v)),
   ])
 
-  const runRow = (runRes.data || {}) as unknown as Partial<RunHeader>
+  const runRow = (runRes.data || {}) as unknown as Partial<RunHeader> & { kind?: unknown }
   const who = (profileRes.data || {}) as unknown as {
     full_name?: string | null
     nickname?: string | null
@@ -895,6 +1103,7 @@ export async function getSlipForView(
     run_id: raw.run_id,
     user_id: raw.user_id,
     status: raw.status,
+    kind: toRunKind(runRow.kind),
     employment_type: toEmploymentType(raw.employment_type),
     base_salary: Number(raw.base_salary || 0),
     lines: Array.isArray(raw.lines) ? raw.lines : [],
@@ -1356,6 +1565,14 @@ type FinalizableSlip = {
 /** คอลัมน์ที่ทั้งปิดงวดใบเดียวและปิดที่เหลือทั้งหมดอ่านเหมือนกัน */
 const FINALIZE_COLUMNS = 'id, run_id, user_id, status, lines, total'
 
+/** งวดเท่าที่ข้อความแจ้งเตือนต้องรู้ (ชื่อสลิปแยกชนิดงวด) */
+type RunRef = { kind?: string | null; period_key: string; period_start?: string; period_end?: string }
+
+/** คอลัมน์งวดที่ต้องอ่านมาทำชื่อสลิปในแจ้งเตือน */
+const RUN_LABEL_COLUMNS = 'kind, period_key, period_start, period_end'
+
+const EMPTY_RUN_REF: RunRef = { kind: 'monthly', period_key: '' }
+
 const RUNNER_MISSING_ERROR = 'ยังมีรันเนอร์ที่ไม่ได้กรอกยอด — กรอกก่อนปิดงวด'
 
 type FinalizeRaw = {
@@ -1388,7 +1605,7 @@ function toFinalizable(raw: FinalizeRaw): FinalizableSlip {
 async function finalizeOne(
   supabase: ReturnType<typeof createServiceClient>,
   slip: FinalizableSlip,
-  periodKey: string,
+  run: RunRef,
   adminId: string
 ): Promise<{ error?: string }> {
   // spec §7: amount = null (รันเนอร์ที่ยังไม่กรอก) นับเป็น 0 ในยอด — ปิดงวดทั้งอย่างนั้นไม่ได้
@@ -1412,7 +1629,8 @@ async function finalizeOne(
   await createNotifications({
     userIds: [slip.user_id],
     type: 'salary_finalized',
-    title: `สลิปเงินเดือนงวด${periodLabel(periodKey)} ปิดงวดแล้ว`,
+    // งวดเดือน = "สลิปเงินเดือน …" · งวดสัปดาห์/กำหนดเอง = "สลิปค่าจ้าง …"
+    title: `${slipTitle(run)} ปิดงวดแล้ว`,
     body: `ยอดสุทธิ ${fmtMoney(slip.total)} บาท`,
     referenceType: 'salary_slip',
     referenceId: slip.id,
@@ -1449,12 +1667,12 @@ export async function finalizeSlip(slipId: string): Promise<{ error?: string; su
 
   const { data: runRaw } = await supabase
     .from('salary_runs')
-    .select('period_key')
+    .select(RUN_LABEL_COLUMNS)
     .eq('id', raw.run_id)
     .maybeSingle()
-  const periodKey = (runRaw as unknown as { period_key?: string } | null)?.period_key || ''
+  const runRef = (runRaw as unknown as RunRef | null) || EMPTY_RUN_REF
 
-  const res = await finalizeOne(supabase, toFinalizable(raw), periodKey, auth.userId)
+  const res = await finalizeOne(supabase, toFinalizable(raw), runRef, auth.userId)
   if (res.error) return { error: res.error }
 
   revalidateSlipPaths(slipId, raw.run_id)
@@ -1473,11 +1691,11 @@ export async function finalizeRemainingSlips(runId: string): Promise<FinalizeRem
   const supabase = createServiceClient()
   const { data: runRaw } = await supabase
     .from('salary_runs')
-    .select('id, period_key')
+    .select(`id, ${RUN_LABEL_COLUMNS}`)
     .eq('id', runId)
     .maybeSingle()
   if (!runRaw) return { error: 'ไม่พบงวดนี้' }
-  const periodKey = (runRaw as unknown as { period_key: string }).period_key
+  const runRef = runRaw as unknown as RunRef
 
   const { data, error } = await supabase
     .from('salary_slips')
@@ -1494,7 +1712,7 @@ export async function finalizeRemainingSlips(runId: string): Promise<FinalizeRem
   let finalized = 0
 
   for (const row of rows) {
-    const res = await finalizeOne(supabase, toFinalizable(row), periodKey, auth.userId)
+    const res = await finalizeOne(supabase, toFinalizable(row), runRef, auth.userId)
     if (res.error) {
       skipped.push({
         user_id: row.user_id,
