@@ -14,11 +14,12 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { getSession, requireAdmin } from './session'
 import { periodLabel } from './format'
-import { computeSlip, periodRange } from './compute'
+import { computeSlip, lineAmount, periodRange } from './compute'
 import type {
   CheckinInput, EmploymentType, SalaryAdjustment, SalaryLine, SalaryWarning,
 } from './compute'
 import { getSalarySettings, listDuties } from './settings/actions'
+import type { SalaryDutyRow } from './settings/actions'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -119,6 +120,24 @@ export interface SlipDetail {
   bank_name: string | null
   bank_account_number: string | null
   account_holder_name: string | null
+}
+
+/**
+ * ข้อมูลต้นทางในงวด — เช็คอินหนึ่งแถวที่ admin แก้ได้จากในสลิป
+ * (ตัวสลิปไม่ได้อ้างแถวนี้โดยตรง — แก้แล้วต้องกดคำนวณใหม่ถึงจะเข้าไปในบรรทัด)
+ */
+export interface SlipCheckinRow {
+  id: string
+  check_type: CheckinInput['check_type']
+  checked_in_at: string
+  checked_out_at: string | null
+  event_id: string | null
+  event_name: string | null
+  duties: string[]
+  province: string | null
+  district: string | null
+  out_of_province: boolean
+  note: string | null
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -626,10 +645,17 @@ export async function deleteSlip(slipId: string): Promise<{ error?: string; succ
  * สลิปหนึ่งใบพร้อมงวด · ชื่อ · บัญชีธนาคาร (แสดงอย่างเดียว)
  * สิทธิ์: admin เห็นทุกใบ · เจ้าของเห็นเฉพาะที่ปิดงวดแล้ว · คนอื่นไม่เห็นเลย
  * ทุกกรณีที่ไม่มีสิทธิ์คืนข้อความเดียวกัน — ไม่บอกว่าสลิปนั้นมีอยู่จริงหรือไม่
+ *
+ * เฉพาะ admin ได้ `checkins` (ข้อมูลต้นทางในงวด) + `duties` (rate card ทั้งหมด
+ * รวมที่ปิดใช้งาน — ใช้แปลรหัสหน้าที่ของเช็คอินเก่าเป็นชื่อ) ติดมาด้วย
+ * พนักงานได้อาร์เรย์ว่างเสมอ
  */
 export async function getSlipForView(
   slipId: string
-): Promise<{ error: string } | { slip: SlipDetail; isAdmin: boolean }> {
+): Promise<
+  | { error: string }
+  | { slip: SlipDetail; isAdmin: boolean; checkins: SlipCheckinRow[]; duties: SalaryDutyRow[] }
+> {
   const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
   const isAdmin = role === 'admin'
@@ -709,5 +735,386 @@ export async function getSlipForView(
     account_holder_name: who.account_holder_name ?? null,
   }
 
-  return { slip, isAdmin }
+  if (!isAdmin) return { slip, isAdmin, checkins: [], duties: [] }
+
+  const [checkins, duties] = await Promise.all([
+    listSlipCheckins(supabase, slip.user_id, slip.period_start, slip.period_end),
+    listDuties(),
+  ])
+  return { slip, isAdmin, checkins, duties }
+}
+
+/** เช็คอินของคนหนึ่งที่อยู่ในช่วงงวด — ขอบเขตเดียวกับที่ computeSlips ใช้ป้อนเครื่องคำนวณ */
+async function listSlipCheckins(
+  supabase: ReturnType<typeof createServiceClient>,
+  userId: string,
+  periodStart: string,
+  periodEnd: string
+): Promise<SlipCheckinRow[]> {
+  if (!periodStart || !periodEnd) return []
+
+  // ขอบเขตงวดเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
+  const fromISO = new Date(`${periodStart}T00:00:00+07:00`).toISOString()
+  const toISO = new Date(`${periodEnd}T23:59:59.999+07:00`).toISOString()
+
+  const { data } = await supabase
+    .from('staff_checkins')
+    .select(
+      'id, check_type, checked_in_at, checked_out_at, event_id, duties, province, district, out_of_province, note, events:event_id(name)'
+    )
+    .eq('user_id', userId)
+    .gte('checked_in_at', fromISO)
+    .lte('checked_in_at', toISO)
+    .order('checked_in_at', { ascending: true })
+
+  type Raw = {
+    id: string
+    check_type: CheckinInput['check_type']
+    checked_in_at: string
+    checked_out_at: string | null
+    event_id: string | null
+    duties: string[] | null
+    province: string | null
+    district: string | null
+    out_of_province: boolean | null
+    note: string | null
+    // PostgREST คืน to-one เป็น object แต่บางเวอร์ชันห่อเป็น array — รับทั้งสองแบบ
+    events: { name: string | null } | { name: string | null }[] | null
+  }
+
+  return ((data || []) as unknown as Raw[]).map(r => {
+    const embedded = Array.isArray(r.events) ? r.events[0] : r.events
+    return {
+      id: r.id,
+      check_type: r.check_type,
+      checked_in_at: r.checked_in_at,
+      checked_out_at: r.checked_out_at,
+      event_id: r.event_id,
+      event_name: embedded?.name ?? null,
+      duties: Array.isArray(r.duties) ? r.duties : [],
+      province: r.province,
+      district: r.district,
+      out_of_province: !!r.out_of_province,
+      note: r.note,
+    }
+  })
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// แก้สลิปร่าง — แก้มือทับบรรทัด · รายการปรับมือ · คำนวณใหม่
+//
+// ทุก action ในหมวดนี้ตรวจ requireAdmin + status === 'draft' ฝั่ง server เสมอ
+// guard trigger ที่ DB เป็นด่านสุดท้าย ไม่ใช่ด่านแรก
+// ────────────────────────────────────────────────────────────────────────────
+
+/** สลิปร่างที่โหลดมาแก้ — รูปเดียวที่ helper ในหมวดนี้ใช้ร่วมกัน */
+type DraftSlip = {
+  id: string
+  run_id: string
+  user_id: string
+  employment_type: EmploymentType
+  base_salary: number
+  lines: SalaryLine[]
+  adjustments: SalaryAdjustment[]
+  warnings: SalaryWarning[]
+}
+
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
+/**
+ * ยอดสุทธิของสลิป = ฐาน (เฉพาะประจำ) + Σ บรรทัด + Σ รายการปรับมือ
+ * สูตรเดียวกับ compute.ts §7 และใช้ lineAmount ตัวเดียวกัน — ทุก action ที่แก้สลิป
+ * ต้องผ่านตัวนี้ ไม่งั้นยอดในหัวสลิปกับบรรทัดจะเพี้ยนคนละทาง
+ */
+function recalcTotal(
+  slip: Pick<DraftSlip, 'employment_type' | 'base_salary' | 'lines' | 'adjustments'>
+): number {
+  const base = slip.employment_type === 'fulltime' ? slip.base_salary : 0
+  const lineTotal = slip.lines.reduce((sum, l) => sum + lineAmount(l), 0)
+  const adjustTotal = slip.adjustments.reduce((sum, a) => sum + Number(a.amount || 0), 0)
+  return round2(base + lineTotal + adjustTotal)
+}
+
+/**
+ * คำเตือน "ยังไม่กรอกรันเนอร์" ให้ตรงกับบรรทัดปัจจุบัน — กรอกยอดแล้วต้องหาย
+ * ล้างค่าแล้วต้องกลับมา (คำเตือนอื่นเป็นเรื่องของข้อมูลต้นทาง ต้องคำนวณใหม่ถึงจะเปลี่ยน)
+ * ข้อความรูปแบบเดียวกับ compute.ts §6
+ */
+function syncRunnerWarnings(lines: SalaryLine[], warnings: SalaryWarning[]): SalaryWarning[] {
+  const next = warnings.filter(w => w.code !== 'runner_missing')
+  for (const l of lines) {
+    if (l.kind !== 'runner' || (l.amount !== null && l.amount !== undefined)) continue
+    next.push({
+      code: 'runner_missing',
+      date: l.date,
+      message: `ยังไม่ได้กรอกยอด${l.label.split(' · ')[0]}ของวันที่ ${l.date}`,
+    })
+  }
+  return next.sort(
+    (a, b) =>
+      cmpText(a.date, b.date) ||
+      cmpText(a.code, b.code) ||
+      cmpText(a.checkin_id ?? '', b.checkin_id ?? '')
+  )
+}
+
+/** โหลดสลิปที่แก้ได้ — ปิดงวดแล้วหรือหาไม่เจอ = คืน error ไม่ต้องรอ trigger */
+async function loadDraftSlip(
+  supabase: ReturnType<typeof createServiceClient>,
+  slipId: string
+): Promise<{ error: string } | { slip: DraftSlip }> {
+  if (!slipId) return { error: 'ไม่พบสลิป' }
+
+  const { data } = await supabase
+    .from('salary_slips')
+    .select('id, run_id, user_id, status, employment_type, base_salary, lines, adjustments, warnings')
+    .eq('id', slipId)
+    .maybeSingle()
+  if (!data) return { error: 'ไม่พบสลิป' }
+
+  type Raw = {
+    id: string
+    run_id: string
+    user_id: string
+    status: SlipStatus
+    employment_type: EmploymentType
+    base_salary: number | string | null
+    lines: SalaryLine[] | null
+    adjustments: SalaryAdjustment[] | null
+    warnings: SalaryWarning[] | null
+  }
+  const raw = data as unknown as Raw
+
+  if (raw.status !== 'draft') return { error: 'สลิปที่ปิดงวดแล้วแก้ไม่ได้' }
+
+  return {
+    slip: {
+      id: raw.id,
+      run_id: raw.run_id,
+      user_id: raw.user_id,
+      employment_type: raw.employment_type === 'freelance' ? 'freelance' : 'fulltime',
+      base_salary: Number(raw.base_salary || 0),
+      lines: Array.isArray(raw.lines) ? raw.lines : [],
+      adjustments: Array.isArray(raw.adjustments) ? raw.adjustments : [],
+      warnings: Array.isArray(raw.warnings) ? raw.warnings : [],
+    },
+  }
+}
+
+/** เขียนสลิปกลับ พร้อมคำนวณยอด + คำเตือนรันเนอร์ใหม่ให้ตรงกับบรรทัด */
+async function saveDraftSlip(
+  supabase: ReturnType<typeof createServiceClient>,
+  slip: DraftSlip
+): Promise<{ error?: string; total?: number }> {
+  const total = recalcTotal(slip)
+  const { error } = await supabase
+    .from('salary_slips')
+    .update({
+      lines: slip.lines,
+      adjustments: slip.adjustments,
+      warnings: syncRunnerWarnings(slip.lines, slip.warnings),
+      total,
+    })
+    .eq('id', slip.id)
+    // กันกรณีสลิปถูกปิดงวดคั่นระหว่างที่เราโหลดมาแก้
+    .eq('status', 'draft')
+  if (error) return { error: `บันทึกไม่สำเร็จ: ${error.message}` }
+
+  revalidatePath(`/salary/${slip.id}`)
+  revalidatePath(`/salary/runs/${slip.run_id}`)
+  revalidatePath('/salary/runs')
+  return { total }
+}
+
+/**
+ * แก้มือทับหนึ่งบรรทัด — เก็บทั้งค่าที่ระบบคำนวณ (`computed_amount`) และค่าที่แก้
+ * เหตุผลบังคับทุกชนิดยกเว้นรันเนอร์ (บรรทัดรันเนอร์ใช้ช่องนี้เป็น "กรอกยอดรันเนอร์"
+ * ซึ่งเป็นการกรอกครั้งแรก ไม่ใช่การทับค่าที่ระบบคิด)
+ */
+export async function overrideSlipLine(
+  slipId: string,
+  lineKey: string,
+  amount: number,
+  note: string
+): Promise<{ error?: string; success?: boolean }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+
+  const key = (lineKey || '').trim()
+  if (!key) return { error: 'ไม่พบบรรทัดนี้ในสลิป' }
+
+  const value = Number(amount)
+  if (!Number.isFinite(value) || value < 0) return { error: 'จำนวนเงินต้องเป็นตัวเลขไม่ติดลบ' }
+
+  const supabase = createServiceClient()
+  const loaded = await loadDraftSlip(supabase, slipId)
+  if ('error' in loaded) return { error: loaded.error }
+  const { slip } = loaded
+
+  const line = slip.lines.find(l => l.key === key)
+  if (!line) return { error: 'ไม่พบบรรทัดนี้ในสลิป' }
+
+  const trimmed = (note || '').trim()
+  if (line.kind !== 'runner' && !trimmed) return { error: 'กรุณาระบุเหตุผลของการแก้มือ' }
+
+  const computed = line.computed_amount
+  line.amount = round2(value)
+  if (trimmed) line.override_note = trimmed
+  else delete line.override_note
+
+  const saved = await saveDraftSlip(supabase, slip)
+  if (saved.error) return { error: saved.error }
+
+  await logActivity(
+    'OVERRIDE_SALARY_LINE',
+    {
+      slip_id: slip.id,
+      run_id: slip.run_id,
+      lineKey: key,
+      computed,
+      amount: line.amount,
+      note: trimmed || null,
+    },
+    slip.user_id
+  )
+  return { success: true }
+}
+
+/** คืนบรรทัดกลับไปใช้ค่าที่ระบบคำนวณ (รันเนอร์กลับไปเป็น "ยังไม่กรอก") */
+export async function clearSlipLineOverride(
+  slipId: string,
+  lineKey: string
+): Promise<{ error?: string; success?: boolean }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+
+  const key = (lineKey || '').trim()
+  if (!key) return { error: 'ไม่พบบรรทัดนี้ในสลิป' }
+
+  const supabase = createServiceClient()
+  const loaded = await loadDraftSlip(supabase, slipId)
+  if ('error' in loaded) return { error: loaded.error }
+  const { slip } = loaded
+
+  const line = slip.lines.find(l => l.key === key)
+  if (!line) return { error: 'ไม่พบบรรทัดนี้ในสลิป' }
+
+  const previous = line.amount
+  // รันเนอร์ไม่มีค่าที่ระบบคิดให้ (computed_amount = 0) — ล้างแล้วต้องกลับเป็น "ยังไม่กรอก"
+  line.amount = line.kind === 'runner' ? null : line.computed_amount
+  delete line.override_note
+
+  const saved = await saveDraftSlip(supabase, slip)
+  if (saved.error) return { error: saved.error }
+
+  await logActivity(
+    'OVERRIDE_SALARY_LINE',
+    {
+      slip_id: slip.id,
+      run_id: slip.run_id,
+      lineKey: key,
+      computed: line.computed_amount,
+      amount: line.amount,
+      previous,
+      cleared: true,
+    },
+    slip.user_id
+  )
+  return { success: true }
+}
+
+/** เพิ่มรายการปรับมือ (โบนัส / หัก / ประกันสังคม ฯลฯ) — จำนวนติดลบได้ */
+export async function addSlipAdjustment(
+  slipId: string,
+  label: string,
+  amount: number
+): Promise<{ error?: string; success?: boolean }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+
+  const name = (label || '').trim()
+  if (!name) return { error: 'กรุณาระบุชื่อรายการ' }
+
+  const value = Number(amount)
+  if (!Number.isFinite(value)) return { error: 'จำนวนเงินต้องเป็นตัวเลข' }
+  if (value === 0) return { error: 'จำนวนเงินต้องไม่เป็นศูนย์' }
+
+  const supabase = createServiceClient()
+  const loaded = await loadDraftSlip(supabase, slipId)
+  if ('error' in loaded) return { error: loaded.error }
+  const { slip } = loaded
+
+  const adjustment: SalaryAdjustment = {
+    id: crypto.randomUUID(),
+    label: name,
+    amount: round2(value),
+  }
+  slip.adjustments = [...slip.adjustments, adjustment]
+
+  const saved = await saveDraftSlip(supabase, slip)
+  if (saved.error) return { error: saved.error }
+
+  await logActivity(
+    'OVERRIDE_SALARY_LINE',
+    { slip_id: slip.id, run_id: slip.run_id, adjustment },
+    slip.user_id
+  )
+  return { success: true }
+}
+
+/** ลบรายการปรับมือหนึ่งรายการออกจากสลิปร่าง */
+export async function removeSlipAdjustment(
+  slipId: string,
+  adjustmentId: string
+): Promise<{ error?: string; success?: boolean }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+
+  const id = (adjustmentId || '').trim()
+  if (!id) return { error: 'ไม่พบรายการปรับมือนี้' }
+
+  const supabase = createServiceClient()
+  const loaded = await loadDraftSlip(supabase, slipId)
+  if ('error' in loaded) return { error: loaded.error }
+  const { slip } = loaded
+
+  const removed = slip.adjustments.find(a => a.id === id)
+  if (!removed) return { error: 'ไม่พบรายการปรับมือนี้' }
+  slip.adjustments = slip.adjustments.filter(a => a.id !== id)
+
+  const saved = await saveDraftSlip(supabase, slip)
+  if (saved.error) return { error: saved.error }
+
+  await logActivity(
+    'OVERRIDE_SALARY_LINE',
+    { slip_id: slip.id, run_id: slip.run_id, adjustment: removed, removed: true },
+    slip.user_id
+  )
+  return { success: true }
+}
+
+/**
+ * คำนวณสลิปใบเดียวใหม่จากข้อมูลต้นทางล่าสุด — ต่อยอด computeSlips ตรงๆ
+ * ค่าที่แก้มือและรายการปรับมือถูกคงไว้ให้แล้วในนั้น (compute.ts §6)
+ */
+export async function recomputeSlip(
+  slipId: string
+): Promise<{ error?: string; success?: boolean }> {
+  const auth = await requireAdmin()
+  if ('error' in auth) return { error: auth.error }
+
+  const supabase = createServiceClient()
+  const loaded = await loadDraftSlip(supabase, slipId)
+  if ('error' in loaded) return { error: loaded.error }
+  const { slip } = loaded
+
+  const res = await computeSlips(slip.run_id, [slip.user_id])
+  if (res.error) return { error: res.error }
+  const skipped = (res.skipped || [])[0]
+  if (skipped) return { error: `คำนวณใหม่ไม่สำเร็จ — ${skipped.reason}` }
+
+  revalidatePath(`/salary/${slipId}`)
+  return { success: true }
 }
