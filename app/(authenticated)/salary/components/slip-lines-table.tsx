@@ -70,8 +70,9 @@ export default function SlipLinesTable({
         </thead>
 
         <tbody>
-          {/* เงินเดือนฐาน — เฉพาะพนักงานประจำ (ฟรีแลนซ์ไม่มีบรรทัดนี้) */}
-          {employmentType !== 'freelance' && (
+          {/* เงินเดือนฐาน — เฉพาะพนักงานประจำ (ฟรีแลนซ์ไม่มีบรรทัดนี้)
+              ฐาน = 0 คืองวดสัปดาห์/กำหนดเอง (ไม่มีเงินเดือนฐาน) → ไม่ต้องขึ้นแถว 0.00 ให้งง */}
+          {employmentType !== 'freelance' && baseSalary > 0 && (
             <tr className="border-b">
               <td className="px-4 py-2.5 font-medium">เงินเดือนฐาน</td>
               <td className="px-4 py-2.5 text-right font-medium tabular-nums">

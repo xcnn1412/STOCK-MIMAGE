@@ -245,3 +245,55 @@ BEGIN
   RAISE NOTICE 'B16f %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
     CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
 END $$;
+
+-- ============================================================================
+-- B17 — backfill ครอบเช็คอินหน้างานที่ "ไม่มีบรรทัดในสลิป" ของงวดเก่า
+-- (งวดเดือนเดิมจ่ายเช็คอินหน้างานทุกใบในช่วงงวด — รันเนอร์/ยังไม่ระบุหน้าที่ก็จ่ายไปแล้ว)
+-- เรียก salary_backfill_paid_slip_ids() ตัวเดียวกับที่ migration ข้อ 5 เรียก
+-- ============================================================================
+DO $$
+DECLARE
+  u1 uuid; run_e uuid; slip_e uuid; c1 uuid; n int;
+BEGIN
+  SELECT id INTO u1 FROM profiles WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1;
+  IF u1 IS NULL THEN RAISE EXCEPTION 'ต้องมี profiles อย่างน้อย 1 คน'; END IF;
+
+  -- เผื่อรอบก่อนค้าง
+  PERFORM purge_test_salary_run('ZZTEST-backfill-e');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-backfill%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  -- เช็คอินหน้างานในช่วงงวด ที่ไม่มีบรรทัดไหนอ้างถึงเลย
+  INSERT INTO staff_checkins(user_id, check_type, checked_in_at, note)
+    VALUES (u1, 'onsite', TIMESTAMPTZ '2026-10-06 10:00+07', 'ZZTEST-backfill') RETURNING id INTO c1;
+
+  INSERT INTO salary_runs(kind, period_key, period_start, period_end)
+    VALUES ('monthly', 'ZZTEST-backfill-e', '2026-10-05', '2026-10-11') RETURNING id INTO run_e;
+  -- สลิปเก่าก่อน deploy: lines ว่าง + checkin_ids ว่าง + ปิดงวดตรงๆ ไม่ผ่าน RPC
+  INSERT INTO salary_slips(run_id, user_id, lines, checkin_ids, total)
+    VALUES (run_e, u1, '[]'::jsonb, '{}'::uuid[], 0) RETURNING id INTO slip_e;
+  UPDATE salary_slips SET status = 'finalized', finalized_at = now() WHERE id = slip_e;
+
+  PERFORM salary_backfill_paid_slip_ids();
+
+  SELECT count(*) INTO n FROM staff_checkins WHERE id = c1 AND paid_slip_id = slip_e;
+  RAISE NOTICE 'B17 %: backfill ประทับเช็คอินหน้างานในช่วงงวดที่ไม่มีบรรทัด (stamped=%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  PERFORM salary_backfill_paid_slip_ids();
+  SELECT count(*) INTO n FROM staff_checkins WHERE id = c1 AND paid_slip_id = slip_e;
+  RAISE NOTICE 'B17b %: รัน backfill ซ้ำไม่เปลี่ยนของเดิม (stamped=%)',
+    CASE WHEN n = 1 THEN 'ok' ELSE 'FAIL' END, n;
+
+  -- ── ล้างของทดสอบ ────────────────────────────────────────────────────────
+  PERFORM purge_test_salary_run('ZZTEST-backfill-e');
+  PERFORM set_config('app.allow_salary_purge', 'on', true);
+  DELETE FROM staff_checkins WHERE note LIKE 'ZZTEST-backfill%';
+  PERFORM set_config('app.allow_salary_purge', 'off', true);
+
+  SELECT count(*) INTO n FROM salary_runs WHERE period_key = 'ZZTEST-backfill-e';
+  SELECT n + count(*) INTO n FROM staff_checkins WHERE note LIKE 'ZZTEST-backfill%';
+  RAISE NOTICE 'B17c %: ล้างงวด/เช็คอินทดสอบหมด (เหลือ %)',
+    CASE WHEN n = 0 THEN 'ok' ELSE 'FAIL' END, n;
+END $$;

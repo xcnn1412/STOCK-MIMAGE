@@ -197,6 +197,8 @@ export function SalarySlipPDF({ slip, printedAt }: SalarySlipPdfData) {
 
   const name = slip.full_name || slip.nickname || '(ไม่มีชื่อ)'
   const base = isFulltime ? Number(slip.base_salary || 0) : 0
+  // ฐาน = 0 คืองวดสัปดาห์/กำหนดเอง (ไม่มีเงินเดือนฐาน) → ไม่ต้องพิมพ์แถว 0.00
+  const showBase = isFulltime && base > 0
   const linesTotal = slip.lines.reduce((sum, l) => sum + lineAmount(l), 0)
   const adjustTotal = slip.adjustments.reduce((sum, a) => sum + Number(a.amount || 0), 0)
   // "รวมบรรทัด" = ทุกแถวในตารางด้านบน (ฐาน + บรรทัดที่คำนวณ) — บวกกับรายการปรับมือ
@@ -259,7 +261,7 @@ export function SalarySlipPDF({ slip, printedAt }: SalarySlipPdfData) {
           </View>
 
           {/* เงินเดือนฐาน — เฉพาะพนักงานประจำ (ฟรีแลนซ์ไม่มีบรรทัดนี้ ตาม compute.ts §7) */}
-          {isFulltime && (
+          {showBase && (
             <View style={s.tRow} wrap={false}>
               <Text style={[s.cell, s.cDate]}>—</Text>
               <Text style={[s.cell, s.cDesc]}>เงินเดือนฐาน</Text>

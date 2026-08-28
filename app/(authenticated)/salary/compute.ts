@@ -216,6 +216,19 @@ export interface RunWindow {
   period_end: string
 }
 
+/**
+ * วันแรก (วันไทย) ที่เช็คอิน "หน้างาน" ยังตกเข้างวดนี้ได้ — นิยามเดียวของขอบล่าง
+ * ที่ทั้งการเลือกเช็คอิน การคำนวณ และตารางในหน้าสลิปต้องใช้ร่วมกัน
+ *
+ * = วันเริ่มงวด หรือ วันเก็บตก 60 วัน แล้วแต่ตัวไหน "เก่ากว่า"
+ * - งวดสั้น (สัปดาห์/เดือน): ได้หน้าต่างเก็บตก 60 วันเต็มเหมือนเดิม
+ * - งวดกำหนดเองที่ยาวกว่า 60 วัน: ครอบคลุมช่วงที่เลือกทั้งหมด ไม่ตัดวันต้นงวดทิ้ง
+ */
+export function onsiteFromFor(run: RunWindow): string {
+  const catchUp = catchUpStart(run.period_end)
+  return run.period_start && run.period_start < catchUp ? run.period_start : catchUp
+}
+
 /** แถวเช็คอินขั้นต่ำที่ selectCheckinsForRun ต้องใช้ (รับแถวจาก DB หรือ CheckinInput ก็ได้) */
 export interface SelectableCheckin {
   check_type: 'office' | 'onsite' | 'remote'
@@ -226,7 +239,7 @@ export interface SelectableCheckin {
 
 /**
  * เลือกเช็คอินที่ "ควรอยู่ในสลิปของงวดนี้"
- * - onsite: ยังไม่ถูกจ่าย (หรือถูกจ่ายโดยสลิปใบนี้เอง) และอยู่ใน [periodEnd − 60 วัน, periodEnd]
+ * - onsite: ยังไม่ถูกจ่าย (หรือถูกจ่ายโดยสลิปใบนี้เอง) และอยู่ใน [onsiteFromFor(run), periodEnd]
  *   → งวดทับซ้อนกันได้โดยไม่จ่ายซ้ำ และเช็คอินที่ตกงวดก่อนถูกเก็บตกอัตโนมัติ
  * - office: เฉพาะงวดเดือน และเฉพาะในช่วงงวด (ใช้คิด OT ที่ไปกับเงินเดือนฐาน)
  * - remote: ไม่นับเลย
@@ -237,7 +250,7 @@ export function selectCheckinsForRun<T extends SelectableCheckin>(
   run: RunWindow,
   slipId?: string | null
 ): T[] {
-  const onsiteFrom = catchUpStart(run.period_end)
+  const onsiteFrom = onsiteFromFor(run)
 
   return checkins.filter(c => {
     const date = bangkokDate(c.checked_in_at)

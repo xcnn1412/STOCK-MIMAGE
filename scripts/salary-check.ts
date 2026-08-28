@@ -15,6 +15,7 @@ import {
   computeSlip,
   hasMissingAmounts,
   lastFinishedWeek,
+  onsiteFromFor,
   periodRange,
   selectCheckinsForRun,
   type CheckinInput,
@@ -464,6 +465,42 @@ function partA() {
     assertEq(
       lastFinishedWeek('2026-09-06'), { start: '2026-08-24', end: '2026-08-30' },
       'วันอาทิตย์ 6 ก.ย. → สัปดาห์ก่อนหน้า (วันนี้ยังไม่จบสัปดาห์)'
+    )
+  }
+
+  // ── 17. งวดกำหนดเองที่ยาวกว่าหน้าต่างเก็บตก 60 วัน ต้องครอบคลุมทั้งช่วง ────
+  console.log('\n[A17] onsiteFromFor: long custom run covers its whole range, short run still catches up')
+  {
+    const early = {
+      id: 'early', check_type: 'onsite' as const,
+      checked_in_at: ts('2026-07-01', '10:00'), paid_slip_id: null,
+    }
+    // 2026-07-01 – 2026-08-31 = 62 วัน (ยาวกว่า 60) — วันแรกของงวดต้องไม่ถูกตัดทิ้ง
+    const longCustom = {
+      kind: 'custom' as RunKind, period_start: '2026-07-01', period_end: '2026-08-31',
+    }
+    assertEq(onsiteFromFor(longCustom), '2026-07-01', 'งวดกำหนดเอง 62 วัน → ขอบล่าง = วันเริ่มงวด')
+    assertEq(
+      selectCheckinsForRun([early], longCustom).map(r => r.id),
+      ['early'],
+      'เช็คอินวันแรกของงวดกำหนดเอง 62 วัน ยังอยู่ในสลิป'
+    )
+
+    // งวดสัปดาห์สั้นๆ ยังเก็บตกย้อนหลัง 60 วันเหมือนเดิม
+    const weekly = {
+      kind: 'weekly' as RunKind, period_start: '2026-08-31', period_end: '2026-09-06',
+    }
+    assertEq(onsiteFromFor(weekly), '2026-07-08', 'งวดสัปดาห์ → ขอบล่าง = วันสิ้นงวด − 60 วัน')
+    assertEq(
+      selectCheckinsForRun(
+        [{
+          id: 'catchup', check_type: 'onsite' as const,
+          checked_in_at: ts('2026-07-10', '10:00'), paid_slip_id: null,
+        }],
+        weekly
+      ).map(r => r.id),
+      ['catchup'],
+      'งวดสัปดาห์ 31 ส.ค. – 6 ก.ย. ยังเก็บตกเช็คอิน 10 ก.ค. ได้'
     )
   }
 }

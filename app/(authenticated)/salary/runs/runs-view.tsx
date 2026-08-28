@@ -100,11 +100,16 @@ export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Prop
         toast.error(res.error || 'เปิดงวดไม่สำเร็จ')
         return
       }
-      toast.success(
-        compute
-          ? `เปิดงวด${label}แล้ว · คำนวณให้ ${res.computed ?? 0} คน`
-          : `เปิดงวด${label}แล้ว`
-      )
+      // งวดเปิดสำเร็จแล้วแม้คำนวณล้ม — บอกสาเหตุจริง ไม่ใช่ "คำนวณให้ 0 คน"
+      if (res.computeError) {
+        toast.error(`เปิดงวด${label}แล้ว แต่คำนวณไม่สำเร็จ: ${res.computeError}`)
+      } else {
+        toast.success(
+          compute
+            ? `เปิดงวด${label}แล้ว · คำนวณให้ ${res.computed ?? 0} คน`
+            : `เปิดงวด${label}แล้ว`
+        )
+      }
       setOpen(false)
       router.push(`/salary/runs/${res.id}`)
     })

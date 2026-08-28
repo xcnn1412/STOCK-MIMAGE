@@ -17,8 +17,8 @@ import { getSession, requireAdmin } from './session'
 import { fmtMoney, periodLabel, slipTitle, todayBangkok } from './format'
 import {
   bangkokDate, catchUpStart, computeSlip, hasMissingAmounts, lastFinishedWeek, lineAmount,
-  periodKeyFor, periodRange, selectCheckinsForRun, shiftDay, toEmploymentType, toRunKind,
-  weekRangeFor, weekdayOf,
+  onsiteFromFor, periodKeyFor, periodRange, selectCheckinsForRun, shiftDay, toEmploymentType,
+  toRunKind, weekRangeFor, weekdayOf,
 } from './compute'
 import type {
   CheckinInput, EmploymentType, RunKind, RunWindow, SalaryAdjustment, SalaryLine, SalaryWarning,
@@ -188,6 +188,8 @@ export interface SlipCheckinRow {
   district: string | null
   out_of_province: boolean
   note: string | null
+  /** สลิปที่จ่ายเช็คอินนี้ไปแล้ว (null = ยังไม่ถูกจ่าย) — ถ้าไม่ใช่สลิปที่กำลังดู = จ่ายในสลิปอื่น */
+  paid_slip_id: string | null
 }
 
 /**
@@ -206,11 +208,14 @@ export interface SlipEventOption {
 
 const PERIOD_KEY_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 
-/** ขอบเขต "วันไทย" ของหน้าต่างเก็บตกของงวด → instant UTC ที่ยิง filter ได้ */
-function catchUpWindowISO(periodEnd: string): { fromISO: string; toISO: string } {
+/**
+ * ขอบเขต "วันไทย" ที่เช็คอินหน้างานยังตกเข้างวดนี้ได้ → instant UTC ที่ยิง filter ได้
+ * ขอบล่างมาจาก onsiteFromFor(run) ตัวเดียวกับที่ selectCheckinsForRun/computeSlip ใช้
+ */
+function catchUpWindowISO(run: RunWindow): { fromISO: string; toISO: string } {
   return {
-    fromISO: new Date(`${catchUpStart(periodEnd)}T00:00:00+07:00`).toISOString(),
-    toISO: new Date(`${periodEnd}T23:59:59.999+07:00`).toISOString(),
+    fromISO: new Date(`${onsiteFromFor(run)}T00:00:00+07:00`).toISOString(),
+    toISO: new Date(`${run.period_end}T23:59:59.999+07:00`).toISOString(),
   }
 }
 
@@ -455,15 +460,18 @@ function resolveRunRange(
  * เปิดงวดใหม่ — งวดเดือนได้ช่วงวันจากวันตัดรอบ "ปัจจุบัน" แล้วแช่ไว้ใน period_start/period_end
  * (เปลี่ยนวันตัดรอบทีหลังไม่ย้อนไปแก้งวดที่เปิดไปแล้ว); งวดสัปดาห์/กำหนดเองเก็บช่วงที่เลือกตรงๆ
  *
- * ไม่มีการกันงวดทับซ้อนอีกต่อไป — กติกา "เช็คอินจ่ายได้ครั้งเดียว" (staff_checkins.paid_slip_id)
- * ทำหน้าที่นั้นแทน จึงเปิดงวดสัปดาห์ซ้อนในช่วงงวดเดือนได้โดยไม่จ่ายซ้ำ
+ * งวดสัปดาห์/กำหนดเองเปิดทับกันได้ — กติกา "เช็คอินจ่ายได้ครั้งเดียว"
+ * (staff_checkins.paid_slip_id) กันจ่ายซ้ำให้แล้ว
+ *
+ * แต่ "งวดเดือนทับงวดเดือน" ยังถูกปฏิเสธ เพราะเช็คอิน "ออฟฟิศ" ไม่ถูกประทับ paid_slip_id
+ * (มีแต่หน้างาน) → OT ออฟฟิศของวันที่อยู่ในสองงวดเดือนจะถูกจ่ายสองรอบ
  *
  * autoCompute = คำนวณสลิปให้ทุกคนที่ควรอยู่ในงวดทันทีหลังเปิด (autoSelectUserIds)
  */
 export async function createSalaryRun(
   input: CreateRunInput,
   opts?: { autoCompute?: boolean }
-): Promise<{ error?: string; id?: string; computed?: number }> {
+): Promise<{ error?: string; id?: string; computed?: number; computeError?: string }> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
 
@@ -480,6 +488,29 @@ export async function createSalaryRun(
     .maybeSingle()
   if (dupe) return { error: `งวด${periodLabel(key)}ถูกเปิดไว้แล้ว` }
 
+  // งวดเดือนห้ามทับงวดเดือน — OT ออฟฟิศไม่มี paid_slip_id จึงกันจ่ายซ้ำเองไม่ได้
+  // (เกิดได้เมื่อเปลี่ยนวันตัดรอบแล้วช่วงของงวดใหม่เลื่อนไปคร่อมงวดเดิม)
+  if (kind === 'monthly') {
+    const { data: overlap } = await supabase
+      .from('salary_runs')
+      .select('period_key, period_start, period_end')
+      .eq('kind', 'monthly')
+      .lte('period_start', end)
+      .gte('period_end', start)
+      .limit(1)
+      .maybeSingle()
+    if (overlap) {
+      const o = overlap as unknown as {
+        period_key: string
+        period_start: string
+        period_end: string
+      }
+      return {
+        error: `ช่วงวันที่ ${start} – ${end} ทับกับงวดเดือน${periodLabel(o.period_key)} (${o.period_start} – ${o.period_end}) — ถ้าเพิ่งเปลี่ยนวันตัดรอบ ให้ตั้งกลับหรือปรับให้ต่อเนื่องกับงวดเดิมก่อน`,
+      }
+    }
+  }
+
   const { data, error } = await supabase
     .from('salary_runs')
     .insert({ kind, period_key: key, period_start: start, period_end: end, created_by: auth.userId })
@@ -495,14 +526,21 @@ export async function createSalaryRun(
   await logActivity('CREATE_SALARY_RUN', { kind, period_key: key, period_start: start, period_end: end })
 
   let computed: number | undefined
+  let computeError: string | undefined
   if (opts?.autoCompute) {
     const userIds = await autoSelectUserIds({ kind, period_start: start, period_end: end })
     // ไม่มีใครเข้าเกณฑ์ = งวดว่าง (ไม่ใช่ error) — admin ติ๊กคนเองในหน้างวดได้
-    computed = userIds.length === 0 ? 0 : (await computeSlips(id, userIds)).computed ?? 0
+    if (userIds.length === 0) computed = 0
+    else {
+      // งวดเปิดไปแล้ว (ไม่ rollback) — แต่ต้องบอกให้เห็นว่าคำนวณล้ม ไม่ใช่ "คำนวณให้ 0 คน"
+      const res = await computeSlips(id, userIds)
+      if (res.error) computeError = res.error
+      else computed = res.computed ?? 0
+    }
   }
 
   revalidatePath('/salary/runs')
-  return { id, computed }
+  return { id, computed, computeError }
 }
 
 /**
@@ -515,7 +553,7 @@ export async function autoSelectUserIds(run: RunWindow): Promise<string[]> {
   if ('error' in auth) return []
 
   const supabase = createServiceClient()
-  const { fromISO, toISO } = catchUpWindowISO(run.period_end)
+  const { fromISO, toISO } = catchUpWindowISO(run)
 
   const [checkinsRes, profilesRes] = await Promise.all([
     supabase
@@ -548,12 +586,12 @@ export async function autoSelectUserIds(run: RunWindow): Promise<string[]> {
 // ข้อเสนอเปิดงวด + เช็คอินค้างจ่ายที่เลยหน้าต่างเก็บตก (หน้า /salary/runs)
 // ────────────────────────────────────────────────────────────────────────────
 
-/** นับคน/เช็คอินหน้างานค้างจ่ายในหน้าต่างเก็บตกของงวดที่จบวันที่ periodEnd */
+/** นับคน/เช็คอินหน้างานค้างจ่ายในหน้าต่างเก็บตกของงวดหนึ่ง */
 async function countUnpaidOnsite(
   supabase: ReturnType<typeof createServiceClient>,
-  periodEnd: string
+  run: RunWindow
 ): Promise<{ users: Set<string>; checkins: number }> {
-  const { fromISO, toISO } = catchUpWindowISO(periodEnd)
+  const { fromISO, toISO } = catchUpWindowISO(run)
   const { data } = await supabase
     .from('staff_checkins')
     .select('user_id')
@@ -607,7 +645,9 @@ export async function getRunSuggestions(): Promise<RunSuggestion[]> {
   const suggestions: RunSuggestion[] = []
 
   if (!opened.has(weekKey)) {
-    const { users, checkins } = await countUnpaidOnsite(supabase, week.end)
+    const { users, checkins } = await countUnpaidOnsite(
+      supabase, { kind: 'weekly', period_start: week.start, period_end: week.end }
+    )
     // ไม่มีคนและไม่มีเช็คอินค้าง = ไม่มีอะไรให้จ่ายในสัปดาห์นั้น — ไม่ต้องรบกวน admin
     if (users.size > 0 || checkins > 0) {
       suggestions.push({
@@ -623,7 +663,9 @@ export async function getRunSuggestions(): Promise<RunSuggestion[]> {
 
   if (monthFinished && !opened.has(month)) {
     const [{ users, checkins }, profilesRes] = await Promise.all([
-      countUnpaidOnsite(supabase, monthRange.end),
+      countUnpaidOnsite(
+        supabase, { kind: 'monthly', period_start: monthRange.start, period_end: monthRange.end }
+      ),
       supabase.from('salary_profiles').select('user_id').in('employment_type', ['fulltime', 'intern']),
     ])
     const ids = new Set(users)
@@ -802,9 +844,9 @@ export async function computeSlips(
   const [settings, duties] = await Promise.all([getSalarySettings(), listDuties()])
 
   // ขอบเขตเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
-  // ดึงกว้างถึงหน้าต่างเก็บตก 60 วัน แล้วให้ selectCheckinsForRun คัดตามชนิดงวด/สถานะจ่าย
-  const onsiteFrom = catchUpStart(run.period_end)
-  const { fromISO, toISO } = catchUpWindowISO(run.period_end)
+  // ดึงกว้างถึงต้นหน้าต่างเก็บตก แล้วให้ selectCheckinsForRun คัดตามชนิดงวด/สถานะจ่าย
+  const onsiteFrom = onsiteFromFor(run)
+  const { fromISO, toISO } = catchUpWindowISO(run)
 
   const [profilesRes, salaryProfilesRes, existingRes, checkinsRes] = await Promise.all([
     // ผู้ใช้ที่ถูกลบไปแล้วจะไม่เจอที่นี่ → ตกไปอยู่ใน skipped ว่า 'ไม่พบผู้ใช้'
@@ -935,7 +977,10 @@ export async function computeSlips(
       user_id: userId,
       status: 'draft',
       employment_type,
-      base_salary,
+      // snapshot "ฐานในสลิปใบนี้" — งวดสัปดาห์/กำหนดเองไม่มีเงินเดือนฐาน (compute.ts §7)
+      // เก็บ 0 ไว้เลย เพื่อให้ recalcTotal (แก้มือ/รายการปรับ) ได้ยอดตรงกับ computeSlip
+      // โดยไม่ต้องรู้ชนิดงวด — ไม่งั้นแก้บรรทัดทีเดียวยอดเด้งเป็น ฐาน + บรรทัด
+      base_salary: run.kind === 'monthly' ? base_salary : 0,
       checkin_ids,
       lines: result.lines,
       adjustments,
@@ -1126,30 +1171,37 @@ export async function getSlipForView(
 
   if (!isAdmin) return { slip, isAdmin, checkins: [], duties: [], events: [] }
 
+  // ขอบเขตของตาราง/ตัวเลือกในหน้าสลิป = ขอบเขตเดียวกับที่เครื่องคำนวณใช้ (onsiteFromFor)
+  const runWindow: RunWindow = {
+    kind: slip.kind,
+    period_start: slip.period_start,
+    period_end: slip.period_end,
+  }
   const [checkins, duties, events] = await Promise.all([
-    listSlipCheckins(supabase, slip.user_id, slip.period_start, slip.period_end),
+    listSlipCheckins(supabase, slip.user_id, slip.id, runWindow),
     listDuties(),
-    listPeriodEvents(supabase, slip.period_start, slip.period_end),
+    listPeriodEvents(supabase, onsiteFromFor(runWindow), slip.period_end),
   ])
   return { slip, isAdmin, checkins, duties, events }
 }
 
 /**
- * อีเวนต์ที่ใช้เลือกผูกกับเช็คอินในงวดนี้ — กว้างกว่าช่วงงวดข้างละ 7 วัน
+ * อีเวนต์ที่ใช้เลือกผูกกับเช็คอินในสลิปนี้ — กว้างกว่าหน้าต่างเช็คอินของงวดข้างละ 7 วัน
+ * (ผู้เรียกส่ง from = onsiteFromFor(run) จึงครอบคลุมเช็คอินเก็บตกด้วย)
  * เพราะงานที่จัดคร่อมรอยต่องวด (เช่น เช็คอินวันที่ 25 แต่ event_date วันที่ 26)
  * ยังต้องเลือกได้ — ไม่งั้นสลิปจะติด warning "ไม่ได้ผูกกับอีเวนต์" แก้ไม่ได้
  */
 async function listPeriodEvents(
   supabase: ReturnType<typeof createServiceClient>,
-  periodStart: string,
+  from: string,
   periodEnd: string
 ): Promise<SlipEventOption[]> {
-  if (!periodStart || !periodEnd) return []
+  if (!from || !periodEnd) return []
 
   const { data } = await supabase
     .from('events')
     .select('id, name, event_date')
-    .gte('event_date', shiftDay(periodStart, -7))
+    .gte('event_date', shiftDay(from, -7))
     .lte('event_date', shiftDay(periodEnd, 7))
     .order('event_date', { ascending: true })
 
@@ -1161,23 +1213,29 @@ async function listPeriodEvents(
   }))
 }
 
-/** เช็คอินของคนหนึ่งที่อยู่ในช่วงงวด — ขอบเขตเดียวกับที่ computeSlips ใช้ป้อนเครื่องคำนวณ */
+/**
+ * เช็คอินที่แสดงในหน้าสลิป — ใช้ตัวเลือกตัวเดียวกับเครื่องคำนวณ (selectCheckinsForRun)
+ * คือเช็คอินหน้างานค้างจ่ายตั้งแต่ onsiteFromFor(run) ถึงวันสิ้นงวด + เช็คอินออฟฟิศ
+ * ในช่วงงวดเฉพาะงวดเดือน
+ *
+ * เพิ่มจากนั้นอีกอย่างเดียว: เช็คอินหน้างานในหน้าต่างเดียวกันที่ "ถูกจ่ายในสลิปอื่นไปแล้ว"
+ * ก็ยังแสดง (พร้อมป้ายบอก + ห้ามแก้) ไม่งั้น admin จะงงว่าเช็คอินวันนั้นหายไปไหน
+ */
 async function listSlipCheckins(
   supabase: ReturnType<typeof createServiceClient>,
   userId: string,
-  periodStart: string,
-  periodEnd: string
+  slipId: string,
+  run: RunWindow
 ): Promise<SlipCheckinRow[]> {
-  if (!periodStart || !periodEnd) return []
+  if (!run.period_start || !run.period_end) return []
 
-  // ขอบเขตงวดเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
-  const fromISO = new Date(`${periodStart}T00:00:00+07:00`).toISOString()
-  const toISO = new Date(`${periodEnd}T23:59:59.999+07:00`).toISOString()
+  // ขอบเขตเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
+  const { fromISO, toISO } = catchUpWindowISO(run)
 
   const { data } = await supabase
     .from('staff_checkins')
     .select(
-      'id, check_type, checked_in_at, checked_out_at, event_id, duties, province, district, out_of_province, note, events:event_id(name)'
+      'id, check_type, checked_in_at, checked_out_at, event_id, duties, province, district, out_of_province, note, paid_slip_id, events:event_id(name)'
     )
     .eq('user_id', userId)
     .gte('checked_in_at', fromISO)
@@ -1195,26 +1253,33 @@ async function listSlipCheckins(
     district: string | null
     out_of_province: boolean | null
     note: string | null
+    paid_slip_id: string | null
     // PostgREST คืน to-one เป็น object แต่บางเวอร์ชันห่อเป็น array — รับทั้งสองแบบ
     events: { name: string | null } | { name: string | null }[] | null
   }
 
-  return ((data || []) as unknown as Raw[]).map(r => {
-    const embedded = Array.isArray(r.events) ? r.events[0] : r.events
-    return {
-      id: r.id,
-      check_type: r.check_type,
-      checked_in_at: r.checked_in_at,
-      checked_out_at: r.checked_out_at,
-      event_id: r.event_id,
-      event_name: embedded?.name ?? null,
-      duties: Array.isArray(r.duties) ? r.duties : [],
-      province: r.province,
-      district: r.district,
-      out_of_province: !!r.out_of_province,
-      note: r.note,
-    }
-  })
+  const rows = (data || []) as unknown as Raw[]
+  const selected = new Set(selectCheckinsForRun(rows, run, slipId).map(r => r.id))
+
+  return rows
+    .filter(r => selected.has(r.id) || (!!r.paid_slip_id && r.paid_slip_id !== slipId))
+    .map(r => {
+      const embedded = Array.isArray(r.events) ? r.events[0] : r.events
+      return {
+        id: r.id,
+        check_type: r.check_type,
+        checked_in_at: r.checked_in_at,
+        checked_out_at: r.checked_out_at,
+        event_id: r.event_id,
+        event_name: embedded?.name ?? null,
+        duties: Array.isArray(r.duties) ? r.duties : [],
+        province: r.province,
+        district: r.district,
+        out_of_province: !!r.out_of_province,
+        note: r.note,
+        paid_slip_id: r.paid_slip_id,
+      }
+    })
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1945,13 +2010,26 @@ export async function markAllPaid(
     .update({ status: 'paid', paid_at: new Date().toISOString(), paid_by: auth.userId })
     .eq('run_id', runId)
     .eq('status', 'finalized')
-    .select('id')
+    .select('id, user_id, total')
   if (error) return { error: `บันทึกไม่สำเร็จ: ${error.message}` }
 
-  const ids = ((data || []) as unknown as Array<{ id: string }>).map(r => r.id)
+  const paid = (data || []) as unknown as Array<{
+    id: string
+    user_id: string
+    total: number | string | null
+  }>
+  const ids = paid.map(r => r.id)
   if (ids.length === 0) return { error: 'ไม่มีสลิปที่รอโอนในงวดนี้' }
 
   await logActivity('SALARY_MARK_ALL_PAID', { runId, count: ids.length })
+  // + แถวต่อคน รูปเดียวกับ markSlipPaid — ไม่งั้นประวัติของพนักงานคนหนึ่งจะไม่มีร่องรอยว่าจ่ายวันไหน
+  for (const s of paid) {
+    await logActivity(
+      'MARK_SALARY_PAID',
+      { slipId: s.id, runId, total: Number(s.total || 0) },
+      s.user_id
+    )
+  }
 
   for (const id of ids) revalidatePath(`/salary/${id}`)
   revalidatePath(`/salary/runs/${runId}`)

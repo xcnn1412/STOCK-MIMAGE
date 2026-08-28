@@ -220,18 +220,50 @@ COMMENT ON FUNCTION public.finalize_salary_slip(UUID, UUID) IS
 -- ────────────────────────────────────────────────────────────────────────────
 -- 5. Backfill — สลิปที่ปิดงวด/จ่ายไปแล้วก่อน deploy ต้องประทับย้อนหลัง
 --    ไม่งั้นงวดแรกหลัง deploy จะดึงเช็คอินที่จ่ายไปแล้วมาจ่ายซ้ำ
+--
+--    ทำสองชั้น เพราะกติกาของงวดเดือน "เดิม" คือจ่าย เช็คอินหน้างานทุกใบ ของคนนั้น
+--    ที่อยู่ในช่วงงวด — ไม่ใช่แค่ใบที่กลายเป็นบรรทัด:
+--      5a. เช็คอินที่อ้างใน lines[].checkin_id (ค่าสตาฟ/เบิ้ล ตจว.)
+--      5b. เช็คอินหน้างานของเจ้าของสลิปทุกใบที่อยู่ในช่วงงวดของสลิปนั้น
+--          (รันเนอร์ / ยังไม่ระบุหน้าที่ → ไม่มีบรรทัด แต่งวดเดิมจ่ายไปแล้ว)
+--    ทั้งคู่แตะเฉพาะแถวที่ paid_slip_id IS NULL → รันซ้ำได้ ไม่เปลี่ยนของที่ประทับแล้ว
+--    (แยกเป็นฟังก์ชันเพื่อให้ scripts/salary-trigger-check.sql เรียกตัวเดียวกันได้)
 -- ────────────────────────────────────────────────────────────────────────────
-UPDATE staff_checkins c
-SET paid_slip_id = s.id
-FROM salary_slips s
-CROSS JOIN LATERAL (
-  SELECT (e ->> 'checkin_id')::UUID AS cid
-  FROM jsonb_array_elements(COALESCE(s.lines, '[]'::JSONB)) e
-  WHERE e ->> 'checkin_id' IS NOT NULL
-) x
-WHERE s.status IN ('finalized', 'paid')
-  AND c.id = x.cid
-  AND c.paid_slip_id IS NULL;
+CREATE OR REPLACE FUNCTION public.salary_backfill_paid_slip_ids()
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- 5a. จากบรรทัดในสลิป
+  UPDATE staff_checkins c
+  SET paid_slip_id = s.id
+  FROM salary_slips s
+  CROSS JOIN LATERAL (
+    SELECT (e ->> 'checkin_id')::UUID AS cid
+    FROM jsonb_array_elements(COALESCE(s.lines, '[]'::JSONB)) e
+    WHERE e ->> 'checkin_id' IS NOT NULL
+  ) x
+  WHERE s.status IN ('finalized', 'paid')
+    AND c.id = x.cid
+    AND c.paid_slip_id IS NULL;
+
+  -- 5b. เช็คอินหน้างานที่เหลือของเจ้าของสลิป ในช่วงงวดของสลิปนั้น (เวลาไทย)
+  UPDATE staff_checkins c
+  SET paid_slip_id = s.id
+  FROM salary_slips s
+  JOIN salary_runs r ON r.id = s.run_id
+  WHERE s.status IN ('finalized', 'paid')
+    AND c.user_id = s.user_id
+    AND c.check_type = 'onsite'
+    AND c.paid_slip_id IS NULL
+    AND c.checked_in_at >= (r.period_start::TIMESTAMP AT TIME ZONE 'Asia/Bangkok')
+    AND c.checked_in_at < ((r.period_end + 1)::TIMESTAMP AT TIME ZONE 'Asia/Bangkok');
+END $$;
+
+COMMENT ON FUNCTION public.salary_backfill_paid_slip_ids() IS
+  'ประทับ paid_slip_id ย้อนหลังให้เช็คอินของสลิปที่ปิดงวด/จ่ายแล้ว — จากบรรทัดในสลิป + เช็คอินหน้างานทุกใบในช่วงงวด (idempotent)';
+
+SELECT public.salary_backfill_paid_slip_ids();
 
 -- หมายเหตุ: purge_test_salary_run ไม่ต้องแก้ — ลบงวดทดสอบแล้วสลิปถูกลบตาม CASCADE
 -- และ paid_slip_id ของเช็คอินถูกล้างเองด้วย ON DELETE SET NULL ของ FK ข้อ 2
