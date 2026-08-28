@@ -57,8 +57,15 @@ export async function reverseGeocodeThai(lat: number, lon: number): Promise<Reve
     const address = json?.address
     if (!address) return EMPTY
 
-    const rawProvince = address.province ?? address.state ?? null
-    const rawDistrict = address.city_district ?? address.district ?? address.county ?? address.town ?? null
+    // ตัวอย่างจริงจาก Nominatim (2026-08):
+    //   กทม.:     { suburb: 'เขตพระนคร', city: 'กรุงเทพมหานคร' }            ← ไม่มี province/state เลย
+    //   นนทบุรี:  { city_district: 'ตำบลบางกระสอ', county: 'อำเภอเมืองนนทบุรี', province: 'จังหวัดนนทบุรี' }
+    //   ชลบุรี:   { county: 'อำเภอบางละมุง', province: 'จังหวัดชลบุรี' }
+    const cityAsProvince = address.city && PROVINCE_SET.has(stripProvincePrefix(address.city)) ? address.city : null
+    const rawProvince = address.province ?? address.state ?? cityAsProvince ?? null
+    // อำเภอ = county; เขตของ กทม. = suburb ที่ขึ้นต้น "เขต"; city_district มักเป็นตำบล จึงเป็นตัวเลือกท้ายๆ
+    const suburbKhet = address.suburb && /^\s*เขต/.test(address.suburb) ? address.suburb : null
+    const rawDistrict = address.county ?? suburbKhet ?? address.city_district ?? address.district ?? null
 
     let province: string | null = null
     if (rawProvince && rawProvince.trim()) {
