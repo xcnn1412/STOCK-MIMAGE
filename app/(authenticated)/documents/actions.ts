@@ -211,7 +211,13 @@ async function scDefaultsFor(
     | null
   if (!salary) return { error: NO_SALARY_PROFILE_MSG }
 
+  // ห้ามถือว่า "อ่านโปรไฟล์ไม่ได้" = โปรไฟล์ว่าง — ไม่งั้นจะได้หนังสือรับรองที่มีเงินเดือนแต่ไม่มีชื่อ/เลขบัตร
+  if (profileRes.error) return { error: `อ่านโปรไฟล์ไม่สำเร็จ: ${profileRes.error.message}` }
   const p = (profileRes.data || {}) as Record<string, string | null>
+  // ชื่อถูกล็อกให้ผู้ขอแก้ไม่ได้ — ถ้าโปรไฟล์ไม่มีชื่อต้องบอกตั้งแต่ต้น ไม่ใช่ตันตอนส่งอนุมัติ
+  if (!p.full_name?.trim()) {
+    return { error: 'โปรไฟล์ของคุณยังไม่มีชื่อ-นามสกุล — แก้ในหน้าโปรไฟล์ก่อนขอหนังสือรับรองเงินเดือน' }
+  }
   // ที่อยู่ในโปรไฟล์เก็บเป็น JSON (lib/thai-address.ts) — แปลงเป็นบรรทัดเดียวสำหรับหัวเอกสาร
   const address = p.address ? formatAddress(parseAddress(p.address)) : ''
 

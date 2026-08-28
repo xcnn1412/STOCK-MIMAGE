@@ -1213,7 +1213,7 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
             <FlowArrow />
             <FlowNode variant="user" emoji="✅" title={isEn ? 'Check-kits before going on-site' : 'ตรวจของก่อนไปหน้างาน'} subtitle="/events/[id]/check-kits" />
             <FlowArrow label={isEn ? 'on event day' : 'ถึงวันงาน'} />
-            <FlowNode variant="user" emoji="📍" title={isEn ? 'Staff: on-site check-in' : 'Staff: เช็คอินหน้างาน'} subtitle="/check-in (type: on-site)" tag={isEn ? 'auto expense claim' : 'สร้างใบเบิกอัตโนมัติ'} />
+            <FlowNode variant="user" emoji="📍" title={isEn ? 'Staff: on-site check-in' : 'Staff: เช็คอินหน้างาน'} subtitle="/check-in (type: on-site)" tag={isEn ? 'duties → salary slip' : 'ติ๊กหน้าที่ → สลิปเงินเดือน'} />
             <FlowArrow />
             <FlowNode variant="user" emoji="📷" title={isEn ? 'Return checklist + closure photos' : 'เช็คคืนของ + ถ่ายรูปปิดงาน'} subtitle="/events/[id]/return" />
             <FlowArrow />
@@ -1446,7 +1446,7 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
           />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <FeatureBlock titleTh="🤝 CRM" titleEn="🤝 CRM" lines={isEn ? ['Lead → event prefill (one-click)', 'events.crm_lead_id (1 lead → N events)', 'Staff per event via event_staff'] : ['Lead → event pre-fill ปุ่มเดียว', 'events.crm_lead_id (1 lead → N events)', 'ทีมแยกต่อ event ผ่าน event_staff']} />
-            <FeatureBlock titleTh="📍 Check-in" titleEn="📍 Check-in" lines={isEn ? ['On-site session picks an event from today', 'sessions.event_id stamped', 'Auto-creates expense claim on checkout'] : ['session on-site เลือก event ของวันนี้', 'sessions.event_id ถูก stamp', 'ตอน checkout สร้างใบเบิกอัตโนมัติ']} />
+            <FeatureBlock titleTh="📍 Check-in" titleEn="📍 Check-in" lines={isEn ? ['On-site session picks an event from today', 'sessions.event_id stamped', 'Duties ticked at check-in feed the salary slip (no auto expense claim)'] : ['session on-site เลือก event ของวันนี้', 'sessions.event_id ถูก stamp', 'หน้าที่ที่ติ๊กตอนเช็คอินไปคิดในสลิปเงินเดือน (ไม่สร้างใบเบิกอัตโนมัติแล้ว)']} />
             <FeatureBlock titleTh="📦 Stock / Kits" titleEn="📦 Stock / Kits" lines={isEn ? ['kits.event_id = event.id when assigned', 'Items flip to in_use on checkout', 'Items flip back via return checklist'] : ['kits.event_id = event.id เมื่อผูก', 'item เปลี่ยนเป็น in_use ตอน checkout', 'item เปลี่ยนกลับผ่าน return checklist']} />
             <FeatureBlock titleTh="💰 Costs / Finance" titleEn="💰 Costs / Finance" lines={isEn ? ['job_cost_events.source_event_id (nullable)', 'expense_claims tied via job_event_id', 'VAT / WHT inherited from CRM lead'] : ['job_cost_events.source_event_id (ไม่บังคับ)', 'ใบเบิกผูกผ่าน job_event_id', 'VAT / WHT ตามที่ตั้งใน CRM lead']} />
           </div>
@@ -3971,7 +3971,7 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
                   label={isEn ? 'On-site (event)' : 'อีเวนต์'}
                   when={isEn ? 'Working at a client event' : 'ออกไปจัดงานลูกค้า'}
                   required={isEn ? 'Photo + select event from today\'s list' : 'รูปถ่าย + เลือกอีเวนต์ของวัน'}
-                  onCheckout={isEn ? 'Photo + auto-creates expense claim' : 'รูปถ่าย + สร้างใบเบิกอัตโนมัติ'}
+                  onCheckout={isEn ? 'Photo — hours/duties go to the salary slip' : 'รูปถ่าย — ชั่วโมง/หน้าที่ไปคิดในสลิปเงินเดือน'}
                 />
                 <CheckinTypeRow
                   emoji="🏠"
@@ -4335,10 +4335,10 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
             <TipCard
               tone="emerald"
               icon={<Receipt className="h-4 w-4" />}
-              titleTh="On-site → ใบเบิกอัตโนมัติ"
-              titleEn="On-site → auto expense claim"
-              descTh="ตอน checkout จากอีเวนต์ ระบบจะสร้างใบเบิกค่าตัวสตาฟตามอัตราที่ admin ตั้ง"
-              descEn="When you check out from an on-site session, the system creates an expense claim using the configured staff rate."
+              titleTh="On-site → สลิปเงินเดือน"
+              titleEn="On-site → salary slip"
+              descTh="ตอนเช็คอินไปหน้างานให้ติ๊กหน้าที่ที่ทำ (ส่ง/เก็บตู้ ขับรถ ออกงานสตาฟ รันเนอร์) — ค่าสตาฟ OT และเบิ้ลต่างจังหวัดจะถูกคิดในสลิปเงินเดือนของงวดนั้น ไม่มีใบเบิกอัตโนมัติอีกแล้ว"
+              descEn="Tick the duties you perform when checking in on-site (deliver/collect booth, driving, on-site staff, runner) — site pay, OT and out-of-province bonus are calculated in that period's salary slip; no automatic expense claim anymore."
               isEn={isEn}
             />
             <TipCard

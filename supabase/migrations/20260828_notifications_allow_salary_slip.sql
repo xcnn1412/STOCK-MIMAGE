@@ -10,8 +10,24 @@
 --
 -- รูปแบบเดียวกับ §8 ของ migration เอกสาร: ดรอปตัวเดิมแล้วสร้างใหม่พร้อมค่าที่เพิ่ม
 -- ============================================================================
-ALTER TABLE notifications
-  DROP CONSTRAINT IF EXISTS notifications_reference_type_check;
+-- ดรอปทุก CHECK ที่เกี่ยวกับ type / reference_type แบบ dynamic (ชื่อไม่แน่นอน) — ครอบคลุมทั้ง
+-- เครื่องที่รัน migration เอกสารแล้ว และเครื่องที่ยังไม่รัน (CHECK ของ `type` ยังอยู่ จะบล็อก 'salary_finalized')
+DO $$
+DECLARE c RECORD;
+BEGIN
+  FOR c IN
+    SELECT con.conname
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+    WHERE rel.relname = 'notifications'
+      AND ns.nspname = 'public'
+      AND con.contype = 'c'
+      AND (pg_get_constraintdef(con.oid) ILIKE '%type%' OR pg_get_constraintdef(con.oid) ILIKE '%reference_type%')
+  LOOP
+    EXECUTE format('ALTER TABLE public.notifications DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+END $$;
 
 ALTER TABLE notifications
   ADD CONSTRAINT notifications_reference_type_check CHECK (

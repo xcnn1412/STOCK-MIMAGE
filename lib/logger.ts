@@ -155,6 +155,7 @@ export type ActionType =
     | 'MARK_SALARY_PAID'
     | 'DELETE_SALARY_SLIP'
     | 'UPDATE_CHECKIN_DUTIES'
+    | 'UPDATE_CHECKIN_LOCATION'
     // User Profile
     | 'UPDATE_USER_PROFILE'
     | 'UPDATE_MY_PROFILE'

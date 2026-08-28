@@ -23,9 +23,11 @@ import {
 } from '@/components/ui/dialog'
 import { THAI_PROVINCES } from '@/lib/thai-address'
 import { formatThaiDate } from '@/lib/thai-date'
-import { adminCheckIn, adminEditCheckin } from '@/app/(authenticated)/check-in/actions'
+import {
+  adminCheckIn, adminEditCheckin, adminUpdateCheckinEvent,
+} from '@/app/(authenticated)/check-in/actions'
 import { recomputeSlip } from '../actions'
-import type { SlipCheckinRow } from '../actions'
+import type { SlipCheckinRow, SlipEventOption } from '../actions'
 import type { SalaryDutyRow } from '../settings/actions'
 
 interface Props {
@@ -36,6 +38,8 @@ interface Props {
   periodEnd: string
   checkins: SlipCheckinRow[]
   duties: SalaryDutyRow[]
+  /** อีเวนต์รอบๆ งวด (งวด ±7 วัน) — ตัวเลือกสำหรับผูกเช็คอินหน้างาน */
+  events: SlipEventOption[]
   /** admin + สลิปร่างเท่านั้น — ปิดงวดแล้วตารางนี้อ่านอย่างเดียว */
   editable: boolean
 }
@@ -48,14 +52,31 @@ const CHECK_TYPE_LABEL: Record<SlipCheckinRow['check_type'], string> = {
 
 const BANGKOK_OFFSET = 7 * 60 * 60 * 1000
 
+const TH_MONTHS_SHORT = [
+  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+]
+
+const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+
 /** instant → วัน/เวลาไทย สำหรับใส่ใน <input type="date"> / <input type="time"> */
 function bkkParts(iso: string): { date: string; time: string } {
   const s = new Date(new Date(iso).getTime() + BANGKOK_OFFSET).toISOString()
   return { date: s.slice(0, 10), time: s.slice(11, 16) }
 }
 
+/** "27 ส.ค. 69" — วันที่สั้นแบบ พ.ศ. สองหลัก ใช้นำหน้าชื่ออีเวนต์ในลิสต์ */
+function shortThaiDate(dateStr: string): string {
+  const m = DATE_ONLY_RE.exec(dateStr)
+  if (!m) return dateStr
+  const month = TH_MONTHS_SHORT[Number(m[2]) - 1]
+  if (!month) return dateStr
+  const be = String((Number(m[1]) + 543) % 100).padStart(2, '0')
+  return `${Number(m[3])} ${month} ${be}`
+}
+
 export default function SlipCheckinsTable({
-  slipId, userId, periodStart, periodEnd, checkins, duties, editable,
+  slipId, userId, periodStart, periodEnd, checkins, duties, events, editable,
 }: Props) {
   const router = useRouter()
   const [editing, setEditing] = useState<SlipCheckinRow | null>(null)
@@ -180,6 +201,7 @@ export default function SlipCheckinsTable({
           slipId={slipId}
           checkin={editing}
           duties={activeDuties}
+          events={events}
           onClose={() => setEditing(null)}
           onDone={() => { setEditing(null); router.refresh() }}
         />
@@ -192,6 +214,7 @@ export default function SlipCheckinsTable({
           periodStart={periodStart}
           periodEnd={periodEnd}
           duties={activeDuties}
+          events={events}
           onClose={() => setAdding(false)}
           onDone={() => { setAdding(false); router.refresh() }}
         />
@@ -233,6 +256,57 @@ function DutyPicker({
           </Label>
         </div>
       ))}
+    </div>
+  )
+}
+
+/**
+ * เลือกอีเวนต์ที่ผูกกับเช็คอินหน้างาน — ไม่ผูก = สลิปขึ้นเตือน no_event
+ * ค่าที่ส่งออกเป็น events.id ล้วน ผู้เรียกเติมพรีฟิกซ์ `stock:` เอง
+ */
+function EventPicker({
+  events, value, onChange, id, currentLabel, emptyHint,
+}: {
+  events: SlipEventOption[]
+  value: string
+  onChange: (v: string) => void
+  id: string
+  /** ชื่ออีเวนต์ที่ผูกอยู่ กรณีวันจัดอยู่นอกช่วงที่โหลดมา — คงไว้ไม่ให้หลุดตอนบันทึก */
+  currentLabel?: string | null
+  /** เตือนเมื่อยังไม่เลือก (ปิดไว้เมื่อเช็คอินผูกอีเวนต์ไว้ทางอ้อมอยู่แล้ว) */
+  emptyHint?: boolean
+}) {
+  const known = events.some(e => e.id === value)
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs">อีเวนต์ (ไม่บังคับ)</Label>
+      <select
+        id={id}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30"
+      >
+        <option value="">— ไม่ระบุ —</option>
+        {value && !known && (
+          <option value={value}>{currentLabel || 'อีเวนต์ที่ผูกอยู่'}</option>
+        )}
+        {events.map(e => (
+          <option key={e.id} value={e.id}>
+            {shortThaiDate(e.event_date)} · {e.name}
+          </option>
+        ))}
+      </select>
+      {events.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          ไม่มีอีเวนต์ในช่วงงวดนี้ (± 7 วัน) ให้เลือก
+        </p>
+      ) : (
+        emptyHint && !value && (
+          <p className="text-xs text-amber-600 dark:text-amber-500">
+            ไม่เลือกอีเวนต์ = สลิปจะขึ้นเตือน &ldquo;ไม่ได้ผูกกับอีเวนต์&rdquo;
+          </p>
+        )
+      )}
     </div>
   )
 }
@@ -294,11 +368,12 @@ function ProvinceFields({
 // ────────────────────────────────────────────────────────────────────────────
 
 function EditCheckinDialog({
-  slipId, checkin, duties, onClose, onDone,
+  slipId, checkin, duties, events, onClose, onDone,
 }: {
   slipId: string
   checkin: SlipCheckinRow
   duties: SalaryDutyRow[]
+  events: SlipEventOption[]
   onClose: () => void
   onDone: () => void
 }) {
@@ -313,9 +388,13 @@ function EditCheckinDialog({
   const [province, setProvince] = useState(checkin.province || '')
   const [district, setDistrict] = useState(checkin.district || '')
   const [outOfProvince, setOutOfProvince] = useState(checkin.out_of_province)
+  const [eventId, setEventId] = useState(checkin.event_id || '')
   const [isPending, startTransition] = useTransition()
 
   const isOnsite = checkin.check_type === 'onsite'
+  // เช็คอินที่ที่มาเป็น closure / job_cost_events เก็บไว้ใน note เป็น [ref:...]
+  // — compute นับว่าผูกอีเวนต์แล้ว จึงไม่ต้องเตือนว่ายังไม่เลือก
+  const hasRefTag = !!checkin.note?.includes('[ref:')
 
   function toggleDuty(code: string, on: boolean) {
     setSelectedDuties(prev => (on ? [...prev, code] : prev.filter(c => c !== code)))
@@ -344,6 +423,7 @@ function EditCheckinDialog({
     }
     // ฟิลด์ค่าสตาฟใช้เฉพาะเช็คอินหน้างาน — ประเภทอื่นไม่ส่งไปให้เขียนทับของเดิม
     if (isOnsite) {
+      fd.set('duties_set', '1')
       selectedDuties.forEach(code => fd.append('duties', code))
       fd.set('province', province)
       fd.set('district', district)
@@ -355,6 +435,19 @@ function EditCheckinDialog({
       if (res.error) {
         toast.error(res.error)
         return
+      }
+      // adminEditCheckin ไม่แตะ event_id — เปลี่ยนอีเวนต์ต้องยิง action แยก
+      // และต้องเสร็จก่อน recomputeSlip ไม่งั้นสลิปยังติด warning ไม่ผูกอีเวนต์
+      if (isOnsite && eventId !== (checkin.event_id || '')) {
+        const linked = await adminUpdateCheckinEvent(
+          checkin.id,
+          eventId ? `stock:${eventId}` : null
+        )
+        if (linked.error) {
+          toast.error(`แก้เช็คอินแล้ว แต่เปลี่ยนอีเวนต์ไม่สำเร็จ: ${linked.error}`)
+          onDone()
+          return
+        }
       }
       const recomputed = await recomputeSlip(slipId)
       if (recomputed.error) {
@@ -401,6 +494,14 @@ function EditCheckinDialog({
 
           {isOnsite && (
             <>
+              <EventPicker
+                events={events}
+                value={eventId}
+                onChange={setEventId}
+                id={`edit-event-${checkin.id}`}
+                currentLabel={checkin.event_name}
+                emptyHint={!hasRefTag}
+              />
               <div className="space-y-1.5">
                 <Label className="text-xs">หน้าที่หน้างาน</Label>
                 <DutyPicker
@@ -441,13 +542,14 @@ function EditCheckinDialog({
 // ────────────────────────────────────────────────────────────────────────────
 
 function AddCheckinDialog({
-  slipId, userId, periodStart, periodEnd, duties, onClose, onDone,
+  slipId, userId, periodStart, periodEnd, duties, events, onClose, onDone,
 }: {
   slipId: string
   userId: string
   periodStart: string
   periodEnd: string
   duties: SalaryDutyRow[]
+  events: SlipEventOption[]
   onClose: () => void
   onDone: () => void
 }) {
@@ -458,6 +560,7 @@ function AddCheckinDialog({
   const [province, setProvince] = useState('')
   const [district, setDistrict] = useState('')
   const [outOfProvince, setOutOfProvince] = useState(false)
+  const [eventId, setEventId] = useState('')
   const [isPending, startTransition] = useTransition()
 
   function toggleDuty(code: string, on: boolean) {
@@ -483,7 +586,10 @@ function AddCheckinDialog({
     fd.set('checkin_date', date)
     fd.set('checkin_time', inTime)
     if (outTime) fd.set('checkout_time', outTime)
+    fd.set('duties_set', '1')
     selectedDuties.forEach(code => fd.append('duties', code))
+    // adminCheckIn รับ event_id เป็นรูปแบบมีพรีฟิกซ์ — `stock:UUID` = events.id ตรงๆ
+    if (eventId) fd.set('event_id', `stock:${eventId}`)
     if (province) fd.set('province', province)
     if (district) fd.set('district', district)
     fd.set('out_of_province', outOfProvince ? 'true' : 'false')
@@ -550,8 +656,16 @@ function AddCheckinDialog({
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            เวลาออกใช้วันเดียวกับเวลาเข้า · ไม่ผูกอีเวนต์ให้ (ผูกภายหลังได้ที่รายงานเช็คอิน)
+            เวลาออกใช้วันเดียวกับเวลาเข้า
           </p>
+
+          <EventPicker
+            events={events}
+            value={eventId}
+            onChange={setEventId}
+            id="add-checkin-event"
+            emptyHint
+          />
 
           <div className="space-y-1.5">
             <Label className="text-xs">หน้าที่หน้างาน (อย่างน้อย 1)</Label>

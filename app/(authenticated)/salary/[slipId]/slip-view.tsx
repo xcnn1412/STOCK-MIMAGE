@@ -22,7 +22,7 @@ import SlipCheckinsTable from '../components/slip-checkins-table'
 import { hasMissingAmounts } from '../compute'
 import {
   finalizeSlip, markSlipPaid, recomputeSlip,
-  type SlipCheckinRow, type SlipDetail,
+  type SlipCheckinRow, type SlipDetail, type SlipEventOption,
 } from '../actions'
 import type { SalaryDutyRow } from '../settings/actions'
 
@@ -32,11 +32,13 @@ interface Props {
   /** ข้อมูลต้นทางในงวด — ว่างเสมอเมื่อไม่ใช่ admin */
   checkins: SlipCheckinRow[]
   duties: SalaryDutyRow[]
+  /** ตัวเลือกอีเวนต์รอบๆ งวด สำหรับผูกเช็คอิน — ว่างเสมอเมื่อไม่ใช่ admin */
+  events: SlipEventOption[]
 }
 
 const EMPLOYMENT_LABEL = { fulltime: 'ประจำ', freelance: 'ฟรีแลนซ์' } as const
 
-export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
+export default function SlipView({ slip, isAdmin, checkins, duties, events }: Props) {
   const router = useRouter()
   const [confirmRecompute, setConfirmRecompute] = useState(false)
   const [confirmFinalize, setConfirmFinalize] = useState(false)
@@ -212,6 +214,7 @@ export default function SlipView({ slip, isAdmin, checkins, duties }: Props) {
               periodEnd={slip.period_end}
               checkins={checkins}
               duties={duties}
+              events={events}
               editable={editable}
             />
           </CardContent>

@@ -2,6 +2,7 @@
 
 import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { reverseGeocodeThai } from '@/lib/reverse-geocode'
+import { logActivity } from '@/lib/logger'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import type { DutyInput } from '../salary/compute'
@@ -33,10 +34,13 @@ async function validateDutyCodes(
 ): Promise<string | null> {
   if (codes.length === 0) return null
 
+  // รับเฉพาะหน้าที่ที่เปิดใช้อยู่ — หน้าที่ที่ admin ปิดแล้วต้องเลือกไม่ได้แม้ส่ง FormData ตรงๆ
+  // (compute ใช้อัตราของหน้าที่ที่ปิดแล้วได้ แต่เฉพาะกับเช็คอินเก่าที่บันทึกไว้ก่อนปิด)
   const { data, error } = await supabase
     .from('salary_duties')
     .select('code')
     .in('code', codes)
+    .eq('is_active', true)
 
   if (error) {
     console.error('Duty codes lookup error:', error)
@@ -45,7 +49,7 @@ async function validateDutyCodes(
 
   const known = new Set((data || []).map((d: { code: string }) => d.code))
   const unknown = codes.filter(c => !known.has(c))
-  if (unknown.length > 0) return `ไม่พบหน้าที่หน้างาน: ${unknown.join(', ')}`
+  if (unknown.length > 0) return `ไม่พบหน้าที่หน้างานหรือหน้าที่ถูกปิดใช้งาน: ${unknown.join(', ')}`
   return null
 }
 
@@ -129,11 +133,14 @@ export async function checkIn(formData: FormData) {
   if (checkType === 'onsite' && !eventId) {
     return { error: 'กรุณาเลือกอีเวนต์' }
   }
-  if (checkType === 'onsite' && duties.length === 0) {
-    return { error: 'กรุณาเลือกหน้าที่หน้างานอย่างน้อย 1 อย่าง' }
-  }
-
   const supabase = createServiceClient()
+
+  if (checkType === 'onsite' && duties.length === 0) {
+    // fail-open: ถ้าระบบยังไม่มี rate card เลย (migration ยังไม่รัน / admin ปิดทุกหน้าที่)
+    // อย่าบล็อกการเช็คอินของทั้งบริษัท — สลิปจะขึ้น warning "ไม่มีหน้าที่" ให้ admin เติมทีหลัง
+    const active = await getActiveDuties()
+    if (active.length > 0) return { error: 'กรุณาเลือกหน้าที่หน้างานอย่างน้อย 1 อย่าง' }
+  }
 
   const dutyError = await validateDutyCodes(supabase, duties)
   if (dutyError) return { error: dutyError }
@@ -520,12 +527,16 @@ export async function adminEditCheckin(formData: FormData) {
 
   // ─── ฟิลด์โมดูลเงินเดือน (ทุกอันไม่บังคับ — ไม่ส่งมา = ไม่แก้) ───
   //
-  // duties: ส่งซ้ำหลาย entry; "ไม่ส่งเลย" = ไม่แตะของเดิม (ฟอร์มเก่าอย่างปุ่ม
-  // ล้าง check-out จึงยังใช้ action นี้ได้โดยไม่ลบหน้าที่ทิ้ง)
+  // duties: ส่งซ้ำหลาย entry + ฟอร์มที่มีช่องหน้าที่ต้องส่ง duties_set=1 ด้วย —
+  // "ไม่มี duties_set" = ไม่แตะของเดิม (ฟอร์มเก่าอย่างปุ่มล้าง check-out จึงยังใช้
+  // action นี้ได้โดยไม่ลบหน้าที่ทิ้ง) / "มี duties_set แต่ว่าง" = ตั้งใจเอาออกทั้งหมด
+  const dutiesSet = formData.get('duties_set') === '1'
   const duties = readDutyCodes(formData)
-  if (duties.length > 0) {
-    const dutyError = await validateDutyCodes(supabase, duties)
-    if (dutyError) return { error: dutyError }
+  if (dutiesSet || duties.length > 0) {
+    if (duties.length > 0) {
+      const dutyError = await validateDutyCodes(supabase, duties)
+      if (dutyError) return { error: dutyError }
+    }
     updates.duties = duties
   }
   // เปลี่ยนประเภทออกจาก onsite = ข้อมูลค่าสตาฟของเดิมใช้ไม่ได้แล้ว ล้างทิ้ง
@@ -533,15 +544,32 @@ export async function adminEditCheckin(formData: FormData) {
     updates.duties = []
     updates.out_of_province = false
   }
+  // onsite ต้องมีหน้าที่ ≥ 1 เสมอ (กติกาเดียวกับ checkIn/adminCheckIn) — ตรวจกับค่าหลังแก้
+  {
+    const { data: current } = await supabase
+      .from('staff_checkins')
+      .select('check_type, duties')
+      .eq('id', checkinId)
+      .single()
+    if (!current) return { error: 'ไม่พบ record' }
+    const finalType = (updates.check_type as string | undefined) ?? current.check_type
+    const finalDuties = (updates.duties as string[] | undefined) ?? ((current.duties as string[] | null) ?? [])
+    if (finalType === 'onsite' && finalDuties.length === 0) {
+      return { error: 'เช็คอิน "ไปหน้างาน" ต้องมีหน้าที่หน้างานอย่างน้อย 1 อย่าง' }
+    }
+  }
 
   const provinceRaw = formData.get('province')
   if (provinceRaw !== null) updates.province = String(provinceRaw).trim() || null
   const districtRaw = formData.get('district')
   if (districtRaw !== null) updates.district = String(districtRaw).trim() || null
 
+  // ต่างจังหวัดมีความหมายเฉพาะ onsite — ถ้ากำลังเปลี่ยนประเภทออกจาก onsite ให้คงค่าที่ล้างไว้ด้านบน
   const oopRaw = formData.get('out_of_province')
-  if (oopRaw === 'true') updates.out_of_province = true
-  else if (oopRaw === 'false') updates.out_of_province = false
+  if (!(checkType && checkType !== 'onsite')) {
+    if (oopRaw === 'true') updates.out_of_province = true
+    else if (oopRaw === 'false') updates.out_of_province = false
+  }
 
   // ─── เวลาเข้า/ออก — รับเป็นคู่ YYYY-MM-DD + HH:mm (เวลาไทย) ───
   const checkinDate = (formData.get('checkin_date') as string | null) || null
@@ -599,6 +627,9 @@ export async function adminEditCheckin(formData: FormData) {
     console.error('Admin edit error:', error)
     return { error: 'เกิดข้อผิดพลาดในการแก้ไข' }
   }
+
+  // ฟิลด์เหล่านี้กระทบยอดในสลิปเงินเดือน → ต้องมีร่องรอยใน activity log
+  await logActivity('UPDATE_CHECKIN_DUTIES', { checkin_id: checkinId, ...updates })
 
   revalidatePath('/check-in')
   revalidatePath('/check-in/history')
@@ -1081,6 +1112,12 @@ export async function updateMyCheckinLocation(
     console.error('Update my checkin location error:', error)
     return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
   }
+
+  await logActivity('UPDATE_CHECKIN_LOCATION', {
+    checkin_id: checkinId,
+    province: province?.trim() || null,
+    district: district?.trim() || null,
+  })
 
   revalidatePath('/check-in')
   revalidatePath('/check-in/history')

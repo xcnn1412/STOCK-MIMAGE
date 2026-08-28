@@ -275,6 +275,7 @@ export default function CheckinReportView({ initialRecords, staff, allEvents, du
       if (isAdmin) {
         const fd = new FormData()
         fd.set('checkin_id', editingCheckin.id)
+        fd.set('duties_set', '1')
         editDuties.forEach(code => fd.append('duties', code))
         fd.set('province', editProvince)
         fd.set('district', editDistrict)

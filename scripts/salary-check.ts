@@ -248,6 +248,24 @@ function partA() {
     assertEq(ot?.computed_amount, 250, 'ค่าคำนวณเดิมยังเก็บไว้เทียบได้')
     assertEq(site?.amount, 700, 'บรรทัดที่ไม่มีเหตุผลถูกคำนวณใหม่')
     assertEq(second.total, 16699, 'total = 15000 + 999 + 700')
+
+    // 9b. เช็คอินถูกย้ายไปวันอื่น → key ของบรรทัดที่แก้มือเปลี่ยน → ต้องเตือน ไม่หายเงียบ
+    const moved = checkins.map(c =>
+      c.id === 'ovr-ot'
+        ? { ...c, checked_in_at: ts('2026-08-07', '09:00'), checked_out_at: ts('2026-08-07', '20:30') }
+        : c)
+    const third = run(FULLTIME, moved, second.lines)
+    const movedOt = third.lines.find(l => l.kind === 'ot')
+    assertEq(movedOt?.date, '2026-08-07', 'บรรทัด OT ย้ายไปวันใหม่')
+    assertEq(movedOt?.amount, 250, 'บรรทัดใหม่ได้ค่าคำนวณ (override เดิมจับคู่ไม่ได้)')
+    assert(
+      third.warnings.some(w => w.code === 'override_dropped' && w.date === '2026-08-05'),
+      'มีคำเตือน override_dropped ของวันเดิม'
+    )
+    assert(
+      !third.warnings.some(w => w.code === 'override_dropped' && w.date === '2026-08-06'),
+      'บรรทัดที่ไม่ได้แก้มือไม่ถูกเตือน'
+    )
   }
 
   // ── 10. เช็คอินที่ยังไม่ check-out ──────────────────────────────────────

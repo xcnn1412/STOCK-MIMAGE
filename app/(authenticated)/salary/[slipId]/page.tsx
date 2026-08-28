@@ -21,13 +21,14 @@ export default async function SalarySlipPage({ params }: { params: Promise<{ sli
   const res = await getSlipForView(slipId)
   if ('error' in res) notFound()
 
-  // checkins/duties (ข้อมูลต้นทางในงวด) ว่างเสมอเมื่อไม่ใช่ admin — บังคับใน action
+  // checkins/duties/events (ข้อมูลต้นทางในงวด) ว่างเสมอเมื่อไม่ใช่ admin — บังคับใน action
   return (
     <SlipView
       slip={res.slip}
       isAdmin={res.isAdmin}
       checkins={res.checkins}
       duties={res.duties}
+      events={res.events}
     />
   )
 }

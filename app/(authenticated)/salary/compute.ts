@@ -68,7 +68,7 @@ export interface SalaryAdjustment {
 }
 
 export interface SalaryWarning {
-  code: 'no_checkout' | 'no_duty' | 'no_event' | 'runner_missing'
+  code: 'no_checkout' | 'no_duty' | 'no_event' | 'runner_missing' | 'override_dropped'
   date: string
   checkin_id?: string
   message: string
@@ -334,6 +334,19 @@ export function computeSlip(input: ComputeInput): ComputeResult {
       line.amount = null // ยังไม่กรอก
     } else {
       line.amount = line.computed_amount
+    }
+  }
+
+  // ค่าที่แก้มือไว้ซึ่งจับคู่บรรทัดใหม่ไม่ได้ (เช่น เช็คอินถูกย้ายวัน/เปลี่ยนหน้าที่ → key เปลี่ยน)
+  // จะหายไปเงียบๆ ไม่ได้ — ต้องเตือนให้ admin แก้ซ้ำ
+  const newKeys = new Set(lines.map(l => l.key))
+  for (const prev of input.previousLines ?? []) {
+    const wasManual = !!prev.override_note?.trim() || (prev.kind === 'runner' && prev.amount != null)
+    if (wasManual && !newKeys.has(prev.key)) {
+      warnings.push({
+        code: 'override_dropped', date: prev.date,
+        message: `ค่าที่แก้มือไว้ "${prev.label}" (${prev.date}) หายไปหลังคำนวณใหม่ เพราะบรรทัดเดิมไม่มีแล้ว — ตรวจและแก้มือซ้ำถ้าจำเป็น`,
+      })
     }
   }
 

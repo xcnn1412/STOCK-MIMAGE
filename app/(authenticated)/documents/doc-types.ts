@@ -411,8 +411,9 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
 // admin แก้ได้ตามปกติ (เช่น ออกให้พนักงานที่ข้อมูลยังไม่ครบ)
 
 /** คอลัมน์ party_* ของ SC ที่ derive จาก profiles ของเจ้าของเอกสาร */
+// party_email / party_birth_date ไม่อยู่ในนี้ — profiles ไม่มีข้อมูล จึงให้กรอกเองได้ (ไม่ถูกทับเป็น null ตอนบันทึก)
 export const SC_LOCKED_PARTY_KEYS = [
-  'party_name', 'party_id_card', 'party_address', 'party_phone', 'party_email', 'party_birth_date',
+  'party_name', 'party_id_card', 'party_address', 'party_phone',
 ] as const
 
 /** คีย์ใน meta ของ SC ที่ derive จาก salary_profiles + profiles (นอกนั้น = purpose ผู้ขอกรอกเอง) */

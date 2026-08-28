@@ -146,11 +146,28 @@ export interface SlipCheckinRow {
   note: string | null
 }
 
+/**
+ * ตัวเลือกอีเวนต์สำหรับผูกเช็คอินจากในสลิป — อีเวนต์ที่วันจัดอยู่ใกล้ๆ ช่วงงวด
+ * (งวด ±7 วัน — งานที่คร่อมรอยต่องวดยังเลือกได้)
+ */
+export interface SlipEventOption {
+  id: string
+  name: string
+  event_date: string
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers (module-level, ไม่ export — ไฟล์ 'use server' export ได้เฉพาะ async fn)
 // ────────────────────────────────────────────────────────────────────────────
 
 const PERIOD_KEY_RE = /^\d{4}-(0[1-9]|1[0-2])$/
+
+/** เลื่อนวันที่ YYYY-MM-DD ไป n วัน (คิดบน UTC — ไม่มีเวลาเข้ามาเกี่ยว จึงไม่เพี้ยน) */
+function shiftDate(dateStr: string, days: number): string {
+  const t = Date.parse(`${dateStr}T00:00:00Z`)
+  if (Number.isNaN(t)) return dateStr
+  return new Date(t + days * 86_400_000).toISOString().slice(0, 10)
+}
 
 /**
  * เช็คอินที่ event_id ถูกล้างตอนบันทึก (admin เลือก closure / job_cost_events)
@@ -353,6 +370,22 @@ export async function createSalaryRun(
     .maybeSingle()
   if (dupe) return { error: `งวด${periodLabel(key)}ถูกเปิดไว้แล้ว` }
 
+  // งวดเก่าเก็บช่วงวันที่ตายตัวตอนเปิด — ถ้า admin เปลี่ยนวันตัดรอบระหว่างทาง ช่วงของงวดใหม่
+  // อาจทับ/เว้นช่องกับงวดเดิม → เช็คอินวันเดียวกันถูกจ่ายซ้ำ (หรือไม่ถูกจ่ายเลย) ต้องกันที่นี่
+  const { data: overlap } = await supabase
+    .from('salary_runs')
+    .select('period_key, period_start, period_end')
+    .lte('period_start', end)
+    .gte('period_end', start)
+    .limit(1)
+    .maybeSingle()
+  if (overlap) {
+    const o = overlap as unknown as { period_key: string; period_start: string; period_end: string }
+    return {
+      error: `ช่วงวันที่ ${start} – ${end} ทับกับงวด${periodLabel(o.period_key)} (${o.period_start} – ${o.period_end}) — ถ้าเพิ่งเปลี่ยนวันตัดรอบ ให้ตั้งกลับหรือปรับให้ต่อเนื่องกับงวดเดิมก่อน`,
+    }
+  }
+
   const { data, error } = await supabase
     .from('salary_runs')
     .insert({ period_key: key, period_start: start, period_end: end, created_by: auth.userId })
@@ -513,6 +546,9 @@ export async function computeSlips(
     adjustments: SalaryAdjustment[] | null
   }
 
+  if (profilesRes.error) {
+    return { error: `อ่านรายชื่อผู้ใช้ไม่สำเร็จ: ${profilesRes.error.message} (ตรวจว่ารัน migration profiles.deleted_at แล้ว)` }
+  }
   const names = new Map(((profilesRes.data || []) as unknown as NameRaw[]).map(p => [p.id, p]))
   const salaryProfiles = new Map(
     ((salaryProfilesRes.data || []) as unknown as SalaryProfileRaw[]).map(p => [p.user_id, p])
@@ -663,14 +699,21 @@ export async function deleteSlip(slipId: string): Promise<{ error?: string; succ
  * ทุกกรณีที่ไม่มีสิทธิ์คืนข้อความเดียวกัน — ไม่บอกว่าสลิปนั้นมีอยู่จริงหรือไม่
  *
  * เฉพาะ admin ได้ `checkins` (ข้อมูลต้นทางในงวด) + `duties` (rate card ทั้งหมด
- * รวมที่ปิดใช้งาน — ใช้แปลรหัสหน้าที่ของเช็คอินเก่าเป็นชื่อ) ติดมาด้วย
+ * รวมที่ปิดใช้งาน — ใช้แปลรหัสหน้าที่ของเช็คอินเก่าเป็นชื่อ) + `events`
+ * (ตัวเลือกอีเวนต์รอบๆ งวด ใช้ผูกเช็คอินในไดอะล็อก) ติดมาด้วย
  * พนักงานได้อาร์เรย์ว่างเสมอ
  */
 export async function getSlipForView(
   slipId: string
 ): Promise<
   | { error: string }
-  | { slip: SlipDetail; isAdmin: boolean; checkins: SlipCheckinRow[]; duties: SalaryDutyRow[] }
+  | {
+      slip: SlipDetail
+      isAdmin: boolean
+      checkins: SlipCheckinRow[]
+      duties: SalaryDutyRow[]
+      events: SlipEventOption[]
+    }
 > {
   const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
@@ -759,13 +802,41 @@ export async function getSlipForView(
     account_holder_name: who.account_holder_name ?? null,
   }
 
-  if (!isAdmin) return { slip, isAdmin, checkins: [], duties: [] }
+  if (!isAdmin) return { slip, isAdmin, checkins: [], duties: [], events: [] }
 
-  const [checkins, duties] = await Promise.all([
+  const [checkins, duties, events] = await Promise.all([
     listSlipCheckins(supabase, slip.user_id, slip.period_start, slip.period_end),
     listDuties(),
+    listPeriodEvents(supabase, slip.period_start, slip.period_end),
   ])
-  return { slip, isAdmin, checkins, duties }
+  return { slip, isAdmin, checkins, duties, events }
+}
+
+/**
+ * อีเวนต์ที่ใช้เลือกผูกกับเช็คอินในงวดนี้ — กว้างกว่าช่วงงวดข้างละ 7 วัน
+ * เพราะงานที่จัดคร่อมรอยต่องวด (เช่น เช็คอินวันที่ 25 แต่ event_date วันที่ 26)
+ * ยังต้องเลือกได้ — ไม่งั้นสลิปจะติด warning "ไม่ได้ผูกกับอีเวนต์" แก้ไม่ได้
+ */
+async function listPeriodEvents(
+  supabase: ReturnType<typeof createServiceClient>,
+  periodStart: string,
+  periodEnd: string
+): Promise<SlipEventOption[]> {
+  if (!periodStart || !periodEnd) return []
+
+  const { data } = await supabase
+    .from('events')
+    .select('id, name, event_date')
+    .gte('event_date', shiftDate(periodStart, -7))
+    .lte('event_date', shiftDate(periodEnd, 7))
+    .order('event_date', { ascending: true })
+
+  type Raw = { id: string; name: string | null; event_date: string | null }
+  return ((data || []) as unknown as Raw[]).map(e => ({
+    id: e.id,
+    name: e.name || '(ไม่มีชื่อ)',
+    event_date: e.event_date || '',
+  }))
 }
 
 /** เช็คอินของคนหนึ่งที่อยู่ในช่วงงวด — ขอบเขตเดียวกับที่ computeSlips ใช้ป้อนเครื่องคำนวณ */
