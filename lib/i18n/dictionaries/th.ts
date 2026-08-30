@@ -362,6 +362,7 @@ const th = {
       day: 'วัน',
       days: 'วัน',
       locationLabel: 'สถานที่',
+      requiredRoles: 'ตำแหน่งที่ต้องการ',
       details: 'รายละเอียด',
       eventDetailsPlaceholder: 'รายละเอียดงาน...',
 

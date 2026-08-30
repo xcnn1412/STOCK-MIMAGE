@@ -12,6 +12,8 @@ export interface TrackingLead {
   design_status: string
   supplier_note: string | null
   tracking_checklist: string[] // may contain vehicle keys 'car_triton' | 'car_champ'
+  /** ตำแหน่งที่ต้องการ: { "<staff_role value>": จำนวนคน } — {} = ยังไม่กำหนด */
+  required_roles: Record<string, number>
   /** อีเวนต์ที่ผูกกับงานนี้ (ไม่รวมที่ปิดแล้ว) — ที่สำหรับจัดคน */
   events: { id: string; name: string; event_date: string | null; status: string | null }[]
   /** คนที่จัดแล้ว รวมทุกอีเวนต์ของงาน — event_id บอกว่าอยู่ในชุดของอีเวนต์ไหน */
@@ -34,10 +36,59 @@ export const MISSING_LABELS: Record<MissingItem, string> = {
   time: 'เวลาเริ่ม',
 }
 
+/** ตำแหน่งที่ยังมีคนไม่ครบ 1 รายการ */
+export interface RoleGap {
+  role: string
+  need: number
+  have: number
+}
+
+/** true เมื่องานกำหนดตำแหน่งที่ต้องการไว้อย่างน้อยหนึ่งตำแหน่ง (จำนวน ≤ 0 = ไม่ได้กำหนด) */
+export function hasRequiredRoles(lead: TrackingLead): boolean {
+  return Object.values(lead.required_roles || {}).some((n) => n >= 1)
+}
+
+/**
+ * จำนวนคนไม่ซ้ำ (user_id) ต่อตำแหน่ง ตามลำดับที่เจอ — `extra` = คนที่ยังไม่บันทึก (ร่าง) นับรวมด้วย
+ */
+export function staffedCounts(
+  lead: TrackingLead,
+  extra?: { user_id: string; role: string }[]
+): Record<string, number> {
+  const byRole = new Map<string, Set<string>>()
+  for (const s of extra ? [...lead.staff, ...extra] : lead.staff) {
+    const set = byRole.get(s.role)
+    if (set) set.add(s.user_id)
+    else byRole.set(s.role, new Set([s.user_id]))
+  }
+  return Object.fromEntries([...byRole].map(([role, ids]) => [role, ids.size]))
+}
+
+/**
+ * ตำแหน่งที่ยังมีคนไม่ครบ ตามลำดับที่กำหนดไว้ใน required_roles
+ * — นับคนไม่ซ้ำ (user_id) ต่อตำแหน่ง; คนเกินหรือตำแหน่งอื่นที่เพิ่มเข้ามาไม่มีผล
+ */
+export function missingRoles(lead: TrackingLead): RoleGap[] {
+  const counts = staffedCounts(lead)
+  const gaps: RoleGap[] = []
+  for (const [role, need] of Object.entries(lead.required_roles || {})) {
+    if (!(need >= 1)) continue
+    const have = counts[role] ?? 0
+    if (have < need) gaps.push({ role, need, have })
+  }
+  return gaps
+}
+
+/** กำหนดตำแหน่งแล้ว = ครบทุกตำแหน่ง; ยังไม่กำหนด = มีคนอย่างน้อย 1 คน (กติกาเดิม) */
+export function isFullyStaffed(lead: TrackingLead): boolean {
+  if (!hasRequiredRoles(lead)) return lead.staff.length >= 1
+  return missingRoles(lead).length === 0
+}
+
 export function getMissing(lead: TrackingLead): MissingItem[] {
   const missing: MissingItem[] = []
   if (!READY_DESIGN_STATUSES.includes(lead.design_status)) missing.push('design')
-  if (lead.staff.length < 1) missing.push('staff')
+  if (!isFullyStaffed(lead)) missing.push('staff')
   if (!VEHICLES.some((v) => lead.tracking_checklist.includes(v.key))) missing.push('vehicle')
   if (!lead.event_time) missing.push('time')
   return missing
@@ -45,6 +96,18 @@ export function getMissing(lead: TrackingLead): MissingItem[] {
 
 export function isReady(lead: TrackingLead): boolean {
   return getMissing(lead).length === 0
+}
+
+/** ป้ายของสิ่งที่ยังขาด — 'staff' ต่อท้ายด้วยตำแหน่งที่ขาด เช่น `จัดคน (ผู้ช่วย 1, ช่างกล้อง 2)` */
+export function missingLabel(
+  item: MissingItem,
+  lead: TrackingLead,
+  roleLabels: Record<string, string>
+): string {
+  if (item !== 'staff') return MISSING_LABELS[item]
+  const gaps = missingRoles(lead)
+  if (gaps.length === 0) return MISSING_LABELS.staff
+  return `${MISSING_LABELS.staff} (${gaps.map((g) => `${roleLabels[g.role] || g.role} ${g.need - g.have}`).join(', ')})`
 }
 
 /** YYYY-MM-DD → Date เที่ยงคืนเวลาท้องถิ่น (new Date('YYYY-MM-DD') จะได้ UTC — อย่าใช้) */
@@ -334,8 +397,10 @@ export type BarTiming = 'exact' | 'no_end' | 'no_time' | 'multi_day'
 export interface Bar {
   leadId: string
   label: string
-  /** ตำแหน่งในงาน — เฉพาะเลนคน */
+  /** ป้ายตำแหน่งในงาน — เฉพาะเลนคน */
   role?: string
+  /** ค่า role ดิบของ `role` (ไม่แปลป้าย) — เฉพาะเลนคน ใช้ตอนเอาคนออกจากงาน */
+  roleValue?: string
   startMin: number
   endMin: number
   timing: BarTiming
@@ -489,18 +554,32 @@ function personLabel(person: Person): string {
   return person.nickname || person.name
 }
 
-/** คนเรียงตามกลุ่มแผนก (ไม่ระบุแผนกท้ายสุด) แล้วชื่อ */
-function sortPeople(people: Person[]): Person[] {
-  return [...people].sort(
-    (a, b) =>
-      departmentRank(a.department) - departmentRank(b.department) ||
-      personLabel(a).localeCompare(personLabel(b), 'th')
-  )
+/** ป้ายแผนกของคนหนึ่ง (null → ไม่ระบุแผนก) */
+function departmentLabel(person: Person): string {
+  return person.department ?? NO_DEPARTMENT_LABEL
 }
 
-/** ตำแหน่งทุกตำแหน่งที่คนนี้ถูกจัดไว้ในงานนี้ */
-function rolesOf(lead: TrackingLead, personId: string, roleLabels: Record<string, string>): string[] {
-  return lead.staff.filter((s) => s.user_id === personId).map((s) => roleLabels[s.role] || s.role)
+/** คนเรียงตามกลุ่มแผนก (ไม่ระบุแผนกท้ายสุด) แล้วชื่อ — กรองด้วย opts.departments ถ้ามี */
+function sortPeople(people: Person[], departments?: string[]): Person[] {
+  const keep = departments && departments.length > 0 ? new Set(departments) : null
+  return people
+    .filter((p) => !keep || keep.has(departmentLabel(p)))
+    .sort(
+      (a, b) =>
+        departmentRank(a.department) - departmentRank(b.department) ||
+        personLabel(a).localeCompare(personLabel(b), 'th')
+    )
+}
+
+/** ตำแหน่งทุกตำแหน่งที่คนนี้ถูกจัดไว้ในงานนี้ — value ดิบ + ป้ายที่แปลแล้ว */
+function rolesOf(
+  lead: TrackingLead,
+  personId: string,
+  roleLabels: Record<string, string>
+): { value: string; label: string }[] {
+  return lead.staff
+    .filter((s) => s.user_id === personId)
+    .map((s) => ({ value: s.role, label: roleLabels[s.role] || s.role }))
 }
 
 function leadLabel(lead: TrackingLead): string {
@@ -516,7 +595,7 @@ export function layoutDay(
   date: string,
   people: Person[],
   roleLabels: Record<string, string>,
-  opts?: { hideFree?: boolean }
+  opts?: { departments?: string[] }
 ): DayLayout {
   const onDate = leadsOnDate(leads, date)
   const byId = new Map(onDate.map((l) => [l.id, l]))
@@ -526,7 +605,10 @@ export function layoutDay(
   })
   const hourStart = hourStartFor(onDate, date)
 
-  const makeBar = (lead: TrackingLead, extra: { role?: string; unassigned?: boolean } = {}): Bar => {
+  const makeBar = (
+    lead: TrackingLead,
+    extra: { role?: string; roleValue?: string; unassigned?: boolean } = {}
+  ): Bar => {
     const timing = timingOf(lead, date)
     const { startMin, endMin } = spanOf(lead, timing, hourStart)
     const bar: Bar = {
@@ -541,6 +623,7 @@ export function layoutDay(
       unassigned: extra.unassigned ?? false,
     }
     if (extra.role !== undefined) bar.role = extra.role
+    if (extra.roleValue !== undefined) bar.roleValue = extra.roleValue
     return bar
   }
 
@@ -558,18 +641,18 @@ export function layoutDay(
     lanes.push({ kind: 'vehicle', key: vehicle.key, label: vehicle.label, bars, layers: assignLayers(bars) })
   }
 
-  for (const person of sortPeople(people)) {
+  for (const person of sortPeople(people, opts?.departments)) {
     const bars: Bar[] = []
     for (const lead of onDate) {
-      for (const role of rolesOf(lead, person.id, roleLabels)) bars.push(makeBar(lead, { role }))
+      for (const role of rolesOf(lead, person.id, roleLabels))
+        bars.push(makeBar(lead, { role: role.label, roleValue: role.value }))
     }
-    if (opts?.hideFree && bars.length === 0) continue
     markConflicts(bars, byId)
     lanes.push({
       kind: 'person',
       key: person.id,
       label: personLabel(person),
-      sublabel: person.department ?? NO_DEPARTMENT_LABEL,
+      sublabel: departmentLabel(person),
       bars,
       layers: assignLayers(bars),
     })
@@ -584,7 +667,7 @@ export function layoutWeek(
   startDate: string,
   people: Person[],
   roleLabels: Record<string, string>,
-  opts?: { hideFree?: boolean }
+  opts?: { departments?: string[] }
 ): WeekLayout {
   const days = Array.from({ length: 7 }, (_, i) => addDays(startDate, i))
   const perDay = days.map((day) => leadsOnDate(leads, day))
@@ -636,23 +719,134 @@ export function layoutWeek(
     })),
   ]
 
-  for (const person of sortPeople(people)) {
-    const cells = buildCells(
-      (lead) => lead.staff.some((s) => s.user_id === person.id),
-      (lead) => rolesOf(lead, person.id, roleLabels)[0],
-      true
-    )
-    if (opts?.hideFree && days.every((day) => cells[day].length === 0)) continue
+  for (const person of sortPeople(people, opts?.departments)) {
     lanes.push({
       kind: 'person',
       key: person.id,
       label: personLabel(person),
-      sublabel: person.department ?? NO_DEPARTMENT_LABEL,
-      cells,
+      sublabel: departmentLabel(person),
+      cells: buildCells(
+        (lead) => lead.staff.some((s) => s.user_id === person.id),
+        (lead) => rolesOf(lead, person.id, roleLabels)[0]?.label,
+        true
+      ),
     })
   }
 
   return { days, lanes, colorByLead }
+}
+
+// --- ภาระงาน / สรุปแผนก -------------------------------------------------------
+
+/** จำนวนงานไม่ซ้ำที่คนนี้ถูกจัด และคร่อมวันใดวันหนึ่งใน 7 วันนับจาก fromDate */
+export function workloadOf(personId: string, leads: TrackingLead[], fromDate: string): number {
+  const last = addDays(fromDate, 6)
+  let count = 0
+  for (const lead of leads) {
+    if (!lead.event_date) continue
+    if (lead.event_date > last || (lead.event_end_date ?? lead.event_date) < fromDate) continue
+    if (lead.staff.some((s) => s.user_id === personId)) count++
+  }
+  return count
+}
+
+// --- โฟกัสงาน (ตัวเลือก / แถบเวลา) --------------------------------------------
+
+/** ช่วงเวลาของงานโฟกัสในหนึ่งวัน — สแปนเดียวกับแถบงานในเลน (ใช้วาดแถบพาดทุกเลน) */
+export function focusWindow(
+  lead: TrackingLead,
+  date: string,
+  hourStart: number
+): { startMin: number; endMin: number; timing: BarTiming } {
+  const timing = timingOf(lead, date)
+  return { ...spanOf(lead, timing, hourStart), timing }
+}
+
+/** คนหนึ่งคนเมื่อมองจากงานที่โฟกัสอยู่ */
+export interface Candidate {
+  person: Person
+  availability: Availability
+  /** จำนวนงานใน 7 วันนับจาก fromDate */
+  workload: number
+  /** งานที่ชน/ต่อคิวใบแรก — ไม่มีเมื่อว่าง */
+  clash?: { withLabel: string; withTime: string }
+  /** ตำแหน่ง (ค่าดิบ ไม่ซ้ำ) ที่คนนี้ถืออยู่ในงานโฟกัสแล้ว */
+  assignedRoles: string[]
+}
+
+/**
+ * ตัวเลือกของงานโฟกัส: `candidates` = ใช้ได้ (ว่าง/ต่อคิว/เช็คเวลาไม่ได้), `busy` = ชน.
+ * คนที่จัดเข้างานนี้แล้วอยู่ต้นรายการ `candidates` เสมอ (แม้จะชน) เพื่อให้กดเอาออกได้
+ * เรียง: ความว่าง (ว่าง → ต่อคิว → เช็คเวลาไม่ได้) → ภาระงานน้อยก่อน → ชื่อ
+ */
+export function focusCandidates(
+  lead: TrackingLead,
+  people: Person[],
+  leads: TrackingLead[],
+  fromDate: string,
+  opts?: { departments?: string[] }
+): { candidates: Candidate[]; busy: Candidate[] } {
+  const all = sortPeople(people, opts?.departments).map((person): Candidate => {
+    const availability = availabilityOf(person.id, lead, leads)
+    const candidate: Candidate = {
+      person,
+      availability,
+      workload: workloadOf(person.id, leads, fromDate),
+      assignedRoles: [
+        ...new Set(lead.staff.filter((s) => s.user_id === person.id).map((s) => s.role)),
+      ],
+    }
+    const first = availability === 'free' ? undefined : personClashes(person.id, lead, leads)[0]
+    if (first) candidate.clash = { withLabel: first.withLabel, withTime: first.withTime }
+    return candidate
+  })
+
+  const byLoad = (a: Candidate, b: Candidate) =>
+    a.workload - b.workload || personLabel(a.person).localeCompare(personLabel(b.person), 'th')
+  const byAvailability = (a: Candidate, b: Candidate) =>
+    AVAILABILITY_RANK[a.availability] - AVAILABILITY_RANK[b.availability] || byLoad(a, b)
+
+  const assigned = all.filter((c) => c.assignedRoles.length > 0).sort(byAvailability)
+  const rest = all.filter((c) => c.assignedRoles.length === 0)
+
+  return {
+    candidates: [...assigned, ...rest.filter((c) => c.availability !== 'conflict').sort(byAvailability)],
+    busy: rest.filter((c) => c.availability === 'conflict').sort(byLoad),
+  }
+}
+
+/** จำนวนคน/จำนวนคนว่างของหนึ่งแผนก */
+export interface DepartmentSummary {
+  label: string
+  total: number
+  free: number
+}
+
+/** สรุปเลนคนต่อแผนก ตามลำดับที่แผนกโผล่ในเลน — ว่าง = ไม่มีแถบ (วัน) / ไม่มีบล็อกงานเลย (สัปดาห์) */
+export function departmentSummary(lanes: (Lane | WeekLane)[]): DepartmentSummary[] {
+  const byLabel = new Map<string, DepartmentSummary>()
+  for (const lane of lanes) {
+    if (lane.kind !== 'person') continue
+    const label = lane.sublabel ?? NO_DEPARTMENT_LABEL
+    let entry = byLabel.get(label)
+    if (!entry) {
+      entry = { label, total: 0, free: 0 }
+      byLabel.set(label, entry)
+    }
+    entry.total++
+    const busy =
+      'bars' in lane ? lane.bars.length > 0 : Object.values(lane.cells).some((cells) => cells.length > 0)
+    if (!busy) entry.free++
+  }
+  return [...byLabel.values()]
+}
+
+/** ระดับสีของตัวเลขภาระงาน: 0 ไม่แสดง, 1–2 เทา, 3–4 เหลือง, ≥5 แดง */
+export function workloadTone(n: number): 'none' | 'low' | 'mid' | 'high' {
+  if (n <= 0) return 'none'
+  if (n <= 2) return 'low'
+  if (n <= 4) return 'mid'
+  return 'high'
 }
 
 /** วันจัดงานที่ใกล้ที่สุดหลัง fromDate (ไม่รวมวันนั้น) — null เมื่อไม่มีงานข้างหน้า */

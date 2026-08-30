@@ -9,23 +9,33 @@ import {
   chipCounts,
   dateRangesOverlap,
   daysUntil,
+  focusCandidates,
+  focusWindow,
   DEPARTMENT_ORDER,
+  departmentSummary,
   getConflicts,
   getMissing,
   groupLeads,
+  hasRequiredRoles,
+  isFullyStaffed,
   isPast,
   isReady,
   isUrgent,
   layoutDay,
   layoutWeek,
   leadsOnDate,
+  missingLabel,
+  missingRoles,
   monthLabel,
   nextJobDate,
   NO_DEPARTMENT_LABEL,
   personClashes,
+  staffedCounts,
   timeStatus,
   vehicleAvailability,
   vehicleOf,
+  workloadOf,
+  workloadTone,
   type DayLayout,
   type Person,
   type TrackingLead,
@@ -45,6 +55,7 @@ function mk(overrides: Partial<TrackingLead> = {}): TrackingLead {
     design_status: 'completed',
     supplier_note: null,
     tracking_checklist: ['car_triton'],
+    required_roles: {},
     events: [],
     staff: [{ user_id: 'u1', name: 'สมชาย', nickname: 'ชาย', role: 'ช่างภาพ', event_id: 'e1' }],
     ...overrides,
@@ -476,11 +487,29 @@ assert.deepEqual(
 assert.deepEqual(dayAB.lanes.filter((l) => l.kind === 'person').map((l) => l.label), ['นิค', 'ชาย', 'อารีย์', 'บี'])
 assert.equal(dayAB.lanes[1].sublabel, undefined)
 
-// --- hideFree --------------------------------------------------------------
-const dHide = layoutDay([tlA], T, people, roleLabels, { hideFree: true })
-assert.deepEqual(dHide.lanes.filter((l) => l.kind === 'person').map((l) => l.key), ['u1'])
-assert.deepEqual(dHide.lanes.filter((l) => l.kind === 'vehicle').map((l) => l.key), ['car_triton', 'car_champ'])
-assert.equal(dHide.lanes[0].key, 'jobs')
+// --- opts.departments (กรองเลนคน; เลนรถ/งานไม่ถูกกรอง) -----------------------
+const dDept = layoutDay([tlA], T, people, roleLabels, { departments: ['ฝ่ายออกแบบ'] })
+assert.deepEqual(dDept.lanes.filter((l) => l.kind === 'person').map((l) => l.key), ['u1', 'u3'])
+assert.deepEqual(dDept.lanes.filter((l) => l.kind === 'vehicle').map((l) => l.key), ['car_triton', 'car_champ'])
+assert.equal(dDept.lanes[0].key, 'jobs')
+// หลายแผนก + ไม่ระบุแผนก
+assert.deepEqual(
+  layoutDay([tlA], T, people, roleLabels, { departments: ['ช่าง', NO_DEPARTMENT_LABEL] })
+    .lanes.filter((l) => l.kind === 'person').map((l) => l.key),
+  ['u2', 'u4']
+)
+// ว่าง / ไม่ส่ง = ไม่กรอง
+assert.deepEqual(
+  layoutDay([tlA], T, people, roleLabels, { departments: [] }).lanes.filter((l) => l.kind === 'person').map((l) => l.key),
+  ['u2', 'u1', 'u3', 'u4']
+)
+assert.deepEqual(
+  layoutDay([tlA], T, people, roleLabels, {}).lanes.filter((l) => l.kind === 'person').map((l) => l.key),
+  ['u2', 'u1', 'u3', 'u4']
+)
+// แผนกที่ไม่มีใคร → ไม่มีเลนคนเลย แต่เลนรถ/งานยังอยู่
+const dNone = layoutDay([tlA], T, people, roleLabels, { departments: ['ผู้บริหาร'] })
+assert.deepEqual(dNone.lanes.map((l) => l.kind), ['jobs', 'vehicle', 'vehicle'])
 
 // --- role labels in person lanes -------------------------------------------
 assert.equal(bar(dayAB, 'u1', 'A').role, 'ช่างภาพ')
@@ -504,8 +533,13 @@ assert.deepEqual(wkU1.cells['2026-08-31'], [])
 assert.deepEqual(wk.lanes.map((l) => l.kind), ['jobs', 'vehicle', 'vehicle', 'person', 'person', 'person', 'person'])
 assert.equal(wk.lanes.find((l) => l.key === 'jobs')!.cells[T].some((c) => c.conflict), false)
 assert.deepEqual(
-  layoutWeek([tlA], T, people, roleLabels, { hideFree: true }).lanes.filter((l) => l.kind === 'person').map((l) => l.key),
-  ['u1']
+  layoutWeek([tlA], T, people, roleLabels, { departments: ['ฝ่ายออกแบบ'] })
+    .lanes.filter((l) => l.kind === 'person').map((l) => l.key),
+  ['u1', 'u3']
+)
+assert.deepEqual(
+  layoutWeek([tlA], T, people, roleLabels, { departments: ['ช่าง'] }).lanes.map((l) => l.key),
+  ['jobs', 'car_triton', 'car_champ', 'u2']
 )
 // week cells carry the same ยังไม่จัด flag as the day jobs lane
 const wkUn = layoutWeek([mk({ id: 'U', event_date: T, staff: [], tracking_checklist: [] }), tlA], T, people, roleLabels)
@@ -526,5 +560,215 @@ assert.equal(nextJobDate(njFixture, '2026-09-02'), '2026-09-05')
 assert.equal(nextJobDate(njFixture, '2026-09-05'), null)
 assert.equal(nextJobDate(njFixture, '2026-01-01'), '2026-08-30')
 assert.equal(nextJobDate([], T), null)
+
+// --- ตำแหน่งที่ต้องการ / จัดคนครบ --------------------------------------------
+const rrLabels: Record<string, string> = { photographer: 'ช่างกล้อง', assistant: 'ผู้ช่วย' }
+const rs = (userId: string, role: string) => ({ user_id: userId, name: 'ชื่อจริง', nickname: null, role, event_id: 'e1' })
+const rr = (required: Record<string, number>, staff: TrackingLead['staff']) =>
+  mk({ required_roles: required, staff })
+
+// ครบ → ไม่มีตำแหน่งขาด
+assert.deepEqual(missingRoles(rr({ photographer: 1 }, [rs('u1', 'photographer')])), [])
+// ขาด
+assert.deepEqual(missingRoles(rr({ photographer: 2 }, [rs('u1', 'photographer')])), [
+  { role: 'photographer', need: 2, have: 1 },
+])
+// คนเกินไม่ทำให้ไม่ครบ
+assert.deepEqual(missingRoles(rr({ photographer: 1 }, [rs('u1', 'photographer'), rs('u2', 'photographer')])), [])
+// ตำแหน่งอื่นที่เพิ่มเข้ามาไม่นับให้ตำแหน่งที่ต้องการ
+assert.deepEqual(missingRoles(rr({ photographer: 1 }, [rs('u1', 'assistant')])), [
+  { role: 'photographer', need: 1, have: 0 },
+])
+// ยังไม่กำหนด → ไม่มีตำแหน่งขาด
+assert.deepEqual(missingRoles(mk({ required_roles: {} })), [])
+// จำนวน ≤ 0 = ไม่ได้กำหนดตำแหน่งนั้น
+assert.deepEqual(missingRoles(rr({ photographer: 0 }, [])), [])
+// คนเดิมซ้ำในตำแหน่งเดียวกัน นับครั้งเดียว
+assert.deepEqual(missingRoles(rr({ photographer: 2 }, [rs('u1', 'photographer'), rs('u1', 'photographer')])), [
+  { role: 'photographer', need: 2, have: 1 },
+])
+// ลำดับตามที่กำหนดไว้ใน required_roles
+assert.deepEqual(missingRoles(rr({ assistant: 1, photographer: 2 }, [])).map((g) => g.role), ['assistant', 'photographer'])
+
+// --- staffedCounts: นับคนไม่ซ้ำต่อตำแหน่ง -------------------------------------
+assert.deepEqual(
+  staffedCounts(mk({ staff: [rs('u1', 'photographer'), rs('u1', 'photographer'), rs('u2', 'photographer'), rs('u2', 'assistant')] })),
+  { photographer: 2, assistant: 1 }
+)
+assert.deepEqual(staffedCounts(mk({ staff: [] })), {})
+
+// --- hasRequiredRoles ------------------------------------------------------
+assert.equal(hasRequiredRoles(mk({ required_roles: {} })), false)
+assert.equal(hasRequiredRoles(mk({ required_roles: { photographer: 0 } })), false)
+assert.equal(hasRequiredRoles(mk({ required_roles: { photographer: 1 } })), true)
+
+// --- isFullyStaffed: สองกติกา ----------------------------------------------
+assert.equal(isFullyStaffed(mk({ required_roles: {}, staff: [] })), false) // ไม่กำหนด + 0 คน
+assert.equal(isFullyStaffed(mk({ required_roles: {} })), true) // ไม่กำหนด + 1 คน
+assert.equal(isFullyStaffed(rr({ photographer: 2 }, [rs('u1', 'photographer')])), false)
+assert.equal(isFullyStaffed(rr({ photographer: 1 }, [rs('u1', 'photographer')])), true)
+
+// --- getMissing ใช้กติกาใหม่ ------------------------------------------------
+// 3 คนแต่ผิดตำแหน่ง → ยังขาด 'staff'
+assert.deepEqual(
+  getMissing(rr({ photographer: 1, assistant: 2 }, [rs('u1', 'assistant'), rs('u2', 'assistant'), rs('u3', 'assistant')])),
+  ['staff']
+)
+assert.deepEqual(getMissing(rr({ assistant: 2 }, [rs('u1', 'assistant'), rs('u2', 'assistant')])), [])
+
+// --- missingLabel ----------------------------------------------------------
+assert.equal(
+  missingLabel('staff', rr({ assistant: 2, photographer: 3 }, [rs('u1', 'assistant'), rs('u2', 'photographer')]), rrLabels),
+  'จัดคน (ผู้ช่วย 1, ช่างกล้อง 2)'
+)
+assert.equal(missingLabel('staff', mk({ staff: [] }), rrLabels), 'จัดคน') // ไม่กำหนดตำแหน่ง → ป้ายเดิม
+assert.equal(missingLabel('vehicle', rr({ assistant: 2 }, []), rrLabels), 'จัดรถ')
+assert.equal(missingLabel('staff', rr({ driver: 1 }, []), rrLabels), 'จัดคน (driver 1)') // ไม่มี label → ใช้ค่า role
+
+// --- workloadOf: จำนวนงานไม่ซ้ำใน 7 วันนับจาก fromDate -----------------------
+// หน้าต่าง T = 2026-08-30 .. 2026-09-05 (วันที่ 0 ถึง 6)
+const wlFixture = [
+  mk({ id: 'd0', event_date: '2026-08-30', staff: [st('u1', 'photographer')] }), // ขอบซ้าย: อยู่ใน
+  mk({ id: 'd6', event_date: '2026-09-05', staff: [st('u1', 'photographer')] }), // ขอบขวา: อยู่ใน
+  mk({ id: 'd7', event_date: '2026-09-06', staff: [st('u1', 'photographer')] }), // เลยหน้าต่าง: ไม่นับ
+  mk({ id: 'dm1', event_date: '2026-08-29', staff: [st('u1', 'photographer')] }), // ก่อนหน้าต่าง: ไม่นับ
+  // งานหลายวันคร่อมหลายวันในหน้าต่าง → นับครั้งเดียว
+  mk({ id: 'span', event_date: '2026-09-01', event_end_date: '2026-09-03', staff: [st('u1', 'photographer')] }),
+  // คนเดิมสองตำแหน่งในงานเดียว → นับครั้งเดียว
+  mk({ id: 'two', event_date: '2026-09-02', staff: [st('u1', 'photographer'), st('u1', 'assistant')] }),
+  mk({ id: 'other', event_date: '2026-09-02', staff: [st('u2', 'photographer')] }),
+  mk({ id: 'nodate2', event_date: null, staff: [st('u1', 'photographer')] }),
+]
+assert.equal(workloadOf('u1', wlFixture, T), 4) // d0, d6, span, two
+assert.equal(workloadOf('u2', wlFixture, T), 1)
+assert.equal(workloadOf('u9', wlFixture, T), 0)
+assert.equal(workloadOf('u1', [], T), 0)
+// เลื่อนหน้าต่าง 1 วัน → d0 หลุด, d7 เข้า
+assert.equal(workloadOf('u1', wlFixture, '2026-08-31'), 4)
+// งานหลายวันที่เริ่มก่อนหน้าต่างแต่ยังคร่อมวันแรก → นับ
+assert.equal(
+  workloadOf('u1', [mk({ id: 'pre', event_date: '2026-08-28', event_end_date: '2026-08-31', staff: [st('u1', 'photographer')] })], T),
+  1
+)
+// จบก่อนหน้าต่างพอดี → ไม่นับ
+assert.equal(
+  workloadOf('u1', [mk({ id: 'pre2', event_date: '2026-08-28', event_end_date: '2026-08-29', staff: [st('u1', 'photographer')] })], T),
+  0
+)
+
+// --- departmentSummary -----------------------------------------------------
+// dayAB: tlA+tlB จัด u1 เท่านั้น → ฝ่ายออกแบบ 2 คน ว่าง 1 (u3), ช่าง/ไม่ระบุแผนก ว่างหมด
+assert.deepEqual(departmentSummary(dayAB.lanes), [
+  { label: 'ช่าง', total: 1, free: 1 },
+  { label: 'ฝ่ายออกแบบ', total: 2, free: 1 },
+  { label: NO_DEPARTMENT_LABEL, total: 1, free: 1 },
+])
+// เลนสัปดาห์: ว่าง = ไม่มีบล็อกงานเลยทั้ง 7 วัน
+assert.deepEqual(departmentSummary(wk.lanes), [
+  { label: 'ช่าง', total: 1, free: 1 },
+  { label: 'ฝ่ายออกแบบ', total: 2, free: 1 },
+  { label: NO_DEPARTMENT_LABEL, total: 1, free: 1 },
+])
+// ไม่มีเลนคน → []
+assert.deepEqual(departmentSummary(layoutDay([tlA], T, [], roleLabels).lanes), [])
+// ลำดับตามที่แผนกโผล่ในเลน และกรองแล้วเหลือเฉพาะแผนกที่เหลือ
+assert.deepEqual(departmentSummary(dDept.lanes), [{ label: 'ฝ่ายออกแบบ', total: 2, free: 1 }])
+
+// --- workloadTone ----------------------------------------------------------
+assert.equal(workloadTone(0), 'none')
+assert.equal(workloadTone(1), 'low')
+assert.equal(workloadTone(2), 'low')
+assert.equal(workloadTone(3), 'mid')
+assert.equal(workloadTone(4), 'mid')
+assert.equal(workloadTone(5), 'high')
+assert.equal(workloadTone(12), 'high')
+
+
+// --- Bar.roleValue: เลนคนพก role ดิบไว้ด้วย (ใช้ตอนเอาคนออกจากงานโฟกัส) --------
+assert.equal(bar(dayAB, 'u1', 'A').role, 'ช่างภาพ')
+assert.equal(bar(dayAB, 'u1', 'A').roleValue, 'photographer')
+assert.equal(bar(dayAB, 'u1', 'B').roleValue, 'assistant')
+assert.equal(bar(dayAB, 'jobs', 'A').roleValue, undefined)
+assert.equal(bar(dayAB, 'car_triton', 'A').roleValue, undefined)
+
+// --- focusWindow: ช่วงเวลาของงานโฟกัส (สแปนเดียวกับแถบในเลน) -----------------
+const fwLead = mk({ id: 'FW', event_date: T, event_time: '09:00', event_end_time: '12:00' })
+assert.deepEqual(focusWindow(fwLead, T, 6), { startMin: 540, endMin: 720, timing: 'exact' })
+// ยังไม่ใส่เวลา → พาดทั้งแกน (hourStart..24) และเป็นลายทาง
+assert.deepEqual(focusWindow(mk({ id: 'FW2', event_date: T, event_time: null, event_end_time: null }), T, 6), {
+  startMin: 360,
+  endMin: 1440,
+  timing: 'no_time',
+})
+// ไม่ทราบเวลาสิ้นสุด → 2 ชม. เหมือนแถบ
+assert.deepEqual(focusWindow(mk({ id: 'FW3', event_date: T, event_time: '09:00', event_end_time: null }), T, 6), {
+  startMin: 540,
+  endMin: 660,
+  timing: 'no_end',
+})
+// งานหลายวัน (วันต่อเนื่อง) → พาดทั้งแกน
+assert.equal(focusWindow(mk({ id: 'FW4', event_date: '2026-08-29', event_end_date: T }), T, 6).timing, 'multi_day')
+
+// --- focusCandidates -------------------------------------------------------
+// งานโฟกัส 09:00–12:00 มี u1 อยู่แล้วสองตำแหน่ง
+const fcLead = mk({
+  id: 'F',
+  customer_name: 'ลูกค้า F',
+  event_date: T,
+  event_time: '09:00',
+  event_end_time: '12:00',
+  staff: [st('u1', 'photographer'), st('u1', 'assistant')],
+})
+const fcConflict = mk({ id: 'FC', customer_name: 'ชนกัน', event_date: T, event_time: '10:00', event_end_time: '13:00', staff: [st('u2', 'photographer')] })
+const fcQueued = mk({ id: 'FQ', customer_name: 'ต่อคิว', event_date: T, event_time: '13:00', event_end_time: '15:00', staff: [st('u3', 'photographer')] })
+const fcUnknown = mk({ id: 'FU', customer_name: 'ไม่รู้เวลา', event_date: T, event_time: null, event_end_time: null, staff: [st('u4', 'photographer')] })
+const fcLeads = [fcLead, fcConflict, fcQueued, fcUnknown]
+const fc = focusCandidates(fcLead, people, fcLeads, T)
+
+// คนที่จัดแล้วมาก่อนเสมอ (u1) แล้วเรียงตามความว่าง ว่าง → ต่อคิว → เช็คเวลาไม่ได้; คนที่ชนอยู่กลุ่ม "ไม่ว่าง"
+assert.deepEqual(fc.candidates.map((c) => c.person.id), ['u1', 'u3', 'u4'])
+assert.deepEqual(fc.candidates.map((c) => c.availability), ['free', 'queued', 'unknown'])
+assert.deepEqual(fc.busy.map((c) => c.person.id), ['u2'])
+assert.equal(fc.busy[0].availability, 'conflict')
+
+// ตำแหน่งที่ถืออยู่ในงานโฟกัส (ไม่ซ้ำ) — คนอื่นเป็น []
+assert.deepEqual(fc.candidates[0].assignedRoles, ['photographer', 'assistant'])
+assert.deepEqual(fc.candidates[1].assignedRoles, [])
+
+// clash: คนที่ไม่ว่างพกงานที่ชน/ต่อคิวใบแรกมาด้วย, คนว่างไม่มี
+assert.equal(fc.candidates[0].clash, undefined)
+assert.deepEqual(fc.candidates[1].clash, { withLabel: 'ต่อคิว', withTime: '13:00–15:00' })
+assert.deepEqual(fc.busy[0].clash, { withLabel: 'ชนกัน', withTime: '10:00–13:00' })
+
+// คนที่จัดแล้วมาก่อนแม้จะชน (ต้องเห็นเพื่อเอาออก)
+const fcBusyAssigned = focusCandidates(
+  { ...fcLead, staff: [st('u2', 'photographer')] },
+  people,
+  [{ ...fcLead, staff: [st('u2', 'photographer')] }, fcConflict],
+  T
+)
+assert.equal(fcBusyAssigned.candidates[0].person.id, 'u2')
+assert.equal(fcBusyAssigned.candidates[0].availability, 'conflict')
+assert.deepEqual(fcBusyAssigned.busy.map((c) => c.person.id), [])
+
+// ความว่างเท่ากัน → ภาระงานน้อยก่อน แล้วชื่อ (u1 ชาย / u3 อารีย์ ภาระ 0 เท่ากัน)
+const fcFree = mk({ id: 'F2', event_date: T, event_time: '09:00', event_end_time: '12:00', staff: [] })
+const fcLoad = [
+  fcFree,
+  mk({ id: 'WA', event_date: '2026-09-01', staff: [st('u2', 'photographer')] }),
+  mk({ id: 'WB', event_date: '2026-09-02', staff: [st('u2', 'photographer')] }),
+  mk({ id: 'WC', event_date: '2026-09-01', staff: [st('u4', 'photographer')] }),
+]
+const fcW = focusCandidates(fcFree, people, fcLoad, T)
+assert.deepEqual(fcW.candidates.map((c) => c.person.id), ['u1', 'u3', 'u4', 'u2'])
+assert.deepEqual(fcW.candidates.map((c) => c.workload), [0, 0, 1, 2])
+assert.deepEqual(fcW.busy, [])
+
+// opts.departments กรองเหมือน layoutDay
+const fcDept = focusCandidates(fcLead, people, fcLeads, T, { departments: ['ฝ่ายออกแบบ'] })
+assert.deepEqual(fcDept.candidates.map((c) => c.person.id), ['u1', 'u3'])
+assert.deepEqual(fcDept.busy.map((c) => c.person.id), [])
+assert.deepEqual(focusCandidates(fcLead, people, fcLeads, T, { departments: [] }).candidates.map((c) => c.person.id), ['u1', 'u3', 'u4'])
+assert.deepEqual(focusCandidates(fcLead, [], fcLeads, T).candidates, [])
 
 console.log('tracking-logic.check: all passed')

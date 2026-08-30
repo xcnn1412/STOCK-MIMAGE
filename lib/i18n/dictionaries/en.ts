@@ -364,6 +364,7 @@ const en: Dictionary = {
       day: 'day',
       days: 'days',
       locationLabel: 'Location',
+      requiredRoles: 'Required roles',
       details: 'Details',
       eventDetailsPlaceholder: 'Event details...',
 

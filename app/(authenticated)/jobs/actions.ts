@@ -1744,11 +1744,17 @@ const CHECKLIST_KEYS = ['car_triton', 'car_champ'] // keep in sync with VEHICLES
 
 export async function updateLeadTracking(
     leadId: string,
-    patch: { design_status?: string; supplier_note?: string | null; tracking_checklist?: string[] }
+    patch: {
+        design_status?: string
+        supplier_note?: string | null
+        tracking_checklist?: string[]
+        required_roles?: Record<string, number>
+    }
 ) {
     const session = await requireAuth()
     if (!session) return { error: 'Unauthorized' }
 
+    const supabase = createServiceClient()
     const update: Record<string, unknown> = {}
 
     if (patch.design_status !== undefined) {
@@ -1762,9 +1768,23 @@ export async function updateLeadTracking(
         if (patch.tracking_checklist.some(k => !CHECKLIST_KEYS.includes(k))) return { error: 'รายการจัดรถไม่ถูกต้อง' }
         update.tracking_checklist = Array.from(new Set(patch.tracking_checklist))
     }
+    if (patch.required_roles !== undefined) {
+        // ponytail: validation duplicated with crm/actions.ts::updateLead; extract when a third caller appears
+        const { data: roleRows } = await supabase
+            .from('crm_settings').select('value').eq('category', 'staff_role').eq('is_active', true)
+        const validRoles = new Set((roleRows || []).map(r => r.value as string))
+        const clean: Record<string, number> = {}
+        for (const [role, count] of Object.entries(patch.required_roles)) {
+            if (count === 0) continue
+            if (!validRoles.has(role) || !Number.isInteger(count) || count < 1 || count > 20) {
+                return { error: `ตำแหน่งที่ต้องการไม่ถูกต้อง: ${role}` }
+            }
+            clean[role] = count
+        }
+        update.required_roles = clean
+    }
     if (Object.keys(update).length === 0) return { success: true }
 
-    const supabase = createServiceClient()
     const { error } = await supabase.from('crm_leads').update(update).eq('id', leadId)
     if (error) return { error: error.message }
 

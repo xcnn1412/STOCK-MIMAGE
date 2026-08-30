@@ -1,19 +1,36 @@
 'use client'
 
-import { Fragment, useState, useSyncExternalStore } from 'react'
+import { Fragment, useMemo, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { RequiredRolesEditor, type StaffRoleOption } from './required-roles-editor'
 import {
+    departmentSummary,
+    focusCandidates,
+    focusWindow,
+    hasRequiredRoles,
     layoutDay,
     layoutWeek,
     leadsOnDate,
+    missingRoles,
     nextJobDate,
+    staffedCounts,
+    workloadOf,
+    workloadTone,
     addDays,
     parseDate,
+    AVAILABILITY_LABELS,
     BAR_COLORS,
+    DEPARTMENT_ORDER,
+    NO_DEPARTMENT_LABEL,
+    type Availability,
     type Bar,
     type BarTiming,
+    type Candidate,
+    type Lane,
     type LaneKind,
     type Person,
     type TrackingLead,
@@ -118,15 +135,239 @@ function JobBar({ bar, hourStart, onClick }: { bar: Bar; hourStart: number; onCl
     )
 }
 
-function GroupHeader({ title, className }: { title: string; className?: string }) {
+/** ป้ายภาระงานข้างชื่อคน — 0 งานไม่แสดง */
+const WORKLOAD_CLASS: Record<'low' | 'mid' | 'high', string> = {
+    low: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300',
+    mid: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200',
+    high: 'bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200',
+}
+
+function WorkloadBadge({ n }: { n: number }) {
+    const tone = workloadTone(n)
+    if (tone === 'none') return null
     return (
-        <div className={cn('border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60', className)}>
-            <span className="sticky left-0 inline-block px-3 py-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-                {title}
-            </span>
+        <span title={`${n} งานใน 7 วัน`} className={cn('ml-1 rounded px-1 text-[10px]', WORKLOAD_CLASS[tone])}>
+            {n} งาน
+        </span>
+    )
+}
+
+/** สีตัวอักษรของสถานะความว่าง — ใช้ร่วมกับตาราง (tracking-view) */
+export const AVAIL_TEXT: Record<Availability, string> = {
+    free: 'text-emerald-600 dark:text-emerald-400',
+    queued: 'text-amber-600 dark:text-amber-400',
+    unknown: 'text-zinc-500 dark:text-zinc-400',
+    conflict: 'text-rose-600 dark:text-rose-400',
+}
+
+/** ป้ายความว่างของ "ตัวเลือก" หนึ่งคน — title = งานที่ชน/ต่อคิว */
+function AvailabilityTag({ candidate }: { candidate: Candidate }) {
+    const detail = candidate.clash ? `${candidate.clash.withLabel} ${candidate.clash.withTime}`.trim() : ''
+    return (
+        <span
+            className={cn('text-[10px] font-medium whitespace-nowrap', AVAIL_TEXT[candidate.availability])}
+            title={detail || undefined}
+        >
+            {AVAILABILITY_LABELS[candidate.availability]}
+        </span>
+    )
+}
+
+/** `ช่างกล้อง 1, ผู้ช่วย 1` — ตำแหน่งที่งานนี้มีคนแล้ว (นับคนไม่ซ้ำต่อตำแหน่ง ตามลำดับที่เจอ) */
+function staffedRoles(lead: TrackingLead, roleLabels: Record<string, string>): string {
+    return Object.entries(staffedCounts(lead))
+        .map(([role, n]) => `${roleLabels[role] || role} ${n}`)
+        .join(', ')
+}
+
+/** หัวโฟกัสงาน — ลูกค้า · เวลา · มีแล้ว/ขาด · แก้ตำแหน่งที่ต้องการ · เลือกอีเวนต์ · ออก */
+function FocusHeader({ lead, roles, roleLabels, eventId, onEventChange, onRequiredRolesChange, onExit }: {
+    lead: TrackingLead
+    roles: StaffRoleOption[]
+    roleLabels: Record<string, string>
+    /** อีเวนต์เป้าหมายที่จะจัดคนเข้า — null = ยังไม่มีอีเวนต์ (จะสร้างให้) */
+    eventId: string | null
+    onEventChange: (eventId: string) => void
+    onRequiredRolesChange: (required: Record<string, number>) => void
+    onExit: () => void
+}) {
+    const [open, setOpen] = useState(false)
+    const [draft, setDraft] = useState<Record<string, number>>(lead.required_roles)
+
+    const gaps = missingRoles(lead)
+    const have = staffedRoles(lead, roleLabels)
+    const timeText = lead.event_time
+        ? `${lead.event_time}${lead.event_end_time ? `–${lead.event_end_time}` : ''}`
+        : 'ยังไม่ใส่เวลา'
+
+    // ปิด popover = บันทึก (ปุ่ม "บันทึก" แค่ปิด)
+    const openChange = (next: boolean) => {
+        if (next) setDraft(lead.required_roles)
+        else if (JSON.stringify(draft) !== JSON.stringify(lead.required_roles)) onRequiredRolesChange(draft)
+        setOpen(next)
+    }
+
+    return (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-sm dark:border-violet-900 dark:bg-violet-950/30">
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100">{lead.customer_name || 'ไม่ระบุลูกค้า'}</span>
+            <span className="text-zinc-500">· {timeText}</span>
+            <span className="text-zinc-600 dark:text-zinc-300">· มีแล้ว: {have || 'ยังไม่จัดคน'}</span>
+            {gaps.length > 0 ? (
+                <span className="font-medium text-amber-600 dark:text-amber-400">
+                    · ขาด: {gaps.map(g => `${roleLabels[g.role] || g.role} ${g.need - g.have}`).join(', ')}
+                </span>
+            ) : (
+                !hasRequiredRoles(lead) && <span className="text-zinc-400">· ยังไม่กำหนดตำแหน่งที่ต้องการ</span>
+            )}
+
+            <Popover open={open} onOpenChange={openChange}>
+                <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="แก้ตำแหน่งที่ต้องการ">
+                        <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72 space-y-2 p-3">
+                    <div className="text-xs font-medium text-zinc-500">ตำแหน่งที่ต้องการ</div>
+                    <RequiredRolesEditor value={draft} roles={roles} onChange={setDraft} />
+                    <Button size="sm" className="w-full" onClick={() => openChange(false)}>บันทึก</Button>
+                </PopoverContent>
+            </Popover>
+
+            {lead.events.length > 1 && (
+                <Select value={eventId ?? undefined} onValueChange={onEventChange}>
+                    <SelectTrigger className="h-7 w-48 text-xs" aria-label="จัดเข้าอีเวนต์">
+                        <SelectValue placeholder="จัดเข้าอีเวนต์" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {lead.events.map(e => (
+                            <SelectItem key={e.id} value={e.id}>{e.name || 'ไม่ระบุชื่อ'} · {formatDate(e.event_date)}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            )}
+
+            <Button variant="outline" size="sm" className="ml-auto" onClick={onExit}>ออกจากโฟกัส</Button>
         </div>
     )
 }
+
+/** เลนหนึ่งแถวของโหมดวัน — ป้ายซ้าย + แทร็ก (แถบเวลาโฟกัส, เส้นเวลาปัจจุบัน, แถบงาน) */
+function DayLane({ lane, hourStart, trackStyle, now, labelExtra, sublabelExtra, band, dim, onBarClick, onTrackClick, children }: {
+    lane: Lane
+    hourStart: number
+    trackStyle: CSSProperties
+    /** นาทีของเส้นเวลาปัจจุบัน — null = ไม่วาด */
+    now: number | null
+    labelExtra?: ReactNode
+    sublabelExtra?: ReactNode
+    band?: { startMin: number; endMin: number; striped: boolean } | null
+    dim?: boolean
+    onBarClick: (bar: Bar) => void
+    /** คลิกพื้นที่ว่างของแทร็ก (ไม่ใช่แถบ) — มีค่า = เลนนี้กดจัดคนได้ */
+    onTrackClick?: (e: MouseEvent<HTMLDivElement>) => void
+    children?: ReactNode
+}) {
+    return (
+        <div className={cn('flex border-t border-zinc-100 dark:border-zinc-900', dim && 'opacity-60')}>
+            <div
+                className="sticky left-0 z-10 shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2"
+                style={{ width: LANE_W }}
+            >
+                <div className="truncate text-xs font-medium text-zinc-800 dark:text-zinc-200">
+                    {lane.label}
+                    {labelExtra}
+                </div>
+                {(lane.sublabel || sublabelExtra) && (
+                    <div className="flex items-center gap-1 truncate text-[10px] text-zinc-400">
+                        {lane.sublabel}
+                        {sublabelExtra}
+                    </div>
+                )}
+            </div>
+            <div
+                className={cn('relative shrink-0', onTrackClick && 'cursor-copy')}
+                style={{ ...trackStyle, height: lane.layers * ROW_H + 8 }}
+                onClick={onTrackClick}
+            >
+                {lane.kind === 'person' && lane.bars.length === 0 && (
+                    <span className="pointer-events-none absolute left-2 top-2 text-[11px] text-zinc-400">ว่าง</span>
+                )}
+                {band && (
+                    <span
+                        className="pointer-events-none absolute inset-y-0 border-x border-violet-400 bg-violet-500/10"
+                        style={{
+                            left: at(band.startMin, hourStart),
+                            width: `calc(var(--hour) * ${(band.endMin - band.startMin) / 60})`,
+                        }}
+                    >
+                        {band.striped && <span className={cn('absolute inset-0', STRIPES)} />}
+                    </span>
+                )}
+                {now !== null && (
+                    <span
+                        className="pointer-events-none absolute top-0 bottom-0 w-px bg-rose-500"
+                        style={{ left: at(now, hourStart) }}
+                    />
+                )}
+                {lane.bars.map((bar, bi) => (
+                    <JobBar
+                        key={`${bar.leadId}-${bar.role ?? ''}-${bi}`}
+                        bar={bar}
+                        hourStart={hourStart}
+                        onClick={() => onBarClick(bar)}
+                    />
+                ))}
+                {children}
+            </div>
+        </div>
+    )
+}
+
+/** หัวกลุ่ม — กลุ่มแผนกส่ง onToggle มาด้วยจึงกดยุบ/ขยายได้ (กลุ่มรถและเลนงานยุบไม่ได้) */
+function GroupHeader({
+    title,
+    className,
+    onToggle,
+    collapsed,
+}: {
+    title: string
+    className?: string
+    onToggle?: () => void
+    collapsed?: boolean
+}) {
+    const box = cn('border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60', className)
+    const label = (
+        <span className="sticky left-0 inline-block px-3 py-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+            {onToggle && <span className="mr-1">{collapsed ? '▸' : '▾'}</span>}
+            {title}
+        </span>
+    )
+    if (!onToggle) return <div className={box}>{label}</div>
+    return (
+        <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={!collapsed}
+            className={cn(box, 'block w-full text-left hover:bg-zinc-100 dark:hover:bg-zinc-800')}
+        >
+            {label}
+        </button>
+    )
+}
+
+/** ลำดับแผนกในชิป — ตาม DEPARTMENT_ORDER แล้วแผนกที่ไม่รู้จัก/ไม่ระบุท้ายสุด */
+const deptRank = (d: string) => {
+    const i = DEPARTMENT_ORDER.indexOf(d)
+    return i === -1 ? DEPARTMENT_ORDER.length : i
+}
+
+const chipClass = (active: boolean) =>
+    cn(
+        'rounded-full px-3 py-1 text-xs',
+        active
+            ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+            : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+    )
 
 /** หัวข้อกลุ่มที่ต้องแทรกก่อนเลนนี้ (รถ / ชื่อแผนกใหม่) — null = ไม่ต้องแทรก */
 function groupTitle(lanes: { kind: LaneKind; sublabel?: string }[], i: number): string | null {
@@ -140,30 +381,58 @@ function groupTitle(lanes: { kind: LaneKind; sublabel?: string }[], i: number): 
 export default function TimelineView({
     rows,
     people,
+    roles,
     roleLabels,
     today,
     date,
     mode,
+    departments,
+    focusLeadId,
+    focusEventId,
     onDateChange,
     onModeChange,
+    onDepartmentsChange,
     onOpenDay,
     onEditStaff,
     onEditVehicle,
+    onFocus,
+    onFocusEventChange,
+    onRequiredRolesChange,
+    onQuickAssign,
+    onQuickRemove,
 }: {
     rows: TrackingLead[]
     people: Person[]
+    roles: StaffRoleOption[]
     roleLabels: Record<string, string>
     today: Date
     date: string
     mode: 'day' | 'week'
+    /** แผนกที่เลือกไว้ในชิป — ว่าง = ทุกแผนก */
+    departments: string[]
+    /** งานที่โฟกัสอยู่ (โหมดวันเท่านั้น) — null = ไม่ได้โฟกัส */
+    focusLeadId: string | null
+    /** อีเวนต์เป้าหมายของงานโฟกัส — null = ยังไม่มีอีเวนต์ (จะสร้างให้) */
+    focusEventId: string | null
     onDateChange: (date: string) => void
     onModeChange: (mode: 'day' | 'week') => void
+    onDepartmentsChange: (departments: string[]) => void
     /** คลิกหัวคอลัมน์วันในโหมดสัปดาห์ → สลับเป็นโหมดวันของวันนั้นในครั้งเดียว */
     onOpenDay: (date: string) => void
     onEditStaff: (leadId: string) => void
     onEditVehicle: (leadId: string) => void
+    onFocus: (leadId: string | null) => void
+    onFocusEventChange: (eventId: string) => void
+    onRequiredRolesChange: (leadId: string, required: Record<string, number>) => void
+    onQuickAssign: (leadId: string, userId: string, role: string) => void
+    onQuickRemove: (leadId: string, userId: string, role: string) => void
 }) {
-    const [hideFree, setHideFree] = useState(false)
+    /** กลุ่มแผนกที่ผู้ใช้ยุบ/ขยายเอง — ผูกกับวัน+โหมดที่ดูอยู่ เปลี่ยนวันแล้วกลับไปใช้ค่าเริ่มต้น */
+    const [collapse, setCollapse] = useState<{ sig: string; set: Set<string> } | null>(null)
+    /** กลุ่ม "ไม่ว่าง" ในโฟกัส — เก็บว่ากางไว้ของงานไหน เปลี่ยนงานโฟกัสแล้วกลับไปยุบเอง */
+    const [busyOpenFor, setBusyOpenFor] = useState<string | null>(null)
+    /** เมนูเลือกตำแหน่งตอนคลิกเลนตัวเลือก — x = ตำแหน่งคลิกในแทร็ก */
+    const [menu, setMenu] = useState<{ personId: string; x: number } | null>(null)
     // เส้นเวลาปัจจุบัน: ฝั่ง server เป็น null (กัน hydration mismatch)
     const nowMin = useSyncExternalStore(subscribeNever, getNowMin, getNowMinServer)
     const isWide = useIsWide()
@@ -171,10 +440,73 @@ export default function TimelineView({
     const todayStr = ymd(today)
     const isWeek = mode === 'week' && isWide
     // ponytail: cheap; memo if lanes > ~200
-    const layout = layoutDay(rows, date, people, roleLabels, { hideFree })
+    const layout = layoutDay(rows, date, people, roleLabels, { departments })
     const { hourStart, hourEnd, lanes } = layout
-    const week = isWeek ? layoutWeek(rows, date, people, roleLabels, { hideFree }) : null
+    const week = isWeek ? layoutWeek(rows, date, people, roleLabels, { departments }) : null
     const hours = hourEnd - hourStart
+
+    // --- โฟกัสงาน (โหมดวันเท่านั้น; งานต้องอยู่ในวันที่ดูอยู่) ---------------------
+    const focused = !isWeek && focusLeadId ? leadsOnDate(rows, date).find(l => l.id === focusLeadId) ?? null : null
+    const focusedId = focused?.id ?? null
+    const busyOpen = busyOpenFor === focusedId
+    const deptKey = departments.join(',')
+    // ลำดับตัวเลือก freeze ตอนเข้าโฟกัส / เปลี่ยนวัน / เปลี่ยนชิปแผนก — ตั้งใจไม่ผูกกับ rows
+    // เพื่อไม่ให้เลนสลับที่ระหว่างกำลังจัดคน (ป้ายความว่างยังสดเพราะ live คำนวณใหม่ทุก render)
+    const frozen = useMemo(
+        () => (focused ? focusCandidates(focused, people, rows, date, { departments }) : null),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [focusedId, date, deptKey]
+    )
+    const live = focused ? focusCandidates(focused, people, rows, date, { departments }) : null
+    const liveById = new Map((live ? [...live.candidates, ...live.busy] : []).map(c => [c.person.id, c]))
+    const pickLive = (list: Candidate[]) =>
+        list.map(c => liveById.get(c.person.id)).filter((c): c is Candidate => c !== undefined)
+    const focusGroups =
+        focused && frozen ? { candidates: pickLive(frozen.candidates), busy: pickLive(frozen.busy) } : null
+
+    const fw = focused ? focusWindow(focused, date, hourStart) : null
+    const band = fw ? { startMin: fw.startMin, endMin: fw.endMin, striped: fw.timing === 'no_time' } : null
+
+    // ตำแหน่งที่ขาด → คลิกเลนแล้วใส่ได้ทันทีเมื่อขาดตำแหน่งเดียว ไม่งั้นเปิดเมนู (ที่ขาดขึ้นก่อน)
+    const gaps = focused ? missingRoles(focused) : []
+    const menuRoles = [
+        ...gaps.map(g => ({ value: g.role, label: roleLabels[g.role] || g.role, missing: g.need - g.have })),
+        ...roles.filter(r => !gaps.some(g => g.role === r.value)).map(r => ({ ...r, missing: 0 })),
+    ]
+    const onCandidateClick = (personId: string) => (e: MouseEvent<HTMLDivElement>) => {
+        if (!focused || e.target !== e.currentTarget) return
+        if (gaps.length === 1) {
+            onQuickAssign(focused.id, personId, gaps[0].role)
+            return
+        }
+        setMenu({ personId, x: e.clientX - e.currentTarget.getBoundingClientRect().left })
+    }
+
+    // ชิปแผนก — ทุกแผนกที่มีคนอยู่ เรียงแบบเดียวกับเลน
+    const deptOptions = [...new Set(people.map(p => p.department ?? NO_DEPARTMENT_LABEL))].sort(
+        (a, b) => deptRank(a) - deptRank(b) || a.localeCompare(b, 'th')
+    )
+
+    // ยุบเป็นค่าเริ่มต้น ยกเว้นแผนกที่มีคนถูกจัดในวัน/สัปดาห์ที่ดู
+    const summaries = departmentSummary(week ? week.lanes : lanes)
+    const sig = `${isWeek ? 'week' : 'day'}:${date}`
+    const collapsed =
+        collapse && collapse.sig === sig
+            ? collapse.set
+            : new Set(summaries.filter(s => s.free === s.total).map(s => s.label))
+    const toggleDept = (label: string) => {
+        const next = new Set(collapsed)
+        if (!next.delete(label)) next.add(label)
+        setCollapse({ sig, set: next })
+    }
+    const groupLabel = (label: string) => {
+        const s = summaries.find(x => x.label === label)
+        return s ? `${label} · ${s.total} คน · ว่าง ${s.free}` : label
+    }
+
+    // ภาระงาน 7 วันของทุกคน — คิดครั้งเดียวต่อ render ใช้ร่วมกันทั้งโหมดวันและสัปดาห์
+    const workload = new Map(people.map(p => [p.id, workloadOf(p.id, rows, date)]))
+
     const hourList = Array.from({ length: hours }, (_, i) => hourStart + i)
     const next = nextJobDate(rows, date)
     const empty = week
@@ -185,6 +517,65 @@ export default function TimelineView({
     const trackStyle = {
         width: `calc(var(--hour) * ${hours})`,
         backgroundImage: 'repeating-linear-gradient(to right, var(--line) 0 1px, transparent 1px var(--hour))',
+    }
+
+    const laneByPerson = new Map(lanes.filter(l => l.kind === 'person').map(l => [l.key, l]))
+
+    /** เลนคนหนึ่งคนในโหมดโฟกัส — คลิกแทร็ก = จัด, คลิกแถบของงานโฟกัส = เอาออก */
+    const renderCandidate = (candidate: Candidate, isBusy: boolean) => {
+        const lane = laneByPerson.get(candidate.person.id)
+        if (!lane || !focused) return null
+        return (
+            <DayLane
+                key={`focus-${candidate.person.id}`}
+                lane={lane}
+                hourStart={hourStart}
+                trackStyle={trackStyle}
+                now={showNow ? nowMin : null}
+                band={band}
+                dim={isBusy}
+                labelExtra={<WorkloadBadge n={workload.get(candidate.person.id) ?? 0} />}
+                sublabelExtra={<AvailabilityTag candidate={candidate} />}
+                onBarClick={bar =>
+                    bar.leadId === focused.id && bar.roleValue
+                        ? onQuickRemove(focused.id, candidate.person.id, bar.roleValue)
+                        : onEditStaff(bar.leadId)
+                }
+                onTrackClick={isBusy ? undefined : onCandidateClick(candidate.person.id)}
+            >
+                {menu?.personId === candidate.person.id && (
+                    <Popover open onOpenChange={o => { if (!o) setMenu(null) }}>
+                        <PopoverAnchor asChild>
+                            <span className="absolute inset-y-0 block w-0" style={{ left: menu.x }} />
+                        </PopoverAnchor>
+                        <PopoverContent align="start" className="w-56 p-1">
+                            <div className="px-2 py-1 text-[11px] text-zinc-500">
+                                จัด {candidate.person.nickname || candidate.person.name} เป็น
+                            </div>
+                            {menuRoles.length === 0 && (
+                                <div className="px-2 py-1 text-xs text-zinc-500">ยังไม่มีตำแหน่งในระบบ</div>
+                            )}
+                            {menuRoles.map(role => (
+                                <button
+                                    key={role.value}
+                                    type="button"
+                                    onClick={() => { onQuickAssign(focused.id, candidate.person.id, role.value); setMenu(null) }}
+                                    className={cn(
+                                        'block w-full rounded px-2 py-1 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800',
+                                        role.missing > 0 && 'font-semibold'
+                                    )}
+                                >
+                                    {role.label}
+                                    {role.missing > 0 && (
+                                        <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">ขาด {role.missing}</span>
+                                    )}
+                                </button>
+                            ))}
+                        </PopoverContent>
+                    </Popover>
+                )}
+            </DayLane>
+        )
     }
 
     return (
@@ -215,11 +606,6 @@ export default function TimelineView({
                     งานถัดไป
                 </Button>
 
-                <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={hideFree} onCheckedChange={v => setHideFree(v === true)} />
-                    ซ่อนคนว่าง
-                </label>
-
                 <div className="ml-auto hidden md:flex items-center gap-1">
                     <Button variant={mode === 'day' ? 'default' : 'outline'} size="sm" onClick={() => onModeChange('day')}>
                         วัน
@@ -229,6 +615,47 @@ export default function TimelineView({
                     </Button>
                 </div>
             </div>
+
+            {focused && (
+                <FocusHeader
+                    lead={focused}
+                    roles={roles}
+                    roleLabels={roleLabels}
+                    eventId={focusEventId}
+                    onEventChange={onFocusEventChange}
+                    onRequiredRolesChange={required => onRequiredRolesChange(focused.id, required)}
+                    onExit={() => onFocus(null)}
+                />
+            )}
+
+            {deptOptions.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                        type="button"
+                        aria-pressed={departments.length === 0}
+                        onClick={() => onDepartmentsChange([])}
+                        className={chipClass(departments.length === 0)}
+                    >
+                        ทั้งหมด
+                    </button>
+                    {deptOptions.map(d => {
+                        const active = departments.includes(d)
+                        return (
+                            <button
+                                key={d}
+                                type="button"
+                                aria-pressed={active}
+                                onClick={() =>
+                                    onDepartmentsChange(active ? departments.filter(x => x !== d) : [...departments, d])
+                                }
+                                className={chipClass(active)}
+                            >
+                                {d}
+                            </button>
+                        )
+                    })}
+                </div>
+            )}
 
             {empty && (
                 <p className="text-center text-sm text-zinc-500">{isWeek ? 'ไม่มีงานในสัปดาห์นี้' : 'ไม่มีงานวันนี้'}</p>
@@ -256,12 +683,29 @@ export default function TimelineView({
 
                         {week.lanes.map((lane, i) => {
                             const title = groupTitle(week.lanes, i)
+                            const dept = lane.kind === 'person' ? lane.sublabel ?? NO_DEPARTMENT_LABEL : null
+                            const isCollapsed = dept !== null && collapsed.has(dept)
                             const free = week.days.every(d => lane.cells[d].length === 0)
                             return (
                                 <Fragment key={`w-${lane.kind}-${lane.key}`}>
-                                    {title && <GroupHeader title={title} className="col-span-8" />}
+                                    {title &&
+                                        (dept === null ? (
+                                            <GroupHeader title={title} className="col-span-8" />
+                                        ) : (
+                                            <GroupHeader
+                                                title={groupLabel(dept)}
+                                                className="col-span-8"
+                                                collapsed={isCollapsed}
+                                                onToggle={() => toggleDept(dept)}
+                                            />
+                                        ))}
+                                    {isCollapsed ? null : (
+                                    <>
                                     <div className="sticky left-0 z-10 border-r border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2">
-                                        <div className="truncate text-xs font-medium text-zinc-800 dark:text-zinc-200">{lane.label}</div>
+                                        <div className="truncate text-xs font-medium text-zinc-800 dark:text-zinc-200">
+                                            {lane.label}
+                                            {lane.kind === 'person' && <WorkloadBadge n={workload.get(lane.key) ?? 0} />}
+                                        </div>
                                         {lane.sublabel && <div className="truncate text-[10px] text-zinc-400">{lane.sublabel}</div>}
                                     </div>
                                     {week.days.map((day, di) => (
@@ -295,6 +739,8 @@ export default function TimelineView({
                                             ))}
                                         </div>
                                     ))}
+                                    </>
+                                    )}
                                 </Fragment>
                             )
                         })}
@@ -321,47 +767,55 @@ export default function TimelineView({
                         ))}
                     </div>
 
-                    {lanes.map((lane, i) => {
-                        const title = groupTitle(lanes, i)
+                    {(focusGroups ? lanes.filter(l => l.kind !== 'person') : lanes).map((lane, i, arr) => {
+                        const title = groupTitle(arr, i)
+                        const dept = lane.kind === 'person' ? lane.sublabel ?? NO_DEPARTMENT_LABEL : null
+                        const isCollapsed = dept !== null && collapsed.has(dept)
                         return (
                             <Fragment key={`${lane.kind}-${lane.key}`}>
-                                {title && <GroupHeader title={title} />}
-                                <div className="flex border-t border-zinc-100 dark:border-zinc-900">
-                                    <div
-                                        className="sticky left-0 z-10 shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2"
-                                        style={{ width: LANE_W }}
-                                    >
-                                        <div className="truncate text-xs font-medium text-zinc-800 dark:text-zinc-200">{lane.label}</div>
-                                        {lane.sublabel && <div className="truncate text-[10px] text-zinc-400">{lane.sublabel}</div>}
-                                    </div>
-                                    <div
-                                        className="relative shrink-0"
-                                        style={{ ...trackStyle, height: lane.layers * ROW_H + 8 }}
-                                    >
-                                        {lane.kind === 'person' && lane.bars.length === 0 && (
-                                            <span className="absolute left-2 top-2 text-[11px] text-zinc-400">ว่าง</span>
-                                        )}
-                                        {showNow && (
-                                            <span
-                                                className="pointer-events-none absolute top-0 bottom-0 w-px bg-rose-500"
-                                                style={{ left: at(nowMin!, hourStart) }}
-                                            />
-                                        )}
-                                        {lane.bars.map((bar, bi) => (
-                                            <JobBar
-                                                key={`${bar.leadId}-${bar.role ?? ''}-${bi}`}
-                                                bar={bar}
-                                                hourStart={hourStart}
-                                                onClick={() =>
-                                                    lane.kind === 'vehicle' ? onEditVehicle(bar.leadId) : onEditStaff(bar.leadId)
-                                                }
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
+                                {title &&
+                                    (dept === null ? (
+                                        <GroupHeader title={title} />
+                                    ) : (
+                                        <GroupHeader
+                                            title={groupLabel(dept)}
+                                            collapsed={isCollapsed}
+                                            onToggle={() => toggleDept(dept)}
+                                        />
+                                    ))}
+                                {isCollapsed ? null : (
+                                    <DayLane
+                                        lane={lane}
+                                        hourStart={hourStart}
+                                        trackStyle={trackStyle}
+                                        now={showNow ? nowMin : null}
+                                        band={band}
+                                        labelExtra={
+                                            lane.kind === 'person' ? <WorkloadBadge n={workload.get(lane.key) ?? 0} /> : null
+                                        }
+                                        onBarClick={bar => {
+                                            if (lane.kind === 'vehicle') onEditVehicle(bar.leadId)
+                                            else if (lane.kind === 'jobs') onFocus(bar.leadId)
+                                            else onEditStaff(bar.leadId)
+                                        }}
+                                    />
+                                )}
                             </Fragment>
                         )
                     })}
+
+                    {focusGroups && (
+                        <>
+                            <GroupHeader title={`ตัวเลือก (${focusGroups.candidates.length})`} />
+                            {focusGroups.candidates.map(c => renderCandidate(c, false))}
+                            <GroupHeader
+                                title={`ไม่ว่าง (${focusGroups.busy.length})`}
+                                collapsed={!busyOpen}
+                                onToggle={() => setBusyOpenFor(busyOpen ? null : focusedId)}
+                            />
+                            {busyOpen && focusGroups.busy.map(c => renderCandidate(c, true))}
+                        </>
+                    )}
                 </div>
             </div>
             )}

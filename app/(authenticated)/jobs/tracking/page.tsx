@@ -3,6 +3,16 @@ import { createServiceClient } from '@/lib/supabase-server'
 import TrackingView, { type TrackingLead } from './tracking-view'
 import { VEHICLES } from './tracking-logic'
 
+/** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
+function normalizeRequiredRoles(raw: unknown): Record<string, number> {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+    const out: Record<string, number> = {}
+    for (const [role, count] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof count === 'number' && Number.isInteger(count) && count >= 1) out[role] = count
+    }
+    return out
+}
+
 export const metadata = {
     title: 'ติดตามงาน — Jobs',
     description: 'งานที่ลูกค้าตอบรับแล้ว — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร',
@@ -13,7 +23,7 @@ export default async function TrackingPage() {
 
     const { data: leads, error: leadsError } = await supabase
         .from('crm_leads')
-        .select('id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, tracking_checklist')
+        .select('id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, tracking_checklist, required_roles')
         .eq('status', 'accepted')
         .order('event_date', { ascending: true, nullsFirst: false })
         .order('event_time', { ascending: true, nullsFirst: false })
@@ -100,6 +110,7 @@ export default async function TrackingPage() {
         supplier_note: l.supplier_note,
         // กรองเหลือเฉพาะ key รถ — key checklist เก่า (lock_queue/on_site) ไม่ใช้แล้วและไม่ผ่าน validation
         tracking_checklist: (Array.isArray(l.tracking_checklist) ? (l.tracking_checklist as string[]) : []).filter(k => VEHICLES.some(v => v.key === k)),
+        required_roles: normalizeRequiredRoles(l.required_roles),
         events: eventsByLead.get(l.id) || [],
         staff: staffByLead.get(l.id) || [],
     }))

@@ -80,6 +80,7 @@ export interface CrmLead {
   event_days: number
   event_location: string | null
   event_details: string | null
+  required_roles: Record<string, number> // { "<staff_role>": จำนวนคน } — {} = ยังไม่กำหนด
   package_name: string | null
   quoted_price: number
   confirmed_price: number
