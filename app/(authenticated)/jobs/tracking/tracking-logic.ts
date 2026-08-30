@@ -47,7 +47,8 @@ export function isReady(lead: TrackingLead): boolean {
   return getMissing(lead).length === 0
 }
 
-function parseDate(dateStr: string): Date {
+/** YYYY-MM-DD → Date เที่ยงคืนเวลาท้องถิ่น (new Date('YYYY-MM-DD') จะได้ UTC — อย่าใช้) */
+export function parseDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d)
 }
@@ -294,4 +295,373 @@ export function vehicleAvailability(vehicleKey: string, lead: TrackingLead, all:
     result = worst(result, timeStatus(lead, other))
   }
   return result
+}
+
+// --- timeline layout (ไทม์ไลน์: เลน / แถบงาน) --------------------------------
+
+/** คนที่อนุมัติแล้วหนึ่งคน = หนึ่งเลนคนในไทม์ไลน์ */
+export interface Person {
+  id: string
+  name: string
+  nickname: string | null
+  department: string | null
+}
+
+/** ลำดับกลุ่มแผนกในเลนคน — ค่าเดียวกับ DEPARTMENTS ใน lib/departments.ts เรียงใหม่ตามที่ไทม์ไลน์ใช้ */
+// ponytail: restates lib/departments.ts in planning order; import+reorder if departments become dynamic
+export const DEPARTMENT_ORDER: readonly string[] = [
+  'ช่าง',
+  'ฝ่ายประสานงาน',
+  'ฝ่ายออกแบบ',
+  'ฝ่ายแอดมิน',
+  'ผู้บริหาร',
+  'นักศึกษาฝึกงาน',
+]
+
+/** แผนกที่ไม่รู้จัก/ยังไม่ตั้ง — เรียงท้ายสุด */
+export const NO_DEPARTMENT_LABEL = 'ไม่ระบุแผนก'
+
+/** ขนาด palette; UI แปลง colorIdx เป็น class เอง */
+export const BAR_COLORS = 10
+
+const NO_CUSTOMER_LABEL = 'ไม่ระบุลูกค้า'
+const DAY_END_MIN = 24 * 60
+const DEFAULT_HOUR_START = 6
+const NO_END_SPAN_MIN = 120
+
+export type BarTiming = 'exact' | 'no_end' | 'no_time' | 'multi_day'
+
+export interface Bar {
+  leadId: string
+  label: string
+  /** ตำแหน่งในงาน — เฉพาะเลนคน */
+  role?: string
+  startMin: number
+  endMin: number
+  timing: BarTiming
+  layer: number
+  colorIdx: number
+  conflict: boolean
+  /** เฉพาะเลนงาน: ยังไม่จัดทั้งคนและรถ */
+  unassigned: boolean
+}
+
+export type LaneKind = 'jobs' | 'vehicle' | 'person'
+
+export interface Lane {
+  kind: LaneKind
+  key: string
+  label: string
+  /** แผนก — เฉพาะเลนคน */
+  sublabel?: string
+  bars: Bar[]
+  layers: number
+}
+
+export interface DayLayout {
+  date: string
+  hourStart: number
+  hourEnd: number
+  lanes: Lane[]
+  colorByLead: Record<string, number>
+}
+
+/** บล็อกงานหนึ่งช่องในโหมดสัปดาห์ */
+export interface WeekCell {
+  leadId: string
+  label: string
+  colorIdx: number
+  conflict: boolean
+  /** ยังไม่จัดทั้งคนและรถ (กฎเดียวกับเลนงานโหมดวัน) */
+  unassigned: boolean
+  role?: string
+}
+
+export interface WeekLane {
+  kind: LaneKind
+  key: string
+  label: string
+  sublabel?: string
+  /** วันที่ (YYYY-MM-DD) → บล็อกงานของเลนนั้นในวันนั้น (ครบทั้ง 7 วันเสมอ) */
+  cells: Record<string, WeekCell[]>
+}
+
+export interface WeekLayout {
+  days: string[]
+  lanes: WeekLane[]
+  colorByLead: Record<string, number>
+}
+
+/** บวก/ลบวันบนสตริง YYYY-MM-DD (เวลาท้องถิ่น) */
+export function addDays(date: string, n: number): string {
+  const d = parseDate(date)
+  d.setDate(d.getDate() + n)
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
+function coversDate(lead: TrackingLead, date: string): boolean {
+  if (!lead.event_date) return false
+  return lead.event_date <= date && date <= (lead.event_end_date ?? lead.event_date)
+}
+
+function compareTimeline(a: TrackingLead, b: TrackingLead): number {
+  const byDateTime = compareLeads(a, b)
+  return byDateTime !== 0 ? byDateTime : a.id.localeCompare(b.id)
+}
+
+/** งานที่วันที่นั้นอยู่ในช่วง [event_date, event_end_date ?? event_date] — เรียงวัน แล้วเวลา (ไม่มีเวลาไว้ท้าย) แล้ว id */
+export function leadsOnDate(leads: TrackingLead[], date: string): TrackingLead[] {
+  return leads.filter((l) => coversDate(l, date)).sort(compareTimeline)
+}
+
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number)
+  return h * 60 + (m || 0)
+}
+
+function timingOf(lead: TrackingLead, date: string): BarTiming {
+  if (lead.event_date !== date) return 'multi_day' // วันต่อเนื่องของงานหลายวัน
+  if (lead.event_end_date && lead.event_end_date > date) return 'multi_day'
+  if (!lead.event_time) return 'no_time'
+  if (!lead.event_end_time) return 'no_end'
+  return toMinutes(lead.event_end_time) <= toMinutes(lead.event_time) ? 'no_end' : 'exact'
+}
+
+function spanOf(
+  lead: TrackingLead,
+  timing: BarTiming,
+  hourStart: number
+): { startMin: number; endMin: number } {
+  if (timing === 'multi_day' || timing === 'no_time') {
+    return { startMin: hourStart * 60, endMin: DAY_END_MIN }
+  }
+  const startMin = Math.max(hourStart * 60, Math.min(toMinutes(lead.event_time!), DAY_END_MIN))
+  if (timing === 'no_end') return { startMin, endMin: Math.min(startMin + NO_END_SPAN_MIN, DAY_END_MIN) }
+  return { startMin, endMin: Math.min(toMinutes(lead.event_end_time!), DAY_END_MIN) }
+}
+
+/** 06:00 เป็นค่าตั้งต้น ขยับลงเป็นชั่วโมงเต็มถ้ามีงานเริ่มก่อนหน้านั้น */
+function hourStartFor(onDate: TrackingLead[], date: string): number {
+  let hour = DEFAULT_HOUR_START
+  for (const lead of onDate) {
+    const timing = timingOf(lead, date)
+    if ((timing !== 'exact' && timing !== 'no_end') || !lead.event_time) continue
+    hour = Math.min(hour, Math.floor(toMinutes(lead.event_time) / 60))
+  }
+  return hour
+}
+
+/** greedy: เรียงตามเวลาเริ่ม แล้ววางในชั้นต่ำสุดที่ว่าง (ชิดกันได้) — คืนจำนวนชั้น (อย่างน้อย 1) */
+function assignLayers(bars: Bar[]): number {
+  bars.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)
+  const lastEnd: number[] = []
+  for (const bar of bars) {
+    const layer = lastEnd.findIndex((end) => end <= bar.startMin)
+    if (layer === -1) {
+      bar.layer = lastEnd.length
+      lastEnd.push(bar.endMin)
+    } else {
+      bar.layer = layer
+      lastEnd[layer] = bar.endMin
+    }
+  }
+  return lastEnd.length || 1
+}
+
+/** ธงชนในเลนเดียว: มีแถบของ "งานอื่น" ที่ timeStatus = conflict (ต่อคิว/ไม่รู้เวลา = ไม่ติดธง) */
+function markConflicts(bars: Bar[], byId: Map<string, TrackingLead>): void {
+  for (const bar of bars) {
+    const lead = byId.get(bar.leadId)!
+    bar.conflict = bars.some(
+      (other) => other.leadId !== bar.leadId && timeStatus(lead, byId.get(other.leadId)!) === 'conflict'
+    )
+  }
+}
+
+function departmentRank(department: string | null): number {
+  const i = department ? DEPARTMENT_ORDER.indexOf(department) : -1
+  return i === -1 ? DEPARTMENT_ORDER.length : i
+}
+
+function personLabel(person: Person): string {
+  return person.nickname || person.name
+}
+
+/** คนเรียงตามกลุ่มแผนก (ไม่ระบุแผนกท้ายสุด) แล้วชื่อ */
+function sortPeople(people: Person[]): Person[] {
+  return [...people].sort(
+    (a, b) =>
+      departmentRank(a.department) - departmentRank(b.department) ||
+      personLabel(a).localeCompare(personLabel(b), 'th')
+  )
+}
+
+/** ตำแหน่งทุกตำแหน่งที่คนนี้ถูกจัดไว้ในงานนี้ */
+function rolesOf(lead: TrackingLead, personId: string, roleLabels: Record<string, string>): string[] {
+  return lead.staff.filter((s) => s.user_id === personId).map((s) => roleLabels[s.role] || s.role)
+}
+
+function leadLabel(lead: TrackingLead): string {
+  return lead.customer_name || NO_CUSTOMER_LABEL
+}
+
+/**
+ * เลนและแถบงานของหนึ่งวัน: เลนงาน → เลนรถ (ตาม VEHICLES) → เลนคน (ตามแผนก แล้วชื่อ).
+ * ตำแหน่ง (นาทีจาก 00:00), ชั้นซ้อน, สี, ธงชน, ธงยังไม่จัด คำนวณให้ครบ — UI แค่ map เป็น div.
+ */
+export function layoutDay(
+  leads: TrackingLead[],
+  date: string,
+  people: Person[],
+  roleLabels: Record<string, string>,
+  opts?: { hideFree?: boolean }
+): DayLayout {
+  const onDate = leadsOnDate(leads, date)
+  const byId = new Map(onDate.map((l) => [l.id, l]))
+  const colorByLead: Record<string, number> = {}
+  onDate.forEach((lead, i) => {
+    colorByLead[lead.id] = i % BAR_COLORS
+  })
+  const hourStart = hourStartFor(onDate, date)
+
+  const makeBar = (lead: TrackingLead, extra: { role?: string; unassigned?: boolean } = {}): Bar => {
+    const timing = timingOf(lead, date)
+    const { startMin, endMin } = spanOf(lead, timing, hourStart)
+    const bar: Bar = {
+      leadId: lead.id,
+      label: leadLabel(lead),
+      startMin,
+      endMin,
+      timing,
+      layer: 0,
+      colorIdx: colorByLead[lead.id],
+      conflict: false,
+      unassigned: extra.unassigned ?? false,
+    }
+    if (extra.role !== undefined) bar.role = extra.role
+    return bar
+  }
+
+  const lanes: Lane[] = []
+
+  // เลนงาน — ทุกงานของวันโดยไม่ผูกทรัพยากร; ไม่ติดธงชน (ที่นี่สนใจ "ยังไม่จัด")
+  const jobBars = onDate.map((lead) =>
+    makeBar(lead, { unassigned: lead.staff.length === 0 && !vehicleOf(lead) })
+  )
+  lanes.push({ kind: 'jobs', key: 'jobs', label: 'งาน', bars: jobBars, layers: assignLayers(jobBars) })
+
+  for (const vehicle of VEHICLES) {
+    const bars = onDate.filter((lead) => vehicleOf(lead) === vehicle.key).map((lead) => makeBar(lead))
+    markConflicts(bars, byId)
+    lanes.push({ kind: 'vehicle', key: vehicle.key, label: vehicle.label, bars, layers: assignLayers(bars) })
+  }
+
+  for (const person of sortPeople(people)) {
+    const bars: Bar[] = []
+    for (const lead of onDate) {
+      for (const role of rolesOf(lead, person.id, roleLabels)) bars.push(makeBar(lead, { role }))
+    }
+    if (opts?.hideFree && bars.length === 0) continue
+    markConflicts(bars, byId)
+    lanes.push({
+      kind: 'person',
+      key: person.id,
+      label: personLabel(person),
+      sublabel: person.department ?? NO_DEPARTMENT_LABEL,
+      bars,
+      layers: assignLayers(bars),
+    })
+  }
+
+  return { date, hourStart, hourEnd: 24, lanes, colorByLead }
+}
+
+/** 7 วันนับจาก startDate (rolling) — แต่ละเลนมีบล็อกงานต่อวัน */
+export function layoutWeek(
+  leads: TrackingLead[],
+  startDate: string,
+  people: Person[],
+  roleLabels: Record<string, string>,
+  opts?: { hideFree?: boolean }
+): WeekLayout {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(startDate, i))
+  const perDay = days.map((day) => leadsOnDate(leads, day))
+
+  const colorByLead: Record<string, number> = {}
+  let seen = 0
+  for (const dayLeads of perDay) {
+    for (const lead of dayLeads) {
+      if (lead.id in colorByLead) continue
+      colorByLead[lead.id] = seen % BAR_COLORS
+      seen++
+    }
+  }
+
+  /** cells ของเลนหนึ่ง: สมาชิกต่อวันมาจาก pick, ธงชนคิดกันเองภายในช่องนั้น */
+  const buildCells = (
+    pick: (lead: TrackingLead) => boolean,
+    role: (lead: TrackingLead) => string | undefined,
+    flagConflicts: boolean
+  ): Record<string, WeekCell[]> => {
+    const cells: Record<string, WeekCell[]> = {}
+    days.forEach((day, i) => {
+      const members = perDay[i].filter(pick)
+      cells[day] = members.map((lead) => {
+        const cell: WeekCell = {
+          leadId: lead.id,
+          label: leadLabel(lead),
+          colorIdx: colorByLead[lead.id],
+          conflict:
+            flagConflicts &&
+            members.some((other) => other.id !== lead.id && timeStatus(lead, other) === 'conflict'),
+          unassigned: lead.staff.length === 0 && !vehicleOf(lead),
+        }
+        const r = role(lead)
+        if (r !== undefined) cell.role = r
+        return cell
+      })
+    })
+    return cells
+  }
+
+  const lanes: WeekLane[] = [
+    { kind: 'jobs', key: 'jobs', label: 'งาน', cells: buildCells(() => true, () => undefined, false) },
+    ...VEHICLES.map((vehicle) => ({
+      kind: 'vehicle' as const,
+      key: vehicle.key as string,
+      label: vehicle.label as string,
+      cells: buildCells((lead) => vehicleOf(lead) === vehicle.key, () => undefined, true),
+    })),
+  ]
+
+  for (const person of sortPeople(people)) {
+    const cells = buildCells(
+      (lead) => lead.staff.some((s) => s.user_id === person.id),
+      (lead) => rolesOf(lead, person.id, roleLabels)[0],
+      true
+    )
+    if (opts?.hideFree && days.every((day) => cells[day].length === 0)) continue
+    lanes.push({
+      kind: 'person',
+      key: person.id,
+      label: personLabel(person),
+      sublabel: person.department ?? NO_DEPARTMENT_LABEL,
+      cells,
+    })
+  }
+
+  return { days, lanes, colorByLead }
+}
+
+/** วันจัดงานที่ใกล้ที่สุดหลัง fromDate (ไม่รวมวันนั้น) — null เมื่อไม่มีงานข้างหน้า */
+export function nextJobDate(leads: TrackingLead[], fromDate: string): string | null {
+  let best: string | null = null
+  for (const lead of leads) {
+    const date = lead.event_date
+    if (!date || date <= fromDate) continue
+    if (!best || date < best) best = date
+  }
+  return best
 }

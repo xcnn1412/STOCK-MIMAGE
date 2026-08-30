@@ -1,7 +1,8 @@
 'use client'
 
-import { Fragment, useState, useTransition } from 'react'
+import { Fragment, useState, useSyncExternalStore, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -31,8 +32,14 @@ import {
     type Conflict,
     type Availability,
 } from './tracking-logic'
+import TimelineView, { formatDate, ymd } from './timeline-view'
 
 export type { TrackingLead }
+
+// ponytail: hydration — วันนี้ตาม timezone ของ "เครื่องผู้ใช้" ไม่ใช่ของ server
+// SSR ใช้ getServerSnapshot (โซนเวลา server) แล้ว snapshot ฝั่ง client ชนะหลัง hydrate
+const subscribeNever = () => () => {}
+const getTodayStr = () => ymd(new Date())
 
 const DESIGN_OPTIONS = [
     { value: 'not_started', label: 'ยังไม่เริ่ม', className: '' },
@@ -93,18 +100,33 @@ function AvailabilityChip({ userId, lead, all }: { userId: string; lead: Trackin
     )
 }
 
+// อีเวนต์ที่ถือคนของงานนี้ไว้มากที่สุด (เสมอกัน = อันแรก) คือค่าตั้งต้น
+function defaultEventId(lead: TrackingLead): string | null {
+    if (lead.events.length === 0) return null
+    const count = (id: string) => lead.staff.filter(s => s.event_id === id).length
+    return lead.events.reduce((best, e) => (count(e.id) > count(best.id) ? e : best), lead.events[0]).id
+}
+
+function draftFor(lead: TrackingLead, eventId: string | null): Draft[] {
+    return eventId === null ? [] : lead.staff.filter(s => s.event_id === eventId).map(s => ({ user_id: s.user_id, role: s.role }))
+}
+
 /** ช่อง "จัดคน" — กดเปิด Dialog แล้วจัดคนรายตำแหน่ง พร้อมบอกว่าใครว่าง/ต่อคิว/ชน ในวันของงานนี้ */
-function StaffEditor({ lead, all, people, roles, roleLabels, onSaved }: {
+function StaffEditor({ lead, all, people, roles, roleLabels, onSaved, defaultOpen = false, hideTrigger = false, onClose }: {
     lead: TrackingLead
     all: TrackingLead[]
     people: Person[]
     roles: StaffRole[]
     roleLabels: Record<string, string>
     onSaved: (leadId: string, staff: TrackingLead['staff'], events: TrackingLead['events']) => void
+    /** เปิดทันทีตอน mount (ไทม์ไลน์คลิกแถบ) — คู่กับ hideTrigger/onClose */
+    defaultOpen?: boolean
+    hideTrigger?: boolean
+    onClose?: () => void
 }) {
-    const [open, setOpen] = useState(false)
-    const [targetId, setTargetId] = useState<string | null>(null)
-    const [draft, setDraft] = useState<Draft[]>([])
+    const [open, setOpen] = useState(defaultOpen)
+    const [targetId, setTargetId] = useState<string | null>(() => defaultEventId(lead))
+    const [draft, setDraft] = useState<Draft[]>(() => draftFor(lead, defaultEventId(lead)))
     const [onlyFree, setOnlyFree] = useState(false)
     const [saving, setSaving] = useState(false)
     const [addKey, setAddKey] = useState(0)
@@ -113,23 +135,15 @@ function StaffEditor({ lead, all, people, roles, roleLabels, onSaved }: {
     const staffConflicts = getConflicts(lead, all).filter(c => c.kind === 'staff')
     const personOf = (id: string) => people.find(p => p.id === id)
 
-    // อีเวนต์ที่ถือคนของงานนี้ไว้มากที่สุด (เสมอกัน = อันแรก) คือค่าตั้งต้น
-    const defaultEventId = () => {
-        if (lead.events.length === 0) return null
-        const count = (id: string) => staff.filter(s => s.event_id === id).length
-        return lead.events.reduce((best, e) => (count(e.id) > count(best.id) ? e : best), lead.events[0]).id
-    }
-    const draftFor = (eventId: string | null): Draft[] =>
-        eventId === null ? [] : staff.filter(s => s.event_id === eventId).map(s => ({ user_id: s.user_id, role: s.role }))
-
     const openChange = (o: boolean) => {
         if (o) {
-            const t = defaultEventId()
+            const t = defaultEventId(lead)
             setTargetId(t)
-            setDraft(draftFor(t))
+            setDraft(draftFor(lead, t))
             setOnlyFree(false)
         }
         setOpen(o)
+        if (!o) onClose?.()
     }
 
     // ตำแหน่งจาก settings + ตำแหน่งแปลกที่ยังค้างอยู่ใน draft (กันคนหายไปเงียบๆ)
@@ -164,7 +178,7 @@ function StaffEditor({ lead, all, people, roles, roleLabels, onSaved }: {
             ? lead.events
             : [...lead.events, { id: eventId, name: '', event_date: lead.event_date, status: null }]
         onSaved(lead.id, mergedStaff, mergedEvents)
-        setOpen(false)
+        openChange(false)
     }
 
     const timeLabel = lead.event_time ? `${lead.event_time}–${lead.event_end_time ?? ''} น.` : ''
@@ -172,28 +186,30 @@ function StaffEditor({ lead, all, people, roles, roleLabels, onSaved }: {
     return (
         <div>
             <Dialog open={open} onOpenChange={openChange}>
-                <DialogTrigger asChild>
-                    <button
-                        type="button"
-                        title="แก้ไขการจัดคน"
-                        className="text-left w-full rounded-md px-1 -mx-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    >
-                        {staff.length === 0 ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-zinc-400">
-                                <Users className="h-3.5 w-3.5" /> ยังไม่จัดคน
-                            </span>
-                        ) : (
-                            <>
-                                <span className="inline-flex items-center gap-1 text-sm font-medium">
-                                    <Users className="h-3.5 w-3.5 text-zinc-500" /> {staff.length} คน
+                {!hideTrigger && (
+                    <DialogTrigger asChild>
+                        <button
+                            type="button"
+                            title="แก้ไขการจัดคน"
+                            className="text-left w-full rounded-md px-1 -mx-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        >
+                            {staff.length === 0 ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-zinc-400">
+                                    <Users className="h-3.5 w-3.5" /> ยังไม่จัดคน
                                 </span>
-                                <div className="text-xs text-zinc-500 truncate">
-                                    {staff.map(s => s.nickname || s.name).join(', ')}
-                                </div>
-                            </>
-                        )}
-                    </button>
-                </DialogTrigger>
+                            ) : (
+                                <>
+                                    <span className="inline-flex items-center gap-1 text-sm font-medium">
+                                        <Users className="h-3.5 w-3.5 text-zinc-500" /> {staff.length} คน
+                                    </span>
+                                    <div className="text-xs text-zinc-500 truncate">
+                                        {staff.map(s => s.nickname || s.name).join(', ')}
+                                    </div>
+                                </>
+                            )}
+                        </button>
+                    </DialogTrigger>
+                )}
 
                 <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
@@ -214,7 +230,7 @@ function StaffEditor({ lead, all, people, roles, roleLabels, onSaved }: {
                     {lead.events.length > 1 && (
                         <div className="space-y-1">
                             <div className="text-xs font-medium text-zinc-500">จัดเข้าอีเวนต์</div>
-                            <Select value={targetId ?? undefined} onValueChange={v => { setTargetId(v); setDraft(draftFor(v)) }}>
+                            <Select value={targetId ?? undefined} onValueChange={v => { setTargetId(v); setDraft(draftFor(lead, v)) }}>
                                 <SelectTrigger className="w-full">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -300,13 +316,13 @@ function StaffEditor({ lead, all, people, roles, roleLabels, onSaved }: {
                     </div>
 
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>ยกเลิก</Button>
+                        <Button variant="outline" onClick={() => openChange(false)} disabled={saving}>ยกเลิก</Button>
                         <Button onClick={handleSave} disabled={saving}>{saving ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {staffConflicts.length > 0 && (
+            {!hideTrigger && staffConflicts.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1">
                     {staffConflicts.slice(0, 2).map((c, i) => (
                         <ConflictBadge key={`${c.key}-${c.withLeadId}-${i}`} conflict={c} showLabel />
@@ -383,9 +399,6 @@ type SaveFn = (
     patch: { design_status?: string; supplier_note?: string | null; tracking_checklist?: string[] }
 ) => void
 
-const formatDate = (d: string | null) =>
-    d ? new Date(d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }) : '–'
-
 function JobCell({ lead, today }: { lead: TrackingLead; today: Date }) {
     return (
         <>
@@ -452,6 +465,23 @@ function VehicleCell({ lead, all, save }: { lead: TrackingLead; all: TrackingLea
     )
 }
 
+/** ไทม์ไลน์: คลิกแถบในเลนรถ → เปิด VehicleCell เดิมใน Dialog */
+function VehicleDialog({ lead, all, save, onClose }: { lead: TrackingLead; all: TrackingLead[]; save: SaveFn; onClose: () => void }) {
+    return (
+        <Dialog open onOpenChange={o => { if (!o) onClose() }}>
+            <DialogContent className="sm:max-w-sm">
+                <DialogHeader>
+                    <DialogTitle>จัดรถ — {lead.customer_name || 'ไม่ระบุลูกค้า'} · {formatDate(lead.event_date)}</DialogTitle>
+                </DialogHeader>
+                <VehicleCell lead={lead} all={all} save={save} />
+                <DialogFooter>
+                    <Button onClick={onClose}>ปิด</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
 function SupplierCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
     return (
         <NoteCell
@@ -493,9 +523,33 @@ export default function TrackingView({
     const [chip, setChip] = useState<Chip | null>(null)
     const [showPast, setShowPast] = useState(false)
     const [, startTransition] = useTransition()
+    /** ไทม์ไลน์: แถบที่กำลังแก้ (คน หรือ รถ) */
+    const [editing, setEditing] = useState<{ leadId: string; kind: 'staff' | 'vehicle' } | null>(null)
 
     // client component: hydration mismatch is only possible exactly at midnight — acceptable
     const today = new Date()
+
+    // สถานะมุมมองอยู่ใน URL: ?view=timeline&date=YYYY-MM-DD&mode=day|week
+    const router = useRouter()
+    const searchParams = useSearchParams()
+    const view = searchParams.get('view') === 'timeline' ? 'timeline' : 'table'
+    const mode = searchParams.get('mode') === 'week' ? 'week' : 'day'
+    const dateParam = searchParams.get('date')
+    const todayStr = useSyncExternalStore(subscribeNever, getTodayStr, getTodayStr)
+    const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : todayStr
+
+    /** patch บาง key — อ่านจาก URL จริงตอนคลิก ไม่ใช่ searchParams ของรอบ render (สองคลิกติดกันจะได้ไม่ทับกัน) */
+    const setParams = (patch: { view?: string | null; date?: string | null; mode?: string | null }) => {
+        const p = new URLSearchParams(window.location.search)
+        for (const [k, v] of Object.entries(patch)) {
+            if (v === null) p.delete(k)
+            else if (v !== undefined) p.set(k, v)
+        }
+        const qs = p.toString()
+        router.replace(qs ? `?${qs}` : '?', { scroll: false })
+    }
+
+    const editingLead = editing ? rows.find(r => r.id === editing.leadId) ?? null : null
 
     const save = (
         id: string,
@@ -533,6 +587,25 @@ export default function TrackingView({
                 </p>
             </div>
 
+            <div className="flex items-center gap-1">
+                <Button
+                    variant={view === 'table' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setParams({ view: null, date: null, mode: null })}
+                >
+                    ตาราง
+                </Button>
+                <Button
+                    variant={view === 'timeline' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setParams({ view: 'timeline', date, mode })}
+                >
+                    ไทม์ไลน์
+                </Button>
+            </div>
+
+            {view === 'table' ? (
+                <>
             <div className="flex flex-wrap items-center gap-2">
                 {CHIPS.map(c => {
                     const active = chip === c.chip
@@ -719,6 +792,40 @@ export default function TrackingView({
                     </div>
                 ))}
             </div>
+                </>
+            ) : (
+                <TimelineView
+                    rows={rows}
+                    people={people}
+                    roleLabels={roleLabels}
+                    today={today}
+                    date={date}
+                    mode={mode}
+                    onDateChange={d => setParams({ date: d })}
+                    onModeChange={m => setParams({ mode: m })}
+                    onOpenDay={d => setParams({ mode: 'day', date: d })}
+                    onEditStaff={id => setEditing({ leadId: id, kind: 'staff' })}
+                    onEditVehicle={id => setEditing({ leadId: id, kind: 'vehicle' })}
+                />
+            )}
+
+            {editingLead && editing?.kind === 'staff' && (
+                <StaffEditor
+                    key={editingLead.id}
+                    lead={editingLead}
+                    all={rows}
+                    people={people}
+                    roles={roles}
+                    roleLabels={roleLabels}
+                    onSaved={(id, staff, events) => { onStaffSaved(id, staff, events); setEditing(null) }}
+                    defaultOpen
+                    hideTrigger
+                    onClose={() => setEditing(null)}
+                />
+            )}
+            {editingLead && editing?.kind === 'vehicle' && (
+                <VehicleDialog lead={editingLead} all={rows} save={save} onClose={() => setEditing(null)} />
+            )}
         </div>
     )
 }

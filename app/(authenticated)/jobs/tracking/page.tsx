@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase-server'
 import TrackingView, { type TrackingLead } from './tracking-view'
 import { VEHICLES } from './tracking-logic'
@@ -103,5 +104,10 @@ export default async function TrackingPage() {
         staff: staffByLead.get(l.id) || [],
     }))
 
-    return <TrackingView leads={rows} roleLabels={roleLabels} roles={roles} people={people} />
+    // TrackingView อ่าน ?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
+    return (
+        <Suspense fallback={null}>
+            <TrackingView leads={rows} roleLabels={roleLabels} roles={roles} people={people} />
+        </Suspense>
+    )
 }

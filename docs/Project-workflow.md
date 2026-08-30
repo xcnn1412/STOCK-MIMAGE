@@ -56,8 +56,8 @@ branch: `main` · เริ่ม 2026-08-30 · glossary: `CONTEXT.md` (ไท�
 
 | # | Ticket | Blocked by | สถานะ |
 |---|---|---|---|
-| T1 | Seam (TDD): `layoutDay` / `layoutWeek` / `nextJobDate` — เลน งาน→รถ→คนตามแผนก, แถบ exact/no_end/no_time/multi_day, ชั้นซ้อน, สีต่องาน, ธงชน/ยังไม่จัด, ซ่อนคนว่าง + check script | — | [ ] |
-| T2 | โหมดวัน: ปุ่มสลับ ตาราง\|ไทม์ไลน์ (`?view&date&mode` ใน URL), นำทางวัน + งานถัดไป, กริดชั่วโมง 06–24, แถบสี/ลายทาง/ขอบแดง, คลิกแถบเปิด StaffEditor/เลือกรถ, ซ่อนคนว่าง, มือถือเลื่อนแนวนอน sticky | T1 | [ ] |
-| T3 | โหมดสัปดาห์: 7 วัน rolling บล็อกงานต่อวัน ซ่อนบนจอแคบ | T2 | [ ] |
-| T4 | เก็บงาน: มีอะไรใหม่, tsc, `/code-review`, commit | T2, T3 | [ ] |
+| T1 | Seam (TDD): `layoutDay` / `layoutWeek` / `nextJobDate` — เลน งาน→รถ→คนตามแผนก, แถบ exact/no_end/no_time/multi_day, ชั้นซ้อน, สีต่องาน, ธงชน/ยังไม่จัด, ซ่อนคนว่าง + check script | — | [x] 2026-08-30 — layoutDay/layoutWeek/nextJobDate, ~60 asserts, แดง→เขียว |
+| T2 | โหมดวัน: ปุ่มสลับ ตาราง\|ไทม์ไลน์ (`?view&date&mode` ใน URL), นำทางวัน + งานถัดไป, กริดชั่วโมง 06–24, แถบสี/ลายทาง/ขอบแดง, คลิกแถบเปิด StaffEditor/เลือกรถ, ซ่อนคนว่าง, มือถือเลื่อนแนวนอน sticky | T1 | [x] 2026-08-30 — timeline-view.tsx + URL state + StaffEditor/VehicleDialog จากแถบ |
+| T3 | โหมดสัปดาห์: 7 วัน rolling บล็อกงานต่อวัน ซ่อนบนจอแคบ | T2 | [x] 2026-08-30 — layoutWeek grid, nav ±7, หัววัน→โหมดวัน, ซ่อนบนจอแคบ |
+| T4 | เก็บงาน: มีอะไรใหม่, tsc, `/code-review`, commit | T2, T3 | [x] 2026-08-30 — code-review 2 แกน → แก้ 5 บั๊ก + 5 smell, มีอะไรใหม่, tsc/lint/check ผ่าน |
 

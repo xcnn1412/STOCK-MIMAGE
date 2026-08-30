@@ -2,22 +2,32 @@
 // Run: npx tsx "app/(authenticated)/jobs/tracking/tracking-logic.check.ts"
 import assert from 'node:assert/strict'
 import {
+  addDays,
   availabilityOf,
+  BAR_COLORS,
   bucketOf,
   chipCounts,
   dateRangesOverlap,
   daysUntil,
+  DEPARTMENT_ORDER,
   getConflicts,
   getMissing,
   groupLeads,
   isPast,
   isReady,
   isUrgent,
+  layoutDay,
+  layoutWeek,
+  leadsOnDate,
   monthLabel,
+  nextJobDate,
+  NO_DEPARTMENT_LABEL,
   personClashes,
   timeStatus,
   vehicleAvailability,
   vehicleOf,
+  type DayLayout,
+  type Person,
   type TrackingLead,
 } from './tracking-logic'
 
@@ -306,5 +316,215 @@ assert.equal(vehicleAvailability('car_champ', A, fleet), 'free')
 assert.equal(vehicleAvailability('car_triton', C, fleet), 'free') // different day
 assert.equal(vehicleAvailability('car_triton', A, [A, queuedB]), 'queued')
 assert.equal(vehicleAvailability('car_triton', A, [A, { ...B, id: 'Bnc', tracking_checklist: [] }]), 'free')
+
+// --- timeline: fixtures ----------------------------------------------------
+const T = '2026-08-30' // same day as `today`
+
+const people: Person[] = [
+  { id: 'u1', name: 'สมชาย', nickname: 'ชาย', department: 'ฝ่ายออกแบบ' },
+  { id: 'u2', name: 'นิคม', nickname: 'นิค', department: 'ช่าง' },
+  { id: 'u3', name: 'อารีย์', nickname: null, department: 'ฝ่ายออกแบบ' },
+  { id: 'u4', name: 'บุญมี', nickname: 'บี', department: null },
+]
+const roleLabels: Record<string, string> = { photographer: 'ช่างภาพ', assistant: 'ผู้ช่วย' }
+const st = (userId: string, role: string) => ({ user_id: userId, name: 'ชื่อจริง', nickname: null, role, event_id: 'e1' })
+
+// A 09:00–12:00 and B 11:00–14:00 both use Triton and u1 → overlap in both lanes
+const tlA = mk({
+  id: 'A',
+  customer_name: 'ลูกค้า A',
+  event_date: T,
+  event_time: '09:00',
+  event_end_time: '12:00',
+  tracking_checklist: ['car_triton'],
+  staff: [st('u1', 'photographer')],
+})
+const tlB = mk({
+  id: 'B',
+  customer_name: 'ลูกค้า B',
+  event_date: T,
+  event_time: '11:00',
+  event_end_time: '14:00',
+  tracking_checklist: ['car_triton'],
+  staff: [st('u1', 'assistant')],
+})
+
+const dayAB = layoutDay([tlA, tlB], T, people, roleLabels)
+const bar = (day: DayLayout, laneKey: string, leadId: string) =>
+  day.lanes.find((l) => l.key === laneKey)!.bars.find((b) => b.leadId === leadId)!
+const lane = (day: DayLayout, laneKey: string) => day.lanes.find((l) => l.key === laneKey)!
+
+// --- timeline constants ----------------------------------------------------
+assert.equal(BAR_COLORS, 10)
+assert.equal(NO_DEPARTMENT_LABEL, 'ไม่ระบุแผนก')
+assert.deepEqual([...DEPARTMENT_ORDER], ['ช่าง', 'ฝ่ายประสานงาน', 'ฝ่ายออกแบบ', 'ฝ่ายแอดมิน', 'ผู้บริหาร', 'นักศึกษาฝึกงาน'])
+
+// --- addDays ---------------------------------------------------------------
+assert.equal(addDays('2026-08-30', 0), '2026-08-30')
+assert.equal(addDays('2026-08-30', 2), '2026-09-01') // across month end
+assert.equal(addDays('2026-09-01', -2), '2026-08-30')
+assert.equal(addDays('2026-12-31', 1), '2027-01-01') // across year end
+
+// --- leadsOnDate -----------------------------------------------------------
+const onDateFixture = [
+  mk({ id: 'z', event_date: T, event_time: '10:00' }),
+  mk({ id: 'a', event_date: '2026-08-29', event_end_date: '2026-08-31', event_time: '08:00' }), // multi-day, covers T
+  mk({ id: 'b', event_date: T, event_time: null }), // null time sorts last
+  mk({ id: 'c', event_date: '2026-08-31' }),
+  mk({ id: 'y', event_date: T, event_time: '10:00' }), // ties with z → by id
+  mk({ id: 'nd', event_date: null }),
+]
+assert.deepEqual(leadsOnDate(onDateFixture, T).map((l) => l.id), ['a', 'y', 'z', 'b'])
+assert.deepEqual(leadsOnDate(onDateFixture, '2026-08-31').map((l) => l.id), ['a', 'c'])
+assert.deepEqual(leadsOnDate(onDateFixture, '2026-09-10').map((l) => l.id), [])
+
+// --- hour range ------------------------------------------------------------
+assert.equal(dayAB.hourStart, 6) // default 06:00 even though the earliest job is 09:00
+assert.equal(dayAB.hourEnd, 24)
+assert.equal(layoutDay([mk({ id: 'E', event_date: T, event_time: '05:30', event_end_time: '07:00' })], T, people, roleLabels).hourStart, 5)
+// no_time / multi_day bars never drag the axis earlier
+assert.equal(layoutDay([mk({ id: 'X', event_date: T, event_time: null, event_end_time: null })], T, people, roleLabels).hourStart, 6)
+
+// --- bar timing (4 kinds) --------------------------------------------------
+assert.deepEqual(
+  (({ timing, startMin, endMin }) => ({ timing, startMin, endMin }))(bar(dayAB, 'jobs', 'A')),
+  { timing: 'exact', startMin: 540, endMin: 720 }
+)
+const dNoEnd = layoutDay([mk({ id: 'N', event_date: T, event_time: '09:00', event_end_time: null })], T, people, roleLabels)
+assert.deepEqual(
+  (({ timing, startMin, endMin }) => ({ timing, startMin, endMin }))(bar(dNoEnd, 'jobs', 'N')),
+  { timing: 'no_end', startMin: 540, endMin: 660 } // start + 2 ชม.
+)
+const dNoTime = layoutDay([mk({ id: 'X', event_date: T, event_time: null, event_end_time: null })], T, people, roleLabels)
+assert.deepEqual(
+  (({ timing, startMin, endMin }) => ({ timing, startMin, endMin }))(bar(dNoTime, 'jobs', 'X')),
+  { timing: 'no_time', startMin: 360, endMin: 1440 }
+)
+const dMulti = layoutDay(
+  [mk({ id: 'M', event_date: '2026-08-29', event_end_date: '2026-08-31', event_time: '09:00', event_end_time: '10:00' })],
+  T, people, roleLabels
+)
+assert.deepEqual(
+  (({ timing, startMin, endMin }) => ({ timing, startMin, endMin }))(bar(dMulti, 'jobs', 'M')),
+  { timing: 'multi_day', startMin: 360, endMin: 1440 }
+)
+// starts today but ends later → still multi_day
+assert.equal(
+  bar(layoutDay([mk({ id: 'M2', event_date: T, event_end_date: '2026-08-31' })], T, people, roleLabels), 'jobs', 'M2').timing,
+  'multi_day'
+)
+// end ≤ start is treated as no_end
+assert.equal(
+  bar(layoutDay([mk({ id: 'Z', event_date: T, event_time: '09:00', event_end_time: '09:00' })], T, people, roleLabels), 'jobs', 'Z').timing,
+  'no_end'
+)
+// customer name fallback
+assert.equal(bar(layoutDay([mk({ id: 'NN', event_date: T, customer_name: null })], T, people, roleLabels), 'jobs', 'NN').label, 'ไม่ระบุลูกค้า')
+
+// --- one colour per job, across every lane ---------------------------------
+assert.deepEqual(dayAB.colorByLead, { A: 0, B: 1 })
+assert.equal(bar(dayAB, 'jobs', 'B').colorIdx, 1)
+assert.equal(bar(dayAB, 'car_triton', 'B').colorIdx, 1)
+assert.equal(bar(dayAB, 'u1', 'B').colorIdx, 1)
+
+// --- jobs lane: ยังไม่จัด ---------------------------------------------------
+const dUn = layoutDay([mk({ id: 'U', event_date: T, staff: [], tracking_checklist: [] }), tlA], T, people, roleLabels)
+assert.equal(bar(dUn, 'jobs', 'U').unassigned, true)
+assert.equal(bar(dUn, 'jobs', 'A').unassigned, false)
+// car only (no staff) still counts as จัดแล้ว
+assert.equal(bar(layoutDay([mk({ id: 'V', event_date: T, staff: [] })], T, people, roleLabels), 'jobs', 'V').unassigned, false)
+
+// --- layers & conflict flags -----------------------------------------------
+assert.equal(lane(dayAB, 'car_triton').layers, 2)
+assert.deepEqual(lane(dayAB, 'car_triton').bars.map((b) => b.layer), [0, 1])
+assert.equal(lane(dayAB, 'car_triton').bars.every((b) => b.conflict), true)
+assert.equal(lane(dayAB, 'u1').layers, 2)
+assert.equal(lane(dayAB, 'u1').bars.every((b) => b.conflict), true)
+// jobs lane never flags conflicts
+assert.equal(lane(dayAB, 'jobs').bars.some((b) => b.conflict), false)
+// touching windows share a layer and do not clash
+const dayTouch = layoutDay([tlA, { ...tlB, id: 'Bq', event_time: '12:00', event_end_time: '15:00' }], T, people, roleLabels)
+assert.equal(lane(dayTouch, 'car_triton').layers, 1)
+assert.deepEqual(lane(dayTouch, 'car_triton').bars.map((b) => b.layer), [0, 0])
+assert.equal(lane(dayTouch, 'car_triton').bars.some((b) => b.conflict), false)
+// an empty lane still reports one layer
+assert.equal(lane(dayAB, 'car_champ').layers, 1)
+assert.deepEqual(lane(dayAB, 'car_champ').bars, [])
+// three bars that all overlap each other → three layers, every bar flagged
+const tri = (id: string, start: string, end: string) =>
+  mk({ id, event_date: T, event_time: start, event_end_time: end, tracking_checklist: ['car_triton'], staff: [] })
+const day3 = layoutDay([tri('P', '09:00', '12:00'), tri('Q', '10:00', '13:00'), tri('R', '11:00', '14:00')], T, people, roleLabels)
+assert.equal(lane(day3, 'car_triton').layers, 3)
+assert.deepEqual(lane(day3, 'car_triton').bars.map((b) => `${b.leadId}:${b.layer}`), ['P:0', 'Q:1', 'R:2'])
+assert.equal(lane(day3, 'car_triton').bars.every((b) => b.conflict), true)
+// 2+1: R starts exactly when P ends → reuses P's layer, but still clashes with Q
+const day21 = layoutDay([tri('P', '09:00', '12:00'), tri('Q', '10:00', '13:00'), tri('R', '12:00', '14:00')], T, people, roleLabels)
+assert.equal(lane(day21, 'car_triton').layers, 2)
+assert.deepEqual(lane(day21, 'car_triton').bars.map((b) => `${b.leadId}:${b.layer}`), ['P:0', 'Q:1', 'R:0'])
+assert.equal(bar(day21, 'car_triton', 'R').conflict, true)
+
+// --- lane order ------------------------------------------------------------
+assert.deepEqual(dayAB.lanes.map((l) => l.kind), ['jobs', 'vehicle', 'vehicle', 'person', 'person', 'person', 'person'])
+assert.deepEqual(dayAB.lanes.slice(0, 3).map((l) => l.key), ['jobs', 'car_triton', 'car_champ'])
+assert.equal(dayAB.lanes[0].label, 'งาน')
+// person lanes: DEPARTMENT_ORDER, then label; null department last
+assert.deepEqual(dayAB.lanes.filter((l) => l.kind === 'person').map((l) => l.key), ['u2', 'u1', 'u3', 'u4'])
+assert.deepEqual(
+  dayAB.lanes.filter((l) => l.kind === 'person').map((l) => l.sublabel),
+  ['ช่าง', 'ฝ่ายออกแบบ', 'ฝ่ายออกแบบ', 'ไม่ระบุแผนก']
+)
+assert.deepEqual(dayAB.lanes.filter((l) => l.kind === 'person').map((l) => l.label), ['นิค', 'ชาย', 'อารีย์', 'บี'])
+assert.equal(dayAB.lanes[1].sublabel, undefined)
+
+// --- hideFree --------------------------------------------------------------
+const dHide = layoutDay([tlA], T, people, roleLabels, { hideFree: true })
+assert.deepEqual(dHide.lanes.filter((l) => l.kind === 'person').map((l) => l.key), ['u1'])
+assert.deepEqual(dHide.lanes.filter((l) => l.kind === 'vehicle').map((l) => l.key), ['car_triton', 'car_champ'])
+assert.equal(dHide.lanes[0].key, 'jobs')
+
+// --- role labels in person lanes -------------------------------------------
+assert.equal(bar(dayAB, 'u1', 'A').role, 'ช่างภาพ')
+assert.equal(bar(dayAB, 'u1', 'B').role, 'ผู้ช่วย')
+assert.equal(bar(layoutDay([mk({ id: 'R', event_date: T, staff: [st('u1', 'driver')] })], T, people, roleLabels), 'u1', 'R').role, 'driver')
+assert.equal(bar(dayAB, 'jobs', 'A').role, undefined)
+assert.equal(bar(dayAB, 'car_triton', 'A').role, undefined)
+
+// --- layoutWeek ------------------------------------------------------------
+const wk = layoutWeek([tlA, tlB, mk({ id: 'W2', event_date: '2026-09-02', staff: [st('u1', 'photographer')] })], T, people, roleLabels)
+assert.equal(wk.days.length, 7)
+assert.deepEqual([wk.days[0], wk.days[6]], ['2026-08-30', '2026-09-05'])
+assert.deepEqual(wk.colorByLead, { A: 0, B: 1, W2: 2 })
+const wkU1 = wk.lanes.find((l) => l.key === 'u1')!
+assert.equal(Object.keys(wkU1.cells).length, 7)
+assert.deepEqual(wkU1.cells[T].map((c) => c.leadId), ['A', 'B'])
+assert.equal(wkU1.cells[T].every((c) => c.conflict), true) // A and B overlap for u1 that day
+assert.equal(wkU1.cells[T][0].role, 'ช่างภาพ')
+assert.equal(wkU1.cells['2026-09-02'][0].conflict, false)
+assert.deepEqual(wkU1.cells['2026-08-31'], [])
+assert.deepEqual(wk.lanes.map((l) => l.kind), ['jobs', 'vehicle', 'vehicle', 'person', 'person', 'person', 'person'])
+assert.equal(wk.lanes.find((l) => l.key === 'jobs')!.cells[T].some((c) => c.conflict), false)
+assert.deepEqual(
+  layoutWeek([tlA], T, people, roleLabels, { hideFree: true }).lanes.filter((l) => l.kind === 'person').map((l) => l.key),
+  ['u1']
+)
+// week cells carry the same ยังไม่จัด flag as the day jobs lane
+const wkUn = layoutWeek([mk({ id: 'U', event_date: T, staff: [], tracking_checklist: [] }), tlA], T, people, roleLabels)
+assert.deepEqual(
+  wkUn.lanes.find((l) => l.key === 'jobs')!.cells[T].map((c) => [c.leadId, c.unassigned]),
+  [['A', false], ['U', true]]
+)
+
+// --- nextJobDate -----------------------------------------------------------
+const njFixture = [
+  mk({ id: 'n1', event_date: T }),
+  mk({ id: 'n3', event_date: '2026-09-05' }),
+  mk({ id: 'n2', event_date: '2026-09-02' }),
+  mk({ id: 'n0', event_date: null }),
+]
+assert.equal(nextJobDate(njFixture, T), '2026-09-02') // skips the empty days between
+assert.equal(nextJobDate(njFixture, '2026-09-02'), '2026-09-05')
+assert.equal(nextJobDate(njFixture, '2026-09-05'), null)
+assert.equal(nextJobDate(njFixture, '2026-01-01'), '2026-08-30')
+assert.equal(nextJobDate([], T), null)
 
 console.log('tracking-logic.check: all passed')
