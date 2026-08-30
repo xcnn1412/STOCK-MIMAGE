@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -38,6 +38,7 @@ import { createJobsFromLead, getJobsByLeadId } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
 import { STATUS_CONFIG, ALL_STATUSES, getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
+import { RequiredRolesEditor, RequiredRolesSummary } from '../../jobs/tracking/required-roles-editor'
 import { compressImage } from '@/lib/utils'
 
 interface SystemUser {
@@ -86,6 +87,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   // Staff role settings — still needed to render role labels/colors in the read-only
   // per-event staff display (staff is edited per event, not here).
   const staffRoles = settings.filter(s => s.category === 'staff_role' && s.is_active).sort((a, b) => a.sort_order - b.sort_order)
+  const staffRoleOptions = staffRoles.map(r => ({ value: r.value, label: locale === 'th' ? r.label_th : r.label_en }))
   const [uploadingInstallment, setUploadingInstallment] = useState<string | null>(null)
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [localReceiptUrls, setLocalReceiptUrls] = useState<Record<string, string>>(
@@ -128,8 +130,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     is_returning: lead.is_returning || false,
     event_date: lead.event_date || '',
     event_end_date: lead.event_end_date || '',
+    event_time: (lead.event_time || '').slice(0, 5),
+    event_end_time: (lead.event_end_time || '').slice(0, 5),
     event_location: lead.event_location || '',
     event_details: lead.event_details || '',
+    required_roles: lead.required_roles || {},
     package_name: lead.package_name || '',
     quoted_price: lead.quoted_price || 0,
     confirmed_price: lead.confirmed_price || 0,
@@ -190,7 +195,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     // Choose which fields to save based on section
     const fieldsBySection: Record<CardSection, string[]> = {
       customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'work_type', 'lead_source', 'is_returning'],
-      event: ['event_date', 'event_end_date', 'event_location', 'event_details'],
+      event: ['event_date', 'event_end_date', 'event_time', 'event_end_time', 'event_location', 'event_details', 'required_roles'],
       financial: ['package_name', 'quoted_price', 'confirmed_price', 'deposit', 'vat_mode', 'wht_rate', 'quotation_ref', 'notes'],
     }
 
@@ -199,6 +204,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
       const value = (form as any)[key]
       if (key === 'tags') {
         formData.set(key, (value as string[]).join(','))
+      } else if (key === 'required_roles') {
+        formData.set(key, JSON.stringify(value ?? {}))
       } else {
         formData.set(key, String(value))
       }
@@ -243,8 +250,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
       is_returning: lead.is_returning || false,
       event_date: lead.event_date || '',
       event_end_date: lead.event_end_date || '',
+      event_time: (lead.event_time || '').slice(0, 5),
+      event_end_time: (lead.event_end_time || '').slice(0, 5),
       event_location: lead.event_location || '',
       event_details: lead.event_details || '',
+      required_roles: lead.required_roles || {},
       package_name: lead.package_name || '',
       quoted_price: lead.quoted_price || 0,
       confirmed_price: lead.confirmed_price || 0,
@@ -1215,6 +1225,16 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                   <div className="space-y-4">
                     <EditField label={tc.eventDate} value={form.event_date} onChange={v => updateForm('event_date', v)} type="date" />
                     <EditField label={tc.endDate} value={form.event_end_date} onChange={v => updateForm('event_end_date', v)} type="date" />
+                    <EditField label={tc.eventTime} value={form.event_time} onChange={v => updateForm('event_time', v)} type="time" />
+                    <EditField label={tc.eventEndTime} value={form.event_end_time} onChange={v => updateForm('event_end_time', v)} type="time" />
+                    <div>
+                      <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{tc.requiredRoles}</Label>
+                      <RequiredRolesEditor
+                        value={form.required_roles}
+                        roles={staffRoleOptions}
+                        onChange={v => setForm(prev => ({ ...prev, required_roles: v }))}
+                      />
+                    </div>
                     {form.event_date && form.event_end_date && (
                       <div className="flex justify-between items-center px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30">
                         <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">{tc.duration}</span>
@@ -1245,6 +1265,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                   <>
                     <InfoRow label={tc.eventDate} value={lead.event_date} />
                     <InfoRow label={tc.endDate} value={lead.event_end_date} />
+                    <InfoRow label={tc.eventTime} value={lead.event_time ? `${lead.event_time.slice(0, 5)} น.` : null} />
+                    <InfoRow label={tc.eventEndTime} value={lead.event_end_time ? `${lead.event_end_time.slice(0, 5)} น.` : null} />
                     {lead.event_date && lead.event_end_date && (
                       <div className="flex justify-between items-start gap-4">
                         <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{tc.duration}</span>
@@ -1259,6 +1281,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                       </div>
                     )}
                     <InfoRow label={tc.locationLabel} value={lead.event_location} />
+                    <InfoRow label={tc.requiredRoles} value={<RequiredRolesSummary value={lead.required_roles || {}} roles={staffRoleOptions} />} />
                     <InfoRow label={tc.details} value={lead.event_details} />
                   </>
                 )}
@@ -2018,7 +2041,7 @@ function EditSelect({
 // Info Row helper — Read-only display
 // ============================================================================
 
-function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
+function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex justify-between items-start gap-4">
       <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{label}</span>

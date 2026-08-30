@@ -464,6 +464,8 @@ export async function createLead(formData: FormData) {
     is_returning: formData.get('is_returning') === 'true',
     event_date: eventDate,
     event_end_date: eventEndDate,
+    event_time: formData.get('event_time') as string || null,
+    event_end_time: formData.get('event_end_time') as string || null,
     event_days,
     event_location: formData.get('event_location') as string || null,
     event_details: formData.get('event_details') as string || null,
@@ -542,7 +544,7 @@ export async function updateLead(id: string, formData: FormData) {
     if (v !== null) updates[f] = v as string || null
   })
 
-  const dateFields = ['event_date', 'event_end_date']
+  const dateFields = ['event_date', 'event_end_date', 'event_time', 'event_end_time']
   dateFields.forEach(f => {
     const v = formData.get(f)
     if (v !== null) updates[f] = (v as string) || null
@@ -587,6 +589,30 @@ export async function updateLead(id: string, formData: FormData) {
       updates[f] = str.split(',').filter(Boolean)
     }
   })
+
+  // ตำแหน่งที่ต้องการ — JSON string { "<staff_role>": count }; ตรวจ role กับ staff_role ที่ active และจำนวน 1–20
+  // ponytail: validation duplicated with jobs/actions.ts::updateLeadTracking; extract when a third caller appears
+  if (formData.has('required_roles')) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse((formData.get('required_roles') as string) || '{}')
+    } catch {
+      return { error: 'ตำแหน่งที่ต้องการไม่ถูกต้อง' }
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: 'ตำแหน่งที่ต้องการไม่ถูกต้อง' }
+    const { data: roleRows } = await supabase
+      .from('crm_settings').select('value').eq('category', 'staff_role').eq('is_active', true)
+    const validRoles = new Set((roleRows || []).map(r => r.value as string))
+    const clean: Record<string, number> = {}
+    for (const [role, count] of Object.entries(parsed as Record<string, unknown>)) {
+      if (count === 0) continue
+      if (!validRoles.has(role) || !Number.isInteger(count) || (count as number) < 1 || (count as number) > 20) {
+        return { error: `ตำแหน่งที่ต้องการไม่ถูกต้อง: ${role}` }
+      }
+      clean[role] = count as number
+    }
+    updates.required_roles = clean
+  }
 
   // Auto-calculate event_days
   const ed = (updates.event_date as string) || null

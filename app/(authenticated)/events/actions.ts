@@ -12,7 +12,7 @@ import type { ActionState, KitContent, Item, Database } from '@/types'
 // event_staff. Staff now lives per-event (event_staff keyed by event_id), but the
 // Kanban board still filters leads by these lead-level arrays, so we keep them in sync
 // whenever a CRM-linked event's staff changes. Best-effort — never blocks the caller.
-async function syncLeadArraysFromEvents(supabase: ReturnType<typeof createServiceClient>, leadId: string) {
+export async function syncLeadArraysFromEvents(supabase: ReturnType<typeof createServiceClient>, leadId: string) {
   try {
     const { data: evs } = await supabase.from('events').select('id').eq('crm_lead_id', leadId)
     const eventIds = (evs || []).map((e: { id: string }) => e.id)

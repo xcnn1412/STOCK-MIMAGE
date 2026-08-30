@@ -112,3 +112,45 @@ tickets = sub-issues ของ #26 (blocked-by จริงบน GitHub) · bas
 
 ### สิ่งที่ user ต้องทำเอง (หลัง ship)
 - รัน `20260830_salary_slip_reopen.sql` บน prod ก่อน deploy
+
+## หน้าติดตามงาน (`/jobs/tracking`) — spec: `docs/specs/jobs-tracking-ui.md`
+
+branch: `main` · เริ่ม 2026-08-30 · glossary: `CONTEXT.md`
+
+| # | Ticket | Blocked by | สถานะ |
+|---|---|---|---|
+| 1 | Seam: โมดูล logic บริสุทธิ์ (ความพร้อม/สิ่งที่ยังขาด, กลุ่มช่วงเวลา rolling, นับชิป, งานที่ผ่านแล้ว) + check script รันด้วย tsx | — | [x] 2026-08-30 — tracking-logic.ts + check script ผ่าน (tsx) |
+| 2 | Tracer bullet เดสก์ท็อป 7 คอลัมน์: ยุบ Countdown เป็น badge ในช่อง "งาน", แทน checklist ด้วยคอลัมน์ "ความพร้อม" (พร้อม / ขาด: …), ไฮไลต์ 2 ระดับ | 1 | [x] 2026-08-30 — 7 คอลัมน์ + ReadinessCell + แถวเร่งด่วน |
+| 3 | ชิปสรุป วันนี้ / 7 วันนี้ / เดือนนี้ (จำนวน · ยังไม่พร้อม) กดกรอง, ซ่อนงานที่ผ่านแล้ว + ปุ่มสลับ, หัวหน้า "งาน N · ยังไม่พร้อม M", empty state | 1 | [x] 2026-08-30 — ชิป 3 อัน + toggle งานที่ผ่านแล้ว + empty state |
+| 4 | หัวคั่นกลุ่ม วันนี้ → 7 วันนี้ → 7 วันถัดไป → รายเดือน (พ.ศ.) ภายในกลุ่มเรียงวัน+เวลา | 1 | [x] 2026-08-30 — groupLeads + หัวคั่น "ยังไม่กำหนดวัน" |
+| 5 | จัดคนแสดงชื่อเล่น: server ส่ง nickname, ช่องตารางโชว์ชื่อเล่น (fallback ชื่อจริง), popover "ชื่อเล่น \| ชื่อจริง" แยกตำแหน่ง | — | [x] 2026-08-30 — nickname ในช่อง + popover ชื่อเล่น | ชื่อจริง |
+| 6 | การ์ดมือถือ (จอ < md) ใช้ Select/Dialog ชุดเดิม แก้ได้ครบ, ชิป+หัวคั่นใช้ร่วม | 2, 3, 4 | [x] 2026-08-30 — การ์ด md:hidden ใช้ JobCell/DesignCell/VehicleCell/SupplierCell ร่วมกับตาราง |
+| 7 | เก็บงาน: ลบ key checklist เก่า (`lock_queue`/`on_site`) จาก validation, ตัดคำว่า checklist/ดีล/Countdown จาก UI, มีอะไรใหม่, tsc ทั้งโปรเจกต์ | 2–6 | [x] 2026-08-30 — CHECKLIST_KEYS เหลือ key รถ + กรอง key เก่าตอนโหลด, metadata, มีอะไรใหม่, tsc ไม่เพิ่ม error |
+| 8 | ชน/ต่อคิว: seam `getConflicts`/`availabilityOf` (คน+รถ, ช่วงวัน+เวลา, ไม่รู้เวลา=เช็คไม่ได้) + ป้ายในช่องจัดรถ/จัดคน + check script | 1 | [x] 2026-08-30 — getConflicts/availabilityOf + ConflictBadge, check script ผ่าน |
+| 9 | จัดคนในแถว: popover เลือกคน+ตำแหน่ง เห็นความว่าง เขียน `event_staff` ของอีเวนต์ที่ผูก (0 อีเวนต์ → สร้างให้, >1 → เลือก) + sync CRM + log | 8 | [x] 2026-08-30 — StaffEditor dialog + assignLeadStaff (auto-create อีเวนต์, sync CRM, log) |
+
+### สิ่งที่ user ต้องทำเอง
+- รัน `supabase/migrations/20260830_crm_leads_event_time.sql` และ `20260831_crm_leads_required_roles.sql` บน Supabase SQL Editor ก่อน deploy
+
+## ไทม์ไลน์ (`/jobs/tracking?view=timeline`) — spec: `docs/specs/jobs-tracking-timeline.md`
+
+branch: `main` · เริ่ม 2026-08-30 · glossary: `CONTEXT.md` (ไทม์ไลน์, เลน, แถบงาน)
+
+| # | Ticket | Blocked by | สถานะ |
+|---|---|---|---|
+| T1 | Seam (TDD): `layoutDay` / `layoutWeek` / `nextJobDate` — เลน งาน→รถ→คนตามแผนก, แถบ exact/no_end/no_time/multi_day, ชั้นซ้อน, สีต่องาน, ธงชน/ยังไม่จัด, ซ่อนคนว่าง + check script | — | [x] 2026-08-30 — layoutDay/layoutWeek/nextJobDate, ~60 asserts, แดง→เขียว |
+| T2 | โหมดวัน: ปุ่มสลับ ตาราง\|ไทม์ไลน์ (`?view&date&mode` ใน URL), นำทางวัน + งานถัดไป, กริดชั่วโมง 06–24, แถบสี/ลายทาง/ขอบแดง, คลิกแถบเปิด StaffEditor/เลือกรถ, ซ่อนคนว่าง, มือถือเลื่อนแนวนอน sticky | T1 | [x] 2026-08-30 — timeline-view.tsx + URL state + StaffEditor/VehicleDialog จากแถบ |
+| T3 | โหมดสัปดาห์: 7 วัน rolling บล็อกงานต่อวัน ซ่อนบนจอแคบ | T2 | [x] 2026-08-30 — layoutWeek grid, nav ±7, หัววัน→โหมดวัน, ซ่อนบนจอแคบ |
+| T4 | เก็บงาน: มีอะไรใหม่, tsc, `/code-review`, commit | T2, T3 | [x] 2026-08-30 — code-review 2 แกน → แก้ 5 บั๊ก + 5 smell, มีอะไรใหม่, tsc/lint/check ผ่าน |
+
+## โฟกัสงาน + ตำแหน่งที่ต้องการ + ลดเลน — spec: `docs/specs/jobs-tracking-focus.md`
+
+branch: `main` · เริ่ม 2026-08-31 · glossary: `CONTEXT.md`
+
+| # | Ticket | Blocked by | สถานะ |
+|---|---|---|---|
+| F1 | ตำแหน่งที่ต้องการ end-to-end: migration `required_roles`, seam `missingRoles`/`isFullyStaffed`/`getMissing` กติกาใหม่ (TDD), action รับ `required_roles`, component แก้ไขใช้ใน CRM card + หน้าต่างจัดคน, ป้าย "ขาด: จัดคน (ผู้ช่วย 1)" | — | [x] 2026-08-31 — missingRoles/isFullyStaffed/missingLabel + RequiredRolesEditor ×3 + validation |
+| F2 | ลดเลน: seam `workloadOf`/`departmentSummary`/`opts.departments` (TDD), ยุบแผนก + auto-expand, ชิปแผนกใน URL, ภาระงานข้างชื่อ, ถอนซ่อนคนว่าง | F1 (ไฟล์ seam เดียวกัน) | [x] 2026-08-31 — departments filter, workloadOf/departmentSummary, ยุบแผนก + ชิป ?dept= + badge |
+| F3 | โฟกัสงาน: seam `focusCandidates` (TDD), `?focus=`, แถบเวลาพาดทุกเลน, หัวโฟกัส (มีแล้ว/ขาด + ดินสอตำแหน่ง + เลือกอีเวนต์), กลุ่มตัวเลือก/ไม่ว่าง, คลิกจัดทันที/เมนูตำแหน่ง/เอาออก, freeze ลำดับ, มือถือ | F1, F2 | [x] 2026-08-31 — focusCandidates/focusWindow, ?focus=, DayLane band, quickStaff optimistic |
+| F4 | เก็บงาน: มีอะไรใหม่, tsc/eslint, `/code-review`, commit | F3 | [x] 2026-08-31 — code-review 2 แกน → แยก migration, แก้ race/save order/stale focus + seam staffedCounts; tsc/lint/check ผ่าน |
+
