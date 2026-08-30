@@ -128,6 +128,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     is_returning: lead.is_returning || false,
     event_date: lead.event_date || '',
     event_end_date: lead.event_end_date || '',
+    event_time: (lead.event_time || '').slice(0, 5),
+    event_end_time: (lead.event_end_time || '').slice(0, 5),
     event_location: lead.event_location || '',
     event_details: lead.event_details || '',
     package_name: lead.package_name || '',
@@ -190,7 +192,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     // Choose which fields to save based on section
     const fieldsBySection: Record<CardSection, string[]> = {
       customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'work_type', 'lead_source', 'is_returning'],
-      event: ['event_date', 'event_end_date', 'event_location', 'event_details'],
+      event: ['event_date', 'event_end_date', 'event_time', 'event_end_time', 'event_location', 'event_details'],
       financial: ['package_name', 'quoted_price', 'confirmed_price', 'deposit', 'vat_mode', 'wht_rate', 'quotation_ref', 'notes'],
     }
 
@@ -243,6 +245,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
       is_returning: lead.is_returning || false,
       event_date: lead.event_date || '',
       event_end_date: lead.event_end_date || '',
+      event_time: (lead.event_time || '').slice(0, 5),
+      event_end_time: (lead.event_end_time || '').slice(0, 5),
       event_location: lead.event_location || '',
       event_details: lead.event_details || '',
       package_name: lead.package_name || '',
@@ -1215,6 +1219,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                   <div className="space-y-4">
                     <EditField label={tc.eventDate} value={form.event_date} onChange={v => updateForm('event_date', v)} type="date" />
                     <EditField label={tc.endDate} value={form.event_end_date} onChange={v => updateForm('event_end_date', v)} type="date" />
+                    <EditField label={tc.eventTime} value={form.event_time} onChange={v => updateForm('event_time', v)} type="time" />
+                    <EditField label={tc.eventEndTime} value={form.event_end_time} onChange={v => updateForm('event_end_time', v)} type="time" />
                     {form.event_date && form.event_end_date && (
                       <div className="flex justify-between items-center px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30">
                         <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">{tc.duration}</span>
@@ -1245,6 +1251,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                   <>
                     <InfoRow label={tc.eventDate} value={lead.event_date} />
                     <InfoRow label={tc.endDate} value={lead.event_end_date} />
+                    <InfoRow label={tc.eventTime} value={lead.event_time ? `${lead.event_time.slice(0, 5)} น.` : null} />
+                    <InfoRow label={tc.eventEndTime} value={lead.event_end_time ? `${lead.event_end_time.slice(0, 5)} น.` : null} />
                     {lead.event_date && lead.event_end_date && (
                       <div className="flex justify-between items-start gap-4">
                         <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{tc.duration}</span>

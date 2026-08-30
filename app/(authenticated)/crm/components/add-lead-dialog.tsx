@@ -285,6 +285,14 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
                 <Input id="event_date" name="event_date" type="date" />
               </div>
               <div className="space-y-1.5">
+                <Label htmlFor="event_time" className="text-sm">{tc.eventTime}</Label>
+                <Input id="event_time" name="event_time" type="time" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="event_end_time" className="text-sm">{tc.eventEndTime}</Label>
+                <Input id="event_end_time" name="event_end_time" type="time" />
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="event_location" className="text-sm">{tc.location}</Label>
                 <Input id="event_location" name="event_location" placeholder={tc.locationPlaceholder} />
               </div>

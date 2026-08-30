@@ -1738,8 +1738,9 @@ export async function toggleCustomEmoji(id: string, isActive: boolean) {
 // CRM Lead Tracking (/jobs/tracking)
 // ============================================================================
 
-const DESIGN_STATUSES = ['not_started', 'in_progress', 'sent', 'sent_email_cf']
-const CHECKLIST_KEYS = ['lock_queue', 'on_site']
+// keep in sync with DESIGN_OPTIONS in tracking/tracking-view.tsx
+const DESIGN_STATUSES = ['not_started', 'waiting_info', 'not_designed', 'in_progress', 'customer_design', 'revising', 'sent', 'sent_email_cf', 'completed']
+const CHECKLIST_KEYS = ['car_triton', 'car_champ'] // keep in sync with VEHICLES in tracking/tracking-logic.ts
 
 export async function updateLeadTracking(
     leadId: string,
@@ -1758,7 +1759,7 @@ export async function updateLeadTracking(
         update.supplier_note = patch.supplier_note?.trim() || null
     }
     if (patch.tracking_checklist !== undefined) {
-        if (patch.tracking_checklist.some(k => !CHECKLIST_KEYS.includes(k))) return { error: 'รายการ checklist ไม่ถูกต้อง' }
+        if (patch.tracking_checklist.some(k => !CHECKLIST_KEYS.includes(k))) return { error: 'รายการจัดรถไม่ถูกต้อง' }
         update.tracking_checklist = Array.from(new Set(patch.tracking_checklist))
     }
     if (Object.keys(update).length === 0) return { success: true }
@@ -1770,4 +1771,74 @@ export async function updateLeadTracking(
     await logActivity('UPDATE_LEAD_TRACKING', { lead_id: leadId, ...update })
     revalidatePath('/jobs/tracking')
     return { success: true }
+}
+
+/**
+ * จัดคนให้งาน (accepted lead) จากหน้า /jobs/tracking — เขียน event_staff ของอีเวนต์ที่ผูกกับงาน
+ * eventId = null → สร้างอีเวนต์ "main" จากข้อมูลงานให้อัตโนมัติ (สิทธิ์: ทุกคนที่ล็อกอิน — ต่างจาก createEvent ที่ admin-only
+ * เพราะผู้ใช้หลักคือฝ่ายประสานงาน). ลบ+ใส่ใหม่ทั้งชุดของอีเวนต์นั้น แล้ว sync array ใน crm_leads เหมือน updateEvent
+ */
+export async function assignLeadStaff(
+    leadId: string,
+    eventId: string | null,
+    assignments: { user_id: string; role: string }[]
+) {
+    const session = await requireAuth()
+    if (!session) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    const { data: roleRows } = await supabase
+        .from('crm_settings').select('value').eq('category', 'staff_role').eq('is_active', true)
+    const validRoles = new Set((roleRows || []).map(r => r.value as string))
+    const clean = Array.from(
+        new Map(assignments
+            .filter(a => a.user_id && validRoles.has(a.role))
+            .map(a => [`${a.user_id}:${a.role}`, { user_id: a.user_id, role: a.role }])
+        ).values()
+    )
+    if (clean.length !== assignments.length) return { error: 'ตำแหน่งไม่ถูกต้อง' }
+
+    const { data: lead } = await supabase
+        .from('crm_leads').select('id, customer_name, event_location, event_date, status').eq('id', leadId).single()
+    if (!lead || lead.status !== 'accepted') return { error: 'ไม่พบงานที่ตอบรับแล้ว' }
+
+    let targetEventId = eventId
+    if (targetEventId) {
+        const { data: ev } = await supabase.from('events').select('id, crm_lead_id').eq('id', targetEventId).single()
+        if (!ev || ev.crm_lead_id !== leadId) return { error: 'อีเวนต์ไม่ได้ผูกกับงานนี้' }
+    } else {
+        const name = [lead.customer_name || 'ไม่ระบุลูกค้า', lead.event_location].filter(Boolean).join(' / ')
+        const { data: created, error: createErr } = await supabase
+            .from('events')
+            .insert({
+                name,
+                location: lead.event_location,
+                event_date: lead.event_date || new Date().toISOString().slice(0, 10),
+                crm_lead_id: leadId,
+                phase: 'main',
+            })
+            .select('id')
+            .single()
+        if (createErr || !created) return { error: createErr?.message || 'สร้างอีเวนต์ไม่สำเร็จ' }
+        targetEventId = created.id
+        await logActivity('CREATE_EVENT_FROM_CRM', { lead_id: leadId, event_id: targetEventId, name, source: 'tracking' })
+    }
+
+    const { error: delErr } = await supabase.from('event_staff').delete().eq('event_id', targetEventId)
+    if (delErr) return { error: delErr.message }
+    if (clean.length > 0) {
+        const { error: insErr } = await supabase
+            .from('event_staff')
+            .insert(clean.map(a => ({ event_id: targetEventId, user_id: a.user_id, role: a.role })))
+        if (insErr) return { error: insErr.message }
+    }
+
+    const { syncLeadArraysFromEvents } = await import('../events/actions')
+    await syncLeadArraysFromEvents(supabase, leadId)
+
+    await logActivity('ASSIGN_EVENT_STAFF', { lead_id: leadId, event_id: targetEventId, count: clean.length })
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/events')
+    return { success: true, eventId: targetEventId }
 }

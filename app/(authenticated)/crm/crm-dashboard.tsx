@@ -75,6 +75,8 @@ export interface CrmLead {
   lead_source: string | null
   event_date: string | null
   event_end_date: string | null
+  event_time: string | null // HH:mm[:ss]
+  event_end_time: string | null // HH:mm[:ss]
   event_days: number
   event_location: string | null
   event_details: string | null

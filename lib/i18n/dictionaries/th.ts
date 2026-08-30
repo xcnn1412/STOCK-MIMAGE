@@ -305,6 +305,8 @@ const th = {
       assignee: 'ผู้ดูแล',
       assigneePlaceholder: 'ผู้ดูแล',
       eventDate: 'วันจัดงาน',
+      eventTime: 'เวลาเริ่มงาน',
+      eventEndTime: 'เวลาสิ้นสุดงาน',
       location: 'สถานที่',
       locationPlaceholder: 'สถานที่',
       eventDetails: 'รายละเอียดงาน',
@@ -353,6 +355,8 @@ const th = {
       // Event Information
       eventInfo: 'ข้อมูลอีเวนต์',
       eventDate: 'วันจัดงาน',
+      eventTime: 'เวลาเริ่มงาน',
+      eventEndTime: 'เวลาสิ้นสุดงาน',
       endDate: 'วันสิ้นสุด',
       duration: 'จำนวนวัน',
       day: 'วัน',

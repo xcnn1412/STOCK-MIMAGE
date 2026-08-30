@@ -464,6 +464,8 @@ export async function createLead(formData: FormData) {
     is_returning: formData.get('is_returning') === 'true',
     event_date: eventDate,
     event_end_date: eventEndDate,
+    event_time: formData.get('event_time') as string || null,
+    event_end_time: formData.get('event_end_time') as string || null,
     event_days,
     event_location: formData.get('event_location') as string || null,
     event_details: formData.get('event_details') as string || null,
@@ -542,7 +544,7 @@ export async function updateLead(id: string, formData: FormData) {
     if (v !== null) updates[f] = v as string || null
   })
 
-  const dateFields = ['event_date', 'event_end_date']
+  const dateFields = ['event_date', 'event_end_date', 'event_time', 'event_end_time']
   dateFields.forEach(f => {
     const v = formData.get(f)
     if (v !== null) updates[f] = (v as string) || null

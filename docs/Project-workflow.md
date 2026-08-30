@@ -30,3 +30,34 @@ branch: `feat/documents-module` · เริ่ม 2026-08-27
 ### สิ่งที่ user ต้องทำเอง
 - รัน migration `supabase/migrations/20260827_create_documents_module.sql` บน Supabase SQL Editor (เครื่องนี้ไม่มี `exec_sql` RPC / MCP token / supabase CLI link)
 - จากนั้นรัน `npx tsx scripts/doc-control-check.ts` เพื่อยืนยันกติกาเลข (concurrency, ห้ามลบ/แก้)
+
+## หน้าติดตามงาน (`/jobs/tracking`) — spec: `docs/specs/jobs-tracking-ui.md`
+
+branch: `main` · เริ่ม 2026-08-30 · glossary: `CONTEXT.md`
+
+| # | Ticket | Blocked by | สถานะ |
+|---|---|---|---|
+| 1 | Seam: โมดูล logic บริสุทธิ์ (ความพร้อม/สิ่งที่ยังขาด, กลุ่มช่วงเวลา rolling, นับชิป, งานที่ผ่านแล้ว) + check script รันด้วย tsx | — | [x] 2026-08-30 — tracking-logic.ts + check script ผ่าน (tsx) |
+| 2 | Tracer bullet เดสก์ท็อป 7 คอลัมน์: ยุบ Countdown เป็น badge ในช่อง "งาน", แทน checklist ด้วยคอลัมน์ "ความพร้อม" (พร้อม / ขาด: …), ไฮไลต์ 2 ระดับ | 1 | [x] 2026-08-30 — 7 คอลัมน์ + ReadinessCell + แถวเร่งด่วน |
+| 3 | ชิปสรุป วันนี้ / 7 วันนี้ / เดือนนี้ (จำนวน · ยังไม่พร้อม) กดกรอง, ซ่อนงานที่ผ่านแล้ว + ปุ่มสลับ, หัวหน้า "งาน N · ยังไม่พร้อม M", empty state | 1 | [x] 2026-08-30 — ชิป 3 อัน + toggle งานที่ผ่านแล้ว + empty state |
+| 4 | หัวคั่นกลุ่ม วันนี้ → 7 วันนี้ → 7 วันถัดไป → รายเดือน (พ.ศ.) ภายในกลุ่มเรียงวัน+เวลา | 1 | [x] 2026-08-30 — groupLeads + หัวคั่น "ยังไม่กำหนดวัน" |
+| 5 | จัดคนแสดงชื่อเล่น: server ส่ง nickname, ช่องตารางโชว์ชื่อเล่น (fallback ชื่อจริง), popover "ชื่อเล่น \| ชื่อจริง" แยกตำแหน่ง | — | [x] 2026-08-30 — nickname ในช่อง + popover ชื่อเล่น | ชื่อจริง |
+| 6 | การ์ดมือถือ (จอ < md) ใช้ Select/Dialog ชุดเดิม แก้ได้ครบ, ชิป+หัวคั่นใช้ร่วม | 2, 3, 4 | [x] 2026-08-30 — การ์ด md:hidden ใช้ JobCell/DesignCell/VehicleCell/SupplierCell ร่วมกับตาราง |
+| 7 | เก็บงาน: ลบ key checklist เก่า (`lock_queue`/`on_site`) จาก validation, ตัดคำว่า checklist/ดีล/Countdown จาก UI, มีอะไรใหม่, tsc ทั้งโปรเจกต์ | 2–6 | [x] 2026-08-30 — CHECKLIST_KEYS เหลือ key รถ + กรอง key เก่าตอนโหลด, metadata, มีอะไรใหม่, tsc ไม่เพิ่ม error |
+| 8 | ชน/ต่อคิว: seam `getConflicts`/`availabilityOf` (คน+รถ, ช่วงวัน+เวลา, ไม่รู้เวลา=เช็คไม่ได้) + ป้ายในช่องจัดรถ/จัดคน + check script | 1 | [x] 2026-08-30 — getConflicts/availabilityOf + ConflictBadge, check script ผ่าน |
+| 9 | จัดคนในแถว: popover เลือกคน+ตำแหน่ง เห็นความว่าง เขียน `event_staff` ของอีเวนต์ที่ผูก (0 อีเวนต์ → สร้างให้, >1 → เลือก) + sync CRM + log | 8 | [x] 2026-08-30 — StaffEditor dialog + assignLeadStaff (auto-create อีเวนต์, sync CRM, log) |
+
+### สิ่งที่ user ต้องทำเอง
+- รัน `supabase/migrations/20260830_crm_leads_event_time.sql` บน Supabase SQL Editor (`event_time`, `event_end_time`) ก่อน deploy
+
+## ไทม์ไลน์ (`/jobs/tracking?view=timeline`) — spec: `docs/specs/jobs-tracking-timeline.md`
+
+branch: `main` · เริ่ม 2026-08-30 · glossary: `CONTEXT.md` (ไทม์ไลน์, เลน, แถบงาน)
+
+| # | Ticket | Blocked by | สถานะ |
+|---|---|---|---|
+| T1 | Seam (TDD): `layoutDay` / `layoutWeek` / `nextJobDate` — เลน งาน→รถ→คนตามแผนก, แถบ exact/no_end/no_time/multi_day, ชั้นซ้อน, สีต่องาน, ธงชน/ยังไม่จัด, ซ่อนคนว่าง + check script | — | [ ] |
+| T2 | โหมดวัน: ปุ่มสลับ ตาราง\|ไทม์ไลน์ (`?view&date&mode` ใน URL), นำทางวัน + งานถัดไป, กริดชั่วโมง 06–24, แถบสี/ลายทาง/ขอบแดง, คลิกแถบเปิด StaffEditor/เลือกรถ, ซ่อนคนว่าง, มือถือเลื่อนแนวนอน sticky | T1 | [ ] |
+| T3 | โหมดสัปดาห์: 7 วัน rolling บล็อกงานต่อวัน ซ่อนบนจอแคบ | T2 | [ ] |
+| T4 | เก็บงาน: มีอะไรใหม่, tsc, `/code-review`, commit | T2, T3 | [ ] |
+

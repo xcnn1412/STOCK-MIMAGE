@@ -307,6 +307,8 @@ const en: Dictionary = {
       assignee: 'Assignee',
       assigneePlaceholder: 'Assignee',
       eventDate: 'Event Date',
+      eventTime: 'Start Time',
+      eventEndTime: 'End Time',
       location: 'Location',
       locationPlaceholder: 'Location',
       eventDetails: 'Event Details',
@@ -355,6 +357,8 @@ const en: Dictionary = {
       // Event Information
       eventInfo: 'Event Information',
       eventDate: 'Event Date',
+      eventTime: 'Start Time',
+      eventEndTime: 'End Time',
       endDate: 'End Date',
       duration: 'Duration',
       day: 'day',
