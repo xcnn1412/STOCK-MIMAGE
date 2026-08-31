@@ -471,7 +471,9 @@ export default function TrackingView({
     for (const j of jobs) {
         if (!j.crm_lead_id) continue
         const entry = jobsByLead.get(j.crm_lead_id) ?? {}
-        if (j.job_type === 'graphic' && !entry.graphic) entry.graphic = j
+        // งานเปิดใบงานกราฟิกได้หลายใบ — ช่องออกแบบยึดใบที่ยังไม่จบเป็นหลัก (ใบจบ/ข้ามแพ้ใบที่ยังทำอยู่)
+        const active = (job: PoolJob) => job.status !== 'done' && job.status !== 'skipped'
+        if (j.job_type === 'graphic' && (!entry.graphic || (!active(entry.graphic) && active(j)))) entry.graphic = j
         if (j.job_type === 'onsite' && !entry.onsite) entry.onsite = j
         jobsByLead.set(j.crm_lead_id, entry)
     }

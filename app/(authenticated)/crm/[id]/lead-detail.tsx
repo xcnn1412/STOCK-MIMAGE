@@ -22,7 +22,7 @@ import {
   ArrowLeft, Phone, MessageSquare, Mail, Pencil, Save, X,
   FileText, ExternalLink, Clock, User, Calendar, MapPin,
   DollarSign, Package, AlertCircle, Trash2, Tag, Archive, ArchiveRestore,
-  Users, Briefcase, Palette, Wrench, ChevronDown, ChevronUp,
+  Users, Palette, Wrench, ChevronDown, ChevronUp,
   Upload, Image as ImageIcon, Eye
 } from 'lucide-react'
 import {
@@ -34,7 +34,7 @@ import {
 } from '../actions'
 import { EVENT_PHASES, getPhaseLabel } from '../event-phases'
 import { getClaimStatusLabel, getClaimStatusColor } from '../../costs/types'
-import { createJobsFromLead, getJobsByLeadId, openGraphicJob } from '../../jobs/actions'
+import { openGraphicJob } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
 import { STATUS_CONFIG, ALL_STATUSES, getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
@@ -412,69 +412,39 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     router.push(`/events/new?from_crm=${lead.id}`)
   }
 
-  // ใบงานกราฟิกของงานนี้ — ไม่มี = ยังเปิดได้ (ตอบรับแล้วระบบสร้างเฉพาะใบงานหน้างาน)
-  const hasGraphicJob = leadJobs.some(j => j.job_type === 'graphic')
+  // ใบงานกราฟิกของงานนี้ — เปิดได้หลายใบ แต่ใบที่สองขึ้นไปต้องยืนยันก่อน
+  const graphicJobCount = leadJobs.filter(j => j.job_type === 'graphic').length
 
-  // Forward to Jobs — เติมใบงานประเภทที่ยังไม่มีให้ครบ (ไม่สร้างซ้ำประเภทที่มีแล้ว)
-  const handleForwardToJobs = async () => {
-    setLoading(true)
-    // Check for existing jobs from this lead
-    const existingJobs = await getJobsByLeadId(lead.id)
-    const existingTypes = new Set(existingJobs.map(j => j.job_type))
-    if (existingTypes.has('graphic') && existingTypes.has('onsite')) {
-      setLoading(false)
-      toast.info('งานนี้มีใบงานครบแล้ว', { description: 'มีทั้งใบงานกราฟิกและใบงานหน้างานอยู่แล้ว' })
-      return
-    }
-    if (existingJobs.length > 0) {
-      const jobLabels = existingJobs.map(j =>
-        j.job_type === 'graphic' ? 'กราฟิก' : j.job_type === 'onsite' ? 'ออกหน้างาน' : j.job_type
-      ).join(', ')
-      const proceed = confirm(
-        `Lead นี้ส่งต่องานไปแล้ว ${existingJobs.length} งาน (${jobLabels})\nต้องการสร้างใบงานที่ยังไม่มีเพิ่มหรือไม่?`
-      )
-      if (!proceed) {
-        setLoading(false)
-        return
-      }
-    }
-    const result = await createJobsFromLead(lead.id)
-    setLoading(false)
-    if (result.error) {
-      alert(result.error)
-    } else {
-      router.refresh()
-      const createdLabels = (result.jobs || []).map(j =>
-        j.job_type === 'graphic' ? 'กราฟิก' : 'ออกหน้างาน'
-      ).join(' + ')
-      toast.success('ระบบเปิดงานเรียบร้อย', {
-        description: createdLabels ? `สร้างงาน ${createdLabels} แล้ว` : 'งานนี้มีใบงานครบแล้ว',
-        duration: 8000,
-        action: {
-          label: 'ไปหน้างาน',
-          onClick: () => router.push('/jobs'),
-        },
-      })
-    }
-  }
-
-  // เปิดใบงานกราฟิกเอง — ใบงานเข้าพูลสถานะรอรับงาน + กระดิ่งถึงฝ่ายออกแบบ
+  // เปิดใบงานกราฟิก — ใบงานเข้าพูลสถานะรอรับงาน + กระดิ่งถึงฝ่ายออกแบบ
+  // มีใบเดิมอยู่แล้ว = ถามยืนยันก่อนเปิดใบใหม่ (กันกดเผลอ ไม่ได้ห้าม)
   const handleOpenGraphicJob = async () => {
+    const hasExisting = graphicJobCount > 0
+    if (hasExisting) {
+      const proceed = confirm(
+        `งานนี้มีใบงานกราฟิกอยู่แล้ว ${graphicJobCount} ใบ\nต้องการเปิดใบงานกราฟิกใบใหม่เพิ่มหรือไม่?`
+      )
+      if (!proceed) return
+    }
     setLoading(true)
-    const result = await openGraphicJob(lead.id)
+    const result = await openGraphicJob(lead.id, { allowDuplicate: hasExisting })
     setLoading(false)
     if (result.error) {
       toast.error(result.error)
       return
     }
     router.refresh()
-    toast.success('เปิดใบงานกราฟิกแล้ว — เข้าพูลรอรับงาน', {
-      duration: 8000,
-      action: {
-        label: 'ไปพูลงาน',
-        onClick: () => router.push('/jobs/tracking'),
-      },
-    })
+    toast.success(
+      hasExisting
+        ? `เปิดใบงานกราฟิกใบที่ ${graphicJobCount + 1} แล้ว — เข้าพูลรอรับงาน`
+        : 'เปิดใบงานกราฟิกแล้ว — เข้าพูลรอรับงาน',
+      {
+        duration: 8000,
+        action: {
+          label: 'ไปพูลงาน',
+          onClick: () => router.push('/jobs/tracking'),
+        },
+      }
+    )
   }
 
   const handleDelete = async () => {
@@ -628,16 +598,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                 : tc.openEvent}
             </Button>
           )}
-          {lead.status === 'accepted' && !hasGraphicJob && (
+          {lead.status === 'accepted' && (
             <Button onClick={handleOpenGraphicJob} disabled={loading} size="sm" className="bg-sky-600 hover:bg-sky-700 text-white">
               <Palette className="h-4 w-4 mr-1.5" />
-              {locale === 'th' ? 'เปิดใบงานกราฟิก' : 'Open Graphic Job'}
-            </Button>
-          )}
-          {lead.status === 'accepted' && (
-            <Button onClick={handleForwardToJobs} disabled={loading} size="sm" className="bg-violet-600 hover:bg-violet-700 text-white">
-              <Briefcase className="h-4 w-4 mr-1.5" />
-              {locale === 'th' ? 'ส่งต่องาน' : 'Forward to Jobs'}
+              {locale === 'th' ? 'ใบงานกราฟิก' : 'Graphic Job'}
+              {graphicJobCount > 0 && <span className="ml-1 opacity-80">({graphicJobCount})</span>}
             </Button>
           )}
           <Button

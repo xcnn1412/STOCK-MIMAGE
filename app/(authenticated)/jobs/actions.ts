@@ -595,7 +595,13 @@ type CreatedJobRow = { id: string; job_type: string; title: string }
  * ใบที่สร้างเข้าพูลด้วยสถานะ "รอรับงาน" + แจ้งทีมของฝ่ายนั้นจากที่นี่ที่เดียว
  * ผู้เรียกเป็นคน logActivity / revalidatePath เอง (แต่ละทางเข้าใช้ ActionType คนละตัว)
  */
-async function createLeadJobs(leadId: string, types: LeadJobType[], userId: string, activityText?: string) {
+async function createLeadJobs(
+    leadId: string,
+    types: LeadJobType[],
+    userId: string,
+    activityText?: string,
+    opts?: { allowExisting?: boolean }
+) {
     const supabase = createServiceClient()
 
     // Get lead data
@@ -616,9 +622,11 @@ async function createLeadJobs(leadId: string, types: LeadJobType[], userId: stri
     if (existingErr) return { error: existingErr.message }
 
     const already = new Set((existing || []).map(r => r.job_type as string))
-    const wanted = types.filter(t => !already.has(t))
-    const skipped = types.filter(t => already.has(t))
+    // allowExisting: เปิดใบซ้ำประเภทเดิมได้ (ใบงานกราฟิกเปิดหลายใบต่องาน — client ยืนยันกับผู้ใช้มาแล้ว)
+    const wanted = opts?.allowExisting ? types : types.filter(t => !already.has(t))
+    const skipped = opts?.allowExisting ? [] : types.filter(t => already.has(t))
     if (wanted.length === 0) return { success: true as const, jobs: [] as CreatedJobRow[], skipped }
+    const graphicCount = (existing || []).filter(r => r.job_type === 'graphic').length
 
     // Get default first status for each pipeline (แถว is_active ที่ sort_order ต่ำสุด = "รอรับงาน")
     const firstStatus = async (category: string, fallback: string) => {
@@ -653,6 +661,8 @@ async function createLeadJobs(leadId: string, types: LeadJobType[], userId: stri
             // Create graphic job with assigned_graphics from lead
             rows.push({
                 ...baseJob,
+                // ใบที่สองขึ้นไปต่อท้ายเลขไว้แยกใบในพูล (ใบแรกไม่มีเลข)
+                title: graphicCount > 0 ? `${baseJob.title} #${graphicCount + 1}` : baseJob.title,
                 job_type: 'graphic',
                 status: await firstStatus('status_graphic', 'pending'),
                 assigned_to: lead.assigned_graphics || [],
@@ -712,7 +722,7 @@ export async function createJobsFromLead(leadId: string) {
  * เปิดใบงานกราฟิกเองจากการ์ด CRM — ใบงานกราฟิกไม่เกิดอัตโนมัติตอนตอบรับแล้ว
  * (งานที่ลูกค้าออกแบบเองจะได้ไม่มีใบงานกราฟิกที่ต้องตามไปกด "ข้าม" ทีหลัง)
  */
-export async function openGraphicJob(leadId: string) {
+export async function openGraphicJob(leadId: string, opts?: { allowDuplicate?: boolean }) {
     const auth = await requireAuth()
     if (!auth) return { error: 'ไม่ได้เข้าสู่ระบบ' }
 
@@ -726,7 +736,13 @@ export async function openGraphicJob(leadId: string) {
     if (!lead) return { error: 'ไม่พบข้อมูล Lead' }
     if (lead.status !== 'accepted') return { error: 'เปิดใบงานกราฟิกได้เมื่องานตอบรับแล้วเท่านั้น' }
 
-    const result = await createLeadJobs(leadId, ['graphic'], auth.userId, 'เปิดใบงานกราฟิกแล้ว — เข้าพูลรอรับงาน')
+    // เปิดหลายใบต่องานได้ แต่ต้องยืนยันซ้ำจากฝั่ง client ก่อน (allowDuplicate)
+    // ไม่ยืนยัน = พฤติกรรมเดิม: มีใบแล้วไม่สร้างเพิ่ม
+    const result = await createLeadJobs(
+        leadId, ['graphic'], auth.userId,
+        'เปิดใบงานกราฟิกแล้ว — เข้าพูลรอรับงาน',
+        { allowExisting: opts?.allowDuplicate === true }
+    )
     if ('error' in result) return { error: result.error }
     if (result.jobs.length === 0) return { error: 'งานนี้มีใบงานกราฟิกแล้ว' }
 
