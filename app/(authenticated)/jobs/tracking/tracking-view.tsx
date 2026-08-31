@@ -129,7 +129,12 @@ function ReadinessCell({ lead, roleLabels, kit, designReady }: {
     )
 }
 
-function JobCell({ lead, today }: { lead: TrackingLead; today: Date }) {
+function JobCell({ lead, today, showEvents = true }: {
+    lead: TrackingLead
+    today: Date
+    /** งานหลายอีเวนต์ = false — แถวย่อยมีป้ายอีเวนต์ของตัวเองแล้ว รายการในช่องงานจะเลื่อนบรรทัดไม่ตรงกัน */
+    showEvents?: boolean
+}) {
     return (
         <>
             <div className="font-medium text-zinc-900 dark:text-zinc-100">
@@ -148,7 +153,7 @@ function JobCell({ lead, today }: { lead: TrackingLead; today: Date }) {
                 {lead.customer_name || 'ไม่ระบุลูกค้า'}
                 {lead.event_name ? ` / ${lead.event_name}` : ''}
             </Link>
-            {lead.events.length > 0 && (
+            {showEvents && lead.events.length > 0 && (
                 <div className="text-[11px] text-zinc-500 space-y-0.5 mt-0.5">
                     {lead.events.map(e => (
                         <div key={e.id} className="truncate">
@@ -854,7 +859,7 @@ export default function TrackingView({
                                                     <TableCell rowSpan={span} className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
 
                                                     <TableCell rowSpan={span}>
-                                                        <JobCell lead={lead} today={today} />
+                                                        <JobCell lead={lead} today={today} showEvents={span <= 1} />
                                                     </TableCell>
 
                                                     <TableCell rowSpan={span}>
@@ -928,7 +933,7 @@ export default function TrackingView({
                             >
                                 <div className="flex justify-between items-start gap-2">
                                     <div>
-                                        <JobCell lead={lead} today={today} />
+                                        <JobCell lead={lead} today={today} showEvents={lead.events.length <= 1} />
                                     </div>
                                     <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} />
                                 </div>
