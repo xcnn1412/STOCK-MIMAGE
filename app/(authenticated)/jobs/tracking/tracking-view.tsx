@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore, useTransition } from 'react'
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
@@ -746,7 +746,7 @@ export default function TrackingView({
     // ความพร้อมข้อ 5 (กระเป๋า) — ต้องรู้ใบงานหน้างาน (ถูกข้ามไหม) + การจองของงานนั้น
     const kitReadiness = kitReadinessByLead(rows, jobs, kitBookings)
 
-    // ใบงานของแต่ละงาน สำหรับคอลัมน์ "รับงาน" ในตารางภาพรวม — ใบแรกของแต่ละฝ่ายต่อหนึ่งงาน
+    // ใบงานของแต่ละงาน — ใบแรกของแต่ละฝ่ายต่อหนึ่งงาน ใช้ล็อกคอลัมน์ในตารางภาพรวม
     const jobsByLead = new Map<string, { graphic?: (typeof jobs)[number]; onsite?: (typeof jobs)[number] }>()
     for (const j of jobs) {
         if (!j.crm_lead_id) continue
@@ -755,6 +755,14 @@ export default function TrackingView({
         if (j.job_type === 'onsite' && !entry.onsite) entry.onsite = j
         jobsByLead.set(j.crm_lead_id, entry)
     }
+
+    // กฎการรับงานในตารางภาพรวม: คอลัมน์งานของฝ่ายถูกล็อกจนกว่าจะมีคนกดรับใบงานฝ่ายนั้น
+    // (ออกแบบ ← ใบงานกราฟิก · จัดคน/จัดรถ/กระเป๋า ← ใบงานหน้างาน กดรับที่คอลัมน์เดียวปลดทั้งสาม)
+    // งานเก่าที่ยังไม่มีใบงาน = ไม่ล็อก (backward compat) — สิทธิ์แผนก/แอดมินบังคับใน claimPoolJob ฝั่ง server
+    const gate = (job: (typeof jobs)[number] | undefined, children: ReactNode) =>
+        job && job.status === 'awaiting_claim'
+            ? <ClaimChip job={job} people={people} currentUserId={currentUserId} />
+            : children
 
     const base = rows.filter(r => showPast || !isPast(r, today))
     const counts = chipCounts(base, today, kitReadiness)
@@ -891,21 +899,20 @@ export default function TrackingView({
                             <TableHead className="w-48">จัดคน</TableHead>
                             <TableHead className="w-44">จัดรถ</TableHead>
                             <TableHead className="w-40">กระเป๋า</TableHead>
-                            <TableHead className="w-44">รับงาน</TableHead>
                             <TableHead className="w-56">ความพร้อม</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={9} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={8} className="text-center text-sm text-zinc-500 py-10">
                                     ยังไม่มีงานที่ตอบรับ
                                 </TableCell>
                             </TableRow>
                         )}
                         {rows.length > 0 && visible.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={9} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={8} className="text-center text-sm text-zinc-500 py-10">
                                     ไม่มีงานในช่วงนี้
                                 </TableCell>
                             </TableRow>
@@ -913,7 +920,7 @@ export default function TrackingView({
                         {sections.map(section => (
                             <Fragment key={section.key}>
                                 <TableRow className="hover:bg-transparent">
-                                    <TableCell colSpan={9} className="bg-zinc-100/70 dark:bg-zinc-900/80 border-y border-zinc-200/70 dark:border-zinc-800 py-1.5">
+                                    <TableCell colSpan={8} className="bg-zinc-100/70 dark:bg-zinc-900/80 border-y border-zinc-200/70 dark:border-zinc-800 py-1.5">
                                         <span className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
                                             <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500" aria-hidden />
                                             {section.label}
@@ -946,7 +953,7 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                <DesignCell lead={lead} save={save} />
+                                                {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />)}
                                             </TableCell>
 
                                             <TableCell>
@@ -954,28 +961,15 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />
+                                                {gate(jobsByLead.get(lead.id)?.onsite, <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
                                             </TableCell>
 
                                             <TableCell>
-                                                <VehicleCell lead={lead} all={rows} save={save} />
+                                                {gate(jobsByLead.get(lead.id)?.onsite, <VehicleCell lead={lead} all={rows} save={save} />)}
                                             </TableCell>
 
                                             <TableCell>
-                                                <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />
-                                            </TableCell>
-
-                                            <TableCell>
-                                                <div className="space-y-1.5">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className="text-[11px] text-zinc-500 w-14 shrink-0">กราฟิก</span>
-                                                        <ClaimChip job={jobsByLead.get(lead.id)?.graphic} people={people} currentUserId={currentUserId} />
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className="text-[11px] text-zinc-500 w-14 shrink-0">หน้างาน</span>
-                                                        <ClaimChip job={jobsByLead.get(lead.id)?.onsite} people={people} currentUserId={currentUserId} />
-                                                    </div>
-                                                </div>
+                                                {gate(jobsByLead.get(lead.id)?.onsite, <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
                                             </TableCell>
 
                                             <TableCell>
@@ -1028,28 +1022,15 @@ export default function TrackingView({
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <div className="text-[11px] text-zinc-500">ออกแบบ</div>
-                                        <DesignCell lead={lead} save={save} />
+                                        {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                        <VehicleCell lead={lead} all={rows} save={save} />
+                                        {gate(jobsByLead.get(lead.id)?.onsite, <VehicleCell lead={lead} all={rows} save={save} />)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">กระเป๋า</div>
-                                        <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />
-                                    </div>
-                                    <div>
-                                        <div className="text-[11px] text-zinc-500">รับงาน</div>
-                                        <div className="space-y-1">
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="text-[11px] text-zinc-500 w-12 shrink-0">กราฟิก</span>
-                                                <ClaimChip job={jobsByLead.get(lead.id)?.graphic} people={people} currentUserId={currentUserId} />
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="text-[11px] text-zinc-500 w-12 shrink-0">หน้างาน</span>
-                                                <ClaimChip job={jobsByLead.get(lead.id)?.onsite} people={people} currentUserId={currentUserId} />
-                                            </div>
-                                        </div>
+                                        {gate(jobsByLead.get(lead.id)?.onsite, <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
                                     </div>
                                 </div>
 
