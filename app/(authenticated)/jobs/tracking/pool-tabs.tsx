@@ -14,6 +14,13 @@ import { bookKitForLead, claimLeadDuty, claimPoolJob, releaseLeadDuty, releasePo
 import { DESIGN_OPTIONS } from './design-options'
 import { formatDate } from './timeline-view'
 import {
+    NO_MATCH_TEXT,
+    WorkOrderToolbar,
+    compareClaimer,
+    matchesQuery,
+    type WorkOrderSort,
+} from './work-order-filters'
+import {
     DUTY_LABELS_TH,
     VEHICLES,
     daysUntil,
@@ -61,7 +68,8 @@ function StatusBadge({ job, statusLabels }: { job: PoolJob; statusLabels: JobSta
     )
 }
 
-const nameOf = (id: string, people: Person[]) => {
+/** ชื่อที่คนอ่านเข้าใจของ uuid หนึ่งตัว — ไม่รู้จัก = 8 ตัวแรกของ id */
+export const nameOf = (id: string, people: Person[]) => {
     const p = people.find(x => x.id === id)
     return p ? p.nickname || p.name : id.slice(0, 8)
 }
@@ -477,7 +485,7 @@ function MissingBadge({ lead, roleLabels, kit }: { lead: TrackingLead; roleLabel
 }
 
 /** หัวการ์ด: วันงาน เวลา สถานที่ ลูกค้า — ข้อมูลของงานที่ใบงานนี้แตกออกมา */
-function LeadHeader({ lead, title, today }: { lead: TrackingLead | null; title: string; today: Date }) {
+export function LeadHeader({ lead, title, today }: { lead: TrackingLead | null; title: string; today: Date }) {
     if (!lead) {
         return <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{title}</div>
     }
@@ -744,8 +752,10 @@ export default function PoolTabs({
     /** เส้นทางบันทึกเดียวกับตารางภาพรวม (updateLeadTracking) */
     onDesignStatusChange: (leadId: string, patch: { design_status: string }) => void
 }) {
-    // ชิป "ใบงานของฉัน" — กรองในเครื่อง ไม่แตะ ?tab (สลับแท็บแล้วเริ่มที่ทุกใบเหมือนเดิม)
+    // ชิป "ใบงานของฉัน" / คำค้น / การเรียง — สถานะในเครื่องทั้งหมด ไม่แตะ ?tab
     const [mineOnly, setMineOnly] = useState(false)
+    const [query, setQuery] = useState('')
+    const [sort, setSort] = useState<WorkOrderSort>('date')
 
     const leadById = new Map(leads.map(l => [l.id, l]))
     const orderOf = new Map(leads.map((l, i) => [l.id, i]))
@@ -755,39 +765,50 @@ export default function PoolTabs({
         !!currentUserId && (job.claimed_by === currentUserId || (job.assigned_to || []).includes(currentUserId))
     const mineCount = jobs.filter(isMineJob).length
 
+    /** ชื่อผู้รับใบงาน — null = ยังไม่มีผู้รับ (เรียงขึ้นก่อนเสมอ) */
+    const claimerOf = (job: PoolJob) => (job.claimed_by ? nameOf(job.claimed_by, people) : null)
+
     const rows: PoolRow[] = jobs
         .map(job => ({ job, lead: (job.crm_lead_id ? leadById.get(job.crm_lead_id) : undefined) ?? null }))
         .sort((a, b) => {
             const ai = a.lead ? orderOf.get(a.lead.id) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER
             const bi = b.lead ? orderOf.get(b.lead.id) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER
-            return ai - bi || a.job.id.localeCompare(b.job.id)
+            const byDate = ai - bi || a.job.id.localeCompare(b.job.id)
+            if (sort === 'date') return byDate
+            return compareClaimer(claimerOf(a.job), claimerOf(b.job)) || byDate
         })
 
-    const visible = mineOnly ? rows.filter(r => isMineJob(r.job)) : rows
+    const filtered = rows
+        .filter(r => !mineOnly || isMineJob(r.job))
+        .filter(r =>
+            matchesQuery(query, [
+                r.lead?.customer_name,
+                r.lead?.event_name,
+                r.job.title,
+                claimerOf(r.job),
+                ...(r.job.assigned_to || []).map(id => nameOf(id, people)),
+                ...(r.lead?.staff || []).map(s => s.nickname || s.name),
+            ])
+        )
+
+    const visible = filtered
 
     return (
         <div className="space-y-3">
-            {currentUserId && (
-                <div className="flex flex-wrap items-center gap-2">
-                    <button
-                        type="button"
-                        aria-pressed={mineOnly}
-                        onClick={() => setMineOnly(v => !v)}
-                        className={cn(
-                            'rounded-full px-3 py-1 text-sm',
-                            mineOnly
-                                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                                : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                        )}
-                    >
-                        ใบงานของฉัน {mineCount} ใบ
-                    </button>
-                </div>
-            )}
+            <WorkOrderToolbar
+                query={query}
+                onQueryChange={setQuery}
+                sort={sort}
+                onSortChange={setSort}
+                mineOnly={mineOnly}
+                onMineOnlyChange={setMineOnly}
+                mineCount={mineCount}
+                showMine={!!currentUserId}
+            />
 
             {visible.length === 0 ? (
                 <p className="text-center text-sm text-zinc-500 py-10">
-                    {mineOnly ? 'ยังไม่มีใบงานของคุณในพูลนี้' : EMPTY_TEXT[kind]}
+                    {query.trim() ? NO_MATCH_TEXT : mineOnly ? 'ยังไม่มีใบงานของคุณในพูลนี้' : EMPTY_TEXT[kind]}
                 </p>
             ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
