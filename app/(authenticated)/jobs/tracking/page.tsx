@@ -255,6 +255,7 @@ export default async function TrackingPage() {
                 jobStatusLabels={jobStatusLabels}
                 currentUserId={currentUserId ?? null}
                 canManagePool={canManagePool}
+                isAdmin={sessionRole === 'admin'}
                 kits={kits}
                 kitBookings={kitBookings}
                 canManageKits={canManageKits}

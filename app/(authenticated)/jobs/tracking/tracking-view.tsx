@@ -236,6 +236,7 @@ export default function TrackingView({
     kits = [],
     kitBookings = [],
     canManageKits = false,
+    isAdmin = false,
 }: {
     leads: TrackingLead[]
     roleLabels: Record<string, string>
@@ -256,6 +257,8 @@ export default function TrackingView({
     kitBookings?: KitBookingRow[]
     /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
     canManageKits?: boolean
+    /** role = admin เท่านั้น — แท็บใบงานหน้างาน (หัวหน้างาน) แสดงเฉพาะแอดมิน */
+    isAdmin?: boolean
 }) {
     const [rows, setRows] = useState(leads)
     const [chip, setChip] = useState<Chip | null>(null)
@@ -270,7 +273,10 @@ export default function TrackingView({
     // สถานะมุมมองอยู่ใน URL: ?tab=graphic|onsite&view=timeline&date=YYYY-MM-DD&mode=day|week
     const router = useRouter()
     const searchParams = useSearchParams()
-    const tab: PoolTab = parseTab(searchParams.get('tab'))
+    // ใบงานหน้างานซ้ำซ้อนกับหน้าที่เตรียมงานสำหรับคนทั่วไป — เหลือไว้ให้แอดมินดูหัวหน้างาน/ปิดงาน
+    // ไม่ใช่แอดมินพิมพ์ ?tab=onsite ตรงๆ = เด้งกลับภาพรวม (เป็นการซ่อนมุมมอง ไม่ใช่ชั้นสิทธิ์)
+    const parsedTab = parseTab(searchParams.get('tab'))
+    const tab: PoolTab = parsedTab === 'onsite' && !isAdmin ? 'overview' : parsedTab
     const view = searchParams.get('view') === 'timeline' ? 'timeline' : 'table'
     const mode = searchParams.get('mode') === 'week' ? 'week' : 'day'
     const dateParam = searchParams.get('date')
@@ -504,7 +510,7 @@ export default function TrackingView({
             </div>
 
             <div className="flex flex-wrap items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
-                {POOL_TABS.map(t => (
+                {POOL_TABS.filter(t => t.key !== 'onsite' || isAdmin).map(t => (
                     <button
                         key={t.key}
                         type="button"
