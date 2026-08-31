@@ -2,20 +2,22 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { UserRound, Users } from 'lucide-react'
+import { Briefcase, UserRound, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { claimPoolJob, releasePoolJob, reassignPoolJob, skipPoolJob } from '../actions'
+import { bookKitForLead, claimPoolJob, releasePoolJob, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
 import { DESIGN_OPTIONS } from './design-options'
 import { formatDate } from './timeline-view'
 import {
     VEHICLES,
     daysUntil,
     getMissing,
+    kitBookingConflict,
     missingLabel,
     missingRoles,
     vehicleOf,
@@ -332,6 +334,181 @@ function VehicleSummary({ lead }: { lead: TrackingLead }) {
     )
 }
 
+/** กระเป๋าหนึ่งใบเท่าที่กล่องจองต้องใช้ */
+export interface PoolKit {
+    id: string
+    name: string
+}
+
+/** การจองกระเป๋าหนึ่งครั้ง (event_kits) พร้อมข้อมูลอีเวนต์ที่ join มาแล้ว */
+export interface KitBookingRow {
+    kitId: string
+    eventId: string
+    eventDate: string | null
+    eventName: string
+    /** งานที่อีเวนต์นี้ผูกอยู่ — null = อีเวนต์ที่ไม่ได้มาจาก CRM */
+    leadId: string | null
+    /** จัดกระเป๋าครบแล้ว (packed_at ไม่ว่าง) */
+    packed: boolean
+}
+
+/** อีเวนต์ปลายทางของการจอง — ใบแรกที่ยังไม่ปิด (เรียงตามวันงานมาแล้ว) กติกาเดียวกับฝั่ง server */
+const targetEventOf = (lead: TrackingLead) => lead.events[0] ?? null
+
+/**
+ * ช่อง "กระเป๋า" ของใบงานหน้างาน — ยังไม่ผูก / ผูกแล้วยังไม่จัด (จัดแล้ว X/Y) / จัดครบ (ADR-0003)
+ * กดเปิดกล่องจองกระเป๋า: จอง ยกเลิกจอง และลิงก์ไปหน้าเช็คกระเป๋าของอีเวนต์นั้น
+ */
+function KitSummary({
+    lead,
+    kits,
+    bookings,
+    canManageKits,
+}: {
+    lead: TrackingLead
+    kits: PoolKit[]
+    bookings: KitBookingRow[]
+    canManageKits: boolean
+}) {
+    const router = useRouter()
+    const [open, setOpen] = useState(false)
+    const [busy, setBusy] = useState<string | null>(null)
+
+    const eventIds = new Set(lead.events.map(e => e.id))
+    const mine = bookings.filter(b => eventIds.has(b.eventId))
+    const packed = mine.filter(b => b.packed).length
+
+    const target = targetEventOf(lead)
+    const targetDate = target?.event_date ?? lead.event_date
+    // ยังไม่มีอีเวนต์ → ใช้ id ว่าง: ไม่ตรงกับอีเวนต์ใดเลย ทุกการจองวันเดียวกันจึงนับเป็นชน (server สร้างอีเวนต์ให้ตอนกดจอง)
+    const targetEventId = target?.id ?? ''
+
+    const summary =
+        mine.length === 0
+            ? { text: 'ยังไม่ผูก', tone: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200' }
+            : packed === 0
+              ? { text: `ผูกแล้ว ${mine.length} ใบ — ยังไม่จัด`, tone: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100' }
+              : packed < mine.length
+                ? { text: `จัดแล้ว ${packed}/${mine.length}`, tone: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100' }
+                : { text: `จัดครบ ${packed}/${mine.length}`, tone: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' }
+
+    const run = async (kitId: string, action: () => Promise<unknown>, ok: string) => {
+        setBusy(kitId)
+        try {
+            const res = (await action()) as { error?: string } | undefined
+            if (res?.error) {
+                toast.error(res.error)
+                return
+            }
+            toast.success(ok)
+            router.refresh()
+        } finally {
+            setBusy(null)
+        }
+    }
+
+    return (
+        <div>
+            <div className="text-[11px] text-zinc-500">กระเป๋า</div>
+            <button type="button" onClick={() => setOpen(true)} className="text-left">
+                <span className={cn(PILL, 'gap-1', summary.tone)}>
+                    <Briefcase className="h-3.5 w-3.5" /> {summary.text}
+                </span>
+            </button>
+            {mine.length > 0 && (
+                <div className="text-xs text-zinc-500 truncate">
+                    {mine.map(b => kits.find(k => k.id === b.kitId)?.name || 'กระเป๋า').join(', ')}
+                </div>
+            )}
+
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>จองกระเป๋า</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-zinc-500">
+                        {target
+                            ? `อีเวนต์: ${target.name || 'ไม่ระบุชื่อ'}${targetDate ? ` · ${formatDate(targetDate)}` : ''}`
+                            : 'งานนี้ยังไม่มีอีเวนต์ — ระบบจะสร้างให้อัตโนมัติเมื่อกดจอง'}
+                    </p>
+
+                    <div className="max-h-80 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
+                        {kits.length === 0 && <p className="text-sm text-zinc-500 py-4">ยังไม่มีกระเป๋าในระบบ</p>}
+                        {kits.map(kit => {
+                            const booked = mine.find(b => b.kitId === kit.id) ?? null
+                            const clashes = kitBookingConflict(bookings, {
+                                kitId: kit.id,
+                                eventId: targetEventId,
+                                eventDate: targetDate,
+                            })
+                            const clashNames = clashes.map(
+                                id => bookings.find(b => b.eventId === id)?.eventName || 'อีเวนต์อื่น'
+                            )
+                            return (
+                                <div key={kit.id} className="py-2 flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <div className="text-sm font-medium truncate">{kit.name}</div>
+                                        {booked ? (
+                                            <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                                                จองแล้ว (งานนี้){booked.packed ? ' · จัดครบ' : ' · ยังไม่จัด'}
+                                            </span>
+                                        ) : clashNames.length > 0 ? (
+                                            <span className="text-xs text-rose-600 dark:text-rose-400 truncate">
+                                                ชน: {clashNames.join(', ')}
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs text-zinc-400">ว่าง</span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        {booked && (
+                                            <Link
+                                                href={`/kits/${kit.id}/check?eventId=${booked.eventId}`}
+                                                className="text-xs text-violet-600 dark:text-violet-400 hover:underline"
+                                            >
+                                                จัดกระเป๋า
+                                            </Link>
+                                        )}
+                                        {canManageKits &&
+                                            (booked ? (
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    disabled={busy === kit.id}
+                                                    onClick={() =>
+                                                        run(kit.id, () => unbookKitForLead(lead.id, kit.id), 'ยกเลิกจองแล้ว')
+                                                    }
+                                                >
+                                                    ยกเลิกจอง
+                                                </Button>
+                                            ) : (
+                                                <Button
+                                                    size="sm"
+                                                    disabled={busy === kit.id || clashNames.length > 0}
+                                                    onClick={() =>
+                                                        run(kit.id, () => bookKitForLead(lead.id, kit.id), 'จองกระเป๋าแล้ว')
+                                                    }
+                                                >
+                                                    จอง
+                                                </Button>
+                                            ))}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setOpen(false)}>
+                            ปิด
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
+    )
+}
+
 /**
  * แท็บใบงานของหนึ่งฝ่ายในพูลงาน — การ์ดหนึ่งใบ = ใบงานหนึ่งใบ
  * เรียงตามวันงานของ leads (page.tsx เรียงมาแล้ว) งานที่หา lead ไม่เจอไว้ท้ายสุด
@@ -346,6 +523,9 @@ export default function PoolTabs({
     today,
     currentUserId = null,
     canManagePool = false,
+    kits = [],
+    kitBookings = [],
+    canManageKits = false,
     onDesignStatusChange,
 }: {
     kind: PoolKind
@@ -359,6 +539,12 @@ export default function PoolTabs({
     currentUserId?: string | null
     /** แอดมิน/ฝ่ายประสานงาน — ข้ามใบงานและเปลี่ยนคนรับได้ */
     canManagePool?: boolean
+    /** กระเป๋าทั้งหมด — ตัวเลือกในกล่องจองกระเป๋า */
+    kits?: PoolKit[]
+    /** การจองกระเป๋าของงานเหล่านี้ + ของอีเวนต์อื่นในวันเดียวกัน (ใช้บอกว่าชน) */
+    kitBookings?: KitBookingRow[]
+    /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
+    canManageKits?: boolean
     /** เส้นทางบันทึกเดียวกับตารางภาพรวม (updateLeadTracking) */
     onDesignStatusChange: (leadId: string, patch: { design_status: string }) => void
 }) {
@@ -422,6 +608,14 @@ export default function PoolTabs({
                         <div className="grid grid-cols-2 gap-2">
                             <StaffSummary lead={lead} roleLabels={roleLabels} />
                             <VehicleSummary lead={lead} />
+                            <div className="col-span-2">
+                                <KitSummary
+                                    lead={lead}
+                                    kits={kits}
+                                    bookings={kitBookings}
+                                    canManageKits={canManageKits}
+                                />
+                            </div>
                         </div>
                     )}
 

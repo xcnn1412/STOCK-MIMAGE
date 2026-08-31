@@ -117,6 +117,10 @@ export type ActionType =
     | 'REASSIGN_POOL_JOB'
     // ใบงานจบเอง — กราฟิก (design_status พร้อม) / หน้างาน (ปิดอีเวนต์จากการคืนกระเป๋า)
     | 'AUTO_FINISH_POOL_JOB'
+    // จองกระเป๋าให้อีเวนต์ / ยกเลิกจอง / จัดกระเป๋าครบ (event_kits — ADR-0003)
+    | 'BOOK_EVENT_KIT'
+    | 'UNBOOK_EVENT_KIT'
+    | 'PACK_EVENT_KIT'
     // Ticket Module
     | 'CREATE_TICKET'
     | 'UPDATE_TICKET_STATUS'

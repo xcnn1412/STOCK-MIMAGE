@@ -899,6 +899,33 @@ export function shouldFinishGraphicJob(designStatus: string, jobStatus: string):
   return READY_DESIGN_STATUSES.includes(designStatus) && !POOL_DONE_STATUSES.includes(jobStatus)
 }
 
+// --- จองกระเป๋า: กติกาชนรายวัน (ADR-0003) -------------------------------------
+
+/** การจองกระเป๋าหนึ่งครั้ง — กระเป๋าใบหนึ่งกับอีเวนต์หนึ่ง (วันของอีเวนต์ YYYY-MM-DD) */
+export interface KitBooking {
+  kitId: string
+  eventId: string
+  eventDate: string | null
+}
+
+/**
+ * อีเวนต์ที่ "ชน" กับการจองที่กำลังจะเกิด — กระเป๋าใบเดียวกัน วันเดียวกัน แต่คนละอีเวนต์
+ * เข้มกว่าคน/รถ: ไม่ดูเวลาและไม่มีต่อคิว (กระเป๋าใบเดียวอยู่สองงานวันเดียวกันไม่ได้)
+ * จองซ้ำอีเวนต์เดิม = ไม่ชน · ไม่รู้วันงาน (null) = เทียบไม่ได้ → ไม่ชน
+ * คืน eventId ไม่ซ้ำ ตามลำดับที่เจอใน bookings
+ */
+export function kitBookingConflict(bookings: KitBooking[], candidate: KitBooking): string[] {
+  if (!candidate.eventDate) return []
+  const out: string[] = []
+  for (const b of bookings) {
+    if (b.kitId !== candidate.kitId) continue
+    if (b.eventId === candidate.eventId) continue
+    if (b.eventDate !== candidate.eventDate) continue
+    if (!out.includes(b.eventId)) out.push(b.eventId)
+  }
+  return out
+}
+
 /** วันจัดงานที่ใกล้ที่สุดหลัง fromDate (ไม่รวมวันนั้น) — null เมื่อไม่มีงานข้างหน้า */
 export function nextJobDate(leads: TrackingLead[], fromDate: string): string | null {
   let best: string | null = null

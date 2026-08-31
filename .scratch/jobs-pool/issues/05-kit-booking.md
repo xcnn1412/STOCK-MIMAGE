@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (แท็บหน้างาน), 03 (สิทธิ์และปุ่มบนใบงาน)
 
-**Status:** ready-for-agent
+**Status:** done (2026-08-31) — tsc 7 error เดิม, check ผ่าน, migration idempotent + backfill ตรวจแล้ว
 
 - [ ] migration สร้าง event_kits (event_id, kit_id, packed_at, packed_by, unique คู่) ใน supabase/migrations/
 - [ ] จองกระเป๋าให้สองอีเวนต์วันเดียวกัน → action คืน `{ error }` ชนพร้อมชื่ออีเวนต์คู่กรณี; คนละวัน → สำเร็จ

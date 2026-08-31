@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
 import TrackingView, { type TrackingLead } from './tracking-view'
 import { VEHICLES, type PoolJob } from './tracking-logic'
-import type { JobStatusLabels } from './pool-tabs'
+import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
 
 /** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
 function normalizeRequiredRoles(raw: unknown): Record<string, number> {
@@ -43,6 +43,8 @@ export default async function TrackingPage() {
     type LeadEvent = { id: string; name: string; event_date: string | null; status: string | null }
     const eventsByLead = new Map<string, LeadEvent[]>()
     const staffByLead = new Map<string, TrackingLead['staff']>()
+    /** อีเวนต์ทุกใบของงานเหล่านี้ (รวมที่ปิดแล้ว) — ใช้หาการจองกระเป๋าและวันที่ต้องเช็คชน */
+    let leadEvents: { id: string; event_date: string | null }[] = []
     if (leadIds.length > 0) {
         const { data: events } = await supabase
             .from('events')
@@ -58,6 +60,8 @@ export default async function TrackingPage() {
             if (list) list.push(row)
             else eventsByLead.set(e.crm_lead_id as string, [row])
         }
+
+        leadEvents = (events || []).map(e => ({ id: e.id as string, event_date: e.event_date as string | null }))
 
         const eventIds = (events || []).map(e => e.id)
         if (eventIds.length > 0) {
@@ -102,6 +106,51 @@ export default async function TrackingPage() {
             crm_lead_id: (j.crm_lead_id as string) ?? null,
         }))
     }
+
+    // กระเป๋า + การจอง (event_kits) — การ์ดใบงานหน้างานแสดงสถานะจัดกระเป๋าและเปิดกล่องจองจากตรงนี้
+    const { data: kitRows } = await supabase.from('kits').select('id, name').order('name', { ascending: true })
+    const kits: PoolKit[] = (kitRows || []).map(k => ({ id: k.id as string, name: (k.name as string) || 'ไม่ระบุชื่อ' }))
+
+    const KIT_BOOKING_SELECT = 'kit_id, event_id, packed_at, events!inner(id, name, event_date, crm_lead_id)'
+    type RawBooking = {
+        kit_id: string
+        event_id: string
+        packed_at: string | null
+        events?: { id: string; name: string | null; event_date: string | null; crm_lead_id: string | null } | null
+    }
+    const bookingByPair = new Map<string, KitBookingRow>()
+    const collectBookings = (rows: RawBooking[] | null) => {
+        for (const r of rows || []) {
+            const key = `${r.kit_id}:${r.event_id}`
+            if (bookingByPair.has(key)) continue
+            bookingByPair.set(key, {
+                kitId: r.kit_id,
+                eventId: r.event_id,
+                eventDate: r.events?.event_date ?? null,
+                eventName: r.events?.name || 'ไม่ระบุชื่ออีเวนต์',
+                leadId: r.events?.crm_lead_id ?? null,
+                packed: !!r.packed_at,
+            })
+        }
+    }
+    if (leadEvents.length > 0) {
+        const { data: mine } = await supabase
+            .from('event_kits')
+            .select(KIT_BOOKING_SELECT)
+            .in('event_id', leadEvents.map(e => e.id))
+        collectBookings(mine as unknown as RawBooking[])
+
+        // การจองของอีเวนต์อื่นในวันเดียวกัน — ต้องมีเพื่อบอกว่ากระเป๋าใบไหน "ชน" (ADR-0003)
+        const dates = [...new Set(leadEvents.map(e => e.event_date).filter((d): d is string => !!d))]
+        if (dates.length > 0) {
+            const { data: sameDay } = await supabase
+                .from('event_kits')
+                .select(KIT_BOOKING_SELECT)
+                .in('events.event_date', dates)
+            collectBookings(sameDay as unknown as RawBooking[])
+        }
+    }
+    const kitBookings = [...bookingByPair.values()]
 
     const { data: jobStatusSettings } = await supabase
         .from('job_settings')
@@ -163,6 +212,18 @@ export default async function TrackingPage() {
     const myDepartment = people.find(p => p.id === currentUserId)?.department ?? null
     const canManagePool = sessionRole === 'admin' || myDepartment === 'ฝ่ายประสานงาน'
 
+    // จอง/ย้ายกระเป๋า: แอดมิน + แผนกที่ตั้งไว้ (ยังไม่ตั้ง = ทีมหน้างาน)
+    // ค่าเริ่มต้นตรงกับ POOL_TEAM_DEFAULT_DEPARTMENTS.onsite ใน jobs/actions.ts — สิทธิ์จริงบังคับใน server action อีกชั้น
+    const { data: kitDeptRows } = await supabase
+        .from('job_settings')
+        .select('value')
+        .eq('category', 'pool_kit_departments')
+        .eq('is_active', true)
+    const kitDepartments = (kitDeptRows || []).map(r => r.value as string).filter(Boolean)
+    const canManageKits =
+        sessionRole === 'admin' ||
+        (!!myDepartment && (kitDepartments.length > 0 ? kitDepartments : ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง']).includes(myDepartment))
+
     // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
     return (
         <Suspense fallback={null}>
@@ -175,6 +236,9 @@ export default async function TrackingPage() {
                 jobStatusLabels={jobStatusLabels}
                 currentUserId={currentUserId ?? null}
                 canManagePool={canManagePool}
+                kits={kits}
+                kitBookings={kitBookings}
+                canManageKits={canManageKits}
             />
         </Suspense>
     )

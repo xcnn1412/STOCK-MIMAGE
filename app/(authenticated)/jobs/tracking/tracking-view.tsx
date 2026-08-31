@@ -39,7 +39,7 @@ import {
 } from './tracking-logic'
 import TimelineView, { AVAIL_TEXT, formatDate, ymd } from './timeline-view'
 import { RequiredRolesEditor } from './required-roles-editor'
-import PoolTabs, { type JobStatusLabels } from './pool-tabs'
+import PoolTabs, { type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
 import { DESIGN_OPTIONS } from './design-options'
 
 export type { TrackingLead }
@@ -558,6 +558,9 @@ export default function TrackingView({
     jobStatusLabels = {},
     currentUserId = null,
     canManagePool = false,
+    kits = [],
+    kitBookings = [],
+    canManageKits = false,
 }: {
     leads: TrackingLead[]
     roleLabels: Record<string, string>
@@ -570,6 +573,12 @@ export default function TrackingView({
     currentUserId?: string | null
     /** แอดมิน/ฝ่ายประสานงาน — ข้ามใบงานและเปลี่ยนคนรับได้ */
     canManagePool?: boolean
+    /** กระเป๋าทั้งหมด — ตัวเลือกในกล่องจองกระเป๋าของใบงานหน้างาน */
+    kits?: PoolKit[]
+    /** การจองกระเป๋า (event_kits) ของงานเหล่านี้ + ของอีเวนต์อื่นในวันเดียวกัน (ใช้บอกว่าชน) */
+    kitBookings?: KitBookingRow[]
+    /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
+    canManageKits?: boolean
 }) {
     const [rows, setRows] = useState(leads)
     const [chip, setChip] = useState<Chip | null>(null)
@@ -798,6 +807,9 @@ export default function TrackingView({
                     today={today}
                     currentUserId={currentUserId}
                     canManagePool={canManagePool}
+                    kits={kits}
+                    kitBookings={kitBookings}
+                    canManageKits={canManageKits}
                     onDesignStatusChange={save}
                 />
             ) : (

@@ -7,7 +7,7 @@ import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
 import { requireAuth } from '@/lib/auth'
 // โมดูลตรรกะล้วน (ไม่มี React / ไม่มี 'use client') — import เข้ามาใน server action ได้
-import { READY_DESIGN_STATUSES, shouldFinishGraphicJob } from './tracking/tracking-logic'
+import { READY_DESIGN_STATUSES, kitBookingConflict, shouldFinishGraphicJob } from './tracking/tracking-logic'
 
 
 async function getSession() {
@@ -682,17 +682,22 @@ const POOL_TEAM_DEFAULT_DEPARTMENTS: Record<PoolJobType, string[]> = {
     onsite: ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง'],
 }
 
-async function getPoolTeamDepartments(jobType: PoolJobType): Promise<string[]> {
+/** แผนกที่ตั้งไว้ใน job_settings หมวดหนึ่ง — ยังไม่มีแถวตั้งค่า = ใช้ค่าเริ่มต้นที่ส่งมา */
+async function getDepartmentSetting(category: string, fallback: string[]): Promise<string[]> {
     const supabase = createServiceClient()
     const { data } = await supabase
         .from('job_settings')
         .select('value')
-        .eq('category', POOL_TEAM_CATEGORY[jobType])
+        .eq('category', category)
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
 
     const departments = (data || []).map(r => r.value as string).filter(Boolean)
-    return departments.length > 0 ? departments : POOL_TEAM_DEFAULT_DEPARTMENTS[jobType]
+    return departments.length > 0 ? departments : fallback
+}
+
+async function getPoolTeamDepartments(jobType: PoolJobType): Promise<string[]> {
+    return getDepartmentSetting(POOL_TEAM_CATEGORY[jobType], POOL_TEAM_DEFAULT_DEPARTMENTS[jobType])
 }
 
 // แจ้งเตือนสมาชิกแผนกของฝ่ายนั้นว่ามีใบงานเข้าพูล (createNotifications ตัดตัวผู้กดเองออกให้แล้ว)
@@ -2304,9 +2309,61 @@ export async function updateLeadTracking(
 }
 
 /**
+ * อีเวนต์ปลายทางของงานหนึ่ง — เส้นทางเดียวกันสำหรับจัดคนและจองกระเป๋า
+ * - ส่ง eventId มา = ใช้ใบนั้น (ต้องผูกกับงานนี้จริง)
+ * - ไม่ส่ง + opts.pickExisting = หยิบอีเวนต์ที่ยังไม่ปิดใบแรกของงาน (เรียงตามวันงาน — กติกาเดียวกับที่ UI ตั้งต้นให้)
+ * - ยังไม่มีอีเวนต์ = สร้างอีเวนต์ "main" จากข้อมูลงานให้อัตโนมัติ
+ * สิทธิ์: ทุกคนที่ล็อกอิน (ต่างจาก createEvent ที่ admin-only) เพราะผู้ใช้หลักคือฝ่ายประสานงาน/ทีมหน้างาน
+ */
+async function resolveLeadEvent(
+    supabase: ReturnType<typeof createServiceClient>,
+    leadId: string,
+    eventId: string | null,
+    opts: { pickExisting?: boolean; source: string }
+): Promise<{ eventId: string } | { error: string }> {
+    const { data: lead } = await supabase
+        .from('crm_leads').select('id, customer_name, event_location, event_date, status').eq('id', leadId).single()
+    if (!lead || lead.status !== 'accepted') return { error: 'ไม่พบงานที่ตอบรับแล้ว' }
+
+    if (eventId) {
+        const { data: ev } = await supabase.from('events').select('id, crm_lead_id').eq('id', eventId).single()
+        if (!ev || ev.crm_lead_id !== leadId) return { error: 'อีเวนต์ไม่ได้ผูกกับงานนี้' }
+        return { eventId }
+    }
+
+    if (opts.pickExisting) {
+        // อีเวนต์ที่ปิดแล้วแตะไม่ได้ — คัดในโค้ดเพราะ status เป็น null ได้ (neq จะตัดแถว null ทิ้งด้วย)
+        const { data: existing } = await supabase
+            .from('events')
+            .select('id, status')
+            .eq('crm_lead_id', leadId)
+            .order('event_date', { ascending: true, nullsFirst: false })
+        const open = (existing || []).find(e => e.status !== 'closed')
+        if (open) return { eventId: open.id as string }
+    }
+
+    const name = [lead.customer_name || 'ไม่ระบุลูกค้า', lead.event_location].filter(Boolean).join(' / ')
+    const { data: created, error: createErr } = await supabase
+        .from('events')
+        .insert({
+            name,
+            location: lead.event_location,
+            event_date: lead.event_date || new Date().toISOString().slice(0, 10),
+            crm_lead_id: leadId,
+            phase: 'main',
+        })
+        .select('id')
+        .single()
+    if (createErr || !created) return { error: createErr?.message || 'สร้างอีเวนต์ไม่สำเร็จ' }
+
+    await logActivity('CREATE_EVENT_FROM_CRM', { lead_id: leadId, event_id: created.id, name, source: opts.source })
+    return { eventId: created.id as string }
+}
+
+/**
  * จัดคนให้งาน (accepted lead) จากหน้า /jobs/tracking — เขียน event_staff ของอีเวนต์ที่ผูกกับงาน
- * eventId = null → สร้างอีเวนต์ "main" จากข้อมูลงานให้อัตโนมัติ (สิทธิ์: ทุกคนที่ล็อกอิน — ต่างจาก createEvent ที่ admin-only
- * เพราะผู้ใช้หลักคือฝ่ายประสานงาน). ลบ+ใส่ใหม่ทั้งชุดของอีเวนต์นั้น แล้ว sync array ใน crm_leads เหมือน updateEvent
+ * eventId = null → สร้างอีเวนต์ "main" จากข้อมูลงานให้อัตโนมัติ
+ * ลบ+ใส่ใหม่ทั้งชุดของอีเวนต์นั้น แล้ว sync array ใน crm_leads เหมือน updateEvent
  */
 export async function assignLeadStaff(
     leadId: string,
@@ -2329,31 +2386,9 @@ export async function assignLeadStaff(
     )
     if (clean.length !== assignments.length) return { error: 'ตำแหน่งไม่ถูกต้อง' }
 
-    const { data: lead } = await supabase
-        .from('crm_leads').select('id, customer_name, event_location, event_date, status').eq('id', leadId).single()
-    if (!lead || lead.status !== 'accepted') return { error: 'ไม่พบงานที่ตอบรับแล้ว' }
-
-    let targetEventId = eventId
-    if (targetEventId) {
-        const { data: ev } = await supabase.from('events').select('id, crm_lead_id').eq('id', targetEventId).single()
-        if (!ev || ev.crm_lead_id !== leadId) return { error: 'อีเวนต์ไม่ได้ผูกกับงานนี้' }
-    } else {
-        const name = [lead.customer_name || 'ไม่ระบุลูกค้า', lead.event_location].filter(Boolean).join(' / ')
-        const { data: created, error: createErr } = await supabase
-            .from('events')
-            .insert({
-                name,
-                location: lead.event_location,
-                event_date: lead.event_date || new Date().toISOString().slice(0, 10),
-                crm_lead_id: leadId,
-                phase: 'main',
-            })
-            .select('id')
-            .single()
-        if (createErr || !created) return { error: createErr?.message || 'สร้างอีเวนต์ไม่สำเร็จ' }
-        targetEventId = created.id
-        await logActivity('CREATE_EVENT_FROM_CRM', { lead_id: leadId, event_id: targetEventId, name, source: 'tracking' })
-    }
+    const resolved = await resolveLeadEvent(supabase, leadId, eventId, { source: 'tracking' })
+    if ('error' in resolved) return { error: resolved.error }
+    const targetEventId = resolved.eventId
 
     const { error: delErr } = await supabase.from('event_staff').delete().eq('event_id', targetEventId)
     if (delErr) return { error: delErr.message }
@@ -2371,4 +2406,177 @@ export async function assignLeadStaff(
     revalidatePath('/jobs/tracking')
     revalidatePath('/events')
     return { success: true, eventId: targetEventId }
+}
+
+// ============================================================================
+// จองกระเป๋า / จัดกระเป๋า — event_kits เป็น source of truth ของการจอง (ADR-0003)
+// ============================================================================
+
+/** แผนกที่จอง/ย้ายกระเป๋าได้ — ตั้งค่าเองได้ใน job_settings (ยังไม่ตั้ง = ทีมหน้างานตามค่าเริ่มต้น) */
+const KIT_MANAGER_CATEGORY = 'pool_kit_departments'
+
+async function getKitManagerDepartments(): Promise<string[]> {
+    return getDepartmentSetting(KIT_MANAGER_CATEGORY, POOL_TEAM_DEFAULT_DEPARTMENTS.onsite)
+}
+
+/** ผู้กดต้องเป็นแอดมิน หรืออยู่แผนกที่ดูแลกระเป๋า — สิทธิ์เดียวกันทั้งจอง/ยกเลิก/บันทึกจัดครบ */
+async function requireKitManager(): Promise<{ actor: PoolActor } | { error: string }> {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (actor.role === 'admin') return { actor }
+
+    const departments = await getKitManagerDepartments()
+    if (!(actor.department && departments.includes(actor.department))) {
+        return { error: 'เฉพาะทีมที่ดูแลกระเป๋าเท่านั้นที่จองหรือย้ายกระเป๋าได้' }
+    }
+    return { actor }
+}
+
+/** การจองของกระเป๋าใบหนึ่งพร้อมวัน/ชื่อ/สถานะ/งานของอีเวนต์ (join events) */
+type KitBookingRow = {
+    event_id: string
+    events?: {
+        id: string
+        name: string | null
+        event_date: string | null
+        status: string | null
+        crm_lead_id: string | null
+    } | null
+}
+
+const KIT_BOOKING_SELECT = 'event_id, events!inner(id, name, event_date, status, crm_lead_id)'
+
+async function loadKitBookings(
+    supabase: ReturnType<typeof createServiceClient>,
+    kitId: string
+): Promise<KitBookingRow[]> {
+    const { data } = await supabase.from('event_kits').select(KIT_BOOKING_SELECT).eq('kit_id', kitId)
+    return (data || []) as unknown as KitBookingRow[]
+}
+
+/**
+ * kits.event_id เดิม = ตัวชี้ใบเดียวที่ flow เช็ค/คืนกระเป๋าเก่ายังใช้อยู่ — event_kits คือ source of truth (ADR-0003)
+ * จองใหม่: ชี้ให้เฉพาะตอนที่กระเป๋ายังไม่มีการจองอื่นของอีเวนต์ที่ยังไม่ปิด (ไม่งั้นสองงานจะแย่งตัวชี้กัน)
+ * ยกเลิกจอง: ตัวชี้ที่ค้างอยู่กับอีเวนต์ที่ไม่มีการจองแล้ว → ล้างเป็น null
+ */
+async function syncLegacyKitEvent(
+    supabase: ReturnType<typeof createServiceClient>,
+    kitId: string,
+    justBookedEventId: string | null
+) {
+    const { data: kit } = await supabase.from('kits').select('id, event_id').eq('id', kitId).single()
+    if (!kit) return
+
+    const active = (await loadKitBookings(supabase, kitId))
+        .filter(r => r.events?.status !== 'closed')
+        .map(r => r.event_id)
+
+    if (justBookedEventId) {
+        if (active.length === 1 && active[0] === justBookedEventId && kit.event_id !== justBookedEventId) {
+            await supabase.from('kits').update({ event_id: justBookedEventId }).eq('id', kitId)
+        }
+        return
+    }
+    if (kit.event_id && !active.includes(kit.event_id as string)) {
+        await supabase.from('kits').update({ event_id: null }).eq('id', kitId)
+    }
+}
+
+/**
+ * จองกระเป๋าให้อีเวนต์ของงาน (จากใบงานหน้างานในพูล) — งานที่ยังไม่มีอีเวนต์ ระบบสร้างให้เหมือนตอนจัดคน
+ * ชน = กระเป๋าใบเดียวกันถูกจองอีเวนต์อื่นวันเดียวกัน (ไม่ดูเวลา ไม่มีต่อคิว)
+ */
+export async function bookKitForLead(leadId: string, kitId: string) {
+    const perm = await requireKitManager()
+    if ('error' in perm) return { error: perm.error }
+
+    const supabase = createServiceClient()
+    const { data: kit } = await supabase.from('kits').select('id, name').eq('id', kitId).single()
+    if (!kit) return { error: 'ไม่พบกระเป๋าใบนี้' }
+
+    const resolved = await resolveLeadEvent(supabase, leadId, null, { pickExisting: true, source: 'kit-booking' })
+    if ('error' in resolved) return { error: resolved.error }
+    const eventId = resolved.eventId
+
+    const { data: target } = await supabase.from('events').select('id, event_date').eq('id', eventId).single()
+    const eventDate = (target?.event_date as string) ?? null
+
+    const bookings = await loadKitBookings(supabase, kitId)
+    const clash = kitBookingConflict(
+        bookings.map(r => ({ kitId, eventId: r.event_id, eventDate: r.events?.event_date ?? null })),
+        { kitId, eventId, eventDate }
+    )
+    if (clash.length > 0) {
+        const names = clash.map(id => bookings.find(r => r.event_id === id)?.events?.name || 'อีเวนต์อื่น')
+        return { error: `กระเป๋าใบนี้ถูกจองงานวันเดียวกันแล้ว: ${names.join(', ')}` }
+    }
+
+    // จองซ้ำคู่เดิม = ไม่เปลี่ยนอะไร (unique (event_id, kit_id)) — สถานะจัดของเดิมจึงไม่หาย
+    const { error: insErr } = await supabase
+        .from('event_kits')
+        .upsert({ event_id: eventId, kit_id: kitId }, { onConflict: 'event_id,kit_id' })
+    if (insErr) return { error: insErr.message }
+
+    await syncLegacyKitEvent(supabase, kitId, eventId)
+    await logActivity('BOOK_EVENT_KIT', { lead_id: leadId, event_id: eventId, kit_id: kitId, kit_name: kit.name })
+
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/events')
+    revalidatePath('/kits')
+    return { success: true, eventId }
+}
+
+/**
+ * ยกเลิกจองกระเป๋าของงาน — ลบแถวการจองของอีเวนต์ที่ผูกกับงานนี้ทิ้ง
+ * สถานะจัดกระเป๋าอยู่บนแถวการจอง จึงหายไปพร้อมกัน (ย้ายไปอีเวนต์อื่น = ลบ+จองใหม่ → ต้องจัดใหม่)
+ */
+export async function unbookKitForLead(leadId: string, kitId: string) {
+    const perm = await requireKitManager()
+    if ('error' in perm) return { error: perm.error }
+
+    const supabase = createServiceClient()
+    const rows = (await loadKitBookings(supabase, kitId)).filter(r => r.events?.crm_lead_id === leadId)
+    if (rows.length === 0) return { error: 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้งานนี้' }
+
+    const eventIds = rows.map(r => r.event_id)
+    const { error } = await supabase.from('event_kits').delete().eq('kit_id', kitId).in('event_id', eventIds)
+    if (error) return { error: error.message }
+
+    await syncLegacyKitEvent(supabase, kitId, null)
+    await logActivity('UNBOOK_EVENT_KIT', { lead_id: leadId, event_ids: eventIds, kit_id: kitId })
+
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/events')
+    revalidatePath('/kits')
+    return { success: true, eventIds }
+}
+
+/**
+ * บันทึก "จัดกระเป๋าครบ" ของการจองหนึ่งครั้ง — เรียกจากหน้าเช็คกระเป๋าเมื่อติ๊กครบทุกชิ้น
+ * เก็บบนแถว event_kits จึงเป็นของอีเวนต์นั้นโดยเฉพาะ (ย้ายการจอง = ลบแถว → สถานะจัดรีเซ็ตเอง)
+ */
+export async function setKitPacked(eventId: string, kitId: string, packed: boolean) {
+    const perm = await requireKitManager()
+    if ('error' in perm) return { error: perm.error }
+
+    const supabase = createServiceClient()
+    const { data: updated, error } = await supabase
+        .from('event_kits')
+        .update(
+            packed
+                ? { packed_at: new Date().toISOString(), packed_by: perm.actor.userId }
+                : { packed_at: null, packed_by: null }
+        )
+        .eq('event_id', eventId)
+        .eq('kit_id', kitId)
+        .select('id')
+
+    if (error) return { error: error.message }
+    if (!updated || updated.length === 0) return { error: 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้อีเวนต์นี้' }
+
+    await logActivity('PACK_EVENT_KIT', { event_id: eventId, kit_id: kitId, packed })
+
+    revalidatePath('/jobs/tracking')
+    revalidatePath(`/events/${eventId}/check-kits`)
+    return { success: true }
 }

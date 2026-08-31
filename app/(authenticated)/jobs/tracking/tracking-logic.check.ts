@@ -22,6 +22,7 @@ import {
   isPast,
   isReady,
   isUrgent,
+  kitBookingConflict,
   layoutDay,
   layoutWeek,
   leadsOnDate,
@@ -844,5 +845,39 @@ assert.equal(shouldFinishGraphicJob('sent', 'awaiting_claim'), false)
 assert.equal(shouldFinishGraphicJob('not_started', 'done'), false)
 // สถานะออกแบบทุกค่าใน READY_DESIGN_STATUSES ใช้ได้เหมือนกัน
 assert.deepEqual(READY_DESIGN_STATUSES.map((s) => shouldFinishGraphicJob(s, 'awaiting_claim')), [true, true])
+
+// --- kitBookingConflict: กระเป๋าใบเดียวกัน วันเดียวกัน คนละอีเวนต์ = ชน ----------
+const kb = (kitId: string, eventId: string, eventDate: string | null) => ({ kitId, eventId, eventDate })
+const kbBookings = [
+  kb('k1', 'e1', '2026-08-30'),
+  kb('k1', 'e2', '2026-08-31'),
+  kb('k2', 'e3', '2026-08-30'),
+]
+
+// วันเดียวกัน อีเวนต์อื่น → ชน (คืน eventId ของคู่กรณี)
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e9', '2026-08-30')), ['e1'])
+// คนละวัน → ไม่ชน
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e9', '2026-09-01')), [])
+// จองซ้ำอีเวนต์เดิม → ไม่ชน (จองแล้วกดจองอีกครั้ง)
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e1', '2026-08-30')), [])
+// กระเป๋าคนละใบวันเดียวกัน → ไม่ชน
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k3', 'e9', '2026-08-30')), [])
+// ชนหลายอีเวนต์ → คืนครบทุกใบ ตามลำดับที่เจอ
+assert.deepEqual(
+  kitBookingConflict(
+    [kb('k1', 'eA', '2026-08-30'), kb('k1', 'eB', '2026-08-30'), kb('k1', 'eC', '2026-08-31')],
+    kb('k1', 'e9', '2026-08-30')
+  ),
+  ['eA', 'eB']
+)
+// อีเวนต์เดียวกันโผล่ซ้ำ → คืนครั้งเดียว
+assert.deepEqual(
+  kitBookingConflict([kb('k1', 'eA', '2026-08-30'), kb('k1', 'eA', '2026-08-30')], kb('k1', 'e9', '2026-08-30')),
+  ['eA']
+)
+// ไม่รู้วันงาน (ฝั่งใดฝั่งหนึ่ง) → เทียบไม่ได้ ไม่ชน
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e9', null)), [])
+assert.deepEqual(kitBookingConflict([kb('k1', 'eA', null)], kb('k1', 'e9', '2026-08-30')), [])
+assert.deepEqual(kitBookingConflict([], kb('k1', 'e9', '2026-08-30')), [])
 
 console.log('tracking-logic.check: all passed')
