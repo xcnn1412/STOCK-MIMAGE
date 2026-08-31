@@ -7,6 +7,7 @@ import {
   AWAITING_CLAIM_STATUS,
   canActOnPool,
   designCellState,
+  designReadyByLead,
   POOL_TEAM_CATEGORIES,
   POOL_TEAM_DEFAULTS,
   PREP_DUTIES,
@@ -877,6 +878,115 @@ assert.equal(shouldFinishGraphicJob('sent', 'awaiting_claim'), false)
 assert.equal(shouldFinishGraphicJob('not_started', 'done'), false)
 // สถานะออกแบบทุกค่าใน READY_DESIGN_STATUSES ใช้ได้เหมือนกัน
 assert.deepEqual(READY_DESIGN_STATUSES.map((s) => shouldFinishGraphicJob(s, 'awaiting_claim')), [true, true])
+
+// --- designReadyByLead: สถานะออกแบบอยู่รายใบงานกราฟิก -------------------------
+const gj = (overrides: Partial<PoolJob> = {}): PoolJob =>
+  pj({ job_type: 'graphic', status: 'in_progress', design_status: 'not_started', ...overrides })
+
+// ไม่มีใบงานกราฟิกเลย → ไม่อยู่ใน map (ผู้เรียกอ่านเป็น undefined → getMissing ตกกลับค่าระดับงาน)
+assert.equal(designReadyByLead([]).size, 0)
+assert.equal(designReadyByLead([pj({ job_type: 'onsite', crm_lead_id: 'l1' })]).get('l1'), undefined)
+// ใบเดียวพร้อม → พร้อม
+assert.equal(designReadyByLead([gj({ design_status: 'sent_email_cf' })]).get('l1'), true)
+assert.equal(designReadyByLead([gj({ design_status: 'completed' })]).get('l1'), true)
+// ใบเดียวยังไม่พร้อม → ไม่พร้อม
+assert.equal(designReadyByLead([gj({ design_status: 'sent' })]).get('l1'), false)
+assert.equal(designReadyByLead([gj({ design_status: null })]).get('l1'), false)
+assert.equal(designReadyByLead([gj({ design_status: undefined })]).get('l1'), false)
+// ใบที่จบแล้ว ('done') นับว่าพร้อม แม้สถานะออกแบบของใบนั้นจะยังไม่ถึงขั้น (จบเพราะออกแบบเสร็จ)
+assert.equal(designReadyByLead([gj({ status: 'done', design_status: 'not_started' })]).get('l1'), true)
+// ใบที่ถูกข้ามไม่ตัดสิน แต่ยังนับว่างานนี้มีใบงานกราฟิกแล้ว
+assert.equal(designReadyByLead([gj({ status: 'skipped', design_status: 'not_started' })]).get('l1'), true)
+assert.equal(
+  designReadyByLead([
+    gj({ id: 'g1', status: 'skipped', design_status: 'not_started' }),
+    gj({ id: 'g2', design_status: 'completed' }),
+  ]).get('l1'),
+  true
+)
+// หลายใบ: ทุกใบที่ไม่ถูกข้ามต้องพร้อมหมด — ใบเดียวยังไม่พร้อม = ทั้งงานยังไม่พร้อม
+assert.equal(
+  designReadyByLead([
+    gj({ id: 'g1', design_status: 'completed' }),
+    gj({ id: 'g2', design_status: 'in_progress' }),
+  ]).get('l1'),
+  false
+)
+// ลำดับสลับกันก็ได้ผลเหมือนกัน (ใบไม่พร้อมมาก่อน)
+assert.equal(
+  designReadyByLead([
+    gj({ id: 'g1', design_status: 'in_progress' }),
+    gj({ id: 'g2', design_status: 'completed' }),
+  ]).get('l1'),
+  false
+)
+// สองใบพร้อมทั้งคู่ (ใบหนึ่งจบไปแล้ว) → พร้อม
+assert.equal(
+  designReadyByLead([
+    gj({ id: 'g1', status: 'done', design_status: 'sent_email_cf' }),
+    gj({ id: 'g2', design_status: 'completed' }),
+  ]).get('l1'),
+  true
+)
+// แยกกันคนละงาน — ใบของงานอื่นไม่มีผลข้ามงาน
+const drMulti = designReadyByLead([
+  gj({ id: 'g1', crm_lead_id: 'A', design_status: 'completed' }),
+  gj({ id: 'g2', crm_lead_id: 'B', design_status: 'sent' }),
+])
+assert.deepEqual([drMulti.get('A'), drMulti.get('B')], [true, false])
+// ใบงานที่ไม่ผูกกับงาน (crm_lead_id null) ไม่เข้ามาใน map
+assert.equal(designReadyByLead([gj({ crm_lead_id: null })]).size, 0)
+// ใบงานหน้างานไม่นับ แม้จะอยู่งานเดียวกัน
+assert.equal(
+  designReadyByLead([
+    gj({ id: 'g1', design_status: 'completed' }),
+    pj({ id: 'o1', job_type: 'onsite', status: 'in_progress' }),
+  ]).get('l1'),
+  true
+)
+
+// --- getMissing: พารามิเตอร์ designReady (true / false / ไม่ส่ง = ค่าเดิม) -------
+// ส่ง true → ข้อออกแบบผ่าน แม้ค่าระดับงานจะยังไม่ถึงขั้น
+assert.deepEqual(getMissing(mk({ design_status: 'not_started' }), undefined, true), [])
+// ส่ง false → ขาดออกแบบ แม้ค่าระดับงานจะพร้อมแล้ว
+assert.deepEqual(getMissing(mk({ design_status: 'completed' }), undefined, false), ['design'])
+// ไม่ส่ง (undefined) → พฤติกรรมเดิม ตัดสินจาก lead.design_status
+assert.deepEqual(getMissing(mk({ design_status: 'not_started' }), undefined, undefined), ['design'])
+assert.deepEqual(getMissing(mk({ design_status: 'completed' }), undefined, undefined), [])
+// ใช้ร่วมกับข้อกระเป๋าได้ และลำดับยังเป็น ออกแบบ → ... → กระเป๋า
+assert.deepEqual(
+  getMissing(
+    mk({ design_status: 'completed', event_time: null }),
+    { onsiteSkipped: false, bookings: [] },
+    false
+  ),
+  ['design', 'time', 'kits']
+)
+// isReady / isUrgent / chipCounts เห็นค่าเดียวกัน
+assert.equal(isReady(mk({ design_status: 'not_started' }), undefined, true), true)
+assert.equal(isReady(mk({ design_status: 'completed' }), undefined, false), false)
+assert.equal(isUrgent(mk({ event_date: T, design_status: 'completed' }), today, undefined, false), true)
+assert.equal(isUrgent(mk({ event_date: T, design_status: 'not_started' }), today, undefined, true), false)
+assert.deepEqual(
+  chipCounts([mk({ id: 'dr', event_date: T, design_status: 'completed' })], today, undefined, new Map([['dr', false]])),
+  {
+    today: { total: 1, notReady: 1 },
+    week7: { total: 1, notReady: 1 },
+    month: { total: 1, notReady: 1 },
+  }
+)
+// ไม่ส่ง map → พฤติกรรมเดิม
+assert.deepEqual(chipCounts([mk({ id: 'dr', event_date: T, design_status: 'completed' })], today), {
+  today: { total: 1, notReady: 0 },
+  week7: { total: 1, notReady: 0 },
+  month: { total: 1, notReady: 0 },
+})
+
+// designReadyByLead + getMissing ต่อกันจริง: งานที่ยังไม่เปิดใบงานกราฟิก = ขาดออกแบบ
+const drJobs = [gj({ id: 'g1', crm_lead_id: 'A', design_status: 'completed' })]
+const drMap = designReadyByLead(drJobs)
+assert.deepEqual(getMissing(mk({ id: 'A', design_status: 'not_started' }), undefined, drMap.get('A')), [])
+assert.deepEqual(getMissing(mk({ id: 'Z', design_status: 'completed' }), undefined, drMap.get('Z') ?? false), ['design'])
 
 // --- kitBookingConflict: กระเป๋าใบเดียวกัน วันเดียวกัน คนละอีเวนต์ = ชน ----------
 const kb = (kitId: string, eventId: string, eventDate: string | null) => ({ kitId, eventId, eventDate })

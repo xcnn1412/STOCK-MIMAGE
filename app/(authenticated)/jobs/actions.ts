@@ -13,6 +13,7 @@ import {
     PREP_DUTY_CATEGORY, DUTY_LABELS_TH, isPrepDuty,
 } from './tracking/tracking-logic'
 import type { PoolTeamCategory, PrepDuty } from './tracking/tracking-logic'
+import { DESIGN_STATUS_VALUES } from './tracking/design-options'
 import { DEPARTMENTS } from '@/lib/departments'
 
 
@@ -665,6 +666,8 @@ async function createLeadJobs(
                 title: graphicCount > 0 ? `${baseJob.title} #${graphicCount + 1}` : baseJob.title,
                 job_type: 'graphic',
                 status: await firstStatus('status_graphic', 'pending'),
+                // สถานะออกแบบอยู่รายใบ — ใบใหม่เริ่มที่ "ยังไม่เริ่ม" เสมอ ไม่รับค่าจากใบอื่น/จากงาน
+                design_status: 'not_started',
                 assigned_to: lead.assigned_graphics || [],
                 assigned_graphics: lead.assigned_graphics || [],
             })
@@ -1394,6 +1397,105 @@ async function autoFinishGraphicJobs(leadId: string, designStatus: string, actor
         })
         revalidatePool(job.id as string)
     }
+}
+
+/**
+ * เขียน cache ระดับงาน (crm_leads.design_status) ให้ตรงกับใบงานกราฟิกของงานนั้น
+ * — สถานะจริงอยู่รายใบ (jobs.design_status) คอลัมน์เดิมคงไว้ให้โค้ด/รายงานที่ยังอ่านระดับงาน
+ * — ยึด "ใบแรกที่ยังไม่จบ" (เรียงตามวันที่สร้าง) ถ้าจบหมดแล้วใช้ใบล่าสุด
+ * — ไม่คืน error: การบันทึกสถานะของใบต้องสำเร็จอยู่ดีแม้ cache จะเขียนพลาด (บันทึกไว้ใน console)
+ */
+async function syncLeadDesignCache(leadId: string) {
+    const supabase = createServiceClient()
+    const { data: rows, error } = await supabase
+        .from('jobs')
+        .select('id, status, design_status')
+        .eq('crm_lead_id', leadId)
+        .eq('job_type', 'graphic')
+        .is('archived_at', null)
+        .order('created_at', { ascending: true })
+
+    if (error) {
+        console.error('[jobs] sync lead design cache: fetch failed:', error.message)
+        return
+    }
+    const jobs = rows || []
+    if (jobs.length === 0) return
+
+    const isActive = (status: string) => status !== DONE_STATUS && status !== SKIPPED_STATUS
+    const primary = jobs.find(j => isActive((j.status as string) || '')) ?? jobs[jobs.length - 1]
+    const value = (primary.design_status as string) || null
+    if (!value) return
+
+    const { error: updErr } = await supabase
+        .from('crm_leads')
+        .update({ design_status: value })
+        .eq('id', leadId)
+    if (updErr) console.error('[jobs] sync lead design cache: update failed:', updErr.message)
+}
+
+/**
+ * แก้สถานะออกแบบของ "ใบงานกราฟิกใบเดียว" — งานหนึ่งเปิดได้หลายใบ แต่ละใบเดินสถานะของตัวเอง
+ * ถึงขั้นพร้อม (sent_email_cf / completed) → จบเฉพาะใบนี้ ใบอื่นของงานเดียวกันไม่ถูกแตะ
+ * จากนั้น sync cache ระดับงานให้ตารางภาพรวม/รายงานเดิมยังเห็นค่าที่ถูก
+ */
+export async function updateJobDesignStatus(jobId: string, designStatus: string) {
+    const auth = await requireAuth()
+    if (!auth) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!DESIGN_STATUS_VALUES.includes(designStatus)) return { error: 'สถานะออกแบบไม่ถูกต้อง' }
+
+    const supabase = createServiceClient()
+    const { data: job } = await supabase
+        .from('jobs')
+        .select('id, job_type, status, design_status, crm_lead_id')
+        .eq('id', jobId)
+        .single()
+
+    if (!job) return { error: 'ไม่พบใบงานนี้' }
+    if ((job.job_type as string) !== 'graphic') return { error: 'ใบงานนี้ไม่ใช่ใบงานกราฟิก' }
+
+    const oldStatus = (job.status as string) || ''
+    const leadId = (job.crm_lead_id as string) ?? null
+    // ใบที่ยังทำอยู่และออกแบบถึงขั้นพร้อม → จบเฉพาะใบนี้ (ใบที่จบ/ถูกข้ามไปแล้วไม่แตะซ้ำ)
+    const finish = shouldFinishGraphicJob(designStatus, oldStatus)
+
+    const update: Record<string, unknown> = {
+        design_status: designStatus,
+        updated_at: new Date().toISOString(),
+    }
+    if (finish) update.status = DONE_STATUS
+
+    const { error } = await supabase.from('jobs').update(update).eq('id', jobId)
+    if (error) return { error: error.message }
+
+    await logActivity('UPDATE_JOB_DESIGN_STATUS', {
+        jobId,
+        leadId,
+        designStatus,
+        previous: (job.design_status as string) ?? null,
+    })
+
+    if (finish) {
+        await logPoolJobActivity(jobId, auth.userId, 'จบอัตโนมัติ: ออกแบบเสร็จ', oldStatus, DONE_STATUS)
+        await logActivity('AUTO_FINISH_POOL_JOB', {
+            jobId,
+            jobType: 'graphic',
+            leadId,
+            designStatus,
+            oldStatus,
+        })
+    }
+
+    if (leadId) {
+        try {
+            await syncLeadDesignCache(leadId)
+        } catch (e) {
+            console.error('[jobs] sync lead design cache threw:', e)
+        }
+    }
+
+    revalidatePool(jobId)
+    return { success: true, finished: finish }
 }
 
 // Get jobs linked to a CRM lead
@@ -2473,8 +2575,6 @@ export async function toggleCustomEmoji(id: string, isActive: boolean) {
 // CRM Lead Tracking (/jobs/tracking)
 // ============================================================================
 
-// keep in sync with DESIGN_OPTIONS in tracking/tracking-view.tsx
-const DESIGN_STATUSES = ['not_started', 'waiting_info', 'not_designed', 'in_progress', 'customer_design', 'revising', 'sent', 'sent_email_cf', 'completed']
 const CHECKLIST_KEYS = ['car_triton', 'car_champ'] // keep in sync with VEHICLES in tracking/tracking-logic.ts
 
 export async function updateLeadTracking(
@@ -2492,8 +2592,10 @@ export async function updateLeadTracking(
     const supabase = createServiceClient()
     const update: Record<string, unknown> = {}
 
+    // compat: สถานะออกแบบย้ายไปอยู่รายใบงานแล้ว (updateJobDesignStatus) — UI ไม่เรียกทางนี้อีก
+    // คงไว้ให้สคริปต์/ผู้เรียกเดิมที่ยังตั้งค่าระดับงาน พฤติกรรมเดิมทุกอย่างรวมถึงจบใบงานกราฟิกทั้งงาน
     if (patch.design_status !== undefined) {
-        if (!DESIGN_STATUSES.includes(patch.design_status)) return { error: 'สถานะออกแบบไม่ถูกต้อง' }
+        if (!DESIGN_STATUS_VALUES.includes(patch.design_status)) return { error: 'สถานะออกแบบไม่ถูกต้อง' }
         update.design_status = patch.design_status
     }
     if (patch.supplier_note !== undefined) {

@@ -176,7 +176,8 @@ branch: `main` · เริ่ม 2026-08-31 · glossary: `CONTEXT.md` (ใบ�
   2. `supabase/migrations/20260831_jobs_pool_claim.sql` — คอลัมน์ `claimed_by` / `claimed_at` / `skipped_at` / `skip_reason` ของ `jobs`
   3. `supabase/migrations/20260831_event_kits.sql` — ตารางจองกระเป๋า `event_kits`
   4. `supabase/migrations/20260831_event_vehicles.sql` — ตารางจัดรถผูกอีเวนต์ `event_vehicles` (ADR-0004, มี backfill จาก `tracking_checklist`)
-  ถ้า deploy ก่อนรัน: ใบงานใหม่จะเกิดมาด้วยสถานะเดิม (ไม่ใช่ "รอรับงาน") หน้าพูลอ่าน `claimed_by` ไม่เจอ ช่องกระเป๋าพัง และช่องจัดรถบันทึกไม่ได้
+  5. `supabase/migrations/20260831_jobs_design_status.sql` — คอลัมน์ `jobs.design_status` (สถานะออกแบบรายใบงานกราฟิก + backfill จาก `crm_leads.design_status`)
+  ถ้า deploy ก่อนรัน: ใบงานใหม่จะเกิดมาด้วยสถานะเดิม (ไม่ใช่ "รอรับงาน") หน้าพูลอ่าน `claimed_by` ไม่เจอ ช่องกระเป๋าพัง ช่องจัดรถบันทึกไม่ได้ และช่อง "ออกแบบ" บันทึกไม่ได้ (หน้าติดตามงานอ่าน `jobs.design_status` แล้ว)
 - **หลังรัน migration ครบแล้ว** จึงรัน backfill ครั้งเดียว: `npx tsx scripts/backfill-jobs-pool.ts` — สร้างใบงานให้งาน accepted เดิมที่ยังไม่จบจริง (ข้ามงานที่มีใบงานแล้ว / อีเวนต์ปิดครบแล้ว / วันงานผ่านแล้ว) รันซ้ำได้ รอบสองสร้าง 0 ใบ
 - ตรวจ/ปรับแผนกในหน้า `/jobs/settings` แท็บ "ทีมของพูลงาน" ถ้าโครงทีมไม่ตรงค่าเริ่มต้น (กราฟิก = ฝ่ายออกแบบ · หน้างานและกระเป๋า = ทีมออกหน้างาน + สตาฟ + ช่าง)
 
