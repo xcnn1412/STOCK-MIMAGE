@@ -14,10 +14,13 @@ export default function EventsView({
   events,
   isAdmin = false,
   logs = [],
+  leadByEvent = {},
 }: {
   events: Event[]
   isAdmin?: boolean
   logs?: EventLog[]
+  /** งานต้นทาง (CRM) ของอีเวนต์ — ไม่มี key = อีเวนต์ที่สร้างตรงไม่ได้มาจากงาน */
+  leadByEvent?: Record<string, { leadId: string; customerName: string | null }>
 }) {
   const { t, lang } = useLanguage()
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
@@ -145,9 +148,25 @@ export default function EventsView({
               </div>
               
               {/* Event Title */}
-              <h3 className="text-lg font-semibold leading-snug text-zinc-900 dark:text-zinc-100 line-clamp-2 mb-4">
+              <h3 className="text-lg font-semibold leading-snug text-zinc-900 dark:text-zinc-100 line-clamp-2 mb-1">
                 {event.name}
               </h3>
+
+              {/* งานต้นทาง — อีเวนต์ที่แตกมาจากงาน CRM กดกลับไปหางาน/พูลงานได้ */}
+              {leadByEvent[event.id] ? (
+                <div className="text-xs text-zinc-500 mb-3 truncate">
+                  {lang === 'th' ? 'งาน: ' : 'Job: '}
+                  <Link href={`/crm/${leadByEvent[event.id].leadId}`} className="text-violet-600 dark:text-violet-400 hover:underline">
+                    {leadByEvent[event.id].customerName || (lang === 'th' ? 'ไม่ระบุลูกค้า' : 'Unnamed customer')}
+                  </Link>
+                  {' · '}
+                  <Link href="/jobs/tracking" className="hover:underline">
+                    {lang === 'th' ? 'พูลงาน ↗' : 'Job pool ↗'}
+                  </Link>
+                </div>
+              ) : (
+                <div className="mb-3" />
+              )}
 
               {/* Event Details - Better Spacing */}
               <div className="space-y-3">

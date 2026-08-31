@@ -12,6 +12,22 @@ export default async function EventsPage() {
 
   const { data: events } = await supabase.from('events').select('*').order('event_date', { ascending: false })
 
+  // งานต้นทาง (CRM) ของแต่ละอีเวนต์ — ลิงก์กลับจากการ์ดอีเวนต์ไปหางาน/พูลงาน
+  const leadIds = [...new Set(
+    (events || []).map(e => (e as { crm_lead_id?: string | null }).crm_lead_id).filter((v): v is string => !!v)
+  )]
+  const leadByEvent: Record<string, { leadId: string; customerName: string | null }> = {}
+  if (leadIds.length > 0) {
+    const serviceForLeads = createServiceClient()
+    const { data: leads } = await serviceForLeads
+      .from('crm_leads').select('id, customer_name').in('id', leadIds)
+    const nameById = new Map((leads || []).map(l => [l.id as string, (l.customer_name as string | null) ?? null]))
+    for (const e of events || []) {
+      const lid = (e as { crm_lead_id?: string | null }).crm_lead_id
+      if (lid && nameById.has(lid)) leadByEvent[e.id] = { leadId: lid, customerName: nameById.get(lid) ?? null }
+    }
+  }
+
   const serviceClient = createServiceClient()
   const { data: logs } = await serviceClient
     .from('activity_logs')
@@ -31,6 +47,7 @@ export default async function EventsPage() {
       events={events || []}
       isAdmin={isAdmin}
       logs={(logs || []) as unknown as EventLog[]}
+      leadByEvent={leadByEvent}
     />
   )
 }

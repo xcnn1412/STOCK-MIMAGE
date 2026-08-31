@@ -505,6 +505,23 @@ export function LeadHeader({ lead, title, today }: { lead: TrackingLead | null; 
                 {lead.customer_name || 'ไม่ระบุลูกค้า'}
                 {lead.event_name ? ` / ${lead.event_name}` : ''}
             </Link>
+            {lead.events.length > 0 && (
+                <div className="text-[11px] text-zinc-500 truncate">
+                    อีเวนต์:{' '}
+                    {lead.events.map((e, i) => (
+                        <span key={e.id}>
+                            {i > 0 && ' · '}
+                            <Link
+                                href={`/events/${e.id}/check-kits`}
+                                title="ไปหน้าเช็คของ/กระเป๋าของอีเวนต์นี้"
+                                className="hover:underline text-zinc-600 dark:text-zinc-300"
+                            >
+                                {e.name} ↗
+                            </Link>
+                        </span>
+                    ))}
+                </div>
+            )}
         </>
     )
 }
