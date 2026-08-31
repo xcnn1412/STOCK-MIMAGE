@@ -124,6 +124,8 @@ export type ActionType =
     | 'UPDATE_JOB_DESIGN_STATUS'
     // ใบงานจบเอง — กราฟิก (design_status พร้อม) / หน้างาน (ปิดอีเวนต์จากการคืนกระเป๋า)
     | 'AUTO_FINISH_POOL_JOB'
+    // ใบงานหน้างานขยับเป็น "ออกหน้างาน" เอง เมื่อทีมเช็คอินหน้างานของอีเวนต์ที่ผูกงานนั้น
+    | 'AUTO_ONSITE_POOL_JOB'
     // จองกระเป๋าให้อีเวนต์ / ยกเลิกจอง / จัดกระเป๋าครบ (event_kits — ADR-0003)
     | 'BOOK_EVENT_KIT'
     | 'UNBOOK_EVENT_KIT'

@@ -4,8 +4,8 @@ import { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
-    Plus, Search, LayoutGrid, List, Tag, ChevronDown, AlertCircle,
-    Calendar, Palette, Wrench, Ticket as TicketIcon, Briefcase, AtSign
+    Plus, Search, LayoutGrid, List, AlertCircle,
+    Calendar, Ticket as TicketIcon, Briefcase, AtSign, Unlink
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,14 +13,15 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import {
-    DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
-    DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
 import { JobKanbanBoard } from './components/job-kanban-board'
 import { AddJobDialog } from './components/add-job-dialog'
 import { TicketKanbanBoard, getTicketStatuses, getTicketStatusConfig } from './components/ticket-kanban-board'
 import { AddTicketDialog } from './components/add-ticket-dialog'
+import {
+    bangkokToday, boardJobs, DEFAULT_DAY_CHIP, ONSITE_JOB_TYPE, sortFloating, splitFloating,
+    type DayChip,
+} from './board-logic'
+import { cn } from '@/lib/utils'
 import { useLocale } from '@/lib/i18n/context'
 import type { Job, JobSetting, JobType, Ticket } from './actions'
 
@@ -55,6 +56,13 @@ interface SystemUser {
     department: string | null
 }
 
+/** ชิปช่วงวันเหนือบอร์ดวันงาน — ค่าเริ่มต้น "7 วันนี้" */
+const DAY_CHIPS: { chip: DayChip; label: string; labelEn: string }[] = [
+    { chip: 'week7', label: '7 วันนี้', labelEn: 'Next 7 days' },
+    { chip: 'today', label: 'วันนี้', labelEn: 'Today' },
+    { chip: 'all', label: 'ทั้งหมด', labelEn: 'All' },
+]
+
 // ============================================================================
 // Main Dashboard Component
 // ============================================================================
@@ -78,58 +86,44 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
     const initialCat = searchParams.get('cat') || ticketCategories[0]?.value || ''
     const [boardMode, setBoardMode] = useState<'jobs' | 'tickets' | 'mentioned'>(initialTab)
     const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban')
-    const [pipelineTab, setPipelineTab] = useState<string>(jobTypes[0]?.value || 'graphic')
+    const [dayChip, setDayChip] = useState<DayChip>(DEFAULT_DAY_CHIP)
     const [ticketCategoryTab, setTicketCategoryTab] = useState<string>(initialCat)
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState<string>('all')
     const [assigneeFilter, setAssigneeFilter] = useState<string>('all')
-    const [tagFilter, setTagFilter] = useState<string[]>([])
     const [addDialogOpen, setAddDialogOpen] = useState(false)
     const [addTicketDialogOpen, setAddTicketDialogOpen] = useState(false)
 
-    const getSettingLabel = useCallback((setting: JobSetting) => {
-        return locale === 'th' ? setting.label_th : setting.label_en
-    }, [locale])
+    // ---- บอร์ดวันงาน (ใบงานหน้างานเท่านั้น) ----
+    // วันนี้ตามโซนเวลา Asia/Bangkok — คำนวณเหมือนกันทั้งฝั่ง server และ client จึงไม่มี hydration mismatch
+    const today = useMemo(() => bangkokToday(), [])
 
-    // ---- Jobs Mode State ----
-    const kanbanStatuses = useMemo(() => getStatusesFromSettings(settings, pipelineTab), [settings, pipelineTab])
+    const kanbanStatuses = useMemo(() => getStatusesFromSettings(settings, ONSITE_JOB_TYPE), [settings])
 
     const getStatusLabel = useCallback((status: string) => {
-        const cfg = getStatusConfig(settings, pipelineTab, status)
+        const cfg = getStatusConfig(settings, ONSITE_JOB_TYPE, status)
         return locale === 'th' ? cfg.labelTh : cfg.label
-    }, [settings, pipelineTab, locale])
+    }, [settings, locale])
 
     const handleViewModeChange = (mode: 'kanban' | 'table') => {
         setViewMode(mode)
     }
 
-    const pipelineJobs = useMemo(() => jobs.filter(j => j.job_type === pipelineTab), [jobs, pipelineTab])
+    /** ใบงานหน้างานในช่วงของชิปที่เลือก — ฐานของบอร์ดและการ์ดสรุป */
+    const pipelineJobs = useMemo(() => boardJobs(jobs, today, dayChip), [jobs, today, dayChip])
+
+    /** ใบงานลอย = ไม่ผูก CRM ทุกประเภทงาน ไม่กรองช่วงวัน/สถานะ */
+    const floatingJobs = useMemo(() => sortFloating(splitFloating(jobs).floating), [jobs])
 
     const assignedUsers = useMemo(() => {
         const ids = new Set(pipelineJobs.flatMap(j => j.assigned_to || []))
         return users.filter(u => ids.has(u.id))
     }, [pipelineJobs, users])
 
-    const availableTags = useMemo(() => {
-        return settings.filter(s => s.category === 'tag' && s.is_active)
-    }, [settings])
-
-    const toggleTag = useCallback((tagValue: string) => {
-        setTagFilter(prev =>
-            prev.includes(tagValue)
-                ? prev.filter(t => t !== tagValue)
-                : [...prev, tagValue]
-        )
-    }, [])
-
     const filteredJobs = useMemo(() => {
         return pipelineJobs.filter(job => {
             if (statusFilter !== 'all' && job.status !== statusFilter) return false
             if (assigneeFilter !== 'all' && !(job.assigned_to || []).includes(assigneeFilter)) return false
-            if (tagFilter.length > 0) {
-                const jobTags = job.tags || []
-                if (!tagFilter.every(t => jobTags.includes(t))) return false
-            }
             if (search) {
                 const q = search.toLowerCase()
                 if (!job.title.toLowerCase().includes(q) &&
@@ -138,7 +132,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
             }
             return true
         })
-    }, [pipelineJobs, statusFilter, assigneeFilter, tagFilter, search])
+    }, [pipelineJobs, statusFilter, assigneeFilter, search])
 
     const stats = useMemo(() => {
         const statusCounts = kanbanStatuses.reduce((acc, s) => {
@@ -148,8 +142,6 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
 
         return { statusCounts, total: pipelineJobs.length }
     }, [pipelineJobs, kanbanStatuses])
-
-    const currentJobType = jobTypes.find(jt => jt.value === pipelineTab)
 
     // ---- Ticket Mode State ----
     const ticketStatuses = useMemo(() => getTicketStatuses(settings), [settings])
@@ -188,7 +180,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                 <div>
                     <h1 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100">
                         {boardMode === 'jobs'
-                            ? (locale === 'th' ? 'งาน (Jobs)' : 'Jobs')
+                            ? (locale === 'th' ? 'บอร์ดวันงาน' : 'Day-of Board')
                             : boardMode === 'mentioned'
                                 ? (locale === 'th' ? 'ถูกแท็กถึงฉัน' : 'Mentions')
                                 : (locale === 'th' ? 'Ticket' : 'Tickets')
@@ -196,7 +188,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                     </h1>
                     <p className="text-sm text-zinc-500 dark:text-zinc-400">
                         {boardMode === 'jobs'
-                            ? (locale === 'th' ? 'จัดการงานทุกประเภท' : 'Manage all job types')
+                            ? (locale === 'th' ? 'ใบงานหน้างานช่วงวันจัดงาน' : 'On-site work orders around event day')
                             : boardMode === 'mentioned'
                                 ? (locale === 'th' ? 'Ticket ที่มีคน @ ถึงคุณ' : 'Tickets where you were @mentioned')
                                 : (locale === 'th' ? 'เปิดคำถามและคำร้อง' : 'Open questions and requests')
@@ -214,7 +206,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                                 }`}
                         >
                             <Briefcase className="h-4 w-4" />
-                            <span className="hidden sm:inline">Jobs</span>
+                            <span className="hidden sm:inline">{locale === 'th' ? 'บอร์ดวันงาน' : 'Day-of Board'}</span>
                         </button>
                         <button
                             onClick={() => { setBoardMode('tickets'); setStatusFilter('all'); setSearch(''); router.replace(`/jobs?tab=tickets&cat=${ticketCategoryTab}`, { scroll: false }) }}
@@ -274,27 +266,28 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
             {/* ============================================================ */}
             {boardMode === 'jobs' && (
                 <>
-                    {/* Pipeline Tabs — Dynamic */}
-                    <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1 max-w-full overflow-x-auto"
-                        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                    >
-                        {jobTypes.map(jt => (
-                            <button
-                                key={jt.value}
-                                onClick={() => { setPipelineTab(jt.value); setStatusFilter('all') }}
-                                className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all flex-1 justify-center whitespace-nowrap ${pipelineTab === jt.value
-                                    ? 'bg-white dark:bg-zinc-700 shadow-sm'
-                                    : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'
-                                    }`}
-                                style={pipelineTab === jt.value ? { color: jt.color || '#8b5cf6' } : undefined}
-                            >
-                                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: jt.color || '#9ca3af' }} />
-                                {locale === 'th' ? jt.label_th : jt.label_en}
-                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
-                                    {jobs.filter(j => j.job_type === jt.value).length}
-                                </Badge>
-                            </button>
-                        ))}
+                    {/* ชิปช่วงวัน — ค่าเริ่มต้น "7 วันนี้" */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {DAY_CHIPS.map(c => {
+                            const active = dayChip === c.chip
+                            const count = boardJobs(jobs, today, c.chip).length
+                            return (
+                                <button
+                                    key={c.chip}
+                                    type="button"
+                                    aria-pressed={active}
+                                    onClick={() => { setDayChip(c.chip); setStatusFilter('all') }}
+                                    className={cn(
+                                        'rounded-full px-3 py-1 text-sm',
+                                        active
+                                            ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                                            : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                    )}
+                                >
+                                    {locale === 'th' ? c.label : c.labelEn} {count}
+                                </button>
+                            )
+                        })}
                     </div>
 
                     {/* Summary Cards */}
@@ -302,7 +295,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                     >
                         {kanbanStatuses.map((status) => {
-                            const cfg = getStatusConfig(settings, pipelineTab, status)
+                            const cfg = getStatusConfig(settings, ONSITE_JOB_TYPE, status)
                             const count = stats.statusCounts[status] || 0
                             return (
                                 <div key={status} className="flex-shrink-0 w-[120px] sm:w-auto sm:flex-1 sm:min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 sm:p-5 snap-start">
@@ -368,7 +361,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                                     {kanbanStatuses.map(s => (
                                         <SelectItem key={s} value={s}>
                                             <span className="flex items-center gap-2">
-                                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getStatusConfig(settings, pipelineTab, s).color }} />
+                                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getStatusConfig(settings, ONSITE_JOB_TYPE, s).color }} />
                                                 {getStatusLabel(s)}
                                             </span>
                                         </SelectItem>
@@ -396,16 +389,24 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                                 jobs={filteredJobs}
                                 settings={settings}
                                 users={users}
-                                jobType={pipelineTab}
+                                jobType={ONSITE_JOB_TYPE}
                             />
                         </div>
                     ) : (
                         <JobTableView
                             jobs={filteredJobs}
                             settings={settings}
-                            jobType={pipelineTab}
+                            jobType={ONSITE_JOB_TYPE}
                         />
                     )}
+
+                    {/* แถบใบงานลอย — แยกจากบอร์ด */}
+                    <FloatingJobsStrip
+                        jobs={floatingJobs}
+                        settings={settings}
+                        jobTypes={jobTypes}
+                        onAdd={() => setAddDialogOpen(true)}
+                    />
 
                     {/* Add Job Dialog */}
                     <AddJobDialog
@@ -413,7 +414,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                         onOpenChange={setAddDialogOpen}
                         settings={settings}
                         users={users}
-                        defaultJobType={pipelineTab}
+                        defaultJobType={ONSITE_JOB_TYPE}
                         jobTypes={jobTypes}
                     />
                 </>
@@ -562,6 +563,88 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
     )
 }
 
+
+// ============================================================================
+// ใบงานลอย — ใบงานที่ไม่ผูก CRM (พูลงานมองไม่เห็นโดยดีไซน์) ทุกประเภทงาน
+// ============================================================================
+
+function FloatingJobsStrip({ jobs, settings, jobTypes, onAdd }: {
+    jobs: Job[]
+    settings: JobSetting[]
+    jobTypes: JobSetting[]
+    onAdd: () => void
+}) {
+    const { locale } = useLocale()
+
+    return (
+        <section className="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50/60 dark:bg-zinc-900/40 p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                    <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                        <Unlink className="h-4 w-4 text-zinc-400" />
+                        {locale === 'th' ? 'ใบงานลอย — ไม่ผูก CRM' : 'Standalone jobs — not linked to CRM'}
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{jobs.length}</Badge>
+                    </h2>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                        {locale === 'th'
+                            ? 'งานที่สร้างตรงในหน้านี้ ไม่ได้มาจาก CRM จึงไม่ขึ้นในพูลงาน'
+                            : 'Jobs created here, outside the CRM flow — they never appear in the job pool'}
+                    </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={onAdd} className="self-start sm:self-auto">
+                    <Plus className="h-4 w-4 mr-1.5" />
+                    {locale === 'th' ? 'เพิ่มงาน' : 'Add Job'}
+                </Button>
+            </div>
+
+            {jobs.length === 0 ? (
+                <p className="text-sm text-zinc-400 dark:text-zinc-500 py-4 text-center">
+                    {locale === 'th' ? 'ยังไม่มีใบงานลอย' : 'No standalone jobs'}
+                </p>
+            ) : (
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {jobs.map(job => {
+                        const statusCfg = getStatusConfig(settings, job.job_type, job.status)
+                        const typeCfg = jobTypes.find(jt => jt.value === job.job_type)
+                        return (
+                            <Link
+                                key={job.id}
+                                href={`/jobs/${job.id}`}
+                                className="block rounded-lg border border-zinc-200/70 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all"
+                            >
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate">
+                                            {job.title}
+                                        </div>
+                                        {job.customer_name && (
+                                            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">{job.customer_name}</p>
+                                        )}
+                                    </div>
+                                    <Badge className="border-0 text-[11px] shrink-0" style={{ backgroundColor: `${statusCfg.color}20`, color: statusCfg.color }}>
+                                        {locale === 'th' ? statusCfg.labelTh : statusCfg.label}
+                                    </Badge>
+                                </div>
+                                <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500 dark:text-zinc-400 flex-wrap">
+                                    {typeCfg && (
+                                        <span className="flex items-center gap-1">
+                                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: typeCfg.color || '#9ca3af' }} />
+                                            {locale === 'th' ? typeCfg.label_th : typeCfg.label_en}
+                                        </span>
+                                    )}
+                                    <span className="flex items-center gap-1">
+                                        <Calendar className="h-3 w-3" />
+                                        {job.event_date || (locale === 'th' ? 'ไม่ระบุวัน' : 'No date')}
+                                    </span>
+                                </div>
+                            </Link>
+                        )
+                    })}
+                </div>
+            )}
+        </section>
+    )
+}
 
 // ============================================================================
 // Table View

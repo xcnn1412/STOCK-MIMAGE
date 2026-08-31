@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { getSessionLight } from '@/lib/auth'
 import type { DutyInput } from '../salary/compute'
+import { ONSITE_ARRIVED_STATUS, ONSITE_JOB_TYPE, shouldAdvanceToOnsite } from '../jobs/board-logic'
 
 /**
  * ผู้ใช้ที่กำลังทำรายการ — คุกกี้ legacy ก่อน แล้วค่อยตกไปที่ session_token
@@ -118,6 +119,95 @@ async function uploadCheckinPhoto(
     console.error('Photo upload exception:', err)
     return null
   }
+}
+
+// ─── Auto-advance ใบงานหน้างานเมื่อทีมเช็คอินหน้างาน ──────
+//
+// ทีมเช็คอินหน้างาน = หลักฐานว่าออกหน้างานจริงแล้ว → ใบงานหน้างานของงานที่ผูก
+// อีเวนต์นั้นเลื่อนสถานะเป็น "ออกหน้างาน" เองบนบอร์ดวันงาน ไม่ต้องลากมือซ้ำ
+// (ขนของ/เก็บงานยังลากมือ — ไม่มีสัญญาณจริงให้เกาะ)
+//
+// รูปแบบเดียวกับ autoFinishOnsiteJobs ใน events/actions.ts:
+// — ไม่คืน error และไม่ throw ออกไป การเช็คอินสำเร็จไปแล้ว ห้ามล้มเพราะใบงาน
+// — อีเวนต์ที่ไม่ได้มาจากงาน CRM (crm_lead_id ว่าง) ข้ามเงียบๆ
+// — ทำซ้ำได้โดยธรรมชาติ: เช็คอินครั้งที่สองเจอสถานะเป็น "ออกหน้างาน" อยู่แล้วจึงไม่แตะ
+
+async function autoAdvanceOnsiteJobs(eventId: string, actorId: string) {
+  const supabase = createServiceClient()
+
+  const { data: event, error: eventErr } = await supabase
+    .from('events')
+    .select('crm_lead_id')
+    .eq('id', eventId)
+    .single()
+
+  if (eventErr) {
+    console.error('[check-in] auto-onsite: fetch event failed:', eventErr.message)
+    return
+  }
+  const leadId = (event?.crm_lead_id as string) ?? null
+  if (!leadId) return
+
+  // ลำดับสถานะของไปป์ไลน์หน้างาน — แอดมินแก้ชุด/ลำดับได้ใน /jobs/settings
+  // จึงต้องอ่านจาก job_settings ตอนรัน ไม่ hardcode (แบบเดียวกับ getPoolNextStatus)
+  const { data: statusRows, error: statusErr } = await supabase
+    .from('job_settings')
+    .select('value')
+    .eq('category', `status_${ONSITE_JOB_TYPE}`)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+
+  if (statusErr) {
+    console.error('[check-in] auto-onsite: fetch statuses failed:', statusErr.message)
+    return
+  }
+  const ordered = (statusRows || []).map(r => r.value as string).filter(Boolean)
+
+  const { data: jobs, error } = await supabase
+    .from('jobs')
+    .select('id, status')
+    .eq('crm_lead_id', leadId)
+    .eq('job_type', ONSITE_JOB_TYPE)
+
+  if (error) {
+    console.error('[check-in] auto-onsite: fetch jobs failed:', error.message)
+    return
+  }
+
+  for (const job of jobs || []) {
+    const oldStatus = (job.status as string) || ''
+    if (!shouldAdvanceToOnsite(oldStatus, ordered)) continue
+
+    const { error: updErr } = await supabase
+      .from('jobs')
+      .update({ status: ONSITE_ARRIVED_STATUS, updated_at: new Date().toISOString() })
+      .eq('id', job.id)
+    if (updErr) {
+      console.error('[check-in] auto-onsite: update failed:', updErr.message)
+      continue
+    }
+
+    // ไทม์ไลน์ของใบงาน (job_activities) แบบเดียวกับที่พูลงานบันทึกตอนรับ/คืน/ข้าม
+    await supabase.from('job_activities').insert({
+      job_id: job.id,
+      created_by: actorId,
+      activity_type: 'status_change',
+      description: 'ออกหน้างานอัตโนมัติ: ทีมเช็คอินหน้างานแล้ว',
+      old_status: oldStatus,
+      new_status: ONSITE_ARRIVED_STATUS,
+    })
+    await logActivity('AUTO_ONSITE_POOL_JOB', {
+      jobId: job.id,
+      jobType: ONSITE_JOB_TYPE,
+      leadId,
+      eventId,
+      oldStatus,
+    })
+    revalidatePath(`/jobs/${job.id}`)
+  }
+
+  revalidatePath('/jobs')
+  revalidatePath('/jobs/tracking')
 }
 
 // ─── Quick Check-in (ตัวเอง วันนี้) ───────────────────────
@@ -243,6 +333,16 @@ export async function checkIn(formData: FormData) {
 
     if (Object.keys(postUpdates).length > 0) {
       await supabase.from('staff_checkins').update(postUpdates).eq('id', inserted.id)
+    }
+  }
+
+  // เช็คอินหน้างานแล้ว → ใบงานหน้างานของงานที่ผูกอีเวนต์นี้ขยับเป็น "ออกหน้างาน" เอง
+  // จงใจไม่ให้ล้มการเช็คอิน: เช็คอินบันทึกสำเร็จไปแล้ว ใบงานพลาดก็แค่ขึ้น console
+  if (checkType === 'onsite' && eventId) {
+    try {
+      await autoAdvanceOnsiteJobs(eventId, userId)
+    } catch (e) {
+      console.error('[check-in] auto-onsite jobs threw:', e)
     }
   }
 

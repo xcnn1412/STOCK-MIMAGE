@@ -27,7 +27,7 @@ const ALL_TABS: TabMeta[] = [
 
 const labels: Record<'en' | 'th', Record<TabKey, string>> = {
   en: {
-    board: 'Board',
+    board: 'Day-of Board',
     tracking: 'Tracking',
     myJob: 'My Job',
     adminJob: 'Admin Job',
@@ -36,7 +36,7 @@ const labels: Record<'en' | 'th', Record<TabKey, string>> = {
     settings: 'Settings',
   },
   th: {
-    board: 'Board',
+    board: 'บอร์ดวันงาน',
     tracking: 'ติดตามงาน',
     myJob: 'งานของฉัน',
     adminJob: 'Admin Job',

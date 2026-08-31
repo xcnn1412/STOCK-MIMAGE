@@ -904,7 +904,17 @@ export default function PoolTabs({
                             <div className="min-w-0">
                                 <LeadHeader lead={lead} title={job.title} today={today} />
                             </div>
-                            <StatusBadge job={job} statusLabels={statusLabels} />
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                                <StatusBadge job={job} statusLabels={statusLabels} />
+                                {/* คอมเมนต์/@mention อยู่ในหน้าใบงาน ไม่ได้อยู่ในพูล — ให้ทางกระโดดไปคุยงาน */}
+                                <Link
+                                    href={`/jobs/${job.id}`}
+                                    title="คุยงาน/คอมเมนต์ในหน้าใบงาน"
+                                    className="whitespace-nowrap text-xs text-zinc-500 hover:text-zinc-900 hover:underline dark:hover:text-zinc-100"
+                                >
+                                    เปิดหน้าใบงาน ↗
+                                </Link>
+                            </div>
                         </div>
 
                         <ClaimerLine job={job} kind={kind} people={people} />
