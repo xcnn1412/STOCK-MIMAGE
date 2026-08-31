@@ -92,7 +92,7 @@ CRM leads can spawn Events (`crm_lead_id` FK) and Jobs (`CREATE_JOBS_FROM_LEAD`)
 
 ### Database conventions
 
-Supabase types are generated to `types/database.types.ts` and re-exported from `types/index.ts`. The repo accumulates **two flavors of SQL files**: ad-hoc patches at the repo root (`add_*.sql`, `create_*.sql`, `update_*.sql` — historical) and proper migrations in `supabase/migrations/` (datestamped, current convention). New schema changes go in `supabase/migrations/` only; the root-level SQL files are kept for reference.
+Supabase types are generated to `types/database.types.ts` and re-exported from `types/index.ts`. The repo accumulates **two flavors of SQL files**: ad-hoc patches archived in `docs/legacy-sql/` (`add_*.sql`, `create_*.sql`, `update_*.sql` — historical) and proper migrations in `supabase/migrations/` (datestamped, current convention). New schema changes go in `supabase/migrations/` only; the legacy SQL files are kept in `docs/legacy-sql/` for reference.
 
 ### What's New (/whats-new)
 
@@ -107,7 +107,7 @@ Supabase types are generated to `types/database.types.ts` and re-exported from `
 
 ### Module-specific design docs
 
-Several module-level design/spec markdowns live at the repo root (`Finance.md`, `KPI.md`, `job.md`, `jobs.md`, `notification.md`, `ACCESS_CONTROL.md`, `SECURITY_REPORT.md`, `PROJECT_ANALYSIS.md`). They are not part of the build; treat them as the closest thing to per-module requirements docs when changing those modules.
+Several module-level design/spec markdowns live in `docs/` (`Finance.md`, `KPI.md`, `job.md`, `jobs.md`, `notification.md`, `ACCESS_CONTROL.md`, `SECURITY_REPORT.md`, `PROJECT_ANALYSIS.md`). They are not part of the build; treat them as the closest thing to per-module requirements docs when changing those modules.
 
 ### Security headers
 
