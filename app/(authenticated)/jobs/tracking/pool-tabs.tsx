@@ -120,21 +120,28 @@ export function ClaimButton({ busy, title, onClick, children = 'รับงา�
     children?: ReactNode
 }) {
     return (
-        <button
-            type="button"
-            disabled={busy}
-            title={title}
-            onClick={onClick}
-            className="group relative inline-flex h-7 shrink-0 items-center gap-1 overflow-hidden rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-500 to-sky-500 px-3 text-xs font-semibold text-white shadow-sm shadow-fuchsia-500/30 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-fuchsia-500/40 active:translate-y-0 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
-        >
-            <Zap className="h-3.5 w-3.5 transition-transform duration-150 group-hover:rotate-12 group-hover:scale-125" aria-hidden />
-            {children}
-            {/* แสงกวาดผ่านปุ่มตอน hover */}
+        <span className="relative inline-flex shrink-0">
+            {/* วงแสงแดงหายใจอยู่หลังปุ่ม — เรียกสายตาแบบไม่แสบตา */}
             <span
                 aria-hidden
-                className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-500 group-hover:translate-x-full"
+                className="pointer-events-none absolute -inset-0.5 rounded-full bg-gradient-to-r from-rose-500 to-orange-400 opacity-40 blur-[6px] animate-pulse"
             />
-        </button>
+            <button
+                type="button"
+                disabled={busy}
+                title={title}
+                onClick={onClick}
+                className="group relative inline-flex h-7 items-center gap-1 overflow-hidden rounded-full bg-gradient-to-r from-rose-600 via-red-500 to-orange-500 px-3 text-xs font-semibold text-white shadow-sm shadow-red-500/40 ring-1 ring-inset ring-white/20 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-red-500/50 hover:brightness-110 active:translate-y-0 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+            >
+                <Zap className="h-3.5 w-3.5 transition-transform duration-150 group-hover:rotate-12 group-hover:scale-125" aria-hidden />
+                {children}
+                {/* แสงกวาดผ่านปุ่มตอน hover */}
+                <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/40 to-transparent transition-transform duration-500 group-hover:translate-x-full"
+                />
+            </button>
+        </span>
     )
 }
 
