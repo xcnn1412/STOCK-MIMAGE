@@ -98,6 +98,59 @@ function ClaimerLine({ job, kind, people }: { job: PoolJob; kind: PoolKind; peop
 }
 
 /**
+ * ชิปรับงานแบบกะทัดรัดสำหรับตารางภาพรวม — หนึ่งชิปต่อหนึ่งใบงาน
+ * รอรับ = ปุ่มรับงาน / รับแล้ว = ชื่อผู้รับ / ข้าม-เสร็จ = สถานะจาง
+ * สิทธิ์จริงถูกบังคับใน claimPoolJob ฝั่ง server (คนผิดฝ่ายกดได้แต่จะเจอ error ภาษาไทย)
+ */
+export function ClaimChip({
+    job,
+    people,
+    currentUserId,
+}: {
+    job: PoolJob | undefined
+    people: Person[]
+    currentUserId: string | null
+}) {
+    const [busy, setBusy] = useState(false)
+
+    if (!job) return <span className="text-xs text-zinc-400">ยังไม่มีใบงาน</span>
+    if (job.status === 'skipped') return <span className="text-xs text-zinc-400">ข้าม</span>
+
+    if (job.status === 'awaiting_claim') {
+        return (
+            <Button
+                size="sm"
+                className="h-6 px-2 text-xs"
+                disabled={busy}
+                onClick={async () => {
+                    setBusy(true)
+                    try {
+                        const res = (await claimPoolJob(job.id)) as { error?: string } | undefined
+                        if (res?.error) toast.error(res.error)
+                        else toast.success('รับงานแล้ว')
+                    } finally {
+                        setBusy(false)
+                    }
+                }}
+            >
+                รับงาน
+            </Button>
+        )
+    }
+
+    const claimer = job.claimed_by ? nameOf(job.claimed_by, people) : null
+    const done = job.status === 'done'
+    return (
+        <span className={cn('inline-flex items-center gap-1 text-xs', done ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-600 dark:text-zinc-300')}>
+            <span aria-hidden>✓</span>
+            {done ? 'เสร็จ' : claimer ?? 'รับแล้ว'}
+            {done && claimer && <span className="text-zinc-400">· {claimer}</span>}
+            {!done && currentUserId && job.claimed_by === currentUserId && <span className="text-zinc-400">(ฉัน)</span>}
+        </span>
+    )
+}
+
+/**
  * ปุ่มของใบงานหนึ่งใบ — รับงาน / คืนงาน / ข้ามใบงาน / เปลี่ยนคนรับ
  * ปุ่มที่แสดงเป็นแค่การซ่อนตามบทบาท สิทธิ์จริงถูกบังคับใน server action อีกชั้น
  */
