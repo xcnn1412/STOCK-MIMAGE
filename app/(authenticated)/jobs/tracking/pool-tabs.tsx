@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Briefcase, RotateCcw, UserRound, Users } from 'lucide-react'
+import { Briefcase, RotateCcw, UserRound, Users, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { bookKitForLead, claimLeadDuty, claimPoolJob, releaseLeadDuty, releasePoolJob, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
 import { DESIGN_OPTIONS } from './design-options'
@@ -110,6 +110,35 @@ function ClaimerLine({ job, kind, people }: { job: PoolJob; kind: PoolKind; peop
 }
 
 /**
+ * ปุ่ม "รับงาน" หน้าตาเดียวกันทุกจุด (ภาพรวม / หน้าที่ / การ์ดใบงาน)
+ * ไล่เฉดม่วง→ฟ้า + เงาเรือง + แสงกวาดตอน hover — ปุ่มเดียวในหน้าที่จงใจให้สะดุดตาชวนกด
+ */
+export function ClaimButton({ busy, title, onClick, children = 'รับงาน' }: {
+    busy?: boolean
+    title?: string
+    onClick: () => void | Promise<unknown>
+    children?: ReactNode
+}) {
+    return (
+        <button
+            type="button"
+            disabled={busy}
+            title={title}
+            onClick={onClick}
+            className="group relative inline-flex h-7 shrink-0 items-center gap-1 overflow-hidden rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-500 to-sky-500 px-3 text-xs font-semibold text-white shadow-sm shadow-fuchsia-500/30 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-fuchsia-500/40 active:translate-y-0 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+        >
+            <Zap className="h-3.5 w-3.5 transition-transform duration-150 group-hover:rotate-12 group-hover:scale-125" aria-hidden />
+            {children}
+            {/* แสงกวาดผ่านปุ่มตอน hover */}
+            <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-500 group-hover:translate-x-full"
+            />
+        </button>
+    )
+}
+
+/**
  * ชิปรับงานแบบกะทัดรัดสำหรับตารางภาพรวม — หนึ่งชิปต่อหนึ่งใบงาน
  * รอรับ = ปุ่มรับงาน / รับแล้ว = ชื่อผู้รับ / ข้าม-เสร็จ = สถานะจาง
  * สิทธิ์จริงถูกบังคับใน claimPoolJob ฝั่ง server (คนผิดฝ่ายกดได้แต่จะเจอ error ภาษาไทย)
@@ -130,10 +159,8 @@ export function ClaimChip({
 
     if (job.status === 'awaiting_claim') {
         return (
-            <Button
-                size="sm"
-                className="h-6 px-2 text-xs"
-                disabled={busy}
+            <ClaimButton
+                busy={busy}
                 onClick={async () => {
                     setBusy(true)
                     try {
@@ -144,9 +171,7 @@ export function ClaimChip({
                         setBusy(false)
                     }
                 }}
-            >
-                รับงาน
-            </Button>
+            />
         )
     }
 
@@ -241,10 +266,8 @@ export function DutyGate({
         return (
             <div className="space-y-1">
                 {summary}
-                <Button
-                    size="sm"
-                    className="h-6 px-2 text-xs"
-                    disabled={busy}
+                <ClaimButton
+                    busy={busy}
                     title={`รับหน้าที่${label}ของงานนี้`}
                     onClick={async () => {
                         setBusy(true)
@@ -256,9 +279,7 @@ export function DutyGate({
                             setBusy(false)
                         }
                     }}
-                >
-                    รับงาน
-                </Button>
+                />
             </div>
         )
     }
@@ -342,9 +363,7 @@ function PoolCardActions({
     return (
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
             {isAwaiting && (
-                <Button size="sm" disabled={busy} onClick={() => run(() => claimPoolJob(job.id), 'รับงานแล้ว')}>
-                    รับงาน
-                </Button>
+                <ClaimButton busy={busy} onClick={() => run(() => claimPoolJob(job.id), 'รับงานแล้ว')} />
             )}
             {!isAwaiting && isMine && (
                 <Button
