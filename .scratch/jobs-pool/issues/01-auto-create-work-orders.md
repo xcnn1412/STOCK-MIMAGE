@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (2026-08-31)
 
-- [ ] เปลี่ยน lead เป็น accepted แล้วมี jobs 2 แถว (graphic + onsite) สถานะ "รอรับงาน" เกิดขึ้น โดยไม่ต้องกดปุ่มส่งต่องาน
-- [ ] เปลี่ยนสถานะ lead เดิมไปมา (accepted → อื่น → accepted) ไม่สร้างใบงานซ้ำ
-- [ ] สมาชิกแผนกฝ่ายนั้นมีแถวใหม่ใน notifications (ไม่แจ้งคนกดเอง)
-- [ ] สถานะ "รอรับงาน" ถูก seed เป็นสถานะแรกสุด (sort_order ต่ำสุด) ของทั้ง status_graphic และ status_onsite ผ่าน migration ใน supabase/migrations/
-- [ ] มี ActionType ใหม่ + logActivity สำหรับการสร้างอัตโนมัติ
-- [ ] `npx tsc --noEmit` ผ่าน
+- [x] เปลี่ยน lead เป็น accepted แล้วมี jobs 2 แถว (graphic + onsite) สถานะ "รอรับงาน" เกิดขึ้น โดยไม่ต้องกดปุ่มส่งต่องาน
+- [x] เปลี่ยนสถานะ lead เดิมไปมา (accepted → อื่น → accepted) ไม่สร้างใบงานซ้ำ
+- [x] สมาชิกแผนกฝ่ายนั้นมีแถวใหม่ใน notifications (ไม่แจ้งคนกดเอง)
+- [x] สถานะ "รอรับงาน" ถูก seed เป็นสถานะแรกสุด (sort_order ต่ำสุด) ของทั้ง status_graphic และ status_onsite ผ่าน migration ใน supabase/migrations/
+- [x] มี ActionType ใหม่ + logActivity สำหรับการสร้างอัตโนมัติ
+- [x] `npx tsc --noEmit` ผ่าน (7 error เดิมของ repo อยู่ในไฟล์ที่ไม่เกี่ยว)

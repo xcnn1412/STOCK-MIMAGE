@@ -108,6 +108,7 @@ export type ActionType =
     | 'UPDATE_JOB_SETTING'
     | 'DELETE_JOB_SETTING'
     | 'CREATE_JOBS_FROM_LEAD'
+    | 'AUTO_CREATE_JOBS_FROM_LEAD'
     | 'UPDATE_JOB_TAGS'
     // Ticket Module
     | 'CREATE_TICKET'

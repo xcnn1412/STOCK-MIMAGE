@@ -661,6 +661,98 @@ export async function createJobsFromLead(leadId: string) {
     return { success: true, jobs: jobs || [] }
 }
 
+// ============================================================================
+// พูลงาน — ทีมที่รับใบงานแต่ละประเภท + แจ้งเตือน "ใบงานใหม่เข้าพูล"
+// ============================================================================
+
+type PoolJobType = 'graphic' | 'onsite'
+
+// ทีม = แผนก (profiles.department) ตั้งค่าได้ราย category ใน job_settings
+// (UI ตั้งค่าอยู่ในหน้า /jobs/settings — คนละ ticket) ยังไม่มีแถวตั้งค่า = ใช้ค่าเริ่มต้นนี้
+// เพื่อให้ระบบใช้งานได้ทันทีก่อนแอดมินเข้าไปตั้งค่า
+const POOL_TEAM_CATEGORY: Record<PoolJobType, string> = {
+    graphic: 'pool_team_graphic',
+    onsite: 'pool_team_onsite',
+}
+
+const POOL_TEAM_DEFAULT_DEPARTMENTS: Record<PoolJobType, string[]> = {
+    graphic: ['ฝ่ายออกแบบ'],
+    onsite: ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง'],
+}
+
+async function getPoolTeamDepartments(jobType: PoolJobType): Promise<string[]> {
+    const supabase = createServiceClient()
+    const { data } = await supabase
+        .from('job_settings')
+        .select('value')
+        .eq('category', POOL_TEAM_CATEGORY[jobType])
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+
+    const departments = (data || []).map(r => r.value as string).filter(Boolean)
+    return departments.length > 0 ? departments : POOL_TEAM_DEFAULT_DEPARTMENTS[jobType]
+}
+
+// แจ้งเตือนสมาชิกแผนกของฝ่ายนั้นว่ามีใบงานใหม่เข้าพูล (createNotifications ตัดตัวผู้กดเองออกให้แล้ว)
+async function notifyPoolNewJob(
+    job: { id: string; job_type: string; title: string },
+    actorId: string
+) {
+    const jobType: PoolJobType = job.job_type === 'graphic' ? 'graphic' : 'onsite'
+    const departments = await getPoolTeamDepartments(jobType)
+    if (departments.length === 0) return
+
+    const supabase = createServiceClient()
+    const { data: members } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('is_approved', true)
+        .in('department', departments)
+
+    await createNotifications({
+        userIds: (members || []).map(m => m.id as string),
+        type: 'job_pool_new',
+        title: `ใบงานใหม่เข้าพูล: ${job.title}`,
+        body: jobType === 'graphic'
+            ? 'ใบงานกราฟิก — กดรับงานได้จากพูลงาน'
+            : 'ใบงานหน้างาน — กดรับงานได้จากพูลงาน',
+        referenceType: 'job',
+        referenceId: job.id,
+        actorId,
+    })
+}
+
+// สร้างใบงานอัตโนมัติเมื่อการ์ด CRM เปลี่ยนเป็น "ตอบรับ" — เรียกจาก updateLeadStatus
+// กันสร้างซ้ำ: งานที่มีใบงานอยู่แล้วจะข้าม (สลับสถานะ accepted → อื่น → accepted ไม่เกิดใบงานผี)
+export async function autoCreateJobsFromAcceptedLead(leadId: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    const { data: existing, error: existingErr } = await supabase
+        .from('jobs')
+        .select('id')
+        .eq('crm_lead_id', leadId)
+        .limit(1)
+
+    if (existingErr) return { error: existingErr.message }
+    if (existing && existing.length > 0) return { success: true, created: false }
+
+    const result = await createJobsFromLead(leadId)
+    if ('error' in result) return { error: result.error }
+
+    const jobs = (result.jobs || []) as { id: string; job_type: string; title: string }[]
+    for (const job of jobs) {
+        await notifyPoolNewJob(job, userId)
+    }
+
+    await logActivity('AUTO_CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs.map(j => j.id) })
+    revalidatePath('/jobs')
+    revalidatePath('/jobs/tracking')
+    return { success: true, created: true }
+}
+
 // Get jobs linked to a CRM lead
 export async function getJobsByLeadId(leadId: string) {
     const supabase = createServiceClient()
