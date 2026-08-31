@@ -579,10 +579,23 @@ export async function createJobActivity(jobId: string, formData: FormData) {
 // Create Jobs from CRM Lead — ส่งต่องานจาก CRM
 // ============================================================================
 
-export async function createJobsFromLead(leadId: string) {
-    const { userId } = await getSession()
-    if (!userId) return { error: 'Unauthorized' }
+/** ประเภทใบงานที่แตกออกจากการ์ด CRM ได้ */
+type LeadJobType = 'graphic' | 'onsite'
 
+const LEAD_JOB_LABEL_TH: Record<LeadJobType, string> = {
+    graphic: 'กราฟฟิก',
+    onsite: 'ออกหน้างาน',
+}
+
+type CreatedJobRow = { id: string; job_type: string; title: string }
+
+/**
+ * สร้างใบงานของ lead เฉพาะ "ประเภทที่ยังไม่มี" — ตัวกันสร้างซ้ำแยกรายประเภท
+ * (งานที่มีใบงานหน้างานแล้วยังเปิดใบงานกราฟิกทีหลังได้ และกลับกัน)
+ * ใบที่สร้างเข้าพูลด้วยสถานะ "รอรับงาน" + แจ้งทีมของฝ่ายนั้นจากที่นี่ที่เดียว
+ * ผู้เรียกเป็นคน logActivity / revalidatePath เอง (แต่ละทางเข้าใช้ ActionType คนละตัว)
+ */
+async function createLeadJobs(leadId: string, types: LeadJobType[], userId: string, activityText?: string) {
     const supabase = createServiceClient()
 
     // Get lead data
@@ -594,25 +607,30 @@ export async function createJobsFromLead(leadId: string) {
 
     if (leadErr || !lead) return { error: 'ไม่พบข้อมูล Lead' }
 
-    // Get default first status for each pipeline
-    const { data: graphicStatuses } = await supabase
-        .from('job_settings')
-        .select('value')
-        .eq('category', 'status_graphic')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true })
-        .limit(1)
+    // dedupe รายประเภท: ประเภทที่มีใบงานของ lead นี้อยู่แล้วจะถูกข้าม
+    const { data: existing, error: existingErr } = await supabase
+        .from('jobs')
+        .select('job_type')
+        .eq('crm_lead_id', leadId)
 
-    const { data: onsiteStatuses } = await supabase
-        .from('job_settings')
-        .select('value')
-        .eq('category', 'status_onsite')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true })
-        .limit(1)
+    if (existingErr) return { error: existingErr.message }
 
-    const graphicStatus = graphicStatuses?.[0]?.value || 'pending'
-    const onsiteStatus = onsiteStatuses?.[0]?.value || 'preparing'
+    const already = new Set((existing || []).map(r => r.job_type as string))
+    const wanted = types.filter(t => !already.has(t))
+    const skipped = types.filter(t => already.has(t))
+    if (wanted.length === 0) return { success: true as const, jobs: [] as CreatedJobRow[], skipped }
+
+    // Get default first status for each pipeline (แถว is_active ที่ sort_order ต่ำสุด = "รอรับงาน")
+    const firstStatus = async (category: string, fallback: string) => {
+        const { data } = await supabase
+            .from('job_settings')
+            .select('value')
+            .eq('category', category)
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true })
+            .limit(1)
+        return (data?.[0]?.value as string) || fallback
+    }
 
     const baseJob = {
         crm_lead_id: leadId,
@@ -629,28 +647,30 @@ export async function createJobsFromLead(leadId: string) {
         tags: [] as string[],
     }
 
-    // Create graphic job with assigned_graphics from lead
-    const graphicJob = {
-        ...baseJob,
-        job_type: 'graphic',
-        status: graphicStatus,
-        assigned_to: lead.assigned_graphics || [],
-        assigned_graphics: lead.assigned_graphics || [],
+    const rows = []
+    for (const type of wanted) {
+        if (type === 'graphic') {
+            // Create graphic job with assigned_graphics from lead
+            rows.push({
+                ...baseJob,
+                job_type: 'graphic',
+                status: await firstStatus('status_graphic', 'pending'),
+                assigned_to: lead.assigned_graphics || [],
+                assigned_graphics: lead.assigned_graphics || [],
+            })
+        } else {
+            // Create onsite job with assigned_staff from lead
+            rows.push({
+                ...baseJob,
+                job_type: 'onsite',
+                status: await firstStatus('status_onsite', 'preparing'),
+                assigned_to: lead.assigned_staff || [],
+                assigned_staff: lead.assigned_staff || [],
+            })
+        }
     }
 
-    // Create onsite job with assigned_staff from lead
-    const onsiteJob = {
-        ...baseJob,
-        job_type: 'onsite',
-        status: onsiteStatus,
-        assigned_to: lead.assigned_staff || [],
-        assigned_staff: lead.assigned_staff || [],
-    }
-
-    const { data: jobs, error: insertErr } = await supabase
-        .from('jobs')
-        .insert([graphicJob, onsiteJob])
-        .select()
+    const { data: jobs, error: insertErr } = await supabase.from('jobs').insert(rows).select()
 
     if (insertErr) return { error: insertErr.message }
 
@@ -659,20 +679,63 @@ export async function createJobsFromLead(leadId: string) {
         lead_id: leadId,
         created_by: userId,
         activity_type: 'note',
-        description: `ส่งต่องานแล้ว: กราฟฟิก + ออกหน้างาน`,
+        description: activityText ?? `ส่งต่องานแล้ว: ${wanted.map(t => LEAD_JOB_LABEL_TH[t]).join(' + ')}`,
     })
 
-    // ใบงานที่สร้างเข้าพูลด้วยสถานะ "รอรับงาน" ทันที — แจ้งทีมของฝ่ายนั้นจากตรงนี้ที่เดียว
-    // (ทั้งทางส่งต่อเองจากการ์ด CRM และทางอัตโนมัติตอนลูกค้าตอบรับ จึงไม่มีทางแจ้งซ้ำ)
-    for (const job of (jobs || []) as { id: string; job_type: string; title: string }[]) {
+    const created = (jobs || []) as CreatedJobRow[]
+    for (const job of created) {
         await notifyPoolNewJob(job, userId)
     }
 
-    await logActivity('CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs?.map(j => j.id) })
+    return { success: true as const, jobs: created, skipped }
+}
+
+/**
+ * ปุ่ม "ส่งต่องาน" บนการ์ด CRM — เติมใบงานประเภทที่ยังไม่มีให้ครบ (ไม่สร้างซ้ำประเภทที่มีแล้ว)
+ */
+export async function createJobsFromLead(leadId: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const result = await createLeadJobs(leadId, ['graphic', 'onsite'], userId)
+    if ('error' in result) return { error: result.error }
+
+    await logActivity('CREATE_JOBS_FROM_LEAD', { leadId, jobIds: result.jobs.map(j => j.id) })
     revalidatePath('/jobs')
+    revalidatePath('/jobs/tracking')
     revalidatePath('/crm')
     revalidatePath(`/crm/${leadId}`)
-    return { success: true, jobs: jobs || [] }
+    return { success: true, jobs: result.jobs, skipped: result.skipped }
+}
+
+/**
+ * เปิดใบงานกราฟิกเองจากการ์ด CRM — ใบงานกราฟิกไม่เกิดอัตโนมัติตอนตอบรับแล้ว
+ * (งานที่ลูกค้าออกแบบเองจะได้ไม่มีใบงานกราฟิกที่ต้องตามไปกด "ข้าม" ทีหลัง)
+ */
+export async function openGraphicJob(leadId: string) {
+    const auth = await requireAuth()
+    if (!auth) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+
+    const supabase = createServiceClient()
+    const { data: lead } = await supabase
+        .from('crm_leads')
+        .select('id, status')
+        .eq('id', leadId)
+        .single()
+
+    if (!lead) return { error: 'ไม่พบข้อมูล Lead' }
+    if (lead.status !== 'accepted') return { error: 'เปิดใบงานกราฟิกได้เมื่องานตอบรับแล้วเท่านั้น' }
+
+    const result = await createLeadJobs(leadId, ['graphic'], auth.userId, 'เปิดใบงานกราฟิกแล้ว — เข้าพูลรอรับงาน')
+    if ('error' in result) return { error: result.error }
+    if (result.jobs.length === 0) return { error: 'งานนี้มีใบงานกราฟิกแล้ว' }
+
+    await logActivity('OPEN_GRAPHIC_JOB', { leadId, jobId: result.jobs[0].id })
+    revalidatePath('/jobs')
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/crm')
+    revalidatePath(`/crm/${leadId}`)
+    return { success: true, job: result.jobs[0] }
 }
 
 // ============================================================================
@@ -787,29 +850,18 @@ async function notifyPoolNewJob(
 }
 
 // สร้างใบงานอัตโนมัติเมื่อการ์ด CRM เปลี่ยนเป็น "ตอบรับ" — เรียกจาก updateLeadStatus
-// กันสร้างซ้ำ: งานที่มีใบงานอยู่แล้วจะข้าม (สลับสถานะ accepted → อื่น → accepted ไม่เกิดใบงานผี)
+// สร้างเฉพาะ "ใบงานหน้างาน" — ใบงานกราฟิกเปิดเองจากปุ่มบนการ์ด CRM (openGraphicJob)
+// กันสร้างซ้ำรายประเภท: มีใบงานหน้างานแล้วจะข้าม (สลับสถานะ accepted → อื่น → accepted ไม่เกิดใบงานผี)
 export async function autoCreateJobsFromAcceptedLead(leadId: string) {
     const { userId } = await getSession()
     if (!userId) return { error: 'Unauthorized' }
 
-    const supabase = createServiceClient()
-
-    const { data: existing, error: existingErr } = await supabase
-        .from('jobs')
-        .select('id')
-        .eq('crm_lead_id', leadId)
-        .limit(1)
-
-    if (existingErr) return { error: existingErr.message }
-    if (existing && existing.length > 0) return { success: true, created: false }
-
-    const result = await createJobsFromLead(leadId)
+    const result = await createLeadJobs(leadId, ['onsite'], userId)
     if ('error' in result) return { error: result.error }
+    if (result.jobs.length === 0) return { success: true, created: false }
 
-    // แจ้งเตือน "ใบงานใหม่เข้าพูล" ยิงจาก createJobsFromLead แล้ว — ที่นี่เหลือแค่บันทึกว่ามาทางอัตโนมัติ
-    const jobs = (result.jobs || []) as { id: string; job_type: string; title: string }[]
-
-    await logActivity('AUTO_CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs.map(j => j.id) })
+    // แจ้งเตือน "ใบงานใหม่เข้าพูล" ยิงจาก createLeadJobs แล้ว — ที่นี่เหลือแค่บันทึกว่ามาทางอัตโนมัติ
+    await logActivity('AUTO_CREATE_JOBS_FROM_LEAD', { leadId, jobIds: result.jobs.map(j => j.id) })
     revalidatePath('/jobs')
     revalidatePath('/jobs/tracking')
     return { success: true, created: true }

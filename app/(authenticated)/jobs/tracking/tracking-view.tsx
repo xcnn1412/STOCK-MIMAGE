@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Pencil } from 'lucide-react'
+import { AlertTriangle, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { assignLeadStaff, updateLeadTracking } from '../actions'
 import {
@@ -19,6 +19,7 @@ import {
     inChip,
     chipCounts,
     getMissing,
+    designCellState,
     hasRequiredRoles,
     missingLabel,
     isUrgent,
@@ -174,6 +175,23 @@ function DesignCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
                 ))}
             </SelectContent>
         </Select>
+    )
+}
+
+/** งานที่ยังไม่มีใบงานกราฟิก — กันงานเงียบหายเพราะลืมเปิด (เปิดจากการ์ด CRM) */
+function NotOpenedPill({ leadId }: { leadId: string }) {
+    return (
+        <Link
+            href={`/crm/${leadId}`}
+            title="เปิดใบงานกราฟิกได้จากหน้าการ์ด CRM"
+            className={cn(
+                PILL,
+                'items-center gap-1 border border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200',
+                'dark:border-amber-900 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/60'
+            )}
+        >
+            <AlertTriangle className="h-3 w-3" /> ยังไม่เปิดใบงาน
+        </Link>
     )
 }
 
@@ -458,18 +476,21 @@ export default function TrackingView({
         jobsByLead.set(j.crm_lead_id, entry)
     }
 
-    // คอลัมน์ "ออกแบบ" ถูกล็อกจนกว่าจะมีคนกดรับใบงานกราฟิกของงานนั้น
-    // งานเก่าที่ยังไม่มีใบงาน = ไม่ล็อก (backward compat) — สิทธิ์แผนก/แอดมินบังคับใน claimPoolJob ฝั่ง server
-    // showRelease: โชว์ปุ่ม "คืนเป็นรอรับงาน" ใต้ตัวแก้ไข
-    const gate = (job: (typeof jobs)[number] | undefined, children: ReactNode, showRelease = false) =>
-        job && job.status === 'awaiting_claim'
-            ? <ClaimChip job={job} people={people} currentUserId={currentUserId} />
-            : (
-                <div className="space-y-1">
-                    {children}
-                    {showRelease && <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} />}
-                </div>
-            )
+    // คอลัมน์ "ออกแบบ" ไล่เป็นขั้น: ยังไม่เปิดใบงาน (ป้ายเตือน) → รอรับงาน (ปุ่มรับ) → ตัวแก้สถานะออกแบบ
+    // งานที่ยังไม่มีใบงานกราฟิก (รวมงานเก่าก่อนยุคพูล) ไม่ได้ตัวแก้ไข แต่ชี้ไปเปิดใบงานที่การ์ด CRM
+    // สิทธิ์แผนก/แอดมินบังคับใน claimPoolJob ฝั่ง server · หน้าที่เตรียมงานใช้ dutyGate ตามเดิม
+    const designGate = (lead: TrackingLead) => {
+        const job = jobsByLead.get(lead.id)?.graphic
+        const state = designCellState(job)
+        if (state === 'not_opened') return <NotOpenedPill leadId={lead.id} />
+        if (state === 'awaiting') return <ClaimChip job={job!} people={people} currentUserId={currentUserId} />
+        return (
+            <div className="space-y-1">
+                <DesignCell lead={lead} save={save} />
+                <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} />
+            </div>
+        )
+    }
 
     // หน้าที่เตรียมงาน: จัดคน/จัดรถ/กระเป๋า ถูกล็อกจนกว่าจะมีคนกดรับ "หน้าที่นั้น" — รับแยกกันคนละหน้าที่
     // ไม่ผูกกับใบงานหน้างาน งานเก่าที่ไม่มีใบงานจึงล็อกและกดรับได้เหมือนกัน (ไม่มีทางลัดแบบ backward compat)
@@ -709,7 +730,7 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />, true)}
+                                                {designGate(lead)}
                                             </TableCell>
 
                                             <TableCell>
@@ -778,7 +799,7 @@ export default function TrackingView({
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <div className="text-[11px] text-zinc-500">ออกแบบ</div>
-                                        {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />, true)}
+                                        {designGate(lead)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>

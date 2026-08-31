@@ -34,7 +34,7 @@ import {
 } from '../actions'
 import { EVENT_PHASES, getPhaseLabel } from '../event-phases'
 import { getClaimStatusLabel, getClaimStatusColor } from '../../costs/types'
-import { createJobsFromLead, getJobsByLeadId } from '../../jobs/actions'
+import { createJobsFromLead, getJobsByLeadId, openGraphicJob } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
 import { STATUS_CONFIG, ALL_STATUSES, getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
 import { useLocale } from '@/lib/i18n/context'
@@ -64,9 +64,11 @@ interface LeadDetailProps {
   eventStaffGroups: LeadEventStaff[]
   linkedEvents?: LinkedLeadEvent[]
   costSummary?: LeadCostSummary
+  /** ใบงานที่แตกจากงานนี้แล้ว — ใช้ตัดสินว่าปุ่ม "เปิดใบงานกราฟิก" ควรโผล่ไหม */
+  leadJobs?: { id: string; job_type: string }[]
 }
 
-export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary }: LeadDetailProps) {
+export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary, leadJobs = [] }: LeadDetailProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.detail
@@ -410,17 +412,26 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     router.push(`/events/new?from_crm=${lead.id}`)
   }
 
-  // Forward to Jobs
+  // ใบงานกราฟิกของงานนี้ — ไม่มี = ยังเปิดได้ (ตอบรับแล้วระบบสร้างเฉพาะใบงานหน้างาน)
+  const hasGraphicJob = leadJobs.some(j => j.job_type === 'graphic')
+
+  // Forward to Jobs — เติมใบงานประเภทที่ยังไม่มีให้ครบ (ไม่สร้างซ้ำประเภทที่มีแล้ว)
   const handleForwardToJobs = async () => {
     setLoading(true)
     // Check for existing jobs from this lead
     const existingJobs = await getJobsByLeadId(lead.id)
+    const existingTypes = new Set(existingJobs.map(j => j.job_type))
+    if (existingTypes.has('graphic') && existingTypes.has('onsite')) {
+      setLoading(false)
+      toast.info('งานนี้มีใบงานครบแล้ว', { description: 'มีทั้งใบงานกราฟิกและใบงานหน้างานอยู่แล้ว' })
+      return
+    }
     if (existingJobs.length > 0) {
       const jobLabels = existingJobs.map(j =>
         j.job_type === 'graphic' ? 'กราฟิก' : j.job_type === 'onsite' ? 'ออกหน้างาน' : j.job_type
       ).join(', ')
       const proceed = confirm(
-        `Lead นี้ส่งต่องานไปแล้ว ${existingJobs.length} งาน (${jobLabels})\nต้องการสร้างเพิ่มหรือไม่?`
+        `Lead นี้ส่งต่องานไปแล้ว ${existingJobs.length} งาน (${jobLabels})\nต้องการสร้างใบงานที่ยังไม่มีเพิ่มหรือไม่?`
       )
       if (!proceed) {
         setLoading(false)
@@ -433,8 +444,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
       alert(result.error)
     } else {
       router.refresh()
+      const createdLabels = (result.jobs || []).map(j =>
+        j.job_type === 'graphic' ? 'กราฟิก' : 'ออกหน้างาน'
+      ).join(' + ')
       toast.success('ระบบเปิดงานเรียบร้อย', {
-        description: 'สร้างงาน กราฟิก + ออกหน้างาน แล้ว',
+        description: createdLabels ? `สร้างงาน ${createdLabels} แล้ว` : 'งานนี้มีใบงานครบแล้ว',
         duration: 8000,
         action: {
           label: 'ไปหน้างาน',
@@ -442,6 +456,25 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         },
       })
     }
+  }
+
+  // เปิดใบงานกราฟิกเอง — ใบงานเข้าพูลสถานะรอรับงาน + กระดิ่งถึงฝ่ายออกแบบ
+  const handleOpenGraphicJob = async () => {
+    setLoading(true)
+    const result = await openGraphicJob(lead.id)
+    setLoading(false)
+    if (result.error) {
+      toast.error(result.error)
+      return
+    }
+    router.refresh()
+    toast.success('เปิดใบงานกราฟิกแล้ว — เข้าพูลรอรับงาน', {
+      duration: 8000,
+      action: {
+        label: 'ไปพูลงาน',
+        onClick: () => router.push('/jobs/tracking'),
+      },
+    })
   }
 
   const handleDelete = async () => {
@@ -593,6 +626,12 @@ export default function LeadDetail({ lead, activities, settings, users, installm
               {linkedEvents.length > 0
                 ? (locale === 'th' ? 'เพิ่มอีเวนต์' : 'Add Event')
                 : tc.openEvent}
+            </Button>
+          )}
+          {lead.status === 'accepted' && !hasGraphicJob && (
+            <Button onClick={handleOpenGraphicJob} disabled={loading} size="sm" className="bg-sky-600 hover:bg-sky-700 text-white">
+              <Palette className="h-4 w-4 mr-1.5" />
+              {locale === 'th' ? 'เปิดใบงานกราฟิก' : 'Open Graphic Job'}
             </Button>
           )}
           {lead.status === 'accepted' && (

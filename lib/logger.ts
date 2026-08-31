@@ -109,6 +109,8 @@ export type ActionType =
     | 'DELETE_JOB_SETTING'
     | 'CREATE_JOBS_FROM_LEAD'
     | 'AUTO_CREATE_JOBS_FROM_LEAD'
+    // เปิดใบงานกราฟิกเองจากการ์ด CRM (ตอบรับแล้วระบบสร้างเฉพาะใบงานหน้างาน)
+    | 'OPEN_GRAPHIC_JOB'
     | 'UPDATE_JOB_TAGS'
     // พูลงาน — รับ/คืน/ข้าม/เปลี่ยนคนรับใบงาน
     | 'CLAIM_POOL_JOB'

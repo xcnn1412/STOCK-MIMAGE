@@ -981,6 +981,22 @@ export function groupPoolJobs(
   return { graphic, onsite }
 }
 
+/** สถานะแรกของใบงาน — อยู่ในพูลรอให้สมาชิกฝ่ายกดรับงาน (seed ไว้ใน job_settings) */
+export const AWAITING_CLAIM_STATUS = 'awaiting_claim'
+
+/**
+ * ขั้นของช่อง "ออกแบบ" ในตารางภาพรวม (และการ์ดมือถือ):
+ * - `not_opened` = ยังไม่มีใบงานกราฟิก (รวมงานเก่าก่อนยุคพูล) → ป้ายเตือน "ยังไม่เปิดใบงาน" เปิดได้จากการ์ด CRM
+ * - `awaiting`   = มีใบงานรอรับ → ปุ่มรับงาน
+ * - `active`     = รับแล้ว/จบแล้ว/ถูกข้าม → ตัวแก้สถานะออกแบบ
+ */
+export type DesignCellState = 'not_opened' | 'awaiting' | 'active'
+
+export function designCellState(job: PoolJob | undefined): DesignCellState {
+  if (!job) return 'not_opened'
+  return job.status === AWAITING_CLAIM_STATUS ? 'awaiting' : 'active'
+}
+
 /**
  * ใบงานกราฟิกใบนี้ควรจบอัตโนมัติไหม — จริงเมื่องานออกแบบถึงขั้นพร้อมแล้ว (READY_DESIGN_STATUSES)
  * และใบงานยังไม่จบ/ไม่ถูกข้าม (ใบที่จบแล้วไม่ต้องแตะซ้ำ)

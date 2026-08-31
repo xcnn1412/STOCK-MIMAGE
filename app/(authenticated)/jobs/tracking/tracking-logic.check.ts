@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import {
   addDays,
   availabilityOf,
+  AWAITING_CLAIM_STATUS,
   canActOnPool,
+  designCellState,
   POOL_TEAM_CATEGORIES,
   POOL_TEAM_DEFAULTS,
   PREP_DUTIES,
@@ -844,6 +846,23 @@ assert.deepEqual(
 )
 assert.deepEqual(groupPoolJobs([]), { graphic: [], onsite: [] })
 assert.deepEqual([...POOL_DONE_STATUSES], ['done', 'skipped'])
+
+// --- designCellState: ขั้นของช่อง "ออกแบบ" ในตารางภาพรวม ----------------------
+// ไม่มีใบงานกราฟิก (รวมงานเก่าก่อนยุคพูล) → ป้ายเตือน "ยังไม่เปิดใบงาน"
+assert.equal(designCellState(undefined), 'not_opened')
+// มีใบงานรอรับ → ปุ่มรับงาน
+assert.equal(designCellState(pj({ status: AWAITING_CLAIM_STATUS })), 'awaiting')
+assert.equal(designCellState(pj({ status: 'awaiting_claim' })), 'awaiting')
+// รับแล้ว / จบแล้ว / ถูกข้าม / สถานะอื่น → ตัวแก้สถานะออกแบบ
+assert.equal(designCellState(pj({ status: 'in_progress' })), 'active')
+assert.equal(designCellState(pj({ status: 'done' })), 'active')
+assert.equal(designCellState(pj({ status: 'skipped' })), 'active')
+assert.equal(designCellState(pj({ status: '' })), 'active')
+// job_type ไม่มีผล — ผู้เรียกเลือกใบงานกราฟิกมาให้แล้ว
+assert.equal(designCellState(pj({ job_type: 'onsite', status: AWAITING_CLAIM_STATUS })), 'awaiting')
+assert.equal(AWAITING_CLAIM_STATUS, 'awaiting_claim')
+// ทุกสถานะที่ถือว่า "จบ" ยังอยู่ขั้น active (ป้ายเตือนสงวนไว้ให้งานที่ไม่มีใบงานเท่านั้น)
+assert.deepEqual(POOL_DONE_STATUSES.map((s) => designCellState(pj({ status: s }))), ['active', 'active'])
 
 // --- shouldFinishGraphicJob: ใบงานกราฟิกจบเองเมื่อออกแบบถึงขั้นพร้อม ----------
 // ออกแบบพร้อม + ใบงานยังไม่จบ → จบได้
