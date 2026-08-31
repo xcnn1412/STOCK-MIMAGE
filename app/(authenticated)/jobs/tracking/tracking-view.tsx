@@ -651,7 +651,8 @@ export default function TrackingView({
                 )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
+            {/* มือถือ: แท็บเลื่อนแนวนอน ไม่หักบรรทัด — จอกว้างค่อยยอมให้ wrap */}
+            <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-x-visible items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {POOL_TABS.filter(t => t.key !== 'onsite' || isAdmin).map(t => (
                     <button
                         key={t.key}
@@ -949,18 +950,19 @@ export default function TrackingView({
                                                 </div>
                                                 <div>
                                                     <div className="text-[11px] text-zinc-500">จัดคน</div>
-                                                    <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} />
+                                                    {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} />)}
                                                 </div>
                                             </div>
                                         ))}
                                     </>
                                 ) : (
                                     <>
+                                {/* ออกแบบเต็มแถว (dropdown ยาว) — จัดรถ/กระเป๋าค่อยแบ่งครึ่ง */}
+                                <div>
+                                    <div className="text-[11px] text-zinc-500">ออกแบบ</div>
+                                    {designGate(lead)}
+                                </div>
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <div className="text-[11px] text-zinc-500">ออกแบบ</div>
-                                        {designGate(lead)}
-                                    </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>
                                         {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
@@ -973,7 +975,7 @@ export default function TrackingView({
 
                                 <div>
                                     <div className="text-[11px] text-zinc-500">จัดคน</div>
-                                    <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />
+                                    {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
                                 </div>
                                     </>
                                 )}
