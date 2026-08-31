@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 04 (เกณฑ์ "จบจริง" ต้องนิ่งก่อน backfill)
 
-**Status:** ready-for-agent
+**Status:** done (2026-08-31) — tsc 7 error เดิม; script ยังไม่รันกับ DB จริง (รอ user รัน migration ก่อน)
 
 - [ ] script รันด้วย tsx ได้ รายงานจำนวนงานที่สร้าง/ข้าม — รันรอบสองสร้าง 0 ใบ
 - [ ] งาน accepted ที่อีเวนต์ completed แล้วหรือวันงานผ่านแล้ว ไม่ถูกสร้างใบงาน

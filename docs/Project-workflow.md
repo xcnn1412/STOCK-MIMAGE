@@ -154,3 +154,28 @@ branch: `main` · เริ่ม 2026-08-31 · glossary: `CONTEXT.md`
 | F3 | โฟกัสงาน: seam `focusCandidates` (TDD), `?focus=`, แถบเวลาพาดทุกเลน, หัวโฟกัส (มีแล้ว/ขาด + ดินสอตำแหน่ง + เลือกอีเวนต์), กลุ่มตัวเลือก/ไม่ว่าง, คลิกจัดทันที/เมนูตำแหน่ง/เอาออก, freeze ลำดับ, มือถือ | F1, F2 | [x] 2026-08-31 — focusCandidates/focusWindow, ?focus=, DayLane band, quickStaff optimistic |
 | F4 | เก็บงาน: มีอะไรใหม่, tsc/eslint, `/code-review`, commit | F3 | [x] 2026-08-31 — code-review 2 แกน → แยก migration, แก้ race/save order/stale focus + seam staffedCounts; tsc/lint/check ผ่าน |
 
+## พูลงานกลาง (`/jobs/tracking`) — spec: `docs/specs/jobs-pool.md`
+
+branch: `main` · เริ่ม 2026-08-31 · glossary: `CONTEXT.md` (ใบงาน, พูลงาน, รับงาน, คืนงาน, ข้ามใบงาน, จองกระเป๋า, จัดกระเป๋า) · ADR-0002 (พูลอ่านจาก `jobs`), ADR-0003 (`event_kits`) · baseline `tsc` = 7
+
+| # | Ticket | Blocked by | สถานะ |
+|---|---|---|---|
+| 1 | สร้างใบงานอัตโนมัติเมื่อการ์ด CRM ตอบรับ + สถานะ "รอรับงาน" (`20260831_jobs_pool_awaiting_claim.sql`) + แจ้งเตือนทีม | — | [x] 2026-08-31 5f855d2 — hook ใน `updateLeadStatus` + guard กันสร้างซ้ำ, แจ้งเตือน `job_pool_new` ตามแผนก |
+| 2 | พูลงาน 3 แท็บบนหน้าติดตามงาน (ภาพรวม / ใบงานกราฟิก / ใบงานหน้างาน) | 1 | [x] 2026-08-31 c2b6a62 — `pool-tabs.tsx` อ่านจากตาราง `jobs` (ADR-0002), seam `groupPoolJobs` + check script |
+| 3 | รับงาน / คืนงาน / ข้ามใบงาน / เปลี่ยนคนรับ (`20260831_jobs_pool_claim.sql`) | 2 | [x] 2026-08-31 9b1ebd9 — conditional update กัน race, สิทธิ์ตามแผนก + แอดมิน, แจ้งเตือน + log ครบ |
+| 4 | ใบงานจบอัตโนมัติ (กราฟิกตามสถานะออกแบบ / หน้างานเมื่อปิดอีเวนต์คืนกระเป๋า) | 3 | [x] 2026-08-31 24ca09d — ปิดใบงานไม่ล้ม flow เดิม (บันทึก console ถ้าพลาด) |
+| 5 | จองกระเป๋าจากพูล + บันทึกจัดกระเป๋าถาวร (`20260831_event_kits.sql`, ADR-0003) | 2 | [x] 2026-08-31 830a6d6 — จองหลายอีเวนต์คนละวัน, ชน = วันเดียวกัน, ย้ายการจองรีเซ็ตสถานะจัด |
+| 6 | เลนกระเป๋าบนไทม์ไลน์ + ความพร้อมข้อ 5 + ป้ายเตือน "ยังไม่ใส่เวลา" | 5 | [x] 2026-08-31 ea68ff9 — เลนกระเป๋าโหมดวัน/สัปดาห์ + `missingKits` ใน seam |
+| 7 | ตั้งค่าทีมและสิทธิ์กระเป๋าใน `/jobs/settings` (เก็บใน `job_settings` ไม่แตะ schema) | 1, 5 | [x] 2026-08-31 ee3510e — แท็บ "ทีมของพูลงาน" 3 กลุ่ม + default ในโค้ด, แอดมินเท่านั้น |
+| 8 | Backfill งานเก่า + มีอะไรใหม่ + wrap-up | 1, 4 | [x] 2026-08-31 — `scripts/backfill-jobs-pool.ts` (idempotent, ข้ามงานที่จบ/วันงานผ่าน), whats-new รวมเป็น entry เดียว, ตารางนี้ |
+
+### สิ่งที่ user ต้องทำเอง — ⚠️ ก่อน deploy
+
+- รัน migration 3 ไฟล์บน Supabase SQL Editor **ก่อน deploy โค้ด** (ทุกไฟล์ idempotent รันซ้ำได้):
+  1. `supabase/migrations/20260831_jobs_pool_awaiting_claim.sql` — สถานะ "รอรับงาน" + เปิดทางแจ้งเตือน `job_pool_new`
+  2. `supabase/migrations/20260831_jobs_pool_claim.sql` — คอลัมน์ `claimed_by` / `claimed_at` / `skipped_at` / `skip_reason` ของ `jobs`
+  3. `supabase/migrations/20260831_event_kits.sql` — ตารางจองกระเป๋า `event_kits`
+  ถ้า deploy ก่อนรัน: ใบงานใหม่จะเกิดมาด้วยสถานะเดิม (ไม่ใช่ "รอรับงาน") หน้าพูลอ่าน `claimed_by` ไม่เจอ และช่องกระเป๋าพัง
+- **หลังรัน migration ครบแล้ว** จึงรัน backfill ครั้งเดียว: `npx tsx scripts/backfill-jobs-pool.ts` — สร้างใบงานให้งาน accepted เดิมที่ยังไม่จบจริง (ข้ามงานที่มีใบงานแล้ว / อีเวนต์ปิดครบแล้ว / วันงานผ่านแล้ว) รันซ้ำได้ รอบสองสร้าง 0 ใบ
+- ตรวจ/ปรับแผนกในหน้า `/jobs/settings` แท็บ "ทีมของพูลงาน" ถ้าโครงทีมไม่ตรงค่าเริ่มต้น (กราฟิก = ฝ่ายออกแบบ · หน้างานและกระเป๋า = ทีมออกหน้างาน + สตาฟ + ช่าง)
+
