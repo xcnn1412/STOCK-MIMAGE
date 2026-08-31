@@ -115,6 +115,9 @@ export type ActionType =
     | 'RELEASE_POOL_JOB'
     | 'SKIP_POOL_JOB'
     | 'REASSIGN_POOL_JOB'
+    // หน้าที่เตรียมงาน — รับ/คืนรายหน้าที่ (จัดคน / จัดรถ / จัดกระเป๋า)
+    | 'CLAIM_LEAD_DUTY'
+    | 'RELEASE_LEAD_DUTY'
     // ใบงานจบเอง — กราฟิก (design_status พร้อม) / หน้างาน (ปิดอีเวนต์จากการคืนกระเป๋า)
     | 'AUTO_FINISH_POOL_JOB'
     // จองกระเป๋าให้อีเวนต์ / ยกเลิกจอง / จัดกระเป๋าครบ (event_kits — ADR-0003)

@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
 import TrackingView, { type TrackingLead } from './tracking-view'
-import { VEHICLES, canActOnPool, isClosedEvent, POOL_TEAM_DEFAULTS, type PoolJob } from './tracking-logic'
+import { VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, POOL_TEAM_DEFAULTS, type DutyClaim, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
 
 /** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
@@ -105,6 +105,23 @@ export default async function TrackingPage() {
             claimed_by: (j.claimed_by as string) ?? null,
             crm_lead_id: (j.crm_lead_id as string) ?? null,
         }))
+    }
+
+    // หน้าที่เตรียมงานที่มีคนรับแล้ว — ไม่มีแถว = หน้าที่นั้นยังรอรับ (ล็อกช่องในตารางภาพรวม)
+    let dutyClaims: DutyClaim[] = []
+    if (leadIds.length > 0) {
+        const { data: dutyRows } = await supabase
+            .from('lead_duty_claims')
+            .select('lead_id, duty, claimed_by')
+            .in('lead_id', leadIds)
+
+        dutyClaims = (dutyRows || [])
+            .filter(r => isPrepDuty(r.duty as string))
+            .map(r => ({
+                leadId: r.lead_id as string,
+                duty: r.duty as DutyClaim['duty'],
+                claimedBy: r.claimed_by as string,
+            }))
     }
 
     // กระเป๋า + การจอง (event_kits) — การ์ดใบงานหน้างานแสดงสถานะจัดกระเป๋าและเปิดกล่องจองจากตรงนี้
@@ -234,6 +251,7 @@ export default async function TrackingPage() {
                 roles={roles}
                 people={people}
                 jobs={poolJobs}
+                dutyClaims={dutyClaims}
                 jobStatusLabels={jobStatusLabels}
                 currentUserId={currentUserId ?? null}
                 canManagePool={canManagePool}

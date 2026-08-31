@@ -66,6 +66,25 @@ const POOL_TEAM_GROUPS: Record<PoolTeamCategory, { labelTh: string; labelEn: str
         hintTh: 'แผนกที่จอง ยกเลิกจอง และบันทึกจัดกระเป๋าครบได้',
         hintEn: 'Departments allowed to book, unbook, and mark kits packed',
     },
+    // หน้าที่เตรียมงาน — สามหน้าที่ในตารางภาพรวมที่ต้องกดรับก่อนถึงแก้ไขได้ (รับแยกกันคนละหน้าที่)
+    pool_duty_staffing: {
+        labelTh: 'หน้าที่: จัดคน',
+        labelEn: 'Duty: Staffing',
+        hintTh: 'แผนกที่กดรับหน้าที่จัดคนของงานในตารางภาพรวมได้',
+        hintEn: 'Departments allowed to claim the staffing duty on the overview table',
+    },
+    pool_duty_vehicle: {
+        labelTh: 'หน้าที่: จัดรถ',
+        labelEn: 'Duty: Vehicle',
+        hintTh: 'แผนกที่กดรับหน้าที่จัดรถของงานในตารางภาพรวมได้',
+        hintEn: 'Departments allowed to claim the vehicle duty on the overview table',
+    },
+    pool_duty_kits: {
+        labelTh: 'หน้าที่: จัดกระเป๋า',
+        labelEn: 'Duty: Kits',
+        hintTh: 'แผนกที่กดรับหน้าที่จัดกระเป๋าของงานในตารางภาพรวมได้',
+        hintEn: 'Departments allowed to claim the kits duty on the overview table',
+    },
 }
 
 
@@ -786,8 +805,8 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes, c
             <div className="space-y-4">
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     {locale === 'th'
-                        ? 'เลือกแผนกที่รับใบงานแต่ละประเภท และแผนกที่จอง/ย้ายกระเป๋าได้ · ไม่เลือกเลย = ใช้ค่าเริ่มต้น'
-                        : 'Pick the departments that claim each job type and manage kit bookings · none selected = defaults apply'}
+                        ? 'เลือกแผนกที่รับใบงานแต่ละประเภท แผนกที่จอง/ย้ายกระเป๋าได้ และแผนกที่รับหน้าที่เตรียมงานแต่ละหน้าที่ · ไม่เลือกเลย = ใช้ค่าเริ่มต้น'
+                        : 'Pick the departments that claim each job type, manage kit bookings, and take each prep duty · none selected = defaults apply'}
                 </p>
 
                 {POOL_TEAM_CATEGORIES.map(category => {

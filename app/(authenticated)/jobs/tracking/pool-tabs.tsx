@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -10,10 +10,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Briefcase, RotateCcw, UserRound, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { bookKitForLead, claimPoolJob, releasePoolJob, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
+import { bookKitForLead, claimLeadDuty, claimPoolJob, releaseLeadDuty, releasePoolJob, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
 import { DESIGN_OPTIONS } from './design-options'
 import { formatDate } from './timeline-view'
 import {
+    DUTY_LABELS_TH,
     VEHICLES,
     daysUntil,
     getMissing,
@@ -22,6 +23,8 @@ import {
     missingLabel,
     missingRoles,
     vehicleOf,
+    type DutyClaim,
+    type PrepDuty,
     type Kit as PoolKit,
     type KitBookingDetail as KitBookingRow,
     type KitReadiness,
@@ -190,6 +193,92 @@ export function ReleaseChip({
             <RotateCcw className="h-3 w-3" aria-hidden />
             คืนเป็นรอรับงาน
         </button>
+    )
+}
+
+/**
+ * ช่องหนึ่งช่องของ "หน้าที่เตรียมงาน" ในตารางภาพรวม (จัดคน / จัดรถ / จัดกระเป๋า)
+ * ยังไม่มีผู้รับ = ปุ่มรับงาน · รับแล้ว = ตัวแก้ไขจริง + ชื่อผู้รับ + ปุ่มคืนเป็นรอรับงาน
+ *
+ * สามหน้าที่รับ/คืนแยกกันอิสระ ไม่บังคับลำดับ และไม่ผูกกับใบงานหน้างาน —
+ * งานเก่าที่ไม่มีใบงานก็ล็อกและกดรับได้เหมือนกัน (CONTEXT.md § หน้าที่เตรียมงาน)
+ * ปุ่มที่แสดงเป็นแค่การซ่อนตามบทบาท สิทธิ์จริงบังคับใน claimLeadDuty/releaseLeadDuty ฝั่ง server
+ */
+export function DutyGate({
+    leadId,
+    duty,
+    claim,
+    people,
+    currentUserId,
+    canManagePool,
+    children,
+}: {
+    leadId: string
+    duty: PrepDuty
+    /** การรับหน้าที่นี้ของงานนี้ — undefined = ยังไม่มีผู้รับ */
+    claim: DutyClaim | undefined
+    people: Person[]
+    currentUserId: string | null
+    canManagePool: boolean
+    children: ReactNode
+}) {
+    const [busy, setBusy] = useState(false)
+    const label = DUTY_LABELS_TH[duty]
+
+    if (!claim) {
+        return (
+            <Button
+                size="sm"
+                className="h-6 px-2 text-xs"
+                disabled={busy}
+                title={`รับหน้าที่${label}ของงานนี้`}
+                onClick={async () => {
+                    setBusy(true)
+                    try {
+                        const res = (await claimLeadDuty(leadId, duty)) as { error?: string } | undefined
+                        if (res?.error) toast.error(res.error)
+                        else toast.success(`รับหน้าที่${label}แล้ว`)
+                    } finally {
+                        setBusy(false)
+                    }
+                }}
+            >
+                รับงาน
+            </Button>
+        )
+    }
+
+    const isMine = !!currentUserId && claim.claimedBy === currentUserId
+
+    return (
+        <div className="space-y-1">
+            {children}
+            <div className="text-[11px] text-zinc-500">
+                ผู้รับ: {nameOf(claim.claimedBy, people)}
+                {isMine && <span className="text-zinc-400"> (ฉัน)</span>}
+            </div>
+            {(isMine || canManagePool) && (
+                <button
+                    type="button"
+                    disabled={busy}
+                    title={`คืนหน้าที่${label}กลับเป็นรอรับงาน`}
+                    className="inline-flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-50"
+                    onClick={async () => {
+                        setBusy(true)
+                        try {
+                            const res = (await releaseLeadDuty(leadId, duty)) as { error?: string } | undefined
+                            if (res?.error) toast.error(res.error)
+                            else toast.success(`คืนหน้าที่${label}แล้ว — กลับเป็นรอรับงาน`)
+                        } finally {
+                            setBusy(false)
+                        }
+                    }}
+                >
+                    <RotateCcw className="h-3 w-3" aria-hidden />
+                    คืนเป็นรอรับงาน
+                </button>
+            )}
+        </div>
     )
 }
 

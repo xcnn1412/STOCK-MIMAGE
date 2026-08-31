@@ -7,6 +7,11 @@ import {
   canActOnPool,
   POOL_TEAM_CATEGORIES,
   POOL_TEAM_DEFAULTS,
+  PREP_DUTIES,
+  PREP_DUTY_CATEGORY,
+  DUTY_LABELS_TH,
+  isPrepDuty,
+  type PrepDuty,
   BAR_COLORS,
   bucketOf,
   chipCounts,
@@ -1055,9 +1060,10 @@ assert.equal(canActOnPool(null, false, poolTeam), false)
 // ตั้งค่าเป็นรายการว่าง = ไม่มีใครนอกแอดมินทำได้
 assert.equal(canActOnPool('ทีมออกหน้างาน', false, []), false)
 
-// ค่าเริ่มต้นครบทั้งสามหมวด และไม่มีหมวดไหนว่าง (ไม่ตั้งค่าเลยระบบยังทำงานได้)
+// ค่าเริ่มต้นครบทุกหมวด และไม่มีหมวดไหนว่าง (ไม่ตั้งค่าเลยระบบยังทำงานได้)
 assert.deepEqual([...POOL_TEAM_CATEGORIES], [
   'pool_team_graphic', 'pool_team_onsite', 'pool_kit_departments',
+  'pool_duty_staffing', 'pool_duty_vehicle', 'pool_duty_kits',
 ])
 for (const cat of POOL_TEAM_CATEGORIES) {
   assert.equal(POOL_TEAM_DEFAULTS[cat].length > 0, true)
@@ -1065,5 +1071,37 @@ for (const cat of POOL_TEAM_CATEGORIES) {
 }
 assert.deepEqual([...POOL_TEAM_DEFAULTS.pool_team_graphic], ['ฝ่ายออกแบบ'])
 assert.deepEqual([...POOL_TEAM_DEFAULTS.pool_kit_departments], [...POOL_TEAM_DEFAULTS.pool_team_onsite])
+
+// --- หน้าที่เตรียมงาน (Prep duty) ---------------------------------------------
+
+assert.deepEqual([...PREP_DUTIES], ['staffing', 'vehicle', 'kits'])
+assert.deepEqual([...PREP_DUTIES].map((d) => DUTY_LABELS_TH[d]), ['จัดคน', 'จัดรถ', 'จัดกระเป๋า'])
+
+// duty → category ครบทุกหน้าที่ ไม่ซ้ำกัน และทุก category อยู่ในรายการที่ตั้งค่าได้จริง
+const dutyCategories = PREP_DUTIES.map((d) => PREP_DUTY_CATEGORY[d])
+assert.equal(new Set(dutyCategories).size, PREP_DUTIES.length)
+for (const cat of dutyCategories) {
+  assert.equal(POOL_TEAM_CATEGORIES.includes(cat), true)
+  assert.equal(POOL_TEAM_DEFAULTS[cat].length > 0, true)
+}
+
+// ค่าเริ่มต้นตามข้อตกลง: จัดคน = ฝ่ายแอดมิน · จัดรถ/จัดกระเป๋า = ทีมออกหน้างาน (ชุดเดียวกับใบงานหน้างาน)
+assert.deepEqual([...POOL_TEAM_DEFAULTS[PREP_DUTY_CATEGORY.staffing]], ['ฝ่ายแอดมิน'])
+assert.deepEqual([...POOL_TEAM_DEFAULTS[PREP_DUTY_CATEGORY.vehicle]], [...POOL_TEAM_DEFAULTS.pool_team_onsite])
+assert.deepEqual([...POOL_TEAM_DEFAULTS[PREP_DUTY_CATEGORY.kits]], [...POOL_TEAM_DEFAULTS.pool_team_onsite])
+
+// สิทธิ์รายหน้าที่: ฝ่ายแอดมินรับ "จัดคน" ได้แต่รับ "จัดรถ" ไม่ได้ (ตามค่าเริ่มต้น) — แอดมินรับแทนได้ทุกหน้าที่
+const deptOf = (d: PrepDuty) => [...POOL_TEAM_DEFAULTS[PREP_DUTY_CATEGORY[d]]]
+assert.equal(canActOnPool('ฝ่ายแอดมิน', false, deptOf('staffing')), true)
+assert.equal(canActOnPool('ฝ่ายแอดมิน', false, deptOf('vehicle')), false)
+assert.equal(canActOnPool('ทีมออกหน้างาน', false, deptOf('vehicle')), true)
+assert.equal(canActOnPool('ทีมออกหน้างาน', false, deptOf('staffing')), false)
+assert.equal(canActOnPool('ฝ่ายออกแบบ', true, deptOf('kits')), true)
+
+// isPrepDuty กันค่ามั่วจาก client
+assert.equal(isPrepDuty('staffing'), true)
+assert.equal(isPrepDuty('kits'), true)
+assert.equal(isPrepDuty('onsite'), false)
+assert.equal(isPrepDuty(''), false)
 
 console.log('tracking-logic.check: all passed')

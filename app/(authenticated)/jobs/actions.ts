@@ -10,8 +10,9 @@ import { requireAuth } from '@/lib/auth'
 import {
     READY_DESIGN_STATUSES, kitBookingConflict, shouldFinishGraphicJob,
     canActOnPool, POOL_TEAM_CATEGORIES, POOL_TEAM_DEFAULTS, isClosedEvent,
+    PREP_DUTY_CATEGORY, DUTY_LABELS_TH, isPrepDuty,
 } from './tracking/tracking-logic'
-import type { PoolTeamCategory } from './tracking/tracking-logic'
+import type { PoolTeamCategory, PrepDuty } from './tracking/tracking-logic'
 import { DEPARTMENTS } from '@/lib/departments'
 
 
@@ -902,8 +903,17 @@ async function getPoolNextStatus(jobType: PoolJobType): Promise<string> {
     return next || POOL_FALLBACK_STATUS[jobType]
 }
 
-/** แจ้งเตือนแอดมิน + ฝ่ายประสานงานทุกครั้งที่พูลขยับ (or() ใช้ค่าไทยไม่ได้ จึงยิงสองคิวรี) */
-async function notifyPoolManagers(job: { id: string }, actorId: string, title: string, body?: string) {
+/**
+ * แจ้งเตือนแอดมิน + ฝ่ายประสานงานทุกครั้งที่พูลขยับ (or() ใช้ค่าไทยไม่ได้ จึงยิงสองคิวรี)
+ * `referenceType` ปกติคือใบงาน — หน้าที่เตรียมงานผูกกับงาน (crm_lead) ไม่ใช่ใบงาน จึงส่งทับได้
+ */
+async function notifyPoolManagers(
+    job: { id: string },
+    actorId: string,
+    title: string,
+    body?: string,
+    referenceType: 'job' | 'crm_lead' = 'job'
+) {
     const supabase = createServiceClient()
     const [admins, coordinators] = await Promise.all([
         supabase.from('profiles').select('id').eq('is_approved', true).eq('role', 'admin'),
@@ -915,7 +925,7 @@ async function notifyPoolManagers(job: { id: string }, actorId: string, title: s
         type: 'job_status_changed',
         title,
         body,
-        referenceType: 'job',
+        referenceType,
         referenceId: job.id,
         actorId,
     })
@@ -1168,6 +1178,107 @@ export async function reassignPoolJob(jobId: string, newUserId: string) {
     )
 
     revalidatePool(jobId)
+    return { success: true }
+}
+
+// ============================================================================
+// หน้าที่เตรียมงาน (Prep duty) — รับ/คืนรายหน้าที่ จัดคน / จัดรถ / จัดกระเป๋า
+// ดู CONTEXT.md § "หน้าที่เตรียมงาน": สามหน้าที่รับ-คืนแยกกันอิสระ ไม่บังคับลำดับ
+// แผนกที่รับได้ตั้งค่าได้รายหน้าที่ (job_settings) — แอดมินรับแทนได้ทุกหน้าที่
+// ============================================================================
+
+/** ชื่อของงานสำหรับใส่ในหัวข้อแจ้งเตือน — งานที่หาไม่เจอ = null (action จะตอบ error) */
+async function getDutyLeadName(leadId: string): Promise<string | null> {
+    const supabase = createServiceClient()
+    const { data } = await supabase.from('crm_leads').select('customer_name').eq('id', leadId).single()
+    if (!data) return null
+    return (data.customer_name as string) || 'ไม่ระบุลูกค้า'
+}
+
+/** แผนกที่รับหน้าที่นี้ได้ — ยังไม่ตั้งค่า = ค่าเริ่มต้นของหมวดนั้น */
+async function getDutyDepartments(duty: PrepDuty): Promise<string[]> {
+    const category = PREP_DUTY_CATEGORY[duty]
+    return getDepartmentSetting(category, [...POOL_TEAM_DEFAULTS[category]])
+}
+
+/**
+ * รับหน้าที่เตรียมงาน — คนในแผนกที่ตั้งไว้ของหน้าที่นั้น (หรือแอดมิน) กดรับได้
+ * กันสองคนกดพร้อมกันด้วย UNIQUE (lead_id, duty) ใน lead_duty_claims:
+ * INSERT ที่ช้ากว่าได้ error 23505 แล้วแปลงเป็นข้อความไทย (ไม่ต้องเช็คก่อนแล้วค่อยเขียน)
+ */
+export async function claimLeadDuty(leadId: string, duty: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!isPrepDuty(duty)) return { error: 'หน้าที่ไม่ถูกต้อง' }
+
+    const departments = await getDutyDepartments(duty)
+    if (!canActOnPool(actor.department, actor.role === 'admin', departments)) {
+        return { error: 'เฉพาะทีมที่รับผิดชอบหน้าที่นี้เท่านั้นที่รับได้' }
+    }
+
+    const leadName = await getDutyLeadName(leadId)
+    if (!leadName) return { error: 'ไม่พบงานนี้' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('lead_duty_claims').insert({
+        lead_id: leadId,
+        duty,
+        claimed_by: actor.userId,
+    })
+    if (error) {
+        // 23505 = unique_violation — มีคนกดรับหน้าที่นี้ไปก่อนแล้ว (คนที่สองของการกดพร้อมกัน)
+        if ((error as { code?: string }).code === '23505') return { error: 'หน้าที่นี้มีคนรับไปแล้ว' }
+        return { error: error.message }
+    }
+
+    const label = DUTY_LABELS_TH[duty]
+    await logActivity('CLAIM_LEAD_DUTY', { leadId, duty })
+    await notifyPoolManagers(
+        { id: leadId },
+        actor.userId,
+        `รับหน้าที่${label}: ${leadName}`,
+        `${actor.name} รับหน้าที่${label}ของงานนี้แล้ว`,
+        'crm_lead'
+    )
+
+    revalidatePath('/jobs/tracking')
+    return { success: true }
+}
+
+/** คืนหน้าที่เตรียมงาน — ผู้รับเองหรือแอดมิน/ฝ่ายประสานงาน คืนแล้วหน้าที่กลับเป็นรอรับงาน */
+export async function releaseLeadDuty(leadId: string, duty: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!isPrepDuty(duty)) return { error: 'หน้าที่ไม่ถูกต้อง' }
+
+    const supabase = createServiceClient()
+    const { data: claim } = await supabase
+        .from('lead_duty_claims')
+        .select('id, claimed_by')
+        .eq('lead_id', leadId)
+        .eq('duty', duty)
+        .single()
+
+    if (!claim) return { error: 'หน้าที่นี้ยังไม่มีผู้รับ' }
+    if ((claim.claimed_by as string) !== actor.userId && !isPoolManager(actor)) {
+        return { error: 'คืนหน้าที่ได้เฉพาะผู้รับหน้าที่นี้เท่านั้น' }
+    }
+
+    const { error } = await supabase.from('lead_duty_claims').delete().eq('id', claim.id as string)
+    if (error) return { error: error.message }
+
+    const label = DUTY_LABELS_TH[duty]
+    const leadName = (await getDutyLeadName(leadId)) || 'ไม่ระบุลูกค้า'
+    await logActivity('RELEASE_LEAD_DUTY', { leadId, duty, formerClaimer: claim.claimed_by })
+    await notifyPoolManagers(
+        { id: leadId },
+        actor.userId,
+        `คืนหน้าที่${label}: ${leadName}`,
+        `${actor.name} คืนหน้าที่${label} — กลับเป็นรอรับงาน`,
+        'crm_lead'
+    )
+
+    revalidatePath('/jobs/tracking')
     return { success: true }
 }
 

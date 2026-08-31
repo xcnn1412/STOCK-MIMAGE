@@ -36,12 +36,14 @@ import {
     type Chip,
     type Conflict,
     type Availability,
+    type DutyClaim,
     type KitReadiness,
     type PoolJob,
+    type PrepDuty,
 } from './tracking-logic'
 import TimelineView, { AVAIL_TEXT, formatDate, ymd } from './timeline-view'
 import { RequiredRolesEditor } from './required-roles-editor'
-import PoolTabs, { ClaimChip, KitSummary, ReleaseChip, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
+import PoolTabs, { ClaimChip, DutyGate, KitSummary, ReleaseChip, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
 import { DESIGN_OPTIONS } from './design-options'
 
 export type { TrackingLead }
@@ -557,6 +559,7 @@ export default function TrackingView({
     roles,
     people,
     jobs = [],
+    dutyClaims = [],
     jobStatusLabels = {},
     currentUserId = null,
     canManagePool = false,
@@ -570,6 +573,8 @@ export default function TrackingView({
     people: Person[]
     /** ใบงานของงานเหล่านี้ (ตาราง jobs) — เข้าแท็บใบงานกราฟิก/หน้างาน */
     jobs?: PoolJob[]
+    /** หน้าที่เตรียมงานที่มีคนรับแล้ว (lead_duty_claims) — ไม่มีในรายการ = หน้าที่นั้นยังรอรับ */
+    dutyClaims?: DutyClaim[]
     jobStatusLabels?: JobStatusLabels
     /** ผู้ใช้ที่ล็อกอินอยู่ — คืนงานได้เฉพาะใบงานที่ตัวเองรับ */
     currentUserId?: string | null
@@ -746,7 +751,7 @@ export default function TrackingView({
     // ความพร้อมข้อ 5 (กระเป๋า) — ต้องรู้ใบงานหน้างาน (ถูกข้ามไหม) + การจองของงานนั้น
     const kitReadiness = kitReadinessByLead(rows, jobs, kitBookings)
 
-    // ใบงานของแต่ละงาน — ใบแรกของแต่ละฝ่ายต่อหนึ่งงาน ใช้ล็อกคอลัมน์ในตารางภาพรวม
+    // ใบงานของแต่ละงาน — ใบแรกของแต่ละฝ่ายต่อหนึ่งงาน (ตารางภาพรวมใช้ใบกราฟิกล็อกคอลัมน์ "ออกแบบ")
     const jobsByLead = new Map<string, { graphic?: (typeof jobs)[number]; onsite?: (typeof jobs)[number] }>()
     for (const j of jobs) {
         if (!j.crm_lead_id) continue
@@ -756,10 +761,9 @@ export default function TrackingView({
         jobsByLead.set(j.crm_lead_id, entry)
     }
 
-    // กฎการรับงานในตารางภาพรวม: คอลัมน์งานของฝ่ายถูกล็อกจนกว่าจะมีคนกดรับใบงานฝ่ายนั้น
-    // (ออกแบบ ← ใบงานกราฟิก · จัดคน/จัดรถ/กระเป๋า ← ใบงานหน้างาน กดรับที่คอลัมน์เดียวปลดทั้งสาม)
+    // คอลัมน์ "ออกแบบ" ถูกล็อกจนกว่าจะมีคนกดรับใบงานกราฟิกของงานนั้น
     // งานเก่าที่ยังไม่มีใบงาน = ไม่ล็อก (backward compat) — สิทธิ์แผนก/แอดมินบังคับใน claimPoolJob ฝั่ง server
-    // showRelease: โชว์ปุ่ม "คืนเป็นรอรับงาน" ใต้ตัวแก้ไข — วางไว้คอลัมน์เดียวต่อฝ่ายพอ ไม่ให้รก
+    // showRelease: โชว์ปุ่ม "คืนเป็นรอรับงาน" ใต้ตัวแก้ไข
     const gate = (job: (typeof jobs)[number] | undefined, children: ReactNode, showRelease = false) =>
         job && job.status === 'awaiting_claim'
             ? <ClaimChip job={job} people={people} currentUserId={currentUserId} />
@@ -769,6 +773,22 @@ export default function TrackingView({
                     {showRelease && <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} />}
                 </div>
             )
+
+    // หน้าที่เตรียมงาน: จัดคน/จัดรถ/กระเป๋า ถูกล็อกจนกว่าจะมีคนกดรับ "หน้าที่นั้น" — รับแยกกันคนละหน้าที่
+    // ไม่ผูกกับใบงานหน้างาน งานเก่าที่ไม่มีใบงานจึงล็อกและกดรับได้เหมือนกัน (ไม่มีทางลัดแบบ backward compat)
+    const claimByDuty = new Map(dutyClaims.map(c => [`${c.leadId}:${c.duty}`, c]))
+    const dutyGate = (leadId: string, duty: PrepDuty, children: ReactNode) => (
+        <DutyGate
+            leadId={leadId}
+            duty={duty}
+            claim={claimByDuty.get(`${leadId}:${duty}`)}
+            people={people}
+            currentUserId={currentUserId}
+            canManagePool={canManagePool}
+        >
+            {children}
+        </DutyGate>
+    )
 
     const base = rows.filter(r => showPast || !isPast(r, today))
     const counts = chipCounts(base, today, kitReadiness)
@@ -967,15 +987,15 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                {gate(jobsByLead.get(lead.id)?.onsite, <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />, true)}
+                                                {dutyGate(lead.id, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
                                             </TableCell>
 
                                             <TableCell>
-                                                {gate(jobsByLead.get(lead.id)?.onsite, <VehicleCell lead={lead} all={rows} save={save} />)}
+                                                {dutyGate(lead.id, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
                                             </TableCell>
 
                                             <TableCell>
-                                                {gate(jobsByLead.get(lead.id)?.onsite, <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
+                                                {dutyGate(lead.id, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
                                             </TableCell>
 
                                             <TableCell>
@@ -1032,11 +1052,11 @@ export default function TrackingView({
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                        {gate(jobsByLead.get(lead.id)?.onsite, <VehicleCell lead={lead} all={rows} save={save} />, true)}
+                                        {dutyGate(lead.id, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">กระเป๋า</div>
-                                        {gate(jobsByLead.get(lead.id)?.onsite, <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
+                                        {dutyGate(lead.id, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
                                     </div>
                                 </div>
 

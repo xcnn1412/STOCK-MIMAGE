@@ -992,13 +992,25 @@ export function shouldFinishGraphicJob(designStatus: string, jobStatus: string):
 // --- ทีมของพูลงาน: แผนกไหนทำอะไรได้ (ตั้งค่าใน /jobs/settings) --------------
 
 /** หมวดใน job_settings ที่เก็บ "แผนกไหนทำอะไรได้" ของพูลงาน */
-export type PoolTeamCategory = 'pool_team_graphic' | 'pool_team_onsite' | 'pool_kit_departments'
+export type PoolTeamCategory =
+  | 'pool_team_graphic'
+  | 'pool_team_onsite'
+  | 'pool_kit_departments'
+  | 'pool_duty_staffing'
+  | 'pool_duty_vehicle'
+  | 'pool_duty_kits'
 
 export const POOL_TEAM_CATEGORIES: readonly PoolTeamCategory[] = [
   'pool_team_graphic',
   'pool_team_onsite',
   'pool_kit_departments',
+  'pool_duty_staffing',
+  'pool_duty_vehicle',
+  'pool_duty_kits',
 ]
+
+/** ทีมออกหน้างานตามค่าเริ่มต้น — ใช้ร่วมกันหลายหมวด (ใบงานหน้างาน, กระเป๋า, หน้าที่จัดรถ/จัดกระเป๋า) */
+const ONSITE_TEAM_DEFAULT: readonly string[] = ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง']
 
 /**
  * ค่าเริ่มต้นของแต่ละหมวด — ใช้เมื่อยังไม่มีแถวตั้งค่าใน job_settings เลย
@@ -1006,8 +1018,12 @@ export const POOL_TEAM_CATEGORIES: readonly PoolTeamCategory[] = [
  */
 export const POOL_TEAM_DEFAULTS: Record<PoolTeamCategory, readonly string[]> = {
   pool_team_graphic: ['ฝ่ายออกแบบ'],
-  pool_team_onsite: ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง'],
-  pool_kit_departments: ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง'],
+  pool_team_onsite: ONSITE_TEAM_DEFAULT,
+  pool_kit_departments: ONSITE_TEAM_DEFAULT,
+  // หน้าที่เตรียมงาน: จัดคนเป็นของฝ่ายแอดมิน · จัดรถ/จัดกระเป๋าเป็นของทีมออกหน้างาน
+  pool_duty_staffing: ['ฝ่ายแอดมิน'],
+  pool_duty_vehicle: ONSITE_TEAM_DEFAULT,
+  pool_duty_kits: ONSITE_TEAM_DEFAULT,
 }
 
 /**
@@ -1022,6 +1038,42 @@ export function canActOnPool(
   if (isAdmin) return true
   if (!userDepartment) return false
   return allowedDepartments.includes(userDepartment)
+}
+
+// --- หน้าที่เตรียมงาน (Prep duty) ---------------------------------------------
+
+/**
+ * สามหน้าที่ย่อยของงานหนึ่งงานที่ต้องมีคนกดรับก่อนถึงแก้ไขได้ในตารางภาพรวม
+ * — รับ/คืนแยกกันอิสระ ไม่บังคับลำดับ (CONTEXT.md § หน้าที่เตรียมงาน)
+ * คนละสิ่งกับการรับใบงานหน้างาน (หัวหน้างาน) และหน้าที่หน้างานของระบบเงินเดือน
+ */
+export const PREP_DUTIES = ['staffing', 'vehicle', 'kits'] as const
+
+export type PrepDuty = (typeof PREP_DUTIES)[number]
+
+export const DUTY_LABELS_TH: Record<PrepDuty, string> = {
+  staffing: 'จัดคน',
+  vehicle: 'จัดรถ',
+  kits: 'จัดกระเป๋า',
+}
+
+/** หน้าที่ → หมวดใน job_settings ที่บอกว่าแผนกไหนรับหน้าที่นั้นได้ (ครบทุกหน้าที่) */
+export const PREP_DUTY_CATEGORY: Record<PrepDuty, PoolTeamCategory> = {
+  staffing: 'pool_duty_staffing',
+  vehicle: 'pool_duty_vehicle',
+  kits: 'pool_duty_kits',
+}
+
+/** ค่าที่ส่งมาเป็นหน้าที่เตรียมงานจริงไหม (กันค่าที่ client ส่งมามั่ว) */
+export function isPrepDuty(value: string): value is PrepDuty {
+  return (PREP_DUTIES as readonly string[]).includes(value)
+}
+
+/** การรับหน้าที่หนึ่งครั้ง (หนึ่งแถวใน lead_duty_claims) */
+export interface DutyClaim {
+  leadId: string
+  duty: PrepDuty
+  claimedBy: string
 }
 
 // --- จองกระเป๋า: กติกาชนรายวัน (ADR-0003) -------------------------------------
