@@ -29,14 +29,18 @@ import {
     availabilityOf,
     leadsOnDate,
     personClashes,
+    groupPoolJobs,
     AVAILABILITY_LABELS,
     type TrackingLead,
     type Chip,
     type Conflict,
     type Availability,
+    type PoolJob,
 } from './tracking-logic'
 import TimelineView, { AVAIL_TEXT, formatDate, ymd } from './timeline-view'
 import { RequiredRolesEditor } from './required-roles-editor'
+import PoolTabs, { type JobStatusLabels } from './pool-tabs'
+import { DESIGN_OPTIONS } from './design-options'
 
 export type { TrackingLead }
 
@@ -44,18 +48,6 @@ export type { TrackingLead }
 // SSR ใช้ getServerSnapshot (โซนเวลา server) แล้ว snapshot ฝั่ง client ชนะหลัง hydrate
 const subscribeNever = () => () => {}
 const getTodayStr = () => ymd(new Date())
-
-const DESIGN_OPTIONS = [
-    { value: 'not_started', label: 'ยังไม่เริ่ม', className: '' },
-    { value: 'waiting_info', label: 'ลูกค้ายังไม่ส่งข้อมูล', className: 'bg-rose-100 text-rose-900 dark:bg-rose-900/40 dark:text-rose-100' },
-    { value: 'not_designed', label: 'ยังไม่ออกแบบ', className: 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100' },
-    { value: 'in_progress', label: 'กำลังออกแบบ', className: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100' },
-    { value: 'customer_design', label: 'ลูกค้าออกแบบเอง', className: 'bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-100' },
-    { value: 'revising', label: 'กำลังแก้ไขงาน', className: 'bg-orange-100 text-orange-900 dark:bg-orange-900/40 dark:text-orange-100' },
-    { value: 'sent', label: 'ส่งลูกค้าตรวจ', className: 'bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100' },
-    { value: 'sent_email_cf', label: 'ส่งEmail+CFลูกค้า', className: 'bg-teal-100 text-teal-900 dark:bg-teal-900/40 dark:text-teal-100' },
-    { value: 'completed', label: 'ส่งภาพ+เสร็จสมบูรณ์', className: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100' },
-]
 
 const CHIPS: { chip: Chip; label: string }[] = [
     { chip: 'today', label: 'วันนี้' },
@@ -548,16 +540,30 @@ function runsByDate(leads: TrackingLead[]): { key: string; leads: TrackingLead[]
     return runs
 }
 
+/** แท็บของพูลงาน — ไม่มี ?tab หรือค่าแปลก = ภาพรวม (ตารางเดิม) */
+type PoolTab = 'overview' | 'graphic' | 'onsite'
+
+const POOL_TABS: { key: PoolTab; label: string }[] = [
+    { key: 'overview', label: 'ภาพรวม' },
+    { key: 'graphic', label: 'ใบงานกราฟิก' },
+    { key: 'onsite', label: 'ใบงานหน้างาน' },
+]
+
 export default function TrackingView({
     leads,
     roleLabels,
     roles,
     people,
+    jobs = [],
+    jobStatusLabels = {},
 }: {
     leads: TrackingLead[]
     roleLabels: Record<string, string>
     roles: StaffRole[]
     people: Person[]
+    /** ใบงานของงานเหล่านี้ (ตาราง jobs) — เข้าแท็บใบงานกราฟิก/หน้างาน */
+    jobs?: PoolJob[]
+    jobStatusLabels?: JobStatusLabels
 }) {
     const [rows, setRows] = useState(leads)
     const [chip, setChip] = useState<Chip | null>(null)
@@ -569,9 +575,11 @@ export default function TrackingView({
     // client component: hydration mismatch is only possible exactly at midnight — acceptable
     const today = new Date()
 
-    // สถานะมุมมองอยู่ใน URL: ?view=timeline&date=YYYY-MM-DD&mode=day|week
+    // สถานะมุมมองอยู่ใน URL: ?tab=graphic|onsite&view=timeline&date=YYYY-MM-DD&mode=day|week
     const router = useRouter()
     const searchParams = useSearchParams()
+    const tabParam = searchParams.get('tab')
+    const tab: PoolTab = tabParam === 'graphic' || tabParam === 'onsite' ? tabParam : 'overview'
     const view = searchParams.get('view') === 'timeline' ? 'timeline' : 'table'
     const mode = searchParams.get('mode') === 'week' ? 'week' : 'day'
     const dateParam = searchParams.get('date')
@@ -582,6 +590,7 @@ export default function TrackingView({
 
     /** patch บาง key — อ่านจาก URL จริงตอนคลิก ไม่ใช่ searchParams ของรอบ render (สองคลิกติดกันจะได้ไม่ทับกัน) */
     const setParams = (patch: {
+        tab?: string | null
         view?: string | null
         date?: string | null
         mode?: string | null
@@ -729,15 +738,62 @@ export default function TrackingView({
 
     let seq = 0
 
+    // พูลงาน: ใบงานที่ยังไม่จบ/ไม่ถูกข้าม แยกตามฝ่าย
+    const pool = groupPoolJobs(jobs)
+    const poolJobs = tab === 'graphic' ? pool.graphic : pool.onsite
+
     return (
         <div className="space-y-4">
             <div>
                 <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">ติดตามงาน</h1>
-                <p className="text-sm text-zinc-500">
-                    งาน {visible.length} งาน · ยังไม่พร้อม {visible.filter(r => getMissing(r).length > 0).length} งาน — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร
-                </p>
+                {tab === 'overview' ? (
+                    <p className="text-sm text-zinc-500">
+                        งาน {visible.length} งาน · ยังไม่พร้อม {visible.filter(r => getMissing(r).length > 0).length} งาน — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร
+                    </p>
+                ) : (
+                    <p className="text-sm text-zinc-500">
+                        พูลงาน · {tab === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'} {poolJobs.length} ใบที่ยังไม่จบ
+                    </p>
+                )}
             </div>
 
+            <div className="flex flex-wrap items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
+                {POOL_TABS.map(t => (
+                    <button
+                        key={t.key}
+                        type="button"
+                        aria-pressed={tab === t.key}
+                        onClick={() => setParams({ tab: t.key === 'overview' ? null : t.key })}
+                        className={cn(
+                            '-mb-px border-b-2 px-3 py-2 text-sm font-medium',
+                            tab === t.key
+                                ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
+                                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                        )}
+                    >
+                        {t.label}
+                        {t.key !== 'overview' && (
+                            <span className="ml-1 text-xs font-normal text-zinc-400">
+                                ({t.key === 'graphic' ? pool.graphic.length : pool.onsite.length})
+                            </span>
+                        )}
+                    </button>
+                ))}
+            </div>
+
+            {tab !== 'overview' ? (
+                <PoolTabs
+                    kind={tab}
+                    jobs={poolJobs}
+                    leads={rows}
+                    people={people}
+                    roleLabels={roleLabels}
+                    statusLabels={jobStatusLabels}
+                    today={today}
+                    onDesignStatusChange={save}
+                />
+            ) : (
+                <>
             <div className="flex items-center gap-1">
                 <Button
                     variant={view === 'table' ? 'default' : 'outline'}
@@ -968,6 +1024,8 @@ export default function TrackingView({
                     onQuickAssign={(leadId, userId, role) => quickStaff(leadId, userId, role, true)}
                     onQuickRemove={(leadId, userId, role) => quickStaff(leadId, userId, role, false)}
                 />
+            )}
+                </>
             )}
 
             {editingLead && editing?.kind === 'staff' && (

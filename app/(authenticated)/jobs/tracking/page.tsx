@@ -1,7 +1,8 @@
 import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase-server'
 import TrackingView, { type TrackingLead } from './tracking-view'
-import { VEHICLES } from './tracking-logic'
+import { VEHICLES, type PoolJob } from './tracking-logic'
+import type { JobStatusLabels } from './pool-tabs'
 
 /** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
 function normalizeRequiredRoles(raw: unknown): Record<string, number> {
@@ -17,6 +18,12 @@ export const metadata = {
     title: 'ติดตามงาน — Jobs',
     description: 'งานที่ลูกค้าตอบรับแล้ว — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร',
 }
+
+/** สถานะใบงานตั้งค่าเองได้ใน job_settings — สองหมวดนี้คือของแท็บกราฟิก/หน้างาน */
+const JOB_STATUS_CATEGORIES: string[] = ['status_graphic', 'status_onsite']
+
+/** 'status_graphic' → 'graphic' — key ของ statusLabels คือ `${job_type}:${status}` */
+const jobTypeOfCategory = (category: string) => category.replace(/^status_/, '')
 
 export default async function TrackingPage() {
     const supabase = createServiceClient()
@@ -74,6 +81,39 @@ export default async function TrackingPage() {
         }
     }
 
+    // ใบงานของงานเหล่านี้ — พูลงานอ่านจากตาราง jobs ไม่ใช่ crm_leads (ADR-0002)
+    let poolJobs: PoolJob[] = []
+    if (leadIds.length > 0) {
+        const { data: jobRows } = await supabase
+            .from('jobs')
+            .select('id, job_type, status, title, assigned_to, crm_lead_id')
+            .in('crm_lead_id', leadIds)
+            .is('archived_at', null)
+            .order('created_at', { ascending: true })
+
+        poolJobs = (jobRows || []).map(j => ({
+            id: j.id as string,
+            job_type: (j.job_type as string) || '',
+            status: (j.status as string) || '',
+            title: (j.title as string) || '',
+            assigned_to: Array.isArray(j.assigned_to) ? (j.assigned_to as string[]) : [],
+            crm_lead_id: (j.crm_lead_id as string) ?? null,
+        }))
+    }
+
+    const { data: jobStatusSettings } = await supabase
+        .from('job_settings')
+        .select('category, value, label_th, color')
+        .in('category', JOB_STATUS_CATEGORIES)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+
+    const jobStatusLabels: JobStatusLabels = {}
+    for (const s of jobStatusSettings || []) {
+        const key = `${jobTypeOfCategory(s.category as string)}:${s.value as string}`
+        jobStatusLabels[key] = { label: (s.label_th as string) || (s.value as string), color: (s.color as string) ?? null }
+    }
+
     const { data: roleSettings } = await supabase
         .from('crm_settings')
         .select('value, label_th, sort_order')
@@ -115,10 +155,17 @@ export default async function TrackingPage() {
         staff: staffByLead.get(l.id) || [],
     }))
 
-    // TrackingView อ่าน ?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
+    // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
     return (
         <Suspense fallback={null}>
-            <TrackingView leads={rows} roleLabels={roleLabels} roles={roles} people={people} />
+            <TrackingView
+                leads={rows}
+                roleLabels={roleLabels}
+                roles={roles}
+                people={people}
+                jobs={poolJobs}
+                jobStatusLabels={jobStatusLabels}
+            />
         </Suspense>
     )
 }

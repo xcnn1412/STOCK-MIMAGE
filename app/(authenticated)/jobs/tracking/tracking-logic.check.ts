@@ -16,6 +16,7 @@ import {
   getConflicts,
   getMissing,
   groupLeads,
+  groupPoolJobs,
   hasRequiredRoles,
   isFullyStaffed,
   isPast,
@@ -30,6 +31,7 @@ import {
   nextJobDate,
   NO_DEPARTMENT_LABEL,
   personClashes,
+  POOL_DONE_STATUSES,
   staffedCounts,
   timeStatus,
   vehicleAvailability,
@@ -38,6 +40,7 @@ import {
   workloadTone,
   type DayLayout,
   type Person,
+  type PoolJob,
   type TrackingLead,
 } from './tracking-logic'
 
@@ -770,5 +773,59 @@ assert.deepEqual(fcDept.candidates.map((c) => c.person.id), ['u1', 'u3'])
 assert.deepEqual(fcDept.busy.map((c) => c.person.id), [])
 assert.deepEqual(focusCandidates(fcLead, people, fcLeads, T, { departments: [] }).candidates.map((c) => c.person.id), ['u1', 'u3', 'u4'])
 assert.deepEqual(focusCandidates(fcLead, [], fcLeads, T).candidates, [])
+
+// --- groupPoolJobs: ใบงานเข้าแท็บฝ่าย ----------------------------------------
+const pj = (overrides: Partial<PoolJob> = {}): PoolJob => ({
+  id: 'j1',
+  job_type: 'graphic',
+  status: 'awaiting_claim',
+  title: 'ใบงาน',
+  assigned_to: [],
+  crm_lead_id: 'l1',
+  ...overrides,
+})
+
+// แยกตาม job_type
+assert.deepEqual(
+  groupPoolJobs([pj({ id: 'g1' }), pj({ id: 'o1', job_type: 'onsite' })]),
+  { graphic: [pj({ id: 'g1' })], onsite: [pj({ id: 'o1', job_type: 'onsite' })] }
+)
+// ใบที่จบ ('done') และถูกข้าม ('skipped') ออกจากพูล
+assert.deepEqual(
+  groupPoolJobs([
+    pj({ id: 'g1' }),
+    pj({ id: 'g2', status: 'done' }),
+    pj({ id: 'g3', status: 'skipped' }),
+    pj({ id: 'o1', job_type: 'onsite', status: 'done' }),
+    pj({ id: 'o2', job_type: 'onsite', status: 'in_progress' }),
+  ]).graphic.map((j) => j.id),
+  ['g1']
+)
+assert.deepEqual(
+  groupPoolJobs([
+    pj({ id: 'o1', job_type: 'onsite', status: 'skipped' }),
+    pj({ id: 'o2', job_type: 'onsite', status: 'in_progress' }),
+  ]).onsite.map((j) => j.id),
+  ['o2']
+)
+// job_type ที่ไม่รู้จักไม่เข้าแท็บไหนเลย
+assert.deepEqual(groupPoolJobs([pj({ id: 'x', job_type: 'other' })]), { graphic: [], onsite: [] })
+// คงลำดับเดิมของ jobs
+assert.deepEqual(
+  groupPoolJobs([pj({ id: 'g3' }), pj({ id: 'g1' }), pj({ id: 'g2' })]).graphic.map((j) => j.id),
+  ['g3', 'g1', 'g2']
+)
+// รายการสถานะที่ถือว่าจบส่งทับได้ (สถานะใบงานตั้งค่าเองได้)
+assert.deepEqual(
+  groupPoolJobs([pj({ id: 'g1', status: 'done' }), pj({ id: 'g2', status: 'sent' })], ['sent']).graphic.map((j) => j.id),
+  ['g1']
+)
+// รายการว่าง = ไม่ตัดใบไหนเลย
+assert.deepEqual(
+  groupPoolJobs([pj({ id: 'g1', status: 'done' }), pj({ id: 'g2', status: 'skipped' })], []).graphic.map((j) => j.id),
+  ['g1', 'g2']
+)
+assert.deepEqual(groupPoolJobs([]), { graphic: [], onsite: [] })
+assert.deepEqual([...POOL_DONE_STATUSES], ['done', 'skipped'])
 
 console.log('tracking-logic.check: all passed')

@@ -849,6 +849,46 @@ export function workloadTone(n: number): 'none' | 'low' | 'mid' | 'high' {
   return 'high'
 }
 
+// --- พูลงาน: ใบงานเข้าแท็บฝ่าย -------------------------------------------------
+
+/**
+ * ใบงานหนึ่งใบ (แถวในตาราง jobs) เท่าที่พูลงานต้องใช้
+ * — ข้อมูลลูกค้า/วันงานไม่อยู่ที่นี่ ต้อง join กลับผ่าน crm_lead_id (ADR-0002)
+ */
+export interface PoolJob {
+  id: string
+  /** 'graphic' = ใบงานกราฟิก, 'onsite' = ใบงานหน้างาน — ค่าอื่นไม่เข้าแท็บใดเลย */
+  job_type: string
+  status: string
+  title: string
+  /** ผู้รับใบงาน (uuid) — ว่าง = ยังไม่มีผู้รับ */
+  assigned_to: string[]
+  /** งานที่ใบงานนี้แตกออกมา */
+  crm_lead_id: string | null
+}
+
+/**
+ * สถานะที่ถือว่าใบงาน "จบ" แล้วจึงออกจากพูล — ค่าตั้งต้นที่ส่งทับได้
+ * (สถานะใบงานตั้งค่าเองได้ใน job_settings; 'skipped' คือใบงานที่ถูกข้าม)
+ */
+export const POOL_DONE_STATUSES: readonly string[] = ['done', 'skipped']
+
+/** จัดใบงานเข้าแท็บฝ่าย — ตัดใบที่จบ/ถูกข้ามออก คงลำดับเดิมของ jobs ไว้ */
+export function groupPoolJobs(
+  jobs: PoolJob[],
+  finishedStatusValues: readonly string[] = POOL_DONE_STATUSES
+): { graphic: PoolJob[]; onsite: PoolJob[] } {
+  const finished = new Set(finishedStatusValues)
+  const graphic: PoolJob[] = []
+  const onsite: PoolJob[] = []
+  for (const job of jobs) {
+    if (finished.has(job.status)) continue
+    if (job.job_type === 'graphic') graphic.push(job)
+    else if (job.job_type === 'onsite') onsite.push(job)
+  }
+  return { graphic, onsite }
+}
+
 /** วันจัดงานที่ใกล้ที่สุดหลัง fromDate (ไม่รวมวันนั้น) — null เมื่อไม่มีงานข้างหน้า */
 export function nextJobDate(leads: TrackingLead[], fromDate: string): string | null {
   let best: string | null = null
