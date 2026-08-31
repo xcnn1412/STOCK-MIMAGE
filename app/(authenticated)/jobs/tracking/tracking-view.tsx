@@ -331,6 +331,8 @@ export default function TrackingView({
      */
     const [designDraft, setDesignDraft] = useState<Record<string, string>>({})
     const [chip, setChip] = useState<Chip | null>(null)
+    /** กรองเฉพาะงานที่ยังไม่เปิดใบงานกราฟิก (ชิปเตือนสีเหลือง) */
+    const [notOpenedOnly, setNotOpenedOnly] = useState(false)
     const [showPast, setShowPast] = useState(false)
     const [, startTransition] = useTransition()
     /** ไทม์ไลน์: แถบที่กำลังแก้ (คน หรือ รถ) */
@@ -580,7 +582,13 @@ export default function TrackingView({
 
     const base = rows.filter(r => showPast || !isPast(r, today))
     const counts = chipCounts(base, today, kitReadiness, designReady)
-    const visible = chip ? base.filter(r => inChip(r, chip, today)) : base
+
+    // งานที่ยังไม่เปิดใบงานกราฟิกเลยสักใบ — ตัวนับเตือน + ตัวกรอง (คนละเรื่องกับใบที่เปิดแล้วแต่ยังรอรับ)
+    const notOpenedGraphic = (r: TrackingLead) => !jobsByLead.get(r.id)?.graphic
+    const notOpenedCount = base.filter(notOpenedGraphic).length
+
+    const chipVisible = chip ? base.filter(r => inChip(r, chip, today)) : base
+    const visible = notOpenedOnly ? chipVisible.filter(notOpenedGraphic) : chipVisible
 
     const undated = visible.filter(r => !r.event_date)
     const sections: { key: string; label: string; leads: TrackingLead[] }[] = [
@@ -607,7 +615,9 @@ export default function TrackingView({
                 <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">ติดตามงาน</h1>
                 {tab === 'overview' ? (
                     <p className="text-sm text-zinc-500">
-                        งาน {visible.length} งาน · ยังไม่พร้อม {visible.filter(r => getMissing(r, kitReadiness.get(r.id), designReady.get(r.id)).length > 0).length} งาน — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร
+                        งาน {visible.length} งาน · ยังไม่พร้อม {visible.filter(r => getMissing(r, kitReadiness.get(r.id), designReady.get(r.id)).length > 0).length} งาน
+                        {notOpenedCount > 0 && <span className="text-amber-600 dark:text-amber-400">{' · ยังไม่เปิดใบงานกราฟิก '}{notOpenedCount} งาน</span>}
+                        {' — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร'}
                     </p>
                 ) : isDutyTab(tab) ? (
                     <p className="text-sm text-zinc-500">
@@ -729,6 +739,21 @@ export default function TrackingView({
                         </button>
                     )
                 })}
+                {notOpenedCount > 0 && (
+                    <button
+                        type="button"
+                        aria-pressed={notOpenedOnly}
+                        onClick={() => setNotOpenedOnly(v => !v)}
+                        className={cn(
+                            'rounded-full px-3 py-1 text-sm',
+                            notOpenedOnly
+                                ? 'bg-amber-500 text-white'
+                                : 'border border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                        )}
+                    >
+                        ยังไม่เปิดใบงานกราฟิก {notOpenedCount} งาน
+                    </button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => setShowPast(p => !p)}>
                     {showPast ? 'ซ่อนงานที่ผ่านแล้ว' : 'แสดงงานที่ผ่านแล้ว'}
                 </Button>
