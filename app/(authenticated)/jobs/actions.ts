@@ -7,7 +7,12 @@ import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
 import { requireAuth } from '@/lib/auth'
 // โมดูลตรรกะล้วน (ไม่มี React / ไม่มี 'use client') — import เข้ามาใน server action ได้
-import { READY_DESIGN_STATUSES, kitBookingConflict, shouldFinishGraphicJob } from './tracking/tracking-logic'
+import {
+    READY_DESIGN_STATUSES, kitBookingConflict, shouldFinishGraphicJob,
+    canActOnPool, POOL_TEAM_CATEGORIES, POOL_TEAM_DEFAULTS,
+} from './tracking/tracking-logic'
+import type { PoolTeamCategory } from './tracking/tracking-logic'
+import { DEPARTMENTS } from '@/lib/departments'
 
 
 async function getSession() {
@@ -670,16 +675,16 @@ export async function createJobsFromLead(leadId: string) {
 type PoolJobType = 'graphic' | 'onsite'
 
 // ทีม = แผนก (profiles.department) ตั้งค่าได้ราย category ใน job_settings
-// (UI ตั้งค่าอยู่ในหน้า /jobs/settings — คนละ ticket) ยังไม่มีแถวตั้งค่า = ใช้ค่าเริ่มต้นนี้
-// เพื่อให้ระบบใช้งานได้ทันทีก่อนแอดมินเข้าไปตั้งค่า
-const POOL_TEAM_CATEGORY: Record<PoolJobType, string> = {
+// (UI ตั้งค่าอยู่ในแท็บ "ทีมของพูลงาน" หน้า /jobs/settings) ยังไม่มีแถวตั้งค่า = ใช้ค่าเริ่มต้น
+// จาก POOL_TEAM_DEFAULTS เพื่อให้ระบบใช้งานได้ทันทีก่อนแอดมินเข้าไปตั้งค่า
+const POOL_TEAM_CATEGORY: Record<PoolJobType, PoolTeamCategory> = {
     graphic: 'pool_team_graphic',
     onsite: 'pool_team_onsite',
 }
 
 const POOL_TEAM_DEFAULT_DEPARTMENTS: Record<PoolJobType, string[]> = {
-    graphic: ['ฝ่ายออกแบบ'],
-    onsite: ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง'],
+    graphic: [...POOL_TEAM_DEFAULTS.pool_team_graphic],
+    onsite: [...POOL_TEAM_DEFAULTS.pool_team_onsite],
 }
 
 /** แผนกที่ตั้งไว้ใน job_settings หมวดหนึ่ง — ยังไม่มีแถวตั้งค่า = ใช้ค่าเริ่มต้นที่ส่งมา */
@@ -698,6 +703,49 @@ async function getDepartmentSetting(category: string, fallback: string[]): Promi
 
 async function getPoolTeamDepartments(jobType: PoolJobType): Promise<string[]> {
     return getDepartmentSetting(POOL_TEAM_CATEGORY[jobType], POOL_TEAM_DEFAULT_DEPARTMENTS[jobType])
+}
+
+/**
+ * บันทึกแผนกของหมวดหนึ่ง (แอดมินเท่านั้น) — ลบแถวเดิมของหมวดนั้นทิ้งแล้วใส่ชุดใหม่ตามลำดับที่เลือก
+ * ไม่เลือกเลย = ไม่มีแถว = ตกกลับไปใช้ค่าเริ่มต้นตอนอ่าน (getDepartmentSetting)
+ */
+export async function savePoolTeamSetting(category: string, departments: string[]) {
+    const auth = await requireAuth()
+    if (!auth) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (auth.role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้นที่ตั้งค่าทีมของพูลงานได้' }
+
+    if (!POOL_TEAM_CATEGORIES.includes(category as PoolTeamCategory)) {
+        return { error: 'หมวดการตั้งค่าไม่ถูกต้อง' }
+    }
+
+    const picked = [...new Set(departments || [])]
+    if (picked.some(d => !DEPARTMENTS.includes(d))) {
+        return { error: 'มีแผนกที่ไม่อยู่ในรายการแผนกของระบบ' }
+    }
+
+    const supabase = createServiceClient()
+    const { error: delError } = await supabase.from('job_settings').delete().eq('category', category)
+    if (delError) return { error: delError.message }
+
+    if (picked.length > 0) {
+        const { error: insError } = await supabase.from('job_settings').insert(
+            picked.map((value, index) => ({
+                category,
+                value,
+                label_th: value,
+                label_en: value,
+                color: null,
+                sort_order: index,
+                is_active: true,
+            }))
+        )
+        if (insError) return { error: insError.message }
+    }
+
+    await logActivity('UPDATE_POOL_TEAM_SETTINGS', { category, departments: picked })
+    revalidatePath('/jobs/settings')
+    revalidatePath('/jobs/tracking')
+    return { success: true }
 }
 
 // แจ้งเตือนสมาชิกแผนกของฝ่ายนั้นว่ามีใบงานเข้าพูล (createNotifications ตัดตัวผู้กดเองออกให้แล้ว)
@@ -909,7 +957,7 @@ export async function claimPoolJob(jobId: string) {
 
     const jobType = poolTypeOf(job.job_type)
     const departments = await getPoolTeamDepartments(jobType)
-    if (actor.role !== 'admin' && !(actor.department && departments.includes(actor.department))) {
+    if (!canActOnPool(actor.department, actor.role === 'admin', departments)) {
         return { error: 'เฉพาะทีมของฝ่ายนี้เท่านั้นที่รับใบงานได้' }
     }
 
@@ -2413,20 +2461,19 @@ export async function assignLeadStaff(
 // ============================================================================
 
 /** แผนกที่จอง/ย้ายกระเป๋าได้ — ตั้งค่าเองได้ใน job_settings (ยังไม่ตั้ง = ทีมหน้างานตามค่าเริ่มต้น) */
-const KIT_MANAGER_CATEGORY = 'pool_kit_departments'
+const KIT_MANAGER_CATEGORY: PoolTeamCategory = 'pool_kit_departments'
 
 async function getKitManagerDepartments(): Promise<string[]> {
-    return getDepartmentSetting(KIT_MANAGER_CATEGORY, POOL_TEAM_DEFAULT_DEPARTMENTS.onsite)
+    return getDepartmentSetting(KIT_MANAGER_CATEGORY, [...POOL_TEAM_DEFAULTS[KIT_MANAGER_CATEGORY]])
 }
 
 /** ผู้กดต้องเป็นแอดมิน หรืออยู่แผนกที่ดูแลกระเป๋า — สิทธิ์เดียวกันทั้งจอง/ยกเลิก/บันทึกจัดครบ */
 async function requireKitManager(): Promise<{ actor: PoolActor } | { error: string }> {
     const actor = await getPoolActor()
     if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
-    if (actor.role === 'admin') return { actor }
 
     const departments = await getKitManagerDepartments()
-    if (!(actor.department && departments.includes(actor.department))) {
+    if (!canActOnPool(actor.department, actor.role === 'admin', departments)) {
         return { error: 'เฉพาะทีมที่ดูแลกระเป๋าเท่านั้นที่จองหรือย้ายกระเป๋าได้' }
     }
     return { actor }

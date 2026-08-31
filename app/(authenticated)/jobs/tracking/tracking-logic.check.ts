@@ -4,6 +4,9 @@ import assert from 'node:assert/strict'
 import {
   addDays,
   availabilityOf,
+  canActOnPool,
+  POOL_TEAM_CATEGORIES,
+  POOL_TEAM_DEFAULTS,
   BAR_COLORS,
   bucketOf,
   chipCounts,
@@ -1033,5 +1036,34 @@ assert.deepEqual(wkK2.cells['2026-08-31'].map((c) => [c.label, c.packed, c.confl
   ['อีเวนต์ พรุ่งนี้', true, false],
 ])
 assert.equal(layoutWeek([tlA], T, people, roleLabels).lanes.some((l) => l.kind === 'kit'), false)
+
+// --- canActOnPool: สิทธิ์ทำงานกับพูลตามแผนก ---------------------------------
+
+const poolTeam = ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง']
+
+// แอดมินข้ามการเช็คแผนกเสมอ — แม้ไม่มีแผนก หรือรายการที่ตั้งค่าว่างเปล่า
+assert.equal(canActOnPool('ฝ่ายแอดมิน', true, poolTeam), true)
+assert.equal(canActOnPool(null, true, poolTeam), true)
+assert.equal(canActOnPool(null, true, []), true)
+// คนในแผนกที่ตั้งค่าไว้ = ทำได้
+assert.equal(canActOnPool('ทีมออกหน้างาน', false, poolTeam), true)
+assert.equal(canActOnPool('ช่าง', false, poolTeam), true)
+// คนนอกแผนก = ไม่ได้
+assert.equal(canActOnPool('ฝ่ายออกแบบ', false, poolTeam), false)
+// ไม่ระบุแผนก = ไม่ได้
+assert.equal(canActOnPool(null, false, poolTeam), false)
+// ตั้งค่าเป็นรายการว่าง = ไม่มีใครนอกแอดมินทำได้
+assert.equal(canActOnPool('ทีมออกหน้างาน', false, []), false)
+
+// ค่าเริ่มต้นครบทั้งสามหมวด และไม่มีหมวดไหนว่าง (ไม่ตั้งค่าเลยระบบยังทำงานได้)
+assert.deepEqual([...POOL_TEAM_CATEGORIES], [
+  'pool_team_graphic', 'pool_team_onsite', 'pool_kit_departments',
+])
+for (const cat of POOL_TEAM_CATEGORIES) {
+  assert.equal(POOL_TEAM_DEFAULTS[cat].length > 0, true)
+  assert.equal(canActOnPool(POOL_TEAM_DEFAULTS[cat][0], false, [...POOL_TEAM_DEFAULTS[cat]]), true)
+}
+assert.deepEqual([...POOL_TEAM_DEFAULTS.pool_team_graphic], ['ฝ่ายออกแบบ'])
+assert.deepEqual([...POOL_TEAM_DEFAULTS.pool_kit_departments], [...POOL_TEAM_DEFAULTS.pool_team_onsite])
 
 console.log('tracking-logic.check: all passed')

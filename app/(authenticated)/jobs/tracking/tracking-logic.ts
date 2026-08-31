@@ -979,6 +979,41 @@ export function shouldFinishGraphicJob(designStatus: string, jobStatus: string):
   return READY_DESIGN_STATUSES.includes(designStatus) && !POOL_DONE_STATUSES.includes(jobStatus)
 }
 
+// --- ทีมของพูลงาน: แผนกไหนทำอะไรได้ (ตั้งค่าใน /jobs/settings) --------------
+
+/** หมวดใน job_settings ที่เก็บ "แผนกไหนทำอะไรได้" ของพูลงาน */
+export type PoolTeamCategory = 'pool_team_graphic' | 'pool_team_onsite' | 'pool_kit_departments'
+
+export const POOL_TEAM_CATEGORIES: readonly PoolTeamCategory[] = [
+  'pool_team_graphic',
+  'pool_team_onsite',
+  'pool_kit_departments',
+]
+
+/**
+ * ค่าเริ่มต้นของแต่ละหมวด — ใช้เมื่อยังไม่มีแถวตั้งค่าใน job_settings เลย
+ * (ระบบจึงใช้งานได้ทันทีก่อนแอดมินเข้าไปตั้งค่า)
+ */
+export const POOL_TEAM_DEFAULTS: Record<PoolTeamCategory, readonly string[]> = {
+  pool_team_graphic: ['ฝ่ายออกแบบ'],
+  pool_team_onsite: ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง'],
+  pool_kit_departments: ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง'],
+}
+
+/**
+ * ผู้ใช้คนนี้ทำงานกับพูลได้ไหม (รับใบงาน / จองย้ายกระเป๋า) — แอดมินได้เสมอ
+ * คนอื่นต้องมีแผนก และแผนกนั้นอยู่ในรายการที่ตั้งค่าไว้ (รายการว่าง = ไม่มีใครนอกแอดมินทำได้)
+ */
+export function canActOnPool(
+  userDepartment: string | null,
+  isAdmin: boolean,
+  allowedDepartments: string[]
+): boolean {
+  if (isAdmin) return true
+  if (!userDepartment) return false
+  return allowedDepartments.includes(userDepartment)
+}
+
 // --- จองกระเป๋า: กติกาชนรายวัน (ADR-0003) -------------------------------------
 
 /** กระเป๋าหนึ่งใบ — ตัวเลือกในกล่องจอง และหนึ่งเลนในไทม์ไลน์ */

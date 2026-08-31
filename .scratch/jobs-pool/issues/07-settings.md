@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (จุดอ่าน settings ตอนแจ้งเตือน), 03 (enforce ตอนรับงาน), 05 (enforce ตอนจองกระเป๋า)
 
-**Status:** ready-for-agent
+**Status:** done (2026-08-31) — tsc 7 error เดิม, check ผ่าน, admin gate + validation ตรวจแล้ว
 
 - [ ] admin แก้ mapping แผนก↔ประเภทใบงาน และแผนกจองกระเป๋า ใน /jobs/settings ได้ ค่าคงอยู่หลัง reload
 - [ ] เปลี่ยน mapping แล้วการแจ้งเตือนใบงานใหม่ไปหาแผนกชุดใหม่ และคนนอกแผนกกดรับ/จองกระเป๋าได้ `{ error }` ภาษาไทย

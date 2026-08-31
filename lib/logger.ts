@@ -121,6 +121,8 @@ export type ActionType =
     | 'BOOK_EVENT_KIT'
     | 'UNBOOK_EVENT_KIT'
     | 'PACK_EVENT_KIT'
+    // ตั้งค่าทีมของพูลงาน — แผนกไหนรับใบงานประเภทไหน / แผนกไหนจอง-ย้ายกระเป๋าได้
+    | 'UPDATE_POOL_TEAM_SETTINGS'
     // Ticket Module
     | 'CREATE_TICKET'
     | 'UPDATE_TICKET_STATUS'

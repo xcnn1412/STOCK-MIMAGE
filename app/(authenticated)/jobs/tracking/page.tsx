@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
 import TrackingView, { type TrackingLead } from './tracking-view'
-import { VEHICLES, type PoolJob } from './tracking-logic'
+import { VEHICLES, canActOnPool, POOL_TEAM_DEFAULTS, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
 
 /** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
@@ -212,17 +212,18 @@ export default async function TrackingPage() {
     const myDepartment = people.find(p => p.id === currentUserId)?.department ?? null
     const canManagePool = sessionRole === 'admin' || myDepartment === 'ฝ่ายประสานงาน'
 
-    // จอง/ย้ายกระเป๋า: แอดมิน + แผนกที่ตั้งไว้ (ยังไม่ตั้ง = ทีมหน้างาน)
-    // ค่าเริ่มต้นตรงกับ POOL_TEAM_DEFAULT_DEPARTMENTS.onsite ใน jobs/actions.ts — สิทธิ์จริงบังคับใน server action อีกชั้น
+    // จอง/ย้ายกระเป๋า: แอดมิน + แผนกที่ตั้งไว้ในแท็บ "ทีมของพูลงาน" (ยังไม่ตั้ง = ค่าเริ่มต้น)
+    // เป็นแค่การซ่อนปุ่ม — สิทธิ์จริงบังคับใน server action อีกชั้นด้วย canActOnPool ตัวเดียวกัน
     const { data: kitDeptRows } = await supabase
         .from('job_settings')
         .select('value')
         .eq('category', 'pool_kit_departments')
         .eq('is_active', true)
-    const kitDepartments = (kitDeptRows || []).map(r => r.value as string).filter(Boolean)
-    const canManageKits =
-        sessionRole === 'admin' ||
-        (!!myDepartment && (kitDepartments.length > 0 ? kitDepartments : ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง']).includes(myDepartment))
+    const kitDeptRowValues = (kitDeptRows || []).map(r => r.value as string).filter(Boolean)
+    const kitDepartments = kitDeptRowValues.length > 0
+        ? kitDeptRowValues
+        : [...POOL_TEAM_DEFAULTS.pool_kit_departments]
+    const canManageKits = canActOnPool(myDepartment, sessionRole === 'admin', kitDepartments)
 
     // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
     return (
