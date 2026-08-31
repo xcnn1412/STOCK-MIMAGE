@@ -361,7 +361,7 @@ const targetEventOf = (lead: TrackingLead) => lead.events[0] ?? null
  * ช่อง "กระเป๋า" ของใบงานหน้างาน — ยังไม่จอง / จองแล้วยังไม่จัด (จัดแล้ว X/Y) / จัดครบ (ADR-0003)
  * กดเปิดกล่องจองกระเป๋า: จอง ยกเลิกจอง และลิงก์ไปหน้าเช็คกระเป๋าของอีเวนต์นั้น
  */
-function KitSummary({
+export function KitSummary({
     lead,
     kits,
     bookings,

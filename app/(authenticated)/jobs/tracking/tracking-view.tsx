@@ -41,7 +41,7 @@ import {
 } from './tracking-logic'
 import TimelineView, { AVAIL_TEXT, formatDate, ymd } from './timeline-view'
 import { RequiredRolesEditor } from './required-roles-editor'
-import PoolTabs, { type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
+import PoolTabs, { KitSummary, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
 import { DESIGN_OPTIONS } from './design-options'
 
 export type { TrackingLead }
@@ -880,20 +880,21 @@ export default function TrackingView({
                             <TableHead className="w-28">ซัพพลายเออร์</TableHead>
                             <TableHead className="w-48">จัดคน</TableHead>
                             <TableHead className="w-44">จัดรถ</TableHead>
+                            <TableHead className="w-40">กระเป๋า</TableHead>
                             <TableHead className="w-56">ความพร้อม</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={8} className="text-center text-sm text-zinc-500 py-10">
                                     ยังไม่มีงานที่ตอบรับ
                                 </TableCell>
                             </TableRow>
                         )}
                         {rows.length > 0 && visible.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={8} className="text-center text-sm text-zinc-500 py-10">
                                     ไม่มีงานในช่วงนี้
                                 </TableCell>
                             </TableRow>
@@ -901,7 +902,7 @@ export default function TrackingView({
                         {sections.map(section => (
                             <Fragment key={section.key}>
                                 <TableRow>
-                                    <TableCell colSpan={7} className="bg-zinc-50 dark:bg-zinc-900/60 text-xs font-semibold text-zinc-600 dark:text-zinc-300 py-1.5">
+                                    <TableCell colSpan={8} className="bg-zinc-50 dark:bg-zinc-900/60 text-xs font-semibold text-zinc-600 dark:text-zinc-300 py-1.5">
                                         {section.label} <span className="font-normal text-zinc-400">({section.leads.length})</span>
                                     </TableCell>
                                 </TableRow>
@@ -942,6 +943,10 @@ export default function TrackingView({
 
                                             <TableCell>
                                                 <VehicleCell lead={lead} all={rows} save={save} />
+                                            </TableCell>
+
+                                            <TableCell>
+                                                <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />
                                             </TableCell>
 
                                             <TableCell>
@@ -999,6 +1004,10 @@ export default function TrackingView({
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>
                                         <VehicleCell lead={lead} all={rows} save={save} />
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] text-zinc-500">กระเป๋า</div>
+                                        <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />
                                     </div>
                                 </div>
 
