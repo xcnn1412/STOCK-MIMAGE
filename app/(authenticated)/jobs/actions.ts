@@ -13,6 +13,7 @@ import {
     PREP_DUTY_CATEGORY, DUTY_LABELS_TH, isPrepDuty,
 } from './tracking/tracking-logic'
 import type { PoolTeamCategory, PrepDuty } from './tracking/tracking-logic'
+import { DESIGN_STATUS_VALUES } from './tracking/design-options'
 import { DEPARTMENTS } from '@/lib/departments'
 
 
@@ -579,10 +580,29 @@ export async function createJobActivity(jobId: string, formData: FormData) {
 // Create Jobs from CRM Lead — ส่งต่องานจาก CRM
 // ============================================================================
 
-export async function createJobsFromLead(leadId: string) {
-    const { userId } = await getSession()
-    if (!userId) return { error: 'Unauthorized' }
+/** ประเภทใบงานที่แตกออกจากการ์ด CRM ได้ */
+type LeadJobType = 'graphic' | 'onsite'
 
+const LEAD_JOB_LABEL_TH: Record<LeadJobType, string> = {
+    graphic: 'กราฟฟิก',
+    onsite: 'ออกหน้างาน',
+}
+
+type CreatedJobRow = { id: string; job_type: string; title: string }
+
+/**
+ * สร้างใบงานของ lead เฉพาะ "ประเภทที่ยังไม่มี" — ตัวกันสร้างซ้ำแยกรายประเภท
+ * (งานที่มีใบงานหน้างานแล้วยังเปิดใบงานกราฟิกทีหลังได้ และกลับกัน)
+ * ใบที่สร้างเข้าพูลด้วยสถานะ "รอรับงาน" + แจ้งทีมของฝ่ายนั้นจากที่นี่ที่เดียว
+ * ผู้เรียกเป็นคน logActivity / revalidatePath เอง (แต่ละทางเข้าใช้ ActionType คนละตัว)
+ */
+async function createLeadJobs(
+    leadId: string,
+    types: LeadJobType[],
+    userId: string,
+    activityText?: string,
+    opts?: { allowExisting?: boolean }
+) {
     const supabase = createServiceClient()
 
     // Get lead data
@@ -594,25 +614,32 @@ export async function createJobsFromLead(leadId: string) {
 
     if (leadErr || !lead) return { error: 'ไม่พบข้อมูล Lead' }
 
-    // Get default first status for each pipeline
-    const { data: graphicStatuses } = await supabase
-        .from('job_settings')
-        .select('value')
-        .eq('category', 'status_graphic')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true })
-        .limit(1)
+    // dedupe รายประเภท: ประเภทที่มีใบงานของ lead นี้อยู่แล้วจะถูกข้าม
+    const { data: existing, error: existingErr } = await supabase
+        .from('jobs')
+        .select('job_type')
+        .eq('crm_lead_id', leadId)
 
-    const { data: onsiteStatuses } = await supabase
-        .from('job_settings')
-        .select('value')
-        .eq('category', 'status_onsite')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true })
-        .limit(1)
+    if (existingErr) return { error: existingErr.message }
 
-    const graphicStatus = graphicStatuses?.[0]?.value || 'pending'
-    const onsiteStatus = onsiteStatuses?.[0]?.value || 'preparing'
+    const already = new Set((existing || []).map(r => r.job_type as string))
+    // allowExisting: เปิดใบซ้ำประเภทเดิมได้ (ใบงานกราฟิกเปิดหลายใบต่องาน — client ยืนยันกับผู้ใช้มาแล้ว)
+    const wanted = opts?.allowExisting ? types : types.filter(t => !already.has(t))
+    const skipped = opts?.allowExisting ? [] : types.filter(t => already.has(t))
+    if (wanted.length === 0) return { success: true as const, jobs: [] as CreatedJobRow[], skipped }
+    const graphicCount = (existing || []).filter(r => r.job_type === 'graphic').length
+
+    // Get default first status for each pipeline (แถว is_active ที่ sort_order ต่ำสุด = "รอรับงาน")
+    const firstStatus = async (category: string, fallback: string) => {
+        const { data } = await supabase
+            .from('job_settings')
+            .select('value')
+            .eq('category', category)
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true })
+            .limit(1)
+        return (data?.[0]?.value as string) || fallback
+    }
 
     const baseJob = {
         crm_lead_id: leadId,
@@ -629,28 +656,34 @@ export async function createJobsFromLead(leadId: string) {
         tags: [] as string[],
     }
 
-    // Create graphic job with assigned_graphics from lead
-    const graphicJob = {
-        ...baseJob,
-        job_type: 'graphic',
-        status: graphicStatus,
-        assigned_to: lead.assigned_graphics || [],
-        assigned_graphics: lead.assigned_graphics || [],
+    const rows = []
+    for (const type of wanted) {
+        if (type === 'graphic') {
+            // Create graphic job with assigned_graphics from lead
+            rows.push({
+                ...baseJob,
+                // ใบที่สองขึ้นไปต่อท้ายเลขไว้แยกใบในพูล (ใบแรกไม่มีเลข)
+                title: graphicCount > 0 ? `${baseJob.title} #${graphicCount + 1}` : baseJob.title,
+                job_type: 'graphic',
+                status: await firstStatus('status_graphic', 'pending'),
+                // สถานะออกแบบอยู่รายใบ — ใบใหม่เริ่มที่ "ยังไม่เริ่ม" เสมอ ไม่รับค่าจากใบอื่น/จากงาน
+                design_status: 'not_started',
+                assigned_to: lead.assigned_graphics || [],
+                assigned_graphics: lead.assigned_graphics || [],
+            })
+        } else {
+            // Create onsite job with assigned_staff from lead
+            rows.push({
+                ...baseJob,
+                job_type: 'onsite',
+                status: await firstStatus('status_onsite', 'preparing'),
+                assigned_to: lead.assigned_staff || [],
+                assigned_staff: lead.assigned_staff || [],
+            })
+        }
     }
 
-    // Create onsite job with assigned_staff from lead
-    const onsiteJob = {
-        ...baseJob,
-        job_type: 'onsite',
-        status: onsiteStatus,
-        assigned_to: lead.assigned_staff || [],
-        assigned_staff: lead.assigned_staff || [],
-    }
-
-    const { data: jobs, error: insertErr } = await supabase
-        .from('jobs')
-        .insert([graphicJob, onsiteJob])
-        .select()
+    const { data: jobs, error: insertErr } = await supabase.from('jobs').insert(rows).select()
 
     if (insertErr) return { error: insertErr.message }
 
@@ -659,20 +692,69 @@ export async function createJobsFromLead(leadId: string) {
         lead_id: leadId,
         created_by: userId,
         activity_type: 'note',
-        description: `ส่งต่องานแล้ว: กราฟฟิก + ออกหน้างาน`,
+        description: activityText ?? `ส่งต่องานแล้ว: ${wanted.map(t => LEAD_JOB_LABEL_TH[t]).join(' + ')}`,
     })
 
-    // ใบงานที่สร้างเข้าพูลด้วยสถานะ "รอรับงาน" ทันที — แจ้งทีมของฝ่ายนั้นจากตรงนี้ที่เดียว
-    // (ทั้งทางส่งต่อเองจากการ์ด CRM และทางอัตโนมัติตอนลูกค้าตอบรับ จึงไม่มีทางแจ้งซ้ำ)
-    for (const job of (jobs || []) as { id: string; job_type: string; title: string }[]) {
+    const created = (jobs || []) as CreatedJobRow[]
+    for (const job of created) {
         await notifyPoolNewJob(job, userId)
     }
 
-    await logActivity('CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs?.map(j => j.id) })
+    return { success: true as const, jobs: created, skipped }
+}
+
+/**
+ * ปุ่ม "ส่งต่องาน" บนการ์ด CRM — เติมใบงานประเภทที่ยังไม่มีให้ครบ (ไม่สร้างซ้ำประเภทที่มีแล้ว)
+ */
+export async function createJobsFromLead(leadId: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const result = await createLeadJobs(leadId, ['graphic', 'onsite'], userId)
+    if ('error' in result) return { error: result.error }
+
+    await logActivity('CREATE_JOBS_FROM_LEAD', { leadId, jobIds: result.jobs.map(j => j.id) })
     revalidatePath('/jobs')
+    revalidatePath('/jobs/tracking')
     revalidatePath('/crm')
     revalidatePath(`/crm/${leadId}`)
-    return { success: true, jobs: jobs || [] }
+    return { success: true, jobs: result.jobs, skipped: result.skipped }
+}
+
+/**
+ * เปิดใบงานกราฟิกเองจากการ์ด CRM — ใบงานกราฟิกไม่เกิดอัตโนมัติตอนตอบรับแล้ว
+ * (งานที่ลูกค้าออกแบบเองจะได้ไม่มีใบงานกราฟิกที่ต้องตามไปกด "ข้าม" ทีหลัง)
+ */
+export async function openGraphicJob(leadId: string, opts?: { allowDuplicate?: boolean }) {
+    const auth = await requireAuth()
+    if (!auth) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+
+    const supabase = createServiceClient()
+    const { data: lead } = await supabase
+        .from('crm_leads')
+        .select('id, status')
+        .eq('id', leadId)
+        .single()
+
+    if (!lead) return { error: 'ไม่พบข้อมูล Lead' }
+    if (lead.status !== 'accepted') return { error: 'เปิดใบงานกราฟิกได้เมื่องานตอบรับแล้วเท่านั้น' }
+
+    // เปิดหลายใบต่องานได้ แต่ต้องยืนยันซ้ำจากฝั่ง client ก่อน (allowDuplicate)
+    // ไม่ยืนยัน = พฤติกรรมเดิม: มีใบแล้วไม่สร้างเพิ่ม
+    const result = await createLeadJobs(
+        leadId, ['graphic'], auth.userId,
+        'เปิดใบงานกราฟิกแล้ว — เข้าพูลรอรับงาน',
+        { allowExisting: opts?.allowDuplicate === true }
+    )
+    if ('error' in result) return { error: result.error }
+    if (result.jobs.length === 0) return { error: 'งานนี้มีใบงานกราฟิกแล้ว' }
+
+    await logActivity('OPEN_GRAPHIC_JOB', { leadId, jobId: result.jobs[0].id })
+    revalidatePath('/jobs')
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/crm')
+    revalidatePath(`/crm/${leadId}`)
+    return { success: true, job: result.jobs[0] }
 }
 
 // ============================================================================
@@ -787,29 +869,18 @@ async function notifyPoolNewJob(
 }
 
 // สร้างใบงานอัตโนมัติเมื่อการ์ด CRM เปลี่ยนเป็น "ตอบรับ" — เรียกจาก updateLeadStatus
-// กันสร้างซ้ำ: งานที่มีใบงานอยู่แล้วจะข้าม (สลับสถานะ accepted → อื่น → accepted ไม่เกิดใบงานผี)
+// สร้างเฉพาะ "ใบงานหน้างาน" — ใบงานกราฟิกเปิดเองจากปุ่มบนการ์ด CRM (openGraphicJob)
+// กันสร้างซ้ำรายประเภท: มีใบงานหน้างานแล้วจะข้าม (สลับสถานะ accepted → อื่น → accepted ไม่เกิดใบงานผี)
 export async function autoCreateJobsFromAcceptedLead(leadId: string) {
     const { userId } = await getSession()
     if (!userId) return { error: 'Unauthorized' }
 
-    const supabase = createServiceClient()
-
-    const { data: existing, error: existingErr } = await supabase
-        .from('jobs')
-        .select('id')
-        .eq('crm_lead_id', leadId)
-        .limit(1)
-
-    if (existingErr) return { error: existingErr.message }
-    if (existing && existing.length > 0) return { success: true, created: false }
-
-    const result = await createJobsFromLead(leadId)
+    const result = await createLeadJobs(leadId, ['onsite'], userId)
     if ('error' in result) return { error: result.error }
+    if (result.jobs.length === 0) return { success: true, created: false }
 
-    // แจ้งเตือน "ใบงานใหม่เข้าพูล" ยิงจาก createJobsFromLead แล้ว — ที่นี่เหลือแค่บันทึกว่ามาทางอัตโนมัติ
-    const jobs = (result.jobs || []) as { id: string; job_type: string; title: string }[]
-
-    await logActivity('AUTO_CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs.map(j => j.id) })
+    // แจ้งเตือน "ใบงานใหม่เข้าพูล" ยิงจาก createLeadJobs แล้ว — ที่นี่เหลือแค่บันทึกว่ามาทางอัตโนมัติ
+    await logActivity('AUTO_CREATE_JOBS_FROM_LEAD', { leadId, jobIds: result.jobs.map(j => j.id) })
     revalidatePath('/jobs')
     revalidatePath('/jobs/tracking')
     return { success: true, created: true }
@@ -1326,6 +1397,105 @@ async function autoFinishGraphicJobs(leadId: string, designStatus: string, actor
         })
         revalidatePool(job.id as string)
     }
+}
+
+/**
+ * เขียน cache ระดับงาน (crm_leads.design_status) ให้ตรงกับใบงานกราฟิกของงานนั้น
+ * — สถานะจริงอยู่รายใบ (jobs.design_status) คอลัมน์เดิมคงไว้ให้โค้ด/รายงานที่ยังอ่านระดับงาน
+ * — ยึด "ใบแรกที่ยังไม่จบ" (เรียงตามวันที่สร้าง) ถ้าจบหมดแล้วใช้ใบล่าสุด
+ * — ไม่คืน error: การบันทึกสถานะของใบต้องสำเร็จอยู่ดีแม้ cache จะเขียนพลาด (บันทึกไว้ใน console)
+ */
+async function syncLeadDesignCache(leadId: string) {
+    const supabase = createServiceClient()
+    const { data: rows, error } = await supabase
+        .from('jobs')
+        .select('id, status, design_status')
+        .eq('crm_lead_id', leadId)
+        .eq('job_type', 'graphic')
+        .is('archived_at', null)
+        .order('created_at', { ascending: true })
+
+    if (error) {
+        console.error('[jobs] sync lead design cache: fetch failed:', error.message)
+        return
+    }
+    const jobs = rows || []
+    if (jobs.length === 0) return
+
+    const isActive = (status: string) => status !== DONE_STATUS && status !== SKIPPED_STATUS
+    const primary = jobs.find(j => isActive((j.status as string) || '')) ?? jobs[jobs.length - 1]
+    const value = (primary.design_status as string) || null
+    if (!value) return
+
+    const { error: updErr } = await supabase
+        .from('crm_leads')
+        .update({ design_status: value })
+        .eq('id', leadId)
+    if (updErr) console.error('[jobs] sync lead design cache: update failed:', updErr.message)
+}
+
+/**
+ * แก้สถานะออกแบบของ "ใบงานกราฟิกใบเดียว" — งานหนึ่งเปิดได้หลายใบ แต่ละใบเดินสถานะของตัวเอง
+ * ถึงขั้นพร้อม (sent_email_cf / completed) → จบเฉพาะใบนี้ ใบอื่นของงานเดียวกันไม่ถูกแตะ
+ * จากนั้น sync cache ระดับงานให้ตารางภาพรวม/รายงานเดิมยังเห็นค่าที่ถูก
+ */
+export async function updateJobDesignStatus(jobId: string, designStatus: string) {
+    const auth = await requireAuth()
+    if (!auth) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!DESIGN_STATUS_VALUES.includes(designStatus)) return { error: 'สถานะออกแบบไม่ถูกต้อง' }
+
+    const supabase = createServiceClient()
+    const { data: job } = await supabase
+        .from('jobs')
+        .select('id, job_type, status, design_status, crm_lead_id')
+        .eq('id', jobId)
+        .single()
+
+    if (!job) return { error: 'ไม่พบใบงานนี้' }
+    if ((job.job_type as string) !== 'graphic') return { error: 'ใบงานนี้ไม่ใช่ใบงานกราฟิก' }
+
+    const oldStatus = (job.status as string) || ''
+    const leadId = (job.crm_lead_id as string) ?? null
+    // ใบที่ยังทำอยู่และออกแบบถึงขั้นพร้อม → จบเฉพาะใบนี้ (ใบที่จบ/ถูกข้ามไปแล้วไม่แตะซ้ำ)
+    const finish = shouldFinishGraphicJob(designStatus, oldStatus)
+
+    const update: Record<string, unknown> = {
+        design_status: designStatus,
+        updated_at: new Date().toISOString(),
+    }
+    if (finish) update.status = DONE_STATUS
+
+    const { error } = await supabase.from('jobs').update(update).eq('id', jobId)
+    if (error) return { error: error.message }
+
+    await logActivity('UPDATE_JOB_DESIGN_STATUS', {
+        jobId,
+        leadId,
+        designStatus,
+        previous: (job.design_status as string) ?? null,
+    })
+
+    if (finish) {
+        await logPoolJobActivity(jobId, auth.userId, 'จบอัตโนมัติ: ออกแบบเสร็จ', oldStatus, DONE_STATUS)
+        await logActivity('AUTO_FINISH_POOL_JOB', {
+            jobId,
+            jobType: 'graphic',
+            leadId,
+            designStatus,
+            oldStatus,
+        })
+    }
+
+    if (leadId) {
+        try {
+            await syncLeadDesignCache(leadId)
+        } catch (e) {
+            console.error('[jobs] sync lead design cache threw:', e)
+        }
+    }
+
+    revalidatePool(jobId)
+    return { success: true, finished: finish }
 }
 
 // Get jobs linked to a CRM lead
@@ -2405,8 +2575,6 @@ export async function toggleCustomEmoji(id: string, isActive: boolean) {
 // CRM Lead Tracking (/jobs/tracking)
 // ============================================================================
 
-// keep in sync with DESIGN_OPTIONS in tracking/tracking-view.tsx
-const DESIGN_STATUSES = ['not_started', 'waiting_info', 'not_designed', 'in_progress', 'customer_design', 'revising', 'sent', 'sent_email_cf', 'completed']
 const CHECKLIST_KEYS = ['car_triton', 'car_champ'] // keep in sync with VEHICLES in tracking/tracking-logic.ts
 
 export async function updateLeadTracking(
@@ -2424,8 +2592,10 @@ export async function updateLeadTracking(
     const supabase = createServiceClient()
     const update: Record<string, unknown> = {}
 
+    // compat: สถานะออกแบบย้ายไปอยู่รายใบงานแล้ว (updateJobDesignStatus) — UI ไม่เรียกทางนี้อีก
+    // คงไว้ให้สคริปต์/ผู้เรียกเดิมที่ยังตั้งค่าระดับงาน พฤติกรรมเดิมทุกอย่างรวมถึงจบใบงานกราฟิกทั้งงาน
     if (patch.design_status !== undefined) {
-        if (!DESIGN_STATUSES.includes(patch.design_status)) return { error: 'สถานะออกแบบไม่ถูกต้อง' }
+        if (!DESIGN_STATUS_VALUES.includes(patch.design_status)) return { error: 'สถานะออกแบบไม่ถูกต้อง' }
         update.design_status = patch.design_status
     }
     if (patch.supplier_note !== undefined) {
@@ -2569,6 +2739,60 @@ export async function assignLeadStaff(
     revalidatePath('/jobs/tracking')
     revalidatePath('/events')
     return { success: true, eventId: targetEventId }
+}
+
+/**
+ * จัดรถให้งาน — จองรถผูกกับ "อีเวนต์" ผ่าน event_vehicles (ADR-0004) เหมือนคนและกระเป๋า
+ * งานที่ยังไม่มีอีเวนต์ ระบบเปิดอีเวนต์ให้อัตโนมัติ (เส้นทางเดียวกับจองกระเป๋า)
+ * vehicleKey = null → เอารถออก (ลบการจองรถของทุกอีเวนต์ของงานนี้)
+ *
+ * แล้ว sync crm_leads.tracking_checklist ให้เหลือ key รถคันที่เลือกคันเดียว (รายการอื่นไม่แตะ)
+ * — เป็น cache ที่ read path เดิมทั้งหมดยังอ่านอยู่ (vehicleOf, ความพร้อม, เลนรถ, การชน, สรุปหน้าที่)
+ */
+export async function assignLeadVehicle(leadId: string, vehicleKey: string | null) {
+    const session = await requireAuth()
+    if (!session) return { error: 'Unauthorized' }
+    if (vehicleKey !== null && !CHECKLIST_KEYS.includes(vehicleKey)) return { error: 'รายการจัดรถไม่ถูกต้อง' }
+
+    const supabase = createServiceClient()
+
+    // อีเวนต์ทั้งหมดของงาน — หนึ่งงานจัดรถได้คันเดียว จึงล้างการจองเก่าของทุกใบก่อน
+    const { data: leadEvents } = await supabase.from('events').select('id').eq('crm_lead_id', leadId)
+    const eventIds = (leadEvents || []).map(e => e.id as string)
+
+    let eventId: string | null = null
+    if (vehicleKey) {
+        const resolved = await resolveLeadEvent(supabase, leadId, null, { pickExisting: true, source: 'vehicle-booking' })
+        if ('error' in resolved) return { error: resolved.error }
+        eventId = resolved.eventId
+        if (!eventIds.includes(eventId)) eventIds.push(eventId)
+    }
+
+    if (eventIds.length > 0) {
+        const { error: delErr } = await supabase.from('event_vehicles').delete().in('event_id', eventIds)
+        if (delErr) return { error: delErr.message }
+    }
+    if (eventId && vehicleKey) {
+        const { error: insErr } = await supabase
+            .from('event_vehicles')
+            .upsert({ event_id: eventId, vehicle_key: vehicleKey }, { onConflict: 'event_id,vehicle_key' })
+        if (insErr) return { error: insErr.message }
+    }
+
+    const { data: lead } = await supabase.from('crm_leads').select('tracking_checklist').eq('id', leadId).single()
+    const current = Array.isArray(lead?.tracking_checklist) ? (lead?.tracking_checklist as string[]) : []
+    const tracking_checklist = [
+        ...current.filter(k => !CHECKLIST_KEYS.includes(k)),
+        ...(vehicleKey ? [vehicleKey] : []),
+    ]
+    const { error: syncErr } = await supabase.from('crm_leads').update({ tracking_checklist }).eq('id', leadId)
+    if (syncErr) return { error: syncErr.message }
+
+    await logActivity('ASSIGN_EVENT_VEHICLE', { leadId, eventId, vehicleKey })
+
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/events')
+    return { success: true, eventId, tracking_checklist }
 }
 
 // ============================================================================

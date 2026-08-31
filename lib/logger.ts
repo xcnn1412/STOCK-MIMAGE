@@ -109,6 +109,8 @@ export type ActionType =
     | 'DELETE_JOB_SETTING'
     | 'CREATE_JOBS_FROM_LEAD'
     | 'AUTO_CREATE_JOBS_FROM_LEAD'
+    // เปิดใบงานกราฟิกเองจากการ์ด CRM (ตอบรับแล้วระบบสร้างเฉพาะใบงานหน้างาน)
+    | 'OPEN_GRAPHIC_JOB'
     | 'UPDATE_JOB_TAGS'
     // พูลงาน — รับ/คืน/ข้าม/เปลี่ยนคนรับใบงาน
     | 'CLAIM_POOL_JOB'
@@ -118,12 +120,16 @@ export type ActionType =
     // หน้าที่เตรียมงาน — รับ/คืนรายหน้าที่ (จัดคน / จัดรถ / จัดกระเป๋า)
     | 'CLAIM_LEAD_DUTY'
     | 'RELEASE_LEAD_DUTY'
+    // แก้สถานะออกแบบของใบงานกราฟิกใบเดียว (jobs.design_status — งานหนึ่งมีหลายใบ)
+    | 'UPDATE_JOB_DESIGN_STATUS'
     // ใบงานจบเอง — กราฟิก (design_status พร้อม) / หน้างาน (ปิดอีเวนต์จากการคืนกระเป๋า)
     | 'AUTO_FINISH_POOL_JOB'
     // จองกระเป๋าให้อีเวนต์ / ยกเลิกจอง / จัดกระเป๋าครบ (event_kits — ADR-0003)
     | 'BOOK_EVENT_KIT'
     | 'UNBOOK_EVENT_KIT'
     | 'PACK_EVENT_KIT'
+    // จัดรถให้อีเวนต์ของงาน (event_vehicles — ADR-0004)
+    | 'ASSIGN_EVENT_VEHICLE'
     // ตั้งค่าทีมของพูลงาน — แผนกไหนรับใบงานประเภทไหน / แผนกไหนจอง-ย้ายกระเป๋าได้
     | 'UPDATE_POOL_TEAM_SETTINGS'
     // Ticket Module

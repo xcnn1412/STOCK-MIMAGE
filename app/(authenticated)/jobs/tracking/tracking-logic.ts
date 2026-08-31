@@ -99,10 +99,13 @@ export function isFullyStaffed(lead: TrackingLead): boolean {
 /**
  * สิ่งที่ยังขาดของงานหนึ่ง เรียงตามลำดับเกณฑ์ความพร้อม: ออกแบบ, จัดคน, จัดรถ, เวลาเริ่ม, กระเป๋า
  * `kit` = ข้อมูลกระเป๋าของงานนี้ (เกณฑ์ข้อ 5) — ไม่ส่ง = ไม่ตัดสินข้อกระเป๋าเลย (ผู้เรียกที่ยังไม่มีข้อมูล)
+ * `designReady` = ข้อออกแบบตัดสินจาก "ใบงานกราฟิกทุกใบ" (designReadyByLead) — ไม่ส่ง = ใช้ lead.design_status
+ * ตามเดิม (ผู้เรียกที่ยังไม่มีข้อมูลใบงาน)
  */
-export function getMissing(lead: TrackingLead, kit?: KitReadiness): MissingItem[] {
+export function getMissing(lead: TrackingLead, kit?: KitReadiness, designReady?: boolean): MissingItem[] {
   const missing: MissingItem[] = []
-  if (!READY_DESIGN_STATUSES.includes(lead.design_status)) missing.push('design')
+  const designOk = designReady ?? READY_DESIGN_STATUSES.includes(lead.design_status)
+  if (!designOk) missing.push('design')
   if (!isFullyStaffed(lead)) missing.push('staff')
   if (!VEHICLES.some((v) => lead.tracking_checklist.includes(v.key))) missing.push('vehicle')
   if (!lead.event_time) missing.push('time')
@@ -110,8 +113,8 @@ export function getMissing(lead: TrackingLead, kit?: KitReadiness): MissingItem[
   return missing
 }
 
-export function isReady(lead: TrackingLead, kit?: KitReadiness): boolean {
-  return getMissing(lead, kit).length === 0
+export function isReady(lead: TrackingLead, kit?: KitReadiness, designReady?: boolean): boolean {
+  return getMissing(lead, kit, designReady).length === 0
 }
 
 /** ป้ายของสิ่งที่ยังขาด — 'staff' ต่อท้ายด้วยตำแหน่งที่ขาด เช่น `จัดคน (ผู้ช่วย 1, ช่างกล้อง 2)` */
@@ -212,11 +215,15 @@ export function inChip(lead: TrackingLead, chip: Chip, today: Date): boolean {
   return chip === 'today' ? d === 0 : d >= 0 && d <= 7
 }
 
-/** `kits` = ข้อมูลกระเป๋าต่องาน (leadId → KitReadiness) — ไม่ส่ง = ไม่ตัดสินเกณฑ์ข้อกระเป๋า */
+/**
+ * `kits` = ข้อมูลกระเป๋าต่องาน (leadId → KitReadiness) — ไม่ส่ง = ไม่ตัดสินเกณฑ์ข้อกระเป๋า
+ * `designReady` = ความพร้อมออกแบบต่องาน (designReadyByLead) — ไม่ส่ง = ใช้ lead.design_status ตามเดิม
+ */
 export function chipCounts(
   leads: TrackingLead[],
   today: Date,
-  kits?: Map<string, KitReadiness>
+  kits?: Map<string, KitReadiness>,
+  designReady?: Map<string, boolean>
 ): Record<Chip, { total: number; notReady: number }> {
   const counts: Record<Chip, { total: number; notReady: number }> = {
     today: { total: 0, notReady: 0 },
@@ -224,7 +231,7 @@ export function chipCounts(
     month: { total: 0, notReady: 0 },
   }
   for (const lead of leads) {
-    const ready = isReady(lead, kits?.get(lead.id))
+    const ready = isReady(lead, kits?.get(lead.id), designReady?.get(lead.id))
     for (const chip of ['today', 'week7', 'month'] as Chip[]) {
       if (!inChip(lead, chip, today)) continue
       counts[chip].total++
@@ -234,9 +241,14 @@ export function chipCounts(
   return counts
 }
 
-export function isUrgent(lead: TrackingLead, today: Date, kit?: KitReadiness): boolean {
+export function isUrgent(
+  lead: TrackingLead,
+  today: Date,
+  kit?: KitReadiness,
+  designReady?: boolean
+): boolean {
   if (!lead.event_date) return false
-  return !isReady(lead, kit) && daysUntil(lead.event_date, today) <= 7
+  return !isReady(lead, kit, designReady) && daysUntil(lead.event_date, today) <= 7
 }
 
 // --- resource clashes (รถ / คน ถูกใช้ซ้ำข้ามงาน) -----------------------------
@@ -957,6 +969,11 @@ export interface PoolJob {
   claimed_by: string | null
   /** งานที่ใบงานนี้แตกออกมา */
   crm_lead_id: string | null
+  /**
+   * สถานะออกแบบของ "ใบนี้" (เฉพาะใบงานกราฟิก) — null/undefined = ยังไม่เคยตั้งค่า
+   * (ใบเก่าก่อนแยกรายใบ · งานหน้างานไม่ใช้ช่องนี้)
+   */
+  design_status?: string | null
 }
 
 /**
@@ -964,6 +981,12 @@ export interface PoolJob {
  * (สถานะใบงานตั้งค่าเองได้ใน job_settings; 'skipped' คือใบงานที่ถูกข้าม)
  */
 export const POOL_DONE_STATUSES: readonly string[] = ['done', 'skipped']
+
+/** สถานะใบงานที่แปลว่า "ถูกข้าม" — ค่าตั้งต้นที่ส่งทับได้ (สถานะใบงานตั้งค่าเองได้ใน job_settings) */
+export const SKIPPED_JOB_STATUS = 'skipped'
+
+/** สถานะใบงานที่แปลว่า "จบแล้ว" — ปลายทางของการจบอัตโนมัติเมื่อออกแบบถึงขั้นพร้อม */
+export const DONE_JOB_STATUS = 'done'
 
 /** จัดใบงานเข้าแท็บฝ่าย — ตัดใบที่จบ/ถูกข้ามออก คงลำดับเดิมของ jobs ไว้ */
 export function groupPoolJobs(
@@ -981,12 +1004,52 @@ export function groupPoolJobs(
   return { graphic, onsite }
 }
 
+/** สถานะแรกของใบงาน — อยู่ในพูลรอให้สมาชิกฝ่ายกดรับงาน (seed ไว้ใน job_settings) */
+export const AWAITING_CLAIM_STATUS = 'awaiting_claim'
+
+/**
+ * ขั้นของช่อง "ออกแบบ" ในตารางภาพรวม (และการ์ดมือถือ):
+ * - `not_opened` = ยังไม่มีใบงานกราฟิก (รวมงานเก่าก่อนยุคพูล) → ป้ายเตือน "ยังไม่เปิดใบงาน" เปิดได้จากการ์ด CRM
+ * - `awaiting`   = มีใบงานรอรับ → ปุ่มรับงาน
+ * - `active`     = รับแล้ว/จบแล้ว/ถูกข้าม → ตัวแก้สถานะออกแบบ
+ */
+export type DesignCellState = 'not_opened' | 'awaiting' | 'active'
+
+export function designCellState(job: PoolJob | undefined): DesignCellState {
+  if (!job) return 'not_opened'
+  return job.status === AWAITING_CLAIM_STATUS ? 'awaiting' : 'active'
+}
+
 /**
  * ใบงานกราฟิกใบนี้ควรจบอัตโนมัติไหม — จริงเมื่องานออกแบบถึงขั้นพร้อมแล้ว (READY_DESIGN_STATUSES)
  * และใบงานยังไม่จบ/ไม่ถูกข้าม (ใบที่จบแล้วไม่ต้องแตะซ้ำ)
  */
 export function shouldFinishGraphicJob(designStatus: string, jobStatus: string): boolean {
   return READY_DESIGN_STATUSES.includes(designStatus) && !POOL_DONE_STATUSES.includes(jobStatus)
+}
+
+/**
+ * ความพร้อม "ออกแบบ" ต่องาน เมื่อสถานะออกแบบอยู่รายใบงานกราฟิก (เกณฑ์ความพร้อมข้อ 1)
+ * — งานจะพร้อมก็ต่อเมื่อมีใบงานกราฟิกอย่างน้อยหนึ่งใบ และ **ทุกใบที่ไม่ถูกข้าม** จบแล้ว
+ *   (status 'done' — ใบที่จบไปเพราะออกแบบเสร็จ) หรือสถานะออกแบบของใบนั้นถึงขั้นพร้อม
+ * — ใบที่ถูกข้าม ('skipped') ไม่นับ (ข้ามแล้ว = ไม่ต้องออกแบบใบนั้น)
+ * — ไม่มีใบงานกราฟิกเลย = ยังไม่เปิดใบงาน → ถือว่ายังขาดออกแบบ (false)
+ * คืนค่าเฉพาะงานที่มีใบงานกราฟิก — งานที่ไม่อยู่ใน map ให้ผู้เรียกอ่านเป็น false เอง
+ */
+export function designReadyByLead(jobs: PoolJob[]): Map<string, boolean> {
+  const out = new Map<string, boolean>()
+  for (const job of jobs) {
+    if (job.job_type !== 'graphic' || !job.crm_lead_id) continue
+    if (job.status === SKIPPED_JOB_STATUS) {
+      // ใบที่ถูกข้ามไม่ตัดสินอะไร แต่ทำให้ "งานนี้มีใบงานกราฟิกแล้ว"
+      if (!out.has(job.crm_lead_id)) out.set(job.crm_lead_id, true)
+      continue
+    }
+    const ready =
+      job.status === DONE_JOB_STATUS || READY_DESIGN_STATUSES.includes(job.design_status ?? '')
+    out.set(job.crm_lead_id, (out.get(job.crm_lead_id) ?? true) && ready)
+  }
+  return out
 }
 
 // --- ทีมของพูลงาน: แผนกไหนทำอะไรได้ (ตั้งค่าใน /jobs/settings) --------------
@@ -1116,9 +1179,6 @@ export function isMissingKits(kit: KitReadiness): boolean {
   if (kit.onsiteSkipped) return false
   return kit.bookings.length === 0 || kit.bookings.some((b) => !b.packed)
 }
-
-/** สถานะใบงานที่แปลว่า "ถูกข้าม" — ค่าตั้งต้นที่ส่งทับได้ (สถานะใบงานตั้งค่าเองได้ใน job_settings) */
-export const SKIPPED_JOB_STATUS = 'skipped'
 
 /**
  * ข้อมูลกระเป๋าต่องาน สำหรับเกณฑ์ความพร้อมข้อ 5 — คิดจากใบงานหน้างาน (ถูกข้ามหรือยัง)

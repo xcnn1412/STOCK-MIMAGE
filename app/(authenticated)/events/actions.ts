@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import type { ActionState, KitContent, Item, Database } from '@/types'
+import { isClosedEvent } from '../jobs/tracking/tracking-logic'
 
 
 // Recompute crm_leads.assigned_* roll-up arrays as the UNION of every linked event's
@@ -493,11 +494,28 @@ const POOL_FINISHED_STATUSES = ['done', 'skipped']
  * ใบงานหน้างานของงานที่ผูกอีเวนต์นี้จบเอง เมื่ออีเวนต์ถูกปิดจากการคืนกระเป๋า
  * — ไม่คืน error และไม่ throw ออกไป: การคืนกระเป๋าต้องสำเร็จอยู่ดีแม้ใบงานจะอัปเดตพลาด
  * — leadId ว่าง (อีเวนต์ที่ไม่ได้มาจากงาน CRM) → ข้ามเงียบๆ
+ * — งานหนึ่งงานมีได้หลายอีเวนต์ (เช่น พรีเวดดิ้ง + วันงานจริง) แต่ใบงานหน้างานมีใบเดียวต่อทั้งงาน
+ *   จึงปิดได้ต่อเมื่อ "ทุกอีเวนต์" ของงานนี้ปิดครบแล้ว ไม่ใช่แค่ใบที่เพิ่งคืนกระเป๋า
+ *   (งานที่มีอีเวนต์เดียว = ใบที่เพิ่งปิดคือใบสุดท้ายอยู่แล้ว พฤติกรรมเหมือนเดิม)
  */
 async function autoFinishOnsiteJobs(leadId: string | null, actorId: string) {
     if (!leadId) return
 
     const supabase = createServiceClient()
+
+    const { data: leadEvents, error: eventsErr } = await supabase
+        .from('events')
+        .select('id, status')
+        .eq('crm_lead_id', leadId)
+
+    if (eventsErr) {
+        console.error('[events] auto-finish onsite: fetch events failed:', eventsErr.message)
+        return
+    }
+    // ยังมีอีเวนต์ที่ไม่ปิด → งานหน้างานยังไม่จบ (ไม่มีอีเวนต์เลย = ไม่ควรเกิด แต่ก็ไม่ปิดให้)
+    if (!leadEvents || leadEvents.length === 0) return
+    if (leadEvents.some(e => !isClosedEvent(e.status as string | null))) return
+
     const { data: jobs, error } = await supabase
         .from('jobs')
         .select('id, status')

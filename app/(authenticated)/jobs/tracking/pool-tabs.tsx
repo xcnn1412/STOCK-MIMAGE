@@ -473,8 +473,14 @@ function NoTimeChip({ lead }: { lead: TrackingLead }) {
 }
 
 /** ป้าย "สิ่งที่ยังขาด" — กติกาเดียวกับตารางภาพรวม (getMissing/missingLabel) */
-function MissingBadge({ lead, roleLabels, kit }: { lead: TrackingLead; roleLabels: Record<string, string>; kit?: KitReadiness }) {
-    const missing = getMissing(lead, kit)
+function MissingBadge({ lead, roleLabels, kit, designReady }: {
+    lead: TrackingLead
+    roleLabels: Record<string, string>
+    kit?: KitReadiness
+    /** ข้อออกแบบตัดสินจากใบงานกราฟิกทุกใบ — ไม่ส่ง = ใช้สถานะระดับงานตามเดิม */
+    designReady?: boolean
+}) {
+    const missing = getMissing(lead, kit, designReady)
     if (missing.length === 0) {
         return <span className={cn(PILL, 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200')}>พร้อม</span>
     }
@@ -482,6 +488,30 @@ function MissingBadge({ lead, roleLabels, kit }: { lead: TrackingLead; roleLabel
         <span className={cn(PILL, 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100')}>
             ขาด: {missing.map(m => missingLabel(m, lead, roleLabels)).join(', ')}
         </span>
+    )
+}
+
+/**
+ * สถานะออกแบบของ "ใบงานใบนี้" — งานหนึ่งเปิดใบงานกราฟิกได้หลายใบ แต่ละใบเดินสถานะของตัวเอง
+ * ใบเก่าที่ยังไม่มีค่าของตัวเองตกกลับไปใช้ค่าระดับงาน (crm_leads.design_status)
+ */
+function DesignStatusSelect({ job, lead, onChange }: {
+    job: PoolJob
+    lead: TrackingLead | null
+    onChange: (jobId: string, designStatus: string) => void
+}) {
+    const value = job.design_status || lead?.design_status || 'not_started'
+    return (
+        <Select value={value} onValueChange={v => onChange(job.id, v)}>
+            <SelectTrigger className={cn('w-full', DESIGN_OPTIONS.find(o => o.value === value)?.className)}>
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                {DESIGN_OPTIONS.map(o => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     )
 }
 
@@ -505,6 +535,23 @@ export function LeadHeader({ lead, title, today }: { lead: TrackingLead | null; 
                 {lead.customer_name || 'ไม่ระบุลูกค้า'}
                 {lead.event_name ? ` / ${lead.event_name}` : ''}
             </Link>
+            {lead.events.length > 0 && (
+                <div className="text-[11px] text-zinc-500 truncate">
+                    อีเวนต์:{' '}
+                    {lead.events.map((e, i) => (
+                        <span key={e.id}>
+                            {i > 0 && ' · '}
+                            <Link
+                                href={`/events/${e.id}/check-kits`}
+                                title="ไปหน้าเช็คของ/กระเป๋าของอีเวนต์นี้"
+                                className="hover:underline text-zinc-600 dark:text-zinc-300"
+                            >
+                                {e.name} ↗
+                            </Link>
+                        </span>
+                    ))}
+                </div>
+            )}
         </>
     )
 }
@@ -728,8 +775,9 @@ export default function PoolTabs({
     kits = [],
     kitBookings = [],
     kitReadiness,
+    designReady,
     canManageKits = false,
-    onDesignStatusChange,
+    onJobDesignStatusChange,
 }: {
     kind: PoolKind
     jobs: PoolJob[]
@@ -748,10 +796,12 @@ export default function PoolTabs({
     kitBookings?: KitBookingRow[]
     /** ข้อมูลกระเป๋าต่องาน (leadId → KitReadiness) — ไม่ส่ง = ป้าย "สิ่งที่ยังขาด" ไม่ตัดสินข้อกระเป๋า */
     kitReadiness?: Map<string, KitReadiness>
+    /** ความพร้อมออกแบบต่องาน (designReadyByLead) — ไม่ส่ง = ป้าย "สิ่งที่ยังขาด" ใช้สถานะระดับงานตามเดิม */
+    designReady?: Map<string, boolean>
     /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
     canManageKits?: boolean
-    /** เส้นทางบันทึกเดียวกับตารางภาพรวม (updateLeadTracking) */
-    onDesignStatusChange: (leadId: string, patch: { design_status: string }) => void
+    /** บันทึกสถานะออกแบบของ "ใบงานใบนั้น" (updateJobDesignStatus) — เส้นทางเดียวกับตารางภาพรวม */
+    onJobDesignStatusChange: (jobId: string, designStatus: string) => void
 }) {
     // ชิป "ใบงานของฉัน" / คำค้น / การเรียง — สถานะในเครื่องทั้งหมด ไม่แตะ ?tab
     const [mineOnly, setMineOnly] = useState(false)
@@ -832,27 +882,15 @@ export default function PoolTabs({
 
                         {lead && (
                             <div className="flex flex-wrap items-center gap-1">
-                                <MissingBadge lead={lead} roleLabels={roleLabels} kit={kitReadiness?.get(lead.id)} />
+                                <MissingBadge lead={lead} roleLabels={roleLabels} kit={kitReadiness?.get(lead.id)} designReady={designReady?.get(lead.id)} />
                                 <NoTimeChip lead={lead} />
                             </div>
                         )}
 
-                        {kind === 'graphic' && lead && (
+                        {kind === 'graphic' && (
                             <div>
-                                <div className="text-[11px] text-zinc-500">สถานะออกแบบ</div>
-                                <Select
-                                    value={lead.design_status}
-                                    onValueChange={v => onDesignStatusChange(lead.id, { design_status: v })}
-                                >
-                                    <SelectTrigger className={cn('w-full', DESIGN_OPTIONS.find(o => o.value === lead.design_status)?.className)}>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {DESIGN_OPTIONS.map(o => (
-                                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <div className="text-[11px] text-zinc-500">สถานะออกแบบ (ใบนี้)</div>
+                                <DesignStatusSelect job={job} lead={lead} onChange={onJobDesignStatusChange} />
                             </div>
                         )}
 

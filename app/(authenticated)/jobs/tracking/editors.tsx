@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Users, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { assignLeadStaff, updateLeadTracking } from '../actions'
+import { assignLeadStaff, assignLeadVehicle, updateLeadTracking } from '../actions'
 import {
     VEHICLES,
     availabilityOf,
@@ -337,16 +337,31 @@ export function StaffEditor({ lead, all, people, roles, roleLabels, onSaved, onR
     )
 }
 
-/** ช่อง "จัดรถ" — เลือกคันเดียวต่อหนึ่งงาน พร้อมป้ายเตือนเมื่อรถคันนั้นถูกใช้ซ้ำ */
-export function VehicleCell({ lead, all, save }: { lead: TrackingLead; all: TrackingLead[]; save: SaveFn }) {
+/**
+ * ซิงก์ค่ารถกลับเข้าตารางฝั่ง client หลังกดเลือก — server (assignLeadVehicle) เป็นคนเขียนจริง
+ * บันทึกไม่สำเร็จจะถูกเรียกซ้ำด้วยค่าเดิมเพื่อย้อนกลับ
+ */
+export type VehicleSyncFn = (leadId: string, tracking_checklist: string[]) => void
+
+/**
+ * ช่อง "จัดรถ" — เลือกคันเดียวต่อหนึ่งงาน พร้อมป้ายเตือนเมื่อรถคันนั้นถูกใช้ซ้ำ
+ * บันทึกผ่าน assignLeadVehicle: จองรถผูกกับอีเวนต์ของงาน (ยังไม่มีอีเวนต์ = ระบบเปิดให้) แล้ว sync checklist ให้ (ADR-0004)
+ */
+export function VehicleCell({ lead, all, onSaved }: { lead: TrackingLead; all: TrackingLead[]; onSaved?: VehicleSyncFn }) {
     const vehicleConflict = getConflicts(lead, all).find(c => c.kind === 'vehicle')
     return (
         <div>
             <Select
                 value={VEHICLES.find(v => lead.tracking_checklist.includes(v.key))?.key ?? 'none'}
-                onValueChange={v => {
-                    const rest = lead.tracking_checklist.filter(k => !VEHICLES.some(c => c.key === k))
-                    save(lead.id, { tracking_checklist: v === 'none' ? rest : [...rest, v] })
+                onValueChange={async v => {
+                    const before = lead.tracking_checklist
+                    const rest = before.filter(k => !VEHICLES.some(c => c.key === k))
+                    onSaved?.(lead.id, v === 'none' ? rest : [...rest, v])
+                    const res = await assignLeadVehicle(lead.id, v === 'none' ? null : v)
+                    if (res?.error) {
+                        onSaved?.(lead.id, before)
+                        toast.error(res.error)
+                    }
                 }}
             >
                 <SelectTrigger className="w-full">

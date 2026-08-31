@@ -18,7 +18,7 @@ import {
     type TrackingLead,
 } from './tracking-logic'
 import { DutyGate, KitSummary, LeadHeader, nameOf } from './pool-tabs'
-import { StaffEditor, VehicleCell, type SaveFn, type StaffRole } from './editors'
+import { StaffEditor, VehicleCell, type StaffRole, type VehicleSyncFn } from './editors'
 import {
     NO_MATCH_TEXT,
     WorkOrderToolbar,
@@ -93,7 +93,7 @@ export default function DutyTab({
     kitBookings = [],
     kitReadiness,
     canManageKits = false,
-    save,
+    onVehicleSaved,
     onStaffSaved,
     onRequiredRolesSaved,
 }: {
@@ -114,7 +114,7 @@ export default function DutyTab({
     kitBookings?: KitBookingDetail[]
     kitReadiness?: Map<string, KitReadiness>
     canManageKits?: boolean
-    save: SaveFn
+    onVehicleSaved?: VehicleSyncFn
     onStaffSaved: (
         leadId: string,
         staff: TrackingLead['staff'],
@@ -175,7 +175,7 @@ export default function DutyTab({
                 />
             )
         }
-        if (duty === 'vehicle') return <VehicleCell lead={lead} all={all} save={save} />
+        if (duty === 'vehicle') return <VehicleCell lead={lead} all={all} onSaved={onVehicleSaved} />
         return <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />
     }
 

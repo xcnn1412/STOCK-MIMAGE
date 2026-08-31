@@ -1,5 +1,5 @@
-// 9 ขั้นของสถานะออกแบบ (crm_leads.design_status) — ใช้ร่วมกันระหว่างตารางภาพรวม
-// และแท็บใบงานกราฟิกของพูลงาน เพื่อให้ตัวเลือกและสีป้ายตรงกันทั้งสองที่
+// 9 ขั้นของสถานะออกแบบ (jobs.design_status รายใบ · crm_leads.design_status = cache ระดับงาน)
+// — ใช้ร่วมกันระหว่างตารางภาพรวมและแท็บใบงานกราฟิกของพูลงาน เพื่อให้ตัวเลือกและสีป้ายตรงกันทั้งสองที่
 export const DESIGN_OPTIONS = [
     { value: 'not_started', label: 'ยังไม่เริ่ม', className: '' },
     { value: 'waiting_info', label: 'ลูกค้ายังไม่ส่งข้อมูล', className: 'bg-rose-100 text-rose-900 dark:bg-rose-900/40 dark:text-rose-100' },
@@ -11,3 +11,9 @@ export const DESIGN_OPTIONS = [
     { value: 'sent_email_cf', label: 'ส่งEmail+CFลูกค้า', className: 'bg-teal-100 text-teal-900 dark:bg-teal-900/40 dark:text-teal-100' },
     { value: 'completed', label: 'ส่งภาพ+เสร็จสมบูรณ์', className: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100' },
 ]
+
+/**
+ * ค่าที่ยอมรับได้ของสถานะออกแบบ — validation ฝั่ง server ใช้ชุดเดียวกับตัวเลือกที่ UI แสดง
+ * (แหล่งความจริงเดียว: เพิ่ม/ลบขั้นที่ DESIGN_OPTIONS ที่เดียว)
+ */
+export const DESIGN_STATUS_VALUES: readonly string[] = DESIGN_OPTIONS.map(o => o.value)

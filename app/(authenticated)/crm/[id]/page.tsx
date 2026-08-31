@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { getLead, getActivities, getCrmSettings, getSystemUsers, getLeadInstallments, getLeadEventStaff, getLeadEvents, getLeadCostSummary } from '../actions'
+import { getJobsByLeadId } from '../../jobs/actions'
 import LeadDetail from './lead-detail'
 
 interface PageProps {
@@ -16,7 +17,7 @@ export async function generateMetadata({ params }: PageProps) {
 
 export default async function LeadDetailPage({ params }: PageProps) {
   const { id } = await params
-  const [leadResult, activitiesResult, settingsResult, usersResult, installments, eventStaffGroups, eventsResult, costSummary] = await Promise.all([
+  const [leadResult, activitiesResult, settingsResult, usersResult, installments, eventStaffGroups, eventsResult, costSummary, leadJobs] = await Promise.all([
     getLead(id),
     getActivities(id),
     getCrmSettings(),
@@ -25,6 +26,8 @@ export default async function LeadDetailPage({ params }: PageProps) {
     getLeadEventStaff(id),
     getLeadEvents(id),
     getLeadCostSummary(id),
+    // ใบงานของงานนี้ — ปุ่ม "เปิดใบงานกราฟิก" โผล่เฉพาะตอนยังไม่มีใบงานกราฟิก
+    getJobsByLeadId(id),
   ])
 
   if (!leadResult.data) notFound()
@@ -39,6 +42,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
       eventStaffGroups={eventStaffGroups}
       linkedEvents={eventsResult.data || []}
       costSummary={costSummary}
+      leadJobs={leadJobs}
     />
   )
 }

@@ -9,9 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Pencil } from 'lucide-react'
+import { AlertTriangle, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { assignLeadStaff, updateLeadTracking } from '../actions'
+import { assignLeadStaff, updateJobDesignStatus, updateLeadTracking } from '../actions'
 import {
     daysUntil,
     isPast,
@@ -19,6 +19,8 @@ import {
     inChip,
     chipCounts,
     getMissing,
+    designCellState,
+    designReadyByLead,
     hasRequiredRoles,
     missingLabel,
     isUrgent,
@@ -36,7 +38,7 @@ import {
 } from './tracking-logic'
 import TimelineView, { formatDate, ymd } from './timeline-view'
 import PoolTabs, { ClaimChip, DutyGate, KitSummary, ReleaseChip, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
-import { StaffEditor, VehicleCell, defaultEventId, type Person, type SaveFn, type StaffRole } from './editors'
+import { StaffEditor, VehicleCell, defaultEventId, type Person, type SaveFn, type StaffRole, type VehicleSyncFn } from './editors'
 import DutyTab, { claimedDutyCount, dutyKey, dutySummary, unclaimedDutyCount } from './duty-tabs'
 import { DESIGN_OPTIONS } from './design-options'
 
@@ -101,8 +103,14 @@ function Countdown({ date, today }: { date: string | null; today: Date }) {
     return <span className={`${base} bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900`}>ผ่านมา {-d} วัน</span>
 }
 
-function ReadinessCell({ lead, roleLabels, kit }: { lead: TrackingLead; roleLabels: Record<string, string>; kit?: KitReadiness }) {
-    const missing = getMissing(lead, kit)
+function ReadinessCell({ lead, roleLabels, kit, designReady }: {
+    lead: TrackingLead
+    roleLabels: Record<string, string>
+    kit?: KitReadiness
+    /** ข้อออกแบบตัดสินจากใบงานกราฟิกทุกใบ — ไม่ส่ง = ใช้สถานะระดับงานตามเดิม */
+    designReady?: boolean
+}) {
+    const missing = getMissing(lead, kit, designReady)
     // ยังไม่กำหนดตำแหน่งที่ต้องการ → ใช้กติกาหลวม (มีคน ≥ 1 = จัดคนแล้ว) บอกไว้ที่ป้าย
     const loose = !hasRequiredRoles(lead)
     const hint = loose ? 'ยังไม่กำหนดตำแหน่งที่ต้องการ — นับว่าจัดคนแล้วเมื่อมีคนอย่างน้อย 1' : undefined
@@ -139,14 +147,40 @@ function JobCell({ lead, today }: { lead: TrackingLead; today: Date }) {
                 {lead.customer_name || 'ไม่ระบุลูกค้า'}
                 {lead.event_name ? ` / ${lead.event_name}` : ''}
             </Link>
+            {lead.events.length > 0 && (
+                <div className="text-[11px] text-zinc-500 truncate">
+                    อีเวนต์:{' '}
+                    {lead.events.map((e, i) => (
+                        <span key={e.id}>
+                            {i > 0 && ' · '}
+                            <Link
+                                href={`/events/${e.id}/check-kits`}
+                                title="ไปหน้าเช็คของ/กระเป๋าของอีเวนต์นี้"
+                                className="hover:underline text-zinc-600 dark:text-zinc-300"
+                            >
+                                {e.name} ↗
+                            </Link>
+                        </span>
+                    ))}
+                </div>
+            )}
         </>
     )
 }
 
-function DesignCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
+/**
+ * สถานะออกแบบของ "ใบงานกราฟิกใบนี้" — งานหนึ่งเปิดได้หลายใบ แก้ใบไหนไม่กระทบใบอื่น
+ * ใบเก่าที่ยังไม่มีค่าของตัวเองตกกลับไปใช้ค่าระดับงาน (crm_leads.design_status)
+ */
+function DesignCell({ job, lead, onChange }: {
+    job: PoolJob
+    lead: TrackingLead
+    onChange: (jobId: string, designStatus: string) => void
+}) {
+    const value = job.design_status || lead.design_status
     return (
-        <Select value={lead.design_status} onValueChange={v => save(lead.id, { design_status: v })}>
-            <SelectTrigger className={cn('w-full', DESIGN_OPTIONS.find(o => o.value === lead.design_status)?.className)}>
+        <Select value={value} onValueChange={v => onChange(job.id, v)}>
+            <SelectTrigger className={cn('w-full', DESIGN_OPTIONS.find(o => o.value === value)?.className)}>
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -160,15 +194,45 @@ function DesignCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
     )
 }
 
+/** งานที่เปิดใบงานกราฟิกไว้หลายใบ — ช่องนี้แก้ได้ใบเดียว ที่เหลือดูที่แท็บใบงานกราฟิก */
+function MoreGraphicJobsLink({ count }: { count: number }) {
+    return (
+        <Link
+            href="?tab=graphic"
+            title="งานนี้มีใบงานกราฟิกหลายใบ — แก้สถานะของใบอื่นได้ที่แท็บใบงานกราฟิก"
+            className="block text-[11px] text-violet-600 dark:text-violet-400 hover:underline"
+        >
+            +{count} ใบ
+        </Link>
+    )
+}
+
+/** งานที่ยังไม่มีใบงานกราฟิก — กันงานเงียบหายเพราะลืมเปิด (เปิดจากการ์ด CRM) */
+function NotOpenedPill({ leadId }: { leadId: string }) {
+    return (
+        <Link
+            href={`/crm/${leadId}`}
+            title="เปิดใบงานกราฟิกได้จากหน้าการ์ด CRM"
+            className={cn(
+                PILL,
+                'items-center gap-1 border border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200',
+                'dark:border-amber-900 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/60'
+            )}
+        >
+            <AlertTriangle className="h-3 w-3" /> ยังไม่เปิดใบงาน
+        </Link>
+    )
+}
+
 /** ไทม์ไลน์: คลิกแถบในเลนรถ → เปิด VehicleCell เดิมใน Dialog */
-function VehicleDialog({ lead, all, save, onClose }: { lead: TrackingLead; all: TrackingLead[]; save: SaveFn; onClose: () => void }) {
+function VehicleDialog({ lead, all, onSaved, onClose }: { lead: TrackingLead; all: TrackingLead[]; onSaved: VehicleSyncFn; onClose: () => void }) {
     return (
         <Dialog open onOpenChange={o => { if (!o) onClose() }}>
             <DialogContent className="sm:max-w-sm">
                 <DialogHeader>
                     <DialogTitle>จัดรถ — {lead.customer_name || 'ไม่ระบุลูกค้า'} · {formatDate(lead.event_date)}</DialogTitle>
                 </DialogHeader>
-                <VehicleCell lead={lead} all={all} save={save} />
+                <VehicleCell lead={lead} all={all} onSaved={onSaved} />
                 <DialogFooter>
                     <Button onClick={onClose}>ปิด</Button>
                 </DialogFooter>
@@ -228,7 +292,7 @@ export default function TrackingView({
     roleLabels,
     roles,
     people,
-    jobs = [],
+    jobs: jobsProp = [],
     dutyClaims = [],
     jobStatusLabels = {},
     currentUserId = null,
@@ -261,7 +325,14 @@ export default function TrackingView({
     isAdmin?: boolean
 }) {
     const [rows, setRows] = useState(leads)
+    /**
+     * สถานะออกแบบรายใบที่เพิ่งกด — ทับค่าจาก server จนกว่าข้อมูลรอบใหม่จะมาถึง (กันช่องกระพริบกลับค่าเดิม)
+     * เก็บแยกจาก `jobs` เพื่อให้ค่าอื่นของใบงาน (รับ/คืน/ข้าม) ยังไหลมาจาก server ตามปกติ
+     */
+    const [designDraft, setDesignDraft] = useState<Record<string, string>>({})
     const [chip, setChip] = useState<Chip | null>(null)
+    /** กรองเฉพาะงานที่ยังไม่เปิดใบงานกราฟิก (ชิปเตือนสีเหลือง) */
+    const [notOpenedOnly, setNotOpenedOnly] = useState(false)
     const [showPast, setShowPast] = useState(false)
     const [, startTransition] = useTransition()
     /** ไทม์ไลน์: แถบที่กำลังแก้ (คน หรือ รถ) */
@@ -399,6 +470,22 @@ export default function TrackingView({
         }
     }
 
+    /** สถานะออกแบบบันทึกรายใบงาน — ใบที่ส่งงานแล้วจบเฉพาะใบนั้น ใบอื่นของงานเดียวกันไม่ถูกแตะ */
+    const saveJobDesign = (jobId: string, designStatus: string) => {
+        setDesignDraft(prev => ({ ...prev, [jobId]: designStatus }))
+        startTransition(async () => {
+            const res = await updateJobDesignStatus(jobId, designStatus)
+            if (res?.error) {
+                setDesignDraft(prev => {
+                    const next = { ...prev }
+                    delete next[jobId]
+                    return next
+                })
+                toast.error(res.error)
+            }
+        })
+    }
+
     const save = (
         id: string,
         patch: { design_status?: string; supplier_note?: string | null; tracking_checklist?: string[] }
@@ -408,6 +495,11 @@ export default function TrackingView({
             const res = await updateLeadTracking(id, patch)
             if (res?.error) toast.error(res.error)
         })
+    }
+
+    // จัดรถบันทึกผ่าน assignLeadVehicle เอง (ผูกกับอีเวนต์ — ADR-0004) ที่นี่แค่สะท้อนค่าลงตาราง
+    const syncVehicle = (id: string, tracking_checklist: string[]) => {
+        setRows(prev => prev.map(r => (r.id === id ? { ...r, tracking_checklist } : r)))
     }
 
     const onStaffSaved = (
@@ -423,31 +515,52 @@ export default function TrackingView({
         setRows(prev => prev.map(r => (r.id === id ? { ...r, required_roles } : r)))
     }
 
+    // ใบงานที่หน้านี้ใช้ = ข้อมูลจาก server ทับด้วยสถานะออกแบบที่เพิ่งกด (ยังไม่ revalidate)
+    const jobs: PoolJob[] = Object.keys(designDraft).length === 0
+        ? jobsProp
+        : jobsProp.map(j => (designDraft[j.id] ? { ...j, design_status: designDraft[j.id] } : j))
+
     // ความพร้อมข้อ 5 (กระเป๋า) — ต้องรู้ใบงานหน้างาน (ถูกข้ามไหม) + การจองของงานนั้น
     const kitReadiness = kitReadinessByLead(rows, jobs, kitBookings)
 
+    // ความพร้อมข้อ 1 (ออกแบบ) — ตัดสินจากใบงานกราฟิกทุกใบของงาน ไม่ใช่ค่าระดับงานอีกแล้ว
+    // งานที่ยังไม่เปิดใบงานกราฟิกเลยไม่อยู่ใน map → อ่านเป็น false (ยังไม่เปิดใบงาน = ขาดออกแบบ)
+    const readyByJobs = designReadyByLead(jobs)
+    const designReady = new Map(rows.map(r => [r.id, readyByJobs.get(r.id) ?? false]))
+
     // ใบงานของแต่ละงาน — ใบแรกของแต่ละฝ่ายต่อหนึ่งงาน (ตารางภาพรวมใช้ใบกราฟิกล็อกคอลัมน์ "ออกแบบ")
-    const jobsByLead = new Map<string, { graphic?: (typeof jobs)[number]; onsite?: (typeof jobs)[number] }>()
+    const active = (job: PoolJob) => job.status !== 'done' && job.status !== 'skipped'
+    const jobsByLead = new Map<string, { graphic?: PoolJob; onsite?: PoolJob; graphicActive: number }>()
     for (const j of jobs) {
         if (!j.crm_lead_id) continue
-        const entry = jobsByLead.get(j.crm_lead_id) ?? {}
-        if (j.job_type === 'graphic' && !entry.graphic) entry.graphic = j
+        const entry = jobsByLead.get(j.crm_lead_id) ?? { graphicActive: 0 }
+        // งานเปิดใบงานกราฟิกได้หลายใบ — ช่องออกแบบยึดใบที่ยังไม่จบเป็นหลัก (ใบจบ/ข้ามแพ้ใบที่ยังทำอยู่)
+        if (j.job_type === 'graphic') {
+            if (active(j)) entry.graphicActive += 1
+            if (!entry.graphic || (!active(entry.graphic) && active(j))) entry.graphic = j
+        }
         if (j.job_type === 'onsite' && !entry.onsite) entry.onsite = j
         jobsByLead.set(j.crm_lead_id, entry)
     }
 
-    // คอลัมน์ "ออกแบบ" ถูกล็อกจนกว่าจะมีคนกดรับใบงานกราฟิกของงานนั้น
-    // งานเก่าที่ยังไม่มีใบงาน = ไม่ล็อก (backward compat) — สิทธิ์แผนก/แอดมินบังคับใน claimPoolJob ฝั่ง server
-    // showRelease: โชว์ปุ่ม "คืนเป็นรอรับงาน" ใต้ตัวแก้ไข
-    const gate = (job: (typeof jobs)[number] | undefined, children: ReactNode, showRelease = false) =>
-        job && job.status === 'awaiting_claim'
-            ? <ClaimChip job={job} people={people} currentUserId={currentUserId} />
-            : (
-                <div className="space-y-1">
-                    {children}
-                    {showRelease && <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} />}
-                </div>
-            )
+    // คอลัมน์ "ออกแบบ" ไล่เป็นขั้น: ยังไม่เปิดใบงาน (ป้ายเตือน) → รอรับงาน (ปุ่มรับ) → ตัวแก้สถานะออกแบบ
+    // งานที่ยังไม่มีใบงานกราฟิก (รวมงานเก่าก่อนยุคพูล) ไม่ได้ตัวแก้ไข แต่ชี้ไปเปิดใบงานที่การ์ด CRM
+    // สิทธิ์แผนก/แอดมินบังคับใน claimPoolJob ฝั่ง server · หน้าที่เตรียมงานใช้ dutyGate ตามเดิม
+    const designGate = (lead: TrackingLead) => {
+        const entry = jobsByLead.get(lead.id)
+        const job = entry?.graphic
+        const state = designCellState(job)
+        if (state === 'not_opened') return <NotOpenedPill leadId={lead.id} />
+        if (state === 'awaiting') return <ClaimChip job={job!} people={people} currentUserId={currentUserId} />
+        const others = (entry?.graphicActive ?? 0) - 1
+        return (
+            <div className="space-y-1">
+                <DesignCell job={job!} lead={lead} onChange={saveJobDesign} />
+                {others > 0 && <MoreGraphicJobsLink count={others} />}
+                <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} />
+            </div>
+        )
+    }
 
     // หน้าที่เตรียมงาน: จัดคน/จัดรถ/กระเป๋า ถูกล็อกจนกว่าจะมีคนกดรับ "หน้าที่นั้น" — รับแยกกันคนละหน้าที่
     // ไม่ผูกกับใบงานหน้างาน งานเก่าที่ไม่มีใบงานจึงล็อกและกดรับได้เหมือนกัน (ไม่มีทางลัดแบบ backward compat)
@@ -468,8 +581,14 @@ export default function TrackingView({
     )
 
     const base = rows.filter(r => showPast || !isPast(r, today))
-    const counts = chipCounts(base, today, kitReadiness)
-    const visible = chip ? base.filter(r => inChip(r, chip, today)) : base
+    const counts = chipCounts(base, today, kitReadiness, designReady)
+
+    // งานที่ยังไม่เปิดใบงานกราฟิกเลยสักใบ — ตัวนับเตือน + ตัวกรอง (คนละเรื่องกับใบที่เปิดแล้วแต่ยังรอรับ)
+    const notOpenedGraphic = (r: TrackingLead) => !jobsByLead.get(r.id)?.graphic
+    const notOpenedCount = base.filter(notOpenedGraphic).length
+
+    const chipVisible = chip ? base.filter(r => inChip(r, chip, today)) : base
+    const visible = notOpenedOnly ? chipVisible.filter(notOpenedGraphic) : chipVisible
 
     const undated = visible.filter(r => !r.event_date)
     const sections: { key: string; label: string; leads: TrackingLead[] }[] = [
@@ -496,7 +615,9 @@ export default function TrackingView({
                 <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">ติดตามงาน</h1>
                 {tab === 'overview' ? (
                     <p className="text-sm text-zinc-500">
-                        งาน {visible.length} งาน · ยังไม่พร้อม {visible.filter(r => getMissing(r, kitReadiness.get(r.id)).length > 0).length} งาน — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร
+                        งาน {visible.length} งาน · ยังไม่พร้อม {visible.filter(r => getMissing(r, kitReadiness.get(r.id), designReady.get(r.id)).length > 0).length} งาน
+                        {notOpenedCount > 0 && <span className="text-amber-600 dark:text-amber-400">{' · ยังไม่เปิดใบงานกราฟิก '}{notOpenedCount} งาน</span>}
+                        {' — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร'}
                     </p>
                 ) : isDutyTab(tab) ? (
                     <p className="text-sm text-zinc-500">
@@ -547,8 +668,9 @@ export default function TrackingView({
                     kits={kits}
                     kitBookings={kitBookings}
                     kitReadiness={kitReadiness}
+                    designReady={designReady}
                     canManageKits={canManageKits}
-                    onDesignStatusChange={save}
+                    onJobDesignStatusChange={saveJobDesign}
                 />
             ) : isDutyTab(tab) ? (
                 <DutyTab
@@ -566,7 +688,7 @@ export default function TrackingView({
                     kitBookings={kitBookings}
                     kitReadiness={kitReadiness}
                     canManageKits={canManageKits}
-                    save={save}
+                    onVehicleSaved={syncVehicle}
                     onStaffSaved={onStaffSaved}
                     onRequiredRolesSaved={onRequiredRolesSaved}
                 />
@@ -617,6 +739,21 @@ export default function TrackingView({
                         </button>
                     )
                 })}
+                {notOpenedCount > 0 && (
+                    <button
+                        type="button"
+                        aria-pressed={notOpenedOnly}
+                        onClick={() => setNotOpenedOnly(v => !v)}
+                        className={cn(
+                            'rounded-full px-3 py-1 text-sm',
+                            notOpenedOnly
+                                ? 'bg-amber-500 text-white'
+                                : 'border border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                        )}
+                    >
+                        ยังไม่เปิดใบงานกราฟิก {notOpenedCount} งาน
+                    </button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => setShowPast(p => !p)}>
                     {showPast ? 'ซ่อนงานที่ผ่านแล้ว' : 'แสดงงานที่ผ่านแล้ว'}
                 </Button>
@@ -664,7 +801,7 @@ export default function TrackingView({
                                 </TableRow>
                                 {section.leads.map((lead, i, arr) => {
                                     seq += 1
-                                    const urgent = isUrgent(lead, today, kitReadiness.get(lead.id))
+                                    const urgent = isUrgent(lead, today, kitReadiness.get(lead.id), designReady.get(lead.id))
                                     // ตีกรอบงานวันเดียวกัน (เฉพาะวันที่มี >= 2 งาน)
                                     const sameAsPrev = i > 0 && arr[i - 1].event_date === lead.event_date
                                     const sameAsNext = i < arr.length - 1 && arr[i + 1].event_date === lead.event_date
@@ -687,7 +824,7 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />, true)}
+                                                {designGate(lead)}
                                             </TableCell>
 
                                             <TableCell>
@@ -699,7 +836,7 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
+                                                {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
                                             </TableCell>
 
                                             <TableCell>
@@ -707,7 +844,7 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} />
+                                                <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} />
                                             </TableCell>
                                         </TableRow>
                                     )
@@ -743,24 +880,24 @@ export default function TrackingView({
                                 key={lead.id}
                                 className={cn(
                                     'rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 space-y-2',
-                                    isUrgent(lead, today, kitReadiness.get(lead.id)) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20'
+                                    isUrgent(lead, today, kitReadiness.get(lead.id), designReady.get(lead.id)) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20'
                                 )}
                             >
                                 <div className="flex justify-between items-start gap-2">
                                     <div>
                                         <JobCell lead={lead} today={today} />
                                     </div>
-                                    <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} />
+                                    <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} />
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <div className="text-[11px] text-zinc-500">ออกแบบ</div>
-                                        {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />, true)}
+                                        {designGate(lead)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
+                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">กระเป๋า</div>
@@ -838,7 +975,7 @@ export default function TrackingView({
                 />
             )}
             {editingLead && editing?.kind === 'vehicle' && (
-                <VehicleDialog lead={editingLead} all={rows} save={save} onClose={() => setEditing(null)} />
+                <VehicleDialog lead={editingLead} all={rows} onSaved={syncVehicle} onClose={() => setEditing(null)} />
             )}
         </div>
     )

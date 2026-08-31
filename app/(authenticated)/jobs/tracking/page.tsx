@@ -91,7 +91,7 @@ export default async function TrackingPage() {
     if (leadIds.length > 0) {
         const { data: jobRows } = await supabase
             .from('jobs')
-            .select('id, job_type, status, title, assigned_to, claimed_by, crm_lead_id')
+            .select('id, job_type, status, title, assigned_to, claimed_by, crm_lead_id, design_status')
             .in('crm_lead_id', leadIds)
             .is('archived_at', null)
             .order('created_at', { ascending: true })
@@ -104,6 +104,8 @@ export default async function TrackingPage() {
             assigned_to: Array.isArray(j.assigned_to) ? (j.assigned_to as string[]) : [],
             claimed_by: (j.claimed_by as string) ?? null,
             crm_lead_id: (j.crm_lead_id as string) ?? null,
+            // สถานะออกแบบรายใบ — ใบเก่าก่อนแยกรายใบเป็น null (ตกกลับไปใช้ค่าระดับงาน)
+            design_status: (j.design_status as string) ?? null,
         }))
     }
 
