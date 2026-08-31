@@ -44,7 +44,7 @@ export const dictionary = {
       documentsReports: 'Number Continuity',
       documentsSettings: 'Settings',
 
-      jobsKanban: 'Jobs',
+      jobsKanban: 'Day-of Board',
       jobsMyWork: 'My Work',
       jobsSettings: 'Settings',
 
@@ -325,7 +325,7 @@ export const dictionary = {
       documentsReports: 'รายงานเลขต่อเนื่อง',
       documentsSettings: 'ตั้งค่า',
 
-      jobsKanban: 'งาน',
+      jobsKanban: 'บอร์ดวันงาน',
       jobsMyWork: 'งานของฉัน',
       jobsSettings: 'ตั้งค่า',
 
