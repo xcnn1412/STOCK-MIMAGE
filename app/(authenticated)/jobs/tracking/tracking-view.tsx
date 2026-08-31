@@ -149,11 +149,10 @@ function JobCell({ lead, today }: { lead: TrackingLead; today: Date }) {
                 {lead.event_name ? ` / ${lead.event_name}` : ''}
             </Link>
             {lead.events.length > 0 && (
-                <div className="text-[11px] text-zinc-500 truncate">
-                    อีเวนต์:{' '}
-                    {lead.events.map((e, i) => (
-                        <span key={e.id}>
-                            {i > 0 && ' · '}
+                <div className="text-[11px] text-zinc-500 space-y-0.5 mt-0.5">
+                    {lead.events.map(e => (
+                        <div key={e.id} className="truncate">
+                            <span className="text-zinc-400">อีเวนต์:</span>{' '}
                             <Link
                                 href={`/events/${e.id}/check-kits`}
                                 title="ไปหน้าเช็คของ/กระเป๋าของอีเวนต์นี้"
@@ -161,7 +160,8 @@ function JobCell({ lead, today }: { lead: TrackingLead; today: Date }) {
                             >
                                 {e.name} ↗
                             </Link>
-                        </span>
+                            {e.event_date && <span className="text-zinc-400"> · {formatDate(e.event_date)}</span>}
+                        </div>
                     ))}
                 </div>
             )}
