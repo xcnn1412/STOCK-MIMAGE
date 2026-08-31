@@ -42,8 +42,9 @@ FROM (
       WHERE e.crm_lead_id = l.id
       ORDER BY
         -- ใบที่ยังไม่ปิดมาก่อน — เขียน IS NOT NULL ด้วยเพราะ status NULL = ยังไม่ปิด
-        -- (ปล่อยให้เป็น NULL จะถูกจัดไปท้ายสุดตามกติกา NULLS LAST ของ ASC)
-        (e.status IS NOT NULL AND e.status IN ('completed', 'closed')) ASC,
+        -- events.status เป็น enum (event_status) ที่ไม่มีค่า 'closed' — ต้อง ::text ก่อนเทียบ
+        -- ไม่งั้น Postgres แคสต์ literal ไม่ได้แล้ว error 22P02 ทั้งคำสั่ง
+        (e.status IS NOT NULL AND e.status::text IN ('completed', 'closed')) ASC,
         e.event_date ASC NULLS LAST,
         e.created_at ASC
       LIMIT 1
