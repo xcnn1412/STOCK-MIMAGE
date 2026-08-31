@@ -870,10 +870,10 @@ export default function TrackingView({
                 </Button>
             </div>
 
-            <div className="hidden md:block rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+            <div className="hidden md:block rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden shadow-sm">
                 <Table>
                     <TableHeader>
-                        <TableRow>
+                        <TableRow className="bg-zinc-50/80 dark:bg-zinc-900/50 hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 [&_th]:h-10 [&_th]:text-[11px] [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-zinc-500 dark:[&_th]:text-zinc-400">
                             <TableHead className="w-12">ลำดับ</TableHead>
                             <TableHead className="w-64">งาน</TableHead>
                             <TableHead className="w-48">ออกแบบ</TableHead>
@@ -901,9 +901,13 @@ export default function TrackingView({
                         )}
                         {sections.map(section => (
                             <Fragment key={section.key}>
-                                <TableRow>
-                                    <TableCell colSpan={8} className="bg-zinc-50 dark:bg-zinc-900/60 text-xs font-semibold text-zinc-600 dark:text-zinc-300 py-1.5">
-                                        {section.label} <span className="font-normal text-zinc-400">({section.leads.length})</span>
+                                <TableRow className="hover:bg-transparent">
+                                    <TableCell colSpan={8} className="bg-zinc-100/70 dark:bg-zinc-900/80 border-y border-zinc-200/70 dark:border-zinc-800 py-1.5">
+                                        <span className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500" aria-hidden />
+                                            {section.label}
+                                            <span className="font-normal text-zinc-400 tabular-nums">({section.leads.length})</span>
+                                        </span>
                                     </TableCell>
                                 </TableRow>
                                 {section.leads.map((lead, i, arr) => {
@@ -917,13 +921,14 @@ export default function TrackingView({
                                         <TableRow
                                             key={lead.id}
                                             className={cn(
+                                                'transition-colors [&_td]:py-3 [&_td]:align-top hover:bg-zinc-50/70 dark:hover:bg-zinc-900/40',
                                                 framed && DAY_FRAME,
                                                 framed && !sameAsPrev && 'border-t-2 border-t-zinc-300 dark:border-t-zinc-600',
                                                 framed && !sameAsNext && 'border-b-2 border-b-zinc-300 dark:border-b-zinc-600',
                                                 urgent && 'bg-rose-50/70 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/70 dark:hover:bg-rose-950/40'
                                             )}
                                         >
-                                            <TableCell className="text-zinc-500">{seq}</TableCell>
+                                            <TableCell className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
 
                                             <TableCell>
                                                 <JobCell lead={lead} today={today} />
