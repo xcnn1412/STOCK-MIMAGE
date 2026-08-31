@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
 import TrackingView, { type TrackingLead } from './tracking-view'
-import { VEHICLES, canActOnPool, POOL_TEAM_DEFAULTS, type PoolJob } from './tracking-logic'
+import { VEHICLES, canActOnPool, isClosedEvent, POOL_TEAM_DEFAULTS, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
 
 /** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
@@ -54,7 +54,7 @@ export default async function TrackingPage() {
 
         // อีเวนต์ที่ปิดแล้วจัดคนไม่ได้ — ตัดออกจากตัวเลือก (แต่คนที่จัดไว้แล้วยังนับอยู่)
         for (const e of events || []) {
-            if (e.status === 'closed') continue
+            if (isClosedEvent(e.status)) continue
             const list = eventsByLead.get(e.crm_lead_id as string)
             const row: LeadEvent = { id: e.id, name: e.name || '', event_date: e.event_date, status: e.status ?? null }
             if (list) list.push(row)

@@ -27,6 +27,16 @@ export const VEHICLES = [
 
 export const READY_DESIGN_STATUSES = ['sent_email_cf', 'completed']
 
+/**
+ * สถานะของอีเวนต์ที่ "ปิดแล้ว" — closeEvent เขียน 'completed' (ดู app/(authenticated)/events/actions.ts)
+ * รับ 'closed' ไว้ด้วยเผื่อข้อมูลเก่า/สคริปต์เดิมที่เคยเขียนคำนี้
+ */
+export const CLOSED_EVENT_STATUSES = ['completed', 'closed']
+
+/** อีเวนต์ใบนี้ปิดแล้วไหม — ปิดแล้ว = แตะไม่ได้ (จัดคน/จองกระเป๋า) และไม่นับเป็นการจองที่ยังใช้งานอยู่ */
+export const isClosedEvent = (status: string | null | undefined): boolean =>
+  !!status && CLOSED_EVENT_STATUSES.includes(status)
+
 export type MissingItem = 'design' | 'staff' | 'vehicle' | 'time' | 'kits'
 
 export const MISSING_LABELS: Record<MissingItem, string> = {

@@ -9,7 +9,7 @@ import { requireAuth } from '@/lib/auth'
 // โมดูลตรรกะล้วน (ไม่มี React / ไม่มี 'use client') — import เข้ามาใน server action ได้
 import {
     READY_DESIGN_STATUSES, kitBookingConflict, shouldFinishGraphicJob,
-    canActOnPool, POOL_TEAM_CATEGORIES, POOL_TEAM_DEFAULTS,
+    canActOnPool, POOL_TEAM_CATEGORIES, POOL_TEAM_DEFAULTS, isClosedEvent,
 } from './tracking/tracking-logic'
 import type { PoolTeamCategory } from './tracking/tracking-logic'
 import { DEPARTMENTS } from '@/lib/departments'
@@ -661,6 +661,12 @@ export async function createJobsFromLead(leadId: string) {
         description: `ส่งต่องานแล้ว: กราฟฟิก + ออกหน้างาน`,
     })
 
+    // ใบงานที่สร้างเข้าพูลด้วยสถานะ "รอรับงาน" ทันที — แจ้งทีมของฝ่ายนั้นจากตรงนี้ที่เดียว
+    // (ทั้งทางส่งต่อเองจากการ์ด CRM และทางอัตโนมัติตอนลูกค้าตอบรับ จึงไม่มีทางแจ้งซ้ำ)
+    for (const job of (jobs || []) as { id: string; job_type: string; title: string }[]) {
+        await notifyPoolNewJob(job, userId)
+    }
+
     await logActivity('CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs?.map(j => j.id) })
     revalidatePath('/jobs')
     revalidatePath('/crm')
@@ -799,10 +805,8 @@ export async function autoCreateJobsFromAcceptedLead(leadId: string) {
     const result = await createJobsFromLead(leadId)
     if ('error' in result) return { error: result.error }
 
+    // แจ้งเตือน "ใบงานใหม่เข้าพูล" ยิงจาก createJobsFromLead แล้ว — ที่นี่เหลือแค่บันทึกว่ามาทางอัตโนมัติ
     const jobs = (result.jobs || []) as { id: string; job_type: string; title: string }[]
-    for (const job of jobs) {
-        await notifyPoolNewJob(job, userId)
-    }
 
     await logActivity('AUTO_CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs.map(j => j.id) })
     revalidatePath('/jobs')
@@ -2386,7 +2390,7 @@ async function resolveLeadEvent(
             .select('id, status')
             .eq('crm_lead_id', leadId)
             .order('event_date', { ascending: true, nullsFirst: false })
-        const open = (existing || []).find(e => e.status !== 'closed')
+        const open = (existing || []).find(e => !isClosedEvent(e.status))
         if (open) return { eventId: open.id as string }
     }
 
@@ -2515,7 +2519,7 @@ async function syncLegacyKitEvent(
     if (!kit) return
 
     const active = (await loadKitBookings(supabase, kitId))
-        .filter(r => r.events?.status !== 'closed')
+        .filter(r => !isClosedEvent(r.events?.status))
         .map(r => r.event_id)
 
     if (justBookedEventId) {

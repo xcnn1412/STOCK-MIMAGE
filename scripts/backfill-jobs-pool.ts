@@ -215,6 +215,15 @@ async function main() {
     createdLeads++
     createdJobs += inserted?.length ?? 2
     console.log(`  สร้าง ${label} — ใบงานกราฟิก + หน้างาน (วันงาน ${lead.event_date ?? 'ยังไม่กำหนด'})`)
+
+    // Audit trail — logActivity() ใช้ในสคริปต์ไม่ได้ (ต้องมี cookie/header ของ request)
+    // จึงเขียนแถว activity_logs เองแบบย่อ (คอลัมน์ชุดเดียวกับ lib/logger.ts) · best-effort: ล้มก็แค่เตือน
+    const { error: logErr } = await supabase.from('activity_logs').insert({
+      user_id: createdBy,
+      action_type: 'AUTO_CREATE_JOBS_FROM_LEAD',
+      details: { leadId: lead.id, jobIds: (inserted || []).map(j => j.id as string), source: 'backfill' },
+    })
+    if (logErr) console.warn(`  เตือน ${label} — บันทึก activity_logs ไม่สำเร็จ: ${logErr.message}`)
   }
 
   console.log('')

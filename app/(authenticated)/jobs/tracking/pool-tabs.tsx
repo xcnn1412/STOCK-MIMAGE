@@ -358,7 +358,7 @@ function VehicleSummary({ lead }: { lead: TrackingLead }) {
 const targetEventOf = (lead: TrackingLead) => lead.events[0] ?? null
 
 /**
- * ช่อง "กระเป๋า" ของใบงานหน้างาน — ยังไม่ผูก / ผูกแล้วยังไม่จัด (จัดแล้ว X/Y) / จัดครบ (ADR-0003)
+ * ช่อง "กระเป๋า" ของใบงานหน้างาน — ยังไม่จอง / จองแล้วยังไม่จัด (จัดแล้ว X/Y) / จัดครบ (ADR-0003)
  * กดเปิดกล่องจองกระเป๋า: จอง ยกเลิกจอง และลิงก์ไปหน้าเช็คกระเป๋าของอีเวนต์นั้น
  */
 function KitSummary({
@@ -387,9 +387,9 @@ function KitSummary({
 
     const summary =
         mine.length === 0
-            ? { text: 'ยังไม่ผูก', tone: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200' }
+            ? { text: 'ยังไม่จอง', tone: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200' }
             : packed === 0
-              ? { text: `ผูกแล้ว ${mine.length} ใบ — ยังไม่จัด`, tone: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100' }
+              ? { text: `จองแล้ว ${mine.length} ใบ — ยังไม่จัด`, tone: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100' }
               : packed < mine.length
                 ? { text: `จัดแล้ว ${packed}/${mine.length}`, tone: 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100' }
                 : { text: `จัดครบ ${packed}/${mine.length}`, tone: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' }
@@ -553,8 +553,16 @@ export default function PoolTabs({
     /** เส้นทางบันทึกเดียวกับตารางภาพรวม (updateLeadTracking) */
     onDesignStatusChange: (leadId: string, patch: { design_status: string }) => void
 }) {
+    // ชิป "ใบงานของฉัน" — กรองในเครื่อง ไม่แตะ ?tab (สลับแท็บแล้วเริ่มที่ทุกใบเหมือนเดิม)
+    const [mineOnly, setMineOnly] = useState(false)
+
     const leadById = new Map(leads.map(l => [l.id, l]))
     const orderOf = new Map(leads.map((l, i) => [l.id, i]))
+
+    /** ใบงานของฉัน = ฉันเป็นผู้รับ หรืออยู่ในทีมที่ถูกจัดมาบนใบงานนั้น */
+    const isMineJob = (job: PoolJob) =>
+        !!currentUserId && (job.claimed_by === currentUserId || (job.assigned_to || []).includes(currentUserId))
+    const mineCount = jobs.filter(isMineJob).length
 
     const rows: PoolRow[] = jobs
         .map(job => ({ job, lead: (job.crm_lead_id ? leadById.get(job.crm_lead_id) : undefined) ?? null }))
@@ -564,75 +572,99 @@ export default function PoolTabs({
             return ai - bi || a.job.id.localeCompare(b.job.id)
         })
 
-    if (rows.length === 0) {
-        return <p className="text-center text-sm text-zinc-500 py-10">{EMPTY_TEXT[kind]}</p>
-    }
+    const visible = mineOnly ? rows.filter(r => isMineJob(r.job)) : rows
 
     return (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {rows.map(({ job, lead }) => (
-                <div
-                    key={job.id}
-                    className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 space-y-2"
-                >
-                    <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                            <LeadHeader lead={lead} title={job.title} today={today} />
-                        </div>
-                        <StatusBadge job={job} statusLabels={statusLabels} />
-                    </div>
-
-                    <ClaimerLine job={job} kind={kind} people={people} />
-
-                    {lead && (
-                        <div className="flex flex-wrap items-center gap-1">
-                            <MissingBadge lead={lead} roleLabels={roleLabels} kit={kitReadiness?.get(lead.id)} />
-                            <NoTimeChip lead={lead} />
-                        </div>
-                    )}
-
-                    {kind === 'graphic' && lead && (
-                        <div>
-                            <div className="text-[11px] text-zinc-500">สถานะออกแบบ</div>
-                            <Select
-                                value={lead.design_status}
-                                onValueChange={v => onDesignStatusChange(lead.id, { design_status: v })}
-                            >
-                                <SelectTrigger className={cn('w-full', DESIGN_OPTIONS.find(o => o.value === lead.design_status)?.className)}>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {DESIGN_OPTIONS.map(o => (
-                                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    )}
-
-                    {kind === 'onsite' && lead && (
-                        <div className="grid grid-cols-2 gap-2">
-                            <StaffSummary lead={lead} roleLabels={roleLabels} />
-                            <VehicleSummary lead={lead} />
-                            <div className="col-span-2">
-                                <KitSummary
-                                    lead={lead}
-                                    kits={kits}
-                                    bookings={kitBookings}
-                                    canManageKits={canManageKits}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    <PoolCardActions
-                        job={job}
-                        people={people}
-                        currentUserId={currentUserId}
-                        canManagePool={canManagePool}
-                    />
+        <div className="space-y-3">
+            {currentUserId && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        aria-pressed={mineOnly}
+                        onClick={() => setMineOnly(v => !v)}
+                        className={cn(
+                            'rounded-full px-3 py-1 text-sm',
+                            mineOnly
+                                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                                : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                        )}
+                    >
+                        ใบงานของฉัน {mineCount} ใบ
+                    </button>
                 </div>
-            ))}
+            )}
+
+            {visible.length === 0 ? (
+                <p className="text-center text-sm text-zinc-500 py-10">
+                    {mineOnly ? 'ยังไม่มีใบงานของคุณในพูลนี้' : EMPTY_TEXT[kind]}
+                </p>
+            ) : (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {visible.map(({ job, lead }) => (
+                    <div
+                        key={job.id}
+                        className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 space-y-2"
+                    >
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                                <LeadHeader lead={lead} title={job.title} today={today} />
+                            </div>
+                            <StatusBadge job={job} statusLabels={statusLabels} />
+                        </div>
+
+                        <ClaimerLine job={job} kind={kind} people={people} />
+
+                        {lead && (
+                            <div className="flex flex-wrap items-center gap-1">
+                                <MissingBadge lead={lead} roleLabels={roleLabels} kit={kitReadiness?.get(lead.id)} />
+                                <NoTimeChip lead={lead} />
+                            </div>
+                        )}
+
+                        {kind === 'graphic' && lead && (
+                            <div>
+                                <div className="text-[11px] text-zinc-500">สถานะออกแบบ</div>
+                                <Select
+                                    value={lead.design_status}
+                                    onValueChange={v => onDesignStatusChange(lead.id, { design_status: v })}
+                                >
+                                    <SelectTrigger className={cn('w-full', DESIGN_OPTIONS.find(o => o.value === lead.design_status)?.className)}>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {DESIGN_OPTIONS.map(o => (
+                                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+
+                        {kind === 'onsite' && lead && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <StaffSummary lead={lead} roleLabels={roleLabels} />
+                                <VehicleSummary lead={lead} />
+                                <div className="col-span-2">
+                                    <KitSummary
+                                        lead={lead}
+                                        kits={kits}
+                                        bookings={kitBookings}
+                                        canManageKits={canManageKits}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <PoolCardActions
+                            job={job}
+                            people={people}
+                            currentUserId={currentUserId}
+                            canManagePool={canManagePool}
+                        />
+                    </div>
+                ))}
+                </div>
+            )}
         </div>
     )
 }
