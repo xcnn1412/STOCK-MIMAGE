@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (2026-09-01) — tsc 7 error เดิม, check ผ่าน, build ผ่าน
 
 - [ ] /jobs แสดง kanban เฉพาะ job_type onsite — ไม่มีบอร์ด/แท็บกราฟิกเหลืออยู่
 - [ ] ค่าเริ่มต้นเห็นงานช่วงวันนี้ถึง +7 วัน · ชิป "วันนี้" เหลือเฉพาะวันนี้ · "ทั้งหมด" เห็นครบ

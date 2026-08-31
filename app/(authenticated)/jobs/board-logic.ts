@@ -1,10 +1,13 @@
 // Pure logic seam ของ "บอร์ดวันงาน" (/jobs) — ไม่มี React, ไม่มี I/O
 // ทุกอย่างเป็นฟังก์ชันของ jobs[] + "วันนี้" (string YYYY-MM-DD โซนเวลา Asia/Bangkok)
 // ตรวจด้วย: npx tsx "app/(authenticated)/jobs/board-logic.check.ts"
-import { addDays } from './tracking/tracking-logic'
+import { addDays, POOL_DONE_STATUSES } from './tracking/tracking-logic'
 
 /** ประเภทใบงานที่ขึ้นบอร์ดวันงาน — บอร์ดนี้เป็นของใบงานหน้างานอย่างเดียว (ฝั่งกราฟิกอยู่ในพูลงาน) */
 export const ONSITE_JOB_TYPE = 'onsite'
+
+/** สถานะ "ออกหน้างาน" ในไปป์ไลน์ status_onsite — ปลายทางของการขยับอัตโนมัติเมื่อทีมเช็คอินหน้างาน */
+export const ONSITE_ARRIVED_STATUS = 'onsite'
 
 /** ชิปช่วงวันเหนือบอร์ด — ค่าเริ่มต้นคือ week7 */
 export type DayChip = 'week7' | 'today' | 'all'
@@ -62,6 +65,24 @@ export function boardJobs<T extends { job_type: string; event_date: string | nul
   chip: DayChip,
 ): T[] {
   return jobs.filter((j) => j.job_type === ONSITE_JOB_TYPE && inDayChip(j.event_date, today, chip))
+}
+
+/**
+ * ใบงานหน้างานใบนี้ควรขยับเป็น "ออกหน้างาน" อัตโนมัติหรือไม่ เมื่อทีมเช็คอินหน้างานของอีเวนต์ที่ผูกงานนี้
+ *
+ * `orderedStatuses` = ค่าสถานะของไปป์ไลน์ status_onsite เรียงตาม sort_order (แอดมินแก้ชุดสถานะได้)
+ * เงื่อนไขเดียว: สถานะปัจจุบันต้องอยู่ "ก่อน" ออกหน้างานในลำดับนั้น — ห้ามถอยหลังเด็ดขาด
+ * - สถานะปัจจุบันไม่อยู่ในลำดับ (สถานะแปลกปลอม/ถูกลบทิ้ง) → ไม่แตะ
+ * - ไม่มี 'onsite' ในลำดับ (แอดมินตัดขั้นนี้ออก) → ไม่มีปลายทางให้ขยับ → ไม่แตะ
+ * - จบแล้ว/ถูกข้าม → ไม่แตะ แม้จะถูกจัดลำดับไว้ก่อนออกหน้างานก็ตาม
+ */
+export function shouldAdvanceToOnsite(currentStatus: string, orderedStatuses: string[]): boolean {
+  if (POOL_DONE_STATUSES.includes(currentStatus)) return false
+  const target = orderedStatuses.indexOf(ONSITE_ARRIVED_STATUS)
+  if (target === -1) return false
+  const current = orderedStatuses.indexOf(currentStatus)
+  if (current === -1) return false
+  return current < target
 }
 
 /** เรียงใบงานลอย: มีวันงานก่อน (วันใกล้สุดขึ้นก่อน) แล้วค่อยใบที่ยังไม่ระบุวัน */

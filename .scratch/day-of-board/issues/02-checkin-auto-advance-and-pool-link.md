@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (2026-09-01) — tsc 7 error เดิม, check ทั้งสองไฟล์ผ่าน, build ผ่าน
 
 - [ ] เช็คอิน onsite ที่ผูกอีเวนต์ของงาน → ใบงานหน้างานสถานะก่อน 'onsite' เลื่อนเป็น 'onsite' + activity log (ActionType ใหม่) — เช็คอินซ้ำ/ใบงานเลย 'onsite' ไปแล้ว = ไม่แตะ
 - [ ] hook ล้มเงียบ (console.error) ไม่กระทบการเช็คอิน
