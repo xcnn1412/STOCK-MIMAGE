@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Briefcase, UserRound, Users } from 'lucide-react'
+import { Briefcase, RotateCcw, UserRound, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { bookKitForLead, claimPoolJob, releasePoolJob, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
 import { DESIGN_OPTIONS } from './design-options'
@@ -147,6 +147,49 @@ export function ClaimChip({
             {done && claimer && <span className="text-zinc-400">· {claimer}</span>}
             {!done && currentUserId && job.claimed_by === currentUserId && <span className="text-zinc-400">(ฉัน)</span>}
         </span>
+    )
+}
+
+/**
+ * ปุ่มจิ๋วในตารางภาพรวม: คืนใบงานกลับเป็น "รอรับงาน" (releasePoolJob)
+ * เห็นเฉพาะผู้รับใบงานเองหรือแอดมิน/ฝ่ายประสานงาน — สิทธิ์จริงถูกบังคับฝั่ง server อีกชั้น
+ */
+export function ReleaseChip({
+    job,
+    currentUserId,
+    canManagePool,
+}: {
+    job: PoolJob | undefined
+    currentUserId: string | null
+    canManagePool: boolean
+}) {
+    const [busy, setBusy] = useState(false)
+
+    if (!job) return null
+    if (job.status === 'awaiting_claim' || job.status === 'skipped' || job.status === 'done') return null
+    const isMine = !!currentUserId && job.claimed_by === currentUserId
+    if (!isMine && !canManagePool) return null
+
+    return (
+        <button
+            type="button"
+            disabled={busy}
+            title="คืนใบงานกลับเป็นรอรับงาน"
+            className="inline-flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-50"
+            onClick={async () => {
+                setBusy(true)
+                try {
+                    const res = (await releasePoolJob(job.id)) as { error?: string } | undefined
+                    if (res?.error) toast.error(res.error)
+                    else toast.success('คืนงานเข้าพูลแล้ว — กลับเป็นรอรับงาน')
+                } finally {
+                    setBusy(false)
+                }
+            }}
+        >
+            <RotateCcw className="h-3 w-3" aria-hidden />
+            คืนเป็นรอรับงาน
+        </button>
     )
 }
 

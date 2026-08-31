@@ -41,7 +41,7 @@ import {
 } from './tracking-logic'
 import TimelineView, { AVAIL_TEXT, formatDate, ymd } from './timeline-view'
 import { RequiredRolesEditor } from './required-roles-editor'
-import PoolTabs, { ClaimChip, KitSummary, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
+import PoolTabs, { ClaimChip, KitSummary, ReleaseChip, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
 import { DESIGN_OPTIONS } from './design-options'
 
 export type { TrackingLead }
@@ -759,10 +759,16 @@ export default function TrackingView({
     // กฎการรับงานในตารางภาพรวม: คอลัมน์งานของฝ่ายถูกล็อกจนกว่าจะมีคนกดรับใบงานฝ่ายนั้น
     // (ออกแบบ ← ใบงานกราฟิก · จัดคน/จัดรถ/กระเป๋า ← ใบงานหน้างาน กดรับที่คอลัมน์เดียวปลดทั้งสาม)
     // งานเก่าที่ยังไม่มีใบงาน = ไม่ล็อก (backward compat) — สิทธิ์แผนก/แอดมินบังคับใน claimPoolJob ฝั่ง server
-    const gate = (job: (typeof jobs)[number] | undefined, children: ReactNode) =>
+    // showRelease: โชว์ปุ่ม "คืนเป็นรอรับงาน" ใต้ตัวแก้ไข — วางไว้คอลัมน์เดียวต่อฝ่ายพอ ไม่ให้รก
+    const gate = (job: (typeof jobs)[number] | undefined, children: ReactNode, showRelease = false) =>
         job && job.status === 'awaiting_claim'
             ? <ClaimChip job={job} people={people} currentUserId={currentUserId} />
-            : children
+            : (
+                <div className="space-y-1">
+                    {children}
+                    {showRelease && <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} />}
+                </div>
+            )
 
     const base = rows.filter(r => showPast || !isPast(r, today))
     const counts = chipCounts(base, today, kitReadiness)
@@ -953,7 +959,7 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />)}
+                                                {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />, true)}
                                             </TableCell>
 
                                             <TableCell>
@@ -961,7 +967,7 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                {gate(jobsByLead.get(lead.id)?.onsite, <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
+                                                {gate(jobsByLead.get(lead.id)?.onsite, <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />, true)}
                                             </TableCell>
 
                                             <TableCell>
@@ -1022,11 +1028,11 @@ export default function TrackingView({
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <div className="text-[11px] text-zinc-500">ออกแบบ</div>
-                                        {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />)}
+                                        {gate(jobsByLead.get(lead.id)?.graphic, <DesignCell lead={lead} save={save} />, true)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                        {gate(jobsByLead.get(lead.id)?.onsite, <VehicleCell lead={lead} all={rows} save={save} />)}
+                                        {gate(jobsByLead.get(lead.id)?.onsite, <VehicleCell lead={lead} all={rows} save={save} />, true)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">กระเป๋า</div>
