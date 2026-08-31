@@ -36,7 +36,7 @@ import {
 } from './tracking-logic'
 import TimelineView, { formatDate, ymd } from './timeline-view'
 import PoolTabs, { ClaimChip, DutyGate, KitSummary, ReleaseChip, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
-import { StaffEditor, VehicleCell, defaultEventId, type Person, type SaveFn, type StaffRole } from './editors'
+import { StaffEditor, VehicleCell, defaultEventId, type Person, type SaveFn, type StaffRole, type VehicleSyncFn } from './editors'
 import DutyTab, { claimedDutyCount, dutyKey, dutySummary, unclaimedDutyCount } from './duty-tabs'
 import { DESIGN_OPTIONS } from './design-options'
 
@@ -161,14 +161,14 @@ function DesignCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
 }
 
 /** ไทม์ไลน์: คลิกแถบในเลนรถ → เปิด VehicleCell เดิมใน Dialog */
-function VehicleDialog({ lead, all, save, onClose }: { lead: TrackingLead; all: TrackingLead[]; save: SaveFn; onClose: () => void }) {
+function VehicleDialog({ lead, all, onSaved, onClose }: { lead: TrackingLead; all: TrackingLead[]; onSaved: VehicleSyncFn; onClose: () => void }) {
     return (
         <Dialog open onOpenChange={o => { if (!o) onClose() }}>
             <DialogContent className="sm:max-w-sm">
                 <DialogHeader>
                     <DialogTitle>จัดรถ — {lead.customer_name || 'ไม่ระบุลูกค้า'} · {formatDate(lead.event_date)}</DialogTitle>
                 </DialogHeader>
-                <VehicleCell lead={lead} all={all} save={save} />
+                <VehicleCell lead={lead} all={all} onSaved={onSaved} />
                 <DialogFooter>
                     <Button onClick={onClose}>ปิด</Button>
                 </DialogFooter>
@@ -410,6 +410,11 @@ export default function TrackingView({
         })
     }
 
+    // จัดรถบันทึกผ่าน assignLeadVehicle เอง (ผูกกับอีเวนต์ — ADR-0004) ที่นี่แค่สะท้อนค่าลงตาราง
+    const syncVehicle = (id: string, tracking_checklist: string[]) => {
+        setRows(prev => prev.map(r => (r.id === id ? { ...r, tracking_checklist } : r)))
+    }
+
     const onStaffSaved = (
         id: string,
         staff: TrackingLead['staff'],
@@ -566,7 +571,7 @@ export default function TrackingView({
                     kitBookings={kitBookings}
                     kitReadiness={kitReadiness}
                     canManageKits={canManageKits}
-                    save={save}
+                    onVehicleSaved={syncVehicle}
                     onStaffSaved={onStaffSaved}
                     onRequiredRolesSaved={onRequiredRolesSaved}
                 />
@@ -699,7 +704,7 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
+                                                {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
                                             </TableCell>
 
                                             <TableCell>
@@ -760,7 +765,7 @@ export default function TrackingView({
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
+                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">กระเป๋า</div>
@@ -838,7 +843,7 @@ export default function TrackingView({
                 />
             )}
             {editingLead && editing?.kind === 'vehicle' && (
-                <VehicleDialog lead={editingLead} all={rows} save={save} onClose={() => setEditing(null)} />
+                <VehicleDialog lead={editingLead} all={rows} onSaved={syncVehicle} onClose={() => setEditing(null)} />
             )}
         </div>
     )

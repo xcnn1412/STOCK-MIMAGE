@@ -2571,6 +2571,60 @@ export async function assignLeadStaff(
     return { success: true, eventId: targetEventId }
 }
 
+/**
+ * จัดรถให้งาน — จองรถผูกกับ "อีเวนต์" ผ่าน event_vehicles (ADR-0004) เหมือนคนและกระเป๋า
+ * งานที่ยังไม่มีอีเวนต์ ระบบเปิดอีเวนต์ให้อัตโนมัติ (เส้นทางเดียวกับจองกระเป๋า)
+ * vehicleKey = null → เอารถออก (ลบการจองรถของทุกอีเวนต์ของงานนี้)
+ *
+ * แล้ว sync crm_leads.tracking_checklist ให้เหลือ key รถคันที่เลือกคันเดียว (รายการอื่นไม่แตะ)
+ * — เป็น cache ที่ read path เดิมทั้งหมดยังอ่านอยู่ (vehicleOf, ความพร้อม, เลนรถ, การชน, สรุปหน้าที่)
+ */
+export async function assignLeadVehicle(leadId: string, vehicleKey: string | null) {
+    const session = await requireAuth()
+    if (!session) return { error: 'Unauthorized' }
+    if (vehicleKey !== null && !CHECKLIST_KEYS.includes(vehicleKey)) return { error: 'รายการจัดรถไม่ถูกต้อง' }
+
+    const supabase = createServiceClient()
+
+    // อีเวนต์ทั้งหมดของงาน — หนึ่งงานจัดรถได้คันเดียว จึงล้างการจองเก่าของทุกใบก่อน
+    const { data: leadEvents } = await supabase.from('events').select('id').eq('crm_lead_id', leadId)
+    const eventIds = (leadEvents || []).map(e => e.id as string)
+
+    let eventId: string | null = null
+    if (vehicleKey) {
+        const resolved = await resolveLeadEvent(supabase, leadId, null, { pickExisting: true, source: 'vehicle-booking' })
+        if ('error' in resolved) return { error: resolved.error }
+        eventId = resolved.eventId
+        if (!eventIds.includes(eventId)) eventIds.push(eventId)
+    }
+
+    if (eventIds.length > 0) {
+        const { error: delErr } = await supabase.from('event_vehicles').delete().in('event_id', eventIds)
+        if (delErr) return { error: delErr.message }
+    }
+    if (eventId && vehicleKey) {
+        const { error: insErr } = await supabase
+            .from('event_vehicles')
+            .upsert({ event_id: eventId, vehicle_key: vehicleKey }, { onConflict: 'event_id,vehicle_key' })
+        if (insErr) return { error: insErr.message }
+    }
+
+    const { data: lead } = await supabase.from('crm_leads').select('tracking_checklist').eq('id', leadId).single()
+    const current = Array.isArray(lead?.tracking_checklist) ? (lead?.tracking_checklist as string[]) : []
+    const tracking_checklist = [
+        ...current.filter(k => !CHECKLIST_KEYS.includes(k)),
+        ...(vehicleKey ? [vehicleKey] : []),
+    ]
+    const { error: syncErr } = await supabase.from('crm_leads').update({ tracking_checklist }).eq('id', leadId)
+    if (syncErr) return { error: syncErr.message }
+
+    await logActivity('ASSIGN_EVENT_VEHICLE', { leadId, eventId, vehicleKey })
+
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/events')
+    return { success: true, eventId, tracking_checklist }
+}
+
 // ============================================================================
 // จองกระเป๋า / จัดกระเป๋า — event_kits เป็น source of truth ของการจอง (ADR-0003)
 // ============================================================================
