@@ -50,9 +50,10 @@ export type PoolKind = 'graphic' | 'onsite'
 
 const PILL = 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium'
 
+// แท็บใบงาน = คิวงานที่ "รับแล้วเท่านั้น" — การกดรับเกิดที่แท็บภาพรวมที่เดียว
 const EMPTY_TEXT: Record<PoolKind, string> = {
-    graphic: 'ยังไม่มีใบงานกราฟิกในพูล',
-    onsite: 'ยังไม่มีใบงานหน้างานในพูล',
+    graphic: 'ยังไม่มีใบงานกราฟิกที่รับแล้ว — กดรับงานได้จากแท็บภาพรวม',
+    onsite: 'ยังไม่มีใบงานหน้างานที่รับแล้ว — กดรับงานได้จากแท็บภาพรวม',
 }
 
 /** ใบงานคู่กับงานที่มันแตกออกมา — งานที่หาไม่เจอ (lead ถูกลบ/ปิด) ยังแสดงได้แบบไม่มีรายละเอียด */
@@ -761,14 +762,17 @@ export default function PoolTabs({
     const orderOf = new Map(leads.map((l, i) => [l.id, i]))
 
     /** ใบงานของฉัน = ฉันเป็นผู้รับ หรืออยู่ในทีมที่ถูกจัดมาบนใบงานนั้น */
+    // เฉพาะใบงานที่มีคนรับแล้ว — ใบที่ยังรอรับอยู่ที่แท็บภาพรวมเท่านั้น (flow: รับจากภาพรวม → โผล่ในคิวแท็บนี้)
+    const claimedJobs = jobs.filter(j => j.status !== 'awaiting_claim')
+
     const isMineJob = (job: PoolJob) =>
         !!currentUserId && (job.claimed_by === currentUserId || (job.assigned_to || []).includes(currentUserId))
-    const mineCount = jobs.filter(isMineJob).length
+    const mineCount = claimedJobs.filter(isMineJob).length
 
     /** ชื่อผู้รับใบงาน — null = ยังไม่มีผู้รับ (เรียงขึ้นก่อนเสมอ) */
     const claimerOf = (job: PoolJob) => (job.claimed_by ? nameOf(job.claimed_by, people) : null)
 
-    const rows: PoolRow[] = jobs
+    const rows: PoolRow[] = claimedJobs
         .map(job => ({ job, lead: (job.crm_lead_id ? leadById.get(job.crm_lead_id) : undefined) ?? null }))
         .sort((a, b) => {
             const ai = a.lead ? orderOf.get(a.lead.id) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER

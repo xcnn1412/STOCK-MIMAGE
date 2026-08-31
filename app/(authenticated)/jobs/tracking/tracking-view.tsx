@@ -37,7 +37,7 @@ import {
 import TimelineView, { formatDate, ymd } from './timeline-view'
 import PoolTabs, { ClaimChip, DutyGate, KitSummary, ReleaseChip, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
 import { StaffEditor, VehicleCell, defaultEventId, type Person, type SaveFn, type StaffRole } from './editors'
-import DutyTab, { dutyKey, dutySummary, unclaimedDutyCount } from './duty-tabs'
+import DutyTab, { claimedDutyCount, dutyKey, dutySummary, unclaimedDutyCount } from './duty-tabs'
 import { DESIGN_OPTIONS } from './design-options'
 
 export type { TrackingLead, Person, StaffRole }
@@ -477,11 +477,11 @@ export default function TrackingView({
     const pool = groupPoolJobs(jobs)
     const poolJobs = tab === 'graphic' ? pool.graphic : pool.onsite
 
-    /** ตัวเลขบนป้ายแท็บ = จำนวน "งานที่รอคนมารับ" ของแท็บนั้น */
+    /** ตัวเลขบนป้ายแท็บ = ขนาดคิว "งานที่รับแล้ว" ของแท็บนั้น — งานที่ยังรอรับอยู่ที่ภาพรวม */
     const tabCount = (key: PoolTab): number => {
-        if (key === 'graphic') return pool.graphic.length
-        if (key === 'onsite') return pool.onsite.length
-        return isDutyTab(key) ? unclaimedDutyCount(base, key, claimByDuty) : 0
+        if (key === 'graphic') return pool.graphic.filter(j => j.status !== 'awaiting_claim').length
+        if (key === 'onsite') return pool.onsite.filter(j => j.status !== 'awaiting_claim').length
+        return isDutyTab(key) ? claimedDutyCount(base, key, claimByDuty) : 0
     }
 
     return (
@@ -494,11 +494,11 @@ export default function TrackingView({
                     </p>
                 ) : isDutyTab(tab) ? (
                     <p className="text-sm text-zinc-500">
-                        พูลงาน · ใบงาน{DUTY_LABELS_TH[tab]} {base.length} งาน — รอรับ {unclaimedDutyCount(base, tab, claimByDuty)} งาน
+                        พูลงาน · ใบงาน{DUTY_LABELS_TH[tab]} รับแล้ว {claimedDutyCount(base, tab, claimByDuty)} งาน — อีก {unclaimedDutyCount(base, tab, claimByDuty)} งานรอรับที่แท็บภาพรวม
                     </p>
                 ) : (
                     <p className="text-sm text-zinc-500">
-                        พูลงาน · {tab === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'} {poolJobs.length} ใบที่ยังไม่จบ
+                        พูลงาน · {tab === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'} รับแล้ว {poolJobs.filter(j => j.status !== 'awaiting_claim').length} ใบ — อีก {poolJobs.filter(j => j.status === 'awaiting_claim').length} ใบรอรับที่แท็บภาพรวม
                     </p>
                 )}
             </div>

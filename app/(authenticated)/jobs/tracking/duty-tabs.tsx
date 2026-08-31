@@ -60,13 +60,22 @@ export function dutySummary(
     return n > 0 ? <div className="text-xs text-zinc-500">จองไว้แล้ว {n} ใบ</div> : null
 }
 
-/** จำนวนงานที่หน้าที่นี้ "ยังไม่มีคนรับ" — ตัวเลขบนป้ายแท็บ = งานที่รอคนมารับ */
+/** จำนวนงานที่หน้าที่นี้ "ยังไม่มีคนรับ" — งานพวกนี้อยู่ที่แท็บภาพรวม รอคนกดรับ */
 export function unclaimedDutyCount(
     leads: TrackingLead[],
     duty: PrepDuty,
     claimByDuty: Map<string, DutyClaim>
 ): number {
     return leads.filter(l => !claimByDuty.has(dutyKey(l.id, duty))).length
+}
+
+/** จำนวนงานที่หน้าที่นี้ "รับแล้ว" — ตัวเลขบนป้ายแท็บ = ขนาดคิวงานในแท็บ */
+export function claimedDutyCount(
+    leads: TrackingLead[],
+    duty: PrepDuty,
+    claimByDuty: Map<string, DutyClaim>
+): number {
+    return leads.filter(l => claimByDuty.has(dutyKey(l.id, duty))).length
 }
 
 export default function DutyTab({
@@ -125,13 +134,16 @@ export default function DutyTab({
         return claim ? nameOf(claim.claimedBy, people) : null
     }
 
+    // เฉพาะงานที่หน้าที่นี้มีคนรับแล้ว — งานที่ยังรอรับอยู่ที่แท็บภาพรวมเท่านั้น (flow: รับจากภาพรวม → โผล่ในคิวแท็บนี้)
+    const claimed = leads.filter(l => claimByDuty.has(dutyKey(l.id, duty)))
+
     /** ใบงานของฉัน = ฉันเป็นคนรับหน้าที่นี้ของงานนั้น */
     const isMine = (lead: TrackingLead) => !!currentUserId && claimOf(lead)?.claimedBy === currentUserId
-    const mineCount = leads.filter(isMine).length
+    const mineCount = claimed.filter(isMine).length
 
     // leads เรียงตามวันงานมาแล้วจาก page.tsx — 'ผู้รับ' เรียงใหม่โดยยังใช้ลำดับวันเป็นตัวตัดสินท้าย
-    const order = new Map(leads.map((l, i) => [l.id, i]))
-    const sorted = leads.slice().sort((a, b) => {
+    const order = new Map(claimed.map((l, i) => [l.id, i]))
+    const sorted = claimed.slice().sort((a, b) => {
         const byDate = (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)
         if (sort === 'date') return byDate
         return compareClaimer(claimerOf(a), claimerOf(b)) || byDate
@@ -186,7 +198,7 @@ export default function DutyTab({
                         ? NO_MATCH_TEXT
                         : mineOnly
                           ? `ยังไม่มีงานที่คุณรับหน้าที่${label}`
-                          : `ยังไม่มีงานที่ต้อง${label}`}
+                          : `ยังไม่มีงานที่รับหน้าที่${label}แล้ว — กดรับงานได้จากแท็บภาพรวม`}
                 </p>
             ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
