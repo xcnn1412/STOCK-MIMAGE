@@ -11,6 +11,7 @@ export type NotificationType =
   | 'job_status_changed'
   | 'job_mentioned'
   | 'job_comment'
+  | 'job_pool_new'          // ใบงานใหม่เข้าพูลงาน → แจ้งสมาชิกแผนกของฝ่ายนั้น
   | 'ticket_assigned'
   | 'ticket_reply'
   | 'ticket_mentioned'

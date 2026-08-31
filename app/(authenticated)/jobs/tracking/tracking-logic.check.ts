@@ -4,6 +4,14 @@ import assert from 'node:assert/strict'
 import {
   addDays,
   availabilityOf,
+  canActOnPool,
+  POOL_TEAM_CATEGORIES,
+  POOL_TEAM_DEFAULTS,
+  PREP_DUTIES,
+  PREP_DUTY_CATEGORY,
+  DUTY_LABELS_TH,
+  isPrepDuty,
+  type PrepDuty,
   BAR_COLORS,
   bucketOf,
   chipCounts,
@@ -16,11 +24,16 @@ import {
   getConflicts,
   getMissing,
   groupLeads,
+  groupPoolJobs,
   hasRequiredRoles,
   isFullyStaffed,
   isPast,
+  isMissingKits,
   isReady,
   isUrgent,
+  kitBookingConflict,
+  kitReadinessByLead,
+  lacksTime,
   layoutDay,
   layoutWeek,
   leadsOnDate,
@@ -30,6 +43,9 @@ import {
   nextJobDate,
   NO_DEPARTMENT_LABEL,
   personClashes,
+  POOL_DONE_STATUSES,
+  READY_DESIGN_STATUSES,
+  shouldFinishGraphicJob,
   staffedCounts,
   timeStatus,
   vehicleAvailability,
@@ -37,7 +53,10 @@ import {
   workloadOf,
   workloadTone,
   type DayLayout,
+  type KitBookingDetail,
+  type KitReadiness,
   type Person,
+  type PoolJob,
   type TrackingLead,
 } from './tracking-logic'
 
@@ -770,5 +789,319 @@ assert.deepEqual(fcDept.candidates.map((c) => c.person.id), ['u1', 'u3'])
 assert.deepEqual(fcDept.busy.map((c) => c.person.id), [])
 assert.deepEqual(focusCandidates(fcLead, people, fcLeads, T, { departments: [] }).candidates.map((c) => c.person.id), ['u1', 'u3', 'u4'])
 assert.deepEqual(focusCandidates(fcLead, [], fcLeads, T).candidates, [])
+
+// --- groupPoolJobs: ใบงานเข้าแท็บฝ่าย ----------------------------------------
+const pj = (overrides: Partial<PoolJob> = {}): PoolJob => ({
+  id: 'j1',
+  job_type: 'graphic',
+  status: 'awaiting_claim',
+  title: 'ใบงาน',
+  assigned_to: [],
+  claimed_by: null,
+  crm_lead_id: 'l1',
+  ...overrides,
+})
+
+// แยกตาม job_type
+assert.deepEqual(
+  groupPoolJobs([pj({ id: 'g1' }), pj({ id: 'o1', job_type: 'onsite' })]),
+  { graphic: [pj({ id: 'g1' })], onsite: [pj({ id: 'o1', job_type: 'onsite' })] }
+)
+// ใบที่จบ ('done') และถูกข้าม ('skipped') ออกจากพูล
+assert.deepEqual(
+  groupPoolJobs([
+    pj({ id: 'g1' }),
+    pj({ id: 'g2', status: 'done' }),
+    pj({ id: 'g3', status: 'skipped' }),
+    pj({ id: 'o1', job_type: 'onsite', status: 'done' }),
+    pj({ id: 'o2', job_type: 'onsite', status: 'in_progress' }),
+  ]).graphic.map((j) => j.id),
+  ['g1']
+)
+assert.deepEqual(
+  groupPoolJobs([
+    pj({ id: 'o1', job_type: 'onsite', status: 'skipped' }),
+    pj({ id: 'o2', job_type: 'onsite', status: 'in_progress' }),
+  ]).onsite.map((j) => j.id),
+  ['o2']
+)
+// job_type ที่ไม่รู้จักไม่เข้าแท็บไหนเลย
+assert.deepEqual(groupPoolJobs([pj({ id: 'x', job_type: 'other' })]), { graphic: [], onsite: [] })
+// คงลำดับเดิมของ jobs
+assert.deepEqual(
+  groupPoolJobs([pj({ id: 'g3' }), pj({ id: 'g1' }), pj({ id: 'g2' })]).graphic.map((j) => j.id),
+  ['g3', 'g1', 'g2']
+)
+// รายการสถานะที่ถือว่าจบส่งทับได้ (สถานะใบงานตั้งค่าเองได้)
+assert.deepEqual(
+  groupPoolJobs([pj({ id: 'g1', status: 'done' }), pj({ id: 'g2', status: 'sent' })], ['sent']).graphic.map((j) => j.id),
+  ['g1']
+)
+// รายการว่าง = ไม่ตัดใบไหนเลย
+assert.deepEqual(
+  groupPoolJobs([pj({ id: 'g1', status: 'done' }), pj({ id: 'g2', status: 'skipped' })], []).graphic.map((j) => j.id),
+  ['g1', 'g2']
+)
+assert.deepEqual(groupPoolJobs([]), { graphic: [], onsite: [] })
+assert.deepEqual([...POOL_DONE_STATUSES], ['done', 'skipped'])
+
+// --- shouldFinishGraphicJob: ใบงานกราฟิกจบเองเมื่อออกแบบถึงขั้นพร้อม ----------
+// ออกแบบพร้อม + ใบงานยังไม่จบ → จบได้
+assert.equal(shouldFinishGraphicJob('sent_email_cf', 'awaiting_claim'), true)
+assert.equal(shouldFinishGraphicJob('completed', 'in_progress'), true)
+// ใบงานจบ/ถูกข้ามไปแล้ว → ไม่แตะซ้ำ
+assert.equal(shouldFinishGraphicJob('completed', 'done'), false)
+assert.equal(shouldFinishGraphicJob('sent_email_cf', 'skipped'), false)
+// ออกแบบยังไม่ถึงขั้นพร้อม → ไม่จบ แม้ใบงานจะยังทำอยู่
+assert.equal(shouldFinishGraphicJob('revising', 'in_progress'), false)
+assert.equal(shouldFinishGraphicJob('sent', 'awaiting_claim'), false)
+assert.equal(shouldFinishGraphicJob('not_started', 'done'), false)
+// สถานะออกแบบทุกค่าใน READY_DESIGN_STATUSES ใช้ได้เหมือนกัน
+assert.deepEqual(READY_DESIGN_STATUSES.map((s) => shouldFinishGraphicJob(s, 'awaiting_claim')), [true, true])
+
+// --- kitBookingConflict: กระเป๋าใบเดียวกัน วันเดียวกัน คนละอีเวนต์ = ชน ----------
+const kb = (kitId: string, eventId: string, eventDate: string | null) => ({ kitId, eventId, eventDate })
+const kbBookings = [
+  kb('k1', 'e1', '2026-08-30'),
+  kb('k1', 'e2', '2026-08-31'),
+  kb('k2', 'e3', '2026-08-30'),
+]
+
+// วันเดียวกัน อีเวนต์อื่น → ชน (คืน eventId ของคู่กรณี)
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e9', '2026-08-30')), ['e1'])
+// คนละวัน → ไม่ชน
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e9', '2026-09-01')), [])
+// จองซ้ำอีเวนต์เดิม → ไม่ชน (จองแล้วกดจองอีกครั้ง)
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e1', '2026-08-30')), [])
+// กระเป๋าคนละใบวันเดียวกัน → ไม่ชน
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k3', 'e9', '2026-08-30')), [])
+// ชนหลายอีเวนต์ → คืนครบทุกใบ ตามลำดับที่เจอ
+assert.deepEqual(
+  kitBookingConflict(
+    [kb('k1', 'eA', '2026-08-30'), kb('k1', 'eB', '2026-08-30'), kb('k1', 'eC', '2026-08-31')],
+    kb('k1', 'e9', '2026-08-30')
+  ),
+  ['eA', 'eB']
+)
+// อีเวนต์เดียวกันโผล่ซ้ำ → คืนครั้งเดียว
+assert.deepEqual(
+  kitBookingConflict([kb('k1', 'eA', '2026-08-30'), kb('k1', 'eA', '2026-08-30')], kb('k1', 'e9', '2026-08-30')),
+  ['eA']
+)
+// ไม่รู้วันงาน (ฝั่งใดฝั่งหนึ่ง) → เทียบไม่ได้ ไม่ชน
+assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e9', null)), [])
+assert.deepEqual(kitBookingConflict([kb('k1', 'eA', null)], kb('k1', 'e9', '2026-08-30')), [])
+assert.deepEqual(kitBookingConflict([], kb('k1', 'e9', '2026-08-30')), [])
+
+// --- lacksTime: งานที่ยังใส่เวลาไม่ครบ ----------------------------------------
+assert.equal(lacksTime(mk()), false)
+assert.equal(lacksTime(mk({ event_time: null })), true)
+assert.equal(lacksTime(mk({ event_end_time: null })), true)
+assert.equal(lacksTime(mk({ event_time: null, event_end_time: null })), true)
+
+// --- ความพร้อมข้อ 5: กระเป๋า --------------------------------------------------
+const kr = (overrides: Partial<KitReadiness> = {}): KitReadiness => ({
+  onsiteSkipped: false,
+  bookings: [{ packed: true }],
+  ...overrides,
+})
+
+// ยังไม่จองเลย → ขาด
+assert.equal(isMissingKits(kr({ bookings: [] })), true)
+// จองแล้วจัดครบทุกใบ → ไม่ขาด
+assert.equal(isMissingKits(kr({ bookings: [{ packed: true }, { packed: true }] })), false)
+// มีใบที่ยังไม่จัด → ขาด
+assert.equal(isMissingKits(kr({ bookings: [{ packed: true }, { packed: false }] })), true)
+// ใบงานหน้างานถูกข้าม → ไม่นับข้อนี้ แม้ยังไม่จองเลย
+assert.equal(isMissingKits(kr({ onsiteSkipped: true, bookings: [] })), false)
+assert.equal(isMissingKits(kr({ onsiteSkipped: true, bookings: [{ packed: false }] })), false)
+
+// getMissing: ข้อกระเป๋าต่อท้ายเสมอ และมีเฉพาะเมื่อผู้เรียกส่งข้อมูลมา
+assert.deepEqual(getMissing(mk(), kr({ bookings: [] })), ['kits'])
+assert.deepEqual(getMissing(mk(), kr({ bookings: [{ packed: true }] })), [])
+assert.deepEqual(getMissing(mk(), kr({ bookings: [{ packed: true }, { packed: false }] })), ['kits'])
+assert.deepEqual(getMissing(mk(), kr({ onsiteSkipped: true, bookings: [] })), [])
+// ไม่ส่ง kit → พฤติกรรมเดิม (4 ข้อ)
+assert.deepEqual(getMissing(mk()), [])
+assert.deepEqual(getMissing(mk({ event_time: null })), ['time'])
+assert.deepEqual(
+  getMissing(
+    mk({ design_status: 'sent', staff: [], tracking_checklist: [], event_time: null }),
+    kr({ bookings: [] })
+  ),
+  ['design', 'staff', 'vehicle', 'time', 'kits']
+)
+assert.equal(isReady(mk(), kr({ bookings: [] })), false)
+assert.equal(isReady(mk(), kr()), true)
+assert.equal(missingLabel('kits', mk(), rrLabels), 'กระเป๋า')
+
+// isUrgent / chipCounts เห็นข้อกระเป๋าเมื่อส่งข้อมูลมา
+assert.equal(isUrgent(mk({ event_date: T }), today), false)
+assert.equal(isUrgent(mk({ event_date: T }), today, kr({ bookings: [] })), true)
+assert.deepEqual(chipCounts([mk({ id: 'ck', event_date: T })], today, new Map([['ck', kr({ bookings: [] })]])), {
+  today: { total: 1, notReady: 1 },
+  week7: { total: 1, notReady: 1 },
+  month: { total: 1, notReady: 1 },
+})
+
+// --- kitReadinessByLead ----------------------------------------------------
+const krBookings: KitBookingDetail[] = [
+  { kitId: 'k1', eventId: 'e1', eventDate: T, eventName: 'อีเวนต์ A', leadId: 'A', packed: false },
+  { kitId: 'k2', eventId: 'e1', eventDate: T, eventName: 'อีเวนต์ A', leadId: 'A', packed: true },
+  { kitId: 'k1', eventId: 'e9', eventDate: T, eventName: 'อีเวนต์ อื่น', leadId: null, packed: true },
+]
+const krJobs = [
+  pj({ id: 'jo', job_type: 'onsite', status: 'skipped', crm_lead_id: 'S' }),
+  pj({ id: 'jg', job_type: 'graphic', status: 'skipped', crm_lead_id: 'A' }), // กราฟิกถูกข้ามไม่เกี่ยวกับกระเป๋า
+]
+const krMap = kitReadinessByLead(
+  [mk({ id: 'A' }), mk({ id: 'S' }), mk({ id: 'N' })],
+  krJobs,
+  krBookings
+)
+assert.deepEqual(krMap.get('A'), { onsiteSkipped: false, bookings: [{ packed: false }, { packed: true }] })
+assert.deepEqual(krMap.get('S'), { onsiteSkipped: true, bookings: [] }) // ใบงานหน้างานถูกข้าม
+assert.deepEqual(krMap.get('N'), { onsiteSkipped: false, bookings: [] }) // ยังไม่จองเลย
+assert.equal(isMissingKits(krMap.get('A')!), true) // มีใบที่ยังไม่จัด
+assert.equal(isMissingKits(krMap.get('S')!), false)
+assert.equal(isMissingKits(krMap.get('N')!), true)
+assert.equal(kitReadinessByLead([], krJobs, krBookings).size, 0)
+
+// --- ไทม์ไลน์: เลนกระเป๋า -----------------------------------------------------
+const kits = [
+  { id: 'k1', name: 'กระเป๋า A' },
+  { id: 'k2', name: 'กระเป๋า B' },
+]
+// k1 ถูกจองสองอีเวนต์วันเดียวกัน (ชน) — ใบแรกผูกกับงาน A ที่อยู่ในวันนั้น อีกใบไม่ได้มาจาก CRM
+const tlBookings: KitBookingDetail[] = [
+  { kitId: 'k1', eventId: 'e1', eventDate: T, eventName: 'อีเวนต์ A', leadId: 'A', packed: false },
+  { kitId: 'k1', eventId: 'e9', eventDate: T, eventName: 'อีเวนต์ อื่น', leadId: null, packed: true },
+  { kitId: 'k2', eventId: 'e2', eventDate: '2026-08-31', eventName: 'อีเวนต์ พรุ่งนี้', leadId: null, packed: true },
+]
+const dayKit = layoutDay([tlA, tlB], T, people, roleLabels, { kits, kitBookings: tlBookings })
+
+// เลนกระเป๋าอยู่หลังเลนรถ ก่อนเลนคน — ใบละหนึ่งเลนตามลำดับที่ส่งมา
+assert.deepEqual(dayKit.lanes.map((l) => l.kind), [
+  'jobs', 'vehicle', 'vehicle', 'kit', 'kit', 'person', 'person', 'person', 'person',
+])
+assert.deepEqual(dayKit.lanes.filter((l) => l.kind === 'kit').map((l) => l.key), ['k1', 'k2'])
+assert.deepEqual(dayKit.lanes.filter((l) => l.kind === 'kit').map((l) => l.label), ['กระเป๋า A', 'กระเป๋า B'])
+// ไม่ส่ง kits → ไม่มีเลนกระเป๋า (พฤติกรรมเดิม)
+assert.equal(layoutDay([tlA], T, people, roleLabels).lanes.some((l) => l.kind === 'kit'), false)
+assert.equal(layoutDay([tlA], T, people, roleLabels, { kitBookings: tlBookings }).lanes.some((l) => l.kind === 'kit'), false)
+
+const k1Bars = lane(dayKit, 'k1').bars
+assert.equal(k1Bars.length, 2)
+// การจองของงานที่อยู่ในวันนั้นและมีเวลา → ยืดตามช่วงเวลาของงาน (A 09:00–12:00) และใช้สีของงาน
+const k1A = k1Bars.find((b) => b.leadId === 'A')!
+assert.deepEqual(
+  (({ label, timing, startMin, endMin, colorIdx, packed }) => ({ label, timing, startMin, endMin, colorIdx, packed }))(k1A),
+  { label: 'อีเวนต์ A', timing: 'exact', startMin: 540, endMin: 720, colorIdx: dayKit.colorByLead['A'], packed: false }
+)
+// การจองที่ไม่ผูกกับงานในวันนั้น → พาดทั้งวันแบบลายทาง (เหมือนงานที่ยังไม่ใส่เวลา)
+const k1Other = k1Bars.find((b) => b.leadId === '')!
+assert.deepEqual(
+  (({ label, timing, startMin, endMin, packed }) => ({ label, timing, startMin, endMin, packed }))(k1Other),
+  { label: 'อีเวนต์ อื่น', timing: 'no_time', startMin: 360, endMin: 1440, packed: true }
+)
+// จองสองอีเวนต์วันเดียวกัน = ชนทั้งคู่ (ไม่ดูเวลา)
+assert.equal(k1Bars.every((b) => b.conflict), true)
+// แถบซ้อนกันแยกชั้นเหมือนเลนอื่น
+assert.equal(lane(dayKit, 'k1').layers, 2)
+// การจองคนละวันไม่โผล่ในวันนี้ และเลนว่างยังนับหนึ่งชั้น
+assert.deepEqual(lane(dayKit, 'k2').bars, [])
+assert.equal(lane(dayKit, 'k2').layers, 1)
+// วันถัดไป: k2 มีการจอง ไม่ชน (ใบเดียว)
+const dayKit31 = layoutDay([], '2026-08-31', people, roleLabels, { kits, kitBookings: tlBookings })
+assert.deepEqual(lane(dayKit31, 'k2').bars.map((b) => [b.label, b.packed, b.conflict]), [
+  ['อีเวนต์ พรุ่งนี้', true, false],
+])
+assert.deepEqual(lane(dayKit31, 'k1').bars, [])
+// แถบของงาน/รถ/คน ไม่มีธง packed
+assert.equal(bar(dayKit, 'jobs', 'A').packed, undefined)
+assert.equal(bar(dayKit, 'car_triton', 'A').packed, undefined)
+assert.equal(bar(dayKit, 'u1', 'A').packed, undefined)
+
+// โหมดสัปดาห์: บล็อกการจองตกวันของอีเวนต์นั้น
+const wkKit = layoutWeek([tlA, tlB], T, people, roleLabels, { kits, kitBookings: tlBookings })
+assert.deepEqual(wkKit.lanes.map((l) => l.kind), [
+  'jobs', 'vehicle', 'vehicle', 'kit', 'kit', 'person', 'person', 'person', 'person',
+])
+const wkK1 = wkKit.lanes.find((l) => l.key === 'k1')!
+assert.equal(Object.keys(wkK1.cells).length, 7)
+assert.deepEqual(wkK1.cells[T].map((c) => [c.label, c.packed, c.conflict]), [
+  ['อีเวนต์ A', false, true],
+  ['อีเวนต์ อื่น', true, true],
+])
+assert.equal(wkK1.cells[T][0].colorIdx, wkKit.colorByLead['A'])
+assert.deepEqual(wkK1.cells['2026-08-31'], [])
+const wkK2 = wkKit.lanes.find((l) => l.key === 'k2')!
+assert.deepEqual(wkK2.cells[T], [])
+assert.deepEqual(wkK2.cells['2026-08-31'].map((c) => [c.label, c.packed, c.conflict]), [
+  ['อีเวนต์ พรุ่งนี้', true, false],
+])
+assert.equal(layoutWeek([tlA], T, people, roleLabels).lanes.some((l) => l.kind === 'kit'), false)
+
+// --- canActOnPool: สิทธิ์ทำงานกับพูลตามแผนก ---------------------------------
+
+const poolTeam = ['ทีมออกหน้างาน', 'สตาฟ', 'ช่าง']
+
+// แอดมินข้ามการเช็คแผนกเสมอ — แม้ไม่มีแผนก หรือรายการที่ตั้งค่าว่างเปล่า
+assert.equal(canActOnPool('ฝ่ายแอดมิน', true, poolTeam), true)
+assert.equal(canActOnPool(null, true, poolTeam), true)
+assert.equal(canActOnPool(null, true, []), true)
+// คนในแผนกที่ตั้งค่าไว้ = ทำได้
+assert.equal(canActOnPool('ทีมออกหน้างาน', false, poolTeam), true)
+assert.equal(canActOnPool('ช่าง', false, poolTeam), true)
+// คนนอกแผนก = ไม่ได้
+assert.equal(canActOnPool('ฝ่ายออกแบบ', false, poolTeam), false)
+// ไม่ระบุแผนก = ไม่ได้
+assert.equal(canActOnPool(null, false, poolTeam), false)
+// ตั้งค่าเป็นรายการว่าง = ไม่มีใครนอกแอดมินทำได้
+assert.equal(canActOnPool('ทีมออกหน้างาน', false, []), false)
+
+// ค่าเริ่มต้นครบทุกหมวด และไม่มีหมวดไหนว่าง (ไม่ตั้งค่าเลยระบบยังทำงานได้)
+assert.deepEqual([...POOL_TEAM_CATEGORIES], [
+  'pool_team_graphic', 'pool_team_onsite', 'pool_kit_departments',
+  'pool_duty_staffing', 'pool_duty_vehicle', 'pool_duty_kits',
+])
+for (const cat of POOL_TEAM_CATEGORIES) {
+  assert.equal(POOL_TEAM_DEFAULTS[cat].length > 0, true)
+  assert.equal(canActOnPool(POOL_TEAM_DEFAULTS[cat][0], false, [...POOL_TEAM_DEFAULTS[cat]]), true)
+}
+assert.deepEqual([...POOL_TEAM_DEFAULTS.pool_team_graphic], ['ฝ่ายออกแบบ'])
+assert.deepEqual([...POOL_TEAM_DEFAULTS.pool_kit_departments], [...POOL_TEAM_DEFAULTS.pool_team_onsite])
+
+// --- หน้าที่เตรียมงาน (Prep duty) ---------------------------------------------
+
+assert.deepEqual([...PREP_DUTIES], ['staffing', 'vehicle', 'kits'])
+assert.deepEqual([...PREP_DUTIES].map((d) => DUTY_LABELS_TH[d]), ['จัดคน', 'จัดรถ', 'จัดกระเป๋า'])
+
+// duty → category ครบทุกหน้าที่ ไม่ซ้ำกัน และทุก category อยู่ในรายการที่ตั้งค่าได้จริง
+const dutyCategories = PREP_DUTIES.map((d) => PREP_DUTY_CATEGORY[d])
+assert.equal(new Set(dutyCategories).size, PREP_DUTIES.length)
+for (const cat of dutyCategories) {
+  assert.equal(POOL_TEAM_CATEGORIES.includes(cat), true)
+  assert.equal(POOL_TEAM_DEFAULTS[cat].length > 0, true)
+}
+
+// ค่าเริ่มต้นตามข้อตกลง: จัดคน = ฝ่ายแอดมิน · จัดรถ/จัดกระเป๋า = ทีมออกหน้างาน (ชุดเดียวกับใบงานหน้างาน)
+assert.deepEqual([...POOL_TEAM_DEFAULTS[PREP_DUTY_CATEGORY.staffing]], ['ฝ่ายแอดมิน'])
+assert.deepEqual([...POOL_TEAM_DEFAULTS[PREP_DUTY_CATEGORY.vehicle]], [...POOL_TEAM_DEFAULTS.pool_team_onsite])
+assert.deepEqual([...POOL_TEAM_DEFAULTS[PREP_DUTY_CATEGORY.kits]], [...POOL_TEAM_DEFAULTS.pool_team_onsite])
+
+// สิทธิ์รายหน้าที่: ฝ่ายแอดมินรับ "จัดคน" ได้แต่รับ "จัดรถ" ไม่ได้ (ตามค่าเริ่มต้น) — แอดมินรับแทนได้ทุกหน้าที่
+const deptOf = (d: PrepDuty) => [...POOL_TEAM_DEFAULTS[PREP_DUTY_CATEGORY[d]]]
+assert.equal(canActOnPool('ฝ่ายแอดมิน', false, deptOf('staffing')), true)
+assert.equal(canActOnPool('ฝ่ายแอดมิน', false, deptOf('vehicle')), false)
+assert.equal(canActOnPool('ทีมออกหน้างาน', false, deptOf('vehicle')), true)
+assert.equal(canActOnPool('ทีมออกหน้างาน', false, deptOf('staffing')), false)
+assert.equal(canActOnPool('ฝ่ายออกแบบ', true, deptOf('kits')), true)
+
+// isPrepDuty กันค่ามั่วจาก client
+assert.equal(isPrepDuty('staffing'), true)
+assert.equal(isPrepDuty('kits'), true)
+assert.equal(isPrepDuty('onsite'), false)
+assert.equal(isPrepDuty(''), false)
 
 console.log('tracking-logic.check: all passed')

@@ -1,7 +1,9 @@
 import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase-server'
+import { getSessionLight } from '@/lib/auth'
 import TrackingView, { type TrackingLead } from './tracking-view'
-import { VEHICLES } from './tracking-logic'
+import { VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, POOL_TEAM_DEFAULTS, type DutyClaim, type PoolJob } from './tracking-logic'
+import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
 
 /** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
 function normalizeRequiredRoles(raw: unknown): Record<string, number> {
@@ -17,6 +19,12 @@ export const metadata = {
     title: 'ติดตามงาน — Jobs',
     description: 'งานที่ลูกค้าตอบรับแล้ว — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร',
 }
+
+/** สถานะใบงานตั้งค่าเองได้ใน job_settings — สองหมวดนี้คือของแท็บกราฟิก/หน้างาน */
+const JOB_STATUS_CATEGORIES: string[] = ['status_graphic', 'status_onsite']
+
+/** 'status_graphic' → 'graphic' — key ของ statusLabels คือ `${job_type}:${status}` */
+const jobTypeOfCategory = (category: string) => category.replace(/^status_/, '')
 
 export default async function TrackingPage() {
     const supabase = createServiceClient()
@@ -35,6 +43,8 @@ export default async function TrackingPage() {
     type LeadEvent = { id: string; name: string; event_date: string | null; status: string | null }
     const eventsByLead = new Map<string, LeadEvent[]>()
     const staffByLead = new Map<string, TrackingLead['staff']>()
+    /** อีเวนต์ทุกใบของงานเหล่านี้ (รวมที่ปิดแล้ว) — ใช้หาการจองกระเป๋าและวันที่ต้องเช็คชน */
+    let leadEvents: { id: string; event_date: string | null }[] = []
     if (leadIds.length > 0) {
         const { data: events } = await supabase
             .from('events')
@@ -44,12 +54,14 @@ export default async function TrackingPage() {
 
         // อีเวนต์ที่ปิดแล้วจัดคนไม่ได้ — ตัดออกจากตัวเลือก (แต่คนที่จัดไว้แล้วยังนับอยู่)
         for (const e of events || []) {
-            if (e.status === 'closed') continue
+            if (isClosedEvent(e.status)) continue
             const list = eventsByLead.get(e.crm_lead_id as string)
             const row: LeadEvent = { id: e.id, name: e.name || '', event_date: e.event_date, status: e.status ?? null }
             if (list) list.push(row)
             else eventsByLead.set(e.crm_lead_id as string, [row])
         }
+
+        leadEvents = (events || []).map(e => ({ id: e.id as string, event_date: e.event_date as string | null }))
 
         const eventIds = (events || []).map(e => e.id)
         if (eventIds.length > 0) {
@@ -72,6 +84,102 @@ export default async function TrackingPage() {
                 staffByLead.get(leadId)!.push({ user_id: s.user_id, name: s.profiles?.full_name || s.user_id, nickname: s.profiles?.nickname || null, role: s.role, event_id: s.event_id })
             }
         }
+    }
+
+    // ใบงานของงานเหล่านี้ — พูลงานอ่านจากตาราง jobs ไม่ใช่ crm_leads (ADR-0002)
+    let poolJobs: PoolJob[] = []
+    if (leadIds.length > 0) {
+        const { data: jobRows } = await supabase
+            .from('jobs')
+            .select('id, job_type, status, title, assigned_to, claimed_by, crm_lead_id')
+            .in('crm_lead_id', leadIds)
+            .is('archived_at', null)
+            .order('created_at', { ascending: true })
+
+        poolJobs = (jobRows || []).map(j => ({
+            id: j.id as string,
+            job_type: (j.job_type as string) || '',
+            status: (j.status as string) || '',
+            title: (j.title as string) || '',
+            assigned_to: Array.isArray(j.assigned_to) ? (j.assigned_to as string[]) : [],
+            claimed_by: (j.claimed_by as string) ?? null,
+            crm_lead_id: (j.crm_lead_id as string) ?? null,
+        }))
+    }
+
+    // หน้าที่เตรียมงานที่มีคนรับแล้ว — ไม่มีแถว = หน้าที่นั้นยังรอรับ (ล็อกช่องในตารางภาพรวม)
+    let dutyClaims: DutyClaim[] = []
+    if (leadIds.length > 0) {
+        const { data: dutyRows } = await supabase
+            .from('lead_duty_claims')
+            .select('lead_id, duty, claimed_by')
+            .in('lead_id', leadIds)
+
+        dutyClaims = (dutyRows || [])
+            .filter(r => isPrepDuty(r.duty as string))
+            .map(r => ({
+                leadId: r.lead_id as string,
+                duty: r.duty as DutyClaim['duty'],
+                claimedBy: r.claimed_by as string,
+            }))
+    }
+
+    // กระเป๋า + การจอง (event_kits) — การ์ดใบงานหน้างานแสดงสถานะจัดกระเป๋าและเปิดกล่องจองจากตรงนี้
+    const { data: kitRows } = await supabase.from('kits').select('id, name').order('name', { ascending: true })
+    const kits: PoolKit[] = (kitRows || []).map(k => ({ id: k.id as string, name: (k.name as string) || 'ไม่ระบุชื่อ' }))
+
+    const KIT_BOOKING_SELECT = 'kit_id, event_id, packed_at, events!inner(id, name, event_date, crm_lead_id)'
+    type RawBooking = {
+        kit_id: string
+        event_id: string
+        packed_at: string | null
+        events?: { id: string; name: string | null; event_date: string | null; crm_lead_id: string | null } | null
+    }
+    const bookingByPair = new Map<string, KitBookingRow>()
+    const collectBookings = (rows: RawBooking[] | null) => {
+        for (const r of rows || []) {
+            const key = `${r.kit_id}:${r.event_id}`
+            if (bookingByPair.has(key)) continue
+            bookingByPair.set(key, {
+                kitId: r.kit_id,
+                eventId: r.event_id,
+                eventDate: r.events?.event_date ?? null,
+                eventName: r.events?.name || 'ไม่ระบุชื่ออีเวนต์',
+                leadId: r.events?.crm_lead_id ?? null,
+                packed: !!r.packed_at,
+            })
+        }
+    }
+    if (leadEvents.length > 0) {
+        const { data: mine } = await supabase
+            .from('event_kits')
+            .select(KIT_BOOKING_SELECT)
+            .in('event_id', leadEvents.map(e => e.id))
+        collectBookings(mine as unknown as RawBooking[])
+
+        // การจองของอีเวนต์อื่นในวันเดียวกัน — ต้องมีเพื่อบอกว่ากระเป๋าใบไหน "ชน" (ADR-0003)
+        const dates = [...new Set(leadEvents.map(e => e.event_date).filter((d): d is string => !!d))]
+        if (dates.length > 0) {
+            const { data: sameDay } = await supabase
+                .from('event_kits')
+                .select(KIT_BOOKING_SELECT)
+                .in('events.event_date', dates)
+            collectBookings(sameDay as unknown as RawBooking[])
+        }
+    }
+    const kitBookings = [...bookingByPair.values()]
+
+    const { data: jobStatusSettings } = await supabase
+        .from('job_settings')
+        .select('category, value, label_th, color')
+        .in('category', JOB_STATUS_CATEGORIES)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+
+    const jobStatusLabels: JobStatusLabels = {}
+    for (const s of jobStatusSettings || []) {
+        const key = `${jobTypeOfCategory(s.category as string)}:${s.value as string}`
+        jobStatusLabels[key] = { label: (s.label_th as string) || (s.value as string), color: (s.color as string) ?? null }
     }
 
     const { data: roleSettings } = await supabase
@@ -115,10 +223,43 @@ export default async function TrackingPage() {
         staff: staffByLead.get(l.id) || [],
     }))
 
-    // TrackingView อ่าน ?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
+    // ปุ่มในพูลงาน: คืนงานเห็นเฉพาะผู้รับ, ข้ามใบงาน/เปลี่ยนคนรับเฉพาะแอดมิน+ฝ่ายประสานงาน
+    // (เป็นแค่การซ่อนปุ่ม — สิทธิ์จริงบังคับใน server action อีกชั้น)
+    const { userId: currentUserId, role: sessionRole } = await getSessionLight()
+    const myDepartment = people.find(p => p.id === currentUserId)?.department ?? null
+    const canManagePool = sessionRole === 'admin' || myDepartment === 'ฝ่ายประสานงาน'
+
+    // จอง/ย้ายกระเป๋า: แอดมิน + แผนกที่ตั้งไว้ในแท็บ "ทีมของพูลงาน" (ยังไม่ตั้ง = ค่าเริ่มต้น)
+    // เป็นแค่การซ่อนปุ่ม — สิทธิ์จริงบังคับใน server action อีกชั้นด้วย canActOnPool ตัวเดียวกัน
+    const { data: kitDeptRows } = await supabase
+        .from('job_settings')
+        .select('value')
+        .eq('category', 'pool_kit_departments')
+        .eq('is_active', true)
+    const kitDeptRowValues = (kitDeptRows || []).map(r => r.value as string).filter(Boolean)
+    const kitDepartments = kitDeptRowValues.length > 0
+        ? kitDeptRowValues
+        : [...POOL_TEAM_DEFAULTS.pool_kit_departments]
+    const canManageKits = canActOnPool(myDepartment, sessionRole === 'admin', kitDepartments)
+
+    // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
     return (
         <Suspense fallback={null}>
-            <TrackingView leads={rows} roleLabels={roleLabels} roles={roles} people={people} />
+            <TrackingView
+                leads={rows}
+                roleLabels={roleLabels}
+                roles={roles}
+                people={people}
+                jobs={poolJobs}
+                dutyClaims={dutyClaims}
+                jobStatusLabels={jobStatusLabels}
+                currentUserId={currentUserId ?? null}
+                canManagePool={canManagePool}
+                isAdmin={sessionRole === 'admin'}
+                kits={kits}
+                kitBookings={kitBookings}
+                canManageKits={canManageKits}
+            />
         </Suspense>
     )
 }

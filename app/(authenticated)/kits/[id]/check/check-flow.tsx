@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { checkoutItems, checkinItem } from './actions'
+import { setKitPacked } from '@/app/(authenticated)/jobs/actions'
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent } from "@/components/ui/card"
@@ -15,11 +16,34 @@ type Kit = any
 type Content = any
 type Event = any
 
-export default function CheckFlow({ kit, contents, events, initialEventId }: { kit: Kit, contents: Content[], events: Event[], initialEventId?: string }) {
+export default function CheckFlow({ kit, contents, events, initialEventId, initialPacked = false }: { kit: Kit, contents: Content[], events: Event[], initialEventId?: string, initialPacked?: boolean }) {
   const { t } = useLanguage()
   const [selectedEventId, setSelectedEventId] = useState<string>(initialEventId || "")
-  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  // จัดครบไว้แล้ว → ติ๊กมาให้เลย ผู้ใช้จะได้เห็นสถานะเดิมและเอาออกได้ถ้าของไม่ครบจริง
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(
+    () => (initialPacked ? new Set<string>(contents.map(c => c.items.id)) : new Set<string>())
+  )
   const [isProcessing, setIsProcessing] = useState(false)
+  const [packedSaved, setPackedSaved] = useState(initialPacked)
+
+  // "จัดกระเป๋า" = เช็คของครบทุกชิ้น — บันทึกลงการจอง (event_kits) ว่าใครจัด เมื่อไหร่
+  // เข้าหน้านี้ตรงๆ โดยไม่มี ?eventId (ใช้งานแบบเดิม) = ไม่บันทึกอะไรเลย
+  const allChecked = contents.length > 0 && selectedItems.size === contents.length
+  useEffect(() => {
+    if (!initialEventId || contents.length === 0 || allChecked === packedSaved) return
+    let cancelled = false
+    void (async () => {
+      const res = await setKitPacked(initialEventId, kit.id, allChecked)
+      if (cancelled) return
+      if (res?.error) {
+        toast.error(res.error)
+        return
+      }
+      setPackedSaved(allChecked)
+      if (allChecked) toast.success('บันทึกจัดครบแล้ว')
+    })()
+    return () => { cancelled = true }
+  }, [allChecked, packedSaved, initialEventId, kit.id, contents.length])
 
   const handleCheckout = async () => {
     if (!selectedEventId) {
@@ -96,7 +120,14 @@ export default function CheckFlow({ kit, contents, events, initialEventId }: { k
             <TabsContent value="checkout" className="space-y-4">
                  <div className="bg-white dark:bg-zinc-900 rounded-lg border divide-y">
                     <div className="p-3 flex items-center justify-between bg-zinc-50 dark:bg-zinc-800">
-                        <span className="text-sm font-medium">{t.checkin.selectAll}</span>
+                        <span className="text-sm font-medium">
+                            {t.checkin.selectAll}
+                            {packedSaved && (
+                                <span className="ml-2 text-xs font-medium text-green-700 dark:text-green-400">
+                                    บันทึกจัดครบแล้ว ✓
+                                </span>
+                            )}
+                        </span>
                         <Checkbox 
                             checked={selectedItems.size === contents.length && contents.length > 0}
                             onCheckedChange={(c) => {

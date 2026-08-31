@@ -108,7 +108,24 @@ export type ActionType =
     | 'UPDATE_JOB_SETTING'
     | 'DELETE_JOB_SETTING'
     | 'CREATE_JOBS_FROM_LEAD'
+    | 'AUTO_CREATE_JOBS_FROM_LEAD'
     | 'UPDATE_JOB_TAGS'
+    // พูลงาน — รับ/คืน/ข้าม/เปลี่ยนคนรับใบงาน
+    | 'CLAIM_POOL_JOB'
+    | 'RELEASE_POOL_JOB'
+    | 'SKIP_POOL_JOB'
+    | 'REASSIGN_POOL_JOB'
+    // หน้าที่เตรียมงาน — รับ/คืนรายหน้าที่ (จัดคน / จัดรถ / จัดกระเป๋า)
+    | 'CLAIM_LEAD_DUTY'
+    | 'RELEASE_LEAD_DUTY'
+    // ใบงานจบเอง — กราฟิก (design_status พร้อม) / หน้างาน (ปิดอีเวนต์จากการคืนกระเป๋า)
+    | 'AUTO_FINISH_POOL_JOB'
+    // จองกระเป๋าให้อีเวนต์ / ยกเลิกจอง / จัดกระเป๋าครบ (event_kits — ADR-0003)
+    | 'BOOK_EVENT_KIT'
+    | 'UNBOOK_EVENT_KIT'
+    | 'PACK_EVENT_KIT'
+    // ตั้งค่าทีมของพูลงาน — แผนกไหนรับใบงานประเภทไหน / แผนกไหนจอง-ย้ายกระเป๋าได้
+    | 'UPDATE_POOL_TEAM_SETTINGS'
     // Ticket Module
     | 'CREATE_TICKET'
     | 'UPDATE_TICKET_STATUS'

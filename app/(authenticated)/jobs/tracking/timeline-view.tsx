@@ -30,6 +30,8 @@ import {
     type Bar,
     type BarTiming,
     type Candidate,
+    type Kit,
+    type KitBookingDetail,
     type Lane,
     type LaneKind,
     type Person,
@@ -49,6 +51,22 @@ const BAR_CLASS: string[] = [
     'bg-lime-200 text-lime-900 dark:bg-lime-900/50 dark:text-lime-100',
     'bg-indigo-200 text-indigo-900 dark:bg-indigo-900/50 dark:text-indigo-100',
 ]
+
+/** เลนกระเป๋าไม่ใช้สีของงาน — สีบอกสถานะจัดกระเป๋าแทน (เหลือง = ยังไม่จัด, เขียว = จัดครบ) */
+const KIT_BAR_CLASS = {
+    packed: 'bg-emerald-200 text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100',
+    unpacked: 'bg-amber-200 text-amber-900 dark:bg-amber-900/50 dark:text-amber-100',
+}
+
+/** class ของแถบ/บล็อกหนึ่งอัน — แถบกระเป๋า (packed มีค่า) ใช้สีสถานะ ที่เหลือใช้สีของงาน */
+const barClass = (item: { colorIdx: number; packed?: boolean }) =>
+    item.packed === undefined
+        ? BAR_CLASS[item.colorIdx % BAR_COLORS]
+        : item.packed
+          ? KIT_BAR_CLASS.packed
+          : KIT_BAR_CLASS.unpacked
+
+const packedLabel = (packed: boolean) => (packed ? 'จัดครบ' : 'ยังไม่จัด')
 
 const STRIPES =
     'bg-[repeating-linear-gradient(45deg,transparent_0_6px,rgba(0,0,0,.10)_6px_12px)] dark:bg-[repeating-linear-gradient(45deg,transparent_0_6px,rgba(255,255,255,.14)_6px_12px)]'
@@ -100,7 +118,8 @@ const useIsWide = () =>
 
 function JobBar({ bar, hourStart, onClick }: { bar: Bar; hourStart: number; onClick: () => void }) {
     const suffix = TIMING_SUFFIX[bar.timing] ?? ''
-    const title = `${bar.label} ${clock(bar.startMin)}–${clock(bar.endMin)}${suffix}`
+    const packed = bar.packed === undefined ? '' : ` · ${packedLabel(bar.packed)}`
+    const title = `${bar.label} ${clock(bar.startMin)}–${clock(bar.endMin)}${suffix}${packed}`
 
     return (
         <button
@@ -115,7 +134,7 @@ function JobBar({ bar, hourStart, onClick }: { bar: Bar; hourStart: number; onCl
             }}
             className={cn(
                 'absolute overflow-hidden rounded-md px-2 text-xs truncate flex items-center gap-1 text-left',
-                BAR_CLASS[bar.colorIdx % BAR_COLORS],
+                barClass(bar),
                 bar.conflict && 'ring-2 ring-rose-500',
                 bar.unassigned && 'border-2 border-dashed border-zinc-400'
             )}
@@ -131,6 +150,9 @@ function JobBar({ bar, hourStart, onClick }: { bar: Bar; hourStart: number; onCl
                 {suffix}
             </span>
             {bar.role && <span className="relative truncate opacity-70">· {bar.role}</span>}
+            {bar.packed !== undefined && (
+                <span className="relative truncate opacity-70">· {packedLabel(bar.packed)}</span>
+            )}
         </button>
     )
 }
@@ -369,11 +391,12 @@ const chipClass = (active: boolean) =>
             : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800'
     )
 
-/** หัวข้อกลุ่มที่ต้องแทรกก่อนเลนนี้ (รถ / ชื่อแผนกใหม่) — null = ไม่ต้องแทรก */
+/** หัวข้อกลุ่มที่ต้องแทรกก่อนเลนนี้ (รถ / กระเป๋า / ชื่อแผนกใหม่) — null = ไม่ต้องแทรก */
 function groupTitle(lanes: { kind: LaneKind; sublabel?: string }[], i: number): string | null {
     const lane = lanes[i]
     const prev = i > 0 ? lanes[i - 1] : null
     if (lane.kind === 'vehicle') return prev?.kind === 'vehicle' ? null : 'รถ'
+    if (lane.kind === 'kit') return prev?.kind === 'kit' ? null : 'กระเป๋า'
     if (lane.kind === 'person') return prev?.kind === 'person' && prev.sublabel === lane.sublabel ? null : (lane.sublabel ?? null)
     return null
 }
@@ -387,6 +410,8 @@ export default function TimelineView({
     date,
     mode,
     departments,
+    kits = [],
+    kitBookings = [],
     focusLeadId,
     focusEventId,
     onDateChange,
@@ -410,6 +435,10 @@ export default function TimelineView({
     mode: 'day' | 'week'
     /** แผนกที่เลือกไว้ในชิป — ว่าง = ทุกแผนก */
     departments: string[]
+    /** กระเป๋าทั้งหมด — หนึ่งใบ = หนึ่งเลนกระเป๋า (ว่าง = ไม่มีกลุ่มเลนกระเป๋า) */
+    kits?: Kit[]
+    /** การจองกระเป๋า — แถบในเลนกระเป๋า (รวมของอีเวนต์อื่นในวันเดียวกัน เพื่อให้เห็นว่าชน) */
+    kitBookings?: KitBookingDetail[]
     /** งานที่โฟกัสอยู่ (โหมดวันเท่านั้น) — null = ไม่ได้โฟกัส */
     focusLeadId: string | null
     /** อีเวนต์เป้าหมายของงานโฟกัส — null = ยังไม่มีอีเวนต์ (จะสร้างให้) */
@@ -440,9 +469,10 @@ export default function TimelineView({
     const todayStr = ymd(today)
     const isWeek = mode === 'week' && isWide
     // ponytail: cheap; memo if lanes > ~200
-    const layout = layoutDay(rows, date, people, roleLabels, { departments })
+    const layoutOpts = { departments, kits, kitBookings }
+    const layout = layoutDay(rows, date, people, roleLabels, layoutOpts)
     const { hourStart, hourEnd, lanes } = layout
-    const week = isWeek ? layoutWeek(rows, date, people, roleLabels, { departments }) : null
+    const week = isWeek ? layoutWeek(rows, date, people, roleLabels, layoutOpts) : null
     const hours = hourEnd - hourStart
 
     // --- โฟกัสงาน (โหมดวันเท่านั้น; งานต้องอยู่ในวันที่ดูอยู่) ---------------------
@@ -720,13 +750,20 @@ export default function TimelineView({
                                                 <button
                                                     key={`${cell.leadId}-${cell.role ?? ''}-${ci}`}
                                                     type="button"
-                                                    title={cell.role ? `${cell.label} · ${cell.role}` : cell.label}
-                                                    onClick={() =>
-                                                        lane.kind === 'vehicle' ? onEditVehicle(cell.leadId) : onEditStaff(cell.leadId)
+                                                    title={
+                                                        cell.label +
+                                                        (cell.role ? ` · ${cell.role}` : '') +
+                                                        (cell.packed === undefined ? '' : ` · ${packedLabel(cell.packed)}`)
                                                     }
+                                                    onClick={() => {
+                                                        // เลนกระเป๋า: บล็อกคือการจอง ไม่ใช่การจัดคน/รถ — ยังไม่มีอะไรให้แก้จากตรงนี้
+                                                        if (lane.kind === 'kit') return
+                                                        if (lane.kind === 'vehicle') onEditVehicle(cell.leadId)
+                                                        else onEditStaff(cell.leadId)
+                                                    }}
                                                     className={cn(
                                                         'block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px]',
-                                                        BAR_CLASS[cell.colorIdx % BAR_COLORS],
+                                                        barClass(cell),
                                                         cell.conflict && 'ring-1 ring-rose-500',
                                                         lane.kind === 'jobs' &&
                                                             cell.unassigned &&
@@ -735,6 +772,9 @@ export default function TimelineView({
                                                 >
                                                     {cell.label}
                                                     {cell.role && <span className="opacity-70"> · {cell.role}</span>}
+                                                    {cell.packed !== undefined && (
+                                                        <span className="opacity-70"> · {packedLabel(cell.packed)}</span>
+                                                    )}
                                                 </button>
                                             ))}
                                         </div>
@@ -794,6 +834,8 @@ export default function TimelineView({
                                             lane.kind === 'person' ? <WorkloadBadge n={workload.get(lane.key) ?? 0} /> : null
                                         }
                                         onBarClick={bar => {
+                                            // เลนกระเป๋า: แถบคือการจอง ไม่ใช่การจัดคน/รถ — ยังไม่มีอะไรให้แก้จากตรงนี้
+                                            if (lane.kind === 'kit') return
                                             if (lane.kind === 'vehicle') onEditVehicle(bar.leadId)
                                             else if (lane.kind === 'jobs') onFocus(bar.leadId)
                                             else onEditStaff(bar.leadId)

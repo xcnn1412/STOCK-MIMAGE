@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useMemo, useRef } from 'react'
 import {
-    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight, ListChecks, Ticket, SmilePlus, Upload, Image as ImageIcon
+    Plus, Trash2, Edit2, Save, X, GripVertical, Eye, EyeOff, Settings, Palette, Wrench, Tag, ChevronDown, ChevronRight, ListChecks, Ticket, SmilePlus, Upload, Image as ImageIcon, Users, Check
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,8 +13,12 @@ import {
     createChecklistTemplate, updateChecklistTemplate, deleteChecklistTemplate,
     updateJobType, deleteJobType,
     uploadCustomEmoji, deleteCustomEmoji, toggleCustomEmoji,
+    savePoolTeamSetting,
 } from '../actions'
 import type { JobSetting, ChecklistTemplate, CustomEmoji } from '../actions'
+import { POOL_TEAM_CATEGORIES, POOL_TEAM_DEFAULTS } from '../tracking/tracking-logic'
+import type { PoolTeamCategory } from '../tracking/tracking-logic'
+import { DEPARTMENTS } from '@/lib/departments'
 import { useLocale } from '@/lib/i18n/context'
 
 // ============================================================================
@@ -35,11 +39,53 @@ const STATIC_TABS: { key: string; icon: React.ReactNode; labelTh: string; labelE
     { key: 'tag', icon: <Tag className="h-4 w-4" />, labelTh: 'แท็ก', labelEn: 'Tags' },
     { key: 'checklist', icon: <ListChecks className="h-4 w-4" />, labelTh: 'เช็คลิสต์', labelEn: 'Checklist' },
     { key: 'job_type', icon: <Settings className="h-4 w-4" />, labelTh: 'ประเภทงาน', labelEn: 'Job Types' },
+    { key: 'pool_team', icon: <Users className="h-4 w-4" />, labelTh: 'ทีมของพูลงาน', labelEn: 'Pool Teams' },
     { key: 'ticket_category', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Categories', labelEn: 'Ticket Categories' },
     { key: 'status_ticket', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Statuses', labelEn: 'Ticket Statuses' },
     { key: 'ticket_outcome', icon: <Ticket className="h-4 w-4" />, labelTh: 'Ticket Outcomes', labelEn: 'Ticket Outcomes' },
     { key: 'custom_emoji', icon: <SmilePlus className="h-4 w-4" />, labelTh: 'Custom Emoji', labelEn: 'Custom Emoji' },
 ]
+
+// ทีมของพูลงาน — สามกลุ่มที่แอดมินตั้งค่าได้ (หมวดเดียวกับที่ server อ่านตอนแจ้งเตือน/รับงาน/จองกระเป๋า)
+const POOL_TEAM_GROUPS: Record<PoolTeamCategory, { labelTh: string; labelEn: string; hintTh: string; hintEn: string }> = {
+    pool_team_graphic: {
+        labelTh: 'ใบงานกราฟิก',
+        labelEn: 'Graphic jobs',
+        hintTh: 'แผนกที่ได้รับแจ้งเตือนใบงานกราฟิกใหม่ และกดรับงานได้',
+        hintEn: 'Departments notified of new graphic jobs and allowed to claim them',
+    },
+    pool_team_onsite: {
+        labelTh: 'ใบงานหน้างาน',
+        labelEn: 'On-site jobs',
+        hintTh: 'แผนกที่ได้รับแจ้งเตือนใบงานหน้างานใหม่ และกดรับงานได้',
+        hintEn: 'Departments notified of new on-site jobs and allowed to claim them',
+    },
+    pool_kit_departments: {
+        labelTh: 'จอง/ย้ายกระเป๋า',
+        labelEn: 'Kit booking',
+        hintTh: 'แผนกที่จอง ยกเลิกจอง และบันทึกจัดกระเป๋าครบได้',
+        hintEn: 'Departments allowed to book, unbook, and mark kits packed',
+    },
+    // หน้าที่เตรียมงาน — สามหน้าที่ในตารางภาพรวมที่ต้องกดรับก่อนถึงแก้ไขได้ (รับแยกกันคนละหน้าที่)
+    pool_duty_staffing: {
+        labelTh: 'หน้าที่: จัดคน',
+        labelEn: 'Duty: Staffing',
+        hintTh: 'แผนกที่กดรับหน้าที่จัดคนของงานในตารางภาพรวมได้',
+        hintEn: 'Departments allowed to claim the staffing duty on the overview table',
+    },
+    pool_duty_vehicle: {
+        labelTh: 'หน้าที่: จัดรถ',
+        labelEn: 'Duty: Vehicle',
+        hintTh: 'แผนกที่กดรับหน้าที่จัดรถของงานในตารางภาพรวมได้',
+        hintEn: 'Departments allowed to claim the vehicle duty on the overview table',
+    },
+    pool_duty_kits: {
+        labelTh: 'หน้าที่: จัดกระเป๋า',
+        labelEn: 'Duty: Kits',
+        hintTh: 'แผนกที่กดรับหน้าที่จัดกระเป๋าของงานในตารางภาพรวมได้',
+        hintEn: 'Departments allowed to claim the kits duty on the overview table',
+    },
+}
 
 
 
@@ -93,7 +139,7 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes, c
         [settings]
     )
 
-    const currentSettings = (activeTab === 'tag' || activeTab === 'checklist' || activeTab === 'job_type' || activeTab === 'custom_emoji')
+    const currentSettings = (activeTab === 'tag' || activeTab === 'checklist' || activeTab === 'job_type' || activeTab === 'custom_emoji' || activeTab === 'pool_team')
         ? [] // these tabs use their own rendering
         : settings
             .filter(s => s.category === activeTab)
@@ -151,6 +197,56 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes, c
     const handleToggleEmoji = (id: string, currentActive: boolean) => {
         startTransition(async () => {
             await toggleCustomEmoji(id, !currentActive)
+        })
+    }
+
+    // ---- ทีมของพูลงาน: แผนกไหนรับใบงานประเภทไหน / แผนกไหนจอง-ย้ายกระเป๋าได้ ----
+    // ค่าที่บันทึกไว้ = แถว is_active ของหมวดนั้นใน job_settings (ไม่มีแถว = ยังไม่เคยตั้ง → ใช้ค่าเริ่มต้น)
+    const poolTeamSaved = useMemo(() => {
+        const out = {} as Record<PoolTeamCategory, string[]>
+        for (const category of POOL_TEAM_CATEGORIES) {
+            out[category] = settings
+                .filter(s => s.category === category && s.is_active)
+                .sort((a, b) => a.sort_order - b.sort_order)
+                .map(s => s.value)
+        }
+        return out
+    }, [settings])
+
+    // draft = สิ่งที่ผู้ใช้กำลังแก้ยังไม่บันทึก (หมวดที่ไม่มีใน draft = ใช้ค่าที่บันทึก/ค่าเริ่มต้น)
+    const [poolTeamDraft, setPoolTeamDraft] = useState<Partial<Record<PoolTeamCategory, string[]>>>({})
+    const [poolTeamMessage, setPoolTeamMessage] = useState<Partial<Record<PoolTeamCategory, { ok: boolean; text: string }>>>({})
+
+    const poolTeamSelection = (category: PoolTeamCategory): string[] =>
+        poolTeamDraft[category] ?? (poolTeamSaved[category].length > 0
+            ? poolTeamSaved[category]
+            : [...POOL_TEAM_DEFAULTS[category]])
+
+    const togglePoolTeamDept = (category: PoolTeamCategory, dept: string) => {
+        const current = poolTeamSelection(category)
+        const next = current.includes(dept) ? current.filter(d => d !== dept) : [...current, dept]
+        setPoolTeamDraft(d => ({ ...d, [category]: next }))
+        setPoolTeamMessage(m => ({ ...m, [category]: undefined }))
+    }
+
+    const handleSavePoolTeam = (category: PoolTeamCategory) => {
+        const picked = poolTeamSelection(category)
+        startTransition(async () => {
+            const result = await savePoolTeamSetting(category, picked)
+            if (result?.error) {
+                setPoolTeamMessage(m => ({ ...m, [category]: { ok: false, text: result.error as string } }))
+                return
+            }
+            // บันทึกแล้วให้กลับไปอ่านจากค่าที่เซิร์ฟเวอร์ส่งกลับมา (revalidate) แทน draft
+            setPoolTeamDraft(d => {
+                const next = { ...d }
+                delete next[category]
+                return next
+            })
+            setPoolTeamMessage(m => ({
+                ...m,
+                [category]: { ok: true, text: locale === 'th' ? 'บันทึกแล้ว' : 'Saved' },
+            }))
         })
     }
 
@@ -703,6 +799,100 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes, c
         )
     }
 
+    // ---- Render pool team tab (ทีมของพูลงาน) ----
+    const renderPoolTeamTab = () => {
+        return (
+            <div className="space-y-4">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {locale === 'th'
+                        ? 'เลือกแผนกที่รับใบงานแต่ละประเภท แผนกที่จอง/ย้ายกระเป๋าได้ และแผนกที่รับหน้าที่เตรียมงานแต่ละหน้าที่ · ไม่เลือกเลย = ใช้ค่าเริ่มต้น'
+                        : 'Pick the departments that claim each job type, manage kit bookings, and take each prep duty · none selected = defaults apply'}
+                </p>
+
+                {POOL_TEAM_CATEGORIES.map(category => {
+                    const group = POOL_TEAM_GROUPS[category]
+                    const selected = poolTeamSelection(category)
+                    const usingDefault = poolTeamSaved[category].length === 0
+                    const message = poolTeamMessage[category]
+
+                    return (
+                        <div
+                            key={category}
+                            className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 space-y-3 bg-white dark:bg-zinc-900/40"
+                        >
+                            <div className="flex items-start justify-between gap-2">
+                                <div>
+                                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                                        {locale === 'th' ? group.labelTh : group.labelEn}
+                                        {usingDefault && (
+                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
+                                                {locale === 'th' ? 'ค่าเริ่มต้น (ยังไม่บันทึก)' : 'Default (not saved)'}
+                                            </Badge>
+                                        )}
+                                    </p>
+                                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                        {locale === 'th' ? group.hintTh : group.hintEn}
+                                    </p>
+                                </div>
+                                <Button
+                                    size="sm"
+                                    className="bg-violet-600 hover:bg-violet-700 text-white shrink-0"
+                                    disabled={isPending}
+                                    onClick={() => handleSavePoolTeam(category)}
+                                >
+                                    <Save className="h-3.5 w-3.5 mr-1" />
+                                    {locale === 'th' ? 'บันทึก' : 'Save'}
+                                </Button>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1.5">
+                                {DEPARTMENTS.map(dept => {
+                                    const on = selected.includes(dept)
+                                    return (
+                                        <button
+                                            key={dept}
+                                            type="button"
+                                            onClick={() => togglePoolTeamDept(category, dept)}
+                                            aria-pressed={on}
+                                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${on
+                                                ? 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700'
+                                                : 'bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
+                                                }`}
+                                        >
+                                            <span
+                                                className={`h-3.5 w-3.5 rounded-[4px] border flex items-center justify-center ${on
+                                                    ? 'bg-violet-600 border-violet-600'
+                                                    : 'border-zinc-300 dark:border-zinc-600'
+                                                    }`}
+                                            >
+                                                {on && <Check className="h-2.5 w-2.5 text-white" />}
+                                            </span>
+                                            {dept}
+                                        </button>
+                                    )
+                                })}
+                            </div>
+
+                            {selected.length === 0 && (
+                                <p className="text-xs text-amber-600 dark:text-amber-400">
+                                    {locale === 'th'
+                                        ? `ไม่เลือกเลย = ใช้ค่าเริ่มต้น (${POOL_TEAM_DEFAULTS[category].join(', ')})`
+                                        : `None selected = defaults apply (${POOL_TEAM_DEFAULTS[category].join(', ')})`}
+                                </p>
+                            )}
+
+                            {message && (
+                                <p className={`text-xs ${message.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                                    {message.text}
+                                </p>
+                            )}
+                        </div>
+                    )
+                })}
+            </div>
+        )
+    }
+
     // ---- Render job type management tab ----
     const renderJobTypeTab = () => {
         return (
@@ -870,7 +1060,8 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes, c
                             const count = tab.key === 'tag' ? tagCount
                                 : tab.key === 'checklist' ? checklistTemplates.length
                                     : tab.key === 'job_type' ? jobTypes.length
-                                        : settings.filter(s => s.category === tab.key).length
+                                        : tab.key === 'pool_team' ? POOL_TEAM_CATEGORIES.length
+                                            : settings.filter(s => s.category === tab.key).length
                             return (
                                 <button
                                     key={tab.key}
@@ -956,6 +1147,24 @@ export default function SettingsView({ settings, checklistTemplates, jobTypes, c
                     </CardHeader>
                     <CardContent className="pt-0">
                         {renderTagTab()}
+                    </CardContent>
+                </Card>
+            ) : activeTab === 'pool_team' ? (
+                <Card>
+                    <CardHeader className="py-4">
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <Users className="h-4 w-4" />
+                            {locale === 'th' ? 'ทีมของพูลงาน' : 'Pool Teams'}
+                        </CardTitle>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                            {locale === 'th'
+                                ? 'ตั้งค่าว่าแผนกไหนรับใบงานประเภทไหน และแผนกไหนจอง/ย้ายกระเป๋าได้ (แอดมินเท่านั้น)'
+                                : 'Configure which departments claim each job type and manage kits (admin only)'
+                            }
+                        </p>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                        {renderPoolTeamTab()}
                     </CardContent>
                 </Card>
             ) : activeTab === 'job_type' ? (

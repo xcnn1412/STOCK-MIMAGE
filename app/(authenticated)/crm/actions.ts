@@ -6,6 +6,7 @@ import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
 import { createNotifications } from '@/lib/notifications'
 import { claimEffectiveAmount, summarizeClaims } from '@/app/(authenticated)/costs/lib/crm-cost-grouping'
+import { autoCreateJobsFromAcceptedLead } from '@/app/(authenticated)/jobs/actions'
 
 
 
@@ -663,6 +664,19 @@ export async function updateLeadStatus(id: string, newStatus: string) {
   })
 
   await logActivity('UPDATE_CRM_STATUS', { id, oldStatus, newStatus })
+
+  // ลูกค้าตอบรับ → ส่งใบงาน (กราฟิก + หน้างาน) เข้าพูลงานให้เองพร้อมแจ้งเตือนทีม
+  // จงใจไม่ให้ล้มการเปลี่ยนสถานะ: ถ้าสร้างใบงานหรือแจ้งเตือนพลาด สถานะ lead ต้องเปลี่ยนสำเร็จอยู่ดี
+  // (แอดมินยังกด "ส่งต่องาน" เองได้จากหน้า lead) — บันทึก error ไว้ใน log แล้วไปต่อ
+  if (newStatus === 'accepted') {
+    try {
+      const auto = await autoCreateJobsFromAcceptedLead(id)
+      if ('error' in auto) console.error('[CRM] auto-create jobs failed:', auto.error)
+    } catch (e) {
+      console.error('[CRM] auto-create jobs threw:', e)
+    }
+  }
+
   revalidatePath('/crm')
   revalidatePath(`/crm/${id}`)
   return { success: true }

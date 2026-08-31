@@ -6,6 +6,14 @@ import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
 import { requireAuth } from '@/lib/auth'
+// โมดูลตรรกะล้วน (ไม่มี React / ไม่มี 'use client') — import เข้ามาใน server action ได้
+import {
+    READY_DESIGN_STATUSES, kitBookingConflict, shouldFinishGraphicJob,
+    canActOnPool, POOL_TEAM_CATEGORIES, POOL_TEAM_DEFAULTS, isClosedEvent,
+    PREP_DUTY_CATEGORY, DUTY_LABELS_TH, isPrepDuty,
+} from './tracking/tracking-logic'
+import type { PoolTeamCategory, PrepDuty } from './tracking/tracking-logic'
+import { DEPARTMENTS } from '@/lib/departments'
 
 
 async function getSession() {
@@ -654,11 +662,670 @@ export async function createJobsFromLead(leadId: string) {
         description: `ส่งต่องานแล้ว: กราฟฟิก + ออกหน้างาน`,
     })
 
+    // ใบงานที่สร้างเข้าพูลด้วยสถานะ "รอรับงาน" ทันที — แจ้งทีมของฝ่ายนั้นจากตรงนี้ที่เดียว
+    // (ทั้งทางส่งต่อเองจากการ์ด CRM และทางอัตโนมัติตอนลูกค้าตอบรับ จึงไม่มีทางแจ้งซ้ำ)
+    for (const job of (jobs || []) as { id: string; job_type: string; title: string }[]) {
+        await notifyPoolNewJob(job, userId)
+    }
+
     await logActivity('CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs?.map(j => j.id) })
     revalidatePath('/jobs')
     revalidatePath('/crm')
     revalidatePath(`/crm/${leadId}`)
     return { success: true, jobs: jobs || [] }
+}
+
+// ============================================================================
+// พูลงาน — ทีมที่รับใบงานแต่ละประเภท + แจ้งเตือน "ใบงานใหม่เข้าพูล"
+// ============================================================================
+
+type PoolJobType = 'graphic' | 'onsite'
+
+// ทีม = แผนก (profiles.department) ตั้งค่าได้ราย category ใน job_settings
+// (UI ตั้งค่าอยู่ในแท็บ "ทีมของพูลงาน" หน้า /jobs/settings) ยังไม่มีแถวตั้งค่า = ใช้ค่าเริ่มต้น
+// จาก POOL_TEAM_DEFAULTS เพื่อให้ระบบใช้งานได้ทันทีก่อนแอดมินเข้าไปตั้งค่า
+const POOL_TEAM_CATEGORY: Record<PoolJobType, PoolTeamCategory> = {
+    graphic: 'pool_team_graphic',
+    onsite: 'pool_team_onsite',
+}
+
+const POOL_TEAM_DEFAULT_DEPARTMENTS: Record<PoolJobType, string[]> = {
+    graphic: [...POOL_TEAM_DEFAULTS.pool_team_graphic],
+    onsite: [...POOL_TEAM_DEFAULTS.pool_team_onsite],
+}
+
+/** แผนกที่ตั้งไว้ใน job_settings หมวดหนึ่ง — ยังไม่มีแถวตั้งค่า = ใช้ค่าเริ่มต้นที่ส่งมา */
+async function getDepartmentSetting(category: string, fallback: string[]): Promise<string[]> {
+    const supabase = createServiceClient()
+    const { data } = await supabase
+        .from('job_settings')
+        .select('value')
+        .eq('category', category)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+
+    const departments = (data || []).map(r => r.value as string).filter(Boolean)
+    return departments.length > 0 ? departments : fallback
+}
+
+async function getPoolTeamDepartments(jobType: PoolJobType): Promise<string[]> {
+    return getDepartmentSetting(POOL_TEAM_CATEGORY[jobType], POOL_TEAM_DEFAULT_DEPARTMENTS[jobType])
+}
+
+/**
+ * บันทึกแผนกของหมวดหนึ่ง (แอดมินเท่านั้น) — ลบแถวเดิมของหมวดนั้นทิ้งแล้วใส่ชุดใหม่ตามลำดับที่เลือก
+ * ไม่เลือกเลย = ไม่มีแถว = ตกกลับไปใช้ค่าเริ่มต้นตอนอ่าน (getDepartmentSetting)
+ */
+export async function savePoolTeamSetting(category: string, departments: string[]) {
+    const auth = await requireAuth()
+    if (!auth) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (auth.role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้นที่ตั้งค่าทีมของพูลงานได้' }
+
+    if (!POOL_TEAM_CATEGORIES.includes(category as PoolTeamCategory)) {
+        return { error: 'หมวดการตั้งค่าไม่ถูกต้อง' }
+    }
+
+    const picked = [...new Set(departments || [])]
+    if (picked.some(d => !DEPARTMENTS.includes(d))) {
+        return { error: 'มีแผนกที่ไม่อยู่ในรายการแผนกของระบบ' }
+    }
+
+    const supabase = createServiceClient()
+    const { error: delError } = await supabase.from('job_settings').delete().eq('category', category)
+    if (delError) return { error: delError.message }
+
+    if (picked.length > 0) {
+        const { error: insError } = await supabase.from('job_settings').insert(
+            picked.map((value, index) => ({
+                category,
+                value,
+                label_th: value,
+                label_en: value,
+                color: null,
+                sort_order: index,
+                is_active: true,
+            }))
+        )
+        if (insError) return { error: insError.message }
+    }
+
+    await logActivity('UPDATE_POOL_TEAM_SETTINGS', { category, departments: picked })
+    revalidatePath('/jobs/settings')
+    revalidatePath('/jobs/tracking')
+    return { success: true }
+}
+
+// แจ้งเตือนสมาชิกแผนกของฝ่ายนั้นว่ามีใบงานเข้าพูล (createNotifications ตัดตัวผู้กดเองออกให้แล้ว)
+// opts.title ใช้ตอน "คืนงาน" — ใบงานเดิมกลับเข้าพูล ไม่ใช่ใบงานใหม่
+async function notifyPoolNewJob(
+    job: { id: string; job_type: string; title: string },
+    actorId: string,
+    opts?: { title?: string; body?: string }
+) {
+    const jobType: PoolJobType = job.job_type === 'graphic' ? 'graphic' : 'onsite'
+    const departments = await getPoolTeamDepartments(jobType)
+    if (departments.length === 0) return
+
+    const supabase = createServiceClient()
+    const { data: members } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('is_approved', true)
+        .in('department', departments)
+
+    await createNotifications({
+        userIds: (members || []).map(m => m.id as string),
+        type: 'job_pool_new',
+        title: opts?.title || `ใบงานใหม่เข้าพูล: ${job.title}`,
+        body: opts?.body || (jobType === 'graphic'
+            ? 'ใบงานกราฟิก — กดรับงานได้จากพูลงาน'
+            : 'ใบงานหน้างาน — กดรับงานได้จากพูลงาน'),
+        referenceType: 'job',
+        referenceId: job.id,
+        actorId,
+    })
+}
+
+// สร้างใบงานอัตโนมัติเมื่อการ์ด CRM เปลี่ยนเป็น "ตอบรับ" — เรียกจาก updateLeadStatus
+// กันสร้างซ้ำ: งานที่มีใบงานอยู่แล้วจะข้าม (สลับสถานะ accepted → อื่น → accepted ไม่เกิดใบงานผี)
+export async function autoCreateJobsFromAcceptedLead(leadId: string) {
+    const { userId } = await getSession()
+    if (!userId) return { error: 'Unauthorized' }
+
+    const supabase = createServiceClient()
+
+    const { data: existing, error: existingErr } = await supabase
+        .from('jobs')
+        .select('id')
+        .eq('crm_lead_id', leadId)
+        .limit(1)
+
+    if (existingErr) return { error: existingErr.message }
+    if (existing && existing.length > 0) return { success: true, created: false }
+
+    const result = await createJobsFromLead(leadId)
+    if ('error' in result) return { error: result.error }
+
+    // แจ้งเตือน "ใบงานใหม่เข้าพูล" ยิงจาก createJobsFromLead แล้ว — ที่นี่เหลือแค่บันทึกว่ามาทางอัตโนมัติ
+    const jobs = (result.jobs || []) as { id: string; job_type: string; title: string }[]
+
+    await logActivity('AUTO_CREATE_JOBS_FROM_LEAD', { leadId, jobIds: jobs.map(j => j.id) })
+    revalidatePath('/jobs')
+    revalidatePath('/jobs/tracking')
+    return { success: true, created: true }
+}
+
+// ============================================================================
+// พูลงาน — รับงาน / คืนงาน / ข้ามใบงาน / เปลี่ยนคนรับ
+// ============================================================================
+
+/** สถานะแรกของใบงาน — อยู่ในพูลรอให้สมาชิกฝ่ายกดรับงาน (seed ไว้ใน job_settings) */
+const AWAITING_CLAIM_STATUS = 'awaiting_claim'
+/** ใบงานที่ถูกข้าม — ไม่ต้องมีแถวใน job_settings, groupPoolJobs ตัดออกจากแท็บฝ่ายให้ */
+const SKIPPED_STATUS = 'skipped'
+/** ใบงานที่จบแล้ว — ปลายทางของการจบอัตโนมัติ (groupPoolJobs ตัดออกจากแท็บฝ่ายเช่นกัน) */
+const DONE_STATUS = 'done'
+/** แผนกที่ดูแลพูลร่วมกับแอดมิน — ข้ามใบงาน/เปลี่ยนคนรับได้ และรับแจ้งเตือนความเคลื่อนไหว */
+const COORDINATOR_DEPARTMENT = 'ฝ่ายประสานงาน'
+/** ยังไม่มีสถานะอื่นใน job_settings เลย — สถานะหลังรับงานตกมาที่ค่านี้ */
+const POOL_FALLBACK_STATUS: Record<PoolJobType, string> = { graphic: 'pending', onsite: 'preparing' }
+
+const poolTypeOf = (jobType: string): PoolJobType => (jobType === 'graphic' ? 'graphic' : 'onsite')
+
+/** ใบงานเท่าที่ action ในพูลต้องใช้ (client ของ supabase ไม่ผูก type ของ schema) */
+type PoolJobRow = {
+    id: string
+    job_type: string
+    status: string
+    title: string
+    assigned_to: string[] | null
+    assigned_graphics: string[] | null
+    claimed_by: string | null
+}
+
+const POOL_JOB_COLUMNS = 'id, job_type, status, title, assigned_to, assigned_graphics, claimed_by'
+
+async function getPoolJob(jobId: string): Promise<PoolJobRow | null> {
+    const supabase = createServiceClient()
+    const { data } = await supabase.from('jobs').select(POOL_JOB_COLUMNS).eq('id', jobId).single()
+    if (!data) return null
+    return {
+        id: data.id as string,
+        job_type: (data.job_type as string) || '',
+        status: (data.status as string) || '',
+        title: (data.title as string) || 'ใบงาน',
+        assigned_to: (data.assigned_to as string[]) ?? [],
+        assigned_graphics: (data.assigned_graphics as string[]) ?? [],
+        claimed_by: (data.claimed_by as string) ?? null,
+    }
+}
+
+/** ผู้กดปุ่ม — role/department ตัดสินสิทธิ์ทั้งหมดของพูล (requireAuth ตรวจ session จริงให้แล้ว) */
+type PoolActor = { userId: string; role: string; department: string | null; name: string }
+
+async function getPoolActor(): Promise<PoolActor | null> {
+    const auth = await requireAuth()
+    if (!auth) return null
+
+    const supabase = createServiceClient()
+    const { data } = await supabase
+        .from('profiles')
+        .select('department, full_name, nickname')
+        .eq('id', auth.userId)
+        .single()
+
+    return {
+        userId: auth.userId,
+        role: auth.role,
+        department: (data?.department as string) ?? null,
+        name: (data?.nickname as string) || (data?.full_name as string) || 'ผู้ใช้',
+    }
+}
+
+/** แอดมินและฝ่ายประสานงานดูแลพูล: ข้ามใบงาน / เปลี่ยนคนรับ / คืนงานแทนผู้รับได้ */
+const isPoolManager = (actor: PoolActor) =>
+    actor.role === 'admin' || actor.department === COORDINATOR_DEPARTMENT
+
+/** สถานะถัดจาก "รอรับงาน" — แถว is_active ที่ sort_order ต่ำสุดที่ไม่ใช่ awaiting_claim */
+async function getPoolNextStatus(jobType: PoolJobType): Promise<string> {
+    const supabase = createServiceClient()
+    const { data } = await supabase
+        .from('job_settings')
+        .select('value')
+        .eq('category', `status_${jobType}`)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+
+    const next = (data || [])
+        .map(r => r.value as string)
+        .find(v => v && v !== AWAITING_CLAIM_STATUS)
+
+    return next || POOL_FALLBACK_STATUS[jobType]
+}
+
+/**
+ * แจ้งเตือนแอดมิน + ฝ่ายประสานงานทุกครั้งที่พูลขยับ (or() ใช้ค่าไทยไม่ได้ จึงยิงสองคิวรี)
+ * `referenceType` ปกติคือใบงาน — หน้าที่เตรียมงานผูกกับงาน (crm_lead) ไม่ใช่ใบงาน จึงส่งทับได้
+ */
+async function notifyPoolManagers(
+    job: { id: string },
+    actorId: string,
+    title: string,
+    body?: string,
+    referenceType: 'job' | 'crm_lead' = 'job'
+) {
+    const supabase = createServiceClient()
+    const [admins, coordinators] = await Promise.all([
+        supabase.from('profiles').select('id').eq('is_approved', true).eq('role', 'admin'),
+        supabase.from('profiles').select('id').eq('is_approved', true).eq('department', COORDINATOR_DEPARTMENT),
+    ])
+
+    await createNotifications({
+        userIds: [...(admins.data || []), ...(coordinators.data || [])].map(m => m.id as string),
+        type: 'job_status_changed',
+        title,
+        body,
+        referenceType,
+        referenceId: job.id,
+        actorId,
+    })
+}
+
+/** บันทึกลงไทม์ไลน์ของใบงาน (job_activities) แบบเดียวกับ updateJobStatus */
+async function logPoolJobActivity(
+    jobId: string,
+    actorId: string,
+    description: string,
+    oldStatus: string,
+    newStatus: string
+) {
+    const supabase = createServiceClient()
+    await supabase.from('job_activities').insert({
+        job_id: jobId,
+        created_by: actorId,
+        activity_type: 'status_change',
+        description,
+        old_status: oldStatus,
+        new_status: newStatus,
+    })
+}
+
+function revalidatePool(jobId: string) {
+    revalidatePath('/jobs')
+    revalidatePath('/jobs/tracking')
+    revalidatePath(`/jobs/${jobId}`)
+}
+
+/**
+ * รับงาน — สมาชิกฝ่ายกดรับใบงานจากพูลเป็นของตัวเอง
+ * กราฟิก: ผู้รับเป็นเจ้าของงานออกแบบ / หน้างาน: ผู้รับเป็นหัวหน้างานผู้รับผิดชอบ
+ * กันคนสองคนกดพร้อมกันด้วย conditional update (WHERE status = 'awaiting_claim')
+ */
+export async function claimPoolJob(jobId: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+
+    const job = await getPoolJob(jobId)
+    if (!job) return { error: 'ไม่พบใบงานนี้' }
+    if (job.status !== AWAITING_CLAIM_STATUS) return { error: 'ใบงานนี้ถูกรับไปแล้ว' }
+
+    const jobType = poolTypeOf(job.job_type)
+    const departments = await getPoolTeamDepartments(jobType)
+    if (!canActOnPool(actor.department, actor.role === 'admin', departments)) {
+        return { error: 'เฉพาะทีมของฝ่ายนี้เท่านั้นที่รับใบงานได้' }
+    }
+
+    const now = new Date().toISOString()
+    const updates: Record<string, unknown> = {
+        status: await getPoolNextStatus(jobType),
+        claimed_by: actor.userId,
+        claimed_at: now,
+        skipped_at: null,
+        skip_reason: null,
+        assigned_to: [...new Set([...(job.assigned_to || []), actor.userId])],
+        updated_at: now,
+    }
+    if (jobType === 'graphic') {
+        updates.assigned_graphics = [...new Set([...(job.assigned_graphics || []), actor.userId])]
+    }
+
+    const supabase = createServiceClient()
+    const { data: claimed, error } = await supabase
+        .from('jobs')
+        .update(updates)
+        .eq('id', jobId)
+        .eq('status', AWAITING_CLAIM_STATUS) // คนที่สองจะไม่เจอแถวนี้แล้ว
+        .select('id')
+
+    if (error) return { error: error.message }
+    if (!claimed || claimed.length === 0) return { error: 'ใบงานนี้ถูกรับไปแล้ว' }
+
+    const newStatus = updates.status as string
+    await logPoolJobActivity(jobId, actor.userId, `รับงานโดย ${actor.name}`, job.status, newStatus)
+    await logActivity('CLAIM_POOL_JOB', { jobId, jobType, newStatus })
+    await notifyPoolManagers(
+        job,
+        actor.userId,
+        `รับใบงานแล้ว: ${job.title}`,
+        `${actor.name} รับ${jobType === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'}นี้ไปแล้ว`
+    )
+
+    revalidatePool(jobId)
+    return { success: true }
+}
+
+/** คืนงาน — ผู้รับสละใบงานกลับเข้าพูล (แอดมิน/ฝ่ายประสานงานคืนแทนได้) แล้วแจ้งทีมฝ่ายนั้นอีกครั้ง */
+export async function releasePoolJob(jobId: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+
+    const job = await getPoolJob(jobId)
+    if (!job) return { error: 'ไม่พบใบงานนี้' }
+    if (job.status === SKIPPED_STATUS) return { error: 'ใบงานนี้ถูกข้ามไปแล้ว' }
+    if (job.status === AWAITING_CLAIM_STATUS) return { error: 'ใบงานนี้อยู่ในพูลอยู่แล้ว' }
+    if (job.claimed_by !== actor.userId && !isPoolManager(actor)) {
+        return { error: 'คืนงานได้เฉพาะผู้รับใบงานเท่านั้น' }
+    }
+
+    const jobType = poolTypeOf(job.job_type)
+    const formerClaimer = job.claimed_by
+    const now = new Date().toISOString()
+    const updates: Record<string, unknown> = {
+        status: AWAITING_CLAIM_STATUS,
+        claimed_by: null,
+        claimed_at: null,
+        assigned_to: (job.assigned_to || []).filter(id => id !== formerClaimer),
+        updated_at: now,
+    }
+    if (jobType === 'graphic') {
+        updates.assigned_graphics = (job.assigned_graphics || []).filter(id => id !== formerClaimer)
+    }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('jobs').update(updates).eq('id', jobId)
+    if (error) return { error: error.message }
+
+    await logPoolJobActivity(jobId, actor.userId, `คืนงานเข้าพูลโดย ${actor.name}`, job.status, AWAITING_CLAIM_STATUS)
+    await logActivity('RELEASE_POOL_JOB', { jobId, jobType, formerClaimer })
+
+    // ทีมของฝ่ายนั้นต้องรู้ว่ามีใบงานว่างกลับเข้าพูล + แอดมิน/ประสานงานเห็นความเคลื่อนไหว
+    await notifyPoolNewJob(job, actor.userId, {
+        title: `ใบงานกลับเข้าพูล: ${job.title}`,
+        body: `${actor.name} คืนงาน — กดรับงานได้จากพูลงาน`,
+    })
+    await notifyPoolManagers(job, actor.userId, `ใบงานกลับเข้าพูล: ${job.title}`, `${actor.name} คืนงานแล้ว`)
+
+    revalidatePool(jobId)
+    return { success: true }
+}
+
+/** ข้ามใบงาน — แอดมิน/ฝ่ายประสานงานประกาศว่างานนี้ไม่มีงานของฝ่ายนั้น ใบงานออกจากพูลโดยไม่มีผู้รับ */
+export async function skipPoolJob(jobId: string, reason: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!isPoolManager(actor)) return { error: 'เฉพาะแอดมินหรือฝ่ายประสานงานเท่านั้นที่ข้ามใบงานได้' }
+
+    const trimmed = (reason || '').trim()
+    if (!trimmed) return { error: 'กรุณาระบุเหตุผลที่ข้ามใบงาน' }
+
+    const job = await getPoolJob(jobId)
+    if (!job) return { error: 'ไม่พบใบงานนี้' }
+    if (job.status === SKIPPED_STATUS) return { error: 'ใบงานนี้ถูกข้ามไปแล้ว' }
+
+    const jobType = poolTypeOf(job.job_type)
+    const formerClaimer = job.claimed_by
+    const now = new Date().toISOString()
+    const updates: Record<string, unknown> = {
+        status: SKIPPED_STATUS,
+        skipped_at: now,
+        skip_reason: trimmed,
+        claimed_by: null,
+        claimed_at: null,
+        assigned_to: (job.assigned_to || []).filter(id => id !== formerClaimer),
+        updated_at: now,
+    }
+    if (jobType === 'graphic') {
+        updates.assigned_graphics = (job.assigned_graphics || []).filter(id => id !== formerClaimer)
+    }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('jobs').update(updates).eq('id', jobId)
+    if (error) return { error: error.message }
+
+    await logPoolJobActivity(jobId, actor.userId, `ข้ามใบงาน: ${trimmed}`, job.status, SKIPPED_STATUS)
+    await logActivity('SKIP_POOL_JOB', { jobId, jobType, reason: trimmed })
+
+    const recipients = formerClaimer ? [formerClaimer] : []
+    if (recipients.length > 0) {
+        await createNotifications({
+            userIds: recipients,
+            type: 'job_status_changed',
+            title: `ใบงานถูกข้าม: ${job.title}`,
+            body: `เหตุผล: ${trimmed}`,
+            referenceType: 'job',
+            referenceId: job.id,
+            actorId: actor.userId,
+        })
+    }
+    await notifyPoolManagers(job, actor.userId, `ใบงานถูกข้าม: ${job.title}`, `${actor.name} ข้ามใบงาน — เหตุผล: ${trimmed}`)
+
+    revalidatePool(jobId)
+    return { success: true }
+}
+
+/** เปลี่ยนคนรับ — แอดมิน/ฝ่ายประสานงานย้ายใบงานที่มีผู้รับแล้วไปให้อีกคน (สถานะคงเดิม) */
+export async function reassignPoolJob(jobId: string, newUserId: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!isPoolManager(actor)) return { error: 'เฉพาะแอดมินหรือฝ่ายประสานงานเท่านั้นที่เปลี่ยนคนรับได้' }
+    if (!newUserId) return { error: 'กรุณาเลือกผู้รับใบงานคนใหม่' }
+
+    const job = await getPoolJob(jobId)
+    if (!job) return { error: 'ไม่พบใบงานนี้' }
+    if (job.status === SKIPPED_STATUS) return { error: 'ใบงานนี้ถูกข้ามไปแล้ว' }
+    if (!job.claimed_by) return { error: 'ใบงานนี้ยังไม่มีผู้รับ — ต้องมีคนกดรับงานก่อน' }
+    if (job.claimed_by === newUserId) return { error: 'ผู้รับคนนี้รับใบงานนี้อยู่แล้ว' }
+
+    const supabase = createServiceClient()
+    const { data: newUser } = await supabase
+        .from('profiles')
+        .select('id, full_name, nickname, is_approved')
+        .eq('id', newUserId)
+        .single()
+    if (!newUser || !newUser.is_approved) return { error: 'ไม่พบผู้ใช้ที่เลือก' }
+
+    const newUserName = (newUser.nickname as string) || (newUser.full_name as string) || 'ผู้ใช้'
+    const jobType = poolTypeOf(job.job_type)
+    const formerClaimer = job.claimed_by
+    const now = new Date().toISOString()
+    const syncList = (list: string[] | null) => [
+        ...new Set([...(list || []).filter(id => id !== formerClaimer), newUserId]),
+    ]
+    const updates: Record<string, unknown> = {
+        claimed_by: newUserId,
+        claimed_at: now,
+        assigned_to: syncList(job.assigned_to),
+        updated_at: now,
+    }
+    if (jobType === 'graphic') updates.assigned_graphics = syncList(job.assigned_graphics)
+
+    const { error } = await supabase.from('jobs').update(updates).eq('id', jobId)
+    if (error) return { error: error.message }
+
+    await logPoolJobActivity(
+        jobId,
+        actor.userId,
+        `เปลี่ยนคนรับใบงานเป็น ${newUserName}`,
+        job.status,
+        job.status
+    )
+    await logActivity('REASSIGN_POOL_JOB', { jobId, jobType, formerClaimer, newUserId })
+
+    await createNotifications({
+        userIds: [newUserId, formerClaimer].filter(Boolean) as string[],
+        type: 'job_assigned',
+        title: `เปลี่ยนคนรับใบงาน: ${job.title}`,
+        body: `ผู้รับใบงานคนใหม่คือ ${newUserName}`,
+        referenceType: 'job',
+        referenceId: job.id,
+        actorId: actor.userId,
+    })
+    await notifyPoolManagers(
+        job,
+        actor.userId,
+        `เปลี่ยนคนรับใบงาน: ${job.title}`,
+        `${actor.name} เปลี่ยนผู้รับเป็น ${newUserName}`
+    )
+
+    revalidatePool(jobId)
+    return { success: true }
+}
+
+// ============================================================================
+// หน้าที่เตรียมงาน (Prep duty) — รับ/คืนรายหน้าที่ จัดคน / จัดรถ / จัดกระเป๋า
+// ดู CONTEXT.md § "หน้าที่เตรียมงาน": สามหน้าที่รับ-คืนแยกกันอิสระ ไม่บังคับลำดับ
+// แผนกที่รับได้ตั้งค่าได้รายหน้าที่ (job_settings) — แอดมินรับแทนได้ทุกหน้าที่
+// ============================================================================
+
+/** ชื่อของงานสำหรับใส่ในหัวข้อแจ้งเตือน — งานที่หาไม่เจอ = null (action จะตอบ error) */
+async function getDutyLeadName(leadId: string): Promise<string | null> {
+    const supabase = createServiceClient()
+    const { data } = await supabase.from('crm_leads').select('customer_name').eq('id', leadId).single()
+    if (!data) return null
+    return (data.customer_name as string) || 'ไม่ระบุลูกค้า'
+}
+
+/** แผนกที่รับหน้าที่นี้ได้ — ยังไม่ตั้งค่า = ค่าเริ่มต้นของหมวดนั้น */
+async function getDutyDepartments(duty: PrepDuty): Promise<string[]> {
+    const category = PREP_DUTY_CATEGORY[duty]
+    return getDepartmentSetting(category, [...POOL_TEAM_DEFAULTS[category]])
+}
+
+/**
+ * รับหน้าที่เตรียมงาน — คนในแผนกที่ตั้งไว้ของหน้าที่นั้น (หรือแอดมิน) กดรับได้
+ * กันสองคนกดพร้อมกันด้วย UNIQUE (lead_id, duty) ใน lead_duty_claims:
+ * INSERT ที่ช้ากว่าได้ error 23505 แล้วแปลงเป็นข้อความไทย (ไม่ต้องเช็คก่อนแล้วค่อยเขียน)
+ */
+export async function claimLeadDuty(leadId: string, duty: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!isPrepDuty(duty)) return { error: 'หน้าที่ไม่ถูกต้อง' }
+
+    const departments = await getDutyDepartments(duty)
+    if (!canActOnPool(actor.department, actor.role === 'admin', departments)) {
+        return { error: 'เฉพาะทีมที่รับผิดชอบหน้าที่นี้เท่านั้นที่รับได้' }
+    }
+
+    const leadName = await getDutyLeadName(leadId)
+    if (!leadName) return { error: 'ไม่พบงานนี้' }
+
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('lead_duty_claims').insert({
+        lead_id: leadId,
+        duty,
+        claimed_by: actor.userId,
+    })
+    if (error) {
+        // 23505 = unique_violation — มีคนกดรับหน้าที่นี้ไปก่อนแล้ว (คนที่สองของการกดพร้อมกัน)
+        if ((error as { code?: string }).code === '23505') return { error: 'หน้าที่นี้มีคนรับไปแล้ว' }
+        return { error: error.message }
+    }
+
+    const label = DUTY_LABELS_TH[duty]
+    await logActivity('CLAIM_LEAD_DUTY', { leadId, duty })
+    await notifyPoolManagers(
+        { id: leadId },
+        actor.userId,
+        `รับหน้าที่${label}: ${leadName}`,
+        `${actor.name} รับหน้าที่${label}ของงานนี้แล้ว`,
+        'crm_lead'
+    )
+
+    revalidatePath('/jobs/tracking')
+    return { success: true }
+}
+
+/** คืนหน้าที่เตรียมงาน — ผู้รับเองหรือแอดมิน/ฝ่ายประสานงาน คืนแล้วหน้าที่กลับเป็นรอรับงาน */
+export async function releaseLeadDuty(leadId: string, duty: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!isPrepDuty(duty)) return { error: 'หน้าที่ไม่ถูกต้อง' }
+
+    const supabase = createServiceClient()
+    const { data: claim } = await supabase
+        .from('lead_duty_claims')
+        .select('id, claimed_by')
+        .eq('lead_id', leadId)
+        .eq('duty', duty)
+        .single()
+
+    if (!claim) return { error: 'หน้าที่นี้ยังไม่มีผู้รับ' }
+    if ((claim.claimed_by as string) !== actor.userId && !isPoolManager(actor)) {
+        return { error: 'คืนหน้าที่ได้เฉพาะผู้รับหน้าที่นี้เท่านั้น' }
+    }
+
+    const { error } = await supabase.from('lead_duty_claims').delete().eq('id', claim.id as string)
+    if (error) return { error: error.message }
+
+    const label = DUTY_LABELS_TH[duty]
+    const leadName = (await getDutyLeadName(leadId)) || 'ไม่ระบุลูกค้า'
+    await logActivity('RELEASE_LEAD_DUTY', { leadId, duty, formerClaimer: claim.claimed_by })
+    await notifyPoolManagers(
+        { id: leadId },
+        actor.userId,
+        `คืนหน้าที่${label}: ${leadName}`,
+        `${actor.name} คืนหน้าที่${label} — กลับเป็นรอรับงาน`,
+        'crm_lead'
+    )
+
+    revalidatePath('/jobs/tracking')
+    return { success: true }
+}
+
+/**
+ * ใบงานกราฟิกของงานนี้จบเอง เมื่อสถานะออกแบบถึงขั้นพร้อม (sent_email_cf / completed)
+ * — ไม่คืน error: การบันทึกสถานะออกแบบต้องสำเร็จอยู่ดีแม้ใบงานจะอัปเดตพลาด (บันทึกไว้ใน console)
+ * — ถ้าสถานะออกแบบถอยกลับออกจากขั้นพร้อม (เช่น "แก้ไข") จงใจไม่ปลุกใบงานที่จบไปแล้วกลับเข้าพูล
+ *   ให้แอดมิน/ฝ่ายประสานงานตัดสินใจเองว่าจะเปิดใบงานใหม่หรือแก้สถานะใบงานด้วยมือ
+ */
+async function autoFinishGraphicJobs(leadId: string, designStatus: string, actorId: string) {
+    if (!READY_DESIGN_STATUSES.includes(designStatus)) return
+
+    const supabase = createServiceClient()
+    const { data: jobs, error } = await supabase
+        .from('jobs')
+        .select('id, status')
+        .eq('crm_lead_id', leadId)
+        .eq('job_type', 'graphic')
+
+    if (error) {
+        console.error('[jobs] auto-finish graphic: fetch failed:', error.message)
+        return
+    }
+
+    for (const job of jobs || []) {
+        const oldStatus = (job.status as string) || ''
+        if (!shouldFinishGraphicJob(designStatus, oldStatus)) continue
+
+        const { error: updErr } = await supabase
+            .from('jobs')
+            .update({ status: DONE_STATUS, updated_at: new Date().toISOString() })
+            .eq('id', job.id)
+        if (updErr) {
+            console.error('[jobs] auto-finish graphic: update failed:', updErr.message)
+            continue
+        }
+
+        await logPoolJobActivity(job.id as string, actorId, 'จบอัตโนมัติ: ออกแบบเสร็จ', oldStatus, DONE_STATUS)
+        await logActivity('AUTO_FINISH_POOL_JOB', {
+            jobId: job.id,
+            jobType: 'graphic',
+            leadId,
+            designStatus,
+            oldStatus,
+        })
+        revalidatePool(job.id as string)
+    }
 }
 
 // Get jobs linked to a CRM lead
@@ -1789,14 +2456,77 @@ export async function updateLeadTracking(
     if (error) return { error: error.message }
 
     await logActivity('UPDATE_LEAD_TRACKING', { lead_id: leadId, ...update })
+
+    // ออกแบบถึงขั้นพร้อมแล้ว → ใบงานกราฟิกของงานนี้จบเองและหายจากแท็บกราฟิก
+    // จงใจไม่ให้ล้มการบันทึกสถานะออกแบบ: ใบงานอัปเดตพลาดก็ยังถือว่าบันทึกสำเร็จ
+    if (typeof update.design_status === 'string') {
+        try {
+            await autoFinishGraphicJobs(leadId, update.design_status, session.userId)
+        } catch (e) {
+            console.error('[jobs] auto-finish graphic threw:', e)
+        }
+    }
+
     revalidatePath('/jobs/tracking')
     return { success: true }
 }
 
 /**
+ * อีเวนต์ปลายทางของงานหนึ่ง — เส้นทางเดียวกันสำหรับจัดคนและจองกระเป๋า
+ * - ส่ง eventId มา = ใช้ใบนั้น (ต้องผูกกับงานนี้จริง)
+ * - ไม่ส่ง + opts.pickExisting = หยิบอีเวนต์ที่ยังไม่ปิดใบแรกของงาน (เรียงตามวันงาน — กติกาเดียวกับที่ UI ตั้งต้นให้)
+ * - ยังไม่มีอีเวนต์ = สร้างอีเวนต์ "main" จากข้อมูลงานให้อัตโนมัติ
+ * สิทธิ์: ทุกคนที่ล็อกอิน (ต่างจาก createEvent ที่ admin-only) เพราะผู้ใช้หลักคือฝ่ายประสานงาน/ทีมหน้างาน
+ */
+async function resolveLeadEvent(
+    supabase: ReturnType<typeof createServiceClient>,
+    leadId: string,
+    eventId: string | null,
+    opts: { pickExisting?: boolean; source: string }
+): Promise<{ eventId: string } | { error: string }> {
+    const { data: lead } = await supabase
+        .from('crm_leads').select('id, customer_name, event_location, event_date, status').eq('id', leadId).single()
+    if (!lead || lead.status !== 'accepted') return { error: 'ไม่พบงานที่ตอบรับแล้ว' }
+
+    if (eventId) {
+        const { data: ev } = await supabase.from('events').select('id, crm_lead_id').eq('id', eventId).single()
+        if (!ev || ev.crm_lead_id !== leadId) return { error: 'อีเวนต์ไม่ได้ผูกกับงานนี้' }
+        return { eventId }
+    }
+
+    if (opts.pickExisting) {
+        // อีเวนต์ที่ปิดแล้วแตะไม่ได้ — คัดในโค้ดเพราะ status เป็น null ได้ (neq จะตัดแถว null ทิ้งด้วย)
+        const { data: existing } = await supabase
+            .from('events')
+            .select('id, status')
+            .eq('crm_lead_id', leadId)
+            .order('event_date', { ascending: true, nullsFirst: false })
+        const open = (existing || []).find(e => !isClosedEvent(e.status))
+        if (open) return { eventId: open.id as string }
+    }
+
+    const name = [lead.customer_name || 'ไม่ระบุลูกค้า', lead.event_location].filter(Boolean).join(' / ')
+    const { data: created, error: createErr } = await supabase
+        .from('events')
+        .insert({
+            name,
+            location: lead.event_location,
+            event_date: lead.event_date || new Date().toISOString().slice(0, 10),
+            crm_lead_id: leadId,
+            phase: 'main',
+        })
+        .select('id')
+        .single()
+    if (createErr || !created) return { error: createErr?.message || 'สร้างอีเวนต์ไม่สำเร็จ' }
+
+    await logActivity('CREATE_EVENT_FROM_CRM', { lead_id: leadId, event_id: created.id, name, source: opts.source })
+    return { eventId: created.id as string }
+}
+
+/**
  * จัดคนให้งาน (accepted lead) จากหน้า /jobs/tracking — เขียน event_staff ของอีเวนต์ที่ผูกกับงาน
- * eventId = null → สร้างอีเวนต์ "main" จากข้อมูลงานให้อัตโนมัติ (สิทธิ์: ทุกคนที่ล็อกอิน — ต่างจาก createEvent ที่ admin-only
- * เพราะผู้ใช้หลักคือฝ่ายประสานงาน). ลบ+ใส่ใหม่ทั้งชุดของอีเวนต์นั้น แล้ว sync array ใน crm_leads เหมือน updateEvent
+ * eventId = null → สร้างอีเวนต์ "main" จากข้อมูลงานให้อัตโนมัติ
+ * ลบ+ใส่ใหม่ทั้งชุดของอีเวนต์นั้น แล้ว sync array ใน crm_leads เหมือน updateEvent
  */
 export async function assignLeadStaff(
     leadId: string,
@@ -1819,31 +2549,9 @@ export async function assignLeadStaff(
     )
     if (clean.length !== assignments.length) return { error: 'ตำแหน่งไม่ถูกต้อง' }
 
-    const { data: lead } = await supabase
-        .from('crm_leads').select('id, customer_name, event_location, event_date, status').eq('id', leadId).single()
-    if (!lead || lead.status !== 'accepted') return { error: 'ไม่พบงานที่ตอบรับแล้ว' }
-
-    let targetEventId = eventId
-    if (targetEventId) {
-        const { data: ev } = await supabase.from('events').select('id, crm_lead_id').eq('id', targetEventId).single()
-        if (!ev || ev.crm_lead_id !== leadId) return { error: 'อีเวนต์ไม่ได้ผูกกับงานนี้' }
-    } else {
-        const name = [lead.customer_name || 'ไม่ระบุลูกค้า', lead.event_location].filter(Boolean).join(' / ')
-        const { data: created, error: createErr } = await supabase
-            .from('events')
-            .insert({
-                name,
-                location: lead.event_location,
-                event_date: lead.event_date || new Date().toISOString().slice(0, 10),
-                crm_lead_id: leadId,
-                phase: 'main',
-            })
-            .select('id')
-            .single()
-        if (createErr || !created) return { error: createErr?.message || 'สร้างอีเวนต์ไม่สำเร็จ' }
-        targetEventId = created.id
-        await logActivity('CREATE_EVENT_FROM_CRM', { lead_id: leadId, event_id: targetEventId, name, source: 'tracking' })
-    }
+    const resolved = await resolveLeadEvent(supabase, leadId, eventId, { source: 'tracking' })
+    if ('error' in resolved) return { error: resolved.error }
+    const targetEventId = resolved.eventId
 
     const { error: delErr } = await supabase.from('event_staff').delete().eq('event_id', targetEventId)
     if (delErr) return { error: delErr.message }
@@ -1861,4 +2569,176 @@ export async function assignLeadStaff(
     revalidatePath('/jobs/tracking')
     revalidatePath('/events')
     return { success: true, eventId: targetEventId }
+}
+
+// ============================================================================
+// จองกระเป๋า / จัดกระเป๋า — event_kits เป็น source of truth ของการจอง (ADR-0003)
+// ============================================================================
+
+/** แผนกที่จอง/ย้ายกระเป๋าได้ — ตั้งค่าเองได้ใน job_settings (ยังไม่ตั้ง = ทีมหน้างานตามค่าเริ่มต้น) */
+const KIT_MANAGER_CATEGORY: PoolTeamCategory = 'pool_kit_departments'
+
+async function getKitManagerDepartments(): Promise<string[]> {
+    return getDepartmentSetting(KIT_MANAGER_CATEGORY, [...POOL_TEAM_DEFAULTS[KIT_MANAGER_CATEGORY]])
+}
+
+/** ผู้กดต้องเป็นแอดมิน หรืออยู่แผนกที่ดูแลกระเป๋า — สิทธิ์เดียวกันทั้งจอง/ยกเลิก/บันทึกจัดครบ */
+async function requireKitManager(): Promise<{ actor: PoolActor } | { error: string }> {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+
+    const departments = await getKitManagerDepartments()
+    if (!canActOnPool(actor.department, actor.role === 'admin', departments)) {
+        return { error: 'เฉพาะทีมที่ดูแลกระเป๋าเท่านั้นที่จองหรือย้ายกระเป๋าได้' }
+    }
+    return { actor }
+}
+
+/** การจองของกระเป๋าใบหนึ่งพร้อมวัน/ชื่อ/สถานะ/งานของอีเวนต์ (join events) */
+type KitBookingRow = {
+    event_id: string
+    events?: {
+        id: string
+        name: string | null
+        event_date: string | null
+        status: string | null
+        crm_lead_id: string | null
+    } | null
+}
+
+const KIT_BOOKING_SELECT = 'event_id, events!inner(id, name, event_date, status, crm_lead_id)'
+
+async function loadKitBookings(
+    supabase: ReturnType<typeof createServiceClient>,
+    kitId: string
+): Promise<KitBookingRow[]> {
+    const { data } = await supabase.from('event_kits').select(KIT_BOOKING_SELECT).eq('kit_id', kitId)
+    return (data || []) as unknown as KitBookingRow[]
+}
+
+/**
+ * kits.event_id เดิม = ตัวชี้ใบเดียวที่ flow เช็ค/คืนกระเป๋าเก่ายังใช้อยู่ — event_kits คือ source of truth (ADR-0003)
+ * จองใหม่: ชี้ให้เฉพาะตอนที่กระเป๋ายังไม่มีการจองอื่นของอีเวนต์ที่ยังไม่ปิด (ไม่งั้นสองงานจะแย่งตัวชี้กัน)
+ * ยกเลิกจอง: ตัวชี้ที่ค้างอยู่กับอีเวนต์ที่ไม่มีการจองแล้ว → ล้างเป็น null
+ */
+async function syncLegacyKitEvent(
+    supabase: ReturnType<typeof createServiceClient>,
+    kitId: string,
+    justBookedEventId: string | null
+) {
+    const { data: kit } = await supabase.from('kits').select('id, event_id').eq('id', kitId).single()
+    if (!kit) return
+
+    const active = (await loadKitBookings(supabase, kitId))
+        .filter(r => !isClosedEvent(r.events?.status))
+        .map(r => r.event_id)
+
+    if (justBookedEventId) {
+        if (active.length === 1 && active[0] === justBookedEventId && kit.event_id !== justBookedEventId) {
+            await supabase.from('kits').update({ event_id: justBookedEventId }).eq('id', kitId)
+        }
+        return
+    }
+    if (kit.event_id && !active.includes(kit.event_id as string)) {
+        await supabase.from('kits').update({ event_id: null }).eq('id', kitId)
+    }
+}
+
+/**
+ * จองกระเป๋าให้อีเวนต์ของงาน (จากใบงานหน้างานในพูล) — งานที่ยังไม่มีอีเวนต์ ระบบสร้างให้เหมือนตอนจัดคน
+ * ชน = กระเป๋าใบเดียวกันถูกจองอีเวนต์อื่นวันเดียวกัน (ไม่ดูเวลา ไม่มีต่อคิว)
+ */
+export async function bookKitForLead(leadId: string, kitId: string) {
+    const perm = await requireKitManager()
+    if ('error' in perm) return { error: perm.error }
+
+    const supabase = createServiceClient()
+    const { data: kit } = await supabase.from('kits').select('id, name').eq('id', kitId).single()
+    if (!kit) return { error: 'ไม่พบกระเป๋าใบนี้' }
+
+    const resolved = await resolveLeadEvent(supabase, leadId, null, { pickExisting: true, source: 'kit-booking' })
+    if ('error' in resolved) return { error: resolved.error }
+    const eventId = resolved.eventId
+
+    const { data: target } = await supabase.from('events').select('id, event_date').eq('id', eventId).single()
+    const eventDate = (target?.event_date as string) ?? null
+
+    const bookings = await loadKitBookings(supabase, kitId)
+    const clash = kitBookingConflict(
+        bookings.map(r => ({ kitId, eventId: r.event_id, eventDate: r.events?.event_date ?? null })),
+        { kitId, eventId, eventDate }
+    )
+    if (clash.length > 0) {
+        const names = clash.map(id => bookings.find(r => r.event_id === id)?.events?.name || 'อีเวนต์อื่น')
+        return { error: `กระเป๋าใบนี้ถูกจองงานวันเดียวกันแล้ว: ${names.join(', ')}` }
+    }
+
+    // จองซ้ำคู่เดิม = ไม่เปลี่ยนอะไร (unique (event_id, kit_id)) — สถานะจัดของเดิมจึงไม่หาย
+    const { error: insErr } = await supabase
+        .from('event_kits')
+        .upsert({ event_id: eventId, kit_id: kitId }, { onConflict: 'event_id,kit_id' })
+    if (insErr) return { error: insErr.message }
+
+    await syncLegacyKitEvent(supabase, kitId, eventId)
+    await logActivity('BOOK_EVENT_KIT', { lead_id: leadId, event_id: eventId, kit_id: kitId, kit_name: kit.name })
+
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/events')
+    revalidatePath('/kits')
+    return { success: true, eventId }
+}
+
+/**
+ * ยกเลิกจองกระเป๋าของงาน — ลบแถวการจองของอีเวนต์ที่ผูกกับงานนี้ทิ้ง
+ * สถานะจัดกระเป๋าอยู่บนแถวการจอง จึงหายไปพร้อมกัน (ย้ายไปอีเวนต์อื่น = ลบ+จองใหม่ → ต้องจัดใหม่)
+ */
+export async function unbookKitForLead(leadId: string, kitId: string) {
+    const perm = await requireKitManager()
+    if ('error' in perm) return { error: perm.error }
+
+    const supabase = createServiceClient()
+    const rows = (await loadKitBookings(supabase, kitId)).filter(r => r.events?.crm_lead_id === leadId)
+    if (rows.length === 0) return { error: 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้งานนี้' }
+
+    const eventIds = rows.map(r => r.event_id)
+    const { error } = await supabase.from('event_kits').delete().eq('kit_id', kitId).in('event_id', eventIds)
+    if (error) return { error: error.message }
+
+    await syncLegacyKitEvent(supabase, kitId, null)
+    await logActivity('UNBOOK_EVENT_KIT', { lead_id: leadId, event_ids: eventIds, kit_id: kitId })
+
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/events')
+    revalidatePath('/kits')
+    return { success: true, eventIds }
+}
+
+/**
+ * บันทึก "จัดกระเป๋าครบ" ของการจองหนึ่งครั้ง — เรียกจากหน้าเช็คกระเป๋าเมื่อติ๊กครบทุกชิ้น
+ * เก็บบนแถว event_kits จึงเป็นของอีเวนต์นั้นโดยเฉพาะ (ย้ายการจอง = ลบแถว → สถานะจัดรีเซ็ตเอง)
+ */
+export async function setKitPacked(eventId: string, kitId: string, packed: boolean) {
+    const perm = await requireKitManager()
+    if ('error' in perm) return { error: perm.error }
+
+    const supabase = createServiceClient()
+    const { data: updated, error } = await supabase
+        .from('event_kits')
+        .update(
+            packed
+                ? { packed_at: new Date().toISOString(), packed_by: perm.actor.userId }
+                : { packed_at: null, packed_by: null }
+        )
+        .eq('event_id', eventId)
+        .eq('kit_id', kitId)
+        .select('id')
+
+    if (error) return { error: error.message }
+    if (!updated || updated.length === 0) return { error: 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้อีเวนต์นี้' }
+
+    await logActivity('PACK_EVENT_KIT', { event_id: eventId, kit_id: kitId, packed })
+
+    revalidatePath('/jobs/tracking')
+    revalidatePath(`/events/${eventId}/check-kits`)
+    return { success: true }
 }
