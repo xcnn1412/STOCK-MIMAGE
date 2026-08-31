@@ -211,6 +211,7 @@ export function DutyGate({
     people,
     currentUserId,
     canManagePool,
+    summary,
     children,
 }: {
     leadId: string
@@ -220,6 +221,8 @@ export function DutyGate({
     people: Person[]
     currentUserId: string | null
     canManagePool: boolean
+    /** ข้อมูลที่มีอยู่แล้วของช่องนี้ (อ่านอย่างเดียว) — โชว์คู่ปุ่มรับงาน ไม่ให้ของที่จัดไว้ก่อน "หาย" ไปหลังปุ่ม */
+    summary?: ReactNode
     children: ReactNode
 }) {
     const [busy, setBusy] = useState(false)
@@ -227,24 +230,27 @@ export function DutyGate({
 
     if (!claim) {
         return (
-            <Button
-                size="sm"
-                className="h-6 px-2 text-xs"
-                disabled={busy}
-                title={`รับหน้าที่${label}ของงานนี้`}
-                onClick={async () => {
-                    setBusy(true)
-                    try {
-                        const res = (await claimLeadDuty(leadId, duty)) as { error?: string } | undefined
-                        if (res?.error) toast.error(res.error)
-                        else toast.success(`รับหน้าที่${label}แล้ว`)
-                    } finally {
-                        setBusy(false)
-                    }
-                }}
-            >
-                รับงาน
-            </Button>
+            <div className="space-y-1">
+                {summary}
+                <Button
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    disabled={busy}
+                    title={`รับหน้าที่${label}ของงานนี้`}
+                    onClick={async () => {
+                        setBusy(true)
+                        try {
+                            const res = (await claimLeadDuty(leadId, duty)) as { error?: string } | undefined
+                            if (res?.error) toast.error(res.error)
+                            else toast.success(`รับหน้าที่${label}แล้ว`)
+                        } finally {
+                            setBusy(false)
+                        }
+                    }}
+                >
+                    รับงาน
+                </Button>
+            </div>
         )
     }
 

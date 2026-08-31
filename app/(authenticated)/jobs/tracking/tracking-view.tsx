@@ -28,6 +28,7 @@ import {
     getConflicts,
     availabilityOf,
     kitReadinessByLead,
+    vehicleOf,
     leadsOnDate,
     personClashes,
     groupPoolJobs,
@@ -777,14 +778,37 @@ export default function TrackingView({
     // หน้าที่เตรียมงาน: จัดคน/จัดรถ/กระเป๋า ถูกล็อกจนกว่าจะมีคนกดรับ "หน้าที่นั้น" — รับแยกกันคนละหน้าที่
     // ไม่ผูกกับใบงานหน้างาน งานเก่าที่ไม่มีใบงานจึงล็อกและกดรับได้เหมือนกัน (ไม่มีทางลัดแบบ backward compat)
     const claimByDuty = new Map(dutyClaims.map(c => [`${c.leadId}:${c.duty}`, c]))
-    const dutyGate = (leadId: string, duty: PrepDuty, children: ReactNode) => (
+
+    // ข้อมูลที่จัดไว้แล้วของช่องหน้าที่ — โชว์อ่านอย่างเดียวคู่ปุ่มรับงาน (งานเก่าที่จัดคน/รถ/กระเป๋าไว้ก่อนเปิดระบบรับหน้าที่ ต้องไม่ดู "หาย")
+    const dutySummary = (lead: TrackingLead, duty: PrepDuty): ReactNode => {
+        if (duty === 'staffing') {
+            const names = [...new Set(lead.staff.map(s => s.user_id))]
+                .map(id => {
+                    const p = people.find(x => x.id === id)
+                    return p ? p.nickname || p.name : null
+                })
+                .filter(Boolean)
+            if (names.length === 0) return null
+            return <div className="text-xs text-zinc-500 truncate max-w-44" title={names.join(', ')}>จัดไว้แล้ว {names.length} คน: {names.join(', ')}</div>
+        }
+        if (duty === 'vehicle') {
+            const key = vehicleOf(lead)
+            const v = key ? VEHICLES.find(x => x.key === key) : null
+            return v ? <div className="text-xs text-zinc-500">จัดไว้แล้ว: {v.label ?? v.key}</div> : null
+        }
+        const n = kitReadiness.get(lead.id)?.bookings.length ?? 0
+        return n > 0 ? <div className="text-xs text-zinc-500">จองไว้แล้ว {n} ใบ</div> : null
+    }
+
+    const dutyGate = (lead: TrackingLead, duty: PrepDuty, children: ReactNode) => (
         <DutyGate
-            leadId={leadId}
+            leadId={lead.id}
             duty={duty}
-            claim={claimByDuty.get(`${leadId}:${duty}`)}
+            claim={claimByDuty.get(`${lead.id}:${duty}`)}
             people={people}
             currentUserId={currentUserId}
             canManagePool={canManagePool}
+            summary={dutySummary(lead, duty)}
         >
             {children}
         </DutyGate>
@@ -987,15 +1011,15 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                {dutyGate(lead.id, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
+                                                {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
                                             </TableCell>
 
                                             <TableCell>
-                                                {dutyGate(lead.id, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
+                                                {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
                                             </TableCell>
 
                                             <TableCell>
-                                                {dutyGate(lead.id, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
+                                                {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
                                             </TableCell>
 
                                             <TableCell>
@@ -1052,11 +1076,11 @@ export default function TrackingView({
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                        {dutyGate(lead.id, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
+                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} save={save} />)}
                                     </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">กระเป๋า</div>
-                                        {dutyGate(lead.id, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
+                                        {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
                                     </div>
                                 </div>
 
