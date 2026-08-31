@@ -556,6 +556,8 @@ export default function TrackingView({
     people,
     jobs = [],
     jobStatusLabels = {},
+    currentUserId = null,
+    canManagePool = false,
 }: {
     leads: TrackingLead[]
     roleLabels: Record<string, string>
@@ -564,6 +566,10 @@ export default function TrackingView({
     /** ใบงานของงานเหล่านี้ (ตาราง jobs) — เข้าแท็บใบงานกราฟิก/หน้างาน */
     jobs?: PoolJob[]
     jobStatusLabels?: JobStatusLabels
+    /** ผู้ใช้ที่ล็อกอินอยู่ — คืนงานได้เฉพาะใบงานที่ตัวเองรับ */
+    currentUserId?: string | null
+    /** แอดมิน/ฝ่ายประสานงาน — ข้ามใบงานและเปลี่ยนคนรับได้ */
+    canManagePool?: boolean
 }) {
     const [rows, setRows] = useState(leads)
     const [chip, setChip] = useState<Chip | null>(null)
@@ -790,6 +796,8 @@ export default function TrackingView({
                     roleLabels={roleLabels}
                     statusLabels={jobStatusLabels}
                     today={today}
+                    currentUserId={currentUserId}
+                    canManagePool={canManagePool}
                     onDesignStatusChange={save}
                 />
             ) : (

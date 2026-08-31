@@ -861,8 +861,10 @@ export interface PoolJob {
   job_type: string
   status: string
   title: string
-  /** ผู้รับใบงาน (uuid) — ว่าง = ยังไม่มีผู้รับ */
+  /** คนที่เกี่ยวข้องกับใบงาน (uuid) — รวมผู้รับด้วย */
   assigned_to: string[]
+  /** ผู้รับใบงาน (กราฟิก = เจ้าของงานออกแบบ, หน้างาน = หัวหน้างาน) — null = ยังไม่มีผู้รับ */
+  claimed_by: string | null
   /** งานที่ใบงานนี้แตกออกมา */
   crm_lead_id: string | null
 }

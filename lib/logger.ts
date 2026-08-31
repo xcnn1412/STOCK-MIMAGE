@@ -110,6 +110,11 @@ export type ActionType =
     | 'CREATE_JOBS_FROM_LEAD'
     | 'AUTO_CREATE_JOBS_FROM_LEAD'
     | 'UPDATE_JOB_TAGS'
+    // พูลงาน — รับ/คืน/ข้าม/เปลี่ยนคนรับใบงาน
+    | 'CLAIM_POOL_JOB'
+    | 'RELEASE_POOL_JOB'
+    | 'SKIP_POOL_JOB'
+    | 'REASSIGN_POOL_JOB'
     // Ticket Module
     | 'CREATE_TICKET'
     | 'UPDATE_TICKET_STATUS'

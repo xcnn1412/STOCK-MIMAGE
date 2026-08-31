@@ -1,9 +1,15 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { UserRound, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { claimPoolJob, releasePoolJob, reassignPoolJob, skipPoolJob } from '../actions'
 import { DESIGN_OPTIONS } from './design-options'
 import { formatDate } from './timeline-view'
 import {
@@ -43,14 +49,22 @@ function StatusBadge({ job, statusLabels }: { job: PoolJob; statusLabels: JobSta
     )
 }
 
-/** ผู้รับใบงาน — assigned_to แปลงเป็นชื่อจากรายชื่อคนที่โหลดมาแล้ว */
-function ClaimerLine({ job, people }: { job: PoolJob; people: Person[] }) {
-    const names = (job.assigned_to || [])
-        .map(id => {
-            const p = people.find(x => x.id === id)
-            return p ? p.nickname || p.name : id.slice(0, 8)
-        })
-    if (names.length === 0) {
+const nameOf = (id: string, people: Person[]) => {
+    const p = people.find(x => x.id === id)
+    return p ? p.nickname || p.name : id.slice(0, 8)
+}
+
+/**
+ * ผู้รับใบงาน (claimed_by) + คนอื่นที่อยู่บนใบงาน — แปลงเป็นชื่อจากรายชื่อที่โหลดมาแล้ว
+ * ใบงานหน้างาน: ผู้รับคือหัวหน้างานผู้รับผิดชอบ ส่วนลูกทีมมาจากการจัดคนตามปกติ
+ */
+function ClaimerLine({ job, kind, people }: { job: PoolJob; kind: PoolKind; people: Person[] }) {
+    const claimer = job.claimed_by ? nameOf(job.claimed_by, people) : null
+    const others = (job.assigned_to || [])
+        .filter(id => id !== job.claimed_by)
+        .map(id => nameOf(id, people))
+
+    if (!claimer && others.length === 0) {
         return (
             <span className="inline-flex items-center gap-1 text-xs text-zinc-400">
                 <UserRound className="h-3.5 w-3.5" /> ยังไม่มีผู้รับ
@@ -60,8 +74,170 @@ function ClaimerLine({ job, people }: { job: PoolJob; people: Person[] }) {
     return (
         <span className="inline-flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300">
             <UserRound className="h-3.5 w-3.5 text-zinc-500" />
-            <span className="font-medium">ผู้รับ:</span> {names.join(', ')}
+            {claimer && (
+                <span>
+                    <span className="font-medium">{kind === 'onsite' ? 'หัวหน้างาน' : 'ผู้รับ'}:</span> {claimer}
+                </span>
+            )}
+            {others.length > 0 && (
+                <span className="text-zinc-500 truncate">
+                    {claimer ? '· ' : ''}ทีม: {others.join(', ')}
+                </span>
+            )}
         </span>
+    )
+}
+
+/**
+ * ปุ่มของใบงานหนึ่งใบ — รับงาน / คืนงาน / ข้ามใบงาน / เปลี่ยนคนรับ
+ * ปุ่มที่แสดงเป็นแค่การซ่อนตามบทบาท สิทธิ์จริงถูกบังคับใน server action อีกชั้น
+ */
+function PoolCardActions({
+    job,
+    people,
+    currentUserId,
+    canManagePool,
+}: {
+    job: PoolJob
+    people: Person[]
+    currentUserId: string | null
+    canManagePool: boolean
+}) {
+    const [busy, setBusy] = useState(false)
+    const [skipOpen, setSkipOpen] = useState(false)
+    const [reason, setReason] = useState('')
+    const [reassignOpen, setReassignOpen] = useState(false)
+    const [newUserId, setNewUserId] = useState('')
+
+    /** เรียก server action หนึ่งตัว — error ภาษาไทยจาก action ขึ้น toast เหมือนที่อื่นในหน้านี้ */
+    const run = async (action: () => Promise<unknown>, ok: string) => {
+        setBusy(true)
+        try {
+            const res = (await action()) as { error?: string } | undefined
+            if (res?.error) {
+                toast.error(res.error)
+                return false
+            }
+            toast.success(ok)
+            return true
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    const isAwaiting = job.status === 'awaiting_claim'
+    const isMine = !!currentUserId && job.claimed_by === currentUserId
+    // ใบงานที่คนอื่นรับไปแล้วและเราไม่ได้ดูแลพูล — ไม่มีปุ่มให้กด
+    if (!isAwaiting && !isMine && !canManagePool) return null
+
+    return (
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            {isAwaiting && (
+                <Button size="sm" disabled={busy} onClick={() => run(() => claimPoolJob(job.id), 'รับงานแล้ว')}>
+                    รับงาน
+                </Button>
+            )}
+            {!isAwaiting && isMine && (
+                <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => run(() => releasePoolJob(job.id), 'คืนงานเข้าพูลแล้ว')}
+                >
+                    คืนงาน
+                </Button>
+            )}
+
+            {canManagePool && (
+                <>
+                    <Button size="sm" variant="outline" disabled={busy} onClick={() => setSkipOpen(true)}>
+                        ข้ามใบงาน
+                    </Button>
+                    {job.claimed_by && (
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => setReassignOpen(true)}>
+                            เปลี่ยนคนรับ
+                        </Button>
+                    )}
+
+                    <Dialog open={skipOpen} onOpenChange={setSkipOpen}>
+                        <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>ข้ามใบงาน</DialogTitle>
+                            </DialogHeader>
+                            <p className="text-sm text-zinc-500">
+                                ใบงานจะออกจากพูลโดยไม่มีผู้รับ — ระบุเหตุผล เช่น ลูกค้าออกแบบเอง
+                            </p>
+                            <Textarea
+                                value={reason}
+                                onChange={e => setReason(e.target.value)}
+                                placeholder="เหตุผลที่ข้ามใบงาน"
+                                rows={3}
+                            />
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setSkipOpen(false)} disabled={busy}>
+                                    ยกเลิก
+                                </Button>
+                                <Button
+                                    disabled={busy || !reason.trim()}
+                                    onClick={async () => {
+                                        const ok = await run(() => skipPoolJob(job.id, reason), 'ข้ามใบงานแล้ว')
+                                        if (ok) {
+                                            setSkipOpen(false)
+                                            setReason('')
+                                        }
+                                    }}
+                                >
+                                    ข้ามใบงาน
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+
+                    <Dialog open={reassignOpen} onOpenChange={setReassignOpen}>
+                        <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>เปลี่ยนคนรับใบงาน</DialogTitle>
+                            </DialogHeader>
+                            <Select value={newUserId} onValueChange={setNewUserId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="เลือกผู้รับคนใหม่" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {people
+                                        .filter(p => p.id !== job.claimed_by)
+                                        .map(p => (
+                                            <SelectItem key={p.id} value={p.id}>
+                                                {p.nickname ? `${p.nickname} | ${p.name}` : p.name}
+                                                {p.department ? ` — ${p.department}` : ''}
+                                            </SelectItem>
+                                        ))}
+                                </SelectContent>
+                            </Select>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setReassignOpen(false)} disabled={busy}>
+                                    ยกเลิก
+                                </Button>
+                                <Button
+                                    disabled={busy || !newUserId}
+                                    onClick={async () => {
+                                        const ok = await run(
+                                            () => reassignPoolJob(job.id, newUserId),
+                                            'เปลี่ยนคนรับใบงานแล้ว'
+                                        )
+                                        if (ok) {
+                                            setReassignOpen(false)
+                                            setNewUserId('')
+                                        }
+                                    }}
+                                >
+                                    บันทึก
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                </>
+            )}
+        </div>
     )
 }
 
@@ -168,6 +344,8 @@ export default function PoolTabs({
     roleLabels,
     statusLabels,
     today,
+    currentUserId = null,
+    canManagePool = false,
     onDesignStatusChange,
 }: {
     kind: PoolKind
@@ -177,6 +355,10 @@ export default function PoolTabs({
     roleLabels: Record<string, string>
     statusLabels: JobStatusLabels
     today: Date
+    /** ผู้ใช้ที่ล็อกอินอยู่ — คืนงานได้เฉพาะใบงานที่ตัวเองรับ */
+    currentUserId?: string | null
+    /** แอดมิน/ฝ่ายประสานงาน — ข้ามใบงานและเปลี่ยนคนรับได้ */
+    canManagePool?: boolean
     /** เส้นทางบันทึกเดียวกับตารางภาพรวม (updateLeadTracking) */
     onDesignStatusChange: (leadId: string, patch: { design_status: string }) => void
 }) {
@@ -209,7 +391,7 @@ export default function PoolTabs({
                         <StatusBadge job={job} statusLabels={statusLabels} />
                     </div>
 
-                    <ClaimerLine job={job} people={people} />
+                    <ClaimerLine job={job} kind={kind} people={people} />
 
                     {lead && (
                         <div>
@@ -242,6 +424,13 @@ export default function PoolTabs({
                             <VehicleSummary lead={lead} />
                         </div>
                     )}
+
+                    <PoolCardActions
+                        job={job}
+                        people={people}
+                        currentUserId={currentUserId}
+                        canManagePool={canManagePool}
+                    />
                 </div>
             ))}
         </div>

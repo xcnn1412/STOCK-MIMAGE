@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (ต้องมีแท็บพูลให้วางปุ่ม)
 
-**Status:** ready-for-agent
+**Status:** done (2026-08-31) — tsc 7 error เดิม, check ผ่าน, race-safe conditional update ตรวจแล้ว
 
 - [ ] กดรับงานแล้วใบงานแสดงชื่อผู้รับ สถานะขยับออกจากรอรับงาน — เรียก action ซ้ำจากอีก user ได้ error ไม่ทับ
 - [ ] คืนงานได้เฉพาะผู้รับเอง — ใบงานกลับเป็นรอรับงาน + notifications ถึงทีมฝ่ายนั้น

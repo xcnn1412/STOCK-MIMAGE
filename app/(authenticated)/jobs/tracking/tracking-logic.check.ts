@@ -781,6 +781,7 @@ const pj = (overrides: Partial<PoolJob> = {}): PoolJob => ({
   status: 'awaiting_claim',
   title: 'ใบงาน',
   assigned_to: [],
+  claimed_by: null,
   crm_lead_id: 'l1',
   ...overrides,
 })

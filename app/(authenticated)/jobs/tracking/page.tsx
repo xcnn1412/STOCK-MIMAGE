@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase-server'
+import { getSessionLight } from '@/lib/auth'
 import TrackingView, { type TrackingLead } from './tracking-view'
 import { VEHICLES, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels } from './pool-tabs'
@@ -86,7 +87,7 @@ export default async function TrackingPage() {
     if (leadIds.length > 0) {
         const { data: jobRows } = await supabase
             .from('jobs')
-            .select('id, job_type, status, title, assigned_to, crm_lead_id')
+            .select('id, job_type, status, title, assigned_to, claimed_by, crm_lead_id')
             .in('crm_lead_id', leadIds)
             .is('archived_at', null)
             .order('created_at', { ascending: true })
@@ -97,6 +98,7 @@ export default async function TrackingPage() {
             status: (j.status as string) || '',
             title: (j.title as string) || '',
             assigned_to: Array.isArray(j.assigned_to) ? (j.assigned_to as string[]) : [],
+            claimed_by: (j.claimed_by as string) ?? null,
             crm_lead_id: (j.crm_lead_id as string) ?? null,
         }))
     }
@@ -155,6 +157,12 @@ export default async function TrackingPage() {
         staff: staffByLead.get(l.id) || [],
     }))
 
+    // ปุ่มในพูลงาน: คืนงานเห็นเฉพาะผู้รับ, ข้ามใบงาน/เปลี่ยนคนรับเฉพาะแอดมิน+ฝ่ายประสานงาน
+    // (เป็นแค่การซ่อนปุ่ม — สิทธิ์จริงบังคับใน server action อีกชั้น)
+    const { userId: currentUserId, role: sessionRole } = await getSessionLight()
+    const myDepartment = people.find(p => p.id === currentUserId)?.department ?? null
+    const canManagePool = sessionRole === 'admin' || myDepartment === 'ฝ่ายประสานงาน'
+
     // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
     return (
         <Suspense fallback={null}>
@@ -165,6 +173,8 @@ export default async function TrackingPage() {
                 people={people}
                 jobs={poolJobs}
                 jobStatusLabels={jobStatusLabels}
+                currentUserId={currentUserId ?? null}
+                canManagePool={canManagePool}
             />
         </Suspense>
     )
