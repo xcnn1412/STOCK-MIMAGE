@@ -2742,40 +2742,111 @@ export async function assignLeadStaff(
 }
 
 /**
+ * cache รถของงานใน crm_leads.tracking_checklist — read path เดิมทั้งหมดยังอ่านค่านี้อยู่
+ * (vehicleOf, ความพร้อม, เลนรถในไทม์ไลน์, การชน, สรุปหน้าที่) และเก็บได้คันเดียวต่อหนึ่งงาน
+ *
+ * กติกา: cache ถือรถของ "อีเวนต์ที่ยังไม่ปิดใบแรก (เรียงตามวันงาน) ที่มีการจองรถ"
+ * — ไม่มีใบที่เปิดอยู่จองไว้เลย แต่มีการจองค้างอยู่ใบเดียว → ใช้คันนั้น
+ * — นอกนั้น (ไม่มีการจอง) → ไม่มีรถ
+ * งานที่มีหลายอีเวนต์และจัดคนละคัน ค่าที่เห็นรายอีเวนต์อ่านจาก event_vehicles ตรงๆ ไม่ใช่ cache นี้
+ */
+async function syncLeadVehicleCache(
+    supabase: ReturnType<typeof createServiceClient>,
+    leadId: string
+): Promise<{ tracking_checklist: string[] } | { error: string }> {
+    const { data: events } = await supabase
+        .from('events')
+        .select('id, status')
+        .eq('crm_lead_id', leadId)
+        .order('event_date', { ascending: true, nullsFirst: false })
+    const eventIds = (events || []).map(e => e.id as string)
+
+    let rows: { event_id: string; vehicle_key: string }[] = []
+    if (eventIds.length > 0) {
+        const { data } = await supabase.from('event_vehicles').select('event_id, vehicle_key').in('event_id', eventIds)
+        rows = ((data || []) as { event_id: string; vehicle_key: string }[]).filter(r =>
+            CHECKLIST_KEYS.includes(r.vehicle_key)
+        )
+    }
+    const byEvent = new Map(rows.map(r => [r.event_id, r.vehicle_key]))
+    const firstOpen = (events || []).find(e => !isClosedEvent(e.status as string | null) && byEvent.has(e.id as string))
+    const vehicleKey = firstOpen
+        ? byEvent.get(firstOpen.id as string)!
+        : rows.length === 1
+          ? rows[0].vehicle_key
+          : null
+
+    const { data: lead } = await supabase.from('crm_leads').select('tracking_checklist').eq('id', leadId).single()
+    const current = Array.isArray(lead?.tracking_checklist) ? (lead?.tracking_checklist as string[]) : []
+    const tracking_checklist = [
+        ...current.filter(k => !CHECKLIST_KEYS.includes(k)),
+        ...(vehicleKey ? [vehicleKey] : []),
+    ]
+    const { error } = await supabase.from('crm_leads').update({ tracking_checklist }).eq('id', leadId)
+    if (error) return { error: error.message }
+    return { tracking_checklist }
+}
+
+/**
  * จัดรถให้งาน — จองรถผูกกับ "อีเวนต์" ผ่าน event_vehicles (ADR-0004) เหมือนคนและกระเป๋า
  * งานที่ยังไม่มีอีเวนต์ ระบบเปิดอีเวนต์ให้อัตโนมัติ (เส้นทางเดียวกับจองกระเป๋า)
  * vehicleKey = null → เอารถออก (ลบการจองรถของทุกอีเวนต์ของงานนี้)
  *
- * แล้ว sync crm_leads.tracking_checklist ให้เหลือ key รถคันที่เลือกคันเดียว (รายการอื่นไม่แตะ)
- * — เป็น cache ที่ read path เดิมทั้งหมดยังอ่านอยู่ (vehicleOf, ความพร้อม, เลนรถ, การชน, สรุปหน้าที่)
+ * eventId = ระบุอีเวนต์ปลายทาง (ตารางภาพรวมของงานที่มีหลายอีเวนต์) → แก้เฉพาะการจองของใบนั้น
+ * ใบอื่นของงานเดียวกันไม่ถูกแตะ · ไม่ส่ง = พฤติกรรมเดิม (หนึ่งงานหนึ่งคัน ล้างทุกใบก่อน)
+ *
+ * แล้ว sync crm_leads.tracking_checklist (cache รถระดับงาน) ตามกติกาใน syncLeadVehicleCache
  */
-export async function assignLeadVehicle(leadId: string, vehicleKey: string | null) {
+export async function assignLeadVehicle(leadId: string, vehicleKey: string | null, eventId?: string | null) {
     const session = await requireAuth()
     if (!session) return { error: 'Unauthorized' }
     if (vehicleKey !== null && !CHECKLIST_KEYS.includes(vehicleKey)) return { error: 'รายการจัดรถไม่ถูกต้อง' }
 
     const supabase = createServiceClient()
 
+    // ระบุอีเวนต์มา = จัดรถรายอีเวนต์ (งานหนึ่งงานมีได้หลายคัน คันละอีเวนต์)
+    if (eventId) {
+        const resolved = await resolveLeadEvent(supabase, leadId, eventId, { source: 'vehicle-booking' })
+        if ('error' in resolved) return { error: resolved.error }
+
+        const { error: delErr } = await supabase.from('event_vehicles').delete().eq('event_id', eventId)
+        if (delErr) return { error: delErr.message }
+        if (vehicleKey) {
+            const { error: insErr } = await supabase
+                .from('event_vehicles')
+                .upsert({ event_id: eventId, vehicle_key: vehicleKey }, { onConflict: 'event_id,vehicle_key' })
+            if (insErr) return { error: insErr.message }
+        }
+
+        const synced = await syncLeadVehicleCache(supabase, leadId)
+        if ('error' in synced) return { error: synced.error }
+
+        await logActivity('ASSIGN_EVENT_VEHICLE', { leadId, eventId, vehicleKey })
+        revalidatePath('/jobs/tracking')
+        revalidatePath('/events')
+        return { success: true, eventId, tracking_checklist: synced.tracking_checklist }
+    }
+
     // อีเวนต์ทั้งหมดของงาน — หนึ่งงานจัดรถได้คันเดียว จึงล้างการจองเก่าของทุกใบก่อน
     const { data: leadEvents } = await supabase.from('events').select('id').eq('crm_lead_id', leadId)
     const eventIds = (leadEvents || []).map(e => e.id as string)
 
-    let eventId: string | null = null
+    let targetEventId: string | null = null
     if (vehicleKey) {
         const resolved = await resolveLeadEvent(supabase, leadId, null, { pickExisting: true, source: 'vehicle-booking' })
         if ('error' in resolved) return { error: resolved.error }
-        eventId = resolved.eventId
-        if (!eventIds.includes(eventId)) eventIds.push(eventId)
+        targetEventId = resolved.eventId
+        if (!eventIds.includes(targetEventId)) eventIds.push(targetEventId)
     }
 
     if (eventIds.length > 0) {
         const { error: delErr } = await supabase.from('event_vehicles').delete().in('event_id', eventIds)
         if (delErr) return { error: delErr.message }
     }
-    if (eventId && vehicleKey) {
+    if (targetEventId && vehicleKey) {
         const { error: insErr } = await supabase
             .from('event_vehicles')
-            .upsert({ event_id: eventId, vehicle_key: vehicleKey }, { onConflict: 'event_id,vehicle_key' })
+            .upsert({ event_id: targetEventId, vehicle_key: vehicleKey }, { onConflict: 'event_id,vehicle_key' })
         if (insErr) return { error: insErr.message }
     }
 
@@ -2788,11 +2859,11 @@ export async function assignLeadVehicle(leadId: string, vehicleKey: string | nul
     const { error: syncErr } = await supabase.from('crm_leads').update({ tracking_checklist }).eq('id', leadId)
     if (syncErr) return { error: syncErr.message }
 
-    await logActivity('ASSIGN_EVENT_VEHICLE', { leadId, eventId, vehicleKey })
+    await logActivity('ASSIGN_EVENT_VEHICLE', { leadId, eventId: targetEventId, vehicleKey })
 
     revalidatePath('/jobs/tracking')
     revalidatePath('/events')
-    return { success: true, eventId, tracking_checklist }
+    return { success: true, eventId: targetEventId, tracking_checklist }
 }
 
 // ============================================================================
@@ -2871,8 +2942,11 @@ async function syncLegacyKitEvent(
 /**
  * จองกระเป๋าให้อีเวนต์ของงาน (จากใบงานหน้างานในพูล) — งานที่ยังไม่มีอีเวนต์ ระบบสร้างให้เหมือนตอนจัดคน
  * ชน = กระเป๋าใบเดียวกันถูกจองอีเวนต์อื่นวันเดียวกัน (ไม่ดูเวลา ไม่มีต่อคิว)
+ *
+ * eventId = จองให้อีเวนต์ใบนั้นตรงๆ (ตารางภาพรวมของงานที่มีหลายอีเวนต์) — ตรวจว่าใบนั้นเป็นของงานนี้จริง
+ * ไม่ส่ง = พฤติกรรมเดิม (อีเวนต์ที่ยังไม่ปิดใบแรก หรือสร้างใหม่ให้)
  */
-export async function bookKitForLead(leadId: string, kitId: string) {
+export async function bookKitForLead(leadId: string, kitId: string, eventId?: string | null) {
     const perm = await requireKitManager()
     if ('error' in perm) return { error: perm.error }
 
@@ -2880,17 +2954,18 @@ export async function bookKitForLead(leadId: string, kitId: string) {
     const { data: kit } = await supabase.from('kits').select('id, name').eq('id', kitId).single()
     if (!kit) return { error: 'ไม่พบกระเป๋าใบนี้' }
 
-    const resolved = await resolveLeadEvent(supabase, leadId, null, { pickExisting: true, source: 'kit-booking' })
+    // resolveLeadEvent ตรวจให้แล้วว่า eventId ที่ส่งมาผูกกับงานนี้จริง (ไม่ใช่ = error)
+    const resolved = await resolveLeadEvent(supabase, leadId, eventId ?? null, { pickExisting: true, source: 'kit-booking' })
     if ('error' in resolved) return { error: resolved.error }
-    const eventId = resolved.eventId
+    const targetEventId = resolved.eventId
 
-    const { data: target } = await supabase.from('events').select('id, event_date').eq('id', eventId).single()
+    const { data: target } = await supabase.from('events').select('id, event_date').eq('id', targetEventId).single()
     const eventDate = (target?.event_date as string) ?? null
 
     const bookings = await loadKitBookings(supabase, kitId)
     const clash = kitBookingConflict(
         bookings.map(r => ({ kitId, eventId: r.event_id, eventDate: r.events?.event_date ?? null })),
-        { kitId, eventId, eventDate }
+        { kitId, eventId: targetEventId, eventDate }
     )
     if (clash.length > 0) {
         const names = clash.map(id => bookings.find(r => r.event_id === id)?.events?.name || 'อีเวนต์อื่น')
@@ -2900,29 +2975,36 @@ export async function bookKitForLead(leadId: string, kitId: string) {
     // จองซ้ำคู่เดิม = ไม่เปลี่ยนอะไร (unique (event_id, kit_id)) — สถานะจัดของเดิมจึงไม่หาย
     const { error: insErr } = await supabase
         .from('event_kits')
-        .upsert({ event_id: eventId, kit_id: kitId }, { onConflict: 'event_id,kit_id' })
+        .upsert({ event_id: targetEventId, kit_id: kitId }, { onConflict: 'event_id,kit_id' })
     if (insErr) return { error: insErr.message }
 
-    await syncLegacyKitEvent(supabase, kitId, eventId)
-    await logActivity('BOOK_EVENT_KIT', { lead_id: leadId, event_id: eventId, kit_id: kitId, kit_name: kit.name })
+    await syncLegacyKitEvent(supabase, kitId, targetEventId)
+    await logActivity('BOOK_EVENT_KIT', { lead_id: leadId, event_id: targetEventId, kit_id: kitId, kit_name: kit.name })
 
     revalidatePath('/jobs/tracking')
     revalidatePath('/events')
     revalidatePath('/kits')
-    return { success: true, eventId }
+    return { success: true, eventId: targetEventId }
 }
 
 /**
  * ยกเลิกจองกระเป๋าของงาน — ลบแถวการจองของอีเวนต์ที่ผูกกับงานนี้ทิ้ง
  * สถานะจัดกระเป๋าอยู่บนแถวการจอง จึงหายไปพร้อมกัน (ย้ายไปอีเวนต์อื่น = ลบ+จองใหม่ → ต้องจัดใหม่)
+ *
+ * eventId = ยกเลิกเฉพาะการจองของอีเวนต์ใบนั้น (ต้องเป็นอีเวนต์ของงานนี้) — ใบอื่นของงานเดียวกันไม่ถูกแตะ
+ * ไม่ส่ง = พฤติกรรมเดิม (ยกเลิกทุกใบของงานนี้)
  */
-export async function unbookKitForLead(leadId: string, kitId: string) {
+export async function unbookKitForLead(leadId: string, kitId: string, eventId?: string | null) {
     const perm = await requireKitManager()
     if ('error' in perm) return { error: perm.error }
 
     const supabase = createServiceClient()
-    const rows = (await loadKitBookings(supabase, kitId)).filter(r => r.events?.crm_lead_id === leadId)
-    if (rows.length === 0) return { error: 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้งานนี้' }
+    const rows = (await loadKitBookings(supabase, kitId))
+        .filter(r => r.events?.crm_lead_id === leadId)
+        .filter(r => !eventId || r.event_id === eventId)
+    if (rows.length === 0) {
+        return { error: eventId ? 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้อีเวนต์นี้' : 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้งานนี้' }
+    }
 
     const eventIds = rows.map(r => r.event_id)
     const { error } = await supabase.from('event_kits').delete().eq('kit_id', kitId).in('event_id', eventIds)

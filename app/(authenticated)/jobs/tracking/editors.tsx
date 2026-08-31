@@ -4,6 +4,7 @@
 // ห้าม import จาก tracking-view.tsx / pool-tabs.tsx / duty-tabs.tsx (กันวงจร import)
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -21,6 +22,7 @@ import {
     AVAILABILITY_LABELS,
     type Availability,
     type Conflict,
+    type EventVehicle,
     type Person,
     type TrackingLead,
 } from './tracking-logic'
@@ -76,8 +78,12 @@ function draftFor(lead: TrackingLead, eventId: string | null): Draft[] {
     return eventId === null ? [] : lead.staff.filter(s => s.event_id === eventId).map(s => ({ user_id: s.user_id, role: s.role }))
 }
 
-/** ช่อง "จัดคน" — กดเปิด Dialog แล้วจัดคนรายตำแหน่ง พร้อมบอกว่าใครว่าง/ต่อคิว/ชน ในวันของงานนี้ */
-export function StaffEditor({ lead, all, people, roles, roleLabels, onSaved, onRequiredRolesSaved, defaultOpen = false, hideTrigger = false, onClose }: {
+/**
+ * ช่อง "จัดคน" — กดเปิด Dialog แล้วจัดคนรายตำแหน่ง พร้อมบอกว่าใครว่าง/ต่อคิว/ชน ในวันของงานนี้
+ * `pinnedEventId` = ล็อกไว้ที่อีเวนต์ใบเดียว (แถวรายอีเวนต์ในตารางภาพรวม): ซ่อนตัวเลือกอีเวนต์
+ * และสรุปหน้าช่องนับเฉพาะคนของใบนั้น — ไม่ส่ง = พฤติกรรมเดิม (เลือกอีเวนต์เองในกล่อง)
+ */
+export function StaffEditor({ lead, all, people, roles, roleLabels, onSaved, onRequiredRolesSaved, defaultOpen = false, hideTrigger = false, onClose, pinnedEventId = null }: {
     lead: TrackingLead
     all: TrackingLead[]
     people: Person[]
@@ -95,22 +101,30 @@ export function StaffEditor({ lead, all, people, roles, roleLabels, onSaved, onR
     defaultOpen?: boolean
     hideTrigger?: boolean
     onClose?: () => void
+    /** ล็อกกล่องไว้ที่อีเวนต์ใบนี้ — null/ไม่ส่ง = เลือกอีเวนต์เองตามเดิม */
+    pinnedEventId?: string | null
 }) {
+    /** อีเวนต์ตั้งต้นของกล่อง — ปักหมุดไว้แล้วใช้ใบนั้นเสมอ */
+    const initialEventId = () => pinnedEventId ?? defaultEventId(lead)
+
     const [open, setOpen] = useState(defaultOpen)
-    const [targetId, setTargetId] = useState<string | null>(() => defaultEventId(lead))
-    const [draft, setDraft] = useState<Draft[]>(() => draftFor(lead, defaultEventId(lead)))
+    const [targetId, setTargetId] = useState<string | null>(initialEventId)
+    const [draft, setDraft] = useState<Draft[]>(() => draftFor(lead, initialEventId()))
     const [required, setRequired] = useState<Record<string, number>>(() => lead.required_roles)
     const [onlyFree, setOnlyFree] = useState(false)
     const [saving, setSaving] = useState(false)
     const [addKey, setAddKey] = useState(0)
 
     const staff = lead.staff
+    /** คนที่แสดงหน้าช่อง — ปักหมุดแล้วนับเฉพาะคนของอีเวนต์ใบนั้น */
+    const shownStaff = pinnedEventId ? staff.filter(s => s.event_id === pinnedEventId) : staff
+    const pinnedEvent = pinnedEventId ? lead.events.find(e => e.id === pinnedEventId) ?? null : null
     const staffConflicts = getConflicts(lead, all).filter(c => c.kind === 'staff')
     const personOf = (id: string) => people.find(p => p.id === id)
 
     const openChange = (o: boolean) => {
         if (o) {
-            const t = defaultEventId(lead)
+            const t = initialEventId()
             setTargetId(t)
             setDraft(draftFor(lead, t))
             setRequired(lead.required_roles)
@@ -185,17 +199,17 @@ export function StaffEditor({ lead, all, people, roles, roleLabels, onSaved, onR
                             title="แก้ไขการจัดคน"
                             className="text-left w-full rounded-md px-1 -mx-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                         >
-                            {staff.length === 0 ? (
+                            {shownStaff.length === 0 ? (
                                 <span className="inline-flex items-center gap-1 text-xs text-zinc-400">
                                     <Users className="h-3.5 w-3.5" /> ยังไม่จัดคน
                                 </span>
                             ) : (
                                 <>
                                     <span className="inline-flex items-center gap-1 text-sm font-medium">
-                                        <Users className="h-3.5 w-3.5 text-zinc-500" /> {staff.length} คน
+                                        <Users className="h-3.5 w-3.5 text-zinc-500" /> {shownStaff.length} คน
                                     </span>
                                     <div className="text-xs text-zinc-500 truncate">
-                                        {staff.map(s => s.nickname || s.name).join(', ')}
+                                        {shownStaff.map(s => s.nickname || s.name).join(', ')}
                                     </div>
                                 </>
                             )}
@@ -210,32 +224,43 @@ export function StaffEditor({ lead, all, people, roles, roleLabels, onSaved, onR
                         </DialogTitle>
                     </DialogHeader>
 
-                    {lead.events.length === 0 && (
-                        <p className="text-sm text-zinc-500">ยังไม่มีอีเวนต์ — จะสร้างให้อัตโนมัติเมื่อบันทึก</p>
-                    )}
-                    {lead.events.length === 1 && (
+                    {pinnedEventId ? (
+                        /* แถวรายอีเวนต์ในตารางภาพรวม — กล่องนี้แก้ได้เฉพาะใบที่ปักหมุดไว้ เลือกใบอื่นไม่ได้ */
                         <p className="text-sm">
                             <span className="text-zinc-500">อีเวนต์: </span>
-                            {lead.events[0].name || 'ไม่ระบุชื่อ'}
+                            {pinnedEvent?.name || 'ไม่ระบุชื่อ'}
+                            {pinnedEvent?.event_date ? ` · ${formatDate(pinnedEvent.event_date)}` : ''}
                         </p>
-                    )}
-                    {lead.events.length > 1 && (
-                        <div className="space-y-1">
-                            <div className="text-xs font-medium text-zinc-500">จัดเข้าอีเวนต์</div>
-                            <Select value={targetId ?? undefined} onValueChange={v => { setTargetId(v); setDraft(draftFor(lead, v)) }}>
-                                <SelectTrigger className="w-full">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {lead.events.map(e => (
-                                        <SelectItem key={e.id} value={e.id}>
-                                            {e.name || 'ไม่ระบุชื่อ'} · {formatDate(e.event_date)}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <p className="text-xs text-zinc-500">แก้เฉพาะคนของอีเวนต์นี้ — คนของอีเวนต์อื่นในงานเดียวกันไม่ถูกแตะ</p>
-                        </div>
+                    ) : (
+                        <>
+                            {lead.events.length === 0 && (
+                                <p className="text-sm text-zinc-500">ยังไม่มีอีเวนต์ — จะสร้างให้อัตโนมัติเมื่อบันทึก</p>
+                            )}
+                            {lead.events.length === 1 && (
+                                <p className="text-sm">
+                                    <span className="text-zinc-500">อีเวนต์: </span>
+                                    {lead.events[0].name || 'ไม่ระบุชื่อ'}
+                                </p>
+                            )}
+                            {lead.events.length > 1 && (
+                                <div className="space-y-1">
+                                    <div className="text-xs font-medium text-zinc-500">จัดเข้าอีเวนต์</div>
+                                    <Select value={targetId ?? undefined} onValueChange={v => { setTargetId(v); setDraft(draftFor(lead, v)) }}>
+                                        <SelectTrigger className="w-full">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {lead.events.map(e => (
+                                                <SelectItem key={e.id} value={e.id}>
+                                                    {e.name || 'ไม่ระบุชื่อ'} · {formatDate(e.event_date)}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-zinc-500">แก้เฉพาะคนของอีเวนต์นี้ — คนของอีเวนต์อื่นในงานเดียวกันไม่ถูกแตะ</p>
+                                </div>
+                            )}
+                        </>
                     )}
 
                     <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-2 space-y-1">
@@ -346,14 +371,47 @@ export type VehicleSyncFn = (leadId: string, tracking_checklist: string[]) => vo
 /**
  * ช่อง "จัดรถ" — เลือกคันเดียวต่อหนึ่งงาน พร้อมป้ายเตือนเมื่อรถคันนั้นถูกใช้ซ้ำ
  * บันทึกผ่าน assignLeadVehicle: จองรถผูกกับอีเวนต์ของงาน (ยังไม่มีอีเวนต์ = ระบบเปิดให้) แล้ว sync checklist ให้ (ADR-0004)
+ *
+ * `eventId` = ช่องนี้เป็นของอีเวนต์ใบเดียว (แถวรายอีเวนต์ในตารางภาพรวม): ค่าที่แสดงอ่านจาก `eventVehicles`
+ * ของใบนั้น และบันทึกลงใบนั้นใบเดียว — ไม่ส่ง = พฤติกรรมเดิม (ค่าระดับงานจาก tracking_checklist)
  */
-export function VehicleCell({ lead, all, onSaved }: { lead: TrackingLead; all: TrackingLead[]; onSaved?: VehicleSyncFn }) {
+export function VehicleCell({ lead, all, onSaved, eventId = null, eventVehicles = [] }: {
+    lead: TrackingLead
+    all: TrackingLead[]
+    onSaved?: VehicleSyncFn
+    eventId?: string | null
+    /** การจองรถรายอีเวนต์ของงานที่มองเห็นอยู่ — ใช้เฉพาะตอนส่ง eventId */
+    eventVehicles?: EventVehicle[]
+}) {
+    const router = useRouter()
+    /** ค่าที่เพิ่งเลือกในโหมดรายอีเวนต์ — ทับค่าจาก server จนกว่าข้อมูลรอบใหม่จะมาถึง ('none' = ไม่จัดรถ) */
+    const [pickedForEvent, setPickedForEvent] = useState<string | null>(null)
+    const bookedForEvent = eventId
+        ? eventVehicles.find(v => v.eventId === eventId)?.vehicleKey ?? 'none'
+        : 'none'
+
+    const value = eventId
+        ? pickedForEvent ?? bookedForEvent
+        : VEHICLES.find(v => lead.tracking_checklist.includes(v.key))?.key ?? 'none'
+
     const vehicleConflict = getConflicts(lead, all).find(c => c.kind === 'vehicle')
     return (
         <div>
             <Select
-                value={VEHICLES.find(v => lead.tracking_checklist.includes(v.key))?.key ?? 'none'}
+                value={value}
                 onValueChange={async v => {
+                    if (eventId) {
+                        setPickedForEvent(v)
+                        const res = await assignLeadVehicle(lead.id, v === 'none' ? null : v, eventId)
+                        if (res?.error) {
+                            setPickedForEvent(null)
+                            toast.error(res.error)
+                            return
+                        }
+                        // ค่าที่แสดงมาจาก event_vehicles ฝั่ง server — ต้องอ่านรอบใหม่หลังบันทึก
+                        router.refresh()
+                        return
+                    }
                     const before = lead.tracking_checklist
                     const rest = before.filter(k => !VEHICLES.some(c => c.key === k))
                     onSaved?.(lead.id, v === 'none' ? rest : [...rest, v])

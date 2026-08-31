@@ -32,6 +32,7 @@ import {
     type TrackingLead,
     type Chip,
     type DutyClaim,
+    type EventVehicle,
     type KitReadiness,
     type PoolJob,
     type PrepDuty,
@@ -256,6 +257,26 @@ function SupplierCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
 // กรอบงานวันเดียวกันในตาราง: เส้นข้างซ้าย/ขวา (บน/ล่างใส่เฉพาะแถวแรก/ท้ายของวัน)
 const DAY_FRAME = 'border-l-2 border-l-zinc-300 dark:border-l-zinc-600 border-r-2 border-r-zinc-300 dark:border-r-zinc-600'
 
+type LeadEvent = TrackingLead['events'][number]
+
+/**
+ * แถวย่อยของหนึ่งงาน: งานที่มีอีเวนต์ตั้งแต่ 2 ใบขึ้นไป = หนึ่งแถวต่อหนึ่งอีเวนต์
+ * (จัดคน/จัดรถ/กระเป๋าเจาะรายอีเวนต์ได้) · 0–1 อีเวนต์ = แถวเดียวเหมือนเดิม (null = ไม่เจาะอีเวนต์)
+ */
+function eventRowsOf(lead: TrackingLead): (LeadEvent | null)[] {
+    return lead.events.length >= 2 ? lead.events : [null]
+}
+
+/** ป้ายบอกว่าช่องนี้เป็นของอีเวนต์ไหน — อยู่เหนือตัวแก้ไขในแถวรายอีเวนต์ */
+function EventLabel({ event }: { event: LeadEvent }) {
+    const label = `${event.name || 'ไม่ระบุชื่อ'}${event.event_date ? ` · ${formatDate(event.event_date)}` : ''}`
+    return (
+        <div className="mb-1 truncate text-[11px] font-medium text-zinc-500" title={label}>
+            {label}
+        </div>
+    )
+}
+
 /** แบ่ง leads (เรียงวันแล้ว) เป็นช่วงติดกันที่ event_date เท่ากัน — ใช้ตีกรอบการ์ดมือถือ */
 function runsByDate(leads: TrackingLead[]): { key: string; leads: TrackingLead[] }[] {
     const runs: { key: string; leads: TrackingLead[] }[] = []
@@ -299,6 +320,7 @@ export default function TrackingView({
     canManagePool = false,
     kits = [],
     kitBookings = [],
+    eventVehicles = [],
     canManageKits = false,
     isAdmin = false,
 }: {
@@ -319,6 +341,8 @@ export default function TrackingView({
     kits?: PoolKit[]
     /** การจองกระเป๋า (event_kits) ของงานเหล่านี้ + ของอีเวนต์อื่นในวันเดียวกัน (ใช้บอกว่าชน) */
     kitBookings?: KitBookingRow[]
+    /** การจองรถรายอีเวนต์ (event_vehicles) — ช่อง "จัดรถ" ของแถวรายอีเวนต์อ่านค่าจากตรงนี้ */
+    eventVehicles?: EventVehicle[]
     /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
     canManageKits?: boolean
     /** role = admin เท่านั้น — แท็บใบงานหน้างาน (หัวหน้างาน) แสดงเฉพาะแอดมิน */
@@ -806,47 +830,66 @@ export default function TrackingView({
                                     const sameAsPrev = i > 0 && arr[i - 1].event_date === lead.event_date
                                     const sameAsNext = i < arr.length - 1 && arr[i + 1].event_date === lead.event_date
                                     const framed = sameAsPrev || sameAsNext
+                                    // งานที่มีหลายอีเวนต์ = หลายแถว: ช่องระดับงานอยู่แถวแรกแล้วยืด rowSpan คลุมแถวย่อย
+                                    const subRows = eventRowsOf(lead)
+                                    const span = subRows.length
                                     return (
+                                        <Fragment key={lead.id}>
+                                            {subRows.map((ev, si) => (
                                         <TableRow
-                                            key={lead.id}
+                                            key={ev?.id ?? lead.id}
                                             className={cn(
                                                 'transition-colors [&_td]:py-3 [&_td]:align-top hover:bg-zinc-50/70 dark:hover:bg-zinc-900/40',
                                                 framed && DAY_FRAME,
-                                                framed && !sameAsPrev && 'border-t-2 border-t-zinc-300 dark:border-t-zinc-600',
-                                                framed && !sameAsNext && 'border-b-2 border-b-zinc-300 dark:border-b-zinc-600',
+                                                framed && !sameAsPrev && si === 0 && 'border-t-2 border-t-zinc-300 dark:border-t-zinc-600',
+                                                framed && !sameAsNext && si === span - 1 && 'border-b-2 border-b-zinc-300 dark:border-b-zinc-600',
+                                                // แถวย่อยของงานเดียวกันติดกันเป็นก้อน: ไม่มีเส้นคั่น + พื้นจางกว่าแถวแรกนิดหน่อย
+                                                si > 0 && 'bg-zinc-50/50 dark:bg-zinc-900/20',
+                                                si < span - 1 && 'border-b-0',
                                                 urgent && 'bg-rose-50/70 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/70 dark:hover:bg-rose-950/40'
                                             )}
                                         >
-                                            <TableCell className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
+                                            {si === 0 && (
+                                                <>
+                                                    <TableCell rowSpan={span} className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
+
+                                                    <TableCell rowSpan={span}>
+                                                        <JobCell lead={lead} today={today} />
+                                                    </TableCell>
+
+                                                    <TableCell rowSpan={span}>
+                                                        {designGate(lead)}
+                                                    </TableCell>
+
+                                                    <TableCell rowSpan={span}>
+                                                        <SupplierCell lead={lead} save={save} />
+                                                    </TableCell>
+                                                </>
+                                            )}
 
                                             <TableCell>
-                                                <JobCell lead={lead} today={today} />
+                                                {ev && <EventLabel event={ev} />}
+                                                {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev?.id ?? null} />)}
                                             </TableCell>
 
                                             <TableCell>
-                                                {designGate(lead)}
+                                                {ev && <EventLabel event={ev} />}
+                                                {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev?.id ?? null} eventVehicles={eventVehicles} />)}
                                             </TableCell>
 
                                             <TableCell>
-                                                <SupplierCell lead={lead} save={save} />
+                                                {ev && <EventLabel event={ev} />}
+                                                {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev?.id ?? null} />)}
                                             </TableCell>
 
-                                            <TableCell>
-                                                {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
-                                            </TableCell>
-
-                                            <TableCell>
-                                                {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
-                                            </TableCell>
-
-                                            <TableCell>
-                                                {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
-                                            </TableCell>
-
-                                            <TableCell>
-                                                <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} />
-                                            </TableCell>
+                                            {si === 0 && (
+                                                <TableCell rowSpan={span}>
+                                                    <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} />
+                                                </TableCell>
+                                            )}
                                         </TableRow>
+                                            ))}
+                                        </Fragment>
                                     )
                                 })}
                             </Fragment>
@@ -890,6 +933,35 @@ export default function TrackingView({
                                     <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} />
                                 </div>
 
+                                {lead.events.length >= 2 ? (
+                                    /* งานหลายอีเวนต์ — จัดคน/จัดรถ/กระเป๋า ซ้อนเป็นก้อนละอีเวนต์ */
+                                    <>
+                                        <div>
+                                            <div className="text-[11px] text-zinc-500">ออกแบบ</div>
+                                            {designGate(lead)}
+                                        </div>
+                                        {lead.events.map(ev => (
+                                            <div key={ev.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-2 space-y-2">
+                                                <EventLabel event={ev} />
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <div className="text-[11px] text-zinc-500">จัดรถ</div>
+                                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} />)}
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[11px] text-zinc-500">กระเป๋า</div>
+                                                        {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} />)}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[11px] text-zinc-500">จัดคน</div>
+                                                    <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </>
+                                ) : (
+                                    <>
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <div className="text-[11px] text-zinc-500">ออกแบบ</div>
@@ -909,6 +981,8 @@ export default function TrackingView({
                                     <div className="text-[11px] text-zinc-500">จัดคน</div>
                                     <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />
                                 </div>
+                                    </>
+                                )}
 
                                 <div>
                                     <div className="text-[11px] text-zinc-500">ซัพพลายเออร์</div>

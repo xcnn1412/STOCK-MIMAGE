@@ -25,6 +25,15 @@ export const VEHICLES = [
   { key: 'car_champ', label: 'Toyota Champ' },
 ] as const
 
+/**
+ * การจองรถหนึ่งครั้ง (event_vehicles) — รถผูกกับ "อีเวนต์" ไม่ใช่งาน (ADR-0004)
+ * งานที่มีหลายอีเวนต์จึงจัดรถคนละคันต่ออีเวนต์ได้ · cache ระดับงาน (tracking_checklist) ยังถือได้คันเดียว
+ */
+export interface EventVehicle {
+  eventId: string
+  vehicleKey: string
+}
+
 export const READY_DESIGN_STATUSES = ['sent_email_cf', 'completed']
 
 /**

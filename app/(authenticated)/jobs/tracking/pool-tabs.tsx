@@ -639,21 +639,24 @@ export function KitSummary({
     kits,
     bookings,
     canManageKits,
+    eventId = null,
 }: {
     lead: TrackingLead
     kits: PoolKit[]
     bookings: KitBookingRow[]
     canManageKits: boolean
+    /** ช่องนี้เป็นของอีเวนต์ใบเดียว (แถวรายอีเวนต์ในตารางภาพรวม) — นับและจอง/ยกเลิกเฉพาะใบนั้น */
+    eventId?: string | null
 }) {
     const router = useRouter()
     const [open, setOpen] = useState(false)
     const [busy, setBusy] = useState<string | null>(null)
 
-    const eventIds = new Set(lead.events.map(e => e.id))
+    const eventIds = new Set(eventId ? [eventId] : lead.events.map(e => e.id))
     const mine = bookings.filter(b => eventIds.has(b.eventId))
     const packed = mine.filter(b => b.packed).length
 
-    const target = targetEventOf(lead)
+    const target = eventId ? lead.events.find(e => e.id === eventId) ?? null : targetEventOf(lead)
     const targetDate = target?.event_date ?? lead.event_date
     // ยังไม่มีอีเวนต์ → ใช้ id ว่าง: ไม่ตรงกับอีเวนต์ใดเลย ทุกการจองวันเดียวกันจึงนับเป็นชน (server สร้างอีเวนต์ให้ตอนกดจอง)
     const targetEventId = target?.id ?? ''
@@ -751,7 +754,7 @@ export function KitSummary({
                                                     variant="outline"
                                                     disabled={busy === kit.id}
                                                     onClick={() =>
-                                                        run(kit.id, () => unbookKitForLead(lead.id, kit.id), 'ยกเลิกจองแล้ว')
+                                                        run(kit.id, () => unbookKitForLead(lead.id, kit.id, eventId), 'ยกเลิกจองแล้ว')
                                                     }
                                                 >
                                                     ยกเลิกจอง
@@ -761,7 +764,7 @@ export function KitSummary({
                                                     size="sm"
                                                     disabled={busy === kit.id || clashNames.length > 0}
                                                     onClick={() =>
-                                                        run(kit.id, () => bookKitForLead(lead.id, kit.id), 'จองกระเป๋าแล้ว')
+                                                        run(kit.id, () => bookKitForLead(lead.id, kit.id, eventId), 'จองกระเป๋าแล้ว')
                                                     }
                                                 >
                                                     จอง

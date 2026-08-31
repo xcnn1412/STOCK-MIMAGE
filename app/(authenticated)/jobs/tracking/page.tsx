@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
 import TrackingView, { type TrackingLead } from './tracking-view'
-import { VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, POOL_TEAM_DEFAULTS, type DutyClaim, type PoolJob } from './tracking-logic'
+import { VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, POOL_TEAM_DEFAULTS, type DutyClaim, type EventVehicle, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
 
 /** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
@@ -171,6 +171,19 @@ export default async function TrackingPage() {
     }
     const kitBookings = [...bookingByPair.values()]
 
+    // การจองรถรายอีเวนต์ (event_vehicles — ADR-0004) — ช่อง "จัดรถ" ของงานที่มีหลายอีเวนต์อ่านจากตรงนี้
+    // งานที่มีอีเวนต์เดียวยังอ่าน cache ระดับงาน (tracking_checklist) เหมือนเดิม
+    let eventVehicles: EventVehicle[] = []
+    if (leadEvents.length > 0) {
+        const { data: vehicleRows } = await supabase
+            .from('event_vehicles')
+            .select('event_id, vehicle_key')
+            .in('event_id', leadEvents.map(e => e.id))
+        eventVehicles = (vehicleRows || [])
+            .map(r => ({ eventId: r.event_id as string, vehicleKey: r.vehicle_key as string }))
+            .filter(v => VEHICLES.some(x => x.key === v.vehicleKey))
+    }
+
     const { data: jobStatusSettings } = await supabase
         .from('job_settings')
         .select('category, value, label_th, color')
@@ -260,6 +273,7 @@ export default async function TrackingPage() {
                 isAdmin={sessionRole === 'admin'}
                 kits={kits}
                 kitBookings={kitBookings}
+                eventVehicles={eventVehicles}
                 canManageKits={canManageKits}
             />
         </Suspense>
