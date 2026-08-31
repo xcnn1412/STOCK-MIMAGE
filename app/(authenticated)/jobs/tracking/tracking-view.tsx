@@ -32,6 +32,7 @@ import {
     type TrackingLead,
     type Chip,
     type DutyClaim,
+    type EventVehicle,
     type KitReadiness,
     type PoolJob,
     type PrepDuty,
@@ -128,7 +129,12 @@ function ReadinessCell({ lead, roleLabels, kit, designReady }: {
     )
 }
 
-function JobCell({ lead, today }: { lead: TrackingLead; today: Date }) {
+function JobCell({ lead, today, showEvents = true }: {
+    lead: TrackingLead
+    today: Date
+    /** งานหลายอีเวนต์ = false — แถวย่อยมีป้ายอีเวนต์ของตัวเองแล้ว รายการในช่องงานจะเลื่อนบรรทัดไม่ตรงกัน */
+    showEvents?: boolean
+}) {
     return (
         <>
             <div className="font-medium text-zinc-900 dark:text-zinc-100">
@@ -147,12 +153,11 @@ function JobCell({ lead, today }: { lead: TrackingLead; today: Date }) {
                 {lead.customer_name || 'ไม่ระบุลูกค้า'}
                 {lead.event_name ? ` / ${lead.event_name}` : ''}
             </Link>
-            {lead.events.length > 0 && (
-                <div className="text-[11px] text-zinc-500 truncate">
-                    อีเวนต์:{' '}
-                    {lead.events.map((e, i) => (
-                        <span key={e.id}>
-                            {i > 0 && ' · '}
+            {showEvents && lead.events.length > 0 && (
+                <div className="text-[11px] text-zinc-500 space-y-0.5 mt-0.5">
+                    {lead.events.map(e => (
+                        <div key={e.id} className="truncate">
+                            <span className="text-zinc-400">อีเวนต์:</span>{' '}
                             <Link
                                 href={`/events/${e.id}/check-kits`}
                                 title="ไปหน้าเช็คของ/กระเป๋าของอีเวนต์นี้"
@@ -160,7 +165,8 @@ function JobCell({ lead, today }: { lead: TrackingLead; today: Date }) {
                             >
                                 {e.name} ↗
                             </Link>
-                        </span>
+                            {e.event_date && <span className="text-zinc-400"> · {formatDate(e.event_date)}</span>}
+                        </div>
                     ))}
                 </div>
             )}
@@ -256,6 +262,18 @@ function SupplierCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
 // กรอบงานวันเดียวกันในตาราง: เส้นข้างซ้าย/ขวา (บน/ล่างใส่เฉพาะแถวแรก/ท้ายของวัน)
 const DAY_FRAME = 'border-l-2 border-l-zinc-300 dark:border-l-zinc-600 border-r-2 border-r-zinc-300 dark:border-r-zinc-600'
 
+type LeadEvent = TrackingLead['events'][number]
+
+/** ป้ายบอกว่าช่องนี้เป็นของอีเวนต์ไหน — อยู่เหนือตัวแก้ไขในแถวรายอีเวนต์ */
+function EventLabel({ event }: { event: LeadEvent }) {
+    const label = `${event.name || 'ไม่ระบุชื่อ'}${event.event_date ? ` · ${formatDate(event.event_date)}` : ''}`
+    return (
+        <div className="mb-1 truncate text-[11px] font-medium text-zinc-500" title={label}>
+            {label}
+        </div>
+    )
+}
+
 /** แบ่ง leads (เรียงวันแล้ว) เป็นช่วงติดกันที่ event_date เท่ากัน — ใช้ตีกรอบการ์ดมือถือ */
 function runsByDate(leads: TrackingLead[]): { key: string; leads: TrackingLead[] }[] {
     const runs: { key: string; leads: TrackingLead[] }[] = []
@@ -299,6 +317,7 @@ export default function TrackingView({
     canManagePool = false,
     kits = [],
     kitBookings = [],
+    eventVehicles = [],
     canManageKits = false,
     isAdmin = false,
 }: {
@@ -319,6 +338,8 @@ export default function TrackingView({
     kits?: PoolKit[]
     /** การจองกระเป๋า (event_kits) ของงานเหล่านี้ + ของอีเวนต์อื่นในวันเดียวกัน (ใช้บอกว่าชน) */
     kitBookings?: KitBookingRow[]
+    /** การจองรถรายอีเวนต์ (event_vehicles) — ช่อง "จัดรถ" ของแถวรายอีเวนต์อ่านค่าจากตรงนี้ */
+    eventVehicles?: EventVehicle[]
     /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
     canManageKits?: boolean
     /** role = admin เท่านั้น — แท็บใบงานหน้างาน (หัวหน้างาน) แสดงเฉพาะแอดมิน */
@@ -630,7 +651,8 @@ export default function TrackingView({
                 )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
+            {/* มือถือ: แท็บเลื่อนแนวนอน ไม่หักบรรทัด — จอกว้างค่อยยอมให้ wrap */}
+            <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-x-visible items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {POOL_TABS.filter(t => t.key !== 'onsite' || isAdmin).map(t => (
                     <button
                         key={t.key}
@@ -806,47 +828,63 @@ export default function TrackingView({
                                     const sameAsPrev = i > 0 && arr[i - 1].event_date === lead.event_date
                                     const sameAsNext = i < arr.length - 1 && arr[i + 1].event_date === lead.event_date
                                     const framed = sameAsPrev || sameAsNext
+                                    // งานหลายอีเวนต์: แถวหัวแสดงวัน/ลูกค้า + ช่องระดับงาน (ออกแบบ/ซัพพลายเออร์/ความพร้อม ยืด rowSpan)
+                                    // แล้วหนึ่งแถวต่ออีเวนต์ — ชื่ออีเวนต์อยู่คอลัมน์ "งาน" ปุ่มจัดคน/จัดรถ/กระเป๋าเรียงแถวเดียวกัน
+                                    const multi = lead.events.length >= 2
+                                    const span = lead.events.length + 1
+                                    const rowCls = (first: boolean, last: boolean, sub: boolean) => cn(
+                                        'transition-colors [&_td]:py-3 [&_td]:align-top hover:bg-zinc-50/70 dark:hover:bg-zinc-900/40',
+                                        framed && DAY_FRAME,
+                                        framed && !sameAsPrev && first && 'border-t-2 border-t-zinc-300 dark:border-t-zinc-600',
+                                        framed && !sameAsNext && last && 'border-b-2 border-b-zinc-300 dark:border-b-zinc-600',
+                                        // แถวรายอีเวนต์ของงานเดียวกันติดกันเป็นก้อน: ไม่มีเส้นคั่น + พื้นจางกว่าแถวหัวนิดหน่อย
+                                        sub && 'bg-zinc-50/50 dark:bg-zinc-900/20',
+                                        !last && 'border-b-0',
+                                        urgent && 'bg-rose-50/70 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/70 dark:hover:bg-rose-950/40'
+                                    )
+                                    if (!multi) {
+                                        return (
+                                            <TableRow key={lead.id} className={rowCls(true, true, false)}>
+                                                <TableCell className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
+                                                <TableCell><JobCell lead={lead} today={today} /></TableCell>
+                                                <TableCell>{designGate(lead)}</TableCell>
+                                                <TableCell><SupplierCell lead={lead} save={save} /></TableCell>
+                                                <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={null} />)}</TableCell>
+                                                <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={null} eventVehicles={eventVehicles} />)}</TableCell>
+                                                <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={null} />)}</TableCell>
+                                                <TableCell><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></TableCell>
+                                            </TableRow>
+                                        )
+                                    }
                                     return (
-                                        <TableRow
-                                            key={lead.id}
-                                            className={cn(
-                                                'transition-colors [&_td]:py-3 [&_td]:align-top hover:bg-zinc-50/70 dark:hover:bg-zinc-900/40',
-                                                framed && DAY_FRAME,
-                                                framed && !sameAsPrev && 'border-t-2 border-t-zinc-300 dark:border-t-zinc-600',
-                                                framed && !sameAsNext && 'border-b-2 border-b-zinc-300 dark:border-b-zinc-600',
-                                                urgent && 'bg-rose-50/70 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/70 dark:hover:bg-rose-950/40'
-                                            )}
-                                        >
-                                            <TableCell className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
-
-                                            <TableCell>
-                                                <JobCell lead={lead} today={today} />
-                                            </TableCell>
-
-                                            <TableCell>
-                                                {designGate(lead)}
-                                            </TableCell>
-
-                                            <TableCell>
-                                                <SupplierCell lead={lead} save={save} />
-                                            </TableCell>
-
-                                            <TableCell>
-                                                {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
-                                            </TableCell>
-
-                                            <TableCell>
-                                                {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
-                                            </TableCell>
-
-                                            <TableCell>
-                                                {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
-                                            </TableCell>
-
-                                            <TableCell>
-                                                <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} />
-                                            </TableCell>
-                                        </TableRow>
+                                        <Fragment key={lead.id}>
+                                            {/* แถวหัวของงาน — ช่องจัดคน/จัดรถ/กระเป๋าเว้นว่าง ไปอยู่แถวรายอีเวนต์ข้างล่าง */}
+                                            <TableRow className={rowCls(true, false, false)}>
+                                                <TableCell rowSpan={span} className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
+                                                <TableCell><JobCell lead={lead} today={today} showEvents={false} /></TableCell>
+                                                <TableCell rowSpan={span}>{designGate(lead)}</TableCell>
+                                                <TableCell rowSpan={span}><SupplierCell lead={lead} save={save} /></TableCell>
+                                                <TableCell colSpan={3} />
+                                                <TableCell rowSpan={span}><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></TableCell>
+                                            </TableRow>
+                                            {lead.events.map((ev, si) => (
+                                                <TableRow key={ev.id} className={rowCls(false, si === lead.events.length - 1, true)}>
+                                                    <TableCell>
+                                                        <Link
+                                                            href={`/events/${ev.id}/check-kits`}
+                                                            title="ไปหน้าเช็คของ/กระเป๋าของอีเวนต์นี้"
+                                                            className="text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:underline"
+                                                        >
+                                                            {ev.name || 'ไม่ระบุชื่อ'} ↗
+                                                        </Link>
+                                                        {ev.event_date && <div className="text-[11px] text-zinc-400">{formatDate(ev.event_date)}</div>}
+                                                    </TableCell>
+                                                    <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} />)}</TableCell>
+                                                    <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} />)}</TableCell>
+                                                    <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} />)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </Fragment>
                                     )
                                 })}
                             </Fragment>
@@ -883,18 +921,47 @@ export default function TrackingView({
                                     isUrgent(lead, today, kitReadiness.get(lead.id), designReady.get(lead.id)) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20'
                                 )}
                             >
-                                <div className="flex justify-between items-start gap-2">
-                                    <div>
-                                        <JobCell lead={lead} today={today} />
-                                    </div>
-                                    <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} />
+                                <div className="space-y-1.5">
+                                    <JobCell lead={lead} today={today} showEvents={lead.events.length <= 1} />
+                                    {/* ป้ายยาวได้ (ขาด: ...) — อยู่บรรทัดของตัวเอง ไม่เบียดชื่องานจนล้นจอ */}
+                                    <div><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></div>
                                 </div>
 
+                                {lead.events.length >= 2 ? (
+                                    /* งานหลายอีเวนต์ — จัดคน/จัดรถ/กระเป๋า ซ้อนเป็นก้อนละอีเวนต์ */
+                                    <>
+                                        <div>
+                                            <div className="text-[11px] text-zinc-500">ออกแบบ</div>
+                                            {designGate(lead)}
+                                        </div>
+                                        {lead.events.map(ev => (
+                                            <div key={ev.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-2 space-y-2">
+                                                <EventLabel event={ev} />
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <div className="text-[11px] text-zinc-500">จัดรถ</div>
+                                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} />)}
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[11px] text-zinc-500">กระเป๋า</div>
+                                                        {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} />)}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[11px] text-zinc-500">จัดคน</div>
+                                                    {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} />)}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </>
+                                ) : (
+                                    <>
+                                {/* ออกแบบเต็มแถว (dropdown ยาว) — จัดรถ/กระเป๋าค่อยแบ่งครึ่ง */}
+                                <div>
+                                    <div className="text-[11px] text-zinc-500">ออกแบบ</div>
+                                    {designGate(lead)}
+                                </div>
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <div className="text-[11px] text-zinc-500">ออกแบบ</div>
-                                        {designGate(lead)}
-                                    </div>
                                     <div>
                                         <div className="text-[11px] text-zinc-500">จัดรถ</div>
                                         {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
@@ -907,8 +974,10 @@ export default function TrackingView({
 
                                 <div>
                                     <div className="text-[11px] text-zinc-500">จัดคน</div>
-                                    <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />
+                                    {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
                                 </div>
+                                    </>
+                                )}
 
                                 <div>
                                     <div className="text-[11px] text-zinc-500">ซัพพลายเออร์</div>

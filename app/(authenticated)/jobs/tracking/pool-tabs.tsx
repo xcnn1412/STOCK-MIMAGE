@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Briefcase, RotateCcw, UserRound, Users } from 'lucide-react'
+import { Briefcase, RotateCcw, UserRound, Users, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { bookKitForLead, claimLeadDuty, claimPoolJob, releaseLeadDuty, releasePoolJob, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
 import { DESIGN_OPTIONS } from './design-options'
@@ -110,6 +110,42 @@ function ClaimerLine({ job, kind, people }: { job: PoolJob; kind: PoolKind; peop
 }
 
 /**
+ * ปุ่ม "รับงาน" หน้าตาเดียวกันทุกจุด (ภาพรวม / หน้าที่ / การ์ดใบงาน)
+ * ไล่เฉดม่วง→ฟ้า + เงาเรือง + แสงกวาดตอน hover — ปุ่มเดียวในหน้าที่จงใจให้สะดุดตาชวนกด
+ */
+export function ClaimButton({ busy, title, onClick, children = 'รับงาน' }: {
+    busy?: boolean
+    title?: string
+    onClick: () => void | Promise<unknown>
+    children?: ReactNode
+}) {
+    return (
+        <span className="relative inline-flex shrink-0">
+            {/* วงแสงแดงหายใจอยู่หลังปุ่ม — เรียกสายตาแบบไม่แสบตา */}
+            <span
+                aria-hidden
+                className="pointer-events-none absolute -inset-0.5 rounded-full bg-gradient-to-r from-rose-500 to-orange-400 opacity-40 blur-[6px] animate-pulse"
+            />
+            <button
+                type="button"
+                disabled={busy}
+                title={title}
+                onClick={onClick}
+                className="group relative inline-flex h-9 md:h-7 items-center gap-1 overflow-hidden rounded-full bg-gradient-to-r from-rose-600 via-red-500 to-orange-500 px-4 md:px-3 text-xs font-semibold text-white shadow-sm shadow-red-500/40 ring-1 ring-inset ring-white/20 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-red-500/50 hover:brightness-110 active:translate-y-0 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+            >
+                <Zap className="h-3.5 w-3.5 transition-transform duration-150 group-hover:rotate-12 group-hover:scale-125" aria-hidden />
+                {children}
+                {/* แสงกวาดผ่านปุ่มตอน hover */}
+                <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/40 to-transparent transition-transform duration-500 group-hover:translate-x-full"
+                />
+            </button>
+        </span>
+    )
+}
+
+/**
  * ชิปรับงานแบบกะทัดรัดสำหรับตารางภาพรวม — หนึ่งชิปต่อหนึ่งใบงาน
  * รอรับ = ปุ่มรับงาน / รับแล้ว = ชื่อผู้รับ / ข้าม-เสร็จ = สถานะจาง
  * สิทธิ์จริงถูกบังคับใน claimPoolJob ฝั่ง server (คนผิดฝ่ายกดได้แต่จะเจอ error ภาษาไทย)
@@ -130,10 +166,8 @@ export function ClaimChip({
 
     if (job.status === 'awaiting_claim') {
         return (
-            <Button
-                size="sm"
-                className="h-6 px-2 text-xs"
-                disabled={busy}
+            <ClaimButton
+                busy={busy}
                 onClick={async () => {
                     setBusy(true)
                     try {
@@ -144,9 +178,7 @@ export function ClaimChip({
                         setBusy(false)
                     }
                 }}
-            >
-                รับงาน
-            </Button>
+            />
         )
     }
 
@@ -241,10 +273,8 @@ export function DutyGate({
         return (
             <div className="space-y-1">
                 {summary}
-                <Button
-                    size="sm"
-                    className="h-6 px-2 text-xs"
-                    disabled={busy}
+                <ClaimButton
+                    busy={busy}
                     title={`รับหน้าที่${label}ของงานนี้`}
                     onClick={async () => {
                         setBusy(true)
@@ -256,9 +286,7 @@ export function DutyGate({
                             setBusy(false)
                         }
                     }}
-                >
-                    รับงาน
-                </Button>
+                />
             </div>
         )
     }
@@ -342,9 +370,7 @@ function PoolCardActions({
     return (
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
             {isAwaiting && (
-                <Button size="sm" disabled={busy} onClick={() => run(() => claimPoolJob(job.id), 'รับงานแล้ว')}>
-                    รับงาน
-                </Button>
+                <ClaimButton busy={busy} onClick={() => run(() => claimPoolJob(job.id), 'รับงานแล้ว')} />
             )}
             {!isAwaiting && isMine && (
                 <Button
@@ -613,21 +639,24 @@ export function KitSummary({
     kits,
     bookings,
     canManageKits,
+    eventId = null,
 }: {
     lead: TrackingLead
     kits: PoolKit[]
     bookings: KitBookingRow[]
     canManageKits: boolean
+    /** ช่องนี้เป็นของอีเวนต์ใบเดียว (แถวรายอีเวนต์ในตารางภาพรวม) — นับและจอง/ยกเลิกเฉพาะใบนั้น */
+    eventId?: string | null
 }) {
     const router = useRouter()
     const [open, setOpen] = useState(false)
     const [busy, setBusy] = useState<string | null>(null)
 
-    const eventIds = new Set(lead.events.map(e => e.id))
+    const eventIds = new Set(eventId ? [eventId] : lead.events.map(e => e.id))
     const mine = bookings.filter(b => eventIds.has(b.eventId))
     const packed = mine.filter(b => b.packed).length
 
-    const target = targetEventOf(lead)
+    const target = eventId ? lead.events.find(e => e.id === eventId) ?? null : targetEventOf(lead)
     const targetDate = target?.event_date ?? lead.event_date
     // ยังไม่มีอีเวนต์ → ใช้ id ว่าง: ไม่ตรงกับอีเวนต์ใดเลย ทุกการจองวันเดียวกันจึงนับเป็นชน (server สร้างอีเวนต์ให้ตอนกดจอง)
     const targetEventId = target?.id ?? ''
@@ -725,7 +754,7 @@ export function KitSummary({
                                                     variant="outline"
                                                     disabled={busy === kit.id}
                                                     onClick={() =>
-                                                        run(kit.id, () => unbookKitForLead(lead.id, kit.id), 'ยกเลิกจองแล้ว')
+                                                        run(kit.id, () => unbookKitForLead(lead.id, kit.id, eventId), 'ยกเลิกจองแล้ว')
                                                     }
                                                 >
                                                     ยกเลิกจอง
@@ -735,7 +764,7 @@ export function KitSummary({
                                                     size="sm"
                                                     disabled={busy === kit.id || clashNames.length > 0}
                                                     onClick={() =>
-                                                        run(kit.id, () => bookKitForLead(lead.id, kit.id), 'จองกระเป๋าแล้ว')
+                                                        run(kit.id, () => bookKitForLead(lead.id, kit.id, eventId), 'จองกระเป๋าแล้ว')
                                                     }
                                                 >
                                                     จอง

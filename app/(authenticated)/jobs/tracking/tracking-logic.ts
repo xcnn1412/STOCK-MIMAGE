@@ -25,6 +25,15 @@ export const VEHICLES = [
   { key: 'car_champ', label: 'Toyota Champ' },
 ] as const
 
+/**
+ * การจองรถหนึ่งครั้ง (event_vehicles) — รถผูกกับ "อีเวนต์" ไม่ใช่งาน (ADR-0004)
+ * งานที่มีหลายอีเวนต์จึงจัดรถคนละคันต่ออีเวนต์ได้ · cache ระดับงาน (tracking_checklist) ยังถือได้คันเดียว
+ */
+export interface EventVehicle {
+  eventId: string
+  vehicleKey: string
+}
+
 export const READY_DESIGN_STATUSES = ['sent_email_cf', 'completed']
 
 /**
@@ -131,7 +140,8 @@ export function missingLabel(
 
 /** YYYY-MM-DD → Date เที่ยงคืนเวลาท้องถิ่น (new Date('YYYY-MM-DD') จะได้ UTC — อย่าใช้) */
 export function parseDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split('-').map(Number)
+  // ponytail: slice(0,10) — บางคอลัมน์ (events.event_date) เป็น timestamp เต็ม ไม่ใช่ YYYY-MM-DD เพียวๆ
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number)
   return new Date(y, m - 1, d)
 }
 
