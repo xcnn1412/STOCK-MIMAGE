@@ -921,11 +921,10 @@ export default function TrackingView({
                                     isUrgent(lead, today, kitReadiness.get(lead.id), designReady.get(lead.id)) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20'
                                 )}
                             >
-                                <div className="flex justify-between items-start gap-2">
-                                    <div>
-                                        <JobCell lead={lead} today={today} showEvents={lead.events.length <= 1} />
-                                    </div>
-                                    <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} />
+                                <div className="space-y-1.5">
+                                    <JobCell lead={lead} today={today} showEvents={lead.events.length <= 1} />
+                                    {/* ป้ายยาวได้ (ขาด: ...) — อยู่บรรทัดของตัวเอง ไม่เบียดชื่องานจนล้นจอ */}
+                                    <div><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></div>
                                 </div>
 
                                 {lead.events.length >= 2 ? (
