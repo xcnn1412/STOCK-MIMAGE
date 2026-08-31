@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (2026-08-31) — เกณฑ์ผ่านครบ, review แล้ว
 
 - [ ] เปลี่ยน lead เป็น accepted → เกิดเฉพาะใบงานหน้างาน (ไม่มีใบงานกราฟิก)
 - [ ] ปุ่ม "เปิดใบงานกราฟิก" บนหน้า lead: เห็นเฉพาะ accepted + ยังไม่มีใบงานกราฟิก กดแล้วใบงานเกิดสถานะ awaiting_claim + notifications ถึงแผนกฝ่ายกราฟิก + ActionType ใหม่ถูก log

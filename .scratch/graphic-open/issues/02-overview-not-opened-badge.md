@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done (2026-08-31) — เกณฑ์ผ่านครบ (tsc/check/build), review แล้ว
 
 - [ ] logic ตัดสินสถานะช่องออกแบบ (ยังไม่เปิด/รอรับ/แก้ได้) เป็นฟังก์ชัน pure ใน tracking-logic + assert ครบทุกกิ่งใน check file และ check ผ่าน
 - [ ] ภาพรวม: งานไม่มีใบงานกราฟิกขึ้นป้ายโทนเตือน "ยังไม่เปิดใบงาน" ไม่ใช่ dropdown; มุมมองมือถือเหมือนกัน
