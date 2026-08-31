@@ -115,6 +115,8 @@ export type ActionType =
     | 'RELEASE_POOL_JOB'
     | 'SKIP_POOL_JOB'
     | 'REASSIGN_POOL_JOB'
+    // ใบงานจบเอง — กราฟิก (design_status พร้อม) / หน้างาน (ปิดอีเวนต์จากการคืนกระเป๋า)
+    | 'AUTO_FINISH_POOL_JOB'
     // Ticket Module
     | 'CREATE_TICKET'
     | 'UPDATE_TICKET_STATUS'

@@ -486,6 +486,64 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 }
 
 
+/** สถานะใบงานที่ถือว่าจบแล้ว — ตรงกับ POOL_DONE_STATUSES ใน jobs/tracking/tracking-logic.ts */
+const POOL_FINISHED_STATUSES = ['done', 'skipped']
+
+/**
+ * ใบงานหน้างานของงานที่ผูกอีเวนต์นี้จบเอง เมื่ออีเวนต์ถูกปิดจากการคืนกระเป๋า
+ * — ไม่คืน error และไม่ throw ออกไป: การคืนกระเป๋าต้องสำเร็จอยู่ดีแม้ใบงานจะอัปเดตพลาด
+ * — leadId ว่าง (อีเวนต์ที่ไม่ได้มาจากงาน CRM) → ข้ามเงียบๆ
+ */
+async function autoFinishOnsiteJobs(leadId: string | null, actorId: string) {
+    if (!leadId) return
+
+    const supabase = createServiceClient()
+    const { data: jobs, error } = await supabase
+        .from('jobs')
+        .select('id, status')
+        .eq('crm_lead_id', leadId)
+        .eq('job_type', 'onsite')
+
+    if (error) {
+        console.error('[events] auto-finish onsite: fetch failed:', error.message)
+        return
+    }
+
+    for (const job of jobs || []) {
+        const oldStatus = (job.status as string) || ''
+        if (POOL_FINISHED_STATUSES.includes(oldStatus)) continue
+
+        const { error: updErr } = await supabase
+            .from('jobs')
+            .update({ status: 'done', updated_at: new Date().toISOString() })
+            .eq('id', job.id)
+        if (updErr) {
+            console.error('[events] auto-finish onsite: update failed:', updErr.message)
+            continue
+        }
+
+        // ไทม์ไลน์ของใบงาน (job_activities) แบบเดียวกับที่พูลงานบันทึกตอนรับ/คืน/ข้าม
+        await supabase.from('job_activities').insert({
+            job_id: job.id,
+            created_by: actorId,
+            activity_type: 'status_change',
+            description: 'จบอัตโนมัติ: ปิดอีเวนต์แล้ว',
+            old_status: oldStatus,
+            new_status: 'done',
+        })
+        await logActivity('AUTO_FINISH_POOL_JOB', {
+            jobId: job.id,
+            jobType: 'onsite',
+            leadId,
+            oldStatus,
+        })
+        revalidatePath(`/jobs/${job.id}`)
+    }
+
+    revalidatePath('/jobs')
+    revalidatePath('/jobs/tracking')
+}
+
 export async function processEventReturn(
     eventId: string,
     itemStatuses: { itemId: string, status: string }[],
@@ -596,6 +654,15 @@ export async function processEventReturn(
          name: event?.name || 'Unknown Event',
          closureRecorded: !closureError
      }, undefined)
+
+     // 5. ปิดอีเวนต์แล้ว → ใบงานหน้างานของงานที่ผูกอีเวนต์นี้จบเอง (หายจากแท็บหน้างาน)
+     //    จงใจไม่ให้ล้มการคืนกระเป๋า: อีเวนต์ปิดสำเร็จไปแล้ว ใบงานพลาดก็แค่บันทึกไว้ใน console
+     //    อีเวนต์ที่ไม่ได้ผูกกับงาน CRM (crm_lead_id ว่าง) ข้ามเงียบๆ
+     try {
+         await autoFinishOnsiteJobs((event?.crm_lead_id as string) ?? null, userId)
+     } catch (e) {
+         console.error('[events] auto-finish onsite jobs threw:', e)
+     }
 
      revalidatePath('/events')
      revalidatePath('/items')

@@ -891,6 +891,14 @@ export function groupPoolJobs(
   return { graphic, onsite }
 }
 
+/**
+ * ใบงานกราฟิกใบนี้ควรจบอัตโนมัติไหม — จริงเมื่องานออกแบบถึงขั้นพร้อมแล้ว (READY_DESIGN_STATUSES)
+ * และใบงานยังไม่จบ/ไม่ถูกข้าม (ใบที่จบแล้วไม่ต้องแตะซ้ำ)
+ */
+export function shouldFinishGraphicJob(designStatus: string, jobStatus: string): boolean {
+  return READY_DESIGN_STATUSES.includes(designStatus) && !POOL_DONE_STATUSES.includes(jobStatus)
+}
+
 /** วันจัดงานที่ใกล้ที่สุดหลัง fromDate (ไม่รวมวันนั้น) — null เมื่อไม่มีงานข้างหน้า */
 export function nextJobDate(leads: TrackingLead[], fromDate: string): string | null {
   let best: string | null = null

@@ -32,6 +32,8 @@ import {
   NO_DEPARTMENT_LABEL,
   personClashes,
   POOL_DONE_STATUSES,
+  READY_DESIGN_STATUSES,
+  shouldFinishGraphicJob,
   staffedCounts,
   timeStatus,
   vehicleAvailability,
@@ -828,5 +830,19 @@ assert.deepEqual(
 )
 assert.deepEqual(groupPoolJobs([]), { graphic: [], onsite: [] })
 assert.deepEqual([...POOL_DONE_STATUSES], ['done', 'skipped'])
+
+// --- shouldFinishGraphicJob: ใบงานกราฟิกจบเองเมื่อออกแบบถึงขั้นพร้อม ----------
+// ออกแบบพร้อม + ใบงานยังไม่จบ → จบได้
+assert.equal(shouldFinishGraphicJob('sent_email_cf', 'awaiting_claim'), true)
+assert.equal(shouldFinishGraphicJob('completed', 'in_progress'), true)
+// ใบงานจบ/ถูกข้ามไปแล้ว → ไม่แตะซ้ำ
+assert.equal(shouldFinishGraphicJob('completed', 'done'), false)
+assert.equal(shouldFinishGraphicJob('sent_email_cf', 'skipped'), false)
+// ออกแบบยังไม่ถึงขั้นพร้อม → ไม่จบ แม้ใบงานจะยังทำอยู่
+assert.equal(shouldFinishGraphicJob('revising', 'in_progress'), false)
+assert.equal(shouldFinishGraphicJob('sent', 'awaiting_claim'), false)
+assert.equal(shouldFinishGraphicJob('not_started', 'done'), false)
+// สถานะออกแบบทุกค่าใน READY_DESIGN_STATUSES ใช้ได้เหมือนกัน
+assert.deepEqual(READY_DESIGN_STATUSES.map((s) => shouldFinishGraphicJob(s, 'awaiting_claim')), [true, true])
 
 console.log('tracking-logic.check: all passed')

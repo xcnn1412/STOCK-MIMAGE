@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** done (2026-08-31) — tsc 7 error เดิม, check ผ่าน; ตัดสินใจ: design status ถอยหลังไม่ปลุกใบงานที่จบแล้ว
 
 - [ ] อัปเดต design_status เป็น sent_email_cf หรือ completed → ใบงานกราฟิกของงานนั้นเป็น done และหายจากแท็บกราฟิก
 - [ ] processEventReturn สำเร็จ → ใบงานหน้างานของงานที่ผูกอีเวนต์นั้นเป็น done และหายจากแท็บหน้างาน

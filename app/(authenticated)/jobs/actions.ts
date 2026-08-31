@@ -6,6 +6,8 @@ import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
 import { requireAuth } from '@/lib/auth'
+// โมดูลตรรกะล้วน (ไม่มี React / ไม่มี 'use client') — import เข้ามาใน server action ได้
+import { READY_DESIGN_STATUSES, shouldFinishGraphicJob } from './tracking/tracking-logic'
 
 
 async function getSession() {
@@ -763,6 +765,8 @@ export async function autoCreateJobsFromAcceptedLead(leadId: string) {
 const AWAITING_CLAIM_STATUS = 'awaiting_claim'
 /** ใบงานที่ถูกข้าม — ไม่ต้องมีแถวใน job_settings, groupPoolJobs ตัดออกจากแท็บฝ่ายให้ */
 const SKIPPED_STATUS = 'skipped'
+/** ใบงานที่จบแล้ว — ปลายทางของการจบอัตโนมัติ (groupPoolJobs ตัดออกจากแท็บฝ่ายเช่นกัน) */
+const DONE_STATUS = 'done'
 /** แผนกที่ดูแลพูลร่วมกับแอดมิน — ข้ามใบงาน/เปลี่ยนคนรับได้ และรับแจ้งเตือนความเคลื่อนไหว */
 const COORDINATOR_DEPARTMENT = 'ฝ่ายประสานงาน'
 /** ยังไม่มีสถานะอื่นใน job_settings เลย — สถานะหลังรับงานตกมาที่ค่านี้ */
@@ -1108,6 +1112,52 @@ export async function reassignPoolJob(jobId: string, newUserId: string) {
 
     revalidatePool(jobId)
     return { success: true }
+}
+
+/**
+ * ใบงานกราฟิกของงานนี้จบเอง เมื่อสถานะออกแบบถึงขั้นพร้อม (sent_email_cf / completed)
+ * — ไม่คืน error: การบันทึกสถานะออกแบบต้องสำเร็จอยู่ดีแม้ใบงานจะอัปเดตพลาด (บันทึกไว้ใน console)
+ * — ถ้าสถานะออกแบบถอยกลับออกจากขั้นพร้อม (เช่น "แก้ไข") จงใจไม่ปลุกใบงานที่จบไปแล้วกลับเข้าพูล
+ *   ให้แอดมิน/ฝ่ายประสานงานตัดสินใจเองว่าจะเปิดใบงานใหม่หรือแก้สถานะใบงานด้วยมือ
+ */
+async function autoFinishGraphicJobs(leadId: string, designStatus: string, actorId: string) {
+    if (!READY_DESIGN_STATUSES.includes(designStatus)) return
+
+    const supabase = createServiceClient()
+    const { data: jobs, error } = await supabase
+        .from('jobs')
+        .select('id, status')
+        .eq('crm_lead_id', leadId)
+        .eq('job_type', 'graphic')
+
+    if (error) {
+        console.error('[jobs] auto-finish graphic: fetch failed:', error.message)
+        return
+    }
+
+    for (const job of jobs || []) {
+        const oldStatus = (job.status as string) || ''
+        if (!shouldFinishGraphicJob(designStatus, oldStatus)) continue
+
+        const { error: updErr } = await supabase
+            .from('jobs')
+            .update({ status: DONE_STATUS, updated_at: new Date().toISOString() })
+            .eq('id', job.id)
+        if (updErr) {
+            console.error('[jobs] auto-finish graphic: update failed:', updErr.message)
+            continue
+        }
+
+        await logPoolJobActivity(job.id as string, actorId, 'จบอัตโนมัติ: ออกแบบเสร็จ', oldStatus, DONE_STATUS)
+        await logActivity('AUTO_FINISH_POOL_JOB', {
+            jobId: job.id,
+            jobType: 'graphic',
+            leadId,
+            designStatus,
+            oldStatus,
+        })
+        revalidatePool(job.id as string)
+    }
 }
 
 // Get jobs linked to a CRM lead
@@ -2238,6 +2288,17 @@ export async function updateLeadTracking(
     if (error) return { error: error.message }
 
     await logActivity('UPDATE_LEAD_TRACKING', { lead_id: leadId, ...update })
+
+    // ออกแบบถึงขั้นพร้อมแล้ว → ใบงานกราฟิกของงานนี้จบเองและหายจากแท็บกราฟิก
+    // จงใจไม่ให้ล้มการบันทึกสถานะออกแบบ: ใบงานอัปเดตพลาดก็ยังถือว่าบันทึกสำเร็จ
+    if (typeof update.design_status === 'string') {
+        try {
+            await autoFinishGraphicJobs(leadId, update.design_status, session.userId)
+        } catch (e) {
+            console.error('[jobs] auto-finish graphic threw:', e)
+        }
+    }
+
     revalidatePath('/jobs/tracking')
     return { success: true }
 }
