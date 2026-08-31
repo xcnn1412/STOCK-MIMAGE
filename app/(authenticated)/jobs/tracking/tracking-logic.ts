@@ -27,13 +27,14 @@ export const VEHICLES = [
 
 export const READY_DESIGN_STATUSES = ['sent_email_cf', 'completed']
 
-export type MissingItem = 'design' | 'staff' | 'vehicle' | 'time'
+export type MissingItem = 'design' | 'staff' | 'vehicle' | 'time' | 'kits'
 
 export const MISSING_LABELS: Record<MissingItem, string> = {
   design: 'ออกแบบ',
   staff: 'จัดคน',
   vehicle: 'จัดรถ',
   time: 'เวลาเริ่ม',
+  kits: 'กระเป๋า',
 }
 
 /** ตำแหน่งที่ยังมีคนไม่ครบ 1 รายการ */
@@ -85,17 +86,22 @@ export function isFullyStaffed(lead: TrackingLead): boolean {
   return missingRoles(lead).length === 0
 }
 
-export function getMissing(lead: TrackingLead): MissingItem[] {
+/**
+ * สิ่งที่ยังขาดของงานหนึ่ง เรียงตามลำดับเกณฑ์ความพร้อม: ออกแบบ, จัดคน, จัดรถ, เวลาเริ่ม, กระเป๋า
+ * `kit` = ข้อมูลกระเป๋าของงานนี้ (เกณฑ์ข้อ 5) — ไม่ส่ง = ไม่ตัดสินข้อกระเป๋าเลย (ผู้เรียกที่ยังไม่มีข้อมูล)
+ */
+export function getMissing(lead: TrackingLead, kit?: KitReadiness): MissingItem[] {
   const missing: MissingItem[] = []
   if (!READY_DESIGN_STATUSES.includes(lead.design_status)) missing.push('design')
   if (!isFullyStaffed(lead)) missing.push('staff')
   if (!VEHICLES.some((v) => lead.tracking_checklist.includes(v.key))) missing.push('vehicle')
   if (!lead.event_time) missing.push('time')
+  if (kit && isMissingKits(kit)) missing.push('kits')
   return missing
 }
 
-export function isReady(lead: TrackingLead): boolean {
-  return getMissing(lead).length === 0
+export function isReady(lead: TrackingLead, kit?: KitReadiness): boolean {
+  return getMissing(lead, kit).length === 0
 }
 
 /** ป้ายของสิ่งที่ยังขาด — 'staff' ต่อท้ายด้วยตำแหน่งที่ขาด เช่น `จัดคน (ผู้ช่วย 1, ช่างกล้อง 2)` */
@@ -196,9 +202,11 @@ export function inChip(lead: TrackingLead, chip: Chip, today: Date): boolean {
   return chip === 'today' ? d === 0 : d >= 0 && d <= 7
 }
 
+/** `kits` = ข้อมูลกระเป๋าต่องาน (leadId → KitReadiness) — ไม่ส่ง = ไม่ตัดสินเกณฑ์ข้อกระเป๋า */
 export function chipCounts(
   leads: TrackingLead[],
-  today: Date
+  today: Date,
+  kits?: Map<string, KitReadiness>
 ): Record<Chip, { total: number; notReady: number }> {
   const counts: Record<Chip, { total: number; notReady: number }> = {
     today: { total: 0, notReady: 0 },
@@ -206,7 +214,7 @@ export function chipCounts(
     month: { total: 0, notReady: 0 },
   }
   for (const lead of leads) {
-    const ready = isReady(lead)
+    const ready = isReady(lead, kits?.get(lead.id))
     for (const chip of ['today', 'week7', 'month'] as Chip[]) {
       if (!inChip(lead, chip, today)) continue
       counts[chip].total++
@@ -216,9 +224,9 @@ export function chipCounts(
   return counts
 }
 
-export function isUrgent(lead: TrackingLead, today: Date): boolean {
+export function isUrgent(lead: TrackingLead, today: Date, kit?: KitReadiness): boolean {
   if (!lead.event_date) return false
-  return !isReady(lead) && daysUntil(lead.event_date, today) <= 7
+  return !isReady(lead, kit) && daysUntil(lead.event_date, today) <= 7
 }
 
 // --- resource clashes (รถ / คน ถูกใช้ซ้ำข้ามงาน) -----------------------------
@@ -250,9 +258,15 @@ export function dateRangesOverlap(a: TrackingLead, b: TrackingLead): boolean {
   return a.event_date <= bEnd && b.event_date <= aEnd
 }
 
+/** งานที่ยังใส่เวลาไม่ครบ (ขาดเวลาเริ่ม หรือ เวลาสิ้นสุด) — เทียบเวลากับงานอื่นไม่ได้ ('เช็คเวลาไม่ได้') */
+export function lacksTime(lead: TrackingLead): boolean {
+  return !lead.event_time || !lead.event_end_time
+}
+
 /** how two date-overlapping leads clash in time: 'conflict' (overlap), 'queued' (same day, no overlap), 'unknown' (a time is missing). */
 export function timeStatus(a: TrackingLead, b: TrackingLead): 'conflict' | 'queued' | 'unknown' {
   if (!dateRangesOverlap(a, b)) return 'queued'
+  // เขียนเต็มแทน lacksTime() เพื่อให้ TS แคบชนิดให้บรรทัดเทียบเวลาข้างล่าง
   if (!a.event_time || !a.event_end_time || !b.event_time || !b.event_end_time) return 'unknown'
   const aSingle = !a.event_end_date || a.event_end_date === a.event_date
   const bSingle = !b.event_end_date || b.event_end_date === b.event_date
@@ -409,9 +423,11 @@ export interface Bar {
   conflict: boolean
   /** เฉพาะเลนงาน: ยังไม่จัดทั้งคนและรถ */
   unassigned: boolean
+  /** เฉพาะเลนกระเป๋า: การจองนี้จัดกระเป๋าครบแล้วหรือยัง (ไม่ใช่เลนกระเป๋า = undefined) */
+  packed?: boolean
 }
 
-export type LaneKind = 'jobs' | 'vehicle' | 'person'
+export type LaneKind = 'jobs' | 'vehicle' | 'kit' | 'person'
 
 export interface Lane {
   kind: LaneKind
@@ -421,6 +437,16 @@ export interface Lane {
   sublabel?: string
   bars: Bar[]
   layers: number
+}
+
+/** ตัวเลือกของไทม์ไลน์ — ไม่ส่ง kits = ไม่มีเลนกระเป๋า */
+export interface TimelineOptions {
+  /** แผนกที่เลือกไว้ในชิป — ว่าง/ไม่ส่ง = ทุกแผนก (กรองเฉพาะเลนคน) */
+  departments?: string[]
+  /** กระเป๋าทั้งหมด — หนึ่งใบ = หนึ่งเลน ตามลำดับที่ส่งมา */
+  kits?: Kit[]
+  /** การจองกระเป๋าที่เอามาวาดเป็นแถบในเลนกระเป๋า (รวมของอีเวนต์อื่นด้วย เพื่อให้เห็นว่าชน) */
+  kitBookings?: KitBookingDetail[]
 }
 
 export interface DayLayout {
@@ -440,6 +466,8 @@ export interface WeekCell {
   /** ยังไม่จัดทั้งคนและรถ (กฎเดียวกับเลนงานโหมดวัน) */
   unassigned: boolean
   role?: string
+  /** เฉพาะเลนกระเป๋า: การจองนี้จัดกระเป๋าครบแล้วหรือยัง */
+  packed?: boolean
 }
 
 export interface WeekLane {
@@ -587,7 +615,7 @@ function leadLabel(lead: TrackingLead): string {
 }
 
 /**
- * เลนและแถบงานของหนึ่งวัน: เลนงาน → เลนรถ (ตาม VEHICLES) → เลนคน (ตามแผนก แล้วชื่อ).
+ * เลนและแถบงานของหนึ่งวัน: เลนงาน → เลนรถ (ตาม VEHICLES) → เลนกระเป๋า → เลนคน (ตามแผนก แล้วชื่อ).
  * ตำแหน่ง (นาทีจาก 00:00), ชั้นซ้อน, สี, ธงชน, ธงยังไม่จัด คำนวณให้ครบ — UI แค่ map เป็น div.
  */
 export function layoutDay(
@@ -595,7 +623,7 @@ export function layoutDay(
   date: string,
   people: Person[],
   roleLabels: Record<string, string>,
-  opts?: { departments?: string[] }
+  opts?: TimelineOptions
 ): DayLayout {
   const onDate = leadsOnDate(leads, date)
   const byId = new Map(onDate.map((l) => [l.id, l]))
@@ -641,6 +669,33 @@ export function layoutDay(
     lanes.push({ kind: 'vehicle', key: vehicle.key, label: vehicle.label, bars, layers: assignLayers(bars) })
   }
 
+  // เลนกระเป๋า — แถบคือ "การจอง" ไม่ใช่งาน: ยืดตามเวลาของงานที่จองเมื่องานนั้นอยู่ในวันนี้และมีเวลา
+  // ไม่งั้นพาดทั้งวันแบบลายทาง (เหมือนงานที่ยังไม่ใส่เวลา) · ชน = กระเป๋าใบเดียวกันวันเดียวกันคนละอีเวนต์
+  const bookings = opts?.kitBookings ?? []
+  const makeKitBar = (b: KitBookingDetail): Bar => {
+    const lead = b.leadId ? byId.get(b.leadId) : undefined
+    const timing = lead ? timingOf(lead, date) : 'no_time'
+    const { startMin, endMin } = lead
+      ? spanOf(lead, timing, hourStart)
+      : { startMin: hourStart * 60, endMin: DAY_END_MIN }
+    return {
+      leadId: b.leadId ?? '',
+      label: b.eventName,
+      startMin,
+      endMin,
+      timing,
+      layer: 0,
+      colorIdx: lead ? colorByLead[lead.id] : 0,
+      conflict: kitBookingConflict(bookings, b).length > 0,
+      unassigned: false,
+      packed: b.packed,
+    }
+  }
+  for (const kit of opts?.kits ?? []) {
+    const bars = bookings.filter((b) => b.kitId === kit.id && b.eventDate === date).map(makeKitBar)
+    lanes.push({ kind: 'kit', key: kit.id, label: kit.name, bars, layers: assignLayers(bars) })
+  }
+
   for (const person of sortPeople(people, opts?.departments)) {
     const bars: Bar[] = []
     for (const lead of onDate) {
@@ -667,7 +722,7 @@ export function layoutWeek(
   startDate: string,
   people: Person[],
   roleLabels: Record<string, string>,
-  opts?: { departments?: string[] }
+  opts?: TimelineOptions
 ): WeekLayout {
   const days = Array.from({ length: 7 }, (_, i) => addDays(startDate, i))
   const perDay = days.map((day) => leadsOnDate(leads, day))
@@ -709,6 +764,25 @@ export function layoutWeek(
     return cells
   }
 
+  /** cells ของเลนกระเป๋าหนึ่งใบ: บล็อกคือ "การจอง" ในวันของอีเวนต์นั้น (ชน = วันเดียวกันคนละอีเวนต์) */
+  const bookings = opts?.kitBookings ?? []
+  const kitCells = (kitId: string): Record<string, WeekCell[]> => {
+    const cells: Record<string, WeekCell[]> = {}
+    for (const day of days) {
+      cells[day] = bookings
+        .filter((b) => b.kitId === kitId && b.eventDate === day)
+        .map((b) => ({
+          leadId: b.leadId ?? '',
+          label: b.eventName,
+          colorIdx: b.leadId ? colorByLead[b.leadId] ?? 0 : 0,
+          conflict: kitBookingConflict(bookings, b).length > 0,
+          unassigned: false,
+          packed: b.packed,
+        }))
+    }
+    return cells
+  }
+
   const lanes: WeekLane[] = [
     { kind: 'jobs', key: 'jobs', label: 'งาน', cells: buildCells(() => true, () => undefined, false) },
     ...VEHICLES.map((vehicle) => ({
@@ -716,6 +790,12 @@ export function layoutWeek(
       key: vehicle.key as string,
       label: vehicle.label as string,
       cells: buildCells((lead) => vehicleOf(lead) === vehicle.key, () => undefined, true),
+    })),
+    ...(opts?.kits ?? []).map((kit) => ({
+      kind: 'kit' as const,
+      key: kit.id,
+      label: kit.name,
+      cells: kitCells(kit.id),
     })),
   ]
 
@@ -901,11 +981,71 @@ export function shouldFinishGraphicJob(designStatus: string, jobStatus: string):
 
 // --- จองกระเป๋า: กติกาชนรายวัน (ADR-0003) -------------------------------------
 
+/** กระเป๋าหนึ่งใบ — ตัวเลือกในกล่องจอง และหนึ่งเลนในไทม์ไลน์ */
+export interface Kit {
+  id: string
+  name: string
+}
+
 /** การจองกระเป๋าหนึ่งครั้ง — กระเป๋าใบหนึ่งกับอีเวนต์หนึ่ง (วันของอีเวนต์ YYYY-MM-DD) */
 export interface KitBooking {
   kitId: string
   eventId: string
   eventDate: string | null
+}
+
+/** การจองหนึ่งครั้งพร้อมข้อมูลอีเวนต์ที่ join มาแล้ว — ที่การ์ดใบงานและเลนกระเป๋าใช้ */
+export interface KitBookingDetail extends KitBooking {
+  eventName: string
+  /** งานที่อีเวนต์นี้ผูกอยู่ — null = อีเวนต์ที่ไม่ได้มาจาก CRM */
+  leadId: string | null
+  /** จัดกระเป๋าครบแล้ว (packed_at ไม่ว่าง) */
+  packed: boolean
+}
+
+/** ข้อมูลกระเป๋าของงานหนึ่ง เท่าที่เกณฑ์ความพร้อมข้อ 5 ต้องใช้ */
+export interface KitReadiness {
+  /** ใบงานหน้างานของงานนี้ถูกข้าม — งานที่ไม่ออกหน้างานไม่ต้องใช้กระเป๋า */
+  onsiteSkipped: boolean
+  /** การจองกระเป๋าทุกใบของงานนี้ — [] = ยังไม่จองเลย */
+  bookings: { packed: boolean }[]
+}
+
+/**
+ * ขาด "กระเป๋า" ไหม — ยังไม่จองเลย หรือจองแล้วแต่ยังจัดไม่ครบทุกใบ
+ * ใบงานหน้างานที่ถูกข้ามแล้วไม่นับข้อนี้ (ADR-0003)
+ */
+export function isMissingKits(kit: KitReadiness): boolean {
+  if (kit.onsiteSkipped) return false
+  return kit.bookings.length === 0 || kit.bookings.some((b) => !b.packed)
+}
+
+/** สถานะใบงานที่แปลว่า "ถูกข้าม" — ค่าตั้งต้นที่ส่งทับได้ (สถานะใบงานตั้งค่าเองได้ใน job_settings) */
+export const SKIPPED_JOB_STATUS = 'skipped'
+
+/**
+ * ข้อมูลกระเป๋าต่องาน สำหรับเกณฑ์ความพร้อมข้อ 5 — คิดจากใบงานหน้างาน (ถูกข้ามหรือยัง)
+ * + การจองกระเป๋าของอีเวนต์ที่ผูกกับงานนั้น · ทุกงานใน `leads` มีค่าเสมอ (ไม่จองเลย = bookings [])
+ */
+export function kitReadinessByLead(
+  leads: TrackingLead[],
+  jobs: PoolJob[],
+  bookings: KitBookingDetail[],
+  skippedStatus: string = SKIPPED_JOB_STATUS
+): Map<string, KitReadiness> {
+  const skipped = new Set(
+    jobs
+      .filter((j) => j.job_type === 'onsite' && j.status === skippedStatus && j.crm_lead_id)
+      .map((j) => j.crm_lead_id as string)
+  )
+  const out = new Map<string, KitReadiness>()
+  for (const lead of leads) {
+    out.set(lead.id, {
+      onsiteSkipped: skipped.has(lead.id),
+      bookings: bookings.filter((b) => b.leadId === lead.id).map((b) => ({ packed: b.packed })),
+    })
+  }
+  return out
 }
 
 /**

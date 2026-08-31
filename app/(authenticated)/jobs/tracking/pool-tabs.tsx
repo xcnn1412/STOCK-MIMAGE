@@ -18,13 +18,20 @@ import {
     daysUntil,
     getMissing,
     kitBookingConflict,
+    lacksTime,
     missingLabel,
     missingRoles,
     vehicleOf,
+    type Kit as PoolKit,
+    type KitBookingDetail as KitBookingRow,
+    type KitReadiness,
     type Person,
     type PoolJob,
     type TrackingLead,
 } from './tracking-logic'
+
+/** กระเป๋าหนึ่งใบ / การจองหนึ่งครั้ง — ชื่อเดิมของหน้าพูล ตัวจริงอยู่ใน tracking-logic */
+export type { PoolKit, KitBookingRow }
 
 /** ป้ายสถานะใบงานที่ตั้งค่าไว้ใน job_settings — key คือ `${job_type}:${status}` */
 export type JobStatusLabels = Record<string, { label: string; color: string | null }>
@@ -252,9 +259,22 @@ function Countdown({ date, today }: { date: string | null; today: Date }) {
     return <span className={`${base} bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900`}>ผ่านมา {-d} วัน</span>
 }
 
+/** ป้ายเตือน "ยังไม่ใส่เวลา" — งานที่ขาดเวลาเริ่มหรือเวลาสิ้นสุด (ไม่ยิงกระดิ่ง แค่ป้าย) */
+function NoTimeChip({ lead }: { lead: TrackingLead }) {
+    if (!lacksTime(lead)) return null
+    return (
+        <span
+            title="ยังไม่ใส่เวลาเริ่ม/สิ้นสุด — เช็คว่าชนกับงานอื่นไม่ได้"
+            className={cn(PILL, 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100')}
+        >
+            ยังไม่ใส่เวลา
+        </span>
+    )
+}
+
 /** ป้าย "สิ่งที่ยังขาด" — กติกาเดียวกับตารางภาพรวม (getMissing/missingLabel) */
-function MissingBadge({ lead, roleLabels }: { lead: TrackingLead; roleLabels: Record<string, string> }) {
-    const missing = getMissing(lead)
+function MissingBadge({ lead, roleLabels, kit }: { lead: TrackingLead; roleLabels: Record<string, string>; kit?: KitReadiness }) {
+    const missing = getMissing(lead, kit)
     if (missing.length === 0) {
         return <span className={cn(PILL, 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200')}>พร้อม</span>
     }
@@ -332,24 +352,6 @@ function VehicleSummary({ lead }: { lead: TrackingLead }) {
             )}
         </div>
     )
-}
-
-/** กระเป๋าหนึ่งใบเท่าที่กล่องจองต้องใช้ */
-export interface PoolKit {
-    id: string
-    name: string
-}
-
-/** การจองกระเป๋าหนึ่งครั้ง (event_kits) พร้อมข้อมูลอีเวนต์ที่ join มาแล้ว */
-export interface KitBookingRow {
-    kitId: string
-    eventId: string
-    eventDate: string | null
-    eventName: string
-    /** งานที่อีเวนต์นี้ผูกอยู่ — null = อีเวนต์ที่ไม่ได้มาจาก CRM */
-    leadId: string | null
-    /** จัดกระเป๋าครบแล้ว (packed_at ไม่ว่าง) */
-    packed: boolean
 }
 
 /** อีเวนต์ปลายทางของการจอง — ใบแรกที่ยังไม่ปิด (เรียงตามวันงานมาแล้ว) กติกาเดียวกับฝั่ง server */
@@ -525,6 +527,7 @@ export default function PoolTabs({
     canManagePool = false,
     kits = [],
     kitBookings = [],
+    kitReadiness,
     canManageKits = false,
     onDesignStatusChange,
 }: {
@@ -543,6 +546,8 @@ export default function PoolTabs({
     kits?: PoolKit[]
     /** การจองกระเป๋าของงานเหล่านี้ + ของอีเวนต์อื่นในวันเดียวกัน (ใช้บอกว่าชน) */
     kitBookings?: KitBookingRow[]
+    /** ข้อมูลกระเป๋าต่องาน (leadId → KitReadiness) — ไม่ส่ง = ป้าย "สิ่งที่ยังขาด" ไม่ตัดสินข้อกระเป๋า */
+    kitReadiness?: Map<string, KitReadiness>
     /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
     canManageKits?: boolean
     /** เส้นทางบันทึกเดียวกับตารางภาพรวม (updateLeadTracking) */
@@ -580,8 +585,9 @@ export default function PoolTabs({
                     <ClaimerLine job={job} kind={kind} people={people} />
 
                     {lead && (
-                        <div>
-                            <MissingBadge lead={lead} roleLabels={roleLabels} />
+                        <div className="flex flex-wrap items-center gap-1">
+                            <MissingBadge lead={lead} roleLabels={roleLabels} kit={kitReadiness?.get(lead.id)} />
+                            <NoTimeChip lead={lead} />
                         </div>
                     )}
 

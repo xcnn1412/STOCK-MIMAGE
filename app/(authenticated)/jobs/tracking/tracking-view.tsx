@@ -27,6 +27,7 @@ import {
     isUrgent,
     getConflicts,
     availabilityOf,
+    kitReadinessByLead,
     leadsOnDate,
     personClashes,
     groupPoolJobs,
@@ -35,6 +36,7 @@ import {
     type Chip,
     type Conflict,
     type Availability,
+    type KitReadiness,
     type PoolJob,
 } from './tracking-logic'
 import TimelineView, { AVAIL_TEXT, formatDate, ymd } from './timeline-view'
@@ -407,8 +409,8 @@ function Countdown({ date, today }: { date: string | null; today: Date }) {
     return <span className={`${base} bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900`}>ผ่านมา {-d} วัน</span>
 }
 
-function ReadinessCell({ lead, roleLabels }: { lead: TrackingLead; roleLabels: Record<string, string> }) {
-    const missing = getMissing(lead)
+function ReadinessCell({ lead, roleLabels, kit }: { lead: TrackingLead; roleLabels: Record<string, string>; kit?: KitReadiness }) {
+    const missing = getMissing(lead, kit)
     // ยังไม่กำหนดตำแหน่งที่ต้องการ → ใช้กติกาหลวม (มีคน ≥ 1 = จัดคนแล้ว) บอกไว้ที่ป้าย
     const loose = !hasRequiredRoles(lead)
     const hint = loose ? 'ยังไม่กำหนดตำแหน่งที่ต้องการ — นับว่าจัดคนแล้วเมื่อมีคนอย่างน้อย 1' : undefined
@@ -741,8 +743,11 @@ export default function TrackingView({
         setRows(prev => prev.map(r => (r.id === id ? { ...r, required_roles } : r)))
     }
 
+    // ความพร้อมข้อ 5 (กระเป๋า) — ต้องรู้ใบงานหน้างาน (ถูกข้ามไหม) + การจองของงานนั้น
+    const kitReadiness = kitReadinessByLead(rows, jobs, kitBookings)
+
     const base = rows.filter(r => showPast || !isPast(r, today))
-    const counts = chipCounts(base, today)
+    const counts = chipCounts(base, today, kitReadiness)
     const visible = chip ? base.filter(r => inChip(r, chip, today)) : base
 
     const undated = visible.filter(r => !r.event_date)
@@ -763,7 +768,7 @@ export default function TrackingView({
                 <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">ติดตามงาน</h1>
                 {tab === 'overview' ? (
                     <p className="text-sm text-zinc-500">
-                        งาน {visible.length} งาน · ยังไม่พร้อม {visible.filter(r => getMissing(r).length > 0).length} งาน — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร
+                        งาน {visible.length} งาน · ยังไม่พร้อม {visible.filter(r => getMissing(r, kitReadiness.get(r.id)).length > 0).length} งาน — ดูว่างานไหนใกล้ถึง อยู่ขั้นไหน และยังขาดอะไร
                     </p>
                 ) : (
                     <p className="text-sm text-zinc-500">
@@ -809,6 +814,7 @@ export default function TrackingView({
                     canManagePool={canManagePool}
                     kits={kits}
                     kitBookings={kitBookings}
+                    kitReadiness={kitReadiness}
                     canManageKits={canManageKits}
                     onDesignStatusChange={save}
                 />
@@ -901,7 +907,7 @@ export default function TrackingView({
                                 </TableRow>
                                 {section.leads.map((lead, i, arr) => {
                                     seq += 1
-                                    const urgent = isUrgent(lead, today)
+                                    const urgent = isUrgent(lead, today, kitReadiness.get(lead.id))
                                     // ตีกรอบงานวันเดียวกัน (เฉพาะวันที่มี >= 2 งาน)
                                     const sameAsPrev = i > 0 && arr[i - 1].event_date === lead.event_date
                                     const sameAsNext = i < arr.length - 1 && arr[i + 1].event_date === lead.event_date
@@ -939,7 +945,7 @@ export default function TrackingView({
                                             </TableCell>
 
                                             <TableCell>
-                                                <ReadinessCell lead={lead} roleLabels={roleLabels} />
+                                                <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} />
                                             </TableCell>
                                         </TableRow>
                                     )
@@ -975,14 +981,14 @@ export default function TrackingView({
                                 key={lead.id}
                                 className={cn(
                                     'rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 space-y-2',
-                                    isUrgent(lead, today) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20'
+                                    isUrgent(lead, today, kitReadiness.get(lead.id)) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20'
                                 )}
                             >
                                 <div className="flex justify-between items-start gap-2">
                                     <div>
                                         <JobCell lead={lead} today={today} />
                                     </div>
-                                    <ReadinessCell lead={lead} roleLabels={roleLabels} />
+                                    <ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} />
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-2">
@@ -1030,6 +1036,8 @@ export default function TrackingView({
                     date={date}
                     mode={mode}
                     departments={departments}
+                    kits={kits}
+                    kitBookings={kitBookings}
                     focusLeadId={focusLeadId}
                     focusEventId={focusLead ? targetEventOf(focusLead) : null}
                     onDateChange={changeDate}

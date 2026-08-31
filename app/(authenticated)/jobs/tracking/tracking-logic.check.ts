@@ -20,9 +20,12 @@ import {
   hasRequiredRoles,
   isFullyStaffed,
   isPast,
+  isMissingKits,
   isReady,
   isUrgent,
   kitBookingConflict,
+  kitReadinessByLead,
+  lacksTime,
   layoutDay,
   layoutWeek,
   leadsOnDate,
@@ -42,6 +45,8 @@ import {
   workloadOf,
   workloadTone,
   type DayLayout,
+  type KitBookingDetail,
+  type KitReadiness,
   type Person,
   type PoolJob,
   type TrackingLead,
@@ -879,5 +884,154 @@ assert.deepEqual(
 assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e9', null)), [])
 assert.deepEqual(kitBookingConflict([kb('k1', 'eA', null)], kb('k1', 'e9', '2026-08-30')), [])
 assert.deepEqual(kitBookingConflict([], kb('k1', 'e9', '2026-08-30')), [])
+
+// --- lacksTime: งานที่ยังใส่เวลาไม่ครบ ----------------------------------------
+assert.equal(lacksTime(mk()), false)
+assert.equal(lacksTime(mk({ event_time: null })), true)
+assert.equal(lacksTime(mk({ event_end_time: null })), true)
+assert.equal(lacksTime(mk({ event_time: null, event_end_time: null })), true)
+
+// --- ความพร้อมข้อ 5: กระเป๋า --------------------------------------------------
+const kr = (overrides: Partial<KitReadiness> = {}): KitReadiness => ({
+  onsiteSkipped: false,
+  bookings: [{ packed: true }],
+  ...overrides,
+})
+
+// ยังไม่จองเลย → ขาด
+assert.equal(isMissingKits(kr({ bookings: [] })), true)
+// จองแล้วจัดครบทุกใบ → ไม่ขาด
+assert.equal(isMissingKits(kr({ bookings: [{ packed: true }, { packed: true }] })), false)
+// มีใบที่ยังไม่จัด → ขาด
+assert.equal(isMissingKits(kr({ bookings: [{ packed: true }, { packed: false }] })), true)
+// ใบงานหน้างานถูกข้าม → ไม่นับข้อนี้ แม้ยังไม่จองเลย
+assert.equal(isMissingKits(kr({ onsiteSkipped: true, bookings: [] })), false)
+assert.equal(isMissingKits(kr({ onsiteSkipped: true, bookings: [{ packed: false }] })), false)
+
+// getMissing: ข้อกระเป๋าต่อท้ายเสมอ และมีเฉพาะเมื่อผู้เรียกส่งข้อมูลมา
+assert.deepEqual(getMissing(mk(), kr({ bookings: [] })), ['kits'])
+assert.deepEqual(getMissing(mk(), kr({ bookings: [{ packed: true }] })), [])
+assert.deepEqual(getMissing(mk(), kr({ bookings: [{ packed: true }, { packed: false }] })), ['kits'])
+assert.deepEqual(getMissing(mk(), kr({ onsiteSkipped: true, bookings: [] })), [])
+// ไม่ส่ง kit → พฤติกรรมเดิม (4 ข้อ)
+assert.deepEqual(getMissing(mk()), [])
+assert.deepEqual(getMissing(mk({ event_time: null })), ['time'])
+assert.deepEqual(
+  getMissing(
+    mk({ design_status: 'sent', staff: [], tracking_checklist: [], event_time: null }),
+    kr({ bookings: [] })
+  ),
+  ['design', 'staff', 'vehicle', 'time', 'kits']
+)
+assert.equal(isReady(mk(), kr({ bookings: [] })), false)
+assert.equal(isReady(mk(), kr()), true)
+assert.equal(missingLabel('kits', mk(), rrLabels), 'กระเป๋า')
+
+// isUrgent / chipCounts เห็นข้อกระเป๋าเมื่อส่งข้อมูลมา
+assert.equal(isUrgent(mk({ event_date: T }), today), false)
+assert.equal(isUrgent(mk({ event_date: T }), today, kr({ bookings: [] })), true)
+assert.deepEqual(chipCounts([mk({ id: 'ck', event_date: T })], today, new Map([['ck', kr({ bookings: [] })]])), {
+  today: { total: 1, notReady: 1 },
+  week7: { total: 1, notReady: 1 },
+  month: { total: 1, notReady: 1 },
+})
+
+// --- kitReadinessByLead ----------------------------------------------------
+const krBookings: KitBookingDetail[] = [
+  { kitId: 'k1', eventId: 'e1', eventDate: T, eventName: 'อีเวนต์ A', leadId: 'A', packed: false },
+  { kitId: 'k2', eventId: 'e1', eventDate: T, eventName: 'อีเวนต์ A', leadId: 'A', packed: true },
+  { kitId: 'k1', eventId: 'e9', eventDate: T, eventName: 'อีเวนต์ อื่น', leadId: null, packed: true },
+]
+const krJobs = [
+  pj({ id: 'jo', job_type: 'onsite', status: 'skipped', crm_lead_id: 'S' }),
+  pj({ id: 'jg', job_type: 'graphic', status: 'skipped', crm_lead_id: 'A' }), // กราฟิกถูกข้ามไม่เกี่ยวกับกระเป๋า
+]
+const krMap = kitReadinessByLead(
+  [mk({ id: 'A' }), mk({ id: 'S' }), mk({ id: 'N' })],
+  krJobs,
+  krBookings
+)
+assert.deepEqual(krMap.get('A'), { onsiteSkipped: false, bookings: [{ packed: false }, { packed: true }] })
+assert.deepEqual(krMap.get('S'), { onsiteSkipped: true, bookings: [] }) // ใบงานหน้างานถูกข้าม
+assert.deepEqual(krMap.get('N'), { onsiteSkipped: false, bookings: [] }) // ยังไม่จองเลย
+assert.equal(isMissingKits(krMap.get('A')!), true) // มีใบที่ยังไม่จัด
+assert.equal(isMissingKits(krMap.get('S')!), false)
+assert.equal(isMissingKits(krMap.get('N')!), true)
+assert.equal(kitReadinessByLead([], krJobs, krBookings).size, 0)
+
+// --- ไทม์ไลน์: เลนกระเป๋า -----------------------------------------------------
+const kits = [
+  { id: 'k1', name: 'กระเป๋า A' },
+  { id: 'k2', name: 'กระเป๋า B' },
+]
+// k1 ถูกจองสองอีเวนต์วันเดียวกัน (ชน) — ใบแรกผูกกับงาน A ที่อยู่ในวันนั้น อีกใบไม่ได้มาจาก CRM
+const tlBookings: KitBookingDetail[] = [
+  { kitId: 'k1', eventId: 'e1', eventDate: T, eventName: 'อีเวนต์ A', leadId: 'A', packed: false },
+  { kitId: 'k1', eventId: 'e9', eventDate: T, eventName: 'อีเวนต์ อื่น', leadId: null, packed: true },
+  { kitId: 'k2', eventId: 'e2', eventDate: '2026-08-31', eventName: 'อีเวนต์ พรุ่งนี้', leadId: null, packed: true },
+]
+const dayKit = layoutDay([tlA, tlB], T, people, roleLabels, { kits, kitBookings: tlBookings })
+
+// เลนกระเป๋าอยู่หลังเลนรถ ก่อนเลนคน — ใบละหนึ่งเลนตามลำดับที่ส่งมา
+assert.deepEqual(dayKit.lanes.map((l) => l.kind), [
+  'jobs', 'vehicle', 'vehicle', 'kit', 'kit', 'person', 'person', 'person', 'person',
+])
+assert.deepEqual(dayKit.lanes.filter((l) => l.kind === 'kit').map((l) => l.key), ['k1', 'k2'])
+assert.deepEqual(dayKit.lanes.filter((l) => l.kind === 'kit').map((l) => l.label), ['กระเป๋า A', 'กระเป๋า B'])
+// ไม่ส่ง kits → ไม่มีเลนกระเป๋า (พฤติกรรมเดิม)
+assert.equal(layoutDay([tlA], T, people, roleLabels).lanes.some((l) => l.kind === 'kit'), false)
+assert.equal(layoutDay([tlA], T, people, roleLabels, { kitBookings: tlBookings }).lanes.some((l) => l.kind === 'kit'), false)
+
+const k1Bars = lane(dayKit, 'k1').bars
+assert.equal(k1Bars.length, 2)
+// การจองของงานที่อยู่ในวันนั้นและมีเวลา → ยืดตามช่วงเวลาของงาน (A 09:00–12:00) และใช้สีของงาน
+const k1A = k1Bars.find((b) => b.leadId === 'A')!
+assert.deepEqual(
+  (({ label, timing, startMin, endMin, colorIdx, packed }) => ({ label, timing, startMin, endMin, colorIdx, packed }))(k1A),
+  { label: 'อีเวนต์ A', timing: 'exact', startMin: 540, endMin: 720, colorIdx: dayKit.colorByLead['A'], packed: false }
+)
+// การจองที่ไม่ผูกกับงานในวันนั้น → พาดทั้งวันแบบลายทาง (เหมือนงานที่ยังไม่ใส่เวลา)
+const k1Other = k1Bars.find((b) => b.leadId === '')!
+assert.deepEqual(
+  (({ label, timing, startMin, endMin, packed }) => ({ label, timing, startMin, endMin, packed }))(k1Other),
+  { label: 'อีเวนต์ อื่น', timing: 'no_time', startMin: 360, endMin: 1440, packed: true }
+)
+// จองสองอีเวนต์วันเดียวกัน = ชนทั้งคู่ (ไม่ดูเวลา)
+assert.equal(k1Bars.every((b) => b.conflict), true)
+// แถบซ้อนกันแยกชั้นเหมือนเลนอื่น
+assert.equal(lane(dayKit, 'k1').layers, 2)
+// การจองคนละวันไม่โผล่ในวันนี้ และเลนว่างยังนับหนึ่งชั้น
+assert.deepEqual(lane(dayKit, 'k2').bars, [])
+assert.equal(lane(dayKit, 'k2').layers, 1)
+// วันถัดไป: k2 มีการจอง ไม่ชน (ใบเดียว)
+const dayKit31 = layoutDay([], '2026-08-31', people, roleLabels, { kits, kitBookings: tlBookings })
+assert.deepEqual(lane(dayKit31, 'k2').bars.map((b) => [b.label, b.packed, b.conflict]), [
+  ['อีเวนต์ พรุ่งนี้', true, false],
+])
+assert.deepEqual(lane(dayKit31, 'k1').bars, [])
+// แถบของงาน/รถ/คน ไม่มีธง packed
+assert.equal(bar(dayKit, 'jobs', 'A').packed, undefined)
+assert.equal(bar(dayKit, 'car_triton', 'A').packed, undefined)
+assert.equal(bar(dayKit, 'u1', 'A').packed, undefined)
+
+// โหมดสัปดาห์: บล็อกการจองตกวันของอีเวนต์นั้น
+const wkKit = layoutWeek([tlA, tlB], T, people, roleLabels, { kits, kitBookings: tlBookings })
+assert.deepEqual(wkKit.lanes.map((l) => l.kind), [
+  'jobs', 'vehicle', 'vehicle', 'kit', 'kit', 'person', 'person', 'person', 'person',
+])
+const wkK1 = wkKit.lanes.find((l) => l.key === 'k1')!
+assert.equal(Object.keys(wkK1.cells).length, 7)
+assert.deepEqual(wkK1.cells[T].map((c) => [c.label, c.packed, c.conflict]), [
+  ['อีเวนต์ A', false, true],
+  ['อีเวนต์ อื่น', true, true],
+])
+assert.equal(wkK1.cells[T][0].colorIdx, wkKit.colorByLead['A'])
+assert.deepEqual(wkK1.cells['2026-08-31'], [])
+const wkK2 = wkKit.lanes.find((l) => l.key === 'k2')!
+assert.deepEqual(wkK2.cells[T], [])
+assert.deepEqual(wkK2.cells['2026-08-31'].map((c) => [c.label, c.packed, c.conflict]), [
+  ['อีเวนต์ พรุ่งนี้', true, false],
+])
+assert.equal(layoutWeek([tlA], T, people, roleLabels).lanes.some((l) => l.kind === 'kit'), false)
 
 console.log('tracking-logic.check: all passed')
