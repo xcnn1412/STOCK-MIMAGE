@@ -580,9 +580,10 @@ function TableView({ leads, settings }: { leads: CrmLead[]; settings: CrmSetting
     </th>
   )
 
+  // แดงเฉพาะดีลค้างท่อ (ยังคุยอยู่แต่วันงานเลยแล้ว) — สถานะหลังปิดดีลรวม custom ไม่นับ (ดู kanban-board)
   const isOverdue = (lead: CrmLead) => {
     if (!lead.event_date) return false
-    if (['accepted', 'rejected'].includes(lead.status)) return false
+    if (!['lead', 'quotation_sent'].includes(lead.status)) return false
     return new Date(lead.event_date) < new Date()
   }
 
