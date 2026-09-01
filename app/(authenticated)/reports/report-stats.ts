@@ -80,6 +80,84 @@ export function personLabel(p: ReportPerson): string {
     return nick ? `${nick} | ${full}` : full
 }
 
+// ---------------------------------------------------------------------------
+// ช่วงเวลา (ตั๋ว 02) — สัปดาห์เริ่มวันจันทร์ · เดือน/ปีตามปฏิทิน ค.ศ. ของ `today`
+// คำนวณด้วย Date.UTC ล้วนแบบเดียวกับ nextDay() ใน page.tsx — ห้ามใช้ new Date(สตริง)
+// ตรงๆ เพราะ timezone ของเครื่องจะเลื่อนวัน (ผลลัพธ์ต้องเท่ากันทั้ง server และ browser)
+// ---------------------------------------------------------------------------
+
+/** ช่วงเวลาที่ชิปบนหัวหน้าเลือกได้ */
+export type StatPeriod = 'all' | 'week' | 'month' | 'year'
+
+/** ลำดับชิปบนหน้าจอ */
+export const STAT_PERIODS: readonly StatPeriod[] = ['all', 'week', 'month', 'year']
+
+/** ป้ายชิปภาษาไทย */
+export const STAT_PERIOD_LABELS_TH: Record<StatPeriod, string> = {
+    all: 'ภาพรวม',
+    week: 'สัปดาห์นี้',
+    month: 'เดือนนี้',
+    year: 'ปีนี้',
+}
+
+/** ช่วงวันแบบปิดหัวปิดท้าย (นับ from และ to ด้วย) รูปแบบ YYYY-MM-DD */
+export interface DateRange {
+    from: string
+    to: string
+}
+
+/** YYYY-MM-DD → เวลา epoch ที่เที่ยงคืน UTC (คืน NaN ถ้ารูปแบบผิด) */
+function ymdToUTC(ymd: string): number {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd)
+    if (!m) return NaN
+    return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+}
+
+/** epoch UTC → YYYY-MM-DD */
+function utcToYmd(ms: number): string {
+    return new Date(ms).toISOString().slice(0, 10)
+}
+
+const DAY_MS = 86_400_000
+
+/**
+ * ช่วงวันของ period ที่ครอบ `today` (YYYY-MM-DD)
+ * — `'all'` คืน null (ไม่กรอง) · วันที่รูปแบบผิดก็คืน null เพื่อไม่ให้หน้าพัง
+ * — สัปดาห์เริ่ม **วันจันทร์** ถึงวันอาทิตย์ (วันอาทิตย์อยู่สัปดาห์ที่เริ่มวันจันทร์ก่อนหน้า)
+ * — เดือน/ปี = เดือน/ปีปฏิทินที่ `today` อยู่ (ครบเดือน/ครบปี ไม่ตัดที่วันนี้)
+ */
+export function periodRange(period: StatPeriod, today: string): DateRange | null {
+    if (period === 'all') return null
+    const base = ymdToUTC(today)
+    if (Number.isNaN(base)) return null
+
+    if (period === 'week') {
+        // getUTCDay(): 0=อาทิตย์ … 6=เสาร์ → แปลงเป็น "ห่างจากวันจันทร์กี่วัน" (จันทร์=0, อาทิตย์=6)
+        const sinceMonday = (new Date(base).getUTCDay() + 6) % 7
+        const from = base - sinceMonday * DAY_MS
+        return { from: utcToYmd(from), to: utcToYmd(from + 6 * DAY_MS) }
+    }
+
+    const d = new Date(base)
+    const y = d.getUTCFullYear()
+    if (period === 'month') {
+        const mo = d.getUTCMonth()
+        // วันที่ 0 ของเดือนถัดไป = วันสุดท้ายของเดือนนี้ (ครอบปีอธิกสุรทินให้เอง)
+        return { from: utcToYmd(Date.UTC(y, mo, 1)), to: utcToYmd(Date.UTC(y, mo + 1, 0)) }
+    }
+    return { from: utcToYmd(Date.UTC(y, 0, 1)), to: utcToYmd(Date.UTC(y, 11, 31)) }
+}
+
+/**
+ * กรองแถวตามช่วงเวลา — เทียบสตริง YYYY-MM-DD ตรงๆ (เรียงตามตัวอักษร = เรียงตามวัน)
+ * แถวที่ `date === null` (ไม่รู้วันที่อ้างอิง) นับ **เฉพาะใน 'all'** เพราะวางในช่วงไหนไม่ได้
+ */
+export function filterByPeriod(rows: StatRow[], period: StatPeriod, today: string): StatRow[] {
+    const range = periodRange(period, today)
+    if (!range) return rows
+    return rows.filter(r => r.date !== null && r.date >= range.from && r.date <= range.to)
+}
+
 /** ตัวนับเปล่าหนึ่งชุด */
 export function emptyTotals(): TeamTotals {
     return { onsite: 0, staffing: 0, vehicle: 0, kits: 0, graphic: 0 }

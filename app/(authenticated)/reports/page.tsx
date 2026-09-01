@@ -106,5 +106,6 @@ export default async function ReportsPage() {
         department: p.department || null,
     }))
 
-    return <ReportsView rows={rows} people={people} currentUserId={userId || null} />
+    // ส่ง today ไปด้วยเพื่อให้ชิปช่วงเวลาฝั่ง client คิดจากวันเดียวกับ server (hydration ตรงกัน)
+    return <ReportsView rows={rows} people={people} currentUserId={userId || null} today={today} />
 }

@@ -2,15 +2,19 @@
 
 // ตารางสถิติทีม — การ์ดสรุป 5 ตัวเลข + ตารางรายคน แถวของตัวเองไฮไลต์
 // การรวมยอดทำใน report-stats.ts (pure) หน้านี้ทำหน้าที่แสดงผลอย่างเดียว
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
     aggregateStats,
+    filterByPeriod,
     STAT_KINDS,
     STAT_LABELS_TH,
+    STAT_PERIOD_LABELS_TH,
+    STAT_PERIODS,
     STAT_SHORT_LABELS_TH,
     type ReportPerson,
     type StatKind,
+    type StatPeriod,
     type StatRow,
 } from './report-stats'
 
@@ -23,14 +27,30 @@ const STAT_COLORS: Record<StatKind, string> = {
     graphic: '#ec4899',
 }
 
+/** คำอธิบายใต้หัวเรื่อง — เปลี่ยนตามช่วงที่เลือก */
+const PERIOD_HINTS_TH: Record<StatPeriod, string> = {
+    all: 'ภาพรวมทั้งหมด',
+    week: 'สัปดาห์นี้ (จันทร์ถึงอาทิตย์)',
+    month: 'เดือนนี้',
+    year: 'ปีนี้',
+}
+
 interface ReportsViewProps {
     rows: StatRow[]
     people: ReportPerson[]
     currentUserId: string | null
+    /** วันนี้ตามเวลาไทย (YYYY-MM-DD) ส่งมาจาก server เพื่อให้ hydration ตรงกันเสมอ */
+    today: string
 }
 
-export default function ReportsView({ rows, people, currentUserId }: ReportsViewProps) {
-    const { people: stats, totals } = useMemo(() => aggregateStats(rows, people), [rows, people])
+export default function ReportsView({ rows, people, currentUserId, today }: ReportsViewProps) {
+    const [period, setPeriod] = useState<StatPeriod>('all') // ค่าเริ่มต้น = ภาพรวม
+
+    // กรองตามช่วงแล้วค่อยรวมยอด — ทั้งการ์ดสรุปและตารางใช้ชุดเดียวกัน (ไม่โหลดหน้าใหม่)
+    const { people: stats, totals } = useMemo(
+        () => aggregateStats(filterByPeriod(rows, period, today), people),
+        [rows, people, period, today]
+    )
 
     return (
         <div className="p-4 md:p-6 space-y-5">
@@ -40,8 +60,31 @@ export default function ReportsView({ rows, people, currentUserId }: ReportsView
                     สถิติทีม
                 </h1>
                 <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                    ภาพรวมทั้งหมด — ใครออกงานอีเวนต์กี่ครั้ง ใครรับหน้าที่จัดคน/จัดรถ/จัดกระเป๋า และใครรับใบงานกราฟิก
+                    {PERIOD_HINTS_TH[period]} — ใครออกงานอีเวนต์กี่ครั้ง ใครรับหน้าที่จัดคน/จัดรถ/จัดกระเป๋า และใครรับใบงานกราฟิก
                 </p>
+            </div>
+
+            {/* ชิปช่วงเวลา — สลับฝั่ง client ล้วน */}
+            <div className="flex flex-wrap items-center gap-2">
+                {STAT_PERIODS.map(p => {
+                    const active = period === p
+                    return (
+                        <button
+                            key={p}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => setPeriod(p)}
+                            className={cn(
+                                'rounded-full px-3 py-1 text-sm',
+                                active
+                                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                                    : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                            )}
+                        >
+                            {STAT_PERIOD_LABELS_TH[p]}
+                        </button>
+                    )
+                })}
             </div>
 
             {/* การ์ดสรุปยอดรวมทีม — มือถือเลื่อนแนวนอน */}
@@ -75,7 +118,7 @@ export default function ReportsView({ rows, people, currentUserId }: ReportsView
             <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 overflow-hidden">
                 {stats.length === 0 ? (
                     <div className="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                        ยังไม่มีข้อมูลสถิติ
+                        {period === 'all' ? 'ยังไม่มีข้อมูลสถิติ' : `ยังไม่มีข้อมูลสถิติใน${STAT_PERIOD_LABELS_TH[period]}`}
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -162,6 +205,7 @@ export default function ReportsView({ rows, people, currentUserId }: ReportsView
 
             <p className="text-xs text-zinc-400 dark:text-zinc-500">
                 นับเฉพาะงานที่ถึงวันแล้ว · หน้าที่ที่รับแล้วคืนไปจะไม่ถูกนับ · แสดงเฉพาะคนที่มีตัวเลขอย่างน้อยหนึ่งช่อง
+                {period !== 'all' && ' · รายการที่ไม่รู้วันที่จะนับเฉพาะในภาพรวม'}
             </p>
         </div>
     )
