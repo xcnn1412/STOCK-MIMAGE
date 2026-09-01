@@ -48,6 +48,8 @@ export interface TrackingSnapshot {
      * — หน้าติดตามงานยังแสดงตามเดิม; ผู้เรียกที่ต้องตัดออก (เช่น แผงแจ้งเตือน) กรองด้วยรายการนี้
      */
     archivedLeadIds: string[]
+    /** id ของงานที่กด "เสร็จสิ้น" คำเตือนหน้าที่แล้ว (crm_leads.prep_done_at) — แผงแจ้งเตือนตัดออก */
+    prepDoneLeadIds: string[]
     /** ใบงานในพูล (props `jobs`) */
     poolJobs: PoolJob[]
     /** หน้าที่เตรียมงานที่มีคนรับแล้ว */
@@ -88,7 +90,7 @@ export async function getTrackingSnapshot(): Promise<TrackingSnapshot> {
 
     const { data: leads, error: leadsError } = await supabase
         .from('crm_leads')
-        .select('id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, tracking_checklist, required_roles, archived_at')
+        .select('id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, tracking_checklist, required_roles, archived_at, prep_done_at')
         .eq('status', 'accepted')
         .order('event_date', { ascending: true, nullsFirst: false })
         .order('event_time', { ascending: true, nullsFirst: false })
@@ -338,6 +340,7 @@ export async function getTrackingSnapshot(): Promise<TrackingSnapshot> {
     return {
         rows,
         archivedLeadIds: (leads || []).filter(l => l.archived_at).map(l => l.id as string),
+        prepDoneLeadIds: (leads || []).filter(l => l.prep_done_at).map(l => l.id as string),
         poolJobs,
         dutyClaims,
         kits,
