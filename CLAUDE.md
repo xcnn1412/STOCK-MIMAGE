@@ -16,6 +16,26 @@ There is no test suite. `.env.local` must contain `NEXT_PUBLIC_SUPABASE_URL`, `N
 
 One-off operational scripts live in `scripts/` (e.g., `create-admin.js`, `hash-existing-pins.ts`, `revert-rls.ts`, `seed-advance-test.ts`). They are not wired to `package.json` — invoke them directly via `node` / `tsx` as needed.
 
+## Versioning & release (semver `MAJOR.MINOR.PATCH`)
+
+เลข version ตาม semver — ขยับเลขไหนดูจากขนาดของงาน:
+
+| งาน | ขยับ | ตัวอย่าง |
+|---|---|---|
+| fix เล็กๆ / แก้บั๊ก / ปรับข้อความ UI | **PATCH** (ตัวท้าย) | v1.4.1 → v1.4.2 |
+| ฟีเจอร์ใหม่ / โมดูลใหม่ (ไม่พังของเดิม) | **MINOR** (ตัวกลาง, PATCH กลับเป็น 0) | v1.4.2 → v1.5.0 |
+| เปลี่ยนแบบพังของเดิม (schema/auth/โครงใหญ่) | **MAJOR** | v1.5.0 → v2.0.0 |
+
+ขั้นตอน release (ทำตามลำดับ ทุกครั้ง):
+
+1. แตก branch จาก `main` — fix ใช้ `hotfix-vX.Y.Z`, ฟีเจอร์ใช้ `feature/<name>` (**ห้ามตั้งชื่อ `hotfix/...`** — มี branch ชื่อ `hotfix` เดิมค้างอยู่ ทำให้ git สร้างชื่อซ้อนไม่ได้)
+2. bump `"version"` ใน `package.json` ให้ตรงกับ tag ใน commit เดียวกับงาน
+3. commit → `git tag vX.Y.Z`
+4. `git merge --no-ff` เข้า `main`
+5. push เฉพาะเมื่อผู้ใช้สั่ง: `git push origin main <branch> vX.Y.Z` (tag ไม่ push อัตโนมัติ)
+
+`.claude/settings.local.json` ห้ามรวมเข้า commit งาน — เป็นไฟล์ตั้งค่า local
+
 ## Stack
 
 Next.js 16 (App Router, Turbopack, `reactCompiler: true`) · React 19 · TypeScript strict · Tailwind v4 · shadcn/ui (style "new-york", base "neutral") · Supabase (Postgres + Storage) · Recharts · TipTap · @react-pdf/renderer. Path alias: `@/*` → repo root. UI text is Thai-first with English fallbacks via `contexts/language-context.tsx`.
