@@ -4,8 +4,8 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] ทั้งสามแท็บหน้าที่รองรับ `?lead=` — งานที่ตรงได้กรอบแดง (border + ring) และ scrollIntoView ครั้งเดียวตอนเข้าหน้า
-- [ ] ไม่มี `?lead=` หรือ id ไม่อยู่ในแท็บ = หน้าตาเหมือนเดิมทุกประการ
-- [ ] `npx tsc --noEmit` ไม่มี error ใหม่
+- [x] ทั้งสามแท็บหน้าที่รองรับ `?lead=` — งานที่ตรงได้กรอบแดง (border + ring) และ scrollIntoView ครั้งเดียวตอนเข้าหน้า
+- [x] ไม่มี `?lead=` หรือ id ไม่อยู่ในแท็บ = หน้าตาเหมือนเดิมทุกประการ
+- [x] `npx tsc --noEmit` ไม่มี error ใหม่

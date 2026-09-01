@@ -4,9 +4,9 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] นับเฉพาะใบงานที่ user เป็น claimed_by หรืออยู่ใน assigned_to และสถานะไม่ใช่ done/skipped
-- [ ] แถวกดได้ → `/jobs/tracking?tab=<graphic|onsite>&lead=<id>`
-- [ ] ไม่มีงานค้าง = ไม่มีแผง (dashboard เหมือนเดิม)
-- [ ] `npx tsc --noEmit` ไม่มี error ใหม่
+- [x] นับเฉพาะใบงานที่ user เป็น claimed_by หรืออยู่ใน assigned_to และสถานะไม่ใช่ done/skipped
+- [x] แถวกดได้ → `/jobs/tracking?tab=<graphic|onsite>&lead=<id>`
+- [x] ไม่มีงานค้าง = ไม่มีแผง (dashboard เหมือนเดิม)
+- [x] `npx tsc --noEmit` ไม่มี error ใหม่

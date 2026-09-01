@@ -4,8 +4,8 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] /jobs/tracking แสดงผลและทำงานเหมือนก่อนแก้ทุกแท็บ (ภาพรวม/กราฟิก/จัดคน/จัดรถ/จัดกระเป๋า/หน้างาน)
-- [ ] มีฟังก์ชันกลางฟังก์ชันเดียวที่คืนข้อมูลครบพอให้คำนวณความพร้อมของงาน (getMissing/kitReadiness/designReady) ได้จากภายนอกหน้า tracking
-- [ ] `npx tsc --noEmit` ไม่มี error ใหม่
+- [x] /jobs/tracking แสดงผลและทำงานเหมือนก่อนแก้ทุกแท็บ (ภาพรวม/กราฟิก/จัดคน/จัดรถ/จัดกระเป๋า/หน้างาน)
+- [x] มีฟังก์ชันกลางฟังก์ชันเดียวที่คืนข้อมูลครบพอให้คำนวณความพร้อมของงาน (getMissing/kitReadiness/designReady) ได้จากภายนอกหน้า tracking
+- [x] `npx tsc --noEmit` ไม่มี error ใหม่
