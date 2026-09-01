@@ -89,7 +89,7 @@ export default function DutyWarningPanel({ rows, collapsible = false, className 
         <div className={cn('px-4 pt-3', className)}>
             <section
                 className={cn(
-                    'mx-auto w-full rounded-xl border',
+                    'mx-auto w-full rounded-2xl border shadow-sm',
                     collapsible ? 'max-w-none' : 'max-w-2xl p-3 space-y-2',
                     red
                         ? 'border-red-300 dark:border-red-500/40 bg-red-50/60 dark:bg-red-500/5'
@@ -125,12 +125,18 @@ export default function DutyWarningPanel({ rows, collapsible = false, className 
                 ) : (
                     <h2
                         className={cn(
-                            'flex items-center gap-2 text-sm font-semibold',
+                            'flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold',
                             red ? 'text-red-900 dark:text-red-200' : 'text-amber-900 dark:text-amber-200'
                         )}
                     >
                         <AlertTriangle className="h-4 w-4" />
                         หน้าที่ยังไม่ครบ — ใกล้วันงาน ({rows.length})
+                        {/* ป้ายนับตามความด่วน — ชุดเดียวกับแถบสรุปโหมดพับ */}
+                        <span className="ml-auto flex flex-wrap items-center gap-x-2 text-xs font-normal">
+                            {counts.overdue > 0 && <span className={SEVERITY_TEXT.overdue}>เลยวันแล้ว {counts.overdue}</span>}
+                            {counts.urgent > 0 && <span className={SEVERITY_TEXT.urgent}>≤3 วัน {counts.urgent}</span>}
+                            {counts.soon > 0 && <span className={SEVERITY_TEXT.soon}>ใกล้ถึง {counts.soon}</span>}
+                        </span>
                     </h2>
                 )}
 

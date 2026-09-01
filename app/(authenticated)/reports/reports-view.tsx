@@ -1,9 +1,10 @@
 'use client'
 
-// ตารางสถิติทีม — การ์ดสรุป 5 ตัวเลข + ตารางรายคน แถวของตัวเองไฮไลต์
+// สถิติทีม — การ์ดสรุป 5 ตัวเลข + การ์ดอันดับ Top 3 ของแต่ละประเภท (แทนตารางรายคนเดิม)
 // การรวมยอดทำใน report-stats.ts (pure) หน้านี้ทำหน้าที่แสดงผลอย่างเดียว
 import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
+import Top3Grid, { STAT_COLORS } from './top3-grid'
 import {
     aggregateStats,
     filterByPeriod,
@@ -11,21 +12,10 @@ import {
     STAT_LABELS_TH,
     STAT_PERIOD_LABELS_TH,
     STAT_PERIODS,
-    STAT_SHORT_LABELS_TH,
     type ReportPerson,
-    type StatKind,
     type StatPeriod,
     type StatRow,
 } from './report-stats'
-
-/** สีประจำประเภท — แถบซ้ายของการ์ดสรุป (สำนวนเดียวกับการ์ดในหน้า /jobs) */
-const STAT_COLORS: Record<StatKind, string> = {
-    onsite: '#0ea5e9',
-    staffing: '#8b5cf6',
-    vehicle: '#f59e0b',
-    kits: '#10b981',
-    graphic: '#ec4899',
-}
 
 /** คำอธิบายใต้หัวเรื่อง — เปลี่ยนตามช่วงที่เลือก */
 const PERIOD_HINTS_TH: Record<StatPeriod, string> = {
@@ -114,97 +104,17 @@ export default function ReportsView({ rows, people, currentUserId, today }: Repo
                 ))}
             </div>
 
-            {/* ตารางรายคน */}
-            <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 overflow-hidden">
-                {stats.length === 0 ? (
-                    <div className="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                        {period === 'all' ? 'ยังไม่มีข้อมูลสถิติ' : `ยังไม่มีข้อมูลสถิติใน${STAT_PERIOD_LABELS_TH[period]}`}
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full min-w-[640px] text-sm border-collapse">
-                            <thead>
-                                <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900">
-                                    <th className="text-left font-semibold text-zinc-500 dark:text-zinc-400 px-4 py-3 whitespace-nowrap">
-                                        ชื่อ
-                                    </th>
-                                    {STAT_KINDS.map(kind => (
-                                        <th
-                                            key={kind}
-                                            className="text-right font-semibold text-zinc-500 dark:text-zinc-400 px-3 py-3 whitespace-nowrap"
-                                        >
-                                            {STAT_SHORT_LABELS_TH[kind]}
-                                        </th>
-                                    ))}
-                                    <th className="text-right font-semibold text-zinc-600 dark:text-zinc-300 px-4 py-3 whitespace-nowrap">
-                                        รวม
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {stats.map(p => {
-                                    const isMe = !!currentUserId && p.userId === currentUserId
-                                    return (
-                                        <tr
-                                            key={p.userId}
-                                            className={cn(
-                                                'border-b border-zinc-100 dark:border-zinc-800/60 last:border-0',
-                                                isMe
-                                                    ? 'bg-amber-50 dark:bg-amber-500/10'
-                                                    : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
-                                            )}
-                                        >
-                                            <td className="px-4 py-3">
-                                                <div className="flex items-center gap-2">
-                                                    <span
-                                                        className={cn(
-                                                            'font-medium truncate',
-                                                            isMe
-                                                                ? 'text-amber-900 dark:text-amber-200'
-                                                                : 'text-zinc-900 dark:text-zinc-100'
-                                                        )}
-                                                    >
-                                                        {p.name}
-                                                    </span>
-                                                    {isMe && (
-                                                        <span className="shrink-0 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-[10px] font-semibold">
-                                                            คุณ
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                {p.department && (
-                                                    <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">
-                                                        {p.department}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            {STAT_KINDS.map(kind => (
-                                                <td
-                                                    key={kind}
-                                                    className={cn(
-                                                        'px-3 py-3 text-right tabular-nums',
-                                                        p[kind] === 0
-                                                            ? 'text-zinc-300 dark:text-zinc-700'
-                                                            : 'text-zinc-700 dark:text-zinc-300'
-                                                    )}
-                                                >
-                                                    {p[kind]}
-                                                </td>
-                                            ))}
-                                            <td className="px-4 py-3 text-right tabular-nums font-bold text-zinc-900 dark:text-zinc-100">
-                                                {p.total}
-                                            </td>
-                                        </tr>
-                                    )
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
+            {/* อันดับ 1-2-3 ของแต่ละประเภท — การ์ดชุดเดียวกับหน้า dashboard (Top3Grid) */}
+            {stats.length === 0 ? (
+                <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                    {period === 'all' ? 'ยังไม่มีข้อมูลสถิติ' : `ยังไม่มีข้อมูลสถิติใน${STAT_PERIOD_LABELS_TH[period]}`}
+                </div>
+            ) : (
+                <Top3Grid stats={stats} currentUserId={currentUserId} />
+            )}
 
             <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                นับเฉพาะงานที่ถึงวันแล้ว · หน้าที่ที่รับแล้วคืนไปจะไม่ถูกนับ · แสดงเฉพาะคนที่มีตัวเลขอย่างน้อยหนึ่งช่อง
+                นับเฉพาะงานที่ถึงวันแล้ว · หน้าที่ที่รับแล้วคืนไปจะไม่ถูกนับ · จัดอันดับเฉพาะคนที่มียอดในหมวดนั้น
                 {period !== 'all' && ' · รายการที่ไม่รู้วันที่จะนับเฉพาะในภาพรวม'}
             </p>
         </div>
