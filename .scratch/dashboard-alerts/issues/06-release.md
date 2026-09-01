@@ -4,7 +4,7 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] UpdateEntry ภาษาไทยมุมมองผู้ใช้ บนสุดของ UPDATES
-- [ ] package.json → 1.5.0, tag v1.5.0, merge --no-ff เข้า main (push เมื่อผู้ใช้สั่ง)
+- [x] UpdateEntry ภาษาไทยมุมมองผู้ใช้ บนสุดของ UPDATES
+- [x] package.json → 1.5.0, tag v1.5.0, merge --no-ff เข้า main (push เมื่อผู้ใช้สั่ง)
