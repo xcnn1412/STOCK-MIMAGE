@@ -64,8 +64,8 @@ interface LeadDetailProps {
   eventStaffGroups: LeadEventStaff[]
   linkedEvents?: LinkedLeadEvent[]
   costSummary?: LeadCostSummary
-  /** ใบงานที่แตกจากงานนี้แล้ว — ใช้ตัดสินว่าปุ่ม "เปิดใบงานกราฟิก" ควรโผล่ไหม */
-  leadJobs?: { id: string; job_type: string }[]
+  /** ใบงานที่แตกจากงานนี้แล้ว — นับใบกราฟิก + ลิงก์ไปหน้าใบงานแต่ละใบ */
+  leadJobs?: { id: string; job_type: string; title?: string | null }[]
 }
 
 export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary, leadJobs = [] }: LeadDetailProps) {
@@ -413,7 +413,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   }
 
   // ใบงานกราฟิกของงานนี้ — เปิดได้หลายใบ แต่ใบที่สองขึ้นไปต้องยืนยันก่อน
-  const graphicJobCount = leadJobs.filter(j => j.job_type === 'graphic').length
+  // (server ส่งมาเรียงใหม่→เก่า จึง reverse ให้ใบแรกเป็น #1)
+  const graphicJobs = leadJobs.filter(j => j.job_type === 'graphic').reverse()
+  const graphicJobCount = graphicJobs.length
 
   // เปิดใบงานกราฟิก — ใบงานเข้าพูลสถานะรอรับงาน + กระดิ่งถึงฝ่ายออกแบบ
   // มีใบเดิมอยู่แล้ว = ถามยืนยันก่อนเปิดใบใหม่ (กันกดเผลอ ไม่ได้ห้าม)
@@ -626,6 +628,24 @@ export default function LeadDetail({ lead, activities, settings, users, installm
           </Button>
         </div>
       </div>
+
+      {/* ลิงก์ไปแท็บใบงานกราฟิกในพูลงาน — โผล่เมื่องานนี้เปิดใบงานแล้วเท่านั้น */}
+      {graphicJobs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/jobs/tracking?tab=graphic&lead=${lead.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:bg-sky-950/70"
+          >
+            <Palette className="h-3 w-3" />
+            {locale === 'th'
+              ? `ใบงานกราฟิก ${graphicJobs.length} ใบ — ดูในพูลงาน`
+              : `${graphicJobs.length} graphic job${graphicJobs.length > 1 ? 's' : ''} — view in pool`}
+            <ExternalLink className="h-3 w-3" />
+          </Link>
+        </div>
+      )}
 
       {/* Cost Summary — Revenue (from lead) vs. Cost (claims across all linked events) */}
       {costSummary && (costSummary.claimCount > 0 || costSummary.revenue > 0) && (

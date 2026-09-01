@@ -57,10 +57,10 @@ interface SystemUser {
 }
 
 /** ชิปช่วงวันเหนือบอร์ดวันงาน — ค่าเริ่มต้น "7 วันนี้" */
-const DAY_CHIPS: { chip: DayChip; label: string; labelEn: string }[] = [
-    { chip: 'week7', label: '7 วันนี้', labelEn: 'Next 7 days' },
-    { chip: 'today', label: 'วันนี้', labelEn: 'Today' },
-    { chip: 'all', label: 'ทั้งหมด', labelEn: 'All' },
+const DAY_CHIPS: { chip: DayChip; label: string; labelEn: string; hint: string; hintEn: string }[] = [
+    { chip: 'week7', label: 'งานใน 7 วันข้างหน้า', labelEn: 'Next 7 days', hint: 'งานที่จัดภายใน 7 วันนับจากวันนี้', hintEn: 'Jobs happening within the next 7 days' },
+    { chip: 'today', label: 'งานวันนี้', labelEn: 'Today', hint: 'งานที่จัดวันนี้', hintEn: 'Jobs happening today' },
+    { chip: 'all', label: 'งานทั้งหมด', labelEn: 'All', hint: 'ทุกงาน รวมงานที่ผ่านไปแล้วและงานที่ยังไม่ระบุวัน', hintEn: 'Every job, including past and undated ones' },
 ]
 
 // ============================================================================
@@ -276,6 +276,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                                     key={c.chip}
                                     type="button"
                                     aria-pressed={active}
+                                    title={locale === 'th' ? c.hint : c.hintEn}
                                     onClick={() => { setDayChip(c.chip); setStatusFilter('all') }}
                                     className={cn(
                                         'rounded-full px-3 py-1 text-sm',
@@ -284,7 +285,7 @@ export default function JobsDashboard({ jobs, settings, users, jobTypes, tickets
                                             : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                                     )}
                                 >
-                                    {locale === 'th' ? c.label : c.labelEn} {count}
+                                    {locale === 'th' ? c.label : c.labelEn} ({count})
                                 </button>
                             )
                         })}

@@ -681,6 +681,7 @@ export default function TrackingView({
                     kind={tab}
                     jobs={poolJobs}
                     leads={rows}
+                    highlightLeadId={searchParams.get('lead')}
                     people={people}
                     roleLabels={roleLabels}
                     statusLabels={jobStatusLabels}

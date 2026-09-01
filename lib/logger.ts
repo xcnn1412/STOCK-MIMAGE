@@ -117,6 +117,8 @@ export type ActionType =
     | 'RELEASE_POOL_JOB'
     | 'SKIP_POOL_JOB'
     | 'REASSIGN_POOL_JOB'
+    // แอดมิน/ฝ่ายประสานงาน assign ใบงานให้คนที่เลือกโดยตรง (เพิ่มคนรับผิดชอบ)
+    | 'ASSIGN_POOL_JOB'
     // หน้าที่เตรียมงาน — รับ/คืนรายหน้าที่ (จัดคน / จัดรถ / จัดกระเป๋า)
     | 'CLAIM_LEAD_DUTY'
     | 'RELEASE_LEAD_DUTY'
