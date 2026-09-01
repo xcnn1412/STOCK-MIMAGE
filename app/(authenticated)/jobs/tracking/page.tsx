@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import AlertPanels from '@/components/dashboard-alerts/alert-panels'
 import TrackingView from './tracking-view'
 import { getTrackingSnapshot } from './data'
 
@@ -9,6 +10,7 @@ export const metadata = {
 
 export default async function TrackingPage() {
     // ข้อมูลทั้งชุดประกอบใน data.ts — หน้านี้เหลือแค่ส่งต่อเป็น props
+    const snapshot = await getTrackingSnapshot()
     const {
         rows,
         roleLabels,
@@ -24,11 +26,13 @@ export default async function TrackingPage() {
         kitBookings,
         eventVehicles,
         canManageKits,
-    } = await getTrackingSnapshot()
+    } = snapshot
 
     // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
     return (
         <Suspense fallback={null}>
+            {/* แผงแจ้งเตือนชุดเดียวกับ dashboard — เหนือพูลงาน (แผงว่างคืน null ไม่กินพื้นที่) */}
+            <AlertPanels snapshot={snapshot} />
             <TrackingView
                 leads={rows}
                 roleLabels={roleLabels}

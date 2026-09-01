@@ -4,8 +4,8 @@
 
 **Blocked by:** 03, 04
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] ใช้ component ชุดเดียวกับ dashboard (ไม่ก๊อปโค้ด) และข้อมูลจากฟังก์ชันกลางของ ticket 01 (ไม่ query ซ้ำ)
-- [ ] แผงว่าง = ไม่กินพื้นที่ หน้า tracking เหมือนเดิม
-- [ ] `npx tsc --noEmit` ไม่มี error ใหม่
+- [x] ใช้ component ชุดเดียวกับ dashboard (ไม่ก๊อปโค้ด) และข้อมูลจากฟังก์ชันกลางของ ticket 01 (ไม่ query ซ้ำ)
+- [x] แผงว่าง = ไม่กินพื้นที่ หน้า tracking เหมือนเดิม
+- [x] `npx tsc --noEmit` ไม่มี error ใหม่
