@@ -1252,6 +1252,78 @@ export async function reassignPoolJob(jobId: string, newUserId: string) {
     return { success: true }
 }
 
+/**
+ * เพิ่มคนรับผิดชอบ — แอดมิน/ฝ่ายประสานงาน assign ใบงานให้คนที่เลือกโดยตรง (ไม่ต้องรอกดรับเอง)
+ * ใบยังไม่มีผู้รับ = คนนั้นกลายเป็นผู้รับ (เหมือนกดรับงานแทน) / มีผู้รับแล้ว = เพิ่มเป็นผู้ร่วมรับผิดชอบ
+ */
+export async function assignPoolJob(jobId: string, userId: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!isPoolManager(actor)) return { error: 'เฉพาะแอดมินหรือฝ่ายประสานงานเท่านั้นที่เพิ่มคนรับผิดชอบได้' }
+    if (!userId) return { error: 'กรุณาเลือกคนรับผิดชอบ' }
+
+    const job = await getPoolJob(jobId)
+    if (!job) return { error: 'ไม่พบใบงานนี้' }
+    if (job.status === SKIPPED_STATUS) return { error: 'ใบงานนี้ถูกข้ามไปแล้ว' }
+    if ((job.assigned_to || []).includes(userId)) return { error: 'คนนี้รับผิดชอบใบงานนี้อยู่แล้ว' }
+
+    const supabase = createServiceClient()
+    const { data: user } = await supabase
+        .from('profiles')
+        .select('id, full_name, nickname, is_approved')
+        .eq('id', userId)
+        .single()
+    if (!user || !user.is_approved) return { error: 'ไม่พบผู้ใช้ที่เลือก' }
+
+    const userName = (user.nickname as string) || (user.full_name as string) || 'ผู้ใช้'
+    const jobType = poolTypeOf(job.job_type)
+    const becomesClaimer = job.status === AWAITING_CLAIM_STATUS && !job.claimed_by
+    const now = new Date().toISOString()
+    const updates: Record<string, unknown> = {
+        assigned_to: [...new Set([...(job.assigned_to || []), userId])],
+        updated_at: now,
+    }
+    if (jobType === 'graphic') {
+        updates.assigned_graphics = [...new Set([...(job.assigned_graphics || []), userId])]
+    }
+    if (becomesClaimer) {
+        updates.status = await getPoolNextStatus(jobType)
+        updates.claimed_by = userId
+        updates.claimed_at = now
+        updates.skipped_at = null
+        updates.skip_reason = null
+    }
+
+    const { error } = await supabase.from('jobs').update(updates).eq('id', jobId)
+    if (error) return { error: error.message }
+
+    const newStatus = becomesClaimer ? (updates.status as string) : job.status
+    await logPoolJobActivity(
+        jobId,
+        actor.userId,
+        becomesClaimer
+            ? `${actor.name} มอบหมายใบงานให้ ${userName}`
+            : `${actor.name} เพิ่ม ${userName} เป็นคนรับผิดชอบ`,
+        job.status,
+        newStatus
+    )
+    await logActivity('ASSIGN_POOL_JOB', { jobId, jobType, userId, becomesClaimer })
+
+    await createNotifications({
+        userIds: [userId],
+        type: 'job_assigned',
+        title: `คุณได้รับมอบหมายใบงาน: ${job.title}`,
+        body: `${actor.name} มอบหมายให้คุณรับผิดชอบใบงานนี้`,
+        referenceType: 'job',
+        referenceId: job.id,
+        actorId: actor.userId,
+    })
+    await notifyPoolManagers(job, actor.userId, `มอบหมายใบงาน: ${job.title}`, `${actor.name} มอบหมายให้ ${userName}`)
+
+    revalidatePool(jobId)
+    return { success: true }
+}
+
 // ============================================================================
 // หน้าที่เตรียมงาน (Prep duty) — รับ/คืนรายหน้าที่ จัดคน / จัดรถ / จัดกระเป๋า
 // ดู CONTEXT.md § "หน้าที่เตรียมงาน": สามหน้าที่รับ-คืนแยกกันอิสระ ไม่บังคับลำดับ

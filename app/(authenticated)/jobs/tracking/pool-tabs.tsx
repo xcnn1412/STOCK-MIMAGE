@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Briefcase, RotateCcw, UserRound, Users, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { bookKitForLead, claimLeadDuty, claimPoolJob, releaseLeadDuty, releasePoolJob, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
+import { assignPoolJob, bookKitForLead, claimLeadDuty, claimPoolJob, releaseLeadDuty, releasePoolJob, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
 import { DESIGN_OPTIONS } from './design-options'
 import { formatDate } from './timeline-view'
 import {
@@ -345,6 +345,8 @@ function PoolCardActions({
     const [reason, setReason] = useState('')
     const [reassignOpen, setReassignOpen] = useState(false)
     const [newUserId, setNewUserId] = useState('')
+    const [assignOpen, setAssignOpen] = useState(false)
+    const [assignUserId, setAssignUserId] = useState('')
 
     /** เรียก server action หนึ่งตัว — error ภาษาไทยจาก action ขึ้น toast เหมือนที่อื่นในหน้านี้ */
     const run = async (action: () => Promise<unknown>, ok: string) => {
@@ -393,6 +395,57 @@ function PoolCardActions({
                             เปลี่ยนคนรับ
                         </Button>
                     )}
+                    <Button size="sm" variant="outline" disabled={busy} onClick={() => setAssignOpen(true)}>
+                        เพิ่มคนรับผิดชอบ
+                    </Button>
+
+                    <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+                        <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>เพิ่มคนรับผิดชอบ</DialogTitle>
+                            </DialogHeader>
+                            <p className="text-sm text-zinc-500">
+                                {job.claimed_by
+                                    ? 'เพิ่มคนที่เลือกเป็นผู้ร่วมรับผิดชอบใบงานนี้ (ผู้รับเดิมยังอยู่)'
+                                    : 'ใบงานยังไม่มีผู้รับ — คนที่เลือกจะกลายเป็นผู้รับใบงานทันที'}
+                            </p>
+                            <Select value={assignUserId} onValueChange={setAssignUserId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="เลือกคนรับผิดชอบ" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {people
+                                        .filter(p => !(job.assigned_to || []).includes(p.id))
+                                        .map(p => (
+                                            <SelectItem key={p.id} value={p.id}>
+                                                {p.nickname ? `${p.nickname} | ${p.name}` : p.name}
+                                                {p.department ? ` — ${p.department}` : ''}
+                                            </SelectItem>
+                                        ))}
+                                </SelectContent>
+                            </Select>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setAssignOpen(false)} disabled={busy}>
+                                    ยกเลิก
+                                </Button>
+                                <Button
+                                    disabled={busy || !assignUserId}
+                                    onClick={async () => {
+                                        const ok = await run(
+                                            () => assignPoolJob(job.id, assignUserId),
+                                            'เพิ่มคนรับผิดชอบแล้ว'
+                                        )
+                                        if (ok) {
+                                            setAssignOpen(false)
+                                            setAssignUserId('')
+                                        }
+                                    }}
+                                >
+                                    มอบหมาย
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
 
                     <Dialog open={skipOpen} onOpenChange={setSkipOpen}>
                         <DialogContent className="sm:max-w-md">
@@ -807,6 +860,7 @@ export default function PoolTabs({
     designReady,
     canManageKits = false,
     onJobDesignStatusChange,
+    highlightLeadId = null,
 }: {
     kind: PoolKind
     jobs: PoolJob[]
@@ -831,18 +885,25 @@ export default function PoolTabs({
     canManageKits?: boolean
     /** บันทึกสถานะออกแบบของ "ใบงานใบนั้น" (updateJobDesignStatus) — เส้นทางเดียวกับตารางภาพรวม */
     onJobDesignStatusChange: (jobId: string, designStatus: string) => void
+    /** งานที่ลิงก์มาจากการ์ด CRM (?lead=) — การ์ดของงานนี้ได้กรอบแดง + เลื่อนจอไปหาให้เอง */
+    highlightLeadId?: string | null
 }) {
     // ชิป "ใบงานของฉัน" / คำค้น / การเรียง — สถานะในเครื่องทั้งหมด ไม่แตะ ?tab
     const [mineOnly, setMineOnly] = useState(false)
     const [query, setQuery] = useState('')
     const [sort, setSort] = useState<WorkOrderSort>('date')
+    // เลื่อนจอไปหาการ์ดที่ไฮไลต์ครั้งเดียวตอนเข้าหน้า — ไม่เลื่อนซ้ำทุก re-render
+    const scrolledToHighlight = useRef(false)
 
     const leadById = new Map(leads.map(l => [l.id, l]))
     const orderOf = new Map(leads.map((l, i) => [l.id, i]))
 
     /** ใบงานของฉัน = ฉันเป็นผู้รับ หรืออยู่ในทีมที่ถูกจัดมาบนใบงานนั้น */
     // เฉพาะใบงานที่มีคนรับแล้ว — ใบที่ยังรอรับอยู่ที่แท็บภาพรวมเท่านั้น (flow: รับจากภาพรวม → โผล่ในคิวแท็บนี้)
-    const claimedJobs = jobs.filter(j => j.status !== 'awaiting_claim')
+    // ยกเว้นงานที่ลิงก์มาจากการ์ด CRM: ใบที่ยังรอรับของงานนั้นโชว์ด้วย ไม่งั้นลิงก์พามาแล้วเจอแท็บว่าง
+    const claimedJobs = jobs.filter(
+        j => j.status !== 'awaiting_claim' || (!!highlightLeadId && j.crm_lead_id === highlightLeadId)
+    )
 
     const isMineJob = (job: PoolJob) =>
         !!currentUserId && (job.claimed_by === currentUserId || (job.assigned_to || []).includes(currentUserId))
@@ -895,10 +956,23 @@ export default function PoolTabs({
                 </p>
             ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {visible.map(({ job, lead }) => (
+                {visible.map(({ job, lead }) => {
+                    const highlighted = !!highlightLeadId && job.crm_lead_id === highlightLeadId
+                    return (
                     <div
                         key={job.id}
-                        className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 space-y-2"
+                        ref={el => {
+                            if (el && highlighted && !scrolledToHighlight.current) {
+                                scrolledToHighlight.current = true
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                            }
+                        }}
+                        className={cn(
+                            'rounded-xl border bg-white dark:bg-zinc-950 p-3 space-y-2',
+                            highlighted
+                                ? 'border-red-500 ring-2 ring-red-500/60 dark:border-red-500'
+                                : 'border-zinc-200 dark:border-zinc-800'
+                        )}
                     >
                         <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -955,7 +1029,8 @@ export default function PoolTabs({
                             canManagePool={canManagePool}
                         />
                     </div>
-                ))}
+                    )
+                })}
                 </div>
             )}
         </div>
