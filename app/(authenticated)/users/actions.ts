@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { cookies } from 'next/headers'
+import { saveAvatar, clearAvatar } from '@/lib/avatar'
 
 
 
@@ -172,7 +173,47 @@ export async function updateUserProfile(userId: string, data: {
     }
 
     await logActivity('UPDATE_USER_PROFILE', data, userId)
-  
+
     revalidatePath('/users')
     return { success: true }
+}
+
+// ─── รูปโปรไฟล์แทน user (แอดมินเท่านั้น) — ตรรกะจริงอยู่ใน lib/avatar.ts ────
+
+async function requireAdmin(): Promise<string | null> {
+    const cookieStore = await cookies()
+    const sessionUserId = cookieStore.get('session_user_id')?.value
+    const sessionRole = cookieStore.get('session_role')?.value
+    return sessionUserId && sessionRole === 'admin' ? sessionUserId : null
+}
+
+/** revalidate ทุกหน้าที่โชว์ avatar — /users, ทำเนียบแชมป์, การ์ดอันดับ, หน้าโปรไฟล์เจ้าตัว */
+function revalidateAvatarPages() {
+    revalidatePath('/users')
+    revalidatePath('/dashboard')
+    revalidatePath('/reports')
+    revalidatePath('/profile')
+}
+
+export async function updateUserAvatar(userId: string, formData: FormData): Promise<{ error?: string; url?: string }> {
+    if (!(await requireAdmin())) return { error: 'เฉพาะ admin เท่านั้น' }
+
+    const result = await saveAvatar(userId, formData.get('file'))
+    if (result.error) return result
+
+    // targetUserId = คนที่ถูกแก้ — audit บอกได้ว่าแอดมินคนไหนแก้รูปของใคร
+    await logActivity('UPDATE_AVATAR', { action: 'upload', byAdmin: true }, userId)
+    revalidateAvatarPages()
+    return result
+}
+
+export async function removeUserAvatar(userId: string): Promise<{ error?: string; success?: boolean }> {
+    if (!(await requireAdmin())) return { error: 'เฉพาะ admin เท่านั้น' }
+
+    const result = await clearAvatar(userId)
+    if (result.error) return result
+
+    await logActivity('UPDATE_AVATAR', { action: 'remove', byAdmin: true }, userId)
+    revalidateAvatarPages()
+    return result
 }
