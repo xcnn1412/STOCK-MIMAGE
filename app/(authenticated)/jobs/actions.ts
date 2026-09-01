@@ -1324,6 +1324,39 @@ export async function assignPoolJob(jobId: string, userId: string) {
     return { success: true }
 }
 
+/**
+ * เสร็จสิ้นคำเตือน "หน้าที่ยังไม่ครบ" ของงานที่เลยวันงานแล้ว (แผงแจ้งเตือน dashboard)
+ * งานจบไปแล้วจริงหน้างาน — stamp prep_done_at ให้คำเตือนหายจากแผง (ไม่แตะข้อมูลหน้าที่ใดๆ)
+ */
+export async function closeLeadPrepWarning(leadId: string) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+
+    const supabase = createServiceClient()
+    const { data: lead } = await supabase
+        .from('crm_leads')
+        .select('id, event_date')
+        .eq('id', leadId)
+        .single()
+    if (!lead) return { error: 'ไม่พบงานนี้' }
+    // ปิดได้เฉพาะงานที่เลยวันงานแล้ว — งานที่ยังไม่ถึงวันต้องตามหน้าที่ให้ครบจริง
+    const today = new Date().toISOString().slice(0, 10)
+    if (!lead.event_date || (lead.event_date as string) >= today) {
+        return { error: 'ปิดคำเตือนได้เฉพาะงานที่เลยวันงานแล้ว' }
+    }
+
+    const { error } = await supabase
+        .from('crm_leads')
+        .update({ prep_done_at: new Date().toISOString() })
+        .eq('id', leadId)
+    if (error) return { error: error.message }
+
+    await logActivity('CLOSE_PREP_WARNING', { leadId })
+    revalidatePath('/dashboard')
+    revalidatePath('/jobs/tracking')
+    return { success: true }
+}
+
 // ============================================================================
 // หน้าที่เตรียมงาน (Prep duty) — รับ/คืนรายหน้าที่ จัดคน / จัดรถ / จัดกระเป๋า
 // ดู CONTEXT.md § "หน้าที่เตรียมงาน": สามหน้าที่รับ-คืนแยกกันอิสระ ไม่บังคับลำดับ

@@ -31,8 +31,9 @@ export default async function TrackingPage() {
     // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
     return (
         <Suspense fallback={null}>
-            {/* แผงแจ้งเตือนชุดเดียวกับ dashboard — เหนือพูลงาน (แผงว่างคืน null ไม่กินพื้นที่) */}
-            <AlertPanels snapshot={snapshot} />
+            {/* แผงแจ้งเตือนชุดเดียวกับ dashboard — เหนือพูลงาน (แผงว่างคืน null ไม่กินพื้นที่)
+                คำเตือนเป็นแถบสรุปพับได้ เพราะหน้านี้พูลคือเนื้อหาหลัก และตารางมีป้าย "สิ่งที่ยังขาด" อยู่แล้ว */}
+            <AlertPanels snapshot={snapshot} compactWarnings />
             <TrackingView
                 leads={rows}
                 roleLabels={roleLabels}
