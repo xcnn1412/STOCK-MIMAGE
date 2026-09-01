@@ -4,10 +4,10 @@
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] เกณฑ์ขาดใช้ `getMissing()` + kitReadiness + designReady จาก tracking-logic เท่านั้น (ไม่เขียนเกณฑ์ใหม่)
-- [ ] กรองผู้เห็นตาม spec (duty owner / แผนกจาก job_settings / admin+ประสานงาน)
-- [ ] งานไม่ระบุวันและงาน archive ไม่โผล่ · เลยวันเกิน 14 วันไม่โผล่
-- [ ] คำเตือนกดได้ → แท็บหน้าที่ที่ขาด + `?lead=` ไฮไลต์
-- [ ] `npx tsc --noEmit` ไม่มี error ใหม่
+- [x] เกณฑ์ขาดใช้ `getMissing()` + kitReadiness + designReady จาก tracking-logic เท่านั้น (ไม่เขียนเกณฑ์ใหม่)
+- [x] กรองผู้เห็นตาม spec (duty owner / แผนกจาก job_settings / admin+ประสานงาน)
+- [x] งานไม่ระบุวันและงาน archive ไม่โผล่ · เลยวันเกิน 14 วันไม่โผล่
+- [x] คำเตือนกดได้ → แท็บหน้าที่ที่ขาด + `?lead=` ไฮไลต์
+- [x] `npx tsc --noEmit` ไม่มี error ใหม่

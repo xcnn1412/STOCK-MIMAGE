@@ -6,6 +6,8 @@ import { getSessionLight } from '@/lib/auth'
 import type { TrackingLead } from './tracking-view'
 import { VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, POOL_TEAM_DEFAULTS, type DutyClaim, type EventVehicle, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
+// ตรรกะล้วน (ไม่มี React) — ที่เดียวที่รู้ว่าทีมไหนอ่านหมวดไหนใน job_settings
+import { DUTY_TEAM_CATEGORY, DUTY_TEAM_DEFAULTS, type DutyDepartments, type DutyTeamKey } from '@/components/dashboard-alerts/duty-warnings'
 
 /** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
 function normalizeRequiredRoles(raw: unknown): Record<string, number> {
@@ -41,6 +43,11 @@ export interface TrackingPerson {
 export interface TrackingSnapshot {
     /** งานที่ลูกค้าตอบรับแล้ว พร้อมอีเวนต์/คนที่จัดไว้ (props `leads` ของ TrackingView) */
     rows: TrackingLead[]
+    /**
+     * id ของงานใน `rows` ที่ถูก archive แล้ว (crm_leads.archived_at)
+     * — หน้าติดตามงานยังแสดงตามเดิม; ผู้เรียกที่ต้องตัดออก (เช่น แผงแจ้งเตือน) กรองด้วยรายการนี้
+     */
+    archivedLeadIds: string[]
     /** ใบงานในพูล (props `jobs`) */
     poolJobs: PoolJob[]
     /** หน้าที่เตรียมงานที่มีคนรับแล้ว */
@@ -68,6 +75,8 @@ export interface TrackingSnapshot {
     isAdmin: boolean
     canManagePool: boolean
     canManageKits: boolean
+    /** แผนกที่รับผิดชอบแต่ละทีม/หน้าที่ (job_settings; ยังไม่ตั้งค่า = ค่าเริ่มต้น) */
+    dutyDepartments: DutyDepartments
 }
 
 /**
@@ -79,7 +88,7 @@ export async function getTrackingSnapshot(): Promise<TrackingSnapshot> {
 
     const { data: leads, error: leadsError } = await supabase
         .from('crm_leads')
-        .select('id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, tracking_checklist, required_roles')
+        .select('id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, tracking_checklist, required_roles, archived_at')
         .eq('status', 'accepted')
         .order('event_date', { ascending: true, nullsFirst: false })
         .order('event_time', { ascending: true, nullsFirst: false })
@@ -292,21 +301,43 @@ export async function getTrackingSnapshot(): Promise<TrackingSnapshot> {
     const myDepartment = people.find(p => p.id === currentUserId)?.department ?? null
     const canManagePool = sessionRole === 'admin' || myDepartment === 'ฝ่ายประสานงาน'
 
-    // จอง/ย้ายกระเป๋า: แอดมิน + แผนกที่ตั้งไว้ในแท็บ "ทีมของพูลงาน" (ยังไม่ตั้ง = ค่าเริ่มต้น)
-    // เป็นแค่การซ่อนปุ่ม — สิทธิ์จริงบังคับใน server action อีกชั้นด้วย canActOnPool ตัวเดียวกัน
-    const { data: kitDeptRows } = await supabase
+    // แผนกของแต่ละหมวดในแท็บ "ทีมของพูลงาน" (ยังไม่ตั้ง = ค่าเริ่มต้น) — อ่านทีเดียวทุกหมวดที่ใช้
+    // ใช้สองที่: ซ่อนปุ่มจองกระเป๋า (สิทธิ์จริงบังคับใน server action อีกชั้นด้วย canActOnPool ตัวเดียวกัน)
+    // และบอกว่าใครควรเห็นคำเตือน "หน้าที่ยังไม่ครบ" ของหน้าที่ที่ยังไม่มีคนรับ
+    const DEPARTMENT_CATEGORIES: string[] = ['pool_kit_departments', ...Object.values(DUTY_TEAM_CATEGORY)]
+    const { data: deptRows } = await supabase
         .from('job_settings')
-        .select('value')
-        .eq('category', 'pool_kit_departments')
+        .select('category, value')
+        .in('category', DEPARTMENT_CATEGORIES)
         .eq('is_active', true)
-    const kitDeptRowValues = (kitDeptRows || []).map(r => r.value as string).filter(Boolean)
-    const kitDepartments = kitDeptRowValues.length > 0
-        ? kitDeptRowValues
-        : [...POOL_TEAM_DEFAULTS.pool_kit_departments]
+        .order('sort_order', { ascending: true })
+
+    const deptByCategory = new Map<string, string[]>()
+    for (const r of deptRows || []) {
+        const value = r.value as string
+        if (!value) continue
+        const list = deptByCategory.get(r.category as string)
+        if (list) list.push(value)
+        else deptByCategory.set(r.category as string, [value])
+    }
+    const departmentsOf = (category: string, fallback: readonly string[]): string[] => {
+        const values = deptByCategory.get(category)
+        return values && values.length > 0 ? values : [...fallback]
+    }
+
+    const kitDepartments = departmentsOf('pool_kit_departments', POOL_TEAM_DEFAULTS.pool_kit_departments)
     const canManageKits = canActOnPool(myDepartment, sessionRole === 'admin', kitDepartments)
+
+    const dutyDepartments = Object.fromEntries(
+        (Object.keys(DUTY_TEAM_CATEGORY) as DutyTeamKey[]).map(team => [
+            team,
+            departmentsOf(DUTY_TEAM_CATEGORY[team], DUTY_TEAM_DEFAULTS[team]),
+        ])
+    ) as DutyDepartments
 
     return {
         rows,
+        archivedLeadIds: (leads || []).filter(l => l.archived_at).map(l => l.id as string),
         poolJobs,
         dutyClaims,
         kits,
@@ -322,5 +353,6 @@ export async function getTrackingSnapshot(): Promise<TrackingSnapshot> {
         isAdmin: sessionRole === 'admin',
         canManagePool,
         canManageKits,
+        dutyDepartments,
     }
 }
