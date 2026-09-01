@@ -298,9 +298,12 @@ function KanbanCard({
     return locale === 'th' ? setting.label_th : setting.label_en
   }
 
+  // แดง = ดีลค้างท่อ: วันงานเลยมาแล้วแต่ลูกค้ายังไม่ตัดสินใจ — เฉพาะสถานะที่ยังคุยอยู่เท่านั้น
+  // สถานะหลังปิดดีล (accepted/rejected/เสร็จสิ้น/ชำระครบ ฯลฯ ที่ตั้งค่าเพิ่มเอง) วันที่ผ่านแล้วเป็นเรื่องปกติ
+  // ponytail: สถานะ custom ที่เป็นขั้น "ยังคุยอยู่" จะไม่ได้สีแดง — ถ้ามีจริงค่อยย้าย flag ไป crm_settings
   const isOverdue =
     lead.event_date &&
-    !['accepted', 'rejected'].includes(lead.status) &&
+    ['lead', 'quotation_sent'].includes(lead.status) &&
     new Date(lead.event_date) < new Date()
 
   const pkgSetting = settings.find(s => s.category === 'package' && s.value === lead.package_name)

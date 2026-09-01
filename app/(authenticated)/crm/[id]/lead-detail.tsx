@@ -168,9 +168,10 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   ]
   const workTypeLabel = workTypeOptions.find(o => o.value === lead.work_type)?.label
 
+  // แดงเฉพาะดีลค้างท่อ (ยังคุยอยู่แต่วันงานเลยแล้ว) — สถานะหลังปิดดีลรวม custom ไม่นับ (ดู kanban-board)
   const isOverdue =
     lead.event_date &&
-    !['accepted', 'rejected'].includes(lead.status) &&
+    ['lead', 'quotation_sent'].includes(lead.status) &&
     new Date(lead.event_date) < new Date()
 
   // Compute outstanding balance for header badge
