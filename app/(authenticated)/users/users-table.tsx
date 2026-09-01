@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { toggleUserApproval, toggleUserBlock, updateUserRole, deleteUser, updateUserModules, updateUserProfile } from './actions'
+import { toggleUserApproval, toggleUserBlock, updateUserRole, deleteUser, updateUserModules, updateUserProfile, updateUserAvatar, removeUserAvatar } from './actions'
+import { compressImage } from '@/lib/utils'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -50,6 +51,21 @@ interface UserWithLogin {
     bank_name: string | null
     bank_account_number: string | null
     account_holder_name: string | null
+    avatar_url?: string | null
+}
+
+/** วงกลมรูปโปรไฟล์ — ไม่มีรูปโชว์อักษรแรกของชื่อ (ใช้ทั้งตาราง/การ์ดมือถือ/dialog) */
+function AvatarCircle({ url, name, className }: { url: string | null | undefined; name: string; className: string }) {
+    return (
+        <span className={`flex items-center justify-center overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800 shrink-0 ${className}`}>
+            {url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={url} alt={name} className="h-full w-full object-cover" />
+            ) : (
+                <span className="font-bold text-zinc-400">{(name || '?').trim().charAt(0)}</span>
+            )}
+        </span>
+    )
 }
 
 // ============================================================================
@@ -266,9 +282,13 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
     const [editProfile, setEditProfile] = useState<{
         id: string; full_name: string; nickname: string; department: string; national_id: string;
         address: AddressData;
-        bank_name: string; bank_account_number: string; account_holder_name: string
+        bank_name: string; bank_account_number: string; account_holder_name: string;
+        avatar_url: string | null
     } | null>(null)
     const [saving, setSaving] = useState(false)
+    // อัปโหลด/ลบรูปโปรไฟล์แทน user — ทำทันทีที่เลือกไฟล์ ไม่ต้องกดบันทึก
+    const [avatarBusy, setAvatarBusy] = useState(false)
+    const avatarInputRef = useRef<HTMLInputElement>(null)
 
     const openEdit = (user: UserWithLogin) => setEditProfile({
         id: user.id,
@@ -280,7 +300,52 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
         bank_name: user.bank_name || '',
         bank_account_number: user.bank_account_number || '',
         account_holder_name: user.account_holder_name || '',
+        avatar_url: user.avatar_url || null,
     })
+
+    const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        e.target.value = '' // เลือกไฟล์เดิมซ้ำได้
+        if (!file || !editProfile) return
+        if (file.type !== 'image/png' && file.type !== 'image/jpeg') {
+            toast.error('รองรับเฉพาะไฟล์ PNG หรือ JPG')
+            return
+        }
+        setAvatarBusy(true)
+        try {
+            // ย่อเหลือ 512px ก่อนอัปโหลด — โชว์เป็นวงกลมเล็กๆ ใช้เท่านี้พอ
+            const compressed = await compressImage(file, 0.5, 512)
+            const fd = new FormData()
+            fd.append('file', compressed)
+            const result = await updateUserAvatar(editProfile.id, fd)
+            if (result?.error) toast.error(result.error)
+            else {
+                setEditProfile(prev => (prev ? { ...prev, avatar_url: result.url || null } : prev))
+                toast.success('อัปโหลดรูปโปรไฟล์เรียบร้อยแล้ว')
+            }
+        } catch {
+            toast.error('เกิดข้อผิดพลาด')
+        } finally {
+            setAvatarBusy(false)
+        }
+    }
+
+    const handleAvatarRemove = async () => {
+        if (!editProfile) return
+        setAvatarBusy(true)
+        try {
+            const result = await removeUserAvatar(editProfile.id)
+            if (result?.error) toast.error(result.error)
+            else {
+                setEditProfile(prev => (prev ? { ...prev, avatar_url: null } : prev))
+                toast.success('ลบรูปโปรไฟล์แล้ว')
+            }
+        } catch {
+            toast.error('เกิดข้อผิดพลาด')
+        } finally {
+            setAvatarBusy(false)
+        }
+    }
 
     const handleSaveProfile = async () => {
         if (!editProfile) return
@@ -401,7 +466,8 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="min-w-[120px]">
+                                        <div className="min-w-[120px] flex items-center gap-2">
+                                            <AvatarCircle url={user.avatar_url} name={user.nickname || user.full_name} className="h-7 w-7 text-xs" />
                                             <span className="font-medium text-zinc-900 dark:text-zinc-100">{user.full_name}</span>
                                         </div>
                                     </TableCell>
@@ -538,9 +604,7 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                             className="flex items-start gap-3 p-4 cursor-pointer"
                             onClick={() => setExpandedId(expandedId === user.id ? null : user.id)}
                         >
-                            <div className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
-                                <User className="h-4 w-4 text-zinc-400" />
-                            </div>
+                            <AvatarCircle url={user.avatar_url} name={user.nickname || user.full_name} className="w-10 h-10 text-sm" />
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-2">
                                     <div className="truncate">
@@ -674,6 +738,36 @@ export default function UsersTable({ users }: { users: UserWithLogin[] }) {
                     </DialogHeader>
                     {editProfile && (
                         <div className="space-y-4 mt-2 max-h-[70vh] overflow-y-auto pr-1">
+                            {/* รูปโปรไฟล์ — อัปโหลด/ลบมีผลทันที ไม่ผูกกับปุ่มบันทึกด้านล่าง */}
+                            <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold">รูปโปรไฟล์</p>
+                            <div className="flex items-center gap-3">
+                                <AvatarCircle url={editProfile.avatar_url} name={editProfile.nickname || editProfile.full_name} className="h-16 w-16 border-2 border-zinc-200 dark:border-zinc-700 text-xl" />
+                                <input
+                                    ref={avatarInputRef}
+                                    type="file"
+                                    accept="image/png,image/jpeg"
+                                    className="hidden"
+                                    onChange={handleAvatarChange}
+                                />
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button type="button" variant="outline" size="sm" disabled={avatarBusy} onClick={() => avatarInputRef.current?.click()}>
+                                        {avatarBusy ? 'กำลังอัปโหลด...' : editProfile.avatar_url ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}
+                                    </Button>
+                                    {editProfile.avatar_url && (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={avatarBusy}
+                                            onClick={handleAvatarRemove}
+                                            className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                                        >
+                                            ลบรูป
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+
                             {/* ข้อมูลส่วนตัว */}
                             <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold">ข้อมูลส่วนตัว</p>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

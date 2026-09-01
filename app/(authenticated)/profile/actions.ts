@@ -1,6 +1,7 @@
 'use server'
 
 import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
+import { saveAvatar, clearAvatar } from '@/lib/avatar'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
@@ -156,72 +157,36 @@ export async function removeSignature(): Promise<{ error?: string; success?: boo
 }
 
 // ─── รูปโปรไฟล์ ──────────────────────────────────────────
-// pattern เดียวกับลายเซ็น: bucket doc-assets, upsert ทับ path เดิม + cache-buster
-
-const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+// ตรรกะจริงอยู่ใน lib/avatar.ts (ใช้ร่วมกับหน้า /users ที่แอดมินแก้แทนได้)
 
 export async function updateAvatar(formData: FormData): Promise<{ error?: string; url?: string }> {
   const userId = await getOwnUserId()
   if (!userId) return { error: 'Unauthorized: No active session' }
 
-  const file = formData.get('file')
-  if (!(file instanceof File) || file.size === 0) return { error: 'ไม่พบไฟล์' }
-  const ext = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : null
-  if (!ext) return { error: 'รองรับเฉพาะไฟล์ PNG หรือ JPG' }
-  if (file.size > AVATAR_MAX_BYTES) return { error: 'ไฟล์ต้องไม่เกิน 2MB' }
+  const result = await saveAvatar(userId, formData.get('file'))
+  if (result.error) return result
 
-  const supabase = createServiceClient()
-  const path = `avatars/${userId}.${ext}`
-  const buffer = Buffer.from(await file.arrayBuffer())
-
-  const { error: upErr } = await supabase.storage
-    .from(SIGNATURE_BUCKET)
-    .upload(path, buffer, { contentType: file.type, upsert: true })
-  if (upErr) return { error: upErr.message }
-
-  const { data: pub } = supabase.storage.from(SIGNATURE_BUCKET).getPublicUrl(path)
-  const url = `${pub.publicUrl}?v=${Date.now()}`
-
-  const { error } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', userId)
-  if (error) {
-    console.error('updateAvatar:', error)
-    return { error: 'บันทึกรูปโปรไฟล์ไม่สำเร็จ' }
-  }
-
-  await logActivity('UPDATE_AVATAR', { action: 'upload', path }, userId)
+  await logActivity('UPDATE_AVATAR', { action: 'upload' }, userId)
 
   revalidatePath('/profile')
   revalidatePath('/dashboard')
   revalidatePath('/reports')
-  return { url }
+  return result
 }
 
 export async function removeAvatar(): Promise<{ error?: string; success?: boolean }> {
   const userId = await getOwnUserId()
   if (!userId) return { error: 'Unauthorized: No active session' }
 
-  const supabase = createServiceClient()
-  const { data: current } = await supabase
-    .from('profiles')
-    .select('avatar_url')
-    .eq('id', userId)
-    .single()
-
-  const { error } = await supabase.from('profiles').update({ avatar_url: null }).eq('id', userId)
-  if (error) {
-    console.error('removeAvatar:', error)
-    return { error: 'ลบรูปโปรไฟล์ไม่สำเร็จ' }
-  }
-
-  const storedUrl = current?.avatar_url?.split('?')[0]
-  await removeStorageByUrls(supabase, SIGNATURE_BUCKET, [storedUrl])
+  const result = await clearAvatar(userId)
+  if (result.error) return result
 
   await logActivity('UPDATE_AVATAR', { action: 'remove' }, userId)
 
   revalidatePath('/profile')
   revalidatePath('/dashboard')
   revalidatePath('/reports')
-  return { success: true }
+  return result
 }
 
 // ─── เปลี่ยน PIN ──────────────────────────────────────────
