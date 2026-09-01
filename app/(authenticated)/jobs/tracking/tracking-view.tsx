@@ -700,6 +700,7 @@ export default function TrackingView({
                     duty={tab}
                     leads={base}
                     all={rows}
+                    highlightLeadId={searchParams.get('lead')}
                     people={people}
                     roles={roles}
                     roleLabels={roleLabels}

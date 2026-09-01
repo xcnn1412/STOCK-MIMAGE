@@ -3,7 +3,7 @@
 // แท็บใบงานรายหน้าที่เตรียมงาน — ใบงานจัดคน / ใบงานจัดรถ / ใบงานจัดกระเป๋า
 // การ์ดหนึ่งใบ = หนึ่งงาน (lead) ไม่ใช่หนึ่งแถวในตาราง jobs — หน้าที่เตรียมงานผูกกับงาน ไม่ผูกกับใบงานหน้างาน
 
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import {
     DUTY_LABELS_TH,
@@ -96,6 +96,7 @@ export default function DutyTab({
     onVehicleSaved,
     onStaffSaved,
     onRequiredRolesSaved,
+    highlightLeadId = null,
 }: {
     duty: PrepDuty
     /** งานที่มองเห็นอยู่ — ชุดเดียวกับตารางภาพรวม (กรองงานที่ผ่านแล้วมาให้เรียบร้อย) */
@@ -122,10 +123,14 @@ export default function DutyTab({
         requiredRoles: Record<string, number>
     ) => void
     onRequiredRolesSaved: (leadId: string, value: Record<string, number>) => void
+    /** งานที่ลิงก์มาจากการ์ด CRM (?lead=) — การ์ดของงานนี้ได้กรอบแดง + เลื่อนจอไปหาให้เอง */
+    highlightLeadId?: string | null
 }) {
     const [mineOnly, setMineOnly] = useState(false)
     const [query, setQuery] = useState('')
     const [sort, setSort] = useState<WorkOrderSort>('date')
+    // เลื่อนจอไปหาการ์ดที่ไฮไลต์ครั้งเดียวตอนเข้าหน้า — ไม่เลื่อนซ้ำทุก re-render
+    const scrolledToHighlight = useRef(false)
 
     const label = DUTY_LABELS_TH[duty]
     const claimOf = (lead: TrackingLead) => claimByDuty.get(dutyKey(lead.id, duty))
@@ -135,7 +140,10 @@ export default function DutyTab({
     }
 
     // เฉพาะงานที่หน้าที่นี้มีคนรับแล้ว — งานที่ยังรอรับอยู่ที่แท็บภาพรวมเท่านั้น (flow: รับจากภาพรวม → โผล่ในคิวแท็บนี้)
-    const claimed = leads.filter(l => claimByDuty.has(dutyKey(l.id, duty)))
+    // ยกเว้นงานที่ลิงก์มาไฮไลต์ (?lead=): ยังไม่มีคนรับก็ต้องโชว์ ไม่งั้นลิงก์เตือนพามาแล้วเจอแท็บว่าง (ท่าเดียวกับ pool-tabs)
+    const claimed = leads.filter(
+        l => claimByDuty.has(dutyKey(l.id, duty)) || (!!highlightLeadId && l.id === highlightLeadId)
+    )
 
     /** ใบงานของฉัน = ฉันเป็นคนรับหน้าที่นี้ของงานนั้น */
     const isMine = (lead: TrackingLead) => !!currentUserId && claimOf(lead)?.claimedBy === currentUserId
@@ -202,11 +210,22 @@ export default function DutyTab({
                 </p>
             ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {visible.map(lead => (
+                    {visible.map(lead => {
+                        const highlighted = !!highlightLeadId && lead.id === highlightLeadId
+                        return (
                         <div
                             key={lead.id}
+                            ref={el => {
+                                if (el && highlighted && !scrolledToHighlight.current) {
+                                    scrolledToHighlight.current = true
+                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                }
+                            }}
                             className={cn(
-                                'rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 space-y-2'
+                                'rounded-xl border bg-white dark:bg-zinc-950 p-3 space-y-2',
+                                highlighted
+                                    ? 'border-red-500 ring-2 ring-red-500/60 dark:border-red-500'
+                                    : 'border-zinc-200 dark:border-zinc-800'
                             )}
                         >
                             <div className="min-w-0">
@@ -227,7 +246,8 @@ export default function DutyTab({
                                 {toolFor(lead)}
                             </DutyGate>
                         </div>
-                    ))}
+                        )
+                    })}
                 </div>
             )}
         </div>
