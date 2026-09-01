@@ -21,6 +21,8 @@ export interface MyJobsPanelProps {
     currentUserId: string | null
     /** ป้ายสถานะใบงานจาก job_settings (snapshot.jobStatusLabels) */
     statusLabels: JobStatusLabelMap
+    /** ไม่มีงานค้าง = โชว์การ์ดเปล่าแทนการหาย (ใช้บน dashboard 3 คอลัมน์ ให้ layout ไม่ยุบ) */
+    showEmpty?: boolean
     className?: string
 }
 
@@ -69,19 +71,34 @@ function pendingJobsOf(jobs: PoolJob[], leadDates: Record<string, string | null>
     })
 }
 
-export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabels, className }: MyJobsPanelProps) {
+export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabels, showEmpty = false, className }: MyJobsPanelProps) {
     if (!currentUserId) return null
 
     const pending = pendingJobsOf(jobs, leadDates, currentUserId)
-    // แผงว่าง = ไม่ render อะไรเลย (หน้ากลับมาโล่งเหมือนเดิม)
-    if (pending.length === 0) return null
+    // แผงว่าง: ค่าเริ่มต้นไม่ render อะไรเลย · showEmpty = การ์ดเปล่าบอกว่าเคลียร์หมดแล้ว
+    if (pending.length === 0) {
+        if (!showEmpty) return null
+        return (
+            <div className={cn('px-4 pt-4 md:pt-6', className)}>
+                <section className="mx-auto w-full max-w-2xl rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3">
+                    <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                        <Briefcase className="h-4 w-4" />
+                        งานในมือคุณ (0)
+                    </h2>
+                    <p className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-500">
+                        ไม่มีใบงานค้างในมือ 🎉
+                    </p>
+                </section>
+            </div>
+        )
+    }
 
     const shown = pending.slice(0, MAX_ROWS)
 
     return (
         // div นอกคุมระยะขอบของหน้า (override ได้ด้วย className) — การ์ดข้างในคุมความกว้าง
         <div className={cn('px-4 pt-4 md:pt-6', className)}>
-            <section className="mx-auto w-full max-w-2xl rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50/60 dark:bg-amber-500/5 p-3 space-y-2">
+            <section className="mx-auto w-full max-w-2xl rounded-2xl border shadow-sm border-amber-300 dark:border-amber-500/40 bg-amber-50/60 dark:bg-amber-500/5 p-3 space-y-2">
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-900 dark:text-amber-200">
                     <Briefcase className="h-4 w-4" />
                     งานในมือคุณ ({pending.length})

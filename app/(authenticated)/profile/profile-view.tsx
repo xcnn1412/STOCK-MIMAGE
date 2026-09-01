@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import BankSelect from '@/components/bank-select'
 import ThaiAddressInput from '@/components/thai-address-input'
 import { parseAddress, serializeAddress, type AddressData } from '@/lib/thai-address'
-import { updateMyProfile, changePin, updateSignature, removeSignature } from './actions'
+import { updateMyProfile, changePin, updateSignature, removeSignature, updateAvatar, removeAvatar } from './actions'
 import { compressImage } from '@/lib/utils'
 import { DEPARTMENTS } from '@/lib/departments'
 import { toast } from 'sonner'
@@ -28,6 +28,7 @@ interface ProfileData {
   phone: string | null
   role: string | null
   signature_url?: string | null
+  avatar_url?: string | null
 }
 
 function getCompletionItems(profile: ProfileData) {
@@ -70,6 +71,11 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
   const [signatureUrl, setSignatureUrl] = useState<string | null>(profile.signature_url || null)
   const [signatureBusy, setSignatureBusy] = useState(false)
   const signatureInputRef = useRef<HTMLInputElement>(null)
+
+  // รูปโปรไฟล์ — โชว์ในการ์ดอันดับทีม
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url || null)
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
 
   const completionItems = getCompletionItems({
     ...profile,
@@ -159,6 +165,53 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
       toast.error('เกิดข้อผิดพลาด')
     } finally {
       setSignatureBusy(false)
+    }
+  }
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // เลือกไฟล์เดิมซ้ำได้
+    if (!file) return
+
+    if (file.type !== 'image/png' && file.type !== 'image/jpeg') {
+      toast.error('รองรับเฉพาะไฟล์ PNG หรือ JPG')
+      return
+    }
+
+    setAvatarBusy(true)
+    try {
+      // ย่อเหลือ 512px ก่อนอัปโหลด — โชว์เป็นวงกลมเล็กๆ ใช้เท่านี้พอ
+      const compressed = await compressImage(file, 0.5, 512)
+      const fd = new FormData()
+      fd.append('file', compressed)
+      const result = await updateAvatar(fd)
+      if (result?.error) {
+        toast.error(result.error)
+      } else {
+        setAvatarUrl(result.url || null)
+        toast.success('อัปโหลดรูปโปรไฟล์เรียบร้อยแล้ว')
+      }
+    } catch {
+      toast.error('เกิดข้อผิดพลาด')
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
+  const handleRemoveAvatar = async () => {
+    setAvatarBusy(true)
+    try {
+      const result = await removeAvatar()
+      if (result?.error) {
+        toast.error(result.error)
+      } else {
+        setAvatarUrl(null)
+        toast.success('ลบรูปโปรไฟล์แล้ว')
+      }
+    } catch {
+      toast.error('เกิดข้อผิดพลาด')
+    } finally {
+      setAvatarBusy(false)
     }
   }
 
@@ -377,6 +430,72 @@ export default function ProfileView({ profile }: { profile: ProfileData }) {
                 onChange={e => setForm({ ...form, account_holder_name: e.target.value })}
                 placeholder="ชื่อบัญชี (ตามหน้าสมุดบัญชี)"
               />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* รูปโปรไฟล์ */}
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <User className="h-4 w-4 text-zinc-500" />
+            รูปโปรไฟล์
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            แสดงในการ์ดอันดับทีมบนหน้าแรกและหน้าสถิติทีม
+          </p>
+          <div className="flex items-center gap-4">
+            {/* พรีวิววงกลม — ไม่มีรูปโชว์อักษรแรกของชื่อเล่น/ชื่อจริง */}
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt="รูปโปรไฟล์ของฉัน" className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-2xl font-bold text-zinc-400">
+                  {(form.nickname || form.full_name || '?').trim().charAt(0)}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/png,image/jpeg"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
+              <Button type="button" variant="outline" size="sm" disabled={avatarBusy} onClick={() => avatarInputRef.current?.click()}>
+                {avatarBusy ? (
+                  <span className="flex items-center gap-2">
+                    <span className="h-3.5 w-3.5 border-2 border-zinc-300 border-t-zinc-600 rounded-full animate-spin" />
+                    กำลังอัปโหลด...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Upload className="h-3.5 w-3.5" />
+                    {avatarUrl ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}
+                  </span>
+                )}
+              </Button>
+              {avatarUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={avatarBusy}
+                  onClick={handleRemoveAvatar}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                >
+                  <span className="flex items-center gap-2">
+                    <Trash2 className="h-3.5 w-3.5" />
+                    ลบรูป
+                  </span>
+                </Button>
+              )}
+              <span className="text-[11px] text-zinc-400">PNG หรือ JPG — ระบบย่อรูปให้อัตโนมัติ</span>
             </div>
           </div>
         </CardContent>

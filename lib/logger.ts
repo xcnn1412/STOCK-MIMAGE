@@ -121,6 +121,8 @@ export type ActionType =
     | 'ASSIGN_POOL_JOB'
     // กดเสร็จสิ้นคำเตือน "หน้าที่ยังไม่ครบ" ของงานที่เลยวันงานแล้ว (dashboard-alerts)
     | 'CLOSE_PREP_WARNING'
+    // อัปโหลด/ลบรูปโปรไฟล์ (profiles.avatar_url)
+    | 'UPDATE_AVATAR'
     // หน้าที่เตรียมงาน — รับ/คืนรายหน้าที่ (จัดคน / จัดรถ / จัดกระเป๋า)
     | 'CLAIM_LEAD_DUTY'
     | 'RELEASE_LEAD_DUTY'

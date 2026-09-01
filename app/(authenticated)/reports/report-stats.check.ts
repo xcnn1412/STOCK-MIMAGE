@@ -1,4 +1,4 @@
-// Runnable self-check for report-stats.ts (no test runner in this repo).
+﻿// Runnable self-check for report-stats.ts (no test runner in this repo).
 // Run: npx tsx "app/(authenticated)/reports/report-stats.check.ts"
 import assert from 'node:assert/strict'
 import {
@@ -23,10 +23,10 @@ const row = (userId: string, kind: StatRow['kind'], date: string | null = '2026-
     ({ userId, kind, date })
 
 // --- ป้าย / ค่าคงที่ ---------------------------------------------------------
-assert.deepEqual([...STAT_KINDS], ['onsite', 'staffing', 'vehicle', 'kits', 'graphic'])
-assert.deepEqual(STAT_KINDS.map(k => STAT_LABELS_TH[k]), ['ออกงานอีเวนต์', 'จัดคน', 'จัดรถ', 'จัดกระเป๋า', 'รับงานกราฟิก'])
-assert.deepEqual(STAT_KINDS.map(k => STAT_SHORT_LABELS_TH[k]), ['ออกงาน', 'จัดคน', 'จัดรถ', 'จัดกระเป๋า', 'กราฟิก'])
-assert.deepEqual(emptyTotals(), { onsite: 0, staffing: 0, vehicle: 0, kits: 0, graphic: 0 })
+assert.deepEqual([...STAT_KINDS], ['onsite', 'staffing', 'vehicle', 'kits', 'graphic', 'sale', 'jobs'])
+assert.deepEqual(STAT_KINDS.map(k => STAT_LABELS_TH[k]), ['ออกงานอีเวนต์', 'จัดคน', 'จัดรถ', 'จัดกระเป๋า', 'รับงานกราฟิก', 'ยอดนักขาย', 'สร้างใบงาน'])
+assert.deepEqual(STAT_KINDS.map(k => STAT_SHORT_LABELS_TH[k]), ['ออกงาน', 'จัดคน', 'จัดรถ', 'จัดกระเป๋า', 'กราฟิก', 'ยอดขาย', 'สร้างงาน'])
+assert.deepEqual(emptyTotals(), { onsite: 0, staffing: 0, vehicle: 0, kits: 0, graphic: 0, sale: 0, jobs: 0 })
 
 // --- personLabel -----------------------------------------------------------
 assert.equal(personLabel(person('u1', 'สมชาย ใจดี', 'ชาย')), 'ชาย | สมชาย ใจดี')
@@ -50,16 +50,16 @@ const agg = aggregateStats(rows, people)
 
 assert.deepEqual(agg.people.map(p => p.userId), ['u1', 'u2']) // u3 ทุกช่อง 0 → ไม่แสดง
 assert.deepEqual(agg.people[0], {
-    userId: 'u1', name: 'ชาย | สมชาย ใจดี', department: 'ช่าง',
-    onsite: 3, staffing: 1, vehicle: 1, kits: 1, graphic: 1, total: 7,
+    userId: 'u1', name: 'ชาย | สมชาย ใจดี', department: 'ช่าง', avatarUrl: null,
+    onsite: 3, staffing: 1, vehicle: 1, kits: 1, graphic: 1, sale: 0, jobs: 0, total: 7,
 })
 assert.deepEqual(agg.people[1], {
-    userId: 'u2', name: 'นิค | นิคม ตั้งใจ', department: 'ฝ่ายออกแบบ',
-    onsite: 1, staffing: 0, vehicle: 0, kits: 0, graphic: 1, total: 2,
+    userId: 'u2', name: 'นิค | นิคม ตั้งใจ', department: 'ฝ่ายออกแบบ', avatarUrl: null,
+    onsite: 1, staffing: 0, vehicle: 0, kits: 0, graphic: 1, sale: 0, jobs: 0, total: 2,
 })
 
 // คนนอกรายชื่อไม่ถูกนับในยอดรวมทีมด้วย (u9 หายไปทั้งตารางและการ์ด)
-assert.deepEqual(agg.totals, { onsite: 4, staffing: 1, vehicle: 1, kits: 1, graphic: 2 })
+assert.deepEqual(agg.totals, { onsite: 4, staffing: 1, vehicle: 1, kits: 1, graphic: 2, sale: 0, jobs: 0 })
 // ยอดรวมทีม = ผลรวมของคอลัมน์ในตารางเสมอ
 for (const kind of STAT_KINDS) {
     assert.equal(agg.totals[kind], agg.people.reduce((sum, p) => sum + p[kind], 0))
@@ -169,13 +169,13 @@ const periodRows: StatRow[] = [
     { userId: 'u2', kind: 'staffing', date: '2025-06-01' }, // ปีก่อน
 ]
 const inWeek = aggregateStats(filterByPeriod(periodRows, 'week', today), periodPeople)
-assert.deepEqual(inWeek.totals, { onsite: 1, staffing: 0, vehicle: 0, kits: 0, graphic: 0 })
+assert.deepEqual(inWeek.totals, { onsite: 1, staffing: 0, vehicle: 0, kits: 0, graphic: 0, sale: 0, jobs: 0 })
 assert.deepEqual(inWeek.people.map(p => p.userId), ['u1']) // u2 ทุกช่อง 0 ในสัปดาห์นี้ → ไม่แสดง
 
 const inYear = aggregateStats(filterByPeriod(periodRows, 'year', today), periodPeople)
-assert.deepEqual(inYear.totals, { onsite: 1, staffing: 0, vehicle: 0, kits: 1, graphic: 0 })
+assert.deepEqual(inYear.totals, { onsite: 1, staffing: 0, vehicle: 0, kits: 1, graphic: 0, sale: 0, jobs: 0 })
 
 const inAll = aggregateStats(filterByPeriod(periodRows, 'all', today), periodPeople)
-assert.deepEqual(inAll.totals, { onsite: 1, staffing: 1, vehicle: 0, kits: 1, graphic: 1 })
+assert.deepEqual(inAll.totals, { onsite: 1, staffing: 1, vehicle: 0, kits: 1, graphic: 1, sale: 0, jobs: 0 })
 
 console.log('report-stats.check.ts: ผ่านทั้งหมด ✓')

@@ -5,13 +5,15 @@
 //   ออกงานอีเวนต์ = จำนวนอีเวนต์ไม่ซ้ำที่ถูกจัดชื่อเข้า และถึงวันแล้ว (event_date ≤ วันนี้)
 //   จัดคน / จัดรถ / จัดกระเป๋า = หนึ่งแถวใน lead_duty_claims ต่อหนึ่งหน้าที่ที่รับไว้
 //   รับงานกราฟิก = ใบงาน job_type='graphic' ที่มีคนกดรับ (claimed_by)
+//   ยอดนักขาย = คนสร้าง CRM card (crm_leads.created_by) ที่งานถึงสถานะตอบรับ (accepted)
+//   สร้างใบงาน = คนที่สร้างแถวใน jobs (created_by) มากที่สุด
 // การกรอง "ไม่ซ้ำ" ของอีเวนต์ทำที่ฝั่ง server ตอนสร้างแถว — ที่นี่นับแถวตรงๆ
 
-/** ประเภทสถิติ — หนึ่งค่า = หนึ่งคอลัมน์ในตารางและหนึ่งการ์ดสรุป */
-export type StatKind = 'onsite' | 'staffing' | 'vehicle' | 'kits' | 'graphic'
+/** ประเภทสถิติ — หนึ่งค่า = หนึ่งคอลัมน์ในตารางและหนึ่งการ์ดสรุป (key ตรงกับชื่อเฟรมแชมป์) */
+export type StatKind = 'onsite' | 'staffing' | 'vehicle' | 'kits' | 'graphic' | 'sale' | 'jobs'
 
-/** ลำดับที่ใช้ทั้งหน้า (การ์ดสรุป + คอลัมน์ตาราง) */
-export const STAT_KINDS: readonly StatKind[] = ['onsite', 'staffing', 'vehicle', 'kits', 'graphic']
+/** ลำดับที่ใช้ทั้งหน้า (การ์ดสรุป + คอลัมน์ตาราง + แถวแชมป์) */
+export const STAT_KINDS: readonly StatKind[] = ['onsite', 'staffing', 'vehicle', 'kits', 'graphic', 'sale', 'jobs']
 
 /** ป้ายเต็ม — ใช้บนการ์ดสรุป */
 export const STAT_LABELS_TH: Record<StatKind, string> = {
@@ -20,6 +22,8 @@ export const STAT_LABELS_TH: Record<StatKind, string> = {
     vehicle: 'จัดรถ',
     kits: 'จัดกระเป๋า',
     graphic: 'รับงานกราฟิก',
+    sale: 'ยอดนักขาย',
+    jobs: 'สร้างใบงาน',
 }
 
 /** ป้ายสั้น — ใช้เป็นหัวคอลัมน์ให้ตารางไม่กว้างเกินจอมือถือ */
@@ -29,6 +33,8 @@ export const STAT_SHORT_LABELS_TH: Record<StatKind, string> = {
     vehicle: 'จัดรถ',
     kits: 'จัดกระเป๋า',
     graphic: 'กราฟิก',
+    sale: 'ยอดขาย',
+    jobs: 'สร้างงาน',
 }
 
 /**
@@ -48,6 +54,8 @@ export interface ReportPerson {
     fullName: string
     nickname: string | null
     department: string | null
+    /** รูปโปรไฟล์ (profiles.avatar_url) — ไม่มี = โชว์อักษรแรกแทน */
+    avatarUrl?: string | null
 }
 
 /** หนึ่งแถวในตารางรายคน */
@@ -55,11 +63,14 @@ export interface PersonStats {
     userId: string
     name: string
     department: string | null
+    avatarUrl: string | null
     onsite: number
     staffing: number
     vehicle: number
     kits: number
     graphic: number
+    sale: number
+    jobs: number
     total: number
 }
 
@@ -160,7 +171,7 @@ export function filterByPeriod(rows: StatRow[], period: StatPeriod, today: strin
 
 /** ตัวนับเปล่าหนึ่งชุด */
 export function emptyTotals(): TeamTotals {
-    return { onsite: 0, staffing: 0, vehicle: 0, kits: 0, graphic: 0 }
+    return { onsite: 0, staffing: 0, vehicle: 0, kits: 0, graphic: 0, sale: 0, jobs: 0 }
 }
 
 /**
@@ -175,6 +186,7 @@ export function aggregateStats(rows: StatRow[], people: ReportPerson[]): StatsSu
             userId: p.id,
             name: personLabel(p),
             department: (p.department || '').trim() || null,
+            avatarUrl: p.avatarUrl || null,
             ...emptyTotals(),
             total: 0,
         })
