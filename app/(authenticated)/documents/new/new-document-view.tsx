@@ -16,10 +16,10 @@ interface Props {
   brands: DocBrandRow[]
 }
 
-// กลุ่มประเภทเอกสารบนหน้าเลือก (14 รหัสตาม spec)
+// กลุ่มประเภทเอกสารบนหน้าเลือก (15 รหัสตาม spec)
 const TYPE_GROUPS: { title: string; codes: DocTypeCode[] }[] = [
   { title: 'การเงิน', codes: ['QT', 'JO', 'IV', 'TX', 'RC', 'CN', 'PO', 'CT'] },
-  { title: 'ทั่วไป', codes: ['DN', 'MM'] },
+  { title: 'ทั่วไป', codes: ['DN', 'MM', 'EL'] },
   { title: 'บุคคล (HR)', codes: ['JA', 'IA', 'RS', 'SC'] },
 ]
 

@@ -278,6 +278,8 @@ function GenericDocumentPDF({ doc, items, brand, template, approver, creator, re
   const financial = def.hasItems && def.hasAmounts
   const listOnly = def.hasItems && !def.hasAmounts
   const letter = !def.hasItems
+  /** MM/EL: "เรื่อง / เรียน" ขึ้นหัวจดหมายก่อนฟิลด์อื่น */
+  const letterHead = doc.doc_type === 'MM' || doc.doc_type === 'EL'
 
   const title = template?.title || `${def.label.th} / ${def.label.en}`
 
@@ -486,18 +488,22 @@ function GenericDocumentPDF({ doc, items, brand, template, approver, creator, re
         {/* ── Letter body ── */}
         {letter && (
           <View style={s.block}>
-            {doc.doc_type === 'MM' && meta.subject ? (
+            {letterHead && meta.subject ? (
               <Text style={[s.line, { fontWeight: 'bold', marginBottom: 3 }]}>
                 เรื่อง: {String(meta.subject)}
               </Text>
             ) : null}
-            {doc.doc_type === 'MM' && meta.to ? (
+            {letterHead && meta.to ? (
               <Text style={[s.line, { marginBottom: 6 }]}>เรียน: {String(meta.to)}</Text>
             ) : null}
             {def.metaFields.map((f) => {
-              if (doc.doc_type === 'MM' && (f.key === 'subject' || f.key === 'to')) return null
+              if (letterHead && (f.key === 'subject' || f.key === 'to')) return null
               return renderMetaField(f, meta[f.key])
             })}
+            {/* จดหมายภายนอกปิดท้ายแบบหนังสือราชการ/ธุรกิจ — ก่อนช่องลงนาม */}
+            {doc.doc_type === 'EL' ? (
+              <Text style={[s.line, { marginTop: 10 }]}>ขอแสดงความนับถือ</Text>
+            ) : null}
           </View>
         )}
 
