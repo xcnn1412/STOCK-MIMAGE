@@ -39,7 +39,7 @@ const ALL = 'all' // Radix Select ห้าม value = '' → ใช้ sentinel
 
 const TYPE_GROUPS: { label: string; codes: DocTypeCode[] }[] = [
   { label: 'เอกสารการเงิน', codes: ['QT', 'JO', 'IV', 'TX', 'RC', 'CN', 'PO', 'CT'] },
-  { label: 'ส่งมอบ/ภายใน', codes: ['DN', 'MM'] },
+  { label: 'ส่งมอบ/จดหมาย', codes: ['DN', 'MM', 'EL'] },
   { label: 'เอกสารบุคคล', codes: ['JA', 'IA', 'RS', 'SC'] },
 ]
 

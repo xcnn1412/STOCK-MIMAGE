@@ -8,6 +8,7 @@
  * ponytail: ไม่ตรวจหน้าตา — แค่ยืนยันว่าไม่ throw และได้ไฟล์ %PDF ที่ใหญ่พอ
  */
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
@@ -18,8 +19,8 @@ import {
   type DocumentItemRow, type DocumentRow, type MetaField, type PartyKind, type VatMode,
 } from '../app/(authenticated)/documents/doc-types'
 
-const OUT_DIR =
-  'C:\\Users\\image\\AppData\\Local\\Temp\\claude\\d---------------work-2026-stock\\61a7b605-dbc0-40e0-842d-65d35463bdb3\\scratchpad\\pdf'
+// ponytail: OUT_DIR=<dir> override ได้ — ค่าเริ่มต้นลง temp ของเครื่อง (เดิมฝังพาธเครื่องเดียว รันที่อื่นไม่ได้)
+const OUT_DIR = process.env.OUT_DIR || path.join(os.tmpdir(), 'doc-pdf-check')
 
 const brand: DocBrandRow = {
   code: 'MIP', name_th: 'บริษัท เอ็ม อิมเมจ จำกัด', name_en: 'M Image Co., Ltd.',

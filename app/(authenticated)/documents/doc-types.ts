@@ -28,12 +28,12 @@ export const EDITABLE_STATUSES: DocStatus[] = ['draft', 'rejected']
 // ── ประเภทเอกสาร ─────────────────────────────────────────────────────────────
 
 export const DOC_TYPE_CODES = [
-  'QT', 'JO', 'IV', 'TX', 'RC', 'CN', 'PO', 'CT', 'DN', 'MM', 'JA', 'IA', 'RS', 'SC',
+  'QT', 'JO', 'IV', 'TX', 'RC', 'CN', 'PO', 'CT', 'DN', 'MM', 'EL', 'JA', 'IA', 'RS', 'SC',
 ] as const
 
 export type DocTypeCode = (typeof DOC_TYPE_CODES)[number]
 
-export type PartyKind = 'customer' | 'vendor' | 'applicant' | 'employee' | 'none'
+export type PartyKind = 'customer' | 'vendor' | 'applicant' | 'employee' | 'recipient' | 'none'
 
 /** คอลัมน์ของ metaField ชนิด 'table' */
 export interface MetaColumn {
@@ -135,6 +135,7 @@ export const PARTY_LABEL: Record<PartyKind, { th: string; en: string }> = {
   vendor:    { th: 'ผู้ขาย',    en: 'Vendor' },
   applicant: { th: 'ผู้สมัคร',  en: 'Applicant' },
   employee:  { th: 'พนักงาน',  en: 'Employee' },
+  recipient: { th: 'ผู้รับ',    en: 'Recipient' },
   none:      { th: '—',        en: '—' },
 }
 
@@ -217,6 +218,19 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
       { key: 'subject', label: { th: 'เรื่อง',   en: 'Subject' }, type: 'text', required: true },
       { key: 'to',      label: { th: 'ถึง',      en: 'To' },      type: 'text', required: true },
       { key: 'body',    label: { th: 'เนื้อหา',  en: 'Body' },    type: 'richtext' },
+    ],
+  },
+  // จดหมายภายนอก — หนังสือถึงหน่วยงาน/บุคคลภายนอกบนหัวกระดาษแบรนด์ (ลูกค้า, สถานที่จัดงาน, ธนาคาร ฯลฯ)
+  // ออกในนามบริษัทจึงต้องผ่าน admin ก่อนได้เลขจริง — ใช้ key subject/to เหมือน MM ให้ PDF จัดหัวจดหมายชุดเดียวกัน
+  EL: {
+    code: 'EL', label: { th: 'จดหมายภายนอก', en: 'External Letter' },
+    party: 'recipient', hasItems: false, hasAmounts: false, requiresApproval: true, counter: 'monthly',
+    refTypes: [],
+    metaFields: [
+      { key: 'subject',     label: { th: 'เรื่อง',          en: 'Subject' },    type: 'text',     required: true, width: 'full' },
+      { key: 'to',          label: { th: 'เรียน',           en: 'Dear' },       type: 'text',     required: true, width: 'full', hint: 'เช่น ผู้จัดการฝ่ายจัดซื้อ บริษัท ... จำกัด' },
+      { key: 'attachments', label: { th: 'สิ่งที่ส่งมาด้วย', en: 'Enclosures' }, type: 'text',     width: 'full', hint: 'ถ้ามี เช่น ใบเสนอราคา 1 ฉบับ' },
+      { key: 'body',        label: { th: 'เนื้อหา',         en: 'Body' },       type: 'richtext', required: true, width: 'full' },
     ],
   },
   // ── HR — ตรงกับแบบฟอร์มกระดาษของบริษัท (docs/document/template/*.pdf) ──────
