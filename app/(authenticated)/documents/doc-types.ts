@@ -221,7 +221,8 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
     ],
   },
   // จดหมายภายนอก — หนังสือถึงหน่วยงาน/บุคคลภายนอกบนหัวกระดาษแบรนด์ (ลูกค้า, สถานที่จัดงาน, ธนาคาร ฯลฯ)
-  // ออกในนามบริษัทจึงต้องผ่าน admin ก่อนได้เลขจริง — ใช้ key subject/to เหมือน MM ให้ PDF จัดหัวจดหมายชุดเดียวกัน
+  // ออกในนามบริษัทจึงต้องผ่าน admin ก่อนได้เลขจริง — PDF มีเลย์เอาต์ของตัวเอง (components/pdf/external-letter-pdf.tsx)
+  // สำเนาเรียน / อ้างถึง / สิ่งที่ส่งมาด้วย เป็นช่องเสริม: ว่างไว้ = ไม่พิมพ์ · หลายรายการใส่บรรทัดละ 1 → PDF ใส่เลขข้อ ๑. ๒. ให้
   EL: {
     code: 'EL', label: { th: 'จดหมายภายนอก', en: 'External Letter' },
     party: 'recipient', hasItems: false, hasAmounts: false, requiresApproval: true, counter: 'monthly',
@@ -229,7 +230,9 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
     metaFields: [
       { key: 'subject',     label: { th: 'เรื่อง',          en: 'Subject' },    type: 'text',     required: true, width: 'full' },
       { key: 'to',          label: { th: 'เรียน',           en: 'Dear' },       type: 'text',     required: true, width: 'full', hint: 'เช่น ผู้จัดการฝ่ายจัดซื้อ บริษัท ... จำกัด' },
-      { key: 'attachments', label: { th: 'สิ่งที่ส่งมาด้วย', en: 'Enclosures' }, type: 'text',     width: 'full', hint: 'ถ้ามี เช่น ใบเสนอราคา 1 ฉบับ' },
+      { key: 'cc',          label: { th: 'สำเนาเรียน',      en: 'CC' },         type: 'textarea', width: 'half', hint: 'ไม่บังคับ — หลายคนใส่บรรทัดละ 1 ชื่อ' },
+      { key: 'ref',         label: { th: 'อ้างถึง',         en: 'Reference' },  type: 'textarea', width: 'half', hint: 'ไม่บังคับ — เช่น หนังสือ/อีเมล/ใบเสนอราคาที่อ้างถึง บรรทัดละ 1 รายการ' },
+      { key: 'attachments', label: { th: 'สิ่งที่ส่งมาด้วย', en: 'Enclosures' }, type: 'textarea', width: 'full', hint: 'ไม่บังคับ — บรรทัดละ 1 รายการ เช่น ใบเสนอราคา 1 ฉบับ (2 รายการขึ้นไประบบใส่เลขข้อ ๑. ๒. ให้เอง)' },
       { key: 'body',        label: { th: 'เนื้อหา',         en: 'Body' },       type: 'richtext', required: true, width: 'full' },
     ],
   },

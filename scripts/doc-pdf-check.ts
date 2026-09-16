@@ -151,7 +151,8 @@ function sampleMetaValue(f: MetaField): unknown {
     case 'number': return 12345
     case 'select': return f.options?.[0] ?? ''
     case 'richtext': return SAMPLE_RICHTEXT
-    case 'textarea': return `ตัวอย่าง${f.label.th} — ข้อความหลายบรรทัดสำหรับทดสอบการตัดคำภาษาไทยในเอกสาร`
+    // 2 บรรทัด — จดหมายภายนอก (EL) ใส่เลขข้อ ๑. ๒. เมื่อมี 2 รายการขึ้นไป
+    case 'textarea': return `ตัวอย่าง${f.label.th} — ข้อความหลายบรรทัดสำหรับทดสอบการตัดคำภาษาไทยในเอกสาร\nรายการที่สองของ${f.label.th}`
     case 'checkbox': return true
     case 'multiselect': return (f.options ?? []).slice(0, 2)
     case 'table': return sampleTable(f)
