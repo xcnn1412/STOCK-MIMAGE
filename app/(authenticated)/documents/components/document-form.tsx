@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition, type Dispatch, type SetStateAction } from 'react'
 import { toast } from 'sonner'
-import { ArrowDown, ArrowUp, Loader2, Plus, Save, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, FileText, Loader2, Plus, Save, Trash2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -22,7 +22,7 @@ import {
 } from '../doc-types'
 import { pdpaText } from '../hr-texts'
 import {
-  saveDraft, searchParties,
+  saveDraft, searchParties, uploadDocumentFile,
   type RefCandidate, type SaveDraftPayload,
 } from '../actions'
 
@@ -100,7 +100,9 @@ export function validateDocumentClient(
     if (!f.required) continue
     if (isMetaEmpty(f, meta[f.key])) {
       errors[`meta.${f.key}`] =
-        f.type === 'checkbox' ? 'กรุณาติ๊กยืนยันช่องนี้' : `กรุณากรอก "${f.label.th}"`
+        f.type === 'checkbox' ? 'กรุณาติ๊กยืนยันช่องนี้'
+        : f.type === 'file' ? `กรุณาแนบ "${f.label.th}"`
+        : `กรุณากรอก "${f.label.th}"`
     }
   }
   return errors
@@ -187,6 +189,13 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
     for (const f of def.metaFields) {
       out[f.key] = initMetaValue(f, src[f.key])
       if (f.otherKey) out[f.otherKey] = src[f.otherKey] == null ? '' : String(src[f.otherKey])
+      // ช่องไฟล์เก็บรายละเอียดไว้อีก 3 คีย์ — ต้องหอบมาด้วย ไม่งั้นกดบันทึกร่างแล้วหาย
+      // (saveDraft เขียน meta ทั้งก้อนจาก state นี้)
+      if (f.type === 'file') {
+        out.file_name = src.file_name == null ? '' : String(src.file_name)
+        out.file_size = Number(src.file_size ?? 0)
+        out.file_pages = Number(src.file_pages ?? 0)
+      }
     }
     return out
   })
@@ -432,6 +441,7 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
                       <MetaFieldInput
                         key={f.key}
                         field={f}
+                        docId={doc.id}
                         meta={meta}
                         setMeta={setMeta}
                         error={err(`meta.${f.key}`)}
@@ -600,9 +610,11 @@ export default function DocumentForm({ doc, items: initialItems, refCandidates, 
 type SetMeta = Dispatch<SetStateAction<Record<string, unknown>>>
 
 function MetaFieldInput({
-  field: f, meta, setMeta, error, disabled,
+  field: f, docId, meta, setMeta, error, disabled,
 }: {
   field: MetaField
+  /** id ของเอกสาร — ใช้เฉพาะช่องชนิด 'file' (อัปโหลดต้องผูกกับเอกสาร) */
+  docId: string
   meta: Record<string, unknown>
   setMeta: SetMeta
   error?: string
@@ -638,6 +650,15 @@ function MetaFieldInput({
       {f.label.th}{f.required && <span className="text-destructive"> *</span>}
     </Label>
   )
+
+  if (f.type === 'file') {
+    return (
+      <div className={wrap}>
+        {label}
+        <MetaFileInput field={f} docId={docId} meta={meta} setMeta={setMeta} error={error} disabled={disabled} />
+      </div>
+    )
+  }
 
   if (f.type === 'multiselect') {
     const selected = (Array.isArray(meta[f.key]) ? meta[f.key] : []) as string[]
@@ -771,6 +792,96 @@ function MetaFieldInput({
       )}
       {f.hint && <p className="text-xs text-muted-foreground">{f.hint}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+/** ขนาดไฟล์อ่านง่าย — ใช้ทั้งฟอร์มและมุมมองอ่าน */
+export const fmtFileSize = (bytes: number) =>
+  bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(2)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`
+
+/**
+ * ช่องแนบไฟล์ PDF (ประเภท UP) — อัปโหลดทันทีที่เลือกไฟล์ ไม่รอกดบันทึกร่าง
+ * ponytail: action เขียน meta ลง DB ให้แล้ว ที่นี่ merge ค่ากลับเข้า state ด้วย
+ * เพราะ saveDraft เขียน meta ทั้งก้อนจาก state — ไม่ merge = กดบันทึกแล้วไฟล์หลุด
+ */
+function MetaFileInput({
+  field: f, docId, meta, setMeta, error, disabled,
+}: {
+  field: MetaField
+  docId: string
+  meta: Record<string, unknown>
+  setMeta: SetMeta
+  error?: string
+  disabled?: boolean
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [failed, setFailed] = useState('')
+
+  const path = String(meta[f.key] ?? '')
+  const name = String(meta.file_name ?? '')
+  const size = Number(meta.file_size ?? 0)
+  const pages = Number(meta.file_pages ?? 0)
+
+  const onPick = async (file: File | undefined) => {
+    if (!file) return
+    setUploading(true)
+    setFailed('')
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await uploadDocumentFile(docId, fd)
+    setUploading(false)
+    if (inputRef.current) inputRef.current.value = ''
+    if ('error' in res) {
+      setFailed(res.error)
+      toast.error(res.error)
+      return
+    }
+    setMeta(m => ({ ...m, ...res }))
+    toast.success('อัปโหลดไฟล์แล้ว')
+  }
+
+  return (
+    <div className="space-y-2">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={e => onPick(e.target.files?.[0])}
+      />
+      {path ? (
+        <div className={cn('flex items-center gap-3 rounded-md border p-3', (error || failed) && 'border-destructive')}>
+          <FileText className="size-5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{name || 'ไฟล์ PDF'}</div>
+            <div className="text-xs text-muted-foreground">
+              {[size ? fmtFileSize(size) : '', pages ? `${pages} หน้า` : ''].filter(Boolean).join(' · ')}
+            </div>
+          </div>
+          <Button
+            type="button" variant="outline" size="sm" disabled={disabled || uploading}
+            onClick={() => inputRef.current?.click()}
+          >
+            {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+            เปลี่ยนไฟล์
+          </Button>
+        </div>
+      ) : (
+        <Button
+          type="button" variant="outline" disabled={disabled || uploading}
+          className={cn('w-full', (error || failed) && 'border-destructive')}
+          onClick={() => inputRef.current?.click()}
+        >
+          {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+          {uploading ? 'กำลังอัปโหลด...' : 'เลือกไฟล์ PDF'}
+        </Button>
+      )}
+      {f.hint && <p className="text-xs text-muted-foreground">{f.hint}</p>}
+      {(failed || error) && <p className="text-xs text-destructive">{failed || error}</p>}
     </div>
   )
 }

@@ -3,9 +3,10 @@ import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { DocumentPDF, type DocumentPdfData } from '@/components/pdf/document-pdf'
 import { createServiceClient } from '@/lib/supabase-server'
+import { stampPdf } from '@/lib/pdf-stamp'
 import { getSession } from '@/app/(authenticated)/documents/session'
 import {
-  DOC_TYPES, calcDocumentTotals, calcItemAmount,
+  DOC_TYPES, calcDocumentTotals, calcItemAmount, stampModeOf,
   type DocBrandRow, type DocTemplateRow, type DocTypeCode, type DocTypeDef,
   type DocumentItemRow, type DocumentRow,
 } from '@/app/(authenticated)/documents/doc-types'
@@ -145,8 +146,11 @@ export async function POST(req: NextRequest) {
       refDoc: null,
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfBuffer = await renderToBuffer(React.createElement(DocumentPDF, data) as any)
+    // UP ไม่มีเลย์เอาต์ของตัวเอง — พรีวิวคือหัว/ท้ายกระดาษที่จะประทับลงไฟล์ผู้ใช้ บนหน้า A4 เปล่า
+    const pdfBuffer = docType === 'UP'
+      ? await stampPdf({ source: null, doc, brand, template, mode: stampModeOf(doc.meta) })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      : await renderToBuffer(React.createElement(DocumentPDF, data) as any)
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {

@@ -3,9 +3,11 @@ import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { DocumentPDF, type DocumentPdfData } from '@/components/pdf/document-pdf'
 import { createServiceClient } from '@/lib/supabase-server'
+import { stampPdf } from '@/lib/pdf-stamp'
 import { getSession } from '@/app/(authenticated)/documents/session'
-import type {
-  DocBrandRow, DocTemplateRow, DocumentItemRow, DocumentRow,
+import {
+  stampModeOf,
+  type DocBrandRow, type DocTemplateRow, type DocumentItemRow, type DocumentRow,
 } from '@/app/(authenticated)/documents/doc-types'
 
 // @react-pdf/renderer ต้องใช้ Node runtime (fs สำหรับฟอนต์)
@@ -43,6 +45,36 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       return NextResponse.json({ error: 'ไม่พบเอกสาร' }, { status: 404 })
     }
 
+    const search = new URL(req.url).searchParams
+    const attach = search.get('disposition') === 'attachment'
+    const meta = (doc.meta || {}) as Record<string, unknown>
+
+    // ── เอกสารอัปโหลด (UP) — ไฟล์ต้นฉบับอยู่ใน bucket 'doc-files' แบบ private ──
+    // ประตูเดียวที่เข้าถึงไฟล์ได้คือ route นี้ (ใช้กติกาการมองเห็นชุดเดียวกับ PDF อื่น)
+    // Uint8Array<ArrayBuffer> ชัดเจน — NextResponse รับ BodyInit ที่ไม่ใช่ SharedArrayBuffer
+    let source: Uint8Array<ArrayBuffer> | null = null
+    if (doc.doc_type === 'UP') {
+      const filePath = String(meta.file ?? '').trim()
+      if (!filePath) return NextResponse.json({ error: 'ยังไม่ได้แนบไฟล์ PDF' }, { status: 404 })
+
+      const { data: blob, error: dlErr } = await supabase.storage.from('doc-files').download(filePath)
+      if (dlErr || !blob) return NextResponse.json({ error: 'ไม่พบไฟล์แนบ' }, { status: 404 })
+      source = new Uint8Array(await blob.arrayBuffer())
+
+      // ?raw=1 = ไฟล์ต้นฉบับที่อัปโหลดมา (ยังไม่ประทับ)
+      if (search.get('raw') === '1') {
+        const rawName = String(meta.file_name ?? '') || `${doc.doc_no || doc.draft_no}.pdf`
+        return new NextResponse(source, {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `${attach ? 'attachment' : 'inline'}; filename="${encodeURIComponent(rawName)}"`,
+            'Cache-Control': 'no-store',
+            'X-Frame-Options': 'SAMEORIGIN',
+          },
+        })
+      }
+    }
+
     const [itemsRes, brandRes, approverRes, refRes, tplRes] = await Promise.all([
       supabase.from('document_items').select('*').eq('document_id', id).order('line_no', { ascending: true }),
       supabase.from('doc_brands').select('*').eq('code', doc.brand_code).maybeSingle(),
@@ -74,12 +106,14 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       refDoc: (refRes.data || null) as { doc_no: string | null; doc_type: string } | null,
     }
 
-    const pdfBuffer = await renderToBuffer(
-      React.createElement(DocumentPDF, data) as any
-    )
+    const pdfBuffer = source
+      ? await stampPdf({
+          source, doc, brand: data.brand, template: data.template, mode: stampModeOf(meta),
+        })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      : await renderToBuffer(React.createElement(DocumentPDF, data) as any)
 
     const filename = `${doc.doc_no || doc.draft_no}.pdf`
-    const attach = new URL(req.url).searchParams.get('disposition') === 'attachment'
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {
