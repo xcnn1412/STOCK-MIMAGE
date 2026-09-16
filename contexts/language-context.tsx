@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import { dictionary, Locale } from '@/lib/dictionary'
 
 type LanguageContextType = {
@@ -11,13 +11,16 @@ type LanguageContextType = {
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined)
 
-function getInitialLang(): Locale {
-  if (typeof window === 'undefined') return 'en'
-  return (localStorage.getItem('app-language') as Locale) || 'en'
-}
-
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLang] = useState<Locale>(getInitialLang)
+  // server กับ client ต้องเริ่มที่ค่าเดียวกัน ('en') — ถ้าอ่าน localStorage ตอน init
+  // จะ hydration mismatch แล้ว React ทิ้ง DOM ทั้งหน้า (พังเป็น $RS parentNode null)
+  const [lang, setLang] = useState<Locale>('en')
+  /* eslint-disable react-hooks/set-state-in-effect -- อ่านค่าที่บันทึกไว้หลัง mount (แบบเดียวกับ sidebar) */
+  useEffect(() => {
+    const saved = localStorage.getItem('app-language') as Locale | null
+    if (saved && saved !== 'en') setLang(saved)
+  }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const toggleLanguage = () => {
     const newLang = lang === 'en' ? 'th' : 'en'
