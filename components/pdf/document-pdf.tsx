@@ -24,6 +24,7 @@ import {
   type MetaField,
 } from '@/app/(authenticated)/documents/doc-types'
 import { HrFormPDF } from './hr-forms-pdf'
+import { ExternalLetterPDF } from './external-letter-pdf'
 
 // ============================================================================
 // Font Registration — TH Sarabun New
@@ -265,6 +266,8 @@ const HR_TYPES: DocTypeCode[] = ['JA', 'IA', 'RS', 'SC']
 
 export function DocumentPDF(data: DocumentPdfData) {
   if (HR_TYPES.includes(data.doc.doc_type)) return HrFormPDF(data)
+  // จดหมายภายนอก — เลย์เอาต์หนังสือทางการ ไม่ใช่หัวกระดาษแบบใบเสนอราคา
+  if (data.doc.doc_type === 'EL') return ExternalLetterPDF(data)
   return GenericDocumentPDF(data)
 }
 
@@ -500,10 +503,6 @@ function GenericDocumentPDF({ doc, items, brand, template, approver, creator, re
               if (letterHead && (f.key === 'subject' || f.key === 'to')) return null
               return renderMetaField(f, meta[f.key])
             })}
-            {/* จดหมายภายนอกปิดท้ายแบบหนังสือราชการ/ธุรกิจ — ก่อนช่องลงนาม */}
-            {doc.doc_type === 'EL' ? (
-              <Text style={[s.line, { marginTop: 10 }]}>ขอแสดงความนับถือ</Text>
-            ) : null}
           </View>
         )}
 
