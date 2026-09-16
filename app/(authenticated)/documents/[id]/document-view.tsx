@@ -26,7 +26,7 @@ import {
   deleteDraft, duplicateDocument, saveDraft, transitionDocument,
   type RefCandidate, type ReferencedByRow, type SaveDraftPayload,
 } from '../actions'
-import DocumentForm, { docToPayload, fmtMoney, validateDocumentClient } from '../components/document-form'
+import DocumentForm, { docToPayload, fmtFileSize, fmtMoney, validateDocumentClient } from '../components/document-form'
 
 interface Props {
   doc: DocumentRow
@@ -456,7 +456,7 @@ function ReadOnlyBody({
                   {g.fields.map(f =>
                     f.showWhen && String(meta[f.showWhen.key] ?? '') !== f.showWhen.value
                       ? null
-                      : <MetaFieldRead key={f.key} field={f} meta={meta} />
+                      : <MetaFieldRead key={f.key} field={f} docId={doc.id} meta={meta} />
                   )}
                 </div>
                 {/* รวมระยะเวลาปฏิบัติงาน (ใบลาออก) — คำนวณ ไม่ได้เก็บใน meta */}
@@ -545,8 +545,40 @@ function tenureText(meta: Record<string, unknown>): string | null {
 }
 
 /** metaField หนึ่งช่องในมุมมองอ่านอย่างเดียว */
-function MetaFieldRead({ field: f, meta }: { field: MetaField; meta: Record<string, unknown> }) {
+function MetaFieldRead({ field: f, docId, meta }: { field: MetaField; docId: string; meta: Record<string, unknown> }) {
   const raw = meta[f.key]
+
+  // ไฟล์แนบ (UP) — ไฟล์อยู่ใน bucket private เปิดได้ผ่าน route ของเอกสารเท่านั้น
+  if (f.type === 'file') {
+    const path = String(raw ?? '')
+    const name = String(meta.file_name ?? '')
+    const size = Number(meta.file_size ?? 0)
+    const pages = Number(meta.file_pages ?? 0)
+    return (
+      <Field
+        label={f.label.th}
+        wide
+        value={
+          !path ? 'ยังไม่ได้แนบไฟล์' : (
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-medium">{name || 'ไฟล์ PDF'}</span>
+              <span className="text-xs text-muted-foreground">
+                {[size ? fmtFileSize(size) : '', pages ? `${pages} หน้า` : ''].filter(Boolean).join(' · ')}
+              </span>
+              <a
+                className="text-xs text-primary underline"
+                href={`/api/pdf/document/${docId}?raw=1`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                เปิดไฟล์ต้นฉบับ
+              </a>
+            </span>
+          )
+        }
+      />
+    )
+  }
 
   if (f.type === 'richtext') {
     const html = String(raw ?? '')

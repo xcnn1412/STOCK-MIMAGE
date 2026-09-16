@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { PDFDocument } from 'pdf-lib'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity, type ActionType } from '@/lib/logger'
 import { createNotifications, type NotificationType } from '@/lib/notifications'
@@ -423,6 +424,86 @@ export async function saveDraft(id: string, payload: SaveDraftPayload) {
   return { success: true }
 }
 
+// ============================================================================
+// ไฟล์แนบของเอกสารอัปโหลด (UP) — bucket 'doc-files' แบบ private
+// เข้าถึงได้ทางเดียวคือ /api/pdf/document/[id] (ประทับแล้ว) และ ?raw=1 (ต้นฉบับ)
+// ============================================================================
+
+const DOC_FILES_BUCKET = 'doc-files'
+const MAX_DOC_FILE_BYTES = 8 * 1024 * 1024
+
+/** ค่าที่เขียนลง meta หลังอัปโหลดสำเร็จ — client เอาไป merge เข้า state ของฟอร์ม */
+export interface UploadedDocFile {
+  file: string
+  file_name: string
+  file_size: number
+  file_pages: number
+}
+
+/** อ่าน path ไฟล์แนบจาก meta ('' = ยังไม่แนบ) */
+function docFilePath(meta: unknown): string {
+  return String((meta as Record<string, unknown> | null)?.file ?? '').trim()
+}
+
+export async function uploadDocumentFile(
+  id: string,
+  formData: FormData
+): Promise<UploadedDocFile | { error: string }> {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const file = formData.get('file')
+  if (!(file instanceof File) || file.size === 0) return { error: 'ไม่พบไฟล์' }
+  if (file.type !== 'application/pdf') return { error: 'รองรับเฉพาะไฟล์ PDF เท่านั้น' }
+  if (file.size > MAX_DOC_FILE_BYTES) return { error: 'ไฟล์ต้องไม่เกิน 8MB — กรุณาบีบอัดไฟล์ก่อน' }
+
+  const supabase = createServiceClient()
+  const { data: docData } = await supabase.from('documents').select('*').eq('id', id).single()
+  const doc = docData as unknown as DocumentRow | null
+  if (!doc) return { error: 'ไม่พบเอกสาร' }
+  if (!EDITABLE_STATUSES.includes(doc.status)) return { error: 'เอกสารนี้แก้ไขไม่ได้แล้ว' }
+  if (role !== 'admin' && doc.created_by !== userId) return { error: 'ไม่มีสิทธิ์แก้ไขเอกสารนี้' }
+
+  const bytes = Buffer.from(await file.arrayBuffer())
+  // นามสกุล/mime ปลอมได้ — ดู magic bytes แล้วลองเปิดจริงด้วย pdf-lib
+  if (bytes.subarray(0, 4).toString('latin1') !== '%PDF') return { error: 'ไฟล์นี้ไม่ใช่ PDF' }
+  let pages = 0
+  try {
+    pages = (await PDFDocument.load(new Uint8Array(bytes))).getPageCount()
+  } catch {
+    return { error: 'เปิดไฟล์ PDF ไม่ได้ — ไฟล์อาจเสียหายหรือถูกล็อกด้วยรหัสผ่าน' }
+  }
+
+  const storagePath = `documents/${id}/${crypto.randomUUID()}.pdf`
+  const { error: upErr } = await supabase.storage
+    .from(DOC_FILES_BUCKET)
+    .upload(storagePath, bytes, { contentType: 'application/pdf', upsert: false })
+  if (upErr) return { error: upErr.message }
+
+  const out: UploadedDocFile = {
+    file: storagePath,
+    file_name: file.name,
+    file_size: file.size,
+    file_pages: pages,
+  }
+  // เขียนลง DB ด้วย (ไม่รอ saveDraft) — ผู้ใช้ปิดหน้าไปเลยไฟล์ก็ไม่หาย
+  const meta = { ...((doc.meta || {}) as Record<string, unknown>), ...out }
+  const { error } = await supabase
+    .from('documents')
+    .update({ meta, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) return { error: error.message }
+
+  const old = docFilePath(doc.meta)
+  if (old && old !== storagePath) await supabase.storage.from(DOC_FILES_BUCKET).remove([old])
+
+  await logActivity('UPLOAD_DOCUMENT_FILE', {
+    document_id: id, draft_no: doc.draft_no, file_name: file.name, file_size: file.size, file_pages: pages,
+  })
+  revalidatePath(`/documents/${id}`)
+  return out
+}
+
 export async function deleteDraft(id: string) {
   const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
@@ -436,6 +517,10 @@ export async function deleteDraft(id: string) {
 
   const { error } = await supabase.from('documents').delete().eq('id', id)
   if (error) return { error: error.message }
+
+  // ไฟล์แนบ (UP) — ลบแบบ best-effort ไม่มีไฟล์ก็ผ่าน ลบไม่สำเร็จก็ไม่ทำให้ลบร่างล้มเหลว
+  const filePath = docFilePath(doc.meta)
+  if (filePath) await supabase.storage.from(DOC_FILES_BUCKET).remove([filePath])
 
   await logActivity('DELETE_DOCUMENT', { document_id: id, draft_no: doc.draft_no })
   revalidatePath('/documents')
@@ -511,6 +596,23 @@ export async function duplicateDocument(id: string) {
     })))
   }
 
+  // ไฟล์แนบ (UP) — คัดลอก object ไปไว้ใต้ id ใหม่ ไม่ให้สำเนาชี้ไฟล์เดียวกับต้นฉบับ
+  // (ลบต้นฉบับแล้วสำเนาต้องไม่พัง) — คัดลอกไม่สำเร็จ = ล้างช่องไฟล์ ให้ผู้ใช้แนบใหม่
+  const srcFile = docFilePath(doc.meta)
+  if (srcFile) {
+    const newPath = `documents/${created.id}/${crypto.randomUUID()}.pdf`
+    const { error: copyErr } = await supabase.storage.from(DOC_FILES_BUCKET).copy(srcFile, newPath)
+    const meta = { ...((doc.meta || {}) as Record<string, unknown>) }
+    await supabase
+      .from('documents')
+      .update({
+        meta: copyErr
+          ? { ...meta, file: '', file_name: '', file_size: 0, file_pages: 0 }
+          : { ...meta, file: newPath },
+      })
+      .eq('id', created.id)
+  }
+
   await logActivity('CREATE_DOCUMENT', { document_id: created.id, draft_no, duplicated_from: id })
   revalidatePath('/documents')
   return { id: created.id as string }
@@ -558,8 +660,8 @@ async function validateForIssue(supabase: any, doc: DocumentRow): Promise<string
   for (const f of def.metaFields) {
     if (!f.required) continue
     if (isMetaEmpty(f, meta[f.key])) {
-      return f.type === 'checkbox'
-        ? `กรุณาติ๊กยืนยัน "${f.label.th}"`
+      return f.type === 'checkbox' ? `กรุณาติ๊กยืนยัน "${f.label.th}"`
+        : f.type === 'file' ? `กรุณาแนบ "${f.label.th}"`
         : `กรุณากรอก "${f.label.th}"`
     }
   }

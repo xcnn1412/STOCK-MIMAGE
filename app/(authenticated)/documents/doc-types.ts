@@ -28,7 +28,7 @@ export const EDITABLE_STATUSES: DocStatus[] = ['draft', 'rejected']
 // ── ประเภทเอกสาร ─────────────────────────────────────────────────────────────
 
 export const DOC_TYPE_CODES = [
-  'QT', 'JO', 'IV', 'TX', 'RC', 'CN', 'PO', 'CT', 'DN', 'MM', 'EL', 'JA', 'IA', 'RS', 'SC',
+  'QT', 'JO', 'IV', 'TX', 'RC', 'CN', 'PO', 'CT', 'DN', 'MM', 'EL', 'JA', 'IA', 'RS', 'SC', 'UP',
 ] as const
 
 export type DocTypeCode = (typeof DOC_TYPE_CODES)[number]
@@ -51,6 +51,8 @@ export interface MetaField {
   type:
     | 'text' | 'date' | 'number' | 'richtext' | 'textarea' | 'select'
     | 'checkbox' | 'multiselect' | 'table'
+    /** ไฟล์ PDF แนบ — ค่าใน meta = path ใน bucket doc-files (ว่าง = ยังไม่แนบ) */
+    | 'file'
   required?: boolean
   options?: string[]
   /** multiselect: key ใน meta ที่เก็บข้อความหลัง "อื่นๆ ระบุ" (โผล่เมื่อเลือก 'อื่นๆ') */
@@ -419,6 +421,33 @@ export const DOC_TYPES: Record<DocTypeCode, DocTypeDef> = {
       { section: 'วัตถุประสงค์', key: 'purpose', label: { th: 'วัตถุประสงค์', en: 'Purpose' }, type: 'text', required: true, width: 'full', hint: 'เช่น ยื่นขอสินเชื่อกับธนาคาร, ยื่นขอวีซ่า, ใช้เป็นหลักฐานประกอบการสมัครเรียน' },
     ],
   },
+  // เอกสารอัปโหลด — ไฟล์ PDF ที่ทำมาจาก Word/โปรแกรมอื่น เอาเข้าระบบเพื่อขอเลขที่
+  // และผ่านการอนุมัติ ระบบประทับหัว/ท้ายกระดาษของแบรนด์ให้ (lib/pdf-stamp.ts)
+  // ไฟล์เก็บใน bucket 'doc-files' (private) — meta.file = path, เปิดผ่าน /api/pdf/document/[id] เท่านั้น
+  UP: {
+    code: 'UP', label: { th: 'เอกสารอัปโหลด (PDF)', en: 'Uploaded Document (PDF)' },
+    party: 'none', hasItems: false, hasAmounts: false, requiresApproval: true, counter: 'monthly',
+    refTypes: [],
+    metaFields: [
+      { key: 'subject', label: { th: 'ชื่อเอกสาร / เรื่อง', en: 'Subject' }, type: 'text', required: true, width: 'full' },
+      { key: 'file', label: { th: 'ไฟล์ PDF', en: 'PDF file' }, type: 'file', required: true, width: 'full', hint: 'บันทึกเป็น PDF จาก Word แล้วอัปโหลดที่นี่ (ไม่เกิน 8MB)' },
+      {
+        key: 'stamp_mode', label: { th: 'โหมดประทับ', en: 'Stamp mode' }, type: 'select', width: 'half',
+        options: ['หัวและท้ายกระดาษ', 'เฉพาะหัวกระดาษ', 'เฉพาะท้ายกระดาษ'],
+        hint: 'ไฟล์ที่มีหัวกระดาษของตัวเองอยู่แล้ว เลือก "เฉพาะท้ายกระดาษ" ก็ยังได้เลขที่และเลขหน้า',
+      },
+    ],
+  },
+}
+
+/** โหมดประทับของ UP — ค่าใน meta.stamp_mode (ค่าว่าง/ไม่รู้จัก = ตัวแรก) */
+export const STAMP_MODES = ['หัวและท้ายกระดาษ', 'เฉพาะหัวกระดาษ', 'เฉพาะท้ายกระดาษ'] as const
+
+export type StampMode = (typeof STAMP_MODES)[number]
+
+export function stampModeOf(meta: Record<string, unknown> | null | undefined): StampMode {
+  const v = String((meta || {}).stamp_mode ?? '')
+  return (STAMP_MODES as readonly string[]).includes(v) ? (v as StampMode) : STAMP_MODES[0]
 }
 
 // ── SC — ฟิลด์ที่ระบบเป็นคนเติม ไม่ใช่ผู้ขอ ──────────────────────────────────

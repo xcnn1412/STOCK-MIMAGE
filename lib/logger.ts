@@ -171,6 +171,7 @@ export type ActionType =
     | 'VOID_DOCUMENT'
     | 'MARK_DOCUMENT_SENT'
     | 'CLOSE_DOCUMENT'
+    | 'UPLOAD_DOCUMENT_FILE'
     | 'CREATE_DOC_BRAND'
     | 'UPDATE_DOC_BRAND'
     | 'UPDATE_DOC_COUNTER'
