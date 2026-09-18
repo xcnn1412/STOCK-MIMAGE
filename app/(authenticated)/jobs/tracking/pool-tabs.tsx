@@ -313,15 +313,18 @@ export function DutyGate({
     }
 
     const isMine = !!currentUserId && claim.claimedBy === currentUserId
+    // คนอื่นรับหน้าที่นี้ไปแล้วและเราไม่ได้ดูแลพูล = อ่านอย่างเดียว (D3)
+    // เห็นสรุปสิ่งที่จัดไว้ + ชื่อผู้รับ แต่ไม่มีตัวแก้ไข (เดิมกดได้แล้วไปเจอ error ที่ server)
+    const canEdit = isMine || canManagePool
 
     return (
         <div className="space-y-1">
-            {children}
+            {canEdit ? children : summary}
             <div className="text-[11px] text-zinc-500">
                 ผู้รับ: {nameOf(claim.claimedBy, people)}
                 {isMine && <span className="text-zinc-400"> (ฉัน)</span>}
             </div>
-            {(isMine || canManagePool) && (
+            {canEdit && (
                 <button
                     type="button"
                     title={`คืนหน้าที่${label}กลับเป็นรอรับงาน`}
@@ -711,6 +714,7 @@ export function KitSummary({
     bookings,
     canManageKits,
     eventId = null,
+    defaultOpen = false,
 }: {
     lead: TrackingLead
     kits: PoolKit[]
@@ -718,9 +722,11 @@ export function KitSummary({
     canManageKits: boolean
     /** ช่องนี้เป็นของอีเวนต์ใบเดียว (แถวรายอีเวนต์ในตารางภาพรวม) — นับและจอง/ยกเลิกเฉพาะใบนั้น */
     eventId?: string | null
+    /** เปิดกล่องจองทันทีตอน mount — ใช้ตอนเพิ่งกดรับหน้าที่จัดกระเป๋า (ครั้งเดียวต่อการรับ) */
+    defaultOpen?: boolean
 }) {
     const router = useRouter()
-    const [open, setOpen] = useState(false)
+    const [open, setOpen] = useState(defaultOpen)
     const [busy, setBusy] = useState<string | null>(null)
 
     const eventIds = new Set(eventId ? [eventId] : lead.events.map(e => e.id))

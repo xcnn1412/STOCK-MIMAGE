@@ -54,6 +54,7 @@ import {
   missingLabel,
   missingRoles,
   monthLabel,
+  myQueue,
   nextJobDate,
   NO_DEPARTMENT_LABEL,
   personClashes,
@@ -1364,5 +1365,74 @@ assert.deepEqual(
   ],
   ['a']
 )
+
+// --- แถบ "ของฉัน": งานที่ฉันรับไว้ + งานที่รอทีมฉันรับ (AC3.1) ------------------
+
+const qToday = new Date(2026, 8, 18) // 18 ก.ย. 2026
+const qPools: PoolDepartments = {
+  graphic: ['ฝ่ายออกแบบ'],
+  onsite: ['ทีมออกหน้างาน'],
+  staffing: ['ฝ่ายแอดมิน'],
+  vehicle: ['ทีมออกหน้างาน'],
+  kits: ['ทีมออกหน้างาน'],
+}
+const qLeads = [
+  mk({ id: 'A', customer_name: 'เอ', event_date: '2026-09-20', staff: [] }),
+  mk({ id: 'B', customer_name: 'บี', event_date: '2026-09-19' }),
+  mk({ id: 'C', customer_name: 'ซี', event_date: null }), // ยังไม่กำหนดวัน — ไว้ท้ายสุด
+  mk({ id: 'P', customer_name: 'พี', event_date: '2026-09-01' }), // ผ่านมาแล้ว — รับใหม่ไม่ได้
+]
+const qJobs = [
+  pj({ id: 'jA', crm_lead_id: 'A', status: 'in_progress', claimed_by: 'u1', assigned_to: ['u1'] }),
+  pj({ id: 'jB', crm_lead_id: 'B', status: AWAITING_CLAIM_STATUS }),
+  pj({ id: 'jDone', crm_lead_id: 'A', status: 'done', claimed_by: 'u1', assigned_to: ['u1'] }),
+  pj({ id: 'jSkip', crm_lead_id: 'B', status: 'skipped', claimed_by: 'u1', assigned_to: ['u1'] }),
+]
+const qClaims = [dc('B', 'vehicle', 'u1'), dc('P', 'staffing', 'u1')]
+const qArgs = {
+  leads: qLeads,
+  jobs: qJobs,
+  dutyClaims: qClaims,
+  currentUserId: 'u1',
+  myDepartment: 'ฝ่ายแอดมิน',
+  isAdmin: false,
+  poolDepartments: qPools,
+  today: qToday,
+}
+const qKey = (i: { leadId: string; kind: string }) => `${i.leadId}:${i.kind}`
+
+// ของฉัน: ใบงานที่ฉันรับ/อยู่ในทีม + หน้าที่ที่ฉันรับ — เรียงวันงานใกล้สุดก่อน
+// ใบที่จบแล้ว (jDone) และถูกข้าม (jSkip) ไม่แสดง แม้ฉันจะอยู่บนใบงาน
+const q1 = myQueue(qArgs)
+assert.deepEqual(q1.mine.map(qKey), ['P:staffing', 'B:vehicle', 'A:graphic'])
+// รอทีมฉันรับ: ฝ่ายแอดมินรับได้แค่ "จัดคน" — จัดรถ/กระเป๋า/กราฟิกเป็นของแผนกอื่น
+// งานที่ผ่านมาแล้ว (P) ไม่เข้ากลุ่มนี้ · งานที่ยังไม่กำหนดวัน (C) อยู่ท้ายสุด
+assert.deepEqual(q1.claimable.map(qKey), ['B:staffing', 'A:staffing', 'C:staffing'])
+
+// ไม่ใช่ของฉันเลยและไม่มีแผนก = ว่างทั้งสองกลุ่ม (แถบถูกซ่อน)
+const q2 = myQueue({ ...qArgs, currentUserId: 'u9', myDepartment: null })
+assert.deepEqual(q2.mine, [])
+assert.deepEqual(q2.claimable, [])
+
+// แอดมินรับได้ทุกจุดที่ยังว่าง (ใบงานรอรับ + หน้าที่ที่ยังไม่มีผู้รับ)
+const q3 = myQueue({ ...qArgs, currentUserId: 'u9', myDepartment: null, isAdmin: true })
+assert.deepEqual(q3.claimable.map(qKey), [
+  'B:graphic',
+  'B:staffing',
+  'B:kits',
+  'A:staffing',
+  'A:vehicle',
+  'A:kits',
+  'C:staffing',
+  'C:vehicle',
+  'C:kits',
+])
+// ใบงานพกเลขใบมาด้วย (ปุ่มรับในแถบเรียก claimPoolJob) — หน้าที่ไม่มีใบงาน
+assert.equal(q3.claimable.find((i) => i.kind === 'graphic')?.jobId, 'jB')
+assert.equal(q3.claimable.find((i) => i.kind === 'staffing')?.jobId, undefined)
+// ป้าย "ยังขาด" เป็นของจุดนั้นจุดเดียว — งาน A ยังไม่จัดคน
+assert.deepEqual(q3.claimable.find((i) => qKey(i) === 'A:staffing')?.missing, ['จัดคน'])
+assert.deepEqual(q3.claimable.find((i) => qKey(i) === 'A:vehicle')?.missing, [])
+
 
 console.log('tracking-logic.check: all passed')

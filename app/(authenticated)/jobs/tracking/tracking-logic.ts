@@ -1391,3 +1391,114 @@ export function nextJobDate(leads: TrackingLead[], fromDate: string): string | n
   }
   return best
 }
+
+// --- แถบ "ของฉัน" ในแท็บภาพรวม (เฟส 3) ----------------------------------------
+
+/** หนึ่งบรรทัดในแถบ "ของฉัน" — หนึ่งจุดที่รับได้/รับไว้แล้วของงานหนึ่งงาน */
+export interface MyQueueItem {
+  leadId: string
+  kind: ClaimKind
+  /** ใบงานที่กดรับ (กราฟิก/หน้างาน) — หน้าที่เตรียมงานไม่มีใบงาน */
+  jobId?: string
+  date: string | null
+  customer: string
+  /** สิ่งที่ยังขาดของจุดนี้ (ป้ายพร้อมแสดง) — ว่าง = ไม่ขาดอะไร */
+  missing: string[]
+}
+
+/** สิ่งที่ยังขาดที่ "ตรงกับ" จุดที่รับ — หัวหน้างานดูแลทั้งงาน (null) จึงเห็นทุกข้อ */
+const CLAIM_MISSING: Record<ClaimKind, MissingItem | null> = {
+  graphic: 'design',
+  onsite: null,
+  staffing: 'staff',
+  vehicle: 'vehicle',
+  kits: 'kits',
+}
+
+/** เรียงวันงานใกล้สุดก่อน (ยังไม่กำหนดวันไว้ท้ายสุด) แล้วชื่อลูกค้า */
+function compareQueue(a: MyQueueItem, b: MyQueueItem): number {
+  if (a.date !== b.date) {
+    if (!a.date) return 1
+    if (!b.date) return -1
+    return a.date < b.date ? -1 : 1
+  }
+  return a.customer.localeCompare(b.customer, 'th')
+}
+
+/**
+ * แถบ "ของฉัน" ของแท็บภาพรวม:
+ * - `mine` = หน้าที่ที่ฉันเป็นผู้รับ + ใบงานที่ฉันเป็นผู้รับหรืออยู่ในทีม และยังไม่จบ/ไม่ถูกข้าม
+ * - `claimable` = ใบงานที่รอรับ + หน้าที่ที่ยังไม่มีผู้รับ ซึ่งแผนกฉันรับได้ (claimGate) และงานยังไม่ผ่าน
+ * ใบงานของงานที่ไม่อยู่ใน `leads` (ถูกกรองออก เช่น งานเก่า) ไม่เข้าทั้งสองกลุ่ม
+ */
+export function myQueue({
+  leads,
+  jobs,
+  dutyClaims,
+  currentUserId,
+  myDepartment,
+  isAdmin,
+  poolDepartments,
+  today,
+  kitReadiness,
+  designReady,
+  roleLabels = {},
+}: {
+  leads: TrackingLead[]
+  jobs: PoolJob[]
+  dutyClaims: DutyClaim[]
+  currentUserId: string | null
+  myDepartment: string | null
+  isAdmin: boolean
+  poolDepartments: PoolDepartments
+  today: Date
+  kitReadiness?: Map<string, KitReadiness>
+  designReady?: Map<string, boolean>
+  roleLabels?: Record<string, string>
+}): { mine: MyQueueItem[]; claimable: MyQueueItem[] } {
+  const byId = new Map(leads.map((l) => [l.id, l]))
+  const mine: MyQueueItem[] = []
+  const claimable: MyQueueItem[] = []
+
+  const itemOf = (lead: TrackingLead, kind: ClaimKind, jobId?: string): MyQueueItem => {
+    const all = getMissing(lead, kitReadiness?.get(lead.id), designReady?.get(lead.id))
+    const only = CLAIM_MISSING[kind]
+    const item: MyQueueItem = {
+      leadId: lead.id,
+      kind,
+      date: lead.event_date,
+      customer: lead.customer_name || 'ไม่ระบุลูกค้า',
+      missing: (only ? all.filter((m) => m === only) : all).map((m) => missingLabel(m, lead, roleLabels)),
+    }
+    if (jobId !== undefined) item.jobId = jobId
+    return item
+  }
+
+  const canClaim = (kind: ClaimKind) => claimGate(kind, myDepartment, isAdmin, poolDepartments).allowed
+
+  for (const job of jobs) {
+    const lead = job.crm_lead_id ? byId.get(job.crm_lead_id) : undefined
+    if (!lead || POOL_DONE_STATUSES.includes(job.status)) continue
+    if (job.job_type !== 'graphic' && job.job_type !== 'onsite') continue
+    const kind: ClaimKind = job.job_type
+    if (currentUserId && (job.claimed_by === currentUserId || job.assigned_to.includes(currentUserId))) {
+      mine.push(itemOf(lead, kind, job.id))
+    } else if (job.status === AWAITING_CLAIM_STATUS && canClaim(kind) && !isPast(lead, today)) {
+      claimable.push(itemOf(lead, kind, job.id))
+    }
+  }
+
+  const claimByDuty = new Map(dutyClaims.map((c) => [dutyKey(c.leadId, c.duty), c]))
+  for (const lead of leads) {
+    for (const duty of PREP_DUTIES) {
+      const claim = claimByDuty.get(dutyKey(lead.id, duty))
+      if (claim) {
+        if (currentUserId && claim.claimedBy === currentUserId) mine.push(itemOf(lead, duty))
+      } else if (canClaim(duty) && !isPast(lead, today)) {
+        claimable.push(itemOf(lead, duty))
+      }
+    }
+  }
+
+  return { mine: mine.sort(compareQueue), claimable: claimable.sort(compareQueue) }
+}

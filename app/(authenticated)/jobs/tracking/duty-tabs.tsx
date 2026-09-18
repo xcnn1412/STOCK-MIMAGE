@@ -103,6 +103,7 @@ export default function DutyTab({
     onClaimDuty,
     onReleaseDuty,
     highlightLeadId = null,
+    justClaimed,
 }: {
     duty: PrepDuty
     /** งานที่มองเห็นอยู่ — ชุดเดียวกับตารางภาพรวม (กรองงานที่ผ่านแล้วมาให้เรียบร้อย) */
@@ -136,6 +137,8 @@ export default function DutyTab({
     onReleaseDuty: (leadId: string, duty: PrepDuty) => void
     /** งานที่ลิงก์มาจากการ์ด CRM (?lead=) — การ์ดของงานนี้ได้กรอบแดง + เลื่อนจอไปหาให้เอง */
     highlightLeadId?: string | null
+    /** งานที่เพิ่งกดรับหน้าที่นี้ — เปิดเครื่องมือให้เองครั้งเดียวหลังรับ */
+    justClaimed?: (leadId: string) => boolean
 }) {
     const [mineOnly, setMineOnly] = useState(false)
     const [query, setQuery] = useState('')
@@ -176,6 +179,8 @@ export default function DutyTab({
 
     /** เครื่องมือจริงของหน้าที่นี้ — ตัวเดียวกับที่อยู่ในตารางภาพรวม */
     const toolFor = (lead: TrackingLead): ReactNode => {
+        // เพิ่งกดรับหน้าที่นี้ → เปิดเครื่องมือให้เลย (กล่องจัดคน / กล่องจองกระเป๋า / โฟกัสช่องเลือกรถ)
+        const opened = justClaimed?.(lead.id) ?? false
         if (duty === 'staffing') {
             return (
                 <StaffEditor
@@ -186,11 +191,12 @@ export default function DutyTab({
                     roleLabels={roleLabels}
                     onSaved={onStaffSaved}
                     onRequiredRolesSaved={onRequiredRolesSaved}
+                    defaultOpen={opened}
                 />
             )
         }
-        if (duty === 'vehicle') return <VehicleCell lead={lead} all={all} onSaved={onVehicleSaved} />
-        return <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />
+        if (duty === 'vehicle') return <VehicleCell lead={lead} all={all} onSaved={onVehicleSaved} autoFocus={opened} />
+        return <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} defaultOpen={opened} />
     }
 
     const waitingLeads = visible.filter(l => !claimOf(l))

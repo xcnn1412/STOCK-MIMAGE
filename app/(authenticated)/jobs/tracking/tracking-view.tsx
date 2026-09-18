@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { AlertTriangle, Pencil } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
     assignLeadStaff,
@@ -39,13 +39,17 @@ import {
     applyDutyDraft,
     claimGate,
     emphasizedClaims,
+    myQueue,
     pruneClaimDraft,
     pruneDutyDraft,
     AWAITING_CLAIM_STATUS,
     CLAIMING_STATUS,
+    CLAIM_LABELS,
     PREP_DUTIES,
     DUTY_LABELS_TH,
     type ClaimCandidate,
+    type ClaimGate,
+    type MyQueueItem,
     type ClaimDraftMap,
     type ClaimKind,
     type DutyDraftMap,
@@ -59,7 +63,7 @@ import {
     type PrepDuty,
 } from './tracking-logic'
 import TimelineView, { formatDate, ymd } from './timeline-view'
-import PoolTabs, { ClaimChip, DutyGate, KitSummary, ReleaseChip, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
+import PoolTabs, { ClaimButton, ClaimChip, DutyGate, KitSummary, ReleaseChip, nameOf, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
 import { StaffEditor, VehicleCell, defaultEventId, type Person, type SaveFn, type StaffRole, type VehicleSyncFn } from './editors'
 import DutyTab, { claimedDutyCount, dutyKey, dutySummary, unclaimedDutyCount } from './duty-tabs'
 import { DESIGN_OPTIONS } from './design-options'
@@ -309,14 +313,16 @@ function runsByDate(leads: TrackingLead[]): { key: string; leads: TrackingLead[]
 /** แท็บของพูลงาน — ไม่มี ?tab หรือค่าแปลก = ภาพรวม (ตารางเดิม) */
 type PoolTab = 'overview' | 'graphic' | PrepDuty | 'onsite'
 
-const POOL_TABS: { key: PoolTab; label: string }[] = [
-    { key: 'overview', label: 'ภาพรวม' },
-    { key: 'graphic', label: 'ใบงานกราฟิก' },
-    ...PREP_DUTIES.map(duty => ({ key: duty as PoolTab, label: `ใบงาน${DUTY_LABELS_TH[duty]}` })),
-    { key: 'onsite', label: 'ใบงานหน้างาน' },
+/** ชิปย่อยใต้แท็บ "พูลงาน" — key ตรงกับ ?tab= ค่าเดิมทุกค่า (ลิงก์เก่าจาก dashboard/กระดิ่ง/CRM ยังใช้ได้) */
+const POOL_CHIPS: { key: Exclude<PoolTab, 'overview'>; label: string }[] = [
+    { key: 'graphic', label: 'กราฟิก' },
+    { key: 'staffing', label: 'จัดคน' },
+    { key: 'vehicle', label: 'จัดรถ' },
+    { key: 'kits', label: 'กระเป๋า' },
+    { key: 'onsite', label: 'หน้างาน' },
 ]
 
-const TAB_KEYS: readonly string[] = POOL_TABS.map(t => t.key)
+const TAB_KEYS: readonly string[] = POOL_CHIPS.map(t => t.key)
 
 /** ?tab ที่รู้จักเท่านั้น — ค่าอื่น (หรือไม่มี) = ภาพรวม */
 function parseTab(value: string | null): PoolTab {
@@ -325,6 +331,110 @@ function parseTab(value: string | null): PoolTab {
 
 /** แท็บใบงานรายหน้าที่เตรียมงาน (จัดคน/จัดรถ/จัดกระเป๋า) หรือเปล่า */
 const isDutyTab = (tab: PoolTab): tab is PrepDuty => (PREP_DUTIES as readonly string[]).includes(tab)
+
+const tabCls = (active: boolean) => cn(
+    '-mb-px border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap',
+    active
+        ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
+        : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+)
+
+// แถบ "ของฉัน" จำสถานะพับไว้ต่อเครื่อง — localStorage แตะไม่ได้ (โหมดส่วนตัว) = ไม่พับ
+// อ่านผ่าน useSyncExternalStore: ฝั่ง server ตอบ "ไม่พับ" เสมอ ค่าจริงชนะหลัง hydrate (ไม่ชนกัน)
+const MY_QUEUE_KEY = 'tracking:my-queue-collapsed'
+const collapseListeners = new Set<() => void>()
+const subscribeCollapsed = (cb: () => void) => {
+    collapseListeners.add(cb)
+    return () => { collapseListeners.delete(cb) }
+}
+const getCollapsed = () => {
+    try { return localStorage.getItem(MY_QUEUE_KEY) === '1' } catch { return false }
+}
+const getCollapsedOnServer = () => false
+const setCollapsed = (value: boolean) => {
+    try { localStorage.setItem(MY_QUEUE_KEY, value ? '1' : '0') } catch { /* เขียนไม่ได้ = ไม่จำ */ }
+    for (const cb of collapseListeners) cb()
+}
+
+/** ยังไม่รู้ว่าแผนกไหนรับอะไรได้ (props เก่า) — คู่กับ isAdmin เพื่อให้ยังกดรับได้ (server บังคับจริง) */
+const NO_POOL_DEPARTMENTS: PoolDepartments = { graphic: [], onsite: [], staffing: [], vehicle: [], kits: [] }
+
+/**
+ * แถบ "ของฉัน" บนสุดของแท็บภาพรวม — "งานที่ฉันรับไว้" กับ "รอทีมฉันรับ" อย่างละคอลัมน์
+ * ว่างทั้งสองกลุ่ม = ไม่แสดงเลย · พับได้และจำสถานะพับไว้ในเครื่อง
+ */
+function MyQueueStrip({ mine, claimable, gateOf, onGo, onClaim }: {
+    mine: MyQueueItem[]
+    claimable: MyQueueItem[]
+    gateOf: (kind: ClaimKind) => ClaimGate | undefined
+    /** "ไปที่งาน" — ไฮไลต์งานนั้นในตาราง/การ์ดแล้วเลื่อนจอไปหา */
+    onGo: (leadId: string) => void
+    onClaim: (item: MyQueueItem) => void
+}) {
+    const collapsed = useSyncExternalStore(subscribeCollapsed, getCollapsed, getCollapsedOnServer)
+    if (mine.length === 0 && claimable.length === 0) return null
+
+    const row = (item: MyQueueItem, action: ReactNode) => (
+        <div key={`${item.leadId}:${item.kind}`} className="flex items-center gap-2 py-1">
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-xs">
+                    <span className="text-zinc-500">{formatDate(item.date)}</span>
+                    <span className="mx-1 font-medium text-zinc-900 dark:text-zinc-100">{item.customer}</span>
+                    <span className="text-zinc-500">· {CLAIM_LABELS[item.kind]}</span>
+                </div>
+                {item.missing.length > 0 && (
+                    <div className="truncate text-[11px] text-amber-600 dark:text-amber-400">ขาด: {item.missing.join(', ')}</div>
+                )}
+            </div>
+            {action}
+        </div>
+    )
+
+    const column = (label: string, items: MyQueueItem[], empty: string, render: (item: MyQueueItem) => ReactNode) => (
+        <div className="min-w-0">
+            <div className="px-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                {label} <span className="font-normal text-zinc-400 tabular-nums">({items.length})</span>
+            </div>
+            {items.length === 0 ? (
+                <p className="px-1 py-2 text-xs text-zinc-400">{empty}</p>
+            ) : (
+                <div className="max-h-64 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {items.map(render)}
+                </div>
+            )}
+        </div>
+    )
+
+    return (
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3">
+            <button
+                type="button"
+                aria-expanded={!collapsed}
+                onClick={() => setCollapsed(!collapsed)}
+                className="flex w-full items-center gap-1.5 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+            >
+                <ChevronRight className={cn('h-4 w-4 text-zinc-400 transition-transform', !collapsed && 'rotate-90')} aria-hidden />
+                ของฉัน
+                <span className="font-normal text-zinc-500">({mine.length} รับไว้ · {claimable.length} รอทีมฉันรับ)</span>
+            </button>
+
+            {!collapsed && (
+                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                    {column('งานที่ฉันรับไว้', mine, 'ยังไม่ได้รับงานไหนไว้', item =>
+                        row(item, (
+                            <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs" onClick={() => onGo(item.leadId)}>
+                                ไปที่งาน
+                            </Button>
+                        ))
+                    )}
+                    {column('รอทีมฉันรับ', claimable, 'ไม่มีงานรอทีมฉันรับ', item =>
+                        row(item, <ClaimButton kind={item.kind} gate={gateOf(item.kind)} onClick={() => onClaim(item)} />)
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
 
 export default function TrackingView({
     leads,
@@ -384,6 +494,8 @@ export default function TrackingView({
     const [chip, setChip] = useState<Chip | null>(null)
     /** กรองเฉพาะงานที่ยังไม่เปิดใบงานกราฟิก (ชิปเตือนสีเหลือง) */
     const [notOpenedOnly, setNotOpenedOnly] = useState(false)
+    /** การ์ดมือถือ: หน้าที่ที่ยุบไว้แล้วถูกแตะให้ขยาย — key = `${leadId}:${duty}:${eventId}` */
+    const [expanded, setExpanded] = useState<Set<string>>(new Set())
     const [, startTransition] = useTransition()
     /** ไทม์ไลน์: แถบที่กำลังแก้ (คน หรือ รถ) */
     const [editing, setEditing] = useState<{ leadId: string; kind: 'staff' | 'vehicle' } | null>(null)
@@ -784,6 +896,55 @@ export default function TrackingView({
         </DutyGate>
     )
 
+    /** เพิ่งกดรับหน้าที่นี้ (draft ยังรอ server ตามมา) — เปิดเครื่องมือให้เองตอนช่องสลับเป็นตัวแก้ไข */
+    const justClaimedDuty = (leadId: string, duty: PrepDuty) => !!dutyDraft[dutyKey(leadId, duty)]
+
+    /**
+     * การ์ดมือถือ: หน้าที่ที่ฉันแก้ได้ (ผู้รับ/manager) หรือยังรับได้ = แสดงเต็มเหมือนเดิม
+     * ที่เหลือ (คนอื่นรับไปแล้ว / แผนกฉันรับไม่ได้) ยุบเป็นบรรทัดเดียว แตะเพื่อขยาย (เนื้อในอ่านอย่างเดียวตาม D3)
+     */
+    const mobileDuty = (lead: TrackingLead, duty: PrepDuty, editor: ReactNode, eventId?: string) => {
+        const label = DUTY_LABELS_TH[duty]
+        const claim = claimByDuty.get(dutyKey(lead.id, duty))
+        const gate = gateOf(duty)
+        if (canEditDuty(lead.id, duty) || (!claim && gate?.allowed !== false)) {
+            return (
+                <div>
+                    <div className="text-[11px] text-zinc-500">{label}</div>
+                    {dutyGate(lead, duty, editor)}
+                </div>
+            )
+        }
+        const key = `${dutyKey(lead.id, duty)}:${eventId ?? ''}`
+        const open = expanded.has(key)
+        return (
+            <div>
+                <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() =>
+                        setExpanded(prev => {
+                            const next = new Set(prev)
+                            if (!next.delete(key)) next.add(key)
+                            return next
+                        })
+                    }
+                    className="flex w-full items-center gap-1 text-left"
+                >
+                    <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-zinc-400 transition-transform', open && 'rotate-90')} aria-hidden />
+                    <span className="shrink-0 text-[11px] text-zinc-500">{label}</span>
+                    <div className="flex min-w-0 flex-1 items-center gap-1 truncate text-xs text-zinc-500">
+                        {dutySummary(lead, duty, people, kitReadiness)}
+                        <span className="truncate">
+                            {claim ? `· ผู้รับ: ${nameOf(claim.claimedBy, people)}` : gate ? `· ${gate.waitingFor}` : ''}
+                        </span>
+                    </div>
+                </button>
+                {open && dutyGate(lead, duty, editor)}
+            </div>
+        )
+    }
+
     const base = rows.filter(r => showPast || !isPast(r, today))
     const counts = chipCounts(base, today, kitReadiness, designReady)
 
@@ -808,6 +969,40 @@ export default function TrackingView({
         }
     }
     const emphasis = emphasizedClaims(claimCandidates)
+
+    // แถบ "ของฉัน" — คิดจากชุดที่โหลดมา (base) งานที่ผ่านแล้วจึงไม่โผล่มาเกะกะ
+    // ไม่รู้แผนกของแต่ละจุด (props เก่า) = ปล่อยให้รับได้เหมือน gateOf (สิทธิ์จริงบังคับฝั่ง server)
+    const queue = myQueue({
+        leads: base,
+        jobs,
+        dutyClaims,
+        currentUserId,
+        myDepartment,
+        isAdmin: isAdmin || !poolDepartments,
+        poolDepartments: poolDepartments ?? NO_POOL_DEPARTMENTS,
+        today,
+        kitReadiness,
+        designReady,
+        roleLabels,
+    })
+
+    /** "ไปที่งาน" — ล้างตัวกรองให้แถวโผล่แน่ๆ แล้วไฮไลต์/เลื่อนจอด้วยเส้นทางเดียวกับ ?lead= จากกระดิ่ง */
+    const goToLead = (leadId: string) => {
+        setChip(null)
+        setNotOpenedOnly(false)
+        scrolledRow.current = false
+        scrolledCard.current = false
+        setParams({ lead: leadId })
+    }
+
+    /** ปุ่มรับในแถบ "ของฉัน" — ใบงานวิ่งผ่าน onClaimJob หน้าที่เตรียมงานวิ่งผ่าน onClaimDuty (optimistic ทั้งคู่) */
+    const onClaimQueueItem = (item: MyQueueItem) => {
+        if (item.kind === 'graphic' || item.kind === 'onsite') {
+            if (item.jobId) onClaimJob(item.jobId)
+            return
+        }
+        onClaimDuty(item.leadId, item.kind)
+    }
 
     const undated = visible.filter(r => !r.event_date)
     const sections: { key: string; label: string; leads: TrackingLead[] }[] = [
@@ -835,6 +1030,10 @@ export default function TrackingView({
         }
     }
 
+    // ชิปย่อยของพูลงาน (หน้างานเฉพาะแอดมิน) — ป้ายบนแท็บ "พูลงาน" = รอรับรวมทุกชิปที่เห็น
+    const poolChips = POOL_CHIPS.filter(c => c.key !== 'onsite' || isAdmin)
+    const poolWaiting = poolChips.reduce((n, c) => n + tabCount(c.key).waiting, 0)
+
     return (
         <div className="space-y-4">
             <div>
@@ -856,37 +1055,60 @@ export default function TrackingView({
                 )}
             </div>
 
-            {/* มือถือ: แท็บเลื่อนแนวนอน ไม่หักบรรทัด — จอกว้างค่อยยอมให้ wrap */}
-            <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-x-visible items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {POOL_TABS.filter(t => t.key !== 'onsite' || isAdmin).map(t => {
-                    const count = t.key === 'overview' ? null : tabCount(t.key)
-                    return (
-                    <button
-                        key={t.key}
-                        type="button"
-                        aria-pressed={tab === t.key}
-                        onClick={() => setParams({ tab: t.key === 'overview' ? null : t.key })}
-                        className={cn(
-                            '-mb-px border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap',
-                            tab === t.key
-                                ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
-                                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                        )}
-                    >
-                        {t.label}
-                        {count && (
-                            <span className="ml-1 text-xs font-normal text-zinc-400">
-                                (
-                                <span className={cn(count.waiting > 0 && 'font-semibold text-amber-600 dark:text-amber-400')}>
-                                    รอรับ {count.waiting}
-                                </span>
-                                {' · รับแล้ว '}{count.claimed})
-                            </span>
-                        )}
-                    </button>
-                    )
-                })}
+            {/* แท็บหลักเหลือ 2 อัน — รายฝ่ายย้ายลงไปเป็นชิปใต้ "พูลงาน" (?tab= ค่าเดิมทุกค่ายังใช้ได้) */}
+            <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
+                <button
+                    type="button"
+                    aria-pressed={tab === 'overview'}
+                    onClick={() => setParams({ tab: null })}
+                    className={tabCls(tab === 'overview')}
+                >
+                    ภาพรวม
+                </button>
+                <button
+                    type="button"
+                    aria-pressed={tab !== 'overview'}
+                    onClick={() => setParams({ tab: tab === 'overview' ? 'graphic' : tab })}
+                    className={tabCls(tab !== 'overview')}
+                >
+                    พูลงาน
+                    {poolWaiting > 0 && (
+                        <span className="ml-1 text-xs font-semibold text-amber-600 dark:text-amber-400">รอรับ {poolWaiting}</span>
+                    )}
+                </button>
             </div>
+
+            {/* มือถือ: ชิปเลื่อนแนวนอน ไม่หักบรรทัด — จอกว้างค่อยยอมให้ wrap */}
+            {tab !== 'overview' && (
+                <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-x-visible items-center gap-1 [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {poolChips.map(c => {
+                        const count = tabCount(c.key)
+                        const active = tab === c.key
+                        return (
+                            <button
+                                key={c.key}
+                                type="button"
+                                aria-pressed={active}
+                                onClick={() => setParams({ tab: c.key })}
+                                className={cn(
+                                    'rounded-full px-3 py-1 text-sm whitespace-nowrap',
+                                    active
+                                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                                        : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                )}
+                            >
+                                {c.label}{' '}
+                                <span className={cn('text-[11px] font-normal', active ? 'opacity-70' : 'text-zinc-400')}>
+                                    <span className={cn(count.waiting > 0 && 'font-semibold text-amber-500')}>
+                                        รอรับ {count.waiting}
+                                    </span>
+                                    {' · รับแล้ว '}{count.claimed}
+                                </span>
+                            </button>
+                        )
+                    })}
+                </div>
+            )}
 
             {tab === 'graphic' || tab === 'onsite' ? (
                 <PoolTabs
@@ -933,9 +1155,18 @@ export default function TrackingView({
                     onRequiredRolesSaved={onRequiredRolesSaved}
                     onClaimDuty={onClaimDuty}
                     onReleaseDuty={onReleaseDuty}
+                    justClaimed={leadId => justClaimedDuty(leadId, tab)}
                 />
             ) : (
                 <>
+            <MyQueueStrip
+                mine={queue.mine}
+                claimable={queue.claimable}
+                gateOf={gateOf}
+                onGo={goToLead}
+                onClaim={onClaimQueueItem}
+            />
+
             <div className="flex items-center gap-1">
                 <Button
                     variant={view === 'table' ? 'default' : 'outline'}
@@ -1094,9 +1325,9 @@ export default function TrackingView({
                                                 <TableCell><JobCell lead={lead} today={today} /></TableCell>
                                                 <TableCell>{designGate(lead)}</TableCell>
                                                 <TableCell><SupplierCell lead={lead} save={save} /></TableCell>
-                                                <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={null} />)}</TableCell>
-                                                <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={null} eventVehicles={eventVehicles} />)}</TableCell>
-                                                <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={null} />)}</TableCell>
+                                                <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={null} defaultOpen={justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
+                                                <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={null} eventVehicles={eventVehicles} autoFocus={justClaimedDuty(lead.id, 'vehicle')} />)}</TableCell>
+                                                <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={null} defaultOpen={justClaimedDuty(lead.id, 'kits')} />)}</TableCell>
                                                 <TableCell><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></TableCell>
                                             </TableRow>
                                         )
@@ -1132,9 +1363,10 @@ export default function TrackingView({
                                                         </Link>
                                                         {ev.event_date && <div className="text-[11px] text-zinc-400">{formatDate(ev.event_date)}</div>}
                                                     </TableCell>
-                                                    <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} />)}</TableCell>
-                                                    <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} />)}</TableCell>
-                                                    <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} />)}</TableCell>
+                                                    <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
+                                                    {/* งานหลายอีเวนต์: เปิดให้เองเฉพาะแถวอีเวนต์แรก ไม่งั้นเด้งพร้อมกันทุกใบ */}
+                                                    <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} autoFocus={si === 0 && justClaimedDuty(lead.id, 'vehicle')} />)}</TableCell>
+                                                    <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'kits')} />)}</TableCell>
                                                 </TableRow>
                                             ))}
                                         </Fragment>
@@ -1194,23 +1426,14 @@ export default function TrackingView({
                                             <div className="text-[11px] text-zinc-500">ออกแบบ</div>
                                             {designGate(lead)}
                                         </div>
-                                        {lead.events.map(ev => (
+                                        {lead.events.map((ev, si) => (
                                             <div key={ev.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-2 space-y-2">
                                                 <EventLabel event={ev} />
                                                 <div className="grid grid-cols-2 gap-2">
-                                                    <div>
-                                                        <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} />)}
-                                                    </div>
-                                                    <div>
-                                                        <div className="text-[11px] text-zinc-500">กระเป๋า</div>
-                                                        {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} />)}
-                                                    </div>
+                                                    {mobileDuty(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} autoFocus={si === 0 && justClaimedDuty(lead.id, 'vehicle')} />, ev.id)}
+                                                    {mobileDuty(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'kits')} />, ev.id)}
                                                 </div>
-                                                <div>
-                                                    <div className="text-[11px] text-zinc-500">จัดคน</div>
-                                                    {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} />)}
-                                                </div>
+                                                {mobileDuty(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'staffing')} />, ev.id)}
                                             </div>
                                         ))}
                                     </>
@@ -1222,20 +1445,11 @@ export default function TrackingView({
                                     {designGate(lead)}
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
-                                    </div>
-                                    <div>
-                                        <div className="text-[11px] text-zinc-500">กระเป๋า</div>
-                                        {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
-                                    </div>
+                                    {mobileDuty(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} autoFocus={justClaimedDuty(lead.id, 'vehicle')} />)}
+                                    {mobileDuty(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} defaultOpen={justClaimedDuty(lead.id, 'kits')} />)}
                                 </div>
 
-                                <div>
-                                    <div className="text-[11px] text-zinc-500">จัดคน</div>
-                                    {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
-                                </div>
+                                {mobileDuty(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} defaultOpen={justClaimedDuty(lead.id, 'staffing')} />)}
                                     </>
                                 )}
 
