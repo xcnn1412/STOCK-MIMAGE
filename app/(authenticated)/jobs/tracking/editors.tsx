@@ -375,13 +375,15 @@ export type VehicleSyncFn = (leadId: string, tracking_checklist: string[]) => vo
  * `eventId` = ช่องนี้เป็นของอีเวนต์ใบเดียว (แถวรายอีเวนต์ในตารางภาพรวม): ค่าที่แสดงอ่านจาก `eventVehicles`
  * ของใบนั้น และบันทึกลงใบนั้นใบเดียว — ไม่ส่ง = พฤติกรรมเดิม (ค่าระดับงานจาก tracking_checklist)
  */
-export function VehicleCell({ lead, all, onSaved, eventId = null, eventVehicles = [] }: {
+export function VehicleCell({ lead, all, onSaved, eventId = null, eventVehicles = [], autoFocus = false }: {
     lead: TrackingLead
     all: TrackingLead[]
     onSaved?: VehicleSyncFn
     eventId?: string | null
     /** การจองรถรายอีเวนต์ของงานที่มองเห็นอยู่ — ใช้เฉพาะตอนส่ง eventId */
     eventVehicles?: EventVehicle[]
+    /** โฟกัสช่องเลือกรถทันทีตอน mount — ใช้ตอนเพิ่งกดรับหน้าที่จัดรถ (ครั้งเดียวต่อการรับ) */
+    autoFocus?: boolean
 }) {
     const router = useRouter()
     /** ค่าที่เพิ่งเลือกในโหมดรายอีเวนต์ — ทับค่าจาก server จนกว่าข้อมูลรอบใหม่จะมาถึง ('none' = ไม่จัดรถ) */
@@ -422,7 +424,7 @@ export function VehicleCell({ lead, all, onSaved, eventId = null, eventVehicles 
                     }
                 }}
             >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full" autoFocus={autoFocus}>
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

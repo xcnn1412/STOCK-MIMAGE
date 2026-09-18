@@ -19,7 +19,7 @@ export const CATEGORY_LABELS: Record<NotificationCategory, string> = {
 
 /** prefix ของ type ในแต่ละหมวด — ใช้ทั้งจัดหมวดฝั่ง UI และกรองฝั่ง server */
 export const CATEGORY_PREFIXES: Record<Exclude<NotificationCategory, 'other'>, string[]> = {
-  jobs:    ['job_', 'ticket_'],
+  jobs:    ['job_', 'ticket_', 'duty_'],
   finance: ['expense_'],
   kpi:     ['kpi_'],
   crm:     ['crm_'],
@@ -43,6 +43,13 @@ export const TYPE_CONFIG: Record<string, TypeConfig> = {
   job_status_changed:          { icon: '🔄', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',         label: 'สถานะงาน' },
   job_mentioned:               { icon: '📣', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400', label: 'ถูกแท็ก' },
   job_comment:                 { icon: '💬', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',             label: 'ความคิดเห็น' },
+  job_pool_new:                { icon: '🆕', color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',         label: 'ใบงานเข้าพูล' },
+  job_pool_claimed:            { icon: '🙋', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'รับใบงานแล้ว' },
+  job_pool_released:           { icon: '↩️', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'คืนใบงาน' },
+  job_pool_skipped:            { icon: '⏭️', color: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',           label: 'ข้ามใบงาน' },
+  job_pool_assigned:           { icon: '⭐', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'มอบหมายใบงาน' },
+  duty_claimed:                { icon: '🙋', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'รับหน้าที่แล้ว' },
+  duty_released:               { icon: '↩️', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'คืนหน้าที่' },
   ticket_assigned:             { icon: '🎫', color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400', label: 'Ticket ใหม่' },
   ticket_reply:                { icon: '📝', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',         label: 'ตอบกลับ' },
   ticket_mentioned:            { icon: '📣', color: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400', label: 'ถูกแท็กใน Ticket' },

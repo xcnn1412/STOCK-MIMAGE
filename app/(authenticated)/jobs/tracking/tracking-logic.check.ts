@@ -3,10 +3,21 @@
 import assert from 'node:assert/strict'
 import {
   addDays,
+  applyClaimDraft,
+  applyDutyDraft,
   availabilityOf,
   AWAITING_CLAIM_STATUS,
   canActOnPool,
+  CLAIMING_STATUS,
+  CLAIM_CATEGORY,
+  CLAIM_LABELS,
+  claimGate,
   designCellState,
+  dutyKey,
+  emphasizedClaims,
+  type PoolDepartments,
+  pruneClaimDraft,
+  pruneDutyDraft,
   designReadyByLead,
   POOL_TEAM_CATEGORIES,
   POOL_TEAM_DEFAULTS,
@@ -43,6 +54,7 @@ import {
   missingLabel,
   missingRoles,
   monthLabel,
+  myQueue,
   nextJobDate,
   NO_DEPARTMENT_LABEL,
   personClashes,
@@ -1232,5 +1244,195 @@ assert.equal(isPrepDuty('staffing'), true)
 assert.equal(isPrepDuty('kits'), true)
 assert.equal(isPrepDuty('onsite'), false)
 assert.equal(isPrepDuty(''), false)
+
+assert.equal(dutyKey('l1', 'staffing'), 'l1:staffing')
+assert.notEqual(dutyKey('l1', 'vehicle'), dutyKey('l1', 'kits'))
+
+// --- optimistic draft: รับ/คืน เปลี่ยนช่องทันทีก่อน server ตอบ ------------------
+
+const waiting = pj({ id: 'j1', status: AWAITING_CLAIM_STATUS, claimed_by: null, assigned_to: [] })
+const claimDraft = { j1: { status: CLAIMING_STATUS, claimed_by: 'u1' } }
+
+// กดรับ: สถานะออกจากคิวรอรับ ผู้รับเป็นเรา และเราถูกเพิ่มเข้าทีมของใบงาน
+const afterClaim = applyClaimDraft([waiting], claimDraft)[0]
+assert.equal(afterClaim.status, CLAIMING_STATUS)
+assert.equal(afterClaim.claimed_by, 'u1')
+assert.deepEqual(afterClaim.assigned_to, ['u1'])
+// ไม่มี draft = คืนอาร์เรย์เดิมทั้งตัว (ไม่สร้างใหม่โดยไม่จำเป็น)
+assert.equal(applyClaimDraft([waiting], {})[0], waiting)
+
+// กดคืน: กลับไปรอรับงาน ผู้รับหลุด และผู้รับเดิมออกจากทีม
+const claimed = pj({ id: 'j1', status: 'pending', claimed_by: 'u1', assigned_to: ['u1', 'u2'] })
+const afterRelease = applyClaimDraft([claimed], { j1: { status: AWAITING_CLAIM_STATUS, claimed_by: null } })[0]
+assert.equal(afterRelease.status, AWAITING_CLAIM_STATUS)
+assert.equal(afterRelease.claimed_by, null)
+assert.deepEqual(afterRelease.assigned_to, ['u2'])
+
+// server ตามทันแล้ว (ใบงานมีผู้รับตรงกันและออกจากคิวแล้ว) → draft ไม่มีผลและถูกล้างทิ้ง
+const settled = pj({ id: 'j1', status: 'pending', claimed_by: 'u1', assigned_to: ['u1'] })
+assert.equal(applyClaimDraft([settled], claimDraft)[0], settled)
+assert.deepEqual(pruneClaimDraft([settled], claimDraft), {})
+// ยังตามไม่ทัน → draft อยู่ต่อ (คืนตัวเดิม ไม่สร้าง object ใหม่)
+assert.equal(pruneClaimDraft([waiting], claimDraft), claimDraft)
+// ใบงานหลุดจากชุดที่โหลดมา → ไม่ต้องทับต่อ
+assert.deepEqual(pruneClaimDraft([], claimDraft), {})
+
+const dc = (leadId: string, duty: PrepDuty, claimedBy: string) => ({ leadId, duty, claimedBy })
+const mine = dc('l1', 'staffing', 'u1')
+
+// กดรับหน้าที่: มีแถวเพิ่มทันที · กดคืน: แถวหายทันที
+assert.deepEqual(applyDutyDraft([], { 'l1:staffing': mine }), [mine])
+assert.deepEqual(applyDutyDraft([mine], { 'l1:staffing': null }), [])
+assert.equal(applyDutyDraft([mine], {})[0], mine)
+// หน้าที่อื่นของงานเดียวกันไม่ถูกแตะ
+assert.deepEqual(
+  applyDutyDraft([dc('l1', 'vehicle', 'u2')], { 'l1:staffing': mine }).map((c) => c.duty),
+  ['vehicle', 'staffing']
+)
+// server ตามทันแล้ว → draft ถูกล้าง · ยังไม่ทัน → อยู่ต่อ (คืนตัวเดิม)
+assert.deepEqual(pruneDutyDraft([mine], { 'l1:staffing': mine }), {})
+assert.deepEqual(pruneDutyDraft([], { 'l1:staffing': null }), {})
+const pendingDuty = { 'l1:staffing': mine }
+assert.equal(pruneDutyDraft([], pendingDuty), pendingDuty)
+// คนอื่นชิงรับไปก่อน → ยังถือว่ายังไม่ตามทัน draft ของเรา (view ย้อนกลับเองเมื่อ action ตอบ error)
+assert.deepEqual(pruneDutyDraft([dc('l1', 'staffing', 'u9')], pendingDuty), pendingDuty)
+
+// --- ปุ่มรับ: ใครรับได้ + คำบนปุ่ม + ปุ่มไหนเรืองแสง (D1/D7) --------------------
+
+// คำบนปุ่มตามสิ่งที่รับ — ไม่มีจุดไหนใช้ "รับงาน" ลอยๆ และไม่ซ้ำกัน
+assert.equal(CLAIM_LABELS.graphic, 'รับออกแบบ')
+assert.equal(CLAIM_LABELS.onsite, 'รับเป็นหัวหน้างาน')
+assert.equal(CLAIM_LABELS.staffing, 'รับจัดคน')
+assert.equal(CLAIM_LABELS.vehicle, 'รับจัดรถ')
+assert.equal(CLAIM_LABELS.kits, 'รับจัดกระเป๋า')
+assert.equal(new Set(Object.values(CLAIM_LABELS)).size, 5)
+
+// ทุกจุดที่กดรับได้ต้องมีหมวดตั้งค่าแผนกของตัวเองใน job_settings (data.ts อ่านจากรายการนี้)
+for (const category of Object.values(CLAIM_CATEGORY)) {
+  assert.ok(POOL_TEAM_CATEGORIES.includes(category), `${category} ต้องเป็นหมวดของพูลงาน`)
+}
+
+const pools: PoolDepartments = {
+  graphic: ['ฝ่ายออกแบบ'],
+  onsite: ['ทีมออกหน้างาน'],
+  staffing: ['ฝ่ายแอดมิน'],
+  vehicle: ['ทีมออกหน้างาน', 'ช่าง'],
+  kits: [], // ยังไม่มีแผนกไหนรับได้
+}
+
+// อยู่แผนกที่ตั้งไว้ = กดได้
+assert.equal(claimGate('graphic', 'ฝ่ายออกแบบ', false, pools).allowed, true)
+// คนละแผนก = ป้ายจางบอกว่ารอใคร
+assert.deepEqual(claimGate('graphic', 'ฝ่ายแอดมิน', false, pools), {
+  allowed: false,
+  waitingFor: 'รอฝ่ายออกแบบรับ',
+})
+// หลายแผนกคั่นด้วย " / "
+assert.equal(claimGate('vehicle', 'ฝ่ายออกแบบ', false, pools).waitingFor, 'รอทีมออกหน้างาน / ช่างรับ')
+assert.equal(claimGate('vehicle', 'ช่าง', false, pools).allowed, true)
+// ยังไม่ตั้งแผนก = ไม่มีใครนอกแอดมินรับได้
+assert.deepEqual(claimGate('kits', 'ทีมออกหน้างาน', false, pools), {
+  allowed: false,
+  waitingFor: 'รอแอดมินรับ',
+})
+// แอดมินรับได้ทุกจุด แม้รายการว่าง
+assert.equal(claimGate('kits', null, true, pools).allowed, true)
+assert.equal(claimGate('onsite', 'ฝ่ายออกแบบ', true, pools).allowed, true)
+// ไม่มีแผนกและไม่ใช่แอดมิน = กดไม่ได้
+assert.equal(claimGate('staffing', null, false, pools).allowed, false)
+
+// เรืองแสงคอลัมน์ละหนึ่งปุ่ม: ใกล้วันงานที่สุดของคอลัมน์นั้น
+assert.deepEqual(
+  [
+    ...emphasizedClaims([
+      { key: 'g-far', kind: 'graphic', date: '2026-10-05' },
+      { key: 'g-near', kind: 'graphic', date: '2026-09-20' },
+      { key: 's-near', kind: 'staffing', date: '2026-09-25' },
+    ]),
+  ].sort(),
+  ['g-near', 's-near']
+)
+// งานที่ยังไม่กำหนดวันไม่เรืองแสง · ไม่มีอะไรเลยก็ได้ set ว่าง
+assert.deepEqual([...emphasizedClaims([{ key: 'x', kind: 'kits', date: null }])], [])
+assert.deepEqual([...emphasizedClaims([])], [])
+// วันเท่ากัน = ตัวแรกในรายการเท่านั้น (ที่เหลือเป็นปุ่มนิ่ง)
+assert.deepEqual(
+  [
+    ...emphasizedClaims([
+      { key: 'a', kind: 'vehicle', date: '2026-09-20' },
+      { key: 'b', kind: 'vehicle', date: '2026-09-20' },
+    ]),
+  ],
+  ['a']
+)
+
+// --- แถบ "ของฉัน": งานที่ฉันรับไว้ + งานที่รอทีมฉันรับ (AC3.1) ------------------
+
+const qToday = new Date(2026, 8, 18) // 18 ก.ย. 2026
+const qPools: PoolDepartments = {
+  graphic: ['ฝ่ายออกแบบ'],
+  onsite: ['ทีมออกหน้างาน'],
+  staffing: ['ฝ่ายแอดมิน'],
+  vehicle: ['ทีมออกหน้างาน'],
+  kits: ['ทีมออกหน้างาน'],
+}
+const qLeads = [
+  mk({ id: 'A', customer_name: 'เอ', event_date: '2026-09-20', staff: [] }),
+  mk({ id: 'B', customer_name: 'บี', event_date: '2026-09-19' }),
+  mk({ id: 'C', customer_name: 'ซี', event_date: null }), // ยังไม่กำหนดวัน — ไว้ท้ายสุด
+  mk({ id: 'P', customer_name: 'พี', event_date: '2026-09-01' }), // ผ่านมาแล้ว — รับใหม่ไม่ได้
+]
+const qJobs = [
+  pj({ id: 'jA', crm_lead_id: 'A', status: 'in_progress', claimed_by: 'u1', assigned_to: ['u1'] }),
+  pj({ id: 'jB', crm_lead_id: 'B', status: AWAITING_CLAIM_STATUS }),
+  pj({ id: 'jDone', crm_lead_id: 'A', status: 'done', claimed_by: 'u1', assigned_to: ['u1'] }),
+  pj({ id: 'jSkip', crm_lead_id: 'B', status: 'skipped', claimed_by: 'u1', assigned_to: ['u1'] }),
+]
+const qClaims = [dc('B', 'vehicle', 'u1'), dc('P', 'staffing', 'u1')]
+const qArgs = {
+  leads: qLeads,
+  jobs: qJobs,
+  dutyClaims: qClaims,
+  currentUserId: 'u1',
+  myDepartment: 'ฝ่ายแอดมิน',
+  isAdmin: false,
+  poolDepartments: qPools,
+  today: qToday,
+}
+const qKey = (i: { leadId: string; kind: string }) => `${i.leadId}:${i.kind}`
+
+// ของฉัน: ใบงานที่ฉันรับ/อยู่ในทีม + หน้าที่ที่ฉันรับ — เรียงวันงานใกล้สุดก่อน
+// ใบที่จบแล้ว (jDone) และถูกข้าม (jSkip) ไม่แสดง แม้ฉันจะอยู่บนใบงาน
+const q1 = myQueue(qArgs)
+assert.deepEqual(q1.mine.map(qKey), ['P:staffing', 'B:vehicle', 'A:graphic'])
+// รอทีมฉันรับ: ฝ่ายแอดมินรับได้แค่ "จัดคน" — จัดรถ/กระเป๋า/กราฟิกเป็นของแผนกอื่น
+// งานที่ผ่านมาแล้ว (P) ไม่เข้ากลุ่มนี้ · งานที่ยังไม่กำหนดวัน (C) อยู่ท้ายสุด
+assert.deepEqual(q1.claimable.map(qKey), ['B:staffing', 'A:staffing', 'C:staffing'])
+
+// ไม่ใช่ของฉันเลยและไม่มีแผนก = ว่างทั้งสองกลุ่ม (แถบถูกซ่อน)
+const q2 = myQueue({ ...qArgs, currentUserId: 'u9', myDepartment: null })
+assert.deepEqual(q2.mine, [])
+assert.deepEqual(q2.claimable, [])
+
+// แอดมินรับได้ทุกจุดที่ยังว่าง (ใบงานรอรับ + หน้าที่ที่ยังไม่มีผู้รับ)
+const q3 = myQueue({ ...qArgs, currentUserId: 'u9', myDepartment: null, isAdmin: true })
+assert.deepEqual(q3.claimable.map(qKey), [
+  'B:graphic',
+  'B:staffing',
+  'B:kits',
+  'A:staffing',
+  'A:vehicle',
+  'A:kits',
+  'C:staffing',
+  'C:vehicle',
+  'C:kits',
+])
+// ใบงานพกเลขใบมาด้วย (ปุ่มรับในแถบเรียก claimPoolJob) — หน้าที่ไม่มีใบงาน
+assert.equal(q3.claimable.find((i) => i.kind === 'graphic')?.jobId, 'jB')
+assert.equal(q3.claimable.find((i) => i.kind === 'staffing')?.jobId, undefined)
+// ป้าย "ยังขาด" เป็นของจุดนั้นจุดเดียว — งาน A ยังไม่จัดคน
+assert.deepEqual(q3.claimable.find((i) => qKey(i) === 'A:staffing')?.missing, ['จัดคน'])
+assert.deepEqual(q3.claimable.find((i) => qKey(i) === 'A:vehicle')?.missing, [])
+
 
 console.log('tracking-logic.check: all passed')

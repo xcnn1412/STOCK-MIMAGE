@@ -9,9 +9,17 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { AlertTriangle, Pencil } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { assignLeadStaff, updateJobDesignStatus, updateLeadTracking } from '../actions'
+import {
+    assignLeadStaff,
+    claimLeadDuty,
+    claimPoolJob,
+    releaseLeadDuty,
+    releasePoolJob,
+    updateJobDesignStatus,
+    updateLeadTracking,
+} from '../actions'
 import {
     daysUntil,
     isPast,
@@ -27,8 +35,25 @@ import {
     kitReadinessByLead,
     leadsOnDate,
     groupPoolJobs,
+    applyClaimDraft,
+    applyDutyDraft,
+    claimGate,
+    emphasizedClaims,
+    myQueue,
+    pruneClaimDraft,
+    pruneDutyDraft,
+    AWAITING_CLAIM_STATUS,
+    CLAIMING_STATUS,
+    CLAIM_LABELS,
     PREP_DUTIES,
     DUTY_LABELS_TH,
+    type ClaimCandidate,
+    type ClaimGate,
+    type MyQueueItem,
+    type ClaimDraftMap,
+    type ClaimKind,
+    type DutyDraftMap,
+    type PoolDepartments,
     type TrackingLead,
     type Chip,
     type DutyClaim,
@@ -38,7 +63,7 @@ import {
     type PrepDuty,
 } from './tracking-logic'
 import TimelineView, { formatDate, ymd } from './timeline-view'
-import PoolTabs, { ClaimChip, DutyGate, KitSummary, ReleaseChip, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
+import PoolTabs, { ClaimButton, ClaimChip, DutyGate, KitSummary, ReleaseChip, nameOf, type JobStatusLabels, type KitBookingRow, type PoolKit } from './pool-tabs'
 import { StaffEditor, VehicleCell, defaultEventId, type Person, type SaveFn, type StaffRole, type VehicleSyncFn } from './editors'
 import DutyTab, { claimedDutyCount, dutyKey, dutySummary, unclaimedDutyCount } from './duty-tabs'
 import { DESIGN_OPTIONS } from './design-options'
@@ -288,14 +313,16 @@ function runsByDate(leads: TrackingLead[]): { key: string; leads: TrackingLead[]
 /** แท็บของพูลงาน — ไม่มี ?tab หรือค่าแปลก = ภาพรวม (ตารางเดิม) */
 type PoolTab = 'overview' | 'graphic' | PrepDuty | 'onsite'
 
-const POOL_TABS: { key: PoolTab; label: string }[] = [
-    { key: 'overview', label: 'ภาพรวม' },
-    { key: 'graphic', label: 'ใบงานกราฟิก' },
-    ...PREP_DUTIES.map(duty => ({ key: duty as PoolTab, label: `ใบงาน${DUTY_LABELS_TH[duty]}` })),
-    { key: 'onsite', label: 'ใบงานหน้างาน' },
+/** ชิปย่อยใต้แท็บ "พูลงาน" — key ตรงกับ ?tab= ค่าเดิมทุกค่า (ลิงก์เก่าจาก dashboard/กระดิ่ง/CRM ยังใช้ได้) */
+const POOL_CHIPS: { key: Exclude<PoolTab, 'overview'>; label: string }[] = [
+    { key: 'graphic', label: 'กราฟิก' },
+    { key: 'staffing', label: 'จัดคน' },
+    { key: 'vehicle', label: 'จัดรถ' },
+    { key: 'kits', label: 'กระเป๋า' },
+    { key: 'onsite', label: 'หน้างาน' },
 ]
 
-const TAB_KEYS: readonly string[] = POOL_TABS.map(t => t.key)
+const TAB_KEYS: readonly string[] = POOL_CHIPS.map(t => t.key)
 
 /** ?tab ที่รู้จักเท่านั้น — ค่าอื่น (หรือไม่มี) = ภาพรวม */
 function parseTab(value: string | null): PoolTab {
@@ -305,13 +332,117 @@ function parseTab(value: string | null): PoolTab {
 /** แท็บใบงานรายหน้าที่เตรียมงาน (จัดคน/จัดรถ/จัดกระเป๋า) หรือเปล่า */
 const isDutyTab = (tab: PoolTab): tab is PrepDuty => (PREP_DUTIES as readonly string[]).includes(tab)
 
+const tabCls = (active: boolean) => cn(
+    '-mb-px border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap',
+    active
+        ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
+        : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+)
+
+// แถบ "ของฉัน" จำสถานะพับไว้ต่อเครื่อง — localStorage แตะไม่ได้ (โหมดส่วนตัว) = ไม่พับ
+// อ่านผ่าน useSyncExternalStore: ฝั่ง server ตอบ "ไม่พับ" เสมอ ค่าจริงชนะหลัง hydrate (ไม่ชนกัน)
+const MY_QUEUE_KEY = 'tracking:my-queue-collapsed'
+const collapseListeners = new Set<() => void>()
+const subscribeCollapsed = (cb: () => void) => {
+    collapseListeners.add(cb)
+    return () => { collapseListeners.delete(cb) }
+}
+const getCollapsed = () => {
+    try { return localStorage.getItem(MY_QUEUE_KEY) === '1' } catch { return false }
+}
+const getCollapsedOnServer = () => false
+const setCollapsed = (value: boolean) => {
+    try { localStorage.setItem(MY_QUEUE_KEY, value ? '1' : '0') } catch { /* เขียนไม่ได้ = ไม่จำ */ }
+    for (const cb of collapseListeners) cb()
+}
+
+/** ยังไม่รู้ว่าแผนกไหนรับอะไรได้ (props เก่า) — คู่กับ isAdmin เพื่อให้ยังกดรับได้ (server บังคับจริง) */
+const NO_POOL_DEPARTMENTS: PoolDepartments = { graphic: [], onsite: [], staffing: [], vehicle: [], kits: [] }
+
+/**
+ * แถบ "ของฉัน" บนสุดของแท็บภาพรวม — "งานที่ฉันรับไว้" กับ "รอทีมฉันรับ" อย่างละคอลัมน์
+ * ว่างทั้งสองกลุ่ม = ไม่แสดงเลย · พับได้และจำสถานะพับไว้ในเครื่อง
+ */
+function MyQueueStrip({ mine, claimable, gateOf, onGo, onClaim }: {
+    mine: MyQueueItem[]
+    claimable: MyQueueItem[]
+    gateOf: (kind: ClaimKind) => ClaimGate | undefined
+    /** "ไปที่งาน" — ไฮไลต์งานนั้นในตาราง/การ์ดแล้วเลื่อนจอไปหา */
+    onGo: (leadId: string) => void
+    onClaim: (item: MyQueueItem) => void
+}) {
+    const collapsed = useSyncExternalStore(subscribeCollapsed, getCollapsed, getCollapsedOnServer)
+    if (mine.length === 0 && claimable.length === 0) return null
+
+    const row = (item: MyQueueItem, action: ReactNode) => (
+        <div key={`${item.leadId}:${item.kind}`} className="flex items-center gap-2 py-1">
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-xs">
+                    <span className="text-zinc-500">{formatDate(item.date)}</span>
+                    <span className="mx-1 font-medium text-zinc-900 dark:text-zinc-100">{item.customer}</span>
+                    <span className="text-zinc-500">· {CLAIM_LABELS[item.kind]}</span>
+                </div>
+                {item.missing.length > 0 && (
+                    <div className="truncate text-[11px] text-amber-600 dark:text-amber-400">ขาด: {item.missing.join(', ')}</div>
+                )}
+            </div>
+            {action}
+        </div>
+    )
+
+    const column = (label: string, items: MyQueueItem[], empty: string, render: (item: MyQueueItem) => ReactNode) => (
+        <div className="min-w-0">
+            <div className="px-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                {label} <span className="font-normal text-zinc-400 tabular-nums">({items.length})</span>
+            </div>
+            {items.length === 0 ? (
+                <p className="px-1 py-2 text-xs text-zinc-400">{empty}</p>
+            ) : (
+                <div className="max-h-64 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {items.map(render)}
+                </div>
+            )}
+        </div>
+    )
+
+    return (
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3">
+            <button
+                type="button"
+                aria-expanded={!collapsed}
+                onClick={() => setCollapsed(!collapsed)}
+                className="flex w-full items-center gap-1.5 text-left text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+            >
+                <ChevronRight className={cn('h-4 w-4 text-zinc-400 transition-transform', !collapsed && 'rotate-90')} aria-hidden />
+                ของฉัน
+                <span className="font-normal text-zinc-500">({mine.length} รับไว้ · {claimable.length} รอทีมฉันรับ)</span>
+            </button>
+
+            {!collapsed && (
+                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                    {column('งานที่ฉันรับไว้', mine, 'ยังไม่ได้รับงานไหนไว้', item =>
+                        row(item, (
+                            <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs" onClick={() => onGo(item.leadId)}>
+                                ไปที่งาน
+                            </Button>
+                        ))
+                    )}
+                    {column('รอทีมฉันรับ', claimable, 'ไม่มีงานรอทีมฉันรับ', item =>
+                        row(item, <ClaimButton kind={item.kind} gate={gateOf(item.kind)} onClick={() => onClaim(item)} />)
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
 export default function TrackingView({
     leads,
     roleLabels,
     roles,
     people,
     jobs: jobsProp = [],
-    dutyClaims = [],
+    dutyClaims: dutyClaimsProp = [],
     jobStatusLabels = {},
     currentUserId = null,
     canManagePool = false,
@@ -320,6 +451,8 @@ export default function TrackingView({
     eventVehicles = [],
     canManageKits = false,
     isAdmin = false,
+    myDepartment = null,
+    poolDepartments,
 }: {
     leads: TrackingLead[]
     roleLabels: Record<string, string>
@@ -344,6 +477,10 @@ export default function TrackingView({
     canManageKits?: boolean
     /** role = admin เท่านั้น — แท็บใบงานหน้างาน (หัวหน้างาน) แสดงเฉพาะแอดมิน */
     isAdmin?: boolean
+    /** แผนกของผู้ใช้ — ตัดสินว่าปุ่มรับจุดไหนกดได้ (D1) */
+    myDepartment?: string | null
+    /** แผนกที่รับได้ของแต่ละจุด (job_settings) — ไม่ส่ง = ทุกปุ่มกดได้ (สิทธิ์จริงบังคับฝั่ง server) */
+    poolDepartments?: PoolDepartments
 }) {
     const [rows, setRows] = useState(leads)
     /**
@@ -351,13 +488,34 @@ export default function TrackingView({
      * เก็บแยกจาก `jobs` เพื่อให้ค่าอื่นของใบงาน (รับ/คืน/ข้าม) ยังไหลมาจาก server ตามปกติ
      */
     const [designDraft, setDesignDraft] = useState<Record<string, string>>({})
+    /** ใบงาน/หน้าที่ที่เพิ่งกดรับหรือคืน — ทับค่าจาก server จนกว่าข้อมูลรอบใหม่จะตามมา (optimistic) */
+    const [claimDraft, setClaimDraft] = useState<ClaimDraftMap>({})
+    const [dutyDraft, setDutyDraft] = useState<DutyDraftMap>({})
     const [chip, setChip] = useState<Chip | null>(null)
     /** กรองเฉพาะงานที่ยังไม่เปิดใบงานกราฟิก (ชิปเตือนสีเหลือง) */
     const [notOpenedOnly, setNotOpenedOnly] = useState(false)
-    const [showPast, setShowPast] = useState(false)
+    /** การ์ดมือถือ: หน้าที่ที่ยุบไว้แล้วถูกแตะให้ขยาย — key = `${leadId}:${duty}:${eventId}` */
+    const [expanded, setExpanded] = useState<Set<string>>(new Set())
     const [, startTransition] = useTransition()
     /** ไทม์ไลน์: แถบที่กำลังแก้ (คน หรือ รถ) */
     const [editing, setEditing] = useState<{ leadId: string; kind: 'staff' | 'vehicle' } | null>(null)
+
+    /**
+     * ข้อมูลรอบใหม่จาก server (revalidate / refresh) ต้องไหลลง `rows` ด้วย — เทียบกับ props รอบก่อน
+     * แล้วปรับ state ตอน render (ไม่ใช้ setState ใน useEffect) ตามท่ามาตรฐานของ React
+     * พร้อมกันนั้นล้าง draft รับ/คืน ที่ server ตามทันแล้ว
+     */
+    const [prevProps, setPrevProps] = useState({ leads, jobs: jobsProp, dutyClaims: dutyClaimsProp })
+    if (
+        prevProps.leads !== leads ||
+        prevProps.jobs !== jobsProp ||
+        prevProps.dutyClaims !== dutyClaimsProp
+    ) {
+        setPrevProps({ leads, jobs: jobsProp, dutyClaims: dutyClaimsProp })
+        if (prevProps.leads !== leads) setRows(leads)
+        setClaimDraft(d => pruneClaimDraft(jobsProp, d))
+        setDutyDraft(d => pruneDutyDraft(dutyClaimsProp, d))
+    }
 
     // client component: hydration mismatch is only possible exactly at midnight — acceptable
     const today = new Date()
@@ -385,6 +543,9 @@ export default function TrackingView({
         mode?: string | null
         dept?: string | null
         focus?: string | null
+        past?: string | null
+        lead?: string | null
+        job?: string | null
     }) => {
         const p = new URLSearchParams(window.location.search)
         for (const [k, v] of Object.entries(patch)) {
@@ -394,6 +555,45 @@ export default function TrackingView({
         const qs = p.toString()
         router.replace(qs ? `?${qs}` : '?', { scroll: false })
     }
+
+    /** ?past=1 = server โหลดงานที่ผ่านมาแล้วเกิน 30 วันมาให้ด้วย (ค่าเริ่มต้นตัดออก) */
+    const pastLoaded = searchParams.get('past') === '1'
+    /** เปิดหน้าด้วย ?past=1 ตรงๆ = แสดงงานที่ผ่านแล้วตั้งแต่แรก (ไม่ต้องกดปุ่มซ้ำ) */
+    const [showPast, setShowPast] = useState(pastLoaded)
+
+    /** ปุ่มรับจุดนี้กดได้ไหม + ป้าย "รอ<แผนก>รับ" (D1) — ไม่รู้แผนกของแต่ละจุด = ปล่อยให้กดได้ */
+    const gateOf = (kind: ClaimKind) =>
+        poolDepartments ? claimGate(kind, myDepartment, isAdmin, poolDepartments) : undefined
+
+    /** งานที่ถูกไฮไลต์ (?lead= จากการ์ด CRM / แผงเตือน / กระดิ่ง) — แถวและการ์ดของงานนี้ได้กรอบแดง */
+    const highlightLeadId = searchParams.get('lead')
+
+    /**
+     * ?job=<jobId> จากกระดิ่ง (job_pool_*) — แปลงเป็นแท็บของใบงานนั้น + ?lead= ครั้งเดียว
+     * (ไฮไลต์/เลื่อนจอใช้เส้นทางเดียวกับลิงก์อื่น) · ใบงานหน้างานของคนทั่วไปไปที่ภาพรวม
+     */
+    const jobParam = searchParams.get('job')
+    const jobTarget = jobParam ? jobsProp.find(j => j.id === jobParam) ?? null : null
+    const jobTargetTab = jobTarget?.job_type === 'graphic' ? 'graphic' : jobTarget?.job_type === 'onsite' && isAdmin ? 'onsite' : null
+    const jobTargetLead = jobTarget?.crm_lead_id ?? null
+    useEffect(() => {
+        if (!jobParam) return
+        setParams({ job: null, tab: jobTargetTab, lead: jobTargetLead })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [jobParam])
+
+    // คนอื่นกดรับ/แก้งานอยู่ตลอด — ดึงข้อมูลใหม่ตอนกลับมาที่แท็บนี้ และทุก 60 วิขณะเปิดหน้าอยู่
+    useEffect(() => {
+        const refresh = () => {
+            if (document.visibilityState === 'visible') router.refresh()
+        }
+        const timer = setInterval(refresh, 60_000)
+        document.addEventListener('visibilitychange', refresh)
+        return () => {
+            clearInterval(timer)
+            document.removeEventListener('visibilitychange', refresh)
+        }
+    }, [router])
 
     const editingLead = editing ? rows.find(r => r.id === editing.leadId) ?? null : null
 
@@ -430,6 +630,10 @@ export default function TrackingView({
     })
     /** คิวต่อ 1 งาน — คลิกรัวๆ ในงานเดียวกันทำเรียงกัน ไม่ทับกัน */
     const staffQueue = useRef(new Map<string, Promise<void>>())
+
+    // เลื่อนจอไปหางานที่ไฮไลต์ครั้งเดียวตอนเข้าหน้า — ตารางกับการ์ดมือถือแยกธงกัน (อีกฝั่งถูกซ่อนตามขนาดจอ)
+    const scrolledRow = useRef(false)
+    const scrolledCard = useRef(false)
 
     // ponytail: sends the whole event roster per click; clicks are serialized per lead so a failed call reverts only its own change
     const quickStaff = (leadId: string, userId: string, role: string, add: boolean) => {
@@ -507,6 +711,72 @@ export default function TrackingView({
         })
     }
 
+    /** ล้าง draft ของรายการเดียว — ใช้ตอน action ตอบ error (ช่องย้อนกลับเป็นค่าเดิมทันที) */
+    const dropClaimDraft = (jobId: string) =>
+        setClaimDraft(d => {
+            const next = { ...d }
+            delete next[jobId]
+            return next
+        })
+    const dropDutyDraft = (key: string) =>
+        setDutyDraft(d => {
+            const next = { ...d }
+            delete next[key]
+            return next
+        })
+
+    /**
+     * รับ/คืน ทั้งใบงานและหน้าที่: ทับค่าให้ช่องเปลี่ยนทันที → เรียก action →
+     * ตอบ error เมื่อไหร่ก็ย้อน draft กลับพร้อม toast (ค่าจริงไหลมาทับเองตอน revalidate)
+     */
+    const onClaimJob = (jobId: string) => {
+        setClaimDraft(d => ({ ...d, [jobId]: { status: CLAIMING_STATUS, claimed_by: currentUserId } }))
+        startTransition(async () => {
+            const res = (await claimPoolJob(jobId)) as { error?: string } | undefined
+            if (res?.error) {
+                dropClaimDraft(jobId)
+                toast.error(res.error)
+            } else toast.success('รับงานแล้ว')
+        })
+    }
+
+    const onReleaseJob = (jobId: string) => {
+        setClaimDraft(d => ({ ...d, [jobId]: { status: AWAITING_CLAIM_STATUS, claimed_by: null } }))
+        startTransition(async () => {
+            const res = (await releasePoolJob(jobId)) as { error?: string } | undefined
+            if (res?.error) {
+                dropClaimDraft(jobId)
+                toast.error(res.error)
+            } else toast.success('คืนงานเข้าพูลแล้ว — กลับเป็นรอรับงาน')
+        })
+    }
+
+    const onClaimDuty = (leadId: string, duty: PrepDuty) => {
+        const key = dutyKey(leadId, duty)
+        const label = DUTY_LABELS_TH[duty]
+        setDutyDraft(d => ({ ...d, [key]: { leadId, duty, claimedBy: currentUserId ?? '' } }))
+        startTransition(async () => {
+            const res = (await claimLeadDuty(leadId, duty)) as { error?: string } | undefined
+            if (res?.error) {
+                dropDutyDraft(key)
+                toast.error(res.error)
+            } else toast.success(`รับหน้าที่${label}แล้ว`)
+        })
+    }
+
+    const onReleaseDuty = (leadId: string, duty: PrepDuty) => {
+        const key = dutyKey(leadId, duty)
+        const label = DUTY_LABELS_TH[duty]
+        setDutyDraft(d => ({ ...d, [key]: null }))
+        startTransition(async () => {
+            const res = (await releaseLeadDuty(leadId, duty)) as { error?: string } | undefined
+            if (res?.error) {
+                dropDutyDraft(key)
+                toast.error(res.error)
+            } else toast.success(`คืนหน้าที่${label}แล้ว — กลับเป็นรอรับงาน`)
+        })
+    }
+
     const save = (
         id: string,
         patch: { design_status?: string; supplier_note?: string | null; tracking_checklist?: string[] }
@@ -536,10 +806,12 @@ export default function TrackingView({
         setRows(prev => prev.map(r => (r.id === id ? { ...r, required_roles } : r)))
     }
 
-    // ใบงานที่หน้านี้ใช้ = ข้อมูลจาก server ทับด้วยสถานะออกแบบที่เพิ่งกด (ยังไม่ revalidate)
+    // ใบงานที่หน้านี้ใช้ = ข้อมูลจาก server ทับด้วยการรับ/คืน และสถานะออกแบบที่เพิ่งกด (ยังไม่ revalidate)
+    const claimed = applyClaimDraft(jobsProp, claimDraft)
     const jobs: PoolJob[] = Object.keys(designDraft).length === 0
-        ? jobsProp
-        : jobsProp.map(j => (designDraft[j.id] ? { ...j, design_status: designDraft[j.id] } : j))
+        ? claimed
+        : claimed.map(j => (designDraft[j.id] ? { ...j, design_status: designDraft[j.id] } : j))
+    const dutyClaims = applyDutyDraft(dutyClaimsProp, dutyDraft)
 
     // ความพร้อมข้อ 5 (กระเป๋า) — ต้องรู้ใบงานหน้างาน (ถูกข้ามไหม) + การจองของงานนั้น
     const kitReadiness = kitReadinessByLead(rows, jobs, kitBookings)
@@ -572,13 +844,25 @@ export default function TrackingView({
         const job = entry?.graphic
         const state = designCellState(job)
         if (state === 'not_opened') return <NotOpenedPill leadId={lead.id} />
-        if (state === 'awaiting') return <ClaimChip job={job!} people={people} currentUserId={currentUserId} />
+        if (state === 'awaiting') {
+            return (
+                <ClaimChip
+                    job={job!}
+                    kind="graphic"
+                    gate={gateOf('graphic')}
+                    emphasis={emphasis.has(job!.id)}
+                    people={people}
+                    currentUserId={currentUserId}
+                    onClaim={onClaimJob}
+                />
+            )
+        }
         const others = (entry?.graphicActive ?? 0) - 1
         return (
             <div className="space-y-1">
                 <DesignCell job={job!} lead={lead} onChange={saveJobDesign} />
                 {others > 0 && <MoreGraphicJobsLink count={others} />}
-                <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} />
+                <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} onRelease={onReleaseJob} />
             </div>
         )
     }
@@ -587,19 +871,79 @@ export default function TrackingView({
     // ไม่ผูกกับใบงานหน้างาน งานเก่าที่ไม่มีใบงานจึงล็อกและกดรับได้เหมือนกัน (ไม่มีทางลัดแบบ backward compat)
     const claimByDuty = new Map(dutyClaims.map(c => [dutyKey(c.leadId, c.duty), c]))
 
+    /**
+     * แก้ของหน้าที่นี้ได้ไหม — ผู้รับหน้าที่เองหรือแอดมิน/ฝ่ายประสานงานเท่านั้น (D3)
+     * ไทม์ไลน์ใช้ปิดการคลิกจัดคน/จัดรถ (server ปฏิเสธซ้ำอีกชั้นด้วย requireDutyHolder)
+     */
+    const canEditDuty = (leadId: string, duty: PrepDuty) =>
+        canManagePool || (!!currentUserId && claimByDuty.get(dutyKey(leadId, duty))?.claimedBy === currentUserId)
+
     const dutyGate = (lead: TrackingLead, duty: PrepDuty, children: ReactNode) => (
         <DutyGate
             leadId={lead.id}
             duty={duty}
             claim={claimByDuty.get(dutyKey(lead.id, duty))}
+            gate={gateOf(duty)}
+            emphasis={emphasis.has(dutyKey(lead.id, duty))}
             people={people}
             currentUserId={currentUserId}
             canManagePool={canManagePool}
             summary={dutySummary(lead, duty, people, kitReadiness)}
+            onClaim={onClaimDuty}
+            onRelease={onReleaseDuty}
         >
             {children}
         </DutyGate>
     )
+
+    /** เพิ่งกดรับหน้าที่นี้ (draft ยังรอ server ตามมา) — เปิดเครื่องมือให้เองตอนช่องสลับเป็นตัวแก้ไข */
+    const justClaimedDuty = (leadId: string, duty: PrepDuty) => !!dutyDraft[dutyKey(leadId, duty)]
+
+    /**
+     * การ์ดมือถือ: หน้าที่ที่ฉันแก้ได้ (ผู้รับ/manager) หรือยังรับได้ = แสดงเต็มเหมือนเดิม
+     * ที่เหลือ (คนอื่นรับไปแล้ว / แผนกฉันรับไม่ได้) ยุบเป็นบรรทัดเดียว แตะเพื่อขยาย (เนื้อในอ่านอย่างเดียวตาม D3)
+     */
+    const mobileDuty = (lead: TrackingLead, duty: PrepDuty, editor: ReactNode, eventId?: string) => {
+        const label = DUTY_LABELS_TH[duty]
+        const claim = claimByDuty.get(dutyKey(lead.id, duty))
+        const gate = gateOf(duty)
+        if (canEditDuty(lead.id, duty) || (!claim && gate?.allowed !== false)) {
+            return (
+                <div>
+                    <div className="text-[11px] text-zinc-500">{label}</div>
+                    {dutyGate(lead, duty, editor)}
+                </div>
+            )
+        }
+        const key = `${dutyKey(lead.id, duty)}:${eventId ?? ''}`
+        const open = expanded.has(key)
+        return (
+            <div>
+                <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() =>
+                        setExpanded(prev => {
+                            const next = new Set(prev)
+                            if (!next.delete(key)) next.add(key)
+                            return next
+                        })
+                    }
+                    className="flex w-full items-center gap-1 text-left"
+                >
+                    <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-zinc-400 transition-transform', open && 'rotate-90')} aria-hidden />
+                    <span className="shrink-0 text-[11px] text-zinc-500">{label}</span>
+                    <div className="flex min-w-0 flex-1 items-center gap-1 truncate text-xs text-zinc-500">
+                        {dutySummary(lead, duty, people, kitReadiness)}
+                        <span className="truncate">
+                            {claim ? `· ผู้รับ: ${nameOf(claim.claimedBy, people)}` : gate ? `· ${gate.waitingFor}` : ''}
+                        </span>
+                    </div>
+                </button>
+                {open && dutyGate(lead, duty, editor)}
+            </div>
+        )
+    }
 
     const base = rows.filter(r => showPast || !isPast(r, today))
     const counts = chipCounts(base, today, kitReadiness, designReady)
@@ -610,6 +954,55 @@ export default function TrackingView({
 
     const chipVisible = chip ? base.filter(r => inChip(r, chip, today)) : base
     const visible = notOpenedOnly ? chipVisible.filter(notOpenedGraphic) : chipVisible
+
+    // ปุ่มที่ควรเรืองแสง: งานที่ใกล้วันงานที่สุดของแต่ละคอลัมน์ในชุดที่มองเห็น (คอลัมน์ละหนึ่งปุ่ม)
+    // อ่านจาก designGate/dutyGate ข้างบน — ทั้งสองถูกเรียกตอน render JSX ข้างล่างนี้แล้ว
+    const claimCandidates: ClaimCandidate[] = []
+    for (const lead of visible) {
+        const graphic = jobsByLead.get(lead.id)?.graphic
+        if (graphic?.status === AWAITING_CLAIM_STATUS) {
+            claimCandidates.push({ key: graphic.id, kind: 'graphic', date: lead.event_date })
+        }
+        for (const duty of PREP_DUTIES) {
+            const key = dutyKey(lead.id, duty)
+            if (!claimByDuty.has(key)) claimCandidates.push({ key, kind: duty, date: lead.event_date })
+        }
+    }
+    const emphasis = emphasizedClaims(claimCandidates)
+
+    // แถบ "ของฉัน" — คิดจากชุดที่โหลดมา (base) งานที่ผ่านแล้วจึงไม่โผล่มาเกะกะ
+    // ไม่รู้แผนกของแต่ละจุด (props เก่า) = ปล่อยให้รับได้เหมือน gateOf (สิทธิ์จริงบังคับฝั่ง server)
+    const queue = myQueue({
+        leads: base,
+        jobs,
+        dutyClaims,
+        currentUserId,
+        myDepartment,
+        isAdmin: isAdmin || !poolDepartments,
+        poolDepartments: poolDepartments ?? NO_POOL_DEPARTMENTS,
+        today,
+        kitReadiness,
+        designReady,
+        roleLabels,
+    })
+
+    /** "ไปที่งาน" — ล้างตัวกรองให้แถวโผล่แน่ๆ แล้วไฮไลต์/เลื่อนจอด้วยเส้นทางเดียวกับ ?lead= จากกระดิ่ง */
+    const goToLead = (leadId: string) => {
+        setChip(null)
+        setNotOpenedOnly(false)
+        scrolledRow.current = false
+        scrolledCard.current = false
+        setParams({ lead: leadId })
+    }
+
+    /** ปุ่มรับในแถบ "ของฉัน" — ใบงานวิ่งผ่าน onClaimJob หน้าที่เตรียมงานวิ่งผ่าน onClaimDuty (optimistic ทั้งคู่) */
+    const onClaimQueueItem = (item: MyQueueItem) => {
+        if (item.kind === 'graphic' || item.kind === 'onsite') {
+            if (item.jobId) onClaimJob(item.jobId)
+            return
+        }
+        onClaimDuty(item.leadId, item.kind)
+    }
 
     const undated = visible.filter(r => !r.event_date)
     const sections: { key: string; label: string; leads: TrackingLead[] }[] = [
@@ -623,12 +1016,23 @@ export default function TrackingView({
     const pool = groupPoolJobs(jobs)
     const poolJobs = tab === 'graphic' ? pool.graphic : pool.onsite
 
-    /** ตัวเลขบนป้ายแท็บ = ขนาดคิว "งานที่รับแล้ว" ของแท็บนั้น — งานที่ยังรอรับอยู่ที่ภาพรวม */
-    const tabCount = (key: PoolTab): number => {
-        if (key === 'graphic') return pool.graphic.filter(j => j.status !== 'awaiting_claim').length
-        if (key === 'onsite') return pool.onsite.filter(j => j.status !== 'awaiting_claim').length
-        return isDutyTab(key) ? claimedDutyCount(base, key, claimByDuty) : 0
+    /** ตัวเลขบนป้ายแท็บ = "รอรับ N · รับแล้ว M" ของแท็บนั้น (รับได้ทั้งสองแท็บแล้ว — D2) */
+    const tabCount = (key: PoolTab): { waiting: number; claimed: number } => {
+        if (key === 'graphic' || key === 'onsite') {
+            const list = key === 'graphic' ? pool.graphic : pool.onsite
+            const waiting = list.filter(j => j.status === AWAITING_CLAIM_STATUS).length
+            return { waiting, claimed: list.length - waiting }
+        }
+        if (!isDutyTab(key)) return { waiting: 0, claimed: 0 }
+        return {
+            waiting: unclaimedDutyCount(base, key, claimByDuty),
+            claimed: claimedDutyCount(base, key, claimByDuty),
+        }
     }
+
+    // ชิปย่อยของพูลงาน (หน้างานเฉพาะแอดมิน) — ป้ายบนแท็บ "พูลงาน" = รอรับรวมทุกชิปที่เห็น
+    const poolChips = POOL_CHIPS.filter(c => c.key !== 'onsite' || isAdmin)
+    const poolWaiting = poolChips.reduce((n, c) => n + tabCount(c.key).waiting, 0)
 
     return (
         <div className="space-y-4">
@@ -642,46 +1046,77 @@ export default function TrackingView({
                     </p>
                 ) : isDutyTab(tab) ? (
                     <p className="text-sm text-zinc-500">
-                        พูลงาน · ใบงาน{DUTY_LABELS_TH[tab]} รับแล้ว {claimedDutyCount(base, tab, claimByDuty)} งาน — อีก {unclaimedDutyCount(base, tab, claimByDuty)} งานรอรับที่แท็บภาพรวม
+                        พูลงาน · ใบงาน{DUTY_LABELS_TH[tab]} รับแล้ว {claimedDutyCount(base, tab, claimByDuty)} งาน — อีก {unclaimedDutyCount(base, tab, claimByDuty)} งานรอรับ (กดรับได้ที่นี่)
                     </p>
                 ) : (
                     <p className="text-sm text-zinc-500">
-                        พูลงาน · {tab === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'} รับแล้ว {poolJobs.filter(j => j.status !== 'awaiting_claim').length} ใบ — อีก {poolJobs.filter(j => j.status === 'awaiting_claim').length} ใบรอรับที่แท็บภาพรวม
+                        พูลงาน · {tab === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'} รับแล้ว {poolJobs.filter(j => j.status !== AWAITING_CLAIM_STATUS).length} ใบ — อีก {poolJobs.filter(j => j.status === AWAITING_CLAIM_STATUS).length} ใบรอรับ (กดรับได้ที่นี่)
                     </p>
                 )}
             </div>
 
-            {/* มือถือ: แท็บเลื่อนแนวนอน ไม่หักบรรทัด — จอกว้างค่อยยอมให้ wrap */}
-            <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-x-visible items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {POOL_TABS.filter(t => t.key !== 'onsite' || isAdmin).map(t => (
-                    <button
-                        key={t.key}
-                        type="button"
-                        aria-pressed={tab === t.key}
-                        onClick={() => setParams({ tab: t.key === 'overview' ? null : t.key })}
-                        className={cn(
-                            '-mb-px border-b-2 px-3 py-2 text-sm font-medium',
-                            tab === t.key
-                                ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
-                                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                        )}
-                    >
-                        {t.label}
-                        {t.key !== 'overview' && (
-                            <span className="ml-1 text-xs font-normal text-zinc-400">
-                                ({tabCount(t.key)})
-                            </span>
-                        )}
-                    </button>
-                ))}
+            {/* แท็บหลักเหลือ 2 อัน — รายฝ่ายย้ายลงไปเป็นชิปใต้ "พูลงาน" (?tab= ค่าเดิมทุกค่ายังใช้ได้) */}
+            <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
+                <button
+                    type="button"
+                    aria-pressed={tab === 'overview'}
+                    onClick={() => setParams({ tab: null })}
+                    className={tabCls(tab === 'overview')}
+                >
+                    ภาพรวม
+                </button>
+                <button
+                    type="button"
+                    aria-pressed={tab !== 'overview'}
+                    onClick={() => setParams({ tab: tab === 'overview' ? 'graphic' : tab })}
+                    className={tabCls(tab !== 'overview')}
+                >
+                    พูลงาน
+                    {poolWaiting > 0 && (
+                        <span className="ml-1 text-xs font-semibold text-amber-600 dark:text-amber-400">รอรับ {poolWaiting}</span>
+                    )}
+                </button>
             </div>
+
+            {/* มือถือ: ชิปเลื่อนแนวนอน ไม่หักบรรทัด — จอกว้างค่อยยอมให้ wrap */}
+            {tab !== 'overview' && (
+                <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-x-visible items-center gap-1 [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {poolChips.map(c => {
+                        const count = tabCount(c.key)
+                        const active = tab === c.key
+                        return (
+                            <button
+                                key={c.key}
+                                type="button"
+                                aria-pressed={active}
+                                onClick={() => setParams({ tab: c.key })}
+                                className={cn(
+                                    'rounded-full px-3 py-1 text-sm whitespace-nowrap',
+                                    active
+                                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                                        : 'border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                )}
+                            >
+                                {c.label}{' '}
+                                <span className={cn('text-[11px] font-normal', active ? 'opacity-70' : 'text-zinc-400')}>
+                                    <span className={cn(count.waiting > 0 && 'font-semibold text-amber-500')}>
+                                        รอรับ {count.waiting}
+                                    </span>
+                                    {' · รับแล้ว '}{count.claimed}
+                                </span>
+                            </button>
+                        )
+                    })}
+                </div>
+            )}
 
             {tab === 'graphic' || tab === 'onsite' ? (
                 <PoolTabs
                     kind={tab}
                     jobs={poolJobs}
                     leads={rows}
-                    highlightLeadId={searchParams.get('lead')}
+                    gate={gateOf(tab)}
+                    highlightLeadId={highlightLeadId}
                     people={people}
                     roleLabels={roleLabels}
                     statusLabels={jobStatusLabels}
@@ -694,13 +1129,16 @@ export default function TrackingView({
                     designReady={designReady}
                     canManageKits={canManageKits}
                     onJobDesignStatusChange={saveJobDesign}
+                    onClaimJob={onClaimJob}
+                    onReleaseJob={onReleaseJob}
                 />
             ) : isDutyTab(tab) ? (
                 <DutyTab
                     duty={tab}
                     leads={base}
                     all={rows}
-                    highlightLeadId={searchParams.get('lead')}
+                    gate={gateOf(tab)}
+                    highlightLeadId={highlightLeadId}
                     people={people}
                     roles={roles}
                     roleLabels={roleLabels}
@@ -715,9 +1153,20 @@ export default function TrackingView({
                     onVehicleSaved={syncVehicle}
                     onStaffSaved={onStaffSaved}
                     onRequiredRolesSaved={onRequiredRolesSaved}
+                    onClaimDuty={onClaimDuty}
+                    onReleaseDuty={onReleaseDuty}
+                    justClaimed={leadId => justClaimedDuty(leadId, tab)}
                 />
             ) : (
                 <>
+            <MyQueueStrip
+                mine={queue.mine}
+                claimable={queue.claimable}
+                gateOf={gateOf}
+                onGo={goToLead}
+                onClaim={onClaimQueueItem}
+            />
+
             <div className="flex items-center gap-1">
                 <Button
                     variant={view === 'table' ? 'default' : 'outline'}
@@ -778,7 +1227,20 @@ export default function TrackingView({
                         ยังไม่เปิดใบงานกราฟิก {notOpenedCount} งาน
                     </button>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => setShowPast(p => !p)}>
+                {/* งานที่จบไปเกิน 30 วัน ไม่ถูกโหลดมาตั้งแต่ต้น — กดแสดงแล้วต้องขอ server โหลดเพิ่มด้วย (?past=1) */}
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                        if (showPast) {
+                            setShowPast(false)
+                            setParams({ past: null })
+                        } else {
+                            if (!pastLoaded) setParams({ past: '1' })
+                            setShowPast(true)
+                        }
+                    }}
+                >
                     {showPast ? 'ซ่อนงานที่ผ่านแล้ว' : 'แสดงงานที่ผ่านแล้ว'}
                 </Button>
             </div>
@@ -834,6 +1296,8 @@ export default function TrackingView({
                                     // แล้วหนึ่งแถวต่ออีเวนต์ — ชื่ออีเวนต์อยู่คอลัมน์ "งาน" ปุ่มจัดคน/จัดรถ/กระเป๋าเรียงแถวเดียวกัน
                                     const multi = lead.events.length >= 2
                                     const span = lead.events.length + 1
+                                    // ลิงก์จากกระดิ่ง/แผงเตือน/การ์ด CRM (?lead=) — แถวของงานนี้ได้กรอบแดงและถูกเลื่อนจอไปหา
+                                    const highlighted = lead.id === highlightLeadId
                                     const rowCls = (first: boolean, last: boolean, sub: boolean) => cn(
                                         'transition-colors [&_td]:py-3 [&_td]:align-top hover:bg-zinc-50/70 dark:hover:bg-zinc-900/40',
                                         framed && DAY_FRAME,
@@ -842,18 +1306,28 @@ export default function TrackingView({
                                         // แถวรายอีเวนต์ของงานเดียวกันติดกันเป็นก้อน: ไม่มีเส้นคั่น + พื้นจางกว่าแถวหัวนิดหน่อย
                                         sub && 'bg-zinc-50/50 dark:bg-zinc-900/20',
                                         !last && 'border-b-0',
-                                        urgent && 'bg-rose-50/70 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/70 dark:hover:bg-rose-950/40'
+                                        urgent && 'bg-rose-50/70 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/70 dark:hover:bg-rose-950/40',
+                                        highlighted && 'bg-red-50 dark:bg-red-950/30 border-l-4 border-l-red-500 hover:bg-red-100/70 dark:hover:bg-red-950/50'
                                     )
                                     if (!multi) {
                                         return (
-                                            <TableRow key={lead.id} className={rowCls(true, true, false)}>
+                                            <TableRow
+                                                key={lead.id}
+                                                ref={el => {
+                                                    if (el && highlighted && !scrolledRow.current) {
+                                                        scrolledRow.current = true
+                                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                                    }
+                                                }}
+                                                className={rowCls(true, true, false)}
+                                            >
                                                 <TableCell className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
                                                 <TableCell><JobCell lead={lead} today={today} /></TableCell>
                                                 <TableCell>{designGate(lead)}</TableCell>
                                                 <TableCell><SupplierCell lead={lead} save={save} /></TableCell>
-                                                <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={null} />)}</TableCell>
-                                                <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={null} eventVehicles={eventVehicles} />)}</TableCell>
-                                                <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={null} />)}</TableCell>
+                                                <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={null} defaultOpen={justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
+                                                <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={null} eventVehicles={eventVehicles} autoFocus={justClaimedDuty(lead.id, 'vehicle')} />)}</TableCell>
+                                                <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={null} defaultOpen={justClaimedDuty(lead.id, 'kits')} />)}</TableCell>
                                                 <TableCell><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></TableCell>
                                             </TableRow>
                                         )
@@ -861,7 +1335,15 @@ export default function TrackingView({
                                     return (
                                         <Fragment key={lead.id}>
                                             {/* แถวหัวของงาน — ช่องจัดคน/จัดรถ/กระเป๋าเว้นว่าง ไปอยู่แถวรายอีเวนต์ข้างล่าง */}
-                                            <TableRow className={rowCls(true, false, false)}>
+                                            <TableRow
+                                                ref={el => {
+                                                    if (el && highlighted && !scrolledRow.current) {
+                                                        scrolledRow.current = true
+                                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                                    }
+                                                }}
+                                                className={rowCls(true, false, false)}
+                                            >
                                                 <TableCell rowSpan={span} className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
                                                 <TableCell><JobCell lead={lead} today={today} showEvents={false} /></TableCell>
                                                 <TableCell rowSpan={span}>{designGate(lead)}</TableCell>
@@ -881,9 +1363,10 @@ export default function TrackingView({
                                                         </Link>
                                                         {ev.event_date && <div className="text-[11px] text-zinc-400">{formatDate(ev.event_date)}</div>}
                                                     </TableCell>
-                                                    <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} />)}</TableCell>
-                                                    <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} />)}</TableCell>
-                                                    <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} />)}</TableCell>
+                                                    <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
+                                                    {/* งานหลายอีเวนต์: เปิดให้เองเฉพาะแถวอีเวนต์แรก ไม่งั้นเด้งพร้อมกันทุกใบ */}
+                                                    <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} autoFocus={si === 0 && justClaimedDuty(lead.id, 'vehicle')} />)}</TableCell>
+                                                    <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'kits')} />)}</TableCell>
                                                 </TableRow>
                                             ))}
                                         </Fragment>
@@ -918,9 +1401,16 @@ export default function TrackingView({
                         {run.leads.map(lead => (
                             <div
                                 key={lead.id}
+                                ref={el => {
+                                    if (el && lead.id === highlightLeadId && !scrolledCard.current) {
+                                        scrolledCard.current = true
+                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                    }
+                                }}
                                 className={cn(
                                     'rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 space-y-2',
-                                    isUrgent(lead, today, kitReadiness.get(lead.id), designReady.get(lead.id)) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20'
+                                    isUrgent(lead, today, kitReadiness.get(lead.id), designReady.get(lead.id)) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20',
+                                    lead.id === highlightLeadId && 'border-red-500 ring-2 ring-red-500/60 dark:border-red-500'
                                 )}
                             >
                                 <div className="space-y-1.5">
@@ -936,23 +1426,14 @@ export default function TrackingView({
                                             <div className="text-[11px] text-zinc-500">ออกแบบ</div>
                                             {designGate(lead)}
                                         </div>
-                                        {lead.events.map(ev => (
+                                        {lead.events.map((ev, si) => (
                                             <div key={ev.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-2 space-y-2">
                                                 <EventLabel event={ev} />
                                                 <div className="grid grid-cols-2 gap-2">
-                                                    <div>
-                                                        <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} />)}
-                                                    </div>
-                                                    <div>
-                                                        <div className="text-[11px] text-zinc-500">กระเป๋า</div>
-                                                        {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} />)}
-                                                    </div>
+                                                    {mobileDuty(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} autoFocus={si === 0 && justClaimedDuty(lead.id, 'vehicle')} />, ev.id)}
+                                                    {mobileDuty(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'kits')} />, ev.id)}
                                                 </div>
-                                                <div>
-                                                    <div className="text-[11px] text-zinc-500">จัดคน</div>
-                                                    {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} />)}
-                                                </div>
+                                                {mobileDuty(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'staffing')} />, ev.id)}
                                             </div>
                                         ))}
                                     </>
@@ -964,20 +1445,11 @@ export default function TrackingView({
                                     {designGate(lead)}
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <div className="text-[11px] text-zinc-500">จัดรถ</div>
-                                        {dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} />)}
-                                    </div>
-                                    <div>
-                                        <div className="text-[11px] text-zinc-500">กระเป๋า</div>
-                                        {dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />)}
-                                    </div>
+                                    {mobileDuty(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} autoFocus={justClaimedDuty(lead.id, 'vehicle')} />)}
+                                    {mobileDuty(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} defaultOpen={justClaimedDuty(lead.id, 'kits')} />)}
                                 </div>
 
-                                <div>
-                                    <div className="text-[11px] text-zinc-500">จัดคน</div>
-                                    {dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} />)}
-                                </div>
+                                {mobileDuty(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} defaultOpen={justClaimedDuty(lead.id, 'staffing')} />)}
                                     </>
                                 )}
 
@@ -1014,6 +1486,7 @@ export default function TrackingView({
                     kitBookings={kitBookings}
                     focusLeadId={focusLeadId}
                     focusEventId={focusLead ? targetEventOf(focusLead) : null}
+                    canEditDuty={canEditDuty}
                     onDateChange={changeDate}
                     onModeChange={m => setParams({ mode: m })}
                     onDepartmentsChange={d => setParams({ dept: d.length > 0 ? d.join(',') : null })}

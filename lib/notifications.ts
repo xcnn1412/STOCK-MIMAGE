@@ -12,6 +12,14 @@ export type NotificationType =
   | 'job_mentioned'
   | 'job_comment'
   | 'job_pool_new'          // ใบงานใหม่เข้าพูลงาน → แจ้งสมาชิกแผนกของฝ่ายนั้น
+  // ความเคลื่อนไหวของใบงานในพูล (reference_type = 'job') — กระดิ่งพาไป /jobs/tracking?job=<id>
+  | 'job_pool_claimed'
+  | 'job_pool_released'
+  | 'job_pool_skipped'
+  | 'job_pool_assigned'
+  // รับ/คืนหน้าที่เตรียมงาน (reference_type = 'crm_lead') — กระดิ่งพาไป /jobs/tracking?lead=<id>
+  | 'duty_claimed'
+  | 'duty_released'
   | 'ticket_assigned'
   | 'ticket_reply'
   | 'ticket_mentioned'

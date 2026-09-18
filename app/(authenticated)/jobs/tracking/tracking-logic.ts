@@ -1149,6 +1149,154 @@ export interface DutyClaim {
   claimedBy: string
 }
 
+/** key ของการรับหน้าที่ — งานหนึ่งงานมีได้หน้าที่ละหนึ่งการรับ */
+export const dutyKey = (leadId: string, duty: PrepDuty): string => `${leadId}:${duty}`
+
+// --- ปุ่มรับงาน: ใครรับอะไรได้ + คำบนปุ่ม (D1/D7) -----------------------------
+
+/** สิ่งที่ "กดรับ" ได้ในหน้าติดตามงาน — ใบงานกราฟิก/หน้างาน + สามหน้าที่เตรียมงาน */
+export type ClaimKind = 'graphic' | 'onsite' | PrepDuty
+
+/** คำบนปุ่มรับตามสิ่งที่รับ — ไม่ใช้ "รับงาน" ลอยๆ (D7) */
+export const CLAIM_LABELS: Record<ClaimKind, string> = {
+  graphic: 'รับออกแบบ',
+  onsite: 'รับเป็นหัวหน้างาน',
+  staffing: 'รับจัดคน',
+  vehicle: 'รับจัดรถ',
+  kits: 'รับจัดกระเป๋า',
+}
+
+/** สิ่งที่รับได้ → หมวดใน job_settings ที่บอกว่าแผนกไหนรับได้ */
+export const CLAIM_CATEGORY: Record<ClaimKind, PoolTeamCategory> = {
+  graphic: 'pool_team_graphic',
+  onsite: 'pool_team_onsite',
+  ...PREP_DUTY_CATEGORY,
+}
+
+/** แผนกที่รับได้ของแต่ละสิ่ง (job_settings; ยังไม่ตั้งค่า = ค่าเริ่มต้นของหมวดนั้น) */
+export type PoolDepartments = Record<ClaimKind, string[]>
+
+/** ผลการตรวจสิทธิ์ของปุ่มรับหนึ่งปุ่ม */
+export interface ClaimGate {
+  /** กดได้ไหม — ไม่ได้ = ป้ายจาง ไม่มี onClick (D1) */
+  allowed: boolean
+  /** ข้อความบนป้ายจาง เช่น "รอฝ่ายออกแบบรับ" */
+  waitingFor: string
+}
+
+/**
+ * ผู้ใช้คนนี้กดรับสิ่งนี้ได้ไหม (D1) — แอดมินได้เสมอ คนอื่นต้องอยู่แผนกที่ตั้งไว้
+ * หลายแผนกคั่นด้วย " / " · ไม่มีแผนกไหนรับได้เลย = รอแอดมินรับ
+ */
+export function claimGate(
+  kind: ClaimKind,
+  myDepartment: string | null,
+  isAdmin: boolean,
+  poolDepartments: PoolDepartments
+): ClaimGate {
+  const departments = poolDepartments[kind] ?? []
+  return {
+    allowed: canActOnPool(myDepartment, isAdmin, departments),
+    waitingFor: departments.length > 0 ? `รอ${departments.join(' / ')}รับ` : 'รอแอดมินรับ',
+  }
+}
+
+/** ปุ่มรับหนึ่งปุ่มในชุดที่มองเห็น — `date` = วันงาน (null = ยังไม่กำหนดวัน) */
+export interface ClaimCandidate {
+  key: string
+  kind: ClaimKind
+  date: string | null
+}
+
+/**
+ * ปุ่มที่ควร "เรืองแสง" — ใกล้วันงานที่สุดของแต่ละคอลัมน์/หน้าที่ คอลัมน์ละหนึ่งปุ่ม
+ * งานที่ยังไม่กำหนดวันไม่ถูกเลือก · วันเท่ากัน = ตัวที่มาก่อนในรายการ (ที่เหลือเป็นปุ่มนิ่ง)
+ */
+export function emphasizedClaims(candidates: ClaimCandidate[]): Set<string> {
+  const best = new Map<ClaimKind, { key: string; date: string }>()
+  for (const c of candidates) {
+    if (!c.date) continue
+    const current = best.get(c.kind)
+    if (!current || c.date < current.date) best.set(c.kind, { key: c.key, date: c.date })
+  }
+  return new Set([...best.values()].map((b) => b.key))
+}
+
+// --- optimistic: ทับค่าที่เพิ่งกด "รับ/คืน" จนกว่าข้อมูลจาก server จะตามมา ------
+
+/**
+ * สถานะชั่วคราวของใบงานที่เพิ่งกดรับ — สถานะจริงตั้งค่าไว้ใน job_settings
+ * จึงยังไม่รู้จนกว่า server จะตอบ (ขอแค่ "ไม่ใช่รอรับงาน" ช่องจะได้เปลี่ยนทันที)
+ */
+export const CLAIMING_STATUS = 'claiming'
+export const CLAIMING_STATUS_LABEL = 'กำลังรับงาน…'
+
+/** ค่าที่อยากให้ใบงานเป็นทันทีหลังกด — รับ = มี claimed_by · คืน = null */
+export interface ClaimDraft {
+  status: string
+  claimed_by: string | null
+}
+
+/** draft ต่อ jobId */
+export type ClaimDraftMap = Record<string, ClaimDraft>
+
+/** draft ต่อ dutyKey — null = เพิ่งกดคืนหน้าที่ */
+export type DutyDraftMap = Record<string, DutyClaim | null>
+
+/** server ตามทัน draft ของใบงานนี้แล้วหรือยัง (ใบงานหลุดจากชุด = ไม่ต้องทับต่อ) */
+function claimDraftSettled(job: PoolJob | undefined, draft: ClaimDraft): boolean {
+  if (!job) return true
+  return draft.claimed_by
+    ? job.claimed_by === draft.claimed_by && job.status !== AWAITING_CLAIM_STATUS
+    : job.claimed_by === null && job.status === AWAITING_CLAIM_STATUS
+}
+
+/** ทับใบงานด้วย draft ที่ยังรอ server อยู่ — draft ที่ตามทันแล้วไม่มีผล */
+export function applyClaimDraft(jobs: PoolJob[], draft: ClaimDraftMap): PoolJob[] {
+  if (Object.keys(draft).length === 0) return jobs
+  return jobs.map((job) => {
+    const d = draft[job.id]
+    if (!d || claimDraftSettled(job, d)) return job
+    const assigned_to = d.claimed_by
+      ? [...new Set([...job.assigned_to, d.claimed_by])]
+      : job.assigned_to.filter((id) => id !== job.claimed_by)
+    return { ...job, status: d.status, claimed_by: d.claimed_by, assigned_to }
+  })
+}
+
+/** เหลือเฉพาะ draft ที่ยังรอ server — เรียกตอนข้อมูลชุดใหม่มาถึง (ไม่มีอะไรตกก็คืนตัวเดิม) */
+export function pruneClaimDraft(jobs: PoolJob[], draft: ClaimDraftMap): ClaimDraftMap {
+  const byId = new Map(jobs.map((j) => [j.id, j]))
+  const kept = Object.entries(draft).filter(([id, d]) => !claimDraftSettled(byId.get(id), d))
+  return kept.length === Object.keys(draft).length ? draft : Object.fromEntries(kept)
+}
+
+/** server ตามทัน draft ของหน้าที่นี้แล้วหรือยัง */
+function dutyDraftSettled(claims: Map<string, DutyClaim>, key: string, draft: DutyClaim | null): boolean {
+  const current = claims.get(key)
+  return draft ? current?.claimedBy === draft.claimedBy : current === undefined
+}
+
+/** ทับการรับหน้าที่ด้วย draft ที่ยังรอ server อยู่ — ของเดิมคงลำดับ ของใหม่ต่อท้าย */
+export function applyDutyDraft(claims: DutyClaim[], draft: DutyDraftMap): DutyClaim[] {
+  if (Object.keys(draft).length === 0) return claims
+  const original = new Map(claims.map((c) => [dutyKey(c.leadId, c.duty), c]))
+  const next = new Map(original)
+  for (const [key, value] of Object.entries(draft)) {
+    if (dutyDraftSettled(original, key, value)) continue
+    if (value) next.set(key, value)
+    else next.delete(key)
+  }
+  return [...next.values()]
+}
+
+/** เหลือเฉพาะ draft ของหน้าที่ที่ยังรอ server (ไม่มีอะไรตกก็คืนตัวเดิม) */
+export function pruneDutyDraft(claims: DutyClaim[], draft: DutyDraftMap): DutyDraftMap {
+  const byKey = new Map(claims.map((c) => [dutyKey(c.leadId, c.duty), c]))
+  const kept = Object.entries(draft).filter(([key, value]) => !dutyDraftSettled(byKey, key, value))
+  return kept.length === Object.keys(draft).length ? draft : Object.fromEntries(kept)
+}
+
 // --- จองกระเป๋า: กติกาชนรายวัน (ADR-0003) -------------------------------------
 
 /** กระเป๋าหนึ่งใบ — ตัวเลือกในกล่องจอง และหนึ่งเลนในไทม์ไลน์ */
@@ -1242,4 +1390,115 @@ export function nextJobDate(leads: TrackingLead[], fromDate: string): string | n
     if (!best || date < best) best = date
   }
   return best
+}
+
+// --- แถบ "ของฉัน" ในแท็บภาพรวม (เฟส 3) ----------------------------------------
+
+/** หนึ่งบรรทัดในแถบ "ของฉัน" — หนึ่งจุดที่รับได้/รับไว้แล้วของงานหนึ่งงาน */
+export interface MyQueueItem {
+  leadId: string
+  kind: ClaimKind
+  /** ใบงานที่กดรับ (กราฟิก/หน้างาน) — หน้าที่เตรียมงานไม่มีใบงาน */
+  jobId?: string
+  date: string | null
+  customer: string
+  /** สิ่งที่ยังขาดของจุดนี้ (ป้ายพร้อมแสดง) — ว่าง = ไม่ขาดอะไร */
+  missing: string[]
+}
+
+/** สิ่งที่ยังขาดที่ "ตรงกับ" จุดที่รับ — หัวหน้างานดูแลทั้งงาน (null) จึงเห็นทุกข้อ */
+const CLAIM_MISSING: Record<ClaimKind, MissingItem | null> = {
+  graphic: 'design',
+  onsite: null,
+  staffing: 'staff',
+  vehicle: 'vehicle',
+  kits: 'kits',
+}
+
+/** เรียงวันงานใกล้สุดก่อน (ยังไม่กำหนดวันไว้ท้ายสุด) แล้วชื่อลูกค้า */
+function compareQueue(a: MyQueueItem, b: MyQueueItem): number {
+  if (a.date !== b.date) {
+    if (!a.date) return 1
+    if (!b.date) return -1
+    return a.date < b.date ? -1 : 1
+  }
+  return a.customer.localeCompare(b.customer, 'th')
+}
+
+/**
+ * แถบ "ของฉัน" ของแท็บภาพรวม:
+ * - `mine` = หน้าที่ที่ฉันเป็นผู้รับ + ใบงานที่ฉันเป็นผู้รับหรืออยู่ในทีม และยังไม่จบ/ไม่ถูกข้าม
+ * - `claimable` = ใบงานที่รอรับ + หน้าที่ที่ยังไม่มีผู้รับ ซึ่งแผนกฉันรับได้ (claimGate) และงานยังไม่ผ่าน
+ * ใบงานของงานที่ไม่อยู่ใน `leads` (ถูกกรองออก เช่น งานเก่า) ไม่เข้าทั้งสองกลุ่ม
+ */
+export function myQueue({
+  leads,
+  jobs,
+  dutyClaims,
+  currentUserId,
+  myDepartment,
+  isAdmin,
+  poolDepartments,
+  today,
+  kitReadiness,
+  designReady,
+  roleLabels = {},
+}: {
+  leads: TrackingLead[]
+  jobs: PoolJob[]
+  dutyClaims: DutyClaim[]
+  currentUserId: string | null
+  myDepartment: string | null
+  isAdmin: boolean
+  poolDepartments: PoolDepartments
+  today: Date
+  kitReadiness?: Map<string, KitReadiness>
+  designReady?: Map<string, boolean>
+  roleLabels?: Record<string, string>
+}): { mine: MyQueueItem[]; claimable: MyQueueItem[] } {
+  const byId = new Map(leads.map((l) => [l.id, l]))
+  const mine: MyQueueItem[] = []
+  const claimable: MyQueueItem[] = []
+
+  const itemOf = (lead: TrackingLead, kind: ClaimKind, jobId?: string): MyQueueItem => {
+    const all = getMissing(lead, kitReadiness?.get(lead.id), designReady?.get(lead.id))
+    const only = CLAIM_MISSING[kind]
+    const item: MyQueueItem = {
+      leadId: lead.id,
+      kind,
+      date: lead.event_date,
+      customer: lead.customer_name || 'ไม่ระบุลูกค้า',
+      missing: (only ? all.filter((m) => m === only) : all).map((m) => missingLabel(m, lead, roleLabels)),
+    }
+    if (jobId !== undefined) item.jobId = jobId
+    return item
+  }
+
+  const canClaim = (kind: ClaimKind) => claimGate(kind, myDepartment, isAdmin, poolDepartments).allowed
+
+  for (const job of jobs) {
+    const lead = job.crm_lead_id ? byId.get(job.crm_lead_id) : undefined
+    if (!lead || POOL_DONE_STATUSES.includes(job.status)) continue
+    if (job.job_type !== 'graphic' && job.job_type !== 'onsite') continue
+    const kind: ClaimKind = job.job_type
+    if (currentUserId && (job.claimed_by === currentUserId || job.assigned_to.includes(currentUserId))) {
+      mine.push(itemOf(lead, kind, job.id))
+    } else if (job.status === AWAITING_CLAIM_STATUS && canClaim(kind) && !isPast(lead, today)) {
+      claimable.push(itemOf(lead, kind, job.id))
+    }
+  }
+
+  const claimByDuty = new Map(dutyClaims.map((c) => [dutyKey(c.leadId, c.duty), c]))
+  for (const lead of leads) {
+    for (const duty of PREP_DUTIES) {
+      const claim = claimByDuty.get(dutyKey(lead.id, duty))
+      if (claim) {
+        if (currentUserId && claim.claimedBy === currentUserId) mine.push(itemOf(lead, duty))
+      } else if (canClaim(duty) && !isPast(lead, today)) {
+        claimable.push(itemOf(lead, duty))
+      }
+    }
+  }
+
+  return { mine: mine.sort(compareQueue), claimable: claimable.sort(compareQueue) }
 }

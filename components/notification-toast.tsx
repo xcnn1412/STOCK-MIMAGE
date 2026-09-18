@@ -35,6 +35,11 @@ const DEFAULT_CONFIG = { icon: '🔔', accent: 'from-violet-400 to-purple-400', 
 // ============================================================================
 
 function getNotificationUrl(item: NotificationItem): string {
+    // พูลงาน/หน้าที่เตรียมงาน: พาไปหน้าติดตามงานที่มีปุ่มรับ ไม่ใช่หน้าใบงาน/การ์ด CRM
+    if (item.type.startsWith('job_pool_')) return `/jobs/tracking?job=${item.reference_id}`
+    if (item.type === 'duty_claimed' || item.type === 'duty_released') {
+        return `/jobs/tracking?lead=${item.reference_id}`
+    }
     switch (item.reference_type) {
         case 'job':
             return `/jobs/${item.reference_id}`

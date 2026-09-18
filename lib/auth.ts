@@ -6,6 +6,10 @@ export interface AuthSession {
     userId: string
     role: string
     sessionId: string
+    /** แผนกของผู้ใช้ — อ่านมาพร้อมกันตอนตรวจ session (ผู้เรียกเดิมไม่ต้องคิวรี profiles ซ้ำ) */
+    department?: string | null
+    fullName?: string | null
+    nickname?: string | null
 }
 
 /**
@@ -35,7 +39,7 @@ export async function requireAuth(): Promise<AuthSession | null> {
         const supabase = createServiceClient()
         const { data } = await supabase
             .from('profiles')
-            .select('id, role, is_approved, active_session_id')
+            .select('id, role, is_approved, active_session_id, department, full_name, nickname')
             .eq('id', userId)
             .single()
 
@@ -49,7 +53,10 @@ export async function requireAuth(): Promise<AuthSession | null> {
         return {
             userId: data.id,
             role: data.role || 'staff',
-            sessionId: sessionId || ''
+            sessionId: sessionId || '',
+            department: (data.department as string) ?? null,
+            fullName: (data.full_name as string) ?? null,
+            nickname: (data.nickname as string) ?? null
         }
     } catch {
         return null
