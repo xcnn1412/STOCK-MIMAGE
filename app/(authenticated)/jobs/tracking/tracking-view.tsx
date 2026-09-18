@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { AlertTriangle, ChevronRight, Pencil } from 'lucide-react'
+import { AlertTriangle, ArrowRight, ChevronRight, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
     assignLeadStaff,
@@ -40,6 +40,8 @@ import {
     claimGate,
     emphasizedClaims,
     myQueue,
+    groupQueueByLead,
+    parseDate,
     pruneClaimDraft,
     pruneDutyDraft,
     AWAITING_CLAIM_STATUS,
@@ -49,6 +51,7 @@ import {
     DUTY_LABELS_TH,
     type ClaimCandidate,
     type ClaimGate,
+    type MyQueueGroup,
     type MyQueueItem,
     type ClaimDraftMap,
     type ClaimKind,
@@ -359,54 +362,66 @@ const setCollapsed = (value: boolean) => {
 /** ยังไม่รู้ว่าแผนกไหนรับอะไรได้ (props เก่า) — คู่กับ isAdmin เพื่อให้ยังกดรับได้ (server บังคับจริง) */
 const NO_POOL_DEPARTMENTS: PoolDepartments = { graphic: [], onsite: [], staffing: [], vehicle: [], kits: [] }
 
+/** แถบ "ของฉัน" แสดงกี่งานต่อคอลัมน์ก่อนพับส่วนที่เหลือ — แอดมินเห็นงานรอรับได้เป็นร้อย ไม่ควรยาวเป็นกำแพง */
+const QUEUE_MAX_GROUPS = 8
+
+/** วันที่แบบสั้นสำหรับรายการหนาแน่น (ไม่มีปี) */
+const shortDate = (d: string | null) =>
+    d ? parseDate(d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : 'ไม่กำหนดวัน'
+
+/** หัวแถวของงานหนึ่งงานในแถบ "ของฉัน" — วันที่คอลัมน์แคบคงที่ + ชื่อลูกค้า */
+function QueueHead({ group }: { group: MyQueueGroup }) {
+    return (
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+            <span className="w-14 shrink-0 text-[11px] tabular-nums text-zinc-500">{shortDate(group.date)}</span>
+            <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{group.customer}</span>
+        </div>
+    )
+}
+
+/** สิ่งที่ยังขาดของงานนั้น (รวมทุกจุด ไม่ซ้ำ) */
+function QueueMissing({ group }: { group: MyQueueGroup }) {
+    const missing = [...new Set(group.items.flatMap(i => i.missing))]
+    if (missing.length === 0) return null
+    return <span className="truncate text-[11px] text-amber-600 dark:text-amber-400">ขาด: {missing.join(', ')}</span>
+}
+
 /**
  * แถบ "ของฉัน" บนสุดของแท็บภาพรวม — "งานที่ฉันรับไว้" กับ "รอทีมฉันรับ" อย่างละคอลัมน์
+ * หนึ่งแถว = หนึ่งงาน (จุดที่รับ/รับได้ของงานนั้นเรียงในแถวเดียว) · แสดง 8 งานใกล้สุดต่อคอลัมน์
  * ว่างทั้งสองกลุ่ม = ไม่แสดงเลย · พับได้และจำสถานะพับไว้ในเครื่อง
  */
-function MyQueueStrip({ mine, claimable, gateOf, onGo, onClaim }: {
+function MyQueueStrip({ mine, claimable, gateOf, onGo, onClaim, onSeeAll }: {
     mine: MyQueueItem[]
     claimable: MyQueueItem[]
     gateOf: (kind: ClaimKind) => ClaimGate | undefined
     /** "ไปที่งาน" — ไฮไลต์งานนั้นในตาราง/การ์ดแล้วเลื่อนจอไปหา */
     onGo: (leadId: string) => void
     onClaim: (item: MyQueueItem) => void
+    /** งานรอรับที่ไม่ได้แสดง — พาไปแท็บพูลงานของจุดนั้น */
+    onSeeAll: (kind: ClaimKind) => void
 }) {
     const collapsed = useSyncExternalStore(subscribeCollapsed, getCollapsed, getCollapsedOnServer)
+    const [showAllMine, setShowAllMine] = useState(false)
     if (mine.length === 0 && claimable.length === 0) return null
 
-    const row = (item: MyQueueItem, action: ReactNode) => (
-        <div key={`${item.leadId}:${item.kind}`} className="flex items-center gap-2 py-1">
-            <div className="min-w-0 flex-1">
-                <div className="truncate text-xs">
-                    <span className="text-zinc-500">{formatDate(item.date)}</span>
-                    <span className="mx-1 font-medium text-zinc-900 dark:text-zinc-100">{item.customer}</span>
-                    <span className="text-zinc-500">· {CLAIM_LABELS[item.kind]}</span>
-                </div>
-                {item.missing.length > 0 && (
-                    <div className="truncate text-[11px] text-amber-600 dark:text-amber-400">ขาด: {item.missing.join(', ')}</div>
-                )}
-            </div>
-            {action}
-        </div>
-    )
+    const mineGroups = groupQueueByLead(mine)
+    const claimGroups = groupQueueByLead(claimable)
+    const mineShown = showAllMine ? mineGroups : mineGroups.slice(0, QUEUE_MAX_GROUPS)
+    const claimShown = claimGroups.slice(0, QUEUE_MAX_GROUPS)
+    const hiddenClaim = claimGroups.length - claimShown.length
 
-    const column = (label: string, items: MyQueueItem[], empty: string, render: (item: MyQueueItem) => ReactNode) => (
-        <div className="min-w-0">
-            <div className="px-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-                {label} <span className="font-normal text-zinc-400 tabular-nums">({items.length})</span>
-            </div>
-            {items.length === 0 ? (
-                <p className="px-1 py-2 text-xs text-zinc-400">{empty}</p>
-            ) : (
-                <div className="max-h-64 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
-                    {items.map(render)}
-                </div>
-            )}
+    const header = (label: string, count: number, hint?: string) => (
+        <div className="mb-1 flex items-baseline justify-between gap-2 px-1">
+            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{label}</span>
+            <span className="text-[11px] tabular-nums text-zinc-400">
+                {count} งาน{hint ? ` · ${hint}` : ''}
+            </span>
         </div>
     )
 
     return (
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3">
+        <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
             <button
                 type="button"
                 aria-expanded={!collapsed}
@@ -415,21 +430,86 @@ function MyQueueStrip({ mine, claimable, gateOf, onGo, onClaim }: {
             >
                 <ChevronRight className={cn('h-4 w-4 text-zinc-400 transition-transform', !collapsed && 'rotate-90')} aria-hidden />
                 ของฉัน
-                <span className="font-normal text-zinc-500">({mine.length} รับไว้ · {claimable.length} รอทีมฉันรับ)</span>
+                <span className="text-xs font-normal text-zinc-500">
+                    รับไว้ {mineGroups.length} งาน · รอทีมฉันรับ {claimGroups.length} งาน
+                </span>
             </button>
 
             {!collapsed && (
-                <div className="mt-2 grid gap-3 md:grid-cols-2">
-                    {column('งานที่ฉันรับไว้', mine, 'ยังไม่ได้รับงานไหนไว้', item =>
-                        row(item, (
-                            <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs" onClick={() => onGo(item.leadId)}>
-                                ไปที่งาน
-                            </Button>
-                        ))
-                    )}
-                    {column('รอทีมฉันรับ', claimable, 'ไม่มีงานรอทีมฉันรับ', item =>
-                        row(item, <ClaimButton kind={item.kind} gate={gateOf(item.kind)} onClick={() => onClaim(item)} />)
-                    )}
+                <div className="mt-2 grid gap-4 md:grid-cols-2 md:gap-6">
+                    {/* งานที่ฉันรับไว้: วันที่ · ลูกค้า · จุดที่รับ · ขาด … [ไปที่งาน] */}
+                    <div className="min-w-0">
+                        {header('งานที่ฉันรับไว้', mineGroups.length)}
+                        {mineGroups.length === 0 ? (
+                            <p className="px-1 py-2 text-xs text-zinc-400">ยังไม่ได้รับงานไหนไว้</p>
+                        ) : (
+                            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                                {mineShown.map(g => (
+                                    <div key={g.leadId} className="flex items-center gap-2 py-1.5">
+                                        <QueueHead group={g} />
+                                        <span className="hidden shrink-0 gap-1 sm:flex">
+                                            {g.items.map(i => (
+                                                <span key={i.kind} className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                                    {CLAIM_LABELS[i.kind]}
+                                                </span>
+                                            ))}
+                                        </span>
+                                        <QueueMissing group={g} />
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 shrink-0 px-2 text-[11px] text-zinc-500"
+                                            onClick={() => onGo(g.leadId)}
+                                        >
+                                            ไปที่งาน <ArrowRight className="h-3 w-3" aria-hidden />
+                                        </Button>
+                                    </div>
+                                ))}
+                                {mineGroups.length > QUEUE_MAX_GROUPS && (
+                                    <button
+                                        type="button"
+                                        className="w-full py-1.5 text-left text-[11px] text-violet-600 hover:underline dark:text-violet-400"
+                                        onClick={() => setShowAllMine(v => !v)}
+                                    >
+                                        {showAllMine ? 'แสดงเฉพาะที่ใกล้สุด' : `แสดงอีก ${mineGroups.length - QUEUE_MAX_GROUPS} งาน`}
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* รอทีมฉันรับ: วันที่ · ลูกค้า · ขาด … [ปุ่มรับเล็กๆ ของแต่ละจุด] */}
+                    <div className="min-w-0 border-t border-zinc-100 pt-3 dark:border-zinc-800 md:border-l md:border-t-0 md:pl-6 md:pt-0">
+                        {header('รอทีมฉันรับ', claimGroups.length, hiddenClaim > 0 ? `แสดง ${claimShown.length} งานใกล้สุด` : undefined)}
+                        {claimGroups.length === 0 ? (
+                            <p className="px-1 py-2 text-xs text-zinc-400">ไม่มีงานรอทีมฉันรับ</p>
+                        ) : (
+                            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                                {claimShown.map(g => (
+                                    <div key={g.leadId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5">
+                                        <div className="flex min-w-0 flex-1 basis-52 items-center gap-2">
+                                            <QueueHead group={g} />
+                                            <QueueMissing group={g} />
+                                        </div>
+                                        <div className="flex shrink-0 flex-wrap gap-1">
+                                            {g.items.map(i => (
+                                                <ClaimButton key={i.kind} kind={i.kind} gate={gateOf(i.kind)} compact onClick={() => onClaim(i)} />
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                                {hiddenClaim > 0 && (
+                                    <button
+                                        type="button"
+                                        className="w-full py-1.5 text-left text-[11px] text-violet-600 hover:underline dark:text-violet-400"
+                                        onClick={() => onSeeAll(claimGroups[claimShown.length].items[0].kind)}
+                                    >
+                                        อีก {hiddenClaim} งาน — ดูทั้งหมดในพูลงาน →
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
         </div>
@@ -1076,6 +1156,31 @@ export default function TrackingView({
                         <span className="ml-1 text-xs font-semibold text-amber-600 dark:text-amber-400">รอรับ {poolWaiting}</span>
                     )}
                 </button>
+
+                {/* สลับ ตาราง / ไทม์ไลน์ อยู่ท้ายแถบแท็บ (เฉพาะภาพรวม) — ไม่กินอีกแถว */}
+                {tab === 'overview' && (
+                    <div className="ml-auto mb-1 flex shrink-0 rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-800">
+                        {([
+                            { key: 'table', label: 'ตาราง', go: () => setParams({ view: null, date: null, mode: null, dept: null, focus: null }) },
+                            { key: 'timeline', label: 'ไทม์ไลน์', go: () => setParams({ view: 'timeline', date, mode }) },
+                        ] as const).map(o => (
+                            <button
+                                key={o.key}
+                                type="button"
+                                aria-pressed={view === o.key}
+                                onClick={o.go}
+                                className={cn(
+                                    'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                                    view === o.key
+                                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
+                                )}
+                            >
+                                {o.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* มือถือ: ชิปเลื่อนแนวนอน ไม่หักบรรทัด — จอกว้างค่อยยอมให้ wrap */}
@@ -1165,24 +1270,8 @@ export default function TrackingView({
                 gateOf={gateOf}
                 onGo={goToLead}
                 onClaim={onClaimQueueItem}
+                onSeeAll={kind => setParams({ tab: kind === 'onsite' && !isAdmin ? 'graphic' : kind })}
             />
-
-            <div className="flex items-center gap-1">
-                <Button
-                    variant={view === 'table' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setParams({ view: null, date: null, mode: null, dept: null, focus: null })}
-                >
-                    ตาราง
-                </Button>
-                <Button
-                    variant={view === 'timeline' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setParams({ view: 'timeline', date, mode })}
-                >
-                    ไทม์ไลน์
-                </Button>
-            </div>
 
             {view === 'table' ? (
                 <>

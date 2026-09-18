@@ -123,12 +123,14 @@ function ClaimerLine({ job, kind, people }: { job: PoolJob; kind: PoolKind; peop
  * แผนกอื่น (allowed=false) = ป้ายจาง "รอ<แผนก>รับ" ไม่มี onClick (D1)
  * วงแสงหายใจมีเฉพาะปุ่มที่ใกล้วันงานที่สุดของคอลัมน์นั้น (emphasis) ที่เหลือเป็นปุ่มนิ่ง
  */
-export function ClaimButton({ kind, gate, emphasis = false, busy, title, onClick, children }: {
+export function ClaimButton({ kind, gate, emphasis = false, compact = false, busy, title, onClick, children }: {
     /** สิ่งที่กดรับ — คำบนปุ่มมาจาก CLAIM_LABELS */
     kind: ClaimKind
     /** สิทธิ์ของผู้ใช้กับสิ่งนี้ — ไม่ส่ง = กดได้ (ผู้เรียกที่ยังไม่รู้แผนก) */
     gate?: ClaimGate
     emphasis?: boolean
+    /** ปุ่มเล็กสำหรับรายการหนาแน่น (แถบ "ของฉัน") — ไม่มีเงา ไม่มีแสงหายใจ */
+    compact?: boolean
     busy?: boolean
     title?: string
     onClick: () => void | Promise<unknown>
@@ -140,7 +142,7 @@ export function ClaimButton({ kind, gate, emphasis = false, busy, title, onClick
         return (
             <span
                 title={`${CLAIM_LABELS[kind]} — ${gate.waitingFor}`}
-                className={cn(PILL, 'gap-1 border border-dashed border-zinc-300 bg-zinc-50 text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-500')}
+                className={cn(PILL, 'gap-1 border border-dashed border-zinc-300 bg-zinc-50 text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-500', compact && 'text-[11px]')}
             >
                 <Clock className="h-3 w-3" aria-hidden /> {gate.waitingFor}
             </span>
@@ -150,7 +152,7 @@ export function ClaimButton({ kind, gate, emphasis = false, busy, title, onClick
     return (
         <span className="relative inline-flex shrink-0">
             {/* วงแสงแดงหายใจอยู่หลังปุ่ม — เรียกสายตาแบบไม่แสบตา (เฉพาะงานที่ใกล้ที่สุด) */}
-            {emphasis && (
+            {emphasis && !compact && (
                 <span
                     aria-hidden
                     className="pointer-events-none absolute -inset-0.5 rounded-full bg-gradient-to-r from-rose-500 to-orange-400 opacity-40 blur-[6px] animate-pulse"
@@ -161,9 +163,14 @@ export function ClaimButton({ kind, gate, emphasis = false, busy, title, onClick
                 disabled={busy}
                 title={title}
                 onClick={onClick}
-                className="group relative inline-flex h-9 md:h-7 items-center gap-1 overflow-hidden rounded-full bg-gradient-to-r from-rose-600 via-red-500 to-orange-500 px-4 md:px-3 text-xs font-semibold text-white shadow-sm shadow-red-500/40 ring-1 ring-inset ring-white/20 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-red-500/50 hover:brightness-110 active:translate-y-0 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+                className={cn(
+                    'group relative inline-flex items-center gap-1 overflow-hidden rounded-full bg-gradient-to-r from-rose-600 via-red-500 to-orange-500 font-semibold text-white ring-1 ring-inset ring-white/20 transition-all duration-150 hover:brightness-110 active:scale-95 disabled:pointer-events-none disabled:opacity-50',
+                    compact
+                        ? 'h-6 px-2.5 text-[11px]'
+                        : 'h-9 md:h-7 px-4 md:px-3 text-xs shadow-sm shadow-red-500/40 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-red-500/50 active:translate-y-0'
+                )}
             >
-                <Zap className="h-3.5 w-3.5 transition-transform duration-150 group-hover:rotate-12 group-hover:scale-125" aria-hidden />
+                <Zap className={cn('transition-transform duration-150 group-hover:rotate-12 group-hover:scale-125', compact ? 'h-3 w-3' : 'h-3.5 w-3.5')} aria-hidden />
                 {label}
                 {/* แสงกวาดผ่านปุ่มตอน hover */}
                 <span
