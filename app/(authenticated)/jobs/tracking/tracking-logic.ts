@@ -1149,6 +1149,84 @@ export interface DutyClaim {
   claimedBy: string
 }
 
+/** key ของการรับหน้าที่ — งานหนึ่งงานมีได้หน้าที่ละหนึ่งการรับ */
+export const dutyKey = (leadId: string, duty: PrepDuty): string => `${leadId}:${duty}`
+
+// --- optimistic: ทับค่าที่เพิ่งกด "รับ/คืน" จนกว่าข้อมูลจาก server จะตามมา ------
+
+/**
+ * สถานะชั่วคราวของใบงานที่เพิ่งกดรับ — สถานะจริงตั้งค่าไว้ใน job_settings
+ * จึงยังไม่รู้จนกว่า server จะตอบ (ขอแค่ "ไม่ใช่รอรับงาน" ช่องจะได้เปลี่ยนทันที)
+ */
+export const CLAIMING_STATUS = 'claiming'
+export const CLAIMING_STATUS_LABEL = 'กำลังรับงาน…'
+
+/** ค่าที่อยากให้ใบงานเป็นทันทีหลังกด — รับ = มี claimed_by · คืน = null */
+export interface ClaimDraft {
+  status: string
+  claimed_by: string | null
+}
+
+/** draft ต่อ jobId */
+export type ClaimDraftMap = Record<string, ClaimDraft>
+
+/** draft ต่อ dutyKey — null = เพิ่งกดคืนหน้าที่ */
+export type DutyDraftMap = Record<string, DutyClaim | null>
+
+/** server ตามทัน draft ของใบงานนี้แล้วหรือยัง (ใบงานหลุดจากชุด = ไม่ต้องทับต่อ) */
+function claimDraftSettled(job: PoolJob | undefined, draft: ClaimDraft): boolean {
+  if (!job) return true
+  return draft.claimed_by
+    ? job.claimed_by === draft.claimed_by && job.status !== AWAITING_CLAIM_STATUS
+    : job.claimed_by === null && job.status === AWAITING_CLAIM_STATUS
+}
+
+/** ทับใบงานด้วย draft ที่ยังรอ server อยู่ — draft ที่ตามทันแล้วไม่มีผล */
+export function applyClaimDraft(jobs: PoolJob[], draft: ClaimDraftMap): PoolJob[] {
+  if (Object.keys(draft).length === 0) return jobs
+  return jobs.map((job) => {
+    const d = draft[job.id]
+    if (!d || claimDraftSettled(job, d)) return job
+    const assigned_to = d.claimed_by
+      ? [...new Set([...job.assigned_to, d.claimed_by])]
+      : job.assigned_to.filter((id) => id !== job.claimed_by)
+    return { ...job, status: d.status, claimed_by: d.claimed_by, assigned_to }
+  })
+}
+
+/** เหลือเฉพาะ draft ที่ยังรอ server — เรียกตอนข้อมูลชุดใหม่มาถึง (ไม่มีอะไรตกก็คืนตัวเดิม) */
+export function pruneClaimDraft(jobs: PoolJob[], draft: ClaimDraftMap): ClaimDraftMap {
+  const byId = new Map(jobs.map((j) => [j.id, j]))
+  const kept = Object.entries(draft).filter(([id, d]) => !claimDraftSettled(byId.get(id), d))
+  return kept.length === Object.keys(draft).length ? draft : Object.fromEntries(kept)
+}
+
+/** server ตามทัน draft ของหน้าที่นี้แล้วหรือยัง */
+function dutyDraftSettled(claims: Map<string, DutyClaim>, key: string, draft: DutyClaim | null): boolean {
+  const current = claims.get(key)
+  return draft ? current?.claimedBy === draft.claimedBy : current === undefined
+}
+
+/** ทับการรับหน้าที่ด้วย draft ที่ยังรอ server อยู่ — ของเดิมคงลำดับ ของใหม่ต่อท้าย */
+export function applyDutyDraft(claims: DutyClaim[], draft: DutyDraftMap): DutyClaim[] {
+  if (Object.keys(draft).length === 0) return claims
+  const original = new Map(claims.map((c) => [dutyKey(c.leadId, c.duty), c]))
+  const next = new Map(original)
+  for (const [key, value] of Object.entries(draft)) {
+    if (dutyDraftSettled(original, key, value)) continue
+    if (value) next.set(key, value)
+    else next.delete(key)
+  }
+  return [...next.values()]
+}
+
+/** เหลือเฉพาะ draft ของหน้าที่ที่ยังรอ server (ไม่มีอะไรตกก็คืนตัวเดิม) */
+export function pruneDutyDraft(claims: DutyClaim[], draft: DutyDraftMap): DutyDraftMap {
+  const byKey = new Map(claims.map((c) => [dutyKey(c.leadId, c.duty), c]))
+  const kept = Object.entries(draft).filter(([key, value]) => !dutyDraftSettled(byKey, key, value))
+  return kept.length === Object.keys(draft).length ? draft : Object.fromEntries(kept)
+}
+
 // --- จองกระเป๋า: กติกาชนรายวัน (ADR-0003) -------------------------------------
 
 /** กระเป๋าหนึ่งใบ — ตัวเลือกในกล่องจอง และหนึ่งเลนในไทม์ไลน์ */

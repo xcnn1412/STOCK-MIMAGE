@@ -11,7 +11,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { AlertTriangle, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { assignLeadStaff, updateJobDesignStatus, updateLeadTracking } from '../actions'
+import {
+    assignLeadStaff,
+    claimLeadDuty,
+    claimPoolJob,
+    releaseLeadDuty,
+    releasePoolJob,
+    updateJobDesignStatus,
+    updateLeadTracking,
+} from '../actions'
 import {
     daysUntil,
     isPast,
@@ -27,8 +35,16 @@ import {
     kitReadinessByLead,
     leadsOnDate,
     groupPoolJobs,
+    applyClaimDraft,
+    applyDutyDraft,
+    pruneClaimDraft,
+    pruneDutyDraft,
+    AWAITING_CLAIM_STATUS,
+    CLAIMING_STATUS,
     PREP_DUTIES,
     DUTY_LABELS_TH,
+    type ClaimDraftMap,
+    type DutyDraftMap,
     type TrackingLead,
     type Chip,
     type DutyClaim,
@@ -311,7 +327,7 @@ export default function TrackingView({
     roles,
     people,
     jobs: jobsProp = [],
-    dutyClaims = [],
+    dutyClaims: dutyClaimsProp = [],
     jobStatusLabels = {},
     currentUserId = null,
     canManagePool = false,
@@ -351,6 +367,9 @@ export default function TrackingView({
      * เก็บแยกจาก `jobs` เพื่อให้ค่าอื่นของใบงาน (รับ/คืน/ข้าม) ยังไหลมาจาก server ตามปกติ
      */
     const [designDraft, setDesignDraft] = useState<Record<string, string>>({})
+    /** ใบงาน/หน้าที่ที่เพิ่งกดรับหรือคืน — ทับค่าจาก server จนกว่าข้อมูลรอบใหม่จะตามมา (optimistic) */
+    const [claimDraft, setClaimDraft] = useState<ClaimDraftMap>({})
+    const [dutyDraft, setDutyDraft] = useState<DutyDraftMap>({})
     const [chip, setChip] = useState<Chip | null>(null)
     /** กรองเฉพาะงานที่ยังไม่เปิดใบงานกราฟิก (ชิปเตือนสีเหลือง) */
     const [notOpenedOnly, setNotOpenedOnly] = useState(false)
@@ -358,6 +377,23 @@ export default function TrackingView({
     const [, startTransition] = useTransition()
     /** ไทม์ไลน์: แถบที่กำลังแก้ (คน หรือ รถ) */
     const [editing, setEditing] = useState<{ leadId: string; kind: 'staff' | 'vehicle' } | null>(null)
+
+    /**
+     * ข้อมูลรอบใหม่จาก server (revalidate / refresh) ต้องไหลลง `rows` ด้วย — เทียบกับ props รอบก่อน
+     * แล้วปรับ state ตอน render (ไม่ใช้ setState ใน useEffect) ตามท่ามาตรฐานของ React
+     * พร้อมกันนั้นล้าง draft รับ/คืน ที่ server ตามทันแล้ว
+     */
+    const [prevProps, setPrevProps] = useState({ leads, jobs: jobsProp, dutyClaims: dutyClaimsProp })
+    if (
+        prevProps.leads !== leads ||
+        prevProps.jobs !== jobsProp ||
+        prevProps.dutyClaims !== dutyClaimsProp
+    ) {
+        setPrevProps({ leads, jobs: jobsProp, dutyClaims: dutyClaimsProp })
+        if (prevProps.leads !== leads) setRows(leads)
+        setClaimDraft(d => pruneClaimDraft(jobsProp, d))
+        setDutyDraft(d => pruneDutyDraft(dutyClaimsProp, d))
+    }
 
     // client component: hydration mismatch is only possible exactly at midnight — acceptable
     const today = new Date()
@@ -385,6 +421,7 @@ export default function TrackingView({
         mode?: string | null
         dept?: string | null
         focus?: string | null
+        past?: string | null
     }) => {
         const p = new URLSearchParams(window.location.search)
         for (const [k, v] of Object.entries(patch)) {
@@ -394,6 +431,22 @@ export default function TrackingView({
         const qs = p.toString()
         router.replace(qs ? `?${qs}` : '?', { scroll: false })
     }
+
+    /** ?past=1 = server โหลดงานที่ผ่านมาแล้วเกิน 30 วันมาให้ด้วย (ค่าเริ่มต้นตัดออก) */
+    const pastLoaded = searchParams.get('past') === '1'
+
+    // คนอื่นกดรับ/แก้งานอยู่ตลอด — ดึงข้อมูลใหม่ตอนกลับมาที่แท็บนี้ และทุก 60 วิขณะเปิดหน้าอยู่
+    useEffect(() => {
+        const refresh = () => {
+            if (document.visibilityState === 'visible') router.refresh()
+        }
+        const timer = setInterval(refresh, 60_000)
+        document.addEventListener('visibilitychange', refresh)
+        return () => {
+            clearInterval(timer)
+            document.removeEventListener('visibilitychange', refresh)
+        }
+    }, [router])
 
     const editingLead = editing ? rows.find(r => r.id === editing.leadId) ?? null : null
 
@@ -507,6 +560,72 @@ export default function TrackingView({
         })
     }
 
+    /** ล้าง draft ของรายการเดียว — ใช้ตอน action ตอบ error (ช่องย้อนกลับเป็นค่าเดิมทันที) */
+    const dropClaimDraft = (jobId: string) =>
+        setClaimDraft(d => {
+            const next = { ...d }
+            delete next[jobId]
+            return next
+        })
+    const dropDutyDraft = (key: string) =>
+        setDutyDraft(d => {
+            const next = { ...d }
+            delete next[key]
+            return next
+        })
+
+    /**
+     * รับ/คืน ทั้งใบงานและหน้าที่: ทับค่าให้ช่องเปลี่ยนทันที → เรียก action →
+     * ตอบ error เมื่อไหร่ก็ย้อน draft กลับพร้อม toast (ค่าจริงไหลมาทับเองตอน revalidate)
+     */
+    const onClaimJob = (jobId: string) => {
+        setClaimDraft(d => ({ ...d, [jobId]: { status: CLAIMING_STATUS, claimed_by: currentUserId } }))
+        startTransition(async () => {
+            const res = (await claimPoolJob(jobId)) as { error?: string } | undefined
+            if (res?.error) {
+                dropClaimDraft(jobId)
+                toast.error(res.error)
+            } else toast.success('รับงานแล้ว')
+        })
+    }
+
+    const onReleaseJob = (jobId: string) => {
+        setClaimDraft(d => ({ ...d, [jobId]: { status: AWAITING_CLAIM_STATUS, claimed_by: null } }))
+        startTransition(async () => {
+            const res = (await releasePoolJob(jobId)) as { error?: string } | undefined
+            if (res?.error) {
+                dropClaimDraft(jobId)
+                toast.error(res.error)
+            } else toast.success('คืนงานเข้าพูลแล้ว — กลับเป็นรอรับงาน')
+        })
+    }
+
+    const onClaimDuty = (leadId: string, duty: PrepDuty) => {
+        const key = dutyKey(leadId, duty)
+        const label = DUTY_LABELS_TH[duty]
+        setDutyDraft(d => ({ ...d, [key]: { leadId, duty, claimedBy: currentUserId ?? '' } }))
+        startTransition(async () => {
+            const res = (await claimLeadDuty(leadId, duty)) as { error?: string } | undefined
+            if (res?.error) {
+                dropDutyDraft(key)
+                toast.error(res.error)
+            } else toast.success(`รับหน้าที่${label}แล้ว`)
+        })
+    }
+
+    const onReleaseDuty = (leadId: string, duty: PrepDuty) => {
+        const key = dutyKey(leadId, duty)
+        const label = DUTY_LABELS_TH[duty]
+        setDutyDraft(d => ({ ...d, [key]: null }))
+        startTransition(async () => {
+            const res = (await releaseLeadDuty(leadId, duty)) as { error?: string } | undefined
+            if (res?.error) {
+                dropDutyDraft(key)
+                toast.error(res.error)
+            } else toast.success(`คืนหน้าที่${label}แล้ว — กลับเป็นรอรับงาน`)
+        })
+    }
+
     const save = (
         id: string,
         patch: { design_status?: string; supplier_note?: string | null; tracking_checklist?: string[] }
@@ -536,10 +655,12 @@ export default function TrackingView({
         setRows(prev => prev.map(r => (r.id === id ? { ...r, required_roles } : r)))
     }
 
-    // ใบงานที่หน้านี้ใช้ = ข้อมูลจาก server ทับด้วยสถานะออกแบบที่เพิ่งกด (ยังไม่ revalidate)
+    // ใบงานที่หน้านี้ใช้ = ข้อมูลจาก server ทับด้วยการรับ/คืน และสถานะออกแบบที่เพิ่งกด (ยังไม่ revalidate)
+    const claimed = applyClaimDraft(jobsProp, claimDraft)
     const jobs: PoolJob[] = Object.keys(designDraft).length === 0
-        ? jobsProp
-        : jobsProp.map(j => (designDraft[j.id] ? { ...j, design_status: designDraft[j.id] } : j))
+        ? claimed
+        : claimed.map(j => (designDraft[j.id] ? { ...j, design_status: designDraft[j.id] } : j))
+    const dutyClaims = applyDutyDraft(dutyClaimsProp, dutyDraft)
 
     // ความพร้อมข้อ 5 (กระเป๋า) — ต้องรู้ใบงานหน้างาน (ถูกข้ามไหม) + การจองของงานนั้น
     const kitReadiness = kitReadinessByLead(rows, jobs, kitBookings)
@@ -572,13 +693,13 @@ export default function TrackingView({
         const job = entry?.graphic
         const state = designCellState(job)
         if (state === 'not_opened') return <NotOpenedPill leadId={lead.id} />
-        if (state === 'awaiting') return <ClaimChip job={job!} people={people} currentUserId={currentUserId} />
+        if (state === 'awaiting') return <ClaimChip job={job!} people={people} currentUserId={currentUserId} onClaim={onClaimJob} />
         const others = (entry?.graphicActive ?? 0) - 1
         return (
             <div className="space-y-1">
                 <DesignCell job={job!} lead={lead} onChange={saveJobDesign} />
                 {others > 0 && <MoreGraphicJobsLink count={others} />}
-                <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} />
+                <ReleaseChip job={job} currentUserId={currentUserId} canManagePool={canManagePool} onRelease={onReleaseJob} />
             </div>
         )
     }
@@ -596,6 +717,8 @@ export default function TrackingView({
             currentUserId={currentUserId}
             canManagePool={canManagePool}
             summary={dutySummary(lead, duty, people, kitReadiness)}
+            onClaim={onClaimDuty}
+            onRelease={onReleaseDuty}
         >
             {children}
         </DutyGate>
@@ -694,6 +817,8 @@ export default function TrackingView({
                     designReady={designReady}
                     canManageKits={canManageKits}
                     onJobDesignStatusChange={saveJobDesign}
+                    onClaimJob={onClaimJob}
+                    onReleaseJob={onReleaseJob}
                 />
             ) : isDutyTab(tab) ? (
                 <DutyTab
@@ -715,6 +840,8 @@ export default function TrackingView({
                     onVehicleSaved={syncVehicle}
                     onStaffSaved={onStaffSaved}
                     onRequiredRolesSaved={onRequiredRolesSaved}
+                    onClaimDuty={onClaimDuty}
+                    onReleaseDuty={onReleaseDuty}
                 />
             ) : (
                 <>
@@ -778,7 +905,20 @@ export default function TrackingView({
                         ยังไม่เปิดใบงานกราฟิก {notOpenedCount} งาน
                     </button>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => setShowPast(p => !p)}>
+                {/* งานที่จบไปเกิน 30 วัน ไม่ถูกโหลดมาตั้งแต่ต้น — กดแสดงแล้วต้องขอ server โหลดเพิ่มด้วย (?past=1) */}
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                        if (showPast) {
+                            setShowPast(false)
+                            setParams({ past: null })
+                        } else {
+                            if (!pastLoaded) setParams({ past: '1' })
+                            setShowPast(true)
+                        }
+                    }}
+                >
                     {showPast ? 'ซ่อนงานที่ผ่านแล้ว' : 'แสดงงานที่ผ่านแล้ว'}
                 </Button>
             </div>

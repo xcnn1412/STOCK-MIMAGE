@@ -3,10 +3,16 @@
 import assert from 'node:assert/strict'
 import {
   addDays,
+  applyClaimDraft,
+  applyDutyDraft,
   availabilityOf,
   AWAITING_CLAIM_STATUS,
   canActOnPool,
+  CLAIMING_STATUS,
   designCellState,
+  dutyKey,
+  pruneClaimDraft,
+  pruneDutyDraft,
   designReadyByLead,
   POOL_TEAM_CATEGORIES,
   POOL_TEAM_DEFAULTS,
@@ -1232,5 +1238,57 @@ assert.equal(isPrepDuty('staffing'), true)
 assert.equal(isPrepDuty('kits'), true)
 assert.equal(isPrepDuty('onsite'), false)
 assert.equal(isPrepDuty(''), false)
+
+assert.equal(dutyKey('l1', 'staffing'), 'l1:staffing')
+assert.notEqual(dutyKey('l1', 'vehicle'), dutyKey('l1', 'kits'))
+
+// --- optimistic draft: รับ/คืน เปลี่ยนช่องทันทีก่อน server ตอบ ------------------
+
+const waiting = pj({ id: 'j1', status: AWAITING_CLAIM_STATUS, claimed_by: null, assigned_to: [] })
+const claimDraft = { j1: { status: CLAIMING_STATUS, claimed_by: 'u1' } }
+
+// กดรับ: สถานะออกจากคิวรอรับ ผู้รับเป็นเรา และเราถูกเพิ่มเข้าทีมของใบงาน
+const afterClaim = applyClaimDraft([waiting], claimDraft)[0]
+assert.equal(afterClaim.status, CLAIMING_STATUS)
+assert.equal(afterClaim.claimed_by, 'u1')
+assert.deepEqual(afterClaim.assigned_to, ['u1'])
+// ไม่มี draft = คืนอาร์เรย์เดิมทั้งตัว (ไม่สร้างใหม่โดยไม่จำเป็น)
+assert.equal(applyClaimDraft([waiting], {})[0], waiting)
+
+// กดคืน: กลับไปรอรับงาน ผู้รับหลุด และผู้รับเดิมออกจากทีม
+const claimed = pj({ id: 'j1', status: 'pending', claimed_by: 'u1', assigned_to: ['u1', 'u2'] })
+const afterRelease = applyClaimDraft([claimed], { j1: { status: AWAITING_CLAIM_STATUS, claimed_by: null } })[0]
+assert.equal(afterRelease.status, AWAITING_CLAIM_STATUS)
+assert.equal(afterRelease.claimed_by, null)
+assert.deepEqual(afterRelease.assigned_to, ['u2'])
+
+// server ตามทันแล้ว (ใบงานมีผู้รับตรงกันและออกจากคิวแล้ว) → draft ไม่มีผลและถูกล้างทิ้ง
+const settled = pj({ id: 'j1', status: 'pending', claimed_by: 'u1', assigned_to: ['u1'] })
+assert.equal(applyClaimDraft([settled], claimDraft)[0], settled)
+assert.deepEqual(pruneClaimDraft([settled], claimDraft), {})
+// ยังตามไม่ทัน → draft อยู่ต่อ (คืนตัวเดิม ไม่สร้าง object ใหม่)
+assert.equal(pruneClaimDraft([waiting], claimDraft), claimDraft)
+// ใบงานหลุดจากชุดที่โหลดมา → ไม่ต้องทับต่อ
+assert.deepEqual(pruneClaimDraft([], claimDraft), {})
+
+const dc = (leadId: string, duty: PrepDuty, claimedBy: string) => ({ leadId, duty, claimedBy })
+const mine = dc('l1', 'staffing', 'u1')
+
+// กดรับหน้าที่: มีแถวเพิ่มทันที · กดคืน: แถวหายทันที
+assert.deepEqual(applyDutyDraft([], { 'l1:staffing': mine }), [mine])
+assert.deepEqual(applyDutyDraft([mine], { 'l1:staffing': null }), [])
+assert.equal(applyDutyDraft([mine], {})[0], mine)
+// หน้าที่อื่นของงานเดียวกันไม่ถูกแตะ
+assert.deepEqual(
+  applyDutyDraft([dc('l1', 'vehicle', 'u2')], { 'l1:staffing': mine }).map((c) => c.duty),
+  ['vehicle', 'staffing']
+)
+// server ตามทันแล้ว → draft ถูกล้าง · ยังไม่ทัน → อยู่ต่อ (คืนตัวเดิม)
+assert.deepEqual(pruneDutyDraft([mine], { 'l1:staffing': mine }), {})
+assert.deepEqual(pruneDutyDraft([], { 'l1:staffing': null }), {})
+const pendingDuty = { 'l1:staffing': mine }
+assert.equal(pruneDutyDraft([], pendingDuty), pendingDuty)
+// คนอื่นชิงรับไปก่อน → ยังถือว่ายังไม่ตามทัน draft ของเรา (view ย้อนกลับเองเมื่อ action ตอบ error)
+assert.deepEqual(pruneDutyDraft([dc('l1', 'staffing', 'u9')], pendingDuty), pendingDuty)
 
 console.log('tracking-logic.check: all passed')

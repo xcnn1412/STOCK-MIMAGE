@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Briefcase, RotateCcw, UserRound, Users, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { assignPoolJob, bookKitForLead, claimLeadDuty, claimPoolJob, releaseLeadDuty, releasePoolJob, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
+import { assignPoolJob, bookKitForLead, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
 import { DESIGN_OPTIONS } from './design-options'
 import { formatDate } from './timeline-view'
 import {
@@ -21,6 +21,8 @@ import {
     type WorkOrderSort,
 } from './work-order-filters'
 import {
+    CLAIMING_STATUS,
+    CLAIMING_STATUS_LABEL,
     DUTY_LABELS_TH,
     VEHICLES,
     daysUntil,
@@ -61,10 +63,12 @@ type PoolRow = { job: PoolJob; lead: TrackingLead | null }
 
 function StatusBadge({ job, statusLabels }: { job: PoolJob; statusLabels: JobStatusLabels }) {
     const status = statusLabels[`${job.job_type}:${job.status}`]
+    // สถานะชั่วคราวของใบที่เพิ่งกดรับ ไม่มีใน job_settings — แปลป้ายเองจนกว่าค่าจริงจะมาถึง
+    const fallback = job.status === CLAIMING_STATUS ? CLAIMING_STATUS_LABEL : job.status
     return (
         <span className={cn(PILL, 'gap-1.5 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-200')}>
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: status?.color || '#a1a1aa' }} />
-            {status?.label || job.status}
+            {status?.label || fallback}
         </span>
     )
 }
@@ -148,38 +152,26 @@ export function ClaimButton({ busy, title, onClick, children = 'รับงา�
 /**
  * ชิปรับงานแบบกะทัดรัดสำหรับตารางภาพรวม — หนึ่งชิปต่อหนึ่งใบงาน
  * รอรับ = ปุ่มรับงาน / รับแล้ว = ชื่อผู้รับ / ข้าม-เสร็จ = สถานะจาง
+ * การกดวิ่งผ่าน onClaim ของ TrackingView (ทับค่าให้ทันทีแล้วค่อยเรียก action)
  * สิทธิ์จริงถูกบังคับใน claimPoolJob ฝั่ง server (คนผิดฝ่ายกดได้แต่จะเจอ error ภาษาไทย)
  */
 export function ClaimChip({
     job,
     people,
     currentUserId,
+    onClaim,
 }: {
     job: PoolJob | undefined
     people: Person[]
     currentUserId: string | null
+    /** กดรับใบงาน — view เปลี่ยนช่องให้ทันทีแล้วค่อยเรียก server (ย้อนกลับเองเมื่อ error) */
+    onClaim: (jobId: string) => void
 }) {
-    const [busy, setBusy] = useState(false)
-
     if (!job) return <span className="text-xs text-zinc-400">ยังไม่มีใบงาน</span>
     if (job.status === 'skipped') return <span className="text-xs text-zinc-400">ข้าม</span>
 
     if (job.status === 'awaiting_claim') {
-        return (
-            <ClaimButton
-                busy={busy}
-                onClick={async () => {
-                    setBusy(true)
-                    try {
-                        const res = (await claimPoolJob(job.id)) as { error?: string } | undefined
-                        if (res?.error) toast.error(res.error)
-                        else toast.success('รับงานแล้ว')
-                    } finally {
-                        setBusy(false)
-                    }
-                }}
-            />
-        )
+        return <ClaimButton onClick={() => onClaim(job.id)} />
     }
 
     const claimer = job.claimed_by ? nameOf(job.claimed_by, people) : null
@@ -202,13 +194,14 @@ export function ReleaseChip({
     job,
     currentUserId,
     canManagePool,
+    onRelease,
 }: {
     job: PoolJob | undefined
     currentUserId: string | null
     canManagePool: boolean
+    /** กดคืนใบงาน — view เปลี่ยนช่องให้ทันทีแล้วค่อยเรียก server (ย้อนกลับเองเมื่อ error) */
+    onRelease: (jobId: string) => void
 }) {
-    const [busy, setBusy] = useState(false)
-
     if (!job) return null
     if (job.status === 'awaiting_claim' || job.status === 'skipped' || job.status === 'done') return null
     const isMine = !!currentUserId && job.claimed_by === currentUserId
@@ -217,19 +210,9 @@ export function ReleaseChip({
     return (
         <button
             type="button"
-            disabled={busy}
             title="คืนใบงานกลับเป็นรอรับงาน"
             className="inline-flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-50"
-            onClick={async () => {
-                setBusy(true)
-                try {
-                    const res = (await releasePoolJob(job.id)) as { error?: string } | undefined
-                    if (res?.error) toast.error(res.error)
-                    else toast.success('คืนงานเข้าพูลแล้ว — กลับเป็นรอรับงาน')
-                } finally {
-                    setBusy(false)
-                }
-            }}
+            onClick={() => onRelease(job.id)}
         >
             <RotateCcw className="h-3 w-3" aria-hidden />
             คืนเป็นรอรับงาน
@@ -253,6 +236,8 @@ export function DutyGate({
     currentUserId,
     canManagePool,
     summary,
+    onClaim,
+    onRelease,
     children,
 }: {
     leadId: string
@@ -264,29 +249,18 @@ export function DutyGate({
     canManagePool: boolean
     /** ข้อมูลที่มีอยู่แล้วของช่องนี้ (อ่านอย่างเดียว) — โชว์คู่ปุ่มรับงาน ไม่ให้ของที่จัดไว้ก่อน "หาย" ไปหลังปุ่ม */
     summary?: ReactNode
+    /** กดรับ/คืนหน้าที่ — view เปลี่ยนช่องให้ทันทีแล้วค่อยเรียก server (ย้อนกลับเองเมื่อ error) */
+    onClaim: (leadId: string, duty: PrepDuty) => void
+    onRelease: (leadId: string, duty: PrepDuty) => void
     children: ReactNode
 }) {
-    const [busy, setBusy] = useState(false)
     const label = DUTY_LABELS_TH[duty]
 
     if (!claim) {
         return (
             <div className="space-y-1">
                 {summary}
-                <ClaimButton
-                    busy={busy}
-                    title={`รับหน้าที่${label}ของงานนี้`}
-                    onClick={async () => {
-                        setBusy(true)
-                        try {
-                            const res = (await claimLeadDuty(leadId, duty)) as { error?: string } | undefined
-                            if (res?.error) toast.error(res.error)
-                            else toast.success(`รับหน้าที่${label}แล้ว`)
-                        } finally {
-                            setBusy(false)
-                        }
-                    }}
-                />
+                <ClaimButton title={`รับหน้าที่${label}ของงานนี้`} onClick={() => onClaim(leadId, duty)} />
             </div>
         )
     }
@@ -303,19 +277,9 @@ export function DutyGate({
             {(isMine || canManagePool) && (
                 <button
                     type="button"
-                    disabled={busy}
                     title={`คืนหน้าที่${label}กลับเป็นรอรับงาน`}
                     className="inline-flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-50"
-                    onClick={async () => {
-                        setBusy(true)
-                        try {
-                            const res = (await releaseLeadDuty(leadId, duty)) as { error?: string } | undefined
-                            if (res?.error) toast.error(res.error)
-                            else toast.success(`คืนหน้าที่${label}แล้ว — กลับเป็นรอรับงาน`)
-                        } finally {
-                            setBusy(false)
-                        }
-                    }}
+                    onClick={() => onRelease(leadId, duty)}
                 >
                     <RotateCcw className="h-3 w-3" aria-hidden />
                     คืนเป็นรอรับงาน
@@ -334,11 +298,16 @@ function PoolCardActions({
     people,
     currentUserId,
     canManagePool,
+    onClaim,
+    onRelease,
 }: {
     job: PoolJob
     people: Person[]
     currentUserId: string | null
     canManagePool: boolean
+    /** รับ/คืน วิ่งผ่าน view (optimistic) — ข้าม/เปลี่ยนคนรับ/เพิ่มคน ยังรอ server ตามเดิม */
+    onClaim: (jobId: string) => void
+    onRelease: (jobId: string) => void
 }) {
     const [busy, setBusy] = useState(false)
     const [skipOpen, setSkipOpen] = useState(false)
@@ -371,16 +340,9 @@ function PoolCardActions({
 
     return (
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            {isAwaiting && (
-                <ClaimButton busy={busy} onClick={() => run(() => claimPoolJob(job.id), 'รับงานแล้ว')} />
-            )}
+            {isAwaiting && <ClaimButton onClick={() => onClaim(job.id)} />}
             {!isAwaiting && isMine && (
-                <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => run(() => releasePoolJob(job.id), 'คืนงานเข้าพูลแล้ว')}
-                >
+                <Button size="sm" variant="outline" onClick={() => onRelease(job.id)}>
                     คืนงาน
                 </Button>
             )}
@@ -860,6 +822,8 @@ export default function PoolTabs({
     designReady,
     canManageKits = false,
     onJobDesignStatusChange,
+    onClaimJob,
+    onReleaseJob,
     highlightLeadId = null,
 }: {
     kind: PoolKind
@@ -885,6 +849,9 @@ export default function PoolTabs({
     canManageKits?: boolean
     /** บันทึกสถานะออกแบบของ "ใบงานใบนั้น" (updateJobDesignStatus) — เส้นทางเดียวกับตารางภาพรวม */
     onJobDesignStatusChange: (jobId: string, designStatus: string) => void
+    /** รับ/คืนใบงาน — เส้นทางเดียวกับตารางภาพรวม (ทับค่าทันทีแล้วค่อยเรียก server) */
+    onClaimJob: (jobId: string) => void
+    onReleaseJob: (jobId: string) => void
     /** งานที่ลิงก์มาจากการ์ด CRM (?lead=) — การ์ดของงานนี้ได้กรอบแดง + เลื่อนจอไปหาให้เอง */
     highlightLeadId?: string | null
 }) {
@@ -1027,6 +994,8 @@ export default function PoolTabs({
                             people={people}
                             currentUserId={currentUserId}
                             canManagePool={canManagePool}
+                            onClaim={onClaimJob}
+                            onRelease={onReleaseJob}
                         />
                     </div>
                     )

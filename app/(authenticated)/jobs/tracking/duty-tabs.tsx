@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import {
     DUTY_LABELS_TH,
     VEHICLES,
+    dutyKey,
     vehicleOf,
     type DutyClaim,
     type KitBookingDetail,
@@ -27,8 +28,8 @@ import {
     type WorkOrderSort,
 } from './work-order-filters'
 
-/** key ของ claimByDuty — งานหนึ่งงานมีได้หน้าที่ละหนึ่งการรับ */
-export const dutyKey = (leadId: string, duty: PrepDuty) => `${leadId}:${duty}`
+/** key ของ claimByDuty — ตัวจริงอยู่ใน tracking-logic (ตรรกะล้วน ใช้ร่วมกับ draft ฝั่ง view) */
+export { dutyKey }
 
 /**
  * ข้อมูลที่จัดไว้แล้วของช่องหน้าที่ — โชว์อ่านอย่างเดียวคู่ปุ่มรับงาน
@@ -96,6 +97,8 @@ export default function DutyTab({
     onVehicleSaved,
     onStaffSaved,
     onRequiredRolesSaved,
+    onClaimDuty,
+    onReleaseDuty,
     highlightLeadId = null,
 }: {
     duty: PrepDuty
@@ -123,6 +126,9 @@ export default function DutyTab({
         requiredRoles: Record<string, number>
     ) => void
     onRequiredRolesSaved: (leadId: string, value: Record<string, number>) => void
+    /** รับ/คืนหน้าที่ — เส้นทางเดียวกับตารางภาพรวม (ทับค่าทันทีแล้วค่อยเรียก server) */
+    onClaimDuty: (leadId: string, duty: PrepDuty) => void
+    onReleaseDuty: (leadId: string, duty: PrepDuty) => void
     /** งานที่ลิงก์มาจากการ์ด CRM (?lead=) — การ์ดของงานนี้ได้กรอบแดง + เลื่อนจอไปหาให้เอง */
     highlightLeadId?: string | null
 }) {
@@ -242,6 +248,8 @@ export default function DutyTab({
                                 currentUserId={currentUserId}
                                 canManagePool={canManagePool}
                                 summary={dutySummary(lead, duty, people, kitReadiness)}
+                                onClaim={onClaimDuty}
+                                onRelease={onReleaseDuty}
                             >
                                 {toolFor(lead)}
                             </DutyGate>
