@@ -55,6 +55,7 @@ import {
   missingRoles,
   monthLabel,
   myQueue,
+  groupQueueByLead,
   nextJobDate,
   NO_DEPARTMENT_LABEL,
   personClashes,
@@ -1433,6 +1434,18 @@ assert.equal(q3.claimable.find((i) => i.kind === 'staffing')?.jobId, undefined)
 // ป้าย "ยังขาด" เป็นของจุดนั้นจุดเดียว — งาน A ยังไม่จัดคน
 assert.deepEqual(q3.claimable.find((i) => qKey(i) === 'A:staffing')?.missing, ['จัดคน'])
 assert.deepEqual(q3.claimable.find((i) => qKey(i) === 'A:vehicle')?.missing, [])
+
+// จัดกลุ่มตามงาน: งานเดียวหลายจุดเหลือแถวเดียว ลำดับกลุ่มตามที่พบครั้งแรก (แม้รายการของงานนั้นจะมาไม่ติดกัน)
+const queueGroups = groupQueueByLead([
+  { leadId: 'B', kind: 'graphic', jobId: 'jB', date: '2026-09-19', customer: 'บี', missing: [] },
+  { leadId: 'B', kind: 'staffing', date: '2026-09-19', customer: 'บี', missing: ['จัดคน'] },
+  { leadId: 'A', kind: 'vehicle', date: '2026-09-20', customer: 'เอ', missing: [] },
+  { leadId: 'B', kind: 'kits', date: '2026-09-19', customer: 'บี', missing: ['กระเป๋า'] },
+])
+assert.deepEqual(queueGroups.map((g) => g.leadId), ['B', 'A'])
+assert.deepEqual(queueGroups[0].items.map((i) => i.kind), ['graphic', 'staffing', 'kits'])
+assert.equal(queueGroups[0].customer, 'บี')
+assert.deepEqual(groupQueueByLead([]), [])
 
 
 console.log('tracking-logic.check: all passed')

@@ -80,6 +80,7 @@ export default function AlertPanels({
     emptyFallback = null,
     compactWarnings = false,
     hero = false,
+    showMyJobs = true,
 }: {
     snapshot: TrackingSnapshot
     className?: string
@@ -89,22 +90,26 @@ export default function AlertPanels({
     compactWarnings?: boolean
     /** hero การ์ด gradient บนสุด: ตัวเลขรวม + กราฟแท่งสิ่งที่ยังขาด (ใช้บน /dashboard) */
     hero?: boolean
+    /** false = ไม่แสดงแผง "งานในมือคุณ" — หน้าติดตามงานมีแถบ "ของฉัน" ที่ครอบคลุมอยู่แล้ว */
+    showMyJobs?: boolean
 }) {
     const { poolJobs, jobStatusLabels, currentUserId } = snapshot
     const { leadDates, warnings, myJobsCount, heroStats } = buildAlertData(snapshot)
-    if (myJobsCount === 0 && warnings.length === 0) return <>{emptyFallback}</>
+    if ((!showMyJobs || myJobsCount === 0) && warnings.length === 0) return <>{emptyFallback}</>
 
     // ทั้งสองแผงคืน null เองเมื่อว่าง — หน้าที่ไม่มีเรื่องเตือนจึงเหมือนเดิมทุกประการ
     return (
         <>
             {hero && <DashboardHero stats={heroStats} className={className} />}
-            <MyJobsPanel
-                jobs={poolJobs}
-                leadDates={leadDates}
-                currentUserId={currentUserId}
-                statusLabels={jobStatusLabels}
-                className={className}
-            />
+            {showMyJobs && (
+                <MyJobsPanel
+                    jobs={poolJobs}
+                    leadDates={leadDates}
+                    currentUserId={currentUserId}
+                    statusLabels={jobStatusLabels}
+                    className={className}
+                />
+            )}
             <DutyWarningPanel rows={warnings} collapsible={compactWarnings} className={className} />
         </>
     )

@@ -1502,3 +1502,22 @@ export function myQueue({
 
   return { mine: mine.sort(compareQueue), claimable: claimable.sort(compareQueue) }
 }
+
+/** หนึ่งงานในแถบ "ของฉัน" — รวมทุกจุด (จัดรถ + กระเป๋า …) ของงานเดียวกันไว้แถวเดียว */
+export interface MyQueueGroup {
+  leadId: string
+  date: string | null
+  customer: string
+  items: MyQueueItem[]
+}
+
+/** จัดกลุ่มรายการตามงาน — ลำดับกลุ่มตามที่พบครั้งแรก (รายการเรียงวันมาแล้ว กลุ่มจึงเรียงวันด้วย) */
+export function groupQueueByLead(items: MyQueueItem[]): MyQueueGroup[] {
+  const groups = new Map<string, MyQueueGroup>()
+  for (const item of items) {
+    const g = groups.get(item.leadId)
+    if (g) g.items.push(item)
+    else groups.set(item.leadId, { leadId: item.leadId, date: item.date, customer: item.customer, items: [item] })
+  }
+  return [...groups.values()]
+}
