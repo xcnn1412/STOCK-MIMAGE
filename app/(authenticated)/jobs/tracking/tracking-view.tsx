@@ -37,14 +37,19 @@ import {
     groupPoolJobs,
     applyClaimDraft,
     applyDutyDraft,
+    claimGate,
+    emphasizedClaims,
     pruneClaimDraft,
     pruneDutyDraft,
     AWAITING_CLAIM_STATUS,
     CLAIMING_STATUS,
     PREP_DUTIES,
     DUTY_LABELS_TH,
+    type ClaimCandidate,
     type ClaimDraftMap,
+    type ClaimKind,
     type DutyDraftMap,
+    type PoolDepartments,
     type TrackingLead,
     type Chip,
     type DutyClaim,
@@ -336,6 +341,8 @@ export default function TrackingView({
     eventVehicles = [],
     canManageKits = false,
     isAdmin = false,
+    myDepartment = null,
+    poolDepartments,
 }: {
     leads: TrackingLead[]
     roleLabels: Record<string, string>
@@ -360,6 +367,10 @@ export default function TrackingView({
     canManageKits?: boolean
     /** role = admin เท่านั้น — แท็บใบงานหน้างาน (หัวหน้างาน) แสดงเฉพาะแอดมิน */
     isAdmin?: boolean
+    /** แผนกของผู้ใช้ — ตัดสินว่าปุ่มรับจุดไหนกดได้ (D1) */
+    myDepartment?: string | null
+    /** แผนกที่รับได้ของแต่ละจุด (job_settings) — ไม่ส่ง = ทุกปุ่มกดได้ (สิทธิ์จริงบังคับฝั่ง server) */
+    poolDepartments?: PoolDepartments
 }) {
     const [rows, setRows] = useState(leads)
     /**
@@ -373,7 +384,6 @@ export default function TrackingView({
     const [chip, setChip] = useState<Chip | null>(null)
     /** กรองเฉพาะงานที่ยังไม่เปิดใบงานกราฟิก (ชิปเตือนสีเหลือง) */
     const [notOpenedOnly, setNotOpenedOnly] = useState(false)
-    const [showPast, setShowPast] = useState(false)
     const [, startTransition] = useTransition()
     /** ไทม์ไลน์: แถบที่กำลังแก้ (คน หรือ รถ) */
     const [editing, setEditing] = useState<{ leadId: string; kind: 'staff' | 'vehicle' } | null>(null)
@@ -422,6 +432,8 @@ export default function TrackingView({
         dept?: string | null
         focus?: string | null
         past?: string | null
+        lead?: string | null
+        job?: string | null
     }) => {
         const p = new URLSearchParams(window.location.search)
         for (const [k, v] of Object.entries(patch)) {
@@ -434,6 +446,29 @@ export default function TrackingView({
 
     /** ?past=1 = server โหลดงานที่ผ่านมาแล้วเกิน 30 วันมาให้ด้วย (ค่าเริ่มต้นตัดออก) */
     const pastLoaded = searchParams.get('past') === '1'
+    /** เปิดหน้าด้วย ?past=1 ตรงๆ = แสดงงานที่ผ่านแล้วตั้งแต่แรก (ไม่ต้องกดปุ่มซ้ำ) */
+    const [showPast, setShowPast] = useState(pastLoaded)
+
+    /** ปุ่มรับจุดนี้กดได้ไหม + ป้าย "รอ<แผนก>รับ" (D1) — ไม่รู้แผนกของแต่ละจุด = ปล่อยให้กดได้ */
+    const gateOf = (kind: ClaimKind) =>
+        poolDepartments ? claimGate(kind, myDepartment, isAdmin, poolDepartments) : undefined
+
+    /** งานที่ถูกไฮไลต์ (?lead= จากการ์ด CRM / แผงเตือน / กระดิ่ง) — แถวและการ์ดของงานนี้ได้กรอบแดง */
+    const highlightLeadId = searchParams.get('lead')
+
+    /**
+     * ?job=<jobId> จากกระดิ่ง (job_pool_*) — แปลงเป็นแท็บของใบงานนั้น + ?lead= ครั้งเดียว
+     * (ไฮไลต์/เลื่อนจอใช้เส้นทางเดียวกับลิงก์อื่น) · ใบงานหน้างานของคนทั่วไปไปที่ภาพรวม
+     */
+    const jobParam = searchParams.get('job')
+    const jobTarget = jobParam ? jobsProp.find(j => j.id === jobParam) ?? null : null
+    const jobTargetTab = jobTarget?.job_type === 'graphic' ? 'graphic' : jobTarget?.job_type === 'onsite' && isAdmin ? 'onsite' : null
+    const jobTargetLead = jobTarget?.crm_lead_id ?? null
+    useEffect(() => {
+        if (!jobParam) return
+        setParams({ job: null, tab: jobTargetTab, lead: jobTargetLead })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [jobParam])
 
     // คนอื่นกดรับ/แก้งานอยู่ตลอด — ดึงข้อมูลใหม่ตอนกลับมาที่แท็บนี้ และทุก 60 วิขณะเปิดหน้าอยู่
     useEffect(() => {
@@ -483,6 +518,10 @@ export default function TrackingView({
     })
     /** คิวต่อ 1 งาน — คลิกรัวๆ ในงานเดียวกันทำเรียงกัน ไม่ทับกัน */
     const staffQueue = useRef(new Map<string, Promise<void>>())
+
+    // เลื่อนจอไปหางานที่ไฮไลต์ครั้งเดียวตอนเข้าหน้า — ตารางกับการ์ดมือถือแยกธงกัน (อีกฝั่งถูกซ่อนตามขนาดจอ)
+    const scrolledRow = useRef(false)
+    const scrolledCard = useRef(false)
 
     // ponytail: sends the whole event roster per click; clicks are serialized per lead so a failed call reverts only its own change
     const quickStaff = (leadId: string, userId: string, role: string, add: boolean) => {
@@ -693,7 +732,19 @@ export default function TrackingView({
         const job = entry?.graphic
         const state = designCellState(job)
         if (state === 'not_opened') return <NotOpenedPill leadId={lead.id} />
-        if (state === 'awaiting') return <ClaimChip job={job!} people={people} currentUserId={currentUserId} onClaim={onClaimJob} />
+        if (state === 'awaiting') {
+            return (
+                <ClaimChip
+                    job={job!}
+                    kind="graphic"
+                    gate={gateOf('graphic')}
+                    emphasis={emphasis.has(job!.id)}
+                    people={people}
+                    currentUserId={currentUserId}
+                    onClaim={onClaimJob}
+                />
+            )
+        }
         const others = (entry?.graphicActive ?? 0) - 1
         return (
             <div className="space-y-1">
@@ -708,11 +759,20 @@ export default function TrackingView({
     // ไม่ผูกกับใบงานหน้างาน งานเก่าที่ไม่มีใบงานจึงล็อกและกดรับได้เหมือนกัน (ไม่มีทางลัดแบบ backward compat)
     const claimByDuty = new Map(dutyClaims.map(c => [dutyKey(c.leadId, c.duty), c]))
 
+    /**
+     * แก้ของหน้าที่นี้ได้ไหม — ผู้รับหน้าที่เองหรือแอดมิน/ฝ่ายประสานงานเท่านั้น (D3)
+     * ไทม์ไลน์ใช้ปิดการคลิกจัดคน/จัดรถ (server ปฏิเสธซ้ำอีกชั้นด้วย requireDutyHolder)
+     */
+    const canEditDuty = (leadId: string, duty: PrepDuty) =>
+        canManagePool || (!!currentUserId && claimByDuty.get(dutyKey(leadId, duty))?.claimedBy === currentUserId)
+
     const dutyGate = (lead: TrackingLead, duty: PrepDuty, children: ReactNode) => (
         <DutyGate
             leadId={lead.id}
             duty={duty}
             claim={claimByDuty.get(dutyKey(lead.id, duty))}
+            gate={gateOf(duty)}
+            emphasis={emphasis.has(dutyKey(lead.id, duty))}
             people={people}
             currentUserId={currentUserId}
             canManagePool={canManagePool}
@@ -734,6 +794,21 @@ export default function TrackingView({
     const chipVisible = chip ? base.filter(r => inChip(r, chip, today)) : base
     const visible = notOpenedOnly ? chipVisible.filter(notOpenedGraphic) : chipVisible
 
+    // ปุ่มที่ควรเรืองแสง: งานที่ใกล้วันงานที่สุดของแต่ละคอลัมน์ในชุดที่มองเห็น (คอลัมน์ละหนึ่งปุ่ม)
+    // อ่านจาก designGate/dutyGate ข้างบน — ทั้งสองถูกเรียกตอน render JSX ข้างล่างนี้แล้ว
+    const claimCandidates: ClaimCandidate[] = []
+    for (const lead of visible) {
+        const graphic = jobsByLead.get(lead.id)?.graphic
+        if (graphic?.status === AWAITING_CLAIM_STATUS) {
+            claimCandidates.push({ key: graphic.id, kind: 'graphic', date: lead.event_date })
+        }
+        for (const duty of PREP_DUTIES) {
+            const key = dutyKey(lead.id, duty)
+            if (!claimByDuty.has(key)) claimCandidates.push({ key, kind: duty, date: lead.event_date })
+        }
+    }
+    const emphasis = emphasizedClaims(claimCandidates)
+
     const undated = visible.filter(r => !r.event_date)
     const sections: { key: string; label: string; leads: TrackingLead[] }[] = [
         ...groupLeads(visible, today),
@@ -746,11 +821,18 @@ export default function TrackingView({
     const pool = groupPoolJobs(jobs)
     const poolJobs = tab === 'graphic' ? pool.graphic : pool.onsite
 
-    /** ตัวเลขบนป้ายแท็บ = ขนาดคิว "งานที่รับแล้ว" ของแท็บนั้น — งานที่ยังรอรับอยู่ที่ภาพรวม */
-    const tabCount = (key: PoolTab): number => {
-        if (key === 'graphic') return pool.graphic.filter(j => j.status !== 'awaiting_claim').length
-        if (key === 'onsite') return pool.onsite.filter(j => j.status !== 'awaiting_claim').length
-        return isDutyTab(key) ? claimedDutyCount(base, key, claimByDuty) : 0
+    /** ตัวเลขบนป้ายแท็บ = "รอรับ N · รับแล้ว M" ของแท็บนั้น (รับได้ทั้งสองแท็บแล้ว — D2) */
+    const tabCount = (key: PoolTab): { waiting: number; claimed: number } => {
+        if (key === 'graphic' || key === 'onsite') {
+            const list = key === 'graphic' ? pool.graphic : pool.onsite
+            const waiting = list.filter(j => j.status === AWAITING_CLAIM_STATUS).length
+            return { waiting, claimed: list.length - waiting }
+        }
+        if (!isDutyTab(key)) return { waiting: 0, claimed: 0 }
+        return {
+            waiting: unclaimedDutyCount(base, key, claimByDuty),
+            claimed: claimedDutyCount(base, key, claimByDuty),
+        }
     }
 
     return (
@@ -765,38 +847,45 @@ export default function TrackingView({
                     </p>
                 ) : isDutyTab(tab) ? (
                     <p className="text-sm text-zinc-500">
-                        พูลงาน · ใบงาน{DUTY_LABELS_TH[tab]} รับแล้ว {claimedDutyCount(base, tab, claimByDuty)} งาน — อีก {unclaimedDutyCount(base, tab, claimByDuty)} งานรอรับที่แท็บภาพรวม
+                        พูลงาน · ใบงาน{DUTY_LABELS_TH[tab]} รับแล้ว {claimedDutyCount(base, tab, claimByDuty)} งาน — อีก {unclaimedDutyCount(base, tab, claimByDuty)} งานรอรับ (กดรับได้ที่นี่)
                     </p>
                 ) : (
                     <p className="text-sm text-zinc-500">
-                        พูลงาน · {tab === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'} รับแล้ว {poolJobs.filter(j => j.status !== 'awaiting_claim').length} ใบ — อีก {poolJobs.filter(j => j.status === 'awaiting_claim').length} ใบรอรับที่แท็บภาพรวม
+                        พูลงาน · {tab === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'} รับแล้ว {poolJobs.filter(j => j.status !== AWAITING_CLAIM_STATUS).length} ใบ — อีก {poolJobs.filter(j => j.status === AWAITING_CLAIM_STATUS).length} ใบรอรับ (กดรับได้ที่นี่)
                     </p>
                 )}
             </div>
 
             {/* มือถือ: แท็บเลื่อนแนวนอน ไม่หักบรรทัด — จอกว้างค่อยยอมให้ wrap */}
             <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-x-visible items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 [&>button]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {POOL_TABS.filter(t => t.key !== 'onsite' || isAdmin).map(t => (
+                {POOL_TABS.filter(t => t.key !== 'onsite' || isAdmin).map(t => {
+                    const count = t.key === 'overview' ? null : tabCount(t.key)
+                    return (
                     <button
                         key={t.key}
                         type="button"
                         aria-pressed={tab === t.key}
                         onClick={() => setParams({ tab: t.key === 'overview' ? null : t.key })}
                         className={cn(
-                            '-mb-px border-b-2 px-3 py-2 text-sm font-medium',
+                            '-mb-px border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap',
                             tab === t.key
                                 ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
                                 : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
                         )}
                     >
                         {t.label}
-                        {t.key !== 'overview' && (
+                        {count && (
                             <span className="ml-1 text-xs font-normal text-zinc-400">
-                                ({tabCount(t.key)})
+                                (
+                                <span className={cn(count.waiting > 0 && 'font-semibold text-amber-600 dark:text-amber-400')}>
+                                    รอรับ {count.waiting}
+                                </span>
+                                {' · รับแล้ว '}{count.claimed})
                             </span>
                         )}
                     </button>
-                ))}
+                    )
+                })}
             </div>
 
             {tab === 'graphic' || tab === 'onsite' ? (
@@ -804,7 +893,8 @@ export default function TrackingView({
                     kind={tab}
                     jobs={poolJobs}
                     leads={rows}
-                    highlightLeadId={searchParams.get('lead')}
+                    gate={gateOf(tab)}
+                    highlightLeadId={highlightLeadId}
                     people={people}
                     roleLabels={roleLabels}
                     statusLabels={jobStatusLabels}
@@ -825,7 +915,8 @@ export default function TrackingView({
                     duty={tab}
                     leads={base}
                     all={rows}
-                    highlightLeadId={searchParams.get('lead')}
+                    gate={gateOf(tab)}
+                    highlightLeadId={highlightLeadId}
                     people={people}
                     roles={roles}
                     roleLabels={roleLabels}
@@ -974,6 +1065,8 @@ export default function TrackingView({
                                     // แล้วหนึ่งแถวต่ออีเวนต์ — ชื่ออีเวนต์อยู่คอลัมน์ "งาน" ปุ่มจัดคน/จัดรถ/กระเป๋าเรียงแถวเดียวกัน
                                     const multi = lead.events.length >= 2
                                     const span = lead.events.length + 1
+                                    // ลิงก์จากกระดิ่ง/แผงเตือน/การ์ด CRM (?lead=) — แถวของงานนี้ได้กรอบแดงและถูกเลื่อนจอไปหา
+                                    const highlighted = lead.id === highlightLeadId
                                     const rowCls = (first: boolean, last: boolean, sub: boolean) => cn(
                                         'transition-colors [&_td]:py-3 [&_td]:align-top hover:bg-zinc-50/70 dark:hover:bg-zinc-900/40',
                                         framed && DAY_FRAME,
@@ -982,11 +1075,21 @@ export default function TrackingView({
                                         // แถวรายอีเวนต์ของงานเดียวกันติดกันเป็นก้อน: ไม่มีเส้นคั่น + พื้นจางกว่าแถวหัวนิดหน่อย
                                         sub && 'bg-zinc-50/50 dark:bg-zinc-900/20',
                                         !last && 'border-b-0',
-                                        urgent && 'bg-rose-50/70 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/70 dark:hover:bg-rose-950/40'
+                                        urgent && 'bg-rose-50/70 dark:bg-rose-950/20 border-l-4 border-l-rose-500 hover:bg-rose-100/70 dark:hover:bg-rose-950/40',
+                                        highlighted && 'bg-red-50 dark:bg-red-950/30 border-l-4 border-l-red-500 hover:bg-red-100/70 dark:hover:bg-red-950/50'
                                     )
                                     if (!multi) {
                                         return (
-                                            <TableRow key={lead.id} className={rowCls(true, true, false)}>
+                                            <TableRow
+                                                key={lead.id}
+                                                ref={el => {
+                                                    if (el && highlighted && !scrolledRow.current) {
+                                                        scrolledRow.current = true
+                                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                                    }
+                                                }}
+                                                className={rowCls(true, true, false)}
+                                            >
                                                 <TableCell className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
                                                 <TableCell><JobCell lead={lead} today={today} /></TableCell>
                                                 <TableCell>{designGate(lead)}</TableCell>
@@ -1001,7 +1104,15 @@ export default function TrackingView({
                                     return (
                                         <Fragment key={lead.id}>
                                             {/* แถวหัวของงาน — ช่องจัดคน/จัดรถ/กระเป๋าเว้นว่าง ไปอยู่แถวรายอีเวนต์ข้างล่าง */}
-                                            <TableRow className={rowCls(true, false, false)}>
+                                            <TableRow
+                                                ref={el => {
+                                                    if (el && highlighted && !scrolledRow.current) {
+                                                        scrolledRow.current = true
+                                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                                    }
+                                                }}
+                                                className={rowCls(true, false, false)}
+                                            >
                                                 <TableCell rowSpan={span} className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
                                                 <TableCell><JobCell lead={lead} today={today} showEvents={false} /></TableCell>
                                                 <TableCell rowSpan={span}>{designGate(lead)}</TableCell>
@@ -1058,9 +1169,16 @@ export default function TrackingView({
                         {run.leads.map(lead => (
                             <div
                                 key={lead.id}
+                                ref={el => {
+                                    if (el && lead.id === highlightLeadId && !scrolledCard.current) {
+                                        scrolledCard.current = true
+                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                    }
+                                }}
                                 className={cn(
                                     'rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 space-y-2',
-                                    isUrgent(lead, today, kitReadiness.get(lead.id), designReady.get(lead.id)) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20'
+                                    isUrgent(lead, today, kitReadiness.get(lead.id), designReady.get(lead.id)) && 'border-l-4 border-l-rose-500 bg-rose-50/70 dark:bg-rose-950/20',
+                                    lead.id === highlightLeadId && 'border-red-500 ring-2 ring-red-500/60 dark:border-red-500'
                                 )}
                             >
                                 <div className="space-y-1.5">
@@ -1154,6 +1272,7 @@ export default function TrackingView({
                     kitBookings={kitBookings}
                     focusLeadId={focusLeadId}
                     focusEventId={focusLead ? targetEventOf(focusLead) : null}
+                    canEditDuty={canEditDuty}
                     onDateChange={changeDate}
                     onModeChange={m => setParams({ mode: m })}
                     onDepartmentsChange={d => setParams({ dept: d.length > 0 ? d.join(',') : null })}

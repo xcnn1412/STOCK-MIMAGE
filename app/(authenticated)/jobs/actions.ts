@@ -3,7 +3,7 @@
 import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { createNotifications } from '@/lib/notifications'
+import { createNotifications, type NotificationType } from '@/lib/notifications'
 import { cookies } from 'next/headers'
 import { requireAuth } from '@/lib/auth'
 // โมดูลตรรกะล้วน (ไม่มี React / ไม่มี 'use client') — import เข้ามาใน server action ได้
@@ -999,6 +999,7 @@ function poolNextStatusOf(settings: Map<string, string[]>, jobType: PoolJobType)
 async function notifyPoolManagers(
     job: { id: string },
     actorId: string,
+    type: NotificationType,
     title: string,
     body?: string,
     referenceType: 'job' | 'crm_lead' = 'job'
@@ -1011,7 +1012,7 @@ async function notifyPoolManagers(
 
     await createNotifications({
         userIds: [...(admins.data || []), ...(coordinators.data || [])].map(m => m.id as string),
-        type: 'job_status_changed',
+        type,
         title,
         body,
         referenceType,
@@ -1097,6 +1098,7 @@ export async function claimPoolJob(jobId: string) {
         notifyPoolManagers(
             job,
             actor.userId,
+            'job_pool_claimed',
             `รับใบงานแล้ว: ${job.title}`,
             `${actor.name} รับ${jobType === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'}นี้ไปแล้ว`
         ),
@@ -1147,7 +1149,7 @@ export async function releasePoolJob(jobId: string) {
             body: `${actor.name} คืนงาน — กดรับงานได้จากพูลงาน`,
             departments: poolTeamOf(settings, jobType),
         }),
-        notifyPoolManagers(job, actor.userId, `ใบงานกลับเข้าพูล: ${job.title}`, `${actor.name} คืนงานแล้ว`),
+        notifyPoolManagers(job, actor.userId, 'job_pool_released', `ใบงานกลับเข้าพูล: ${job.title}`, `${actor.name} คืนงานแล้ว`),
     ])
 
     revalidatePool(jobId)
@@ -1194,7 +1196,7 @@ export async function skipPoolJob(jobId: string, reason: string) {
         recipients.length > 0
             ? createNotifications({
                   userIds: recipients,
-                  type: 'job_status_changed',
+                  type: 'job_pool_skipped',
                   title: `ใบงานถูกข้าม: ${job.title}`,
                   body: `เหตุผล: ${trimmed}`,
                   referenceType: 'job',
@@ -1202,7 +1204,7 @@ export async function skipPoolJob(jobId: string, reason: string) {
                   actorId: actor.userId,
               })
             : Promise.resolve(),
-        notifyPoolManagers(job, actor.userId, `ใบงานถูกข้าม: ${job.title}`, `${actor.name} ข้ามใบงาน — เหตุผล: ${trimmed}`),
+        notifyPoolManagers(job, actor.userId, 'job_pool_skipped', `ใบงานถูกข้าม: ${job.title}`, `${actor.name} ข้ามใบงาน — เหตุผล: ${trimmed}`),
     ])
 
     revalidatePool(jobId)
@@ -1253,7 +1255,7 @@ export async function reassignPoolJob(jobId: string, newUserId: string) {
         logActivity('REASSIGN_POOL_JOB', { jobId, jobType, formerClaimer, newUserId }),
         createNotifications({
             userIds: [newUserId, formerClaimer].filter(Boolean) as string[],
-            type: 'job_assigned',
+            type: 'job_pool_assigned',
             title: `เปลี่ยนคนรับใบงาน: ${job.title}`,
             body: `ผู้รับใบงานคนใหม่คือ ${newUserName}`,
             referenceType: 'job',
@@ -1263,6 +1265,7 @@ export async function reassignPoolJob(jobId: string, newUserId: string) {
         notifyPoolManagers(
             job,
             actor.userId,
+            'job_pool_assigned',
             `เปลี่ยนคนรับใบงาน: ${job.title}`,
             `${actor.name} เปลี่ยนผู้รับเป็น ${newUserName}`
         ),
@@ -1332,14 +1335,14 @@ export async function assignPoolJob(jobId: string, userId: string) {
         logActivity('ASSIGN_POOL_JOB', { jobId, jobType, userId, becomesClaimer }),
         createNotifications({
             userIds: [userId],
-            type: 'job_assigned',
+            type: 'job_pool_assigned',
             title: `คุณได้รับมอบหมายใบงาน: ${job.title}`,
             body: `${actor.name} มอบหมายให้คุณรับผิดชอบใบงานนี้`,
             referenceType: 'job',
             referenceId: job.id,
             actorId: actor.userId,
         }),
-        notifyPoolManagers(job, actor.userId, `มอบหมายใบงาน: ${job.title}`, `${actor.name} มอบหมายให้ ${userName}`),
+        notifyPoolManagers(job, actor.userId, 'job_pool_assigned', `มอบหมายใบงาน: ${job.title}`, `${actor.name} มอบหมายให้ ${userName}`),
     ])
 
     revalidatePool(jobId)
@@ -1393,6 +1396,32 @@ async function getDutyLeadName(leadId: string): Promise<string | null> {
     return (data.customer_name as string) || 'ไม่ระบุลูกค้า'
 }
 
+/**
+ * D3: คนที่ "ลงมือทำ" ของหน้าที่หนึ่ง (จัดคน/จัดรถ/จัดกระเป๋า) ต้องเป็นผู้รับหน้าที่นั้นของงานนั้น
+ * แอดมิน/ฝ่ายประสานงาน (pool manager) ทำแทนได้เสมอ · คืน null = ผ่าน, คืน { error } = ปฏิเสธ
+ */
+async function requireDutyHolder(
+    supabase: ReturnType<typeof createServiceClient>,
+    actor: PoolActor,
+    leadId: string,
+    duty: PrepDuty
+): Promise<{ error: string } | null> {
+    if (isPoolManager(actor)) return null
+
+    const { data } = await supabase
+        .from('lead_duty_claims')
+        .select('id')
+        .eq('lead_id', leadId)
+        .eq('duty', duty)
+        .eq('claimed_by', actor.userId)
+        .maybeSingle()
+    if (data) return null
+
+    return {
+        error: `ต้องกดรับหน้าที่${DUTY_LABELS_TH[duty]}ของงานนี้ก่อน (หรือให้แอดมิน/ฝ่ายประสานงานจัดแทน)`,
+    }
+}
+
 /** แผนกที่รับหน้าที่นี้ได้ — ยังไม่ตั้งค่า = ค่าเริ่มต้นของหมวดนั้น */
 async function getDutyDepartments(duty: PrepDuty): Promise<string[]> {
     const category = PREP_DUTY_CATEGORY[duty]
@@ -1434,6 +1463,7 @@ export async function claimLeadDuty(leadId: string, duty: string) {
         notifyPoolManagers(
             { id: leadId },
             actor.userId,
+            'duty_claimed',
             `รับหน้าที่${label}: ${leadName}`,
             `${actor.name} รับหน้าที่${label}ของงานนี้แล้ว`,
             'crm_lead'
@@ -1473,6 +1503,7 @@ export async function releaseLeadDuty(leadId: string, duty: string) {
         notifyPoolManagers(
             { id: leadId },
             actor.userId,
+            'duty_released',
             `คืนหน้าที่${label}: ${leadName}`,
             `${actor.name} คืนหน้าที่${label} — กลับเป็นรอรับงาน`,
             'crm_lead'
@@ -2833,13 +2864,18 @@ export async function assignLeadStaff(
     eventId: string | null,
     assignments: { user_id: string; role: string }[]
 ) {
-    const session = await requireAuth()
-    if (!session) return { error: 'Unauthorized' }
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
 
     const supabase = createServiceClient()
 
-    const { data: roleRows } = await supabase
-        .from('crm_settings').select('value').eq('category', 'staff_role').eq('is_active', true)
+    // สิทธิ์หน้าที่ "จัดคน" (D3) อ่านพร้อมกับตำแหน่งที่ใช้ได้ — ไม่เพิ่มระลอกคิวรี
+    const [{ data: roleRows }, dutyDenied] = await Promise.all([
+        supabase.from('crm_settings').select('value').eq('category', 'staff_role').eq('is_active', true),
+        requireDutyHolder(supabase, actor, leadId, 'staffing'),
+    ])
+    if (dutyDenied) return { error: dutyDenied.error }
+
     const validRoles = new Set((roleRows || []).map(r => r.value as string))
     const clean = Array.from(
         new Map(assignments
@@ -2928,11 +2964,14 @@ async function syncLeadVehicleCache(
  * แล้ว sync crm_leads.tracking_checklist (cache รถระดับงาน) ตามกติกาใน syncLeadVehicleCache
  */
 export async function assignLeadVehicle(leadId: string, vehicleKey: string | null, eventId?: string | null) {
-    const session = await requireAuth()
-    if (!session) return { error: 'Unauthorized' }
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
     if (vehicleKey !== null && !CHECKLIST_KEYS.includes(vehicleKey)) return { error: 'รายการจัดรถไม่ถูกต้อง' }
 
     const supabase = createServiceClient()
+    // จัดรถได้เฉพาะผู้รับหน้าที่ "จัดรถ" ของงานนี้ (D3) — ตรวจก่อนแตะข้อมูลใดๆ
+    const dutyDenied = await requireDutyHolder(supabase, actor, leadId, 'vehicle')
+    if (dutyDenied) return { error: dutyDenied.error }
 
     // ระบุอีเวนต์มา = จัดรถรายอีเวนต์ (งานหนึ่งงานมีได้หลายคัน คันละอีเวนต์)
     if (eventId) {
@@ -3081,8 +3120,13 @@ export async function bookKitForLead(leadId: string, kitId: string, eventId?: st
     if ('error' in perm) return { error: perm.error }
 
     const supabase = createServiceClient()
-    const { data: kit } = await supabase.from('kits').select('id, name').eq('id', kitId).single()
+    // กระเป๋า + สิทธิ์หน้าที่ "จัดกระเป๋า" ของงานนี้ (D3) อ่านพร้อมกัน
+    const [{ data: kit }, dutyDenied] = await Promise.all([
+        supabase.from('kits').select('id, name').eq('id', kitId).single(),
+        requireDutyHolder(supabase, perm.actor, leadId, 'kits'),
+    ])
     if (!kit) return { error: 'ไม่พบกระเป๋าใบนี้' }
+    if (dutyDenied) return { error: dutyDenied.error }
 
     // resolveLeadEvent ตรวจให้แล้วว่า eventId ที่ส่งมาผูกกับงานนี้จริง (ไม่ใช่ = error)
     const resolved = await resolveLeadEvent(supabase, leadId, eventId ?? null, { pickExisting: true, source: 'kit-booking' })
@@ -3129,7 +3173,14 @@ export async function unbookKitForLead(leadId: string, kitId: string, eventId?: 
     if ('error' in perm) return { error: perm.error }
 
     const supabase = createServiceClient()
-    const rows = (await loadKitBookings(supabase, kitId))
+    // การจอง + สิทธิ์หน้าที่ "จัดกระเป๋า" ของงานนี้ (D3) อ่านพร้อมกัน
+    const [bookings, dutyDenied] = await Promise.all([
+        loadKitBookings(supabase, kitId),
+        requireDutyHolder(supabase, perm.actor, leadId, 'kits'),
+    ])
+    if (dutyDenied) return { error: dutyDenied.error }
+
+    const rows = bookings
         .filter(r => r.events?.crm_lead_id === leadId)
         .filter(r => !eventId || r.event_id === eventId)
     if (rows.length === 0) {

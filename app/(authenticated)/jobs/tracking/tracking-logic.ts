@@ -1152,6 +1152,76 @@ export interface DutyClaim {
 /** key ของการรับหน้าที่ — งานหนึ่งงานมีได้หน้าที่ละหนึ่งการรับ */
 export const dutyKey = (leadId: string, duty: PrepDuty): string => `${leadId}:${duty}`
 
+// --- ปุ่มรับงาน: ใครรับอะไรได้ + คำบนปุ่ม (D1/D7) -----------------------------
+
+/** สิ่งที่ "กดรับ" ได้ในหน้าติดตามงาน — ใบงานกราฟิก/หน้างาน + สามหน้าที่เตรียมงาน */
+export type ClaimKind = 'graphic' | 'onsite' | PrepDuty
+
+/** คำบนปุ่มรับตามสิ่งที่รับ — ไม่ใช้ "รับงาน" ลอยๆ (D7) */
+export const CLAIM_LABELS: Record<ClaimKind, string> = {
+  graphic: 'รับออกแบบ',
+  onsite: 'รับเป็นหัวหน้างาน',
+  staffing: 'รับจัดคน',
+  vehicle: 'รับจัดรถ',
+  kits: 'รับจัดกระเป๋า',
+}
+
+/** สิ่งที่รับได้ → หมวดใน job_settings ที่บอกว่าแผนกไหนรับได้ */
+export const CLAIM_CATEGORY: Record<ClaimKind, PoolTeamCategory> = {
+  graphic: 'pool_team_graphic',
+  onsite: 'pool_team_onsite',
+  ...PREP_DUTY_CATEGORY,
+}
+
+/** แผนกที่รับได้ของแต่ละสิ่ง (job_settings; ยังไม่ตั้งค่า = ค่าเริ่มต้นของหมวดนั้น) */
+export type PoolDepartments = Record<ClaimKind, string[]>
+
+/** ผลการตรวจสิทธิ์ของปุ่มรับหนึ่งปุ่ม */
+export interface ClaimGate {
+  /** กดได้ไหม — ไม่ได้ = ป้ายจาง ไม่มี onClick (D1) */
+  allowed: boolean
+  /** ข้อความบนป้ายจาง เช่น "รอฝ่ายออกแบบรับ" */
+  waitingFor: string
+}
+
+/**
+ * ผู้ใช้คนนี้กดรับสิ่งนี้ได้ไหม (D1) — แอดมินได้เสมอ คนอื่นต้องอยู่แผนกที่ตั้งไว้
+ * หลายแผนกคั่นด้วย " / " · ไม่มีแผนกไหนรับได้เลย = รอแอดมินรับ
+ */
+export function claimGate(
+  kind: ClaimKind,
+  myDepartment: string | null,
+  isAdmin: boolean,
+  poolDepartments: PoolDepartments
+): ClaimGate {
+  const departments = poolDepartments[kind] ?? []
+  return {
+    allowed: canActOnPool(myDepartment, isAdmin, departments),
+    waitingFor: departments.length > 0 ? `รอ${departments.join(' / ')}รับ` : 'รอแอดมินรับ',
+  }
+}
+
+/** ปุ่มรับหนึ่งปุ่มในชุดที่มองเห็น — `date` = วันงาน (null = ยังไม่กำหนดวัน) */
+export interface ClaimCandidate {
+  key: string
+  kind: ClaimKind
+  date: string | null
+}
+
+/**
+ * ปุ่มที่ควร "เรืองแสง" — ใกล้วันงานที่สุดของแต่ละคอลัมน์/หน้าที่ คอลัมน์ละหนึ่งปุ่ม
+ * งานที่ยังไม่กำหนดวันไม่ถูกเลือก · วันเท่ากัน = ตัวที่มาก่อนในรายการ (ที่เหลือเป็นปุ่มนิ่ง)
+ */
+export function emphasizedClaims(candidates: ClaimCandidate[]): Set<string> {
+  const best = new Map<ClaimKind, { key: string; date: string }>()
+  for (const c of candidates) {
+    if (!c.date) continue
+    const current = best.get(c.kind)
+    if (!current || c.date < current.date) best.set(c.kind, { key: c.key, date: c.date })
+  }
+  return new Set([...best.values()].map((b) => b.key))
+}
+
 // --- optimistic: ทับค่าที่เพิ่งกด "รับ/คืน" จนกว่าข้อมูลจาก server จะตามมา ------
 
 /**

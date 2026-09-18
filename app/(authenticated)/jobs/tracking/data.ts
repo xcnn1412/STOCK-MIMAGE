@@ -4,10 +4,10 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
 import type { TrackingLead } from './tracking-view'
-import { VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, POOL_TEAM_DEFAULTS, type DutyClaim, type EventVehicle, type PoolJob } from './tracking-logic'
+import { CLAIM_CATEGORY, VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, POOL_TEAM_DEFAULTS, type ClaimKind, type DutyClaim, type EventVehicle, type PoolDepartments, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
-// ตรรกะล้วน (ไม่มี React) — ที่เดียวที่รู้ว่าทีมไหนอ่านหมวดไหนใน job_settings
-import { DUTY_TEAM_CATEGORY, DUTY_TEAM_DEFAULTS, type DutyDepartments, type DutyTeamKey } from '@/components/dashboard-alerts/duty-warnings'
+// ตรรกะล้วน (ไม่มี React) — แผงเตือนอ่านแผนกชุดเดียวกัน แค่ไม่ใช้ใบงานหน้างาน
+import type { DutyDepartments } from '@/components/dashboard-alerts/duty-warnings'
 
 /** jsonb ที่อ่านมาจาก DB → { role: count } ที่เชื่อถือได้ (null / รูปแบบแปลก → {}) */
 function normalizeRequiredRoles(raw: unknown): Record<string, number> {
@@ -79,6 +79,8 @@ export interface TrackingSnapshot {
     canManageKits: boolean
     /** แผนกที่รับผิดชอบแต่ละทีม/หน้าที่ (job_settings; ยังไม่ตั้งค่า = ค่าเริ่มต้น) */
     dutyDepartments: DutyDepartments
+    /** แผนกที่กดรับได้ของทุกจุด (dutyDepartments + ใบงานหน้างาน) — ปุ่มรับใช้ตัดสินว่ากดได้ไหม */
+    poolDepartments: PoolDepartments
 }
 
 /** ตัวเลือกของ getTrackingSnapshot — ไม่ส่ง = ค่าเดิม (ตัดงานเก่า, อ่าน session จาก cookie) */
@@ -106,7 +108,7 @@ function pastCutoffDate(): string {
 const SETTING_CATEGORIES: string[] = [
     ...JOB_STATUS_CATEGORIES,
     'pool_kit_departments',
-    ...Object.values(DUTY_TEAM_CATEGORY),
+    ...Object.values(CLAIM_CATEGORY),
 ]
 
 /**
@@ -365,12 +367,21 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     const kitDepartments = departmentsOf('pool_kit_departments', POOL_TEAM_DEFAULTS.pool_kit_departments)
     const canManageKits = canActOnPool(myDepartment, sessionRole === 'admin', kitDepartments)
 
-    const dutyDepartments = Object.fromEntries(
-        (Object.keys(DUTY_TEAM_CATEGORY) as DutyTeamKey[]).map(team => [
-            team,
-            departmentsOf(DUTY_TEAM_CATEGORY[team], DUTY_TEAM_DEFAULTS[team]),
+    // แผนกที่รับได้ของทุกสิ่งที่กดรับได้ (ใบงานกราฟิก/หน้างาน + สามหน้าที่) — ปุ่มรับใช้ชุดนี้ตัดสิน D1
+    const poolDepartments = Object.fromEntries(
+        (Object.keys(CLAIM_CATEGORY) as ClaimKind[]).map(kind => [
+            kind,
+            departmentsOf(CLAIM_CATEGORY[kind], POOL_TEAM_DEFAULTS[CLAIM_CATEGORY[kind]]),
         ])
-    ) as DutyDepartments
+    ) as PoolDepartments
+
+    // แผงเตือนใช้เฉพาะกราฟิก + สามหน้าที่ (ไม่มีใบงานหน้างาน) — ค่าเดียวกับ poolDepartments
+    const dutyDepartments: DutyDepartments = {
+        graphic: poolDepartments.graphic,
+        staffing: poolDepartments.staffing,
+        vehicle: poolDepartments.vehicle,
+        kits: poolDepartments.kits,
+    }
 
     return {
         rows,
@@ -392,5 +403,6 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
         canManagePool,
         canManageKits,
         dutyDepartments,
+        poolDepartments,
     }
 }

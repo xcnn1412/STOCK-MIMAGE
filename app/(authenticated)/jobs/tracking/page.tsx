@@ -32,6 +32,8 @@ export default async function TrackingPage({
         kitBookings,
         eventVehicles,
         canManageKits,
+        myDepartment,
+        poolDepartments,
     } = snapshot
 
     // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
@@ -55,6 +57,8 @@ export default async function TrackingPage({
                 kitBookings={kitBookings}
                 eventVehicles={eventVehicles}
                 canManageKits={canManageKits}
+                myDepartment={myDepartment}
+                poolDepartments={poolDepartments}
             />
         </Suspense>
     )

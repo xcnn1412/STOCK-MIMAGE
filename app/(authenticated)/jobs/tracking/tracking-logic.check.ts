@@ -9,8 +9,13 @@ import {
   AWAITING_CLAIM_STATUS,
   canActOnPool,
   CLAIMING_STATUS,
+  CLAIM_CATEGORY,
+  CLAIM_LABELS,
+  claimGate,
   designCellState,
   dutyKey,
+  emphasizedClaims,
+  type PoolDepartments,
   pruneClaimDraft,
   pruneDutyDraft,
   designReadyByLead,
@@ -1290,5 +1295,74 @@ const pendingDuty = { 'l1:staffing': mine }
 assert.equal(pruneDutyDraft([], pendingDuty), pendingDuty)
 // คนอื่นชิงรับไปก่อน → ยังถือว่ายังไม่ตามทัน draft ของเรา (view ย้อนกลับเองเมื่อ action ตอบ error)
 assert.deepEqual(pruneDutyDraft([dc('l1', 'staffing', 'u9')], pendingDuty), pendingDuty)
+
+// --- ปุ่มรับ: ใครรับได้ + คำบนปุ่ม + ปุ่มไหนเรืองแสง (D1/D7) --------------------
+
+// คำบนปุ่มตามสิ่งที่รับ — ไม่มีจุดไหนใช้ "รับงาน" ลอยๆ และไม่ซ้ำกัน
+assert.equal(CLAIM_LABELS.graphic, 'รับออกแบบ')
+assert.equal(CLAIM_LABELS.onsite, 'รับเป็นหัวหน้างาน')
+assert.equal(CLAIM_LABELS.staffing, 'รับจัดคน')
+assert.equal(CLAIM_LABELS.vehicle, 'รับจัดรถ')
+assert.equal(CLAIM_LABELS.kits, 'รับจัดกระเป๋า')
+assert.equal(new Set(Object.values(CLAIM_LABELS)).size, 5)
+
+// ทุกจุดที่กดรับได้ต้องมีหมวดตั้งค่าแผนกของตัวเองใน job_settings (data.ts อ่านจากรายการนี้)
+for (const category of Object.values(CLAIM_CATEGORY)) {
+  assert.ok(POOL_TEAM_CATEGORIES.includes(category), `${category} ต้องเป็นหมวดของพูลงาน`)
+}
+
+const pools: PoolDepartments = {
+  graphic: ['ฝ่ายออกแบบ'],
+  onsite: ['ทีมออกหน้างาน'],
+  staffing: ['ฝ่ายแอดมิน'],
+  vehicle: ['ทีมออกหน้างาน', 'ช่าง'],
+  kits: [], // ยังไม่มีแผนกไหนรับได้
+}
+
+// อยู่แผนกที่ตั้งไว้ = กดได้
+assert.equal(claimGate('graphic', 'ฝ่ายออกแบบ', false, pools).allowed, true)
+// คนละแผนก = ป้ายจางบอกว่ารอใคร
+assert.deepEqual(claimGate('graphic', 'ฝ่ายแอดมิน', false, pools), {
+  allowed: false,
+  waitingFor: 'รอฝ่ายออกแบบรับ',
+})
+// หลายแผนกคั่นด้วย " / "
+assert.equal(claimGate('vehicle', 'ฝ่ายออกแบบ', false, pools).waitingFor, 'รอทีมออกหน้างาน / ช่างรับ')
+assert.equal(claimGate('vehicle', 'ช่าง', false, pools).allowed, true)
+// ยังไม่ตั้งแผนก = ไม่มีใครนอกแอดมินรับได้
+assert.deepEqual(claimGate('kits', 'ทีมออกหน้างาน', false, pools), {
+  allowed: false,
+  waitingFor: 'รอแอดมินรับ',
+})
+// แอดมินรับได้ทุกจุด แม้รายการว่าง
+assert.equal(claimGate('kits', null, true, pools).allowed, true)
+assert.equal(claimGate('onsite', 'ฝ่ายออกแบบ', true, pools).allowed, true)
+// ไม่มีแผนกและไม่ใช่แอดมิน = กดไม่ได้
+assert.equal(claimGate('staffing', null, false, pools).allowed, false)
+
+// เรืองแสงคอลัมน์ละหนึ่งปุ่ม: ใกล้วันงานที่สุดของคอลัมน์นั้น
+assert.deepEqual(
+  [
+    ...emphasizedClaims([
+      { key: 'g-far', kind: 'graphic', date: '2026-10-05' },
+      { key: 'g-near', kind: 'graphic', date: '2026-09-20' },
+      { key: 's-near', kind: 'staffing', date: '2026-09-25' },
+    ]),
+  ].sort(),
+  ['g-near', 's-near']
+)
+// งานที่ยังไม่กำหนดวันไม่เรืองแสง · ไม่มีอะไรเลยก็ได้ set ว่าง
+assert.deepEqual([...emphasizedClaims([{ key: 'x', kind: 'kits', date: null }])], [])
+assert.deepEqual([...emphasizedClaims([])], [])
+// วันเท่ากัน = ตัวแรกในรายการเท่านั้น (ที่เหลือเป็นปุ่มนิ่ง)
+assert.deepEqual(
+  [
+    ...emphasizedClaims([
+      { key: 'a', kind: 'vehicle', date: '2026-09-20' },
+      { key: 'b', kind: 'vehicle', date: '2026-09-20' },
+    ]),
+  ],
+  ['a']
+)
 
 console.log('tracking-logic.check: all passed')

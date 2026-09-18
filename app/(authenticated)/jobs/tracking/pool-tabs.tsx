@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Briefcase, RotateCcw, UserRound, Users, Zap } from 'lucide-react'
+import { Briefcase, Clock, RotateCcw, UserRound, Users, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { assignPoolJob, bookKitForLead, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
 import { DESIGN_OPTIONS } from './design-options'
@@ -21,17 +21,22 @@ import {
     type WorkOrderSort,
 } from './work-order-filters'
 import {
+    AWAITING_CLAIM_STATUS,
     CLAIMING_STATUS,
     CLAIMING_STATUS_LABEL,
+    CLAIM_LABELS,
     DUTY_LABELS_TH,
     VEHICLES,
     daysUntil,
+    emphasizedClaims,
     getMissing,
     kitBookingConflict,
     lacksTime,
     missingLabel,
     missingRoles,
     vehicleOf,
+    type ClaimGate,
+    type ClaimKind,
     type DutyClaim,
     type PrepDuty,
     type Kit as PoolKit,
@@ -52,10 +57,10 @@ export type PoolKind = 'graphic' | 'onsite'
 
 const PILL = 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium'
 
-// แท็บใบงาน = คิวงานที่ "รับแล้วเท่านั้น" — การกดรับเกิดที่แท็บภาพรวมที่เดียว
+// แท็บฝ่ายมีทั้ง "รอรับ" และ "รับแล้ว" — กดรับได้จากที่นี่เหมือนแท็บภาพรวม (D2)
 const EMPTY_TEXT: Record<PoolKind, string> = {
-    graphic: 'ยังไม่มีใบงานกราฟิกที่รับแล้ว — กดรับงานได้จากแท็บภาพรวม',
-    onsite: 'ยังไม่มีใบงานหน้างานที่รับแล้ว — กดรับงานได้จากแท็บภาพรวม',
+    graphic: 'ยังไม่มีใบงานกราฟิกในพูลนี้',
+    onsite: 'ยังไม่มีใบงานหน้างานในพูลนี้',
 }
 
 /** ใบงานคู่กับงานที่มันแตกออกมา — งานที่หาไม่เจอ (lead ถูกลบ/ปิด) ยังแสดงได้แบบไม่มีรายละเอียด */
@@ -114,22 +119,43 @@ function ClaimerLine({ job, kind, people }: { job: PoolJob; kind: PoolKind; peop
 }
 
 /**
- * ปุ่ม "รับงาน" หน้าตาเดียวกันทุกจุด (ภาพรวม / หน้าที่ / การ์ดใบงาน)
- * ไล่เฉดม่วง→ฟ้า + เงาเรือง + แสงกวาดตอน hover — ปุ่มเดียวในหน้าที่จงใจให้สะดุดตาชวนกด
+ * ปุ่ม "รับ…" หน้าตาเดียวกันทุกจุด (ภาพรวม / แท็บฝ่าย / การ์ดใบงาน) — คำบนปุ่มตามสิ่งที่รับ (D7)
+ * แผนกอื่น (allowed=false) = ป้ายจาง "รอ<แผนก>รับ" ไม่มี onClick (D1)
+ * วงแสงหายใจมีเฉพาะปุ่มที่ใกล้วันงานที่สุดของคอลัมน์นั้น (emphasis) ที่เหลือเป็นปุ่มนิ่ง
  */
-export function ClaimButton({ busy, title, onClick, children = 'รับงาน' }: {
+export function ClaimButton({ kind, gate, emphasis = false, busy, title, onClick, children }: {
+    /** สิ่งที่กดรับ — คำบนปุ่มมาจาก CLAIM_LABELS */
+    kind: ClaimKind
+    /** สิทธิ์ของผู้ใช้กับสิ่งนี้ — ไม่ส่ง = กดได้ (ผู้เรียกที่ยังไม่รู้แผนก) */
+    gate?: ClaimGate
+    emphasis?: boolean
     busy?: boolean
     title?: string
     onClick: () => void | Promise<unknown>
     children?: ReactNode
 }) {
+    const label = children ?? CLAIM_LABELS[kind]
+
+    if (gate && !gate.allowed) {
+        return (
+            <span
+                title={`${CLAIM_LABELS[kind]} — ${gate.waitingFor}`}
+                className={cn(PILL, 'gap-1 border border-dashed border-zinc-300 bg-zinc-50 text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-500')}
+            >
+                <Clock className="h-3 w-3" aria-hidden /> {gate.waitingFor}
+            </span>
+        )
+    }
+
     return (
         <span className="relative inline-flex shrink-0">
-            {/* วงแสงแดงหายใจอยู่หลังปุ่ม — เรียกสายตาแบบไม่แสบตา */}
-            <span
-                aria-hidden
-                className="pointer-events-none absolute -inset-0.5 rounded-full bg-gradient-to-r from-rose-500 to-orange-400 opacity-40 blur-[6px] animate-pulse"
-            />
+            {/* วงแสงแดงหายใจอยู่หลังปุ่ม — เรียกสายตาแบบไม่แสบตา (เฉพาะงานที่ใกล้ที่สุด) */}
+            {emphasis && (
+                <span
+                    aria-hidden
+                    className="pointer-events-none absolute -inset-0.5 rounded-full bg-gradient-to-r from-rose-500 to-orange-400 opacity-40 blur-[6px] animate-pulse"
+                />
+            )}
             <button
                 type="button"
                 disabled={busy}
@@ -138,7 +164,7 @@ export function ClaimButton({ busy, title, onClick, children = 'รับงา�
                 className="group relative inline-flex h-9 md:h-7 items-center gap-1 overflow-hidden rounded-full bg-gradient-to-r from-rose-600 via-red-500 to-orange-500 px-4 md:px-3 text-xs font-semibold text-white shadow-sm shadow-red-500/40 ring-1 ring-inset ring-white/20 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-red-500/50 hover:brightness-110 active:translate-y-0 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
             >
                 <Zap className="h-3.5 w-3.5 transition-transform duration-150 group-hover:rotate-12 group-hover:scale-125" aria-hidden />
-                {children}
+                {label}
                 {/* แสงกวาดผ่านปุ่มตอน hover */}
                 <span
                     aria-hidden
@@ -157,11 +183,20 @@ export function ClaimButton({ busy, title, onClick, children = 'รับงา�
  */
 export function ClaimChip({
     job,
+    kind = 'graphic',
+    gate,
+    emphasis,
     people,
     currentUserId,
     onClaim,
 }: {
     job: PoolJob | undefined
+    /** ใบงานฝ่ายไหน — คำบนปุ่มและสิทธิ์ตามฝ่ายนั้น */
+    kind?: ClaimKind
+    /** สิทธิ์รับใบงานฝ่ายนี้ของผู้ใช้ (D1) */
+    gate?: ClaimGate
+    /** ใบงานที่ใกล้วันงานที่สุดของคอลัมน์นี้ — ปุ่มเดียวที่เรืองแสง */
+    emphasis?: boolean
     people: Person[]
     currentUserId: string | null
     /** กดรับใบงาน — view เปลี่ยนช่องให้ทันทีแล้วค่อยเรียก server (ย้อนกลับเองเมื่อ error) */
@@ -170,8 +205,8 @@ export function ClaimChip({
     if (!job) return <span className="text-xs text-zinc-400">ยังไม่มีใบงาน</span>
     if (job.status === 'skipped') return <span className="text-xs text-zinc-400">ข้าม</span>
 
-    if (job.status === 'awaiting_claim') {
-        return <ClaimButton onClick={() => onClaim(job.id)} />
+    if (job.status === AWAITING_CLAIM_STATUS) {
+        return <ClaimButton kind={kind} gate={gate} emphasis={emphasis} onClick={() => onClaim(job.id)} />
     }
 
     const claimer = job.claimed_by ? nameOf(job.claimed_by, people) : null
@@ -232,6 +267,8 @@ export function DutyGate({
     leadId,
     duty,
     claim,
+    gate,
+    emphasis,
     people,
     currentUserId,
     canManagePool,
@@ -244,6 +281,10 @@ export function DutyGate({
     duty: PrepDuty
     /** การรับหน้าที่นี้ของงานนี้ — undefined = ยังไม่มีผู้รับ */
     claim: DutyClaim | undefined
+    /** สิทธิ์รับหน้าที่นี้ของผู้ใช้ (D1) — แผนกอื่นเห็นป้ายจาง "รอ…รับ" */
+    gate?: ClaimGate
+    /** งานที่ใกล้วันงานที่สุดของหน้าที่นี้ — ปุ่มเดียวที่เรืองแสง */
+    emphasis?: boolean
     people: Person[]
     currentUserId: string | null
     canManagePool: boolean
@@ -260,7 +301,13 @@ export function DutyGate({
         return (
             <div className="space-y-1">
                 {summary}
-                <ClaimButton title={`รับหน้าที่${label}ของงานนี้`} onClick={() => onClaim(leadId, duty)} />
+                <ClaimButton
+                    kind={duty}
+                    gate={gate}
+                    emphasis={emphasis}
+                    title={`รับหน้าที่${label}ของงานนี้`}
+                    onClick={() => onClaim(leadId, duty)}
+                />
             </div>
         )
     }
@@ -295,6 +342,9 @@ export function DutyGate({
  */
 function PoolCardActions({
     job,
+    kind,
+    gate,
+    emphasis,
     people,
     currentUserId,
     canManagePool,
@@ -302,6 +352,10 @@ function PoolCardActions({
     onRelease,
 }: {
     job: PoolJob
+    kind: PoolKind
+    /** สิทธิ์รับใบงานฝ่ายนี้ (D1) — แผนกอื่นเห็นป้ายจาง */
+    gate?: ClaimGate
+    emphasis?: boolean
     people: Person[]
     currentUserId: string | null
     canManagePool: boolean
@@ -333,14 +387,16 @@ function PoolCardActions({
         }
     }
 
-    const isAwaiting = job.status === 'awaiting_claim'
+    const isAwaiting = job.status === AWAITING_CLAIM_STATUS
     const isMine = !!currentUserId && job.claimed_by === currentUserId
     // ใบงานที่คนอื่นรับไปแล้วและเราไม่ได้ดูแลพูล — ไม่มีปุ่มให้กด
     if (!isAwaiting && !isMine && !canManagePool) return null
 
     return (
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            {isAwaiting && <ClaimButton onClick={() => onClaim(job.id)} />}
+            {isAwaiting && (
+                <ClaimButton kind={kind} gate={gate} emphasis={emphasis} onClick={() => onClaim(job.id)} />
+            )}
             {!isAwaiting && isMine && (
                 <Button size="sm" variant="outline" onClick={() => onRelease(job.id)}>
                     คืนงาน
@@ -803,6 +859,28 @@ export function KitSummary({
 }
 
 /**
+ * กลุ่ม "รอรับ (N)" / "รับแล้ว (M)" ในแท็บฝ่าย — กลุ่มว่างไม่แสดงหัวข้อ
+ * ใช้ร่วมกันกับแท็บใบงานรายหน้าที่ (duty-tabs) เพื่อให้หน้าตาเหมือนกันทุกแท็บ (D2)
+ */
+export function ClaimSection({ label, count, waiting = false, children }: {
+    label: string
+    count: number
+    /** กลุ่ม "รอรับ" — หัวข้อสีเหลืองอำพันให้สะดุดตา */
+    waiting?: boolean
+    children: ReactNode
+}) {
+    if (count === 0) return null
+    return (
+        <div className="space-y-2">
+            <div className={cn('px-1 text-xs font-semibold', waiting ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-600 dark:text-zinc-300')}>
+                {label} <span className="font-normal text-zinc-400 tabular-nums">({count})</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{children}</div>
+        </div>
+    )
+}
+
+/**
  * แท็บใบงานของหนึ่งฝ่ายในพูลงาน — การ์ดหนึ่งใบ = ใบงานหนึ่งใบ
  * เรียงตามวันงานของ leads (page.tsx เรียงมาแล้ว) งานที่หา lead ไม่เจอไว้ท้ายสุด
  */
@@ -821,6 +899,7 @@ export default function PoolTabs({
     kitReadiness,
     designReady,
     canManageKits = false,
+    gate,
     onJobDesignStatusChange,
     onClaimJob,
     onReleaseJob,
@@ -829,6 +908,8 @@ export default function PoolTabs({
     kind: PoolKind
     jobs: PoolJob[]
     leads: TrackingLead[]
+    /** สิทธิ์รับใบงานฝ่ายนี้ของผู้ใช้ (D1) — ไม่ได้ = ปุ่มรับเป็นป้ายจาง "รอ…รับ" */
+    gate?: ClaimGate
     people: Person[]
     roleLabels: Record<string, string>
     statusLabels: JobStatusLabels
@@ -866,20 +947,15 @@ export default function PoolTabs({
     const orderOf = new Map(leads.map((l, i) => [l.id, i]))
 
     /** ใบงานของฉัน = ฉันเป็นผู้รับ หรืออยู่ในทีมที่ถูกจัดมาบนใบงานนั้น */
-    // เฉพาะใบงานที่มีคนรับแล้ว — ใบที่ยังรอรับอยู่ที่แท็บภาพรวมเท่านั้น (flow: รับจากภาพรวม → โผล่ในคิวแท็บนี้)
-    // ยกเว้นงานที่ลิงก์มาจากการ์ด CRM: ใบที่ยังรอรับของงานนั้นโชว์ด้วย ไม่งั้นลิงก์พามาแล้วเจอแท็บว่าง
-    const claimedJobs = jobs.filter(
-        j => j.status !== 'awaiting_claim' || (!!highlightLeadId && j.crm_lead_id === highlightLeadId)
-    )
-
     const isMineJob = (job: PoolJob) =>
         !!currentUserId && (job.claimed_by === currentUserId || (job.assigned_to || []).includes(currentUserId))
-    const mineCount = claimedJobs.filter(isMineJob).length
+    const mineCount = jobs.filter(isMineJob).length
 
     /** ชื่อผู้รับใบงาน — null = ยังไม่มีผู้รับ (เรียงขึ้นก่อนเสมอ) */
     const claimerOf = (job: PoolJob) => (job.claimed_by ? nameOf(job.claimed_by, people) : null)
 
-    const rows: PoolRow[] = claimedJobs
+    // แท็บฝ่ายมีทั้งใบที่ยังรอรับและใบที่รับแล้ว — กดรับได้จากที่นี่ (D2)
+    const rows: PoolRow[] = jobs
         .map(job => ({ job, lead: (job.crm_lead_id ? leadById.get(job.crm_lead_id) : undefined) ?? null }))
         .sort((a, b) => {
             const ai = a.lead ? orderOf.get(a.lead.id) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER
@@ -903,27 +979,15 @@ export default function PoolTabs({
         )
 
     const visible = filtered
+    // สองส่วน: "รอรับ" อยู่บนสุด แล้ว "รับแล้ว" — ค้นหา/เรียง/ชิปใบงานของฉัน ใช้กับทั้งสองส่วน (D2)
+    const waitingRows = visible.filter(r => r.job.status === AWAITING_CLAIM_STATUS)
+    const claimedRows = visible.filter(r => r.job.status !== AWAITING_CLAIM_STATUS)
+    // เรืองแสงเฉพาะใบที่ใกล้วันงานที่สุดของแท็บนี้
+    const emphasis = emphasizedClaims(
+        waitingRows.map(r => ({ key: r.job.id, kind, date: r.lead?.event_date ?? null }))
+    )
 
-    return (
-        <div className="space-y-3">
-            <WorkOrderToolbar
-                query={query}
-                onQueryChange={setQuery}
-                sort={sort}
-                onSortChange={setSort}
-                mineOnly={mineOnly}
-                onMineOnlyChange={setMineOnly}
-                mineCount={mineCount}
-                showMine={!!currentUserId}
-            />
-
-            {visible.length === 0 ? (
-                <p className="text-center text-sm text-zinc-500 py-10">
-                    {query.trim() ? NO_MATCH_TEXT : mineOnly ? 'ยังไม่มีใบงานของคุณในพูลนี้' : EMPTY_TEXT[kind]}
-                </p>
-            ) : (
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {visible.map(({ job, lead }) => {
+    const renderCard = ({ job, lead }: PoolRow) => {
                     const highlighted = !!highlightLeadId && job.crm_lead_id === highlightLeadId
                     return (
                     <div
@@ -991,6 +1055,9 @@ export default function PoolTabs({
 
                         <PoolCardActions
                             job={job}
+                            kind={kind}
+                            gate={gate}
+                            emphasis={emphasis.has(job.id)}
                             people={people}
                             currentUserId={currentUserId}
                             canManagePool={canManagePool}
@@ -999,8 +1066,34 @@ export default function PoolTabs({
                         />
                     </div>
                     )
-                })}
-                </div>
+    }
+
+    return (
+        <div className="space-y-3">
+            <WorkOrderToolbar
+                query={query}
+                onQueryChange={setQuery}
+                sort={sort}
+                onSortChange={setSort}
+                mineOnly={mineOnly}
+                onMineOnlyChange={setMineOnly}
+                mineCount={mineCount}
+                showMine={!!currentUserId}
+            />
+
+            {visible.length === 0 ? (
+                <p className="text-center text-sm text-zinc-500 py-10">
+                    {query.trim() ? NO_MATCH_TEXT : mineOnly ? 'ยังไม่มีใบงานของคุณในพูลนี้' : EMPTY_TEXT[kind]}
+                </p>
+            ) : (
+                <>
+                    <ClaimSection label="รอรับ" count={waitingRows.length} waiting>
+                        {waitingRows.map(renderCard)}
+                    </ClaimSection>
+                    <ClaimSection label="รับแล้ว" count={claimedRows.length}>
+                        {claimedRows.map(renderCard)}
+                    </ClaimSection>
+                </>
             )}
         </div>
     )

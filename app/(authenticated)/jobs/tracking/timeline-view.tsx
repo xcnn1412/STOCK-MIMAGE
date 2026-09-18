@@ -35,8 +35,15 @@ import {
     type Lane,
     type LaneKind,
     type Person,
+    type PrepDuty,
     type TrackingLead,
 } from './tracking-logic'
+
+/** เหตุผลที่คลิกไม่ได้ ตามหน้าที่ที่ยังไม่ได้รับ (D3) — โชว์เป็น tooltip บนแถบ/แทร็ก */
+const DUTY_BLOCKED: Record<'staffing' | 'vehicle', string> = {
+    staffing: 'ต้องรับหน้าที่จัดคนก่อน',
+    vehicle: 'ต้องรับหน้าที่จัดรถก่อน',
+}
 
 /** palette 10 สี — index มาจาก seam (colorIdx) งานเดียวกันได้สีเดียวกันทุกเลน */
 const BAR_CLASS: string[] = [
@@ -116,10 +123,16 @@ const subscribeWide = (onChange: () => void) => {
 const useIsWide = () =>
     useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE_QUERY).matches, () => true)
 
-function JobBar({ bar, hourStart, onClick }: { bar: Bar; hourStart: number; onClick: () => void }) {
+function JobBar({ bar, hourStart, hint, onClick }: {
+    bar: Bar
+    hourStart: number
+    /** แตะไม่ได้เพราะยังไม่ได้รับหน้าที่ — ต่อท้าย tooltip และเปลี่ยนเคอร์เซอร์ (D3) */
+    hint?: string
+    onClick: () => void
+}) {
     const suffix = TIMING_SUFFIX[bar.timing] ?? ''
     const packed = bar.packed === undefined ? '' : ` · ${packedLabel(bar.packed)}`
-    const title = `${bar.label} ${clock(bar.startMin)}–${clock(bar.endMin)}${suffix}${packed}`
+    const title = `${bar.label} ${clock(bar.startMin)}–${clock(bar.endMin)}${suffix}${packed}${hint ? ` · ${hint}` : ''}`
 
     return (
         <button
@@ -136,7 +149,8 @@ function JobBar({ bar, hourStart, onClick }: { bar: Bar; hourStart: number; onCl
                 'absolute overflow-hidden rounded-md px-2 text-xs truncate flex items-center gap-1 text-left',
                 barClass(bar),
                 bar.conflict && 'ring-2 ring-rose-500',
-                bar.unassigned && 'border-2 border-dashed border-zinc-400'
+                bar.unassigned && 'border-2 border-dashed border-zinc-400',
+                hint && 'cursor-not-allowed'
             )}
         >
             {(bar.timing === 'no_time' || bar.timing === 'multi_day') && (
@@ -274,7 +288,7 @@ function FocusHeader({ lead, roles, roleLabels, eventId, onEventChange, onRequir
 }
 
 /** เลนหนึ่งแถวของโหมดวัน — ป้ายซ้าย + แทร็ก (แถบเวลาโฟกัส, เส้นเวลาปัจจุบัน, แถบงาน) */
-function DayLane({ lane, hourStart, trackStyle, now, labelExtra, sublabelExtra, band, dim, onBarClick, onTrackClick, children }: {
+function DayLane({ lane, hourStart, trackStyle, now, labelExtra, sublabelExtra, band, dim, barHint, trackTitle, onBarClick, onTrackClick, children }: {
     lane: Lane
     hourStart: number
     trackStyle: CSSProperties
@@ -284,6 +298,10 @@ function DayLane({ lane, hourStart, trackStyle, now, labelExtra, sublabelExtra, 
     sublabelExtra?: ReactNode
     band?: { startMin: number; endMin: number; striped: boolean } | null
     dim?: boolean
+    /** เหตุผลที่แถบนี้แตะไม่ได้ (ยังไม่ได้รับหน้าที่) — undefined = กดได้ตามปกติ */
+    barHint?: (bar: Bar) => string | undefined
+    /** tooltip ของแทร็กทั้งเลน — ใช้บอกว่าทำไมคลิกจัดคนไม่ได้ */
+    trackTitle?: string
     onBarClick: (bar: Bar) => void
     /** คลิกพื้นที่ว่างของแทร็ก (ไม่ใช่แถบ) — มีค่า = เลนนี้กดจัดคนได้ */
     onTrackClick?: (e: MouseEvent<HTMLDivElement>) => void
@@ -309,6 +327,7 @@ function DayLane({ lane, hourStart, trackStyle, now, labelExtra, sublabelExtra, 
             <div
                 className={cn('relative shrink-0', onTrackClick && 'cursor-copy')}
                 style={{ ...trackStyle, height: lane.layers * ROW_H + 8 }}
+                title={trackTitle}
                 onClick={onTrackClick}
             >
                 {lane.kind === 'person' && lane.bars.length === 0 && (
@@ -336,6 +355,7 @@ function DayLane({ lane, hourStart, trackStyle, now, labelExtra, sublabelExtra, 
                         key={`${bar.leadId}-${bar.role ?? ''}-${bi}`}
                         bar={bar}
                         hourStart={hourStart}
+                        hint={barHint?.(bar)}
                         onClick={() => onBarClick(bar)}
                     />
                 ))}
@@ -425,6 +445,7 @@ export default function TimelineView({
     onRequiredRolesChange,
     onQuickAssign,
     onQuickRemove,
+    canEditDuty,
 }: {
     rows: TrackingLead[]
     people: Person[]
@@ -455,6 +476,8 @@ export default function TimelineView({
     onRequiredRolesChange: (leadId: string, required: Record<string, number>) => void
     onQuickAssign: (leadId: string, userId: string, role: string) => void
     onQuickRemove: (leadId: string, userId: string, role: string) => void
+    /** แก้หน้าที่นี้ของงานนั้นได้ไหม (ผู้รับหน้าที่/แอดมิน) — ไม่ส่ง = แก้ได้หมดตามเดิม (D3) */
+    canEditDuty?: (leadId: string, duty: PrepDuty) => boolean
 }) {
     /** กลุ่มแผนกที่ผู้ใช้ยุบ/ขยายเอง — ผูกกับวัน+โหมดที่ดูอยู่ เปลี่ยนวันแล้วกลับไปใช้ค่าเริ่มต้น */
     const [collapse, setCollapse] = useState<{ sig: string; set: Set<string> } | null>(null)
@@ -468,6 +491,16 @@ export default function TimelineView({
 
     const todayStr = ymd(today)
     const isWeek = mode === 'week' && isWide
+
+    // D3: จัดคน/จัดรถ แก้ได้เฉพาะผู้รับหน้าที่นั้น (หรือแอดมิน/ฝ่ายประสานงาน) — คนอื่นคลิกไม่ได้
+    const mayEdit = (leadId: string, duty: 'staffing' | 'vehicle') => canEditDuty?.(leadId, duty) ?? true
+    /** เหตุผลที่แถบของเลนนี้แตะไม่ได้ — undefined = กดได้ (เลนงาน/เลนกระเป๋าไม่เกี่ยวกับหน้าที่) */
+    const blockHint = (kind: LaneKind, leadId: string): string | undefined => {
+        const duty = kind === 'vehicle' ? 'vehicle' : kind === 'person' ? 'staffing' : null
+        return duty && !mayEdit(leadId, duty) ? DUTY_BLOCKED[duty] : undefined
+    }
+    const editStaff = (leadId: string) => { if (mayEdit(leadId, 'staffing')) onEditStaff(leadId) }
+    const editVehicle = (leadId: string) => { if (mayEdit(leadId, 'vehicle')) onEditVehicle(leadId) }
     // ponytail: cheap; memo if lanes > ~200
     const layoutOpts = { departments, kits, kitBookings }
     const layout = layoutDay(rows, date, people, roleLabels, layoutOpts)
@@ -503,6 +536,8 @@ export default function TimelineView({
         ...gaps.map(g => ({ value: g.role, label: roleLabels[g.role] || g.role, missing: g.need - g.have })),
         ...roles.filter(r => !gaps.some(g => g.role === r.value)).map(r => ({ ...r, missing: 0 })),
     ]
+    /** จัดคนในงานที่โฟกัสอยู่ได้ไหม — ไม่ได้ = คลิกเลนตัวเลือกไม่ได้ (tooltip บอกเหตุผล) */
+    const mayStaffFocused = focused ? mayEdit(focused.id, 'staffing') : false
     const onCandidateClick = (personId: string) => (e: MouseEvent<HTMLDivElement>) => {
         if (!focused || e.target !== e.currentTarget) return
         if (gaps.length === 1) {
@@ -566,12 +601,16 @@ export default function TimelineView({
                 dim={isBusy}
                 labelExtra={<WorkloadBadge n={workload.get(candidate.person.id) ?? 0} />}
                 sublabelExtra={<AvailabilityTag candidate={candidate} />}
-                onBarClick={bar =>
-                    bar.leadId === focused.id && bar.roleValue
-                        ? onQuickRemove(focused.id, candidate.person.id, bar.roleValue)
-                        : onEditStaff(bar.leadId)
-                }
-                onTrackClick={isBusy ? undefined : onCandidateClick(candidate.person.id)}
+                barHint={bar => blockHint('person', bar.leadId)}
+                trackTitle={mayStaffFocused ? undefined : DUTY_BLOCKED.staffing}
+                onBarClick={bar => {
+                    if (bar.leadId === focused.id && bar.roleValue) {
+                        if (mayStaffFocused) onQuickRemove(focused.id, candidate.person.id, bar.roleValue)
+                        return
+                    }
+                    editStaff(bar.leadId)
+                }}
+                onTrackClick={isBusy || !mayStaffFocused ? undefined : onCandidateClick(candidate.person.id)}
             >
                 {menu?.personId === candidate.person.id && (
                     <Popover open onOpenChange={o => { if (!o) setMenu(null) }}>
@@ -746,25 +785,29 @@ export default function TimelineView({
                                             {lane.kind === 'person' && free && di === 0 && (
                                                 <span className="text-[11px] text-zinc-400">ว่าง</span>
                                             )}
-                                            {lane.cells[day].map((cell, ci) => (
+                                            {lane.cells[day].map((cell, ci) => {
+                                                const hint = blockHint(lane.kind, cell.leadId)
+                                                return (
                                                 <button
                                                     key={`${cell.leadId}-${cell.role ?? ''}-${ci}`}
                                                     type="button"
                                                     title={
                                                         cell.label +
                                                         (cell.role ? ` · ${cell.role}` : '') +
-                                                        (cell.packed === undefined ? '' : ` · ${packedLabel(cell.packed)}`)
+                                                        (cell.packed === undefined ? '' : ` · ${packedLabel(cell.packed)}`) +
+                                                        (hint ? ` · ${hint}` : '')
                                                     }
                                                     onClick={() => {
                                                         // เลนกระเป๋า: บล็อกคือการจอง ไม่ใช่การจัดคน/รถ — ยังไม่มีอะไรให้แก้จากตรงนี้
                                                         if (lane.kind === 'kit') return
-                                                        if (lane.kind === 'vehicle') onEditVehicle(cell.leadId)
-                                                        else onEditStaff(cell.leadId)
+                                                        if (lane.kind === 'vehicle') editVehicle(cell.leadId)
+                                                        else editStaff(cell.leadId)
                                                     }}
                                                     className={cn(
                                                         'block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px]',
                                                         barClass(cell),
                                                         cell.conflict && 'ring-1 ring-rose-500',
+                                                        hint && 'cursor-not-allowed',
                                                         lane.kind === 'jobs' &&
                                                             cell.unassigned &&
                                                             'border border-dashed border-zinc-400'
@@ -776,7 +819,8 @@ export default function TimelineView({
                                                         <span className="opacity-70"> · {packedLabel(cell.packed)}</span>
                                                     )}
                                                 </button>
-                                            ))}
+                                                )
+                                            })}
                                         </div>
                                     ))}
                                     </>
@@ -833,12 +877,13 @@ export default function TimelineView({
                                         labelExtra={
                                             lane.kind === 'person' ? <WorkloadBadge n={workload.get(lane.key) ?? 0} /> : null
                                         }
+                                        barHint={bar => blockHint(lane.kind, bar.leadId)}
                                         onBarClick={bar => {
                                             // เลนกระเป๋า: แถบคือการจอง ไม่ใช่การจัดคน/รถ — ยังไม่มีอะไรให้แก้จากตรงนี้
                                             if (lane.kind === 'kit') return
-                                            if (lane.kind === 'vehicle') onEditVehicle(bar.leadId)
+                                            if (lane.kind === 'vehicle') editVehicle(bar.leadId)
                                             else if (lane.kind === 'jobs') onFocus(bar.leadId)
-                                            else onEditStaff(bar.leadId)
+                                            else editStaff(bar.leadId)
                                         }}
                                     />
                                 )}

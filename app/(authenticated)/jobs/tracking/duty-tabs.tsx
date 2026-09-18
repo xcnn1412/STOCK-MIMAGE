@@ -9,7 +9,9 @@ import {
     DUTY_LABELS_TH,
     VEHICLES,
     dutyKey,
+    emphasizedClaims,
     vehicleOf,
+    type ClaimGate,
     type DutyClaim,
     type KitBookingDetail,
     type KitReadiness,
@@ -18,7 +20,7 @@ import {
     type PrepDuty,
     type TrackingLead,
 } from './tracking-logic'
-import { DutyGate, KitSummary, LeadHeader, nameOf } from './pool-tabs'
+import { ClaimSection, DutyGate, KitSummary, LeadHeader, nameOf } from './pool-tabs'
 import { StaffEditor, VehicleCell, type StaffRole, type VehicleSyncFn } from './editors'
 import {
     NO_MATCH_TEXT,
@@ -61,7 +63,7 @@ export function dutySummary(
     return n > 0 ? <div className="text-xs text-zinc-500">จองไว้แล้ว {n} ใบ</div> : null
 }
 
-/** จำนวนงานที่หน้าที่นี้ "ยังไม่มีคนรับ" — งานพวกนี้อยู่ที่แท็บภาพรวม รอคนกดรับ */
+/** จำนวนงานที่หน้าที่นี้ "ยังไม่มีคนรับ" — ส่วน "รอรับ" บนสุดของแท็บนี้ (และตารางภาพรวม) */
 export function unclaimedDutyCount(
     leads: TrackingLead[],
     duty: PrepDuty,
@@ -94,6 +96,7 @@ export default function DutyTab({
     kitBookings = [],
     kitReadiness,
     canManageKits = false,
+    gate,
     onVehicleSaved,
     onStaffSaved,
     onRequiredRolesSaved,
@@ -118,6 +121,8 @@ export default function DutyTab({
     kitBookings?: KitBookingDetail[]
     kitReadiness?: Map<string, KitReadiness>
     canManageKits?: boolean
+    /** สิทธิ์รับหน้าที่นี้ของผู้ใช้ (D1) — ไม่ได้ = ปุ่มรับเป็นป้ายจาง "รอ…รับ" */
+    gate?: ClaimGate
     onVehicleSaved?: VehicleSyncFn
     onStaffSaved: (
         leadId: string,
@@ -145,19 +150,14 @@ export default function DutyTab({
         return claim ? nameOf(claim.claimedBy, people) : null
     }
 
-    // เฉพาะงานที่หน้าที่นี้มีคนรับแล้ว — งานที่ยังรอรับอยู่ที่แท็บภาพรวมเท่านั้น (flow: รับจากภาพรวม → โผล่ในคิวแท็บนี้)
-    // ยกเว้นงานที่ลิงก์มาไฮไลต์ (?lead=): ยังไม่มีคนรับก็ต้องโชว์ ไม่งั้นลิงก์เตือนพามาแล้วเจอแท็บว่าง (ท่าเดียวกับ pool-tabs)
-    const claimed = leads.filter(
-        l => claimByDuty.has(dutyKey(l.id, duty)) || (!!highlightLeadId && l.id === highlightLeadId)
-    )
-
+    // แท็บนี้มีทั้งงานที่ยังรอรับหน้าที่และงานที่รับแล้ว — กดรับได้จากที่นี่ (D2)
     /** ใบงานของฉัน = ฉันเป็นคนรับหน้าที่นี้ของงานนั้น */
     const isMine = (lead: TrackingLead) => !!currentUserId && claimOf(lead)?.claimedBy === currentUserId
-    const mineCount = claimed.filter(isMine).length
+    const mineCount = leads.filter(isMine).length
 
     // leads เรียงตามวันงานมาแล้วจาก page.tsx — 'ผู้รับ' เรียงใหม่โดยยังใช้ลำดับวันเป็นตัวตัดสินท้าย
-    const order = new Map(claimed.map((l, i) => [l.id, i]))
-    const sorted = claimed.slice().sort((a, b) => {
+    const order = new Map(leads.map((l, i) => [l.id, i]))
+    const sorted = leads.slice().sort((a, b) => {
         const byDate = (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)
         if (sort === 'date') return byDate
         return compareClaimer(claimerOf(a), claimerOf(b)) || byDate
@@ -193,30 +193,12 @@ export default function DutyTab({
         return <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} />
     }
 
-    return (
-        <div className="space-y-3">
-            <WorkOrderToolbar
-                query={query}
-                onQueryChange={setQuery}
-                sort={sort}
-                onSortChange={setSort}
-                mineOnly={mineOnly}
-                onMineOnlyChange={setMineOnly}
-                mineCount={mineCount}
-                showMine={!!currentUserId}
-            />
+    const waitingLeads = visible.filter(l => !claimOf(l))
+    const claimedLeads = visible.filter(l => claimOf(l))
+    // เรืองแสงเฉพาะงานที่ใกล้วันงานที่สุดของหน้าที่นี้
+    const emphasis = emphasizedClaims(waitingLeads.map(l => ({ key: l.id, kind: duty, date: l.event_date })))
 
-            {visible.length === 0 ? (
-                <p className="text-center text-sm text-zinc-500 py-10">
-                    {query.trim()
-                        ? NO_MATCH_TEXT
-                        : mineOnly
-                          ? `ยังไม่มีงานที่คุณรับหน้าที่${label}`
-                          : `ยังไม่มีงานที่รับหน้าที่${label}แล้ว — กดรับงานได้จากแท็บภาพรวม`}
-                </p>
-            ) : (
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {visible.map(lead => {
+    const renderCard = (lead: TrackingLead) => {
                         const highlighted = !!highlightLeadId && lead.id === highlightLeadId
                         return (
                         <div
@@ -244,6 +226,8 @@ export default function DutyTab({
                                 leadId={lead.id}
                                 duty={duty}
                                 claim={claimOf(lead)}
+                                gate={gate}
+                                emphasis={emphasis.has(lead.id)}
                                 people={people}
                                 currentUserId={currentUserId}
                                 canManagePool={canManagePool}
@@ -255,8 +239,38 @@ export default function DutyTab({
                             </DutyGate>
                         </div>
                         )
-                    })}
-                </div>
+    }
+
+    return (
+        <div className="space-y-3">
+            <WorkOrderToolbar
+                query={query}
+                onQueryChange={setQuery}
+                sort={sort}
+                onSortChange={setSort}
+                mineOnly={mineOnly}
+                onMineOnlyChange={setMineOnly}
+                mineCount={mineCount}
+                showMine={!!currentUserId}
+            />
+
+            {visible.length === 0 ? (
+                <p className="text-center text-sm text-zinc-500 py-10">
+                    {query.trim()
+                        ? NO_MATCH_TEXT
+                        : mineOnly
+                          ? `ยังไม่มีงานที่คุณรับหน้าที่${label}`
+                          : `ยังไม่มีงานในหน้าที่${label}`}
+                </p>
+            ) : (
+                <>
+                    <ClaimSection label="รอรับ" count={waitingLeads.length} waiting>
+                        {waitingLeads.map(renderCard)}
+                    </ClaimSection>
+                    <ClaimSection label="รับแล้ว" count={claimedLeads.length}>
+                        {claimedLeads.map(renderCard)}
+                    </ClaimSection>
+                </>
             )}
         </div>
     )
