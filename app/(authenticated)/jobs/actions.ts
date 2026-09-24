@@ -2743,6 +2743,7 @@ export async function updateLeadTracking(
     patch: {
         design_status?: string
         supplier_note?: string | null
+        backdrop_note?: string | null
         tracking_checklist?: string[]
         required_roles?: Record<string, number>
     }
@@ -2761,6 +2762,9 @@ export async function updateLeadTracking(
     }
     if (patch.supplier_note !== undefined) {
         update.supplier_note = patch.supplier_note?.trim() || null
+    }
+    if (patch.backdrop_note !== undefined) {
+        update.backdrop_note = patch.backdrop_note?.trim() || null
     }
     if (patch.tracking_checklist !== undefined) {
         if (patch.tracking_checklist.some(k => !CHECKLIST_KEYS.includes(k))) return { error: 'รายการจัดรถไม่ถูกต้อง' }
@@ -2784,7 +2788,13 @@ export async function updateLeadTracking(
     if (Object.keys(update).length === 0) return { success: true }
 
     const { error } = await supabase.from('crm_leads').update(update).eq('id', leadId)
-    if (error) return { error: error.message }
+    if (error) {
+        // instance ยังไม่รัน migration สีฉาก — บอกให้ชัดแทน error ดิบของ Postgres
+        if (error.code === '42703' && error.message.includes('backdrop_note')) {
+            return { error: 'ยังไม่ได้เปิดใช้ช่องสีฉากในฐานข้อมูล — รัน migration 20260925_crm_leads_backdrop_note.sql ก่อน' }
+        }
+        return { error: error.message }
+    }
 
     await logActivity('UPDATE_LEAD_TRACKING', { lead_id: leadId, ...update })
 

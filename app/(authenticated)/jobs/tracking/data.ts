@@ -120,29 +120,29 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     const supabase = createServiceClient()
 
     // --- ระลอก A: งาน + กระเป๋า + การตั้งค่า + คน + session ---------------------
-    const leadsBase = supabase
-        .from('crm_leads')
-        .select('id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, tracking_checklist, required_roles, archived_at, prep_done_at')
-        .eq('status', 'accepted')
+    // คอลัมน์ของงานที่หน้านี้ใช้ — backdrop_note มาทีหลัง (20260925) จึงถอดออกได้ตอน fallback ข้างล่าง
+    const LEAD_COLS = 'id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, backdrop_note, tracking_checklist, required_roles, archived_at, prep_done_at' as const
     const cutoff = pastCutoffDate()
-    const leadsQuery = (opts?.includePast
-        ? leadsBase
-        : leadsBase.or(
-              `event_date.is.null,event_end_date.gte.${cutoff},and(event_end_date.is.null,event_date.gte.${cutoff})`
-          )
-    )
-        .order('event_date', { ascending: true, nullsFirst: false })
-        .order('event_time', { ascending: true, nullsFirst: false })
+    // cast: supabase-js type แถวได้เฉพาะจาก literal — fallback ส่ง string เดียวกันที่ถอด backdrop_note ออก
+    const leadsQueryFor = (cols: string) => {
+        const base = supabase.from('crm_leads').select(cols as typeof LEAD_COLS).eq('status', 'accepted')
+        return (opts?.includePast
+            ? base
+            : base.or(`event_date.is.null,event_end_date.gte.${cutoff},and(event_end_date.is.null,event_date.gte.${cutoff})`)
+        )
+            .order('event_date', { ascending: true, nullsFirst: false })
+            .order('event_time', { ascending: true, nullsFirst: false })
+    }
 
     const [
-        { data: leads, error: leadsError },
+        { data: leadsData, error: leadsError },
         { data: kitRows },
         { data: settingRows },
         { data: roleSettings },
         { data: profiles },
         session,
     ] = await Promise.all([
-        leadsQuery,
+        leadsQueryFor(LEAD_COLS),
         supabase.from('kits').select('id, name').order('name', { ascending: true }),
         supabase
             .from('job_settings')
@@ -163,7 +163,15 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
             .order('full_name'),
         opts?.session ? Promise.resolve(opts.session) : getSessionLight(),
     ])
-    if (leadsError) throw new Error(leadsError.message)
+    let leads = leadsData
+    if (leadsError) {
+        // ponytail: instance ที่ยังไม่รัน migration 20260925_crm_leads_backdrop_note.sql → ถามใหม่โดยไม่เอาคอลัมน์นั้น
+        // (ช่องสีฉากจะว่างและบันทึกไม่ได้จนกว่าจะ migrate) — ลบ fallback นี้ได้เมื่อทุก instance migrate แล้ว
+        if (leadsError.code !== '42703' || !leadsError.message.includes('backdrop_note')) throw new Error(leadsError.message)
+        const retry = await leadsQueryFor(LEAD_COLS.replace('backdrop_note, ', ''))
+        if (retry.error) throw new Error(retry.error.message)
+        leads = retry.data
+    }
 
     const leadIds = (leads || []).map(l => l.id)
 
@@ -343,6 +351,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
         event_end_time: l.event_end_time ? String(l.event_end_time).slice(0, 5) : null,
         design_status: l.design_status || 'not_started',
         supplier_note: l.supplier_note,
+        backdrop_note: l.backdrop_note ?? null,
         // กรองเหลือเฉพาะ key รถ — key checklist เก่า (lock_queue/on_site) ไม่ใช้แล้วและไม่ผ่าน validation
         tracking_checklist: (Array.isArray(l.tracking_checklist) ? (l.tracking_checklist as string[]) : []).filter(k => VEHICLES.some(v => v.key === k)),
         required_roles: normalizeRequiredRoles(l.required_roles),

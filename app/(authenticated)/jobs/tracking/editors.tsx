@@ -36,7 +36,7 @@ type Draft = { user_id: string; role: string }
 /** เส้นทางบันทึกของตารางภาพรวม — ใช้ร่วมกันทุกช่องที่แก้ค่าใน crm_leads */
 export type SaveFn = (
     id: string,
-    patch: { design_status?: string; supplier_note?: string | null; tracking_checklist?: string[] }
+    patch: { design_status?: string; supplier_note?: string | null; backdrop_note?: string | null; tracking_checklist?: string[] }
 ) => void
 
 const STATUS_CLASS: Record<Exclude<Availability, 'free'>, string> = {
