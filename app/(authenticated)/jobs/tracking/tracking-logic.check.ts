@@ -89,6 +89,7 @@ function mk(overrides: Partial<TrackingLead> = {}): TrackingLead {
     event_end_time: '12:00',
     design_status: 'completed',
     supplier_note: null,
+    backdrop_note: null,
     tracking_checklist: ['car_triton'],
     required_roles: {},
     events: [],

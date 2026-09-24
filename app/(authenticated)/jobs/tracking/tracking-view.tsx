@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { AlertTriangle, ArrowRight, ChevronRight, Pencil } from 'lucide-react'
+import { AlertTriangle, ArrowRight, ChevronRight, Eye, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
     assignLeadStaff,
@@ -86,6 +86,10 @@ const CHIPS: { chip: Chip; label: string }[] = [
 
 const PILL = 'inline-flex rounded-full px-2 py-0.5 text-xs font-medium'
 
+/**
+ * ช่องบันทึกอิสระ (ซัพพลายเออร์ / สีฉาก) — ข้อความที่จดไว้โชว์ในช่องเลย (ตัดที่ 3 บรรทัด)
+ * ยังว่าง = ดินสอ + กรอบประ กดแล้วพิมพ์ได้ทันที · มีข้อมูลแล้ว = รูปตา + พื้นม่วง กดเปิดอ่านเต็มก่อน ค่อยกด "แก้ไข"
+ */
 function NoteCell({ note, label, title, placeholder, onSave }: {
     note: string | null
     label: string
@@ -94,29 +98,71 @@ function NoteCell({ note, label, title, placeholder, onSave }: {
     onSave: (v: string | null) => void
 }) {
     const [open, setOpen] = useState(false)
+    const [editMode, setEditMode] = useState(false)
     const [draft, setDraft] = useState(note || '')
+    const has = !!note
+
+    const openChange = (o: boolean) => {
+        if (o) {
+            setDraft(note || '')
+            setEditMode(!has)
+        }
+        setOpen(o)
+    }
 
     return (
-        <Dialog open={open} onOpenChange={o => { if (o) setDraft(note || ''); setOpen(o) }}>
+        <Dialog open={open} onOpenChange={openChange}>
             <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`แก้ไข${label}`} title={note || undefined}>
-                    <Pencil className={cn('h-3.5 w-3.5', note ? 'text-violet-600 dark:text-violet-400' : 'text-zinc-400')} />
-                </Button>
+                <button
+                    type="button"
+                    aria-label={has ? `ดู${label}` : `เพิ่ม${label}`}
+                    title={note || `เพิ่ม${label}`}
+                    className={cn(
+                        'flex w-full items-start gap-1.5 rounded-lg border px-2 py-1.5 text-left text-xs transition-colors',
+                        has
+                            ? 'border-violet-200 bg-violet-50 text-violet-950 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-50 dark:hover:bg-violet-950/60'
+                            : 'border-dashed border-zinc-200 text-zinc-400 hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:border-zinc-700 dark:hover:bg-zinc-900'
+                    )}
+                >
+                    {has
+                        ? <Eye className="mt-px h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-400" />
+                        : <Pencil className="mt-px h-3.5 w-3.5 shrink-0" />}
+                    <span className={cn('min-w-0 flex-1 whitespace-pre-line break-words', has && 'line-clamp-3')}>
+                        {has ? note : 'ยังไม่ระบุ'}
+                    </span>
+                </button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle>{label} — {title}</DialogTitle>
                 </DialogHeader>
-                <Textarea
-                    autoFocus
-                    rows={8}
-                    value={draft}
-                    onChange={e => setDraft(e.target.value)}
-                    placeholder={placeholder}
-                />
+                {editMode ? (
+                    <Textarea
+                        autoFocus
+                        rows={8}
+                        value={draft}
+                        onChange={e => setDraft(e.target.value)}
+                        placeholder={placeholder}
+                    />
+                ) : (
+                    <p className="whitespace-pre-wrap break-words rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+                        {note}
+                    </p>
+                )}
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => setOpen(false)}>ยกเลิก</Button>
-                    <Button onClick={() => { onSave(draft.trim() || null); setOpen(false) }}>บันทึก</Button>
+                    {editMode ? (
+                        <>
+                            <Button variant="outline" onClick={() => (has ? setEditMode(false) : setOpen(false))}>ยกเลิก</Button>
+                            <Button onClick={() => { onSave(draft.trim() || null); setOpen(false) }}>บันทึก</Button>
+                        </>
+                    ) : (
+                        <>
+                            <Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button>
+                            <Button onClick={() => { setDraft(note || ''); setEditMode(true) }}>
+                                <Pencil className="h-3.5 w-3.5" /> แก้ไข
+                            </Button>
+                        </>
+                    )}
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -184,7 +230,7 @@ function JobCell({ lead, today, showEvents = true }: {
             {showEvents && lead.events.length > 0 && (
                 <div className="text-[11px] text-zinc-500 space-y-0.5 mt-0.5">
                     {lead.events.map(e => (
-                        <div key={e.id} className="truncate">
+                        <div key={e.id} className="break-words">
                             <span className="text-zinc-400">อีเวนต์:</span>{' '}
                             <Link
                                 href={`/events/${e.id}/check-kits`}
@@ -287,6 +333,19 @@ function SupplierCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
     )
 }
 
+/** สีฉาก — บันทึกอิสระเหมือนซัพพลายเออร์ (ช่องแบบเดียวกัน คนละคอลัมน์ใน crm_leads) */
+function BackdropCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
+    return (
+        <NoteCell
+            note={lead.backdrop_note}
+            label="สีฉาก"
+            title={lead.customer_name || 'ไม่ระบุลูกค้า'}
+            placeholder="ระบุสีฉาก / โทนสี / รายละเอียดฉาก ..."
+            onSave={v => { if (v !== lead.backdrop_note) save(lead.id, { backdrop_note: v }) }}
+        />
+    )
+}
+
 // กรอบงานวันเดียวกันในตาราง: เส้นข้างซ้าย/ขวา (บน/ล่างใส่เฉพาะแถวแรก/ท้ายของวัน)
 const DAY_FRAME = 'border-l-2 border-l-zinc-300 dark:border-l-zinc-600 border-r-2 border-r-zinc-300 dark:border-r-zinc-600'
 
@@ -296,7 +355,7 @@ type LeadEvent = TrackingLead['events'][number]
 function EventLabel({ event }: { event: LeadEvent }) {
     const label = `${event.name || 'ไม่ระบุชื่อ'}${event.event_date ? ` · ${formatDate(event.event_date)}` : ''}`
     return (
-        <div className="mb-1 truncate text-[11px] font-medium text-zinc-500" title={label}>
+        <div className="mb-1 break-words text-[11px] font-medium text-zinc-500" title={label}>
             {label}
         </div>
     )
@@ -859,7 +918,7 @@ export default function TrackingView({
 
     const save = (
         id: string,
-        patch: { design_status?: string; supplier_note?: string | null; tracking_checklist?: string[] }
+        patch: { design_status?: string; supplier_note?: string | null; backdrop_note?: string | null; tracking_checklist?: string[] }
     ) => {
         setRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)))
         startTransition(async () => {
@@ -1334,31 +1393,33 @@ export default function TrackingView({
                 </Button>
             </div>
 
+            {/* ตารางกว้างกว่าจอได้ — เลื่อนซ้ายขวาในกรอบ (Table ห่อด้วย overflow-x-auto อยู่แล้ว) ข้อความในช่องขึ้นบรรทัดใหม่แทนการถูกตัด */}
             <div className="hidden md:block rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden shadow-sm">
-                <Table>
+                <Table className="min-w-[1500px] table-fixed [&_td]:whitespace-normal [&_td]:break-words">
                     <TableHeader>
                         <TableRow className="bg-zinc-50/80 dark:bg-zinc-900/50 hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 [&_th]:h-10 [&_th]:text-[11px] [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-zinc-500 dark:[&_th]:text-zinc-400">
-                            <TableHead className="w-12">ลำดับ</TableHead>
-                            <TableHead className="w-64">งาน</TableHead>
-                            <TableHead className="w-48">ออกแบบ</TableHead>
-                            <TableHead className="w-28">ซัพพลายเออร์</TableHead>
-                            <TableHead className="w-48">จัดคน</TableHead>
-                            <TableHead className="w-44">จัดรถ</TableHead>
+                            <TableHead className="w-11">ลำดับ</TableHead>
+                            <TableHead className="w-68">งาน</TableHead>
+                            <TableHead className="w-42">ออกแบบ</TableHead>
+                            <TableHead className="w-44">ซัพพลายเออร์</TableHead>
+                            <TableHead className="w-44">สีฉาก</TableHead>
+                            <TableHead className="w-44">จัดคน</TableHead>
+                            <TableHead className="w-40">จัดรถ</TableHead>
                             <TableHead className="w-40">กระเป๋า</TableHead>
-                            <TableHead className="w-56">ความพร้อม</TableHead>
+                            <TableHead className="w-44">ความพร้อม</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={8} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={9} className="text-center text-sm text-zinc-500 py-10">
                                     ยังไม่มีงานที่ตอบรับ
                                 </TableCell>
                             </TableRow>
                         )}
                         {rows.length > 0 && visible.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={8} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={9} className="text-center text-sm text-zinc-500 py-10">
                                     ไม่มีงานในช่วงนี้
                                 </TableCell>
                             </TableRow>
@@ -1366,7 +1427,7 @@ export default function TrackingView({
                         {sections.map(section => (
                             <Fragment key={section.key}>
                                 <TableRow className="hover:bg-transparent">
-                                    <TableCell colSpan={8} className="bg-zinc-100/70 dark:bg-zinc-900/80 border-y border-zinc-200/70 dark:border-zinc-800 py-1.5">
+                                    <TableCell colSpan={9} className="bg-zinc-100/70 dark:bg-zinc-900/80 border-y border-zinc-200/70 dark:border-zinc-800 py-1.5">
                                         <span className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
                                             <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500" aria-hidden />
                                             {section.label}
@@ -1381,7 +1442,7 @@ export default function TrackingView({
                                     const sameAsPrev = i > 0 && arr[i - 1].event_date === lead.event_date
                                     const sameAsNext = i < arr.length - 1 && arr[i + 1].event_date === lead.event_date
                                     const framed = sameAsPrev || sameAsNext
-                                    // งานหลายอีเวนต์: แถวหัวแสดงวัน/ลูกค้า + ช่องระดับงาน (ออกแบบ/ซัพพลายเออร์/ความพร้อม ยืด rowSpan)
+                                    // งานหลายอีเวนต์: แถวหัวแสดงวัน/ลูกค้า + ช่องระดับงาน (ออกแบบ/ซัพพลายเออร์/สีฉาก/ความพร้อม ยืด rowSpan)
                                     // แล้วหนึ่งแถวต่ออีเวนต์ — ชื่ออีเวนต์อยู่คอลัมน์ "งาน" ปุ่มจัดคน/จัดรถ/กระเป๋าเรียงแถวเดียวกัน
                                     const multi = lead.events.length >= 2
                                     const span = lead.events.length + 1
@@ -1414,6 +1475,7 @@ export default function TrackingView({
                                                 <TableCell><JobCell lead={lead} today={today} /></TableCell>
                                                 <TableCell>{designGate(lead)}</TableCell>
                                                 <TableCell><SupplierCell lead={lead} save={save} /></TableCell>
+                                                <TableCell><BackdropCell lead={lead} save={save} /></TableCell>
                                                 <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={null} defaultOpen={justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
                                                 <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={null} eventVehicles={eventVehicles} autoFocus={justClaimedDuty(lead.id, 'vehicle')} />)}</TableCell>
                                                 <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={null} defaultOpen={justClaimedDuty(lead.id, 'kits')} />)}</TableCell>
@@ -1437,6 +1499,7 @@ export default function TrackingView({
                                                 <TableCell><JobCell lead={lead} today={today} showEvents={false} /></TableCell>
                                                 <TableCell rowSpan={span}>{designGate(lead)}</TableCell>
                                                 <TableCell rowSpan={span}><SupplierCell lead={lead} save={save} /></TableCell>
+                                                <TableCell rowSpan={span}><BackdropCell lead={lead} save={save} /></TableCell>
                                                 <TableCell colSpan={3} />
                                                 <TableCell rowSpan={span}><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></TableCell>
                                             </TableRow>
@@ -1542,15 +1605,14 @@ export default function TrackingView({
                                     </>
                                 )}
 
-                                <div>
-                                    <div className="text-[11px] text-zinc-500">ซัพพลายเออร์</div>
-                                    <div className="flex items-center gap-1">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <div className="text-[11px] text-zinc-500">ซัพพลายเออร์</div>
                                         <SupplierCell lead={lead} save={save} />
-                                        {lead.supplier_note ? (
-                                            <span className="text-sm truncate">{lead.supplier_note.split('\n')[0]}</span>
-                                        ) : (
-                                            <span className="text-sm text-zinc-400">ยังไม่ระบุ</span>
-                                        )}
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] text-zinc-500">สีฉาก</div>
+                                        <BackdropCell lead={lead} save={save} />
                                     </div>
                                 </div>
                             </div>
