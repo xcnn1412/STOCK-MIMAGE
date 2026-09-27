@@ -188,7 +188,7 @@ export const dictionary = {
       checkedCount: 'Checked {completed} / {total} Items',
       fields: {
         name: 'Event Name',
-        date: 'Date & Time',
+        date: 'Date',
         location: 'Location',
         description: 'Notes / Description',
         staff: 'Staff List'
@@ -469,7 +469,7 @@ export const dictionary = {
       checkedCount: 'ตรวจสอบแล้ว {completed} / {total} รายการ',
       fields: {
         name: 'ชื่ออีเวนต์',
-        date: 'วันและเวลา',
+        date: 'วันที่',
         location: 'สถานที่',
         description: 'หมายเหตุ / รายละเอียด',
         staff: 'รายชื่อทีมงาน'

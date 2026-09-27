@@ -190,9 +190,13 @@ export default function EventsView({
                         new Date(event.event_date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
                       )}
                     </span>
-                    <span className="ml-2 text-zinc-500">
-                      {new Date(event.event_date).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    {/* เวลาเปิด–ปิด ที่กรอกไว้จริง (event_date เก็บเป็นเที่ยงคืนเสมอ จึงเอามาโชว์เป็นเวลาไม่ได้) */}
+                    {event.event_time && (
+                      <span className="ml-2 text-zinc-500">
+                        {event.event_time.slice(0, 5)}
+                        {event.event_end_time ? `–${event.event_end_time.slice(0, 5)}` : ''} น.
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

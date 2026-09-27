@@ -39,6 +39,8 @@ interface Prefill {
   name: string
   location: string
   eventDate: string
+  eventTime?: string | null
+  eventEndTime?: string | null
   sellerNames: string[]
   staffNames: string[]
   crmLeadId: string
@@ -151,10 +153,22 @@ export default function CreateEventForm({
               <Input id="location" name="location" placeholder={t.events.fields.location} defaultValue={prefill?.location || ''} />
             </div>
 
-            {/* วันและเวลา */}
+            {/* วันที่ */}
             <div className="space-y-2">
               <Label htmlFor="event_date">{t.events.fields.date}</Label>
               <ThaiDatePicker name="event_date" defaultValue={prefill?.eventDate ? new Date(prefill.eventDate) : undefined} />
+            </div>
+
+            {/* เวลาเปิด / เวลาปิด — ไม่บังคับ */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label htmlFor="event_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาเปิด' : 'Start time'}</label>
+                <Input id="event_time" name="event_time" type="time" defaultValue={(prefill?.eventTime ?? '').slice(0, 5)} />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="event_end_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาปิด' : 'End time'}</label>
+                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(prefill?.eventEndTime ?? '').slice(0, 5)} />
+              </div>
             </div>
 
             {/* Event Phase — for sub-event classification (setup/main/teardown/delivery) */}
