@@ -1,4 +1,4 @@
-// หน้าแรก — แถวแชมป์ประจำเดือนบนสุด + 3 คอลัมน์: [ภาพรวมงาน] [งานในมือคุณ] [หน้าที่ยังไม่ครบ]
+// หน้าแรก — หัวทักทาย+วันที่ · แถวแชมป์ · 3 คอลัมน์: [ภาพรวมงาน] [งานในมือคุณ] [หน้าที่ยังไม่ครบ]
 // (สเปค: docs/specs/dashboard-alerts.md + docs/specs/team-reports.md · layout ตาม mock ผู้ใช้ 2026-09-01)
 import Link from 'next/link'
 import { CheckCircle2, Trophy } from 'lucide-react'
@@ -20,10 +20,25 @@ export default async function DashboardPage() {
     // แชมป์ตัดสินจากยอดสะสมทั้งหมด (ภาพรวม) — ตรงกับชิปเริ่มต้นของ /reports
     const allTimeStats = aggregateStats(report.rows, report.people).people
 
+    // วันนี้แบบไทยยาว — โชว์ใต้คำทักทายหัวหน้า (render บน server → ล็อกเขตเวลาไทย ไม่งั้นก่อน 7 โมงเช้าจะเป็นวันเมื่อวาน)
+    const todayLabel = new Date().toLocaleDateString('th-TH', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'Asia/Bangkok',
+    })
+
     return (
         <div className="mx-auto w-full max-w-[1700px] space-y-5 p-4 md:p-6">
-            {/* แถวแชมป์ (ยอดสะสมทั้งหมด) — เฟรมทั้ง 7 เรียงแนวนอน */}
-            <div>
+            {/* หัวหน้า — คำทักทาย + วันที่วันนี้ */}
+            <header>
+                <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">สวัสดี 👋</h1>
+                <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{todayLabel}</p>
+            </header>
+
+            {/* แถวแชมป์ (ยอดสะสมทั้งหมด) — เฟรมทั้ง 7 เรียงแนวนอน ในการ์ดพื้นกลางชุดเดียวกับแผงอื่น */}
+            <div className="rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 shadow-sm">
                 <div className="mb-2 flex items-baseline justify-between gap-2">
                     <h2 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                         <Trophy className="h-4 w-4 text-amber-500" />
@@ -39,13 +54,14 @@ export default async function DashboardPage() {
                 <ChampionsStrip stats={allTimeStats} currentUserId={report.currentUserId} />
             </div>
 
-            {/* 3 คอลัมน์: ภาพรวมงาน · งานในมือคุณ · หน้าที่ยังไม่ครบ (จอเล็กเรียงลงล่าง) */}
-            <div className="grid items-start gap-4 xl:grid-cols-3">
-                <div className="w-full">
+            {/* 3 คอลัมน์: ภาพรวมงาน · งานในมือคุณ · หน้าที่ยังไม่ครบ
+                จอเล็กเรียงลงล่าง · md = hero เต็มแถว + 2 แผงคู่กัน · xl = 3 คอลัมน์สูงเท่ากัน (items-stretch + h-full) */}
+            <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="w-full md:col-span-2 xl:col-span-1">
                     {hasAlerts ? (
                         <DashboardHero stats={heroStats} className="px-0 pt-0 md:pt-0" />
                     ) : (
-                        <div className="flex flex-col items-center gap-2 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 px-4 py-16 text-center">
+                        <div className="flex h-full flex-col items-center justify-center gap-2 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 px-4 py-16 text-center shadow-sm">
                             <CheckCircle2 className="h-8 w-8 text-emerald-500" />
                             <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">ไม่มีเรื่องต้องตามตอนนี้</p>
                             <p className="text-xs text-zinc-500">งานในมือเสร็จหมด และไม่มีหน้าที่ค้างใกล้วันงาน</p>
@@ -65,7 +81,7 @@ export default async function DashboardPage() {
                 </div>
 
                 <div className="w-full">
-                    <DutyWarningPanel rows={warnings} className="px-0 pt-0" />
+                    <DutyWarningPanel rows={warnings} showEmpty className="px-0 pt-0" />
                 </div>
             </div>
         </div>

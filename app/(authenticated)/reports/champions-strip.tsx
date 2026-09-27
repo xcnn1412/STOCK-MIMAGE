@@ -34,8 +34,17 @@ export default function ChampionsStrip({
 }) {
     return (
         // ชั้นนอก scroll ได้เมื่อจอแคบ · ชั้นใน w-max + mx-auto = อยู่กึ่งกลางเมื่อจอกว้างพอ
-        <div className={cn('overflow-x-auto pb-2', className)} style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-            <div className="mx-auto flex w-max gap-4 snap-x">
+        // ขอบขวาจางลง (mask) = บอกใบ้ว่าเลื่อนต่อได้ · pr-8 ในชั้นใน ให้แชมป์คนสุดท้ายพ้นช่วงจางเมื่อเลื่อนสุด
+        <div
+            className={cn('overflow-x-auto pb-2', className)}
+            style={{
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+                maskImage: 'linear-gradient(to right, black calc(100% - 32px), transparent)',
+                WebkitMaskImage: 'linear-gradient(to right, black calc(100% - 32px), transparent)',
+            }}
+        >
+            <div className="mx-auto flex w-max gap-4 snap-x pr-8">
             {STRIP_ORDER.map(key => {
                 const frame = FRAMES[key]
                 if (!frame) return null
@@ -64,17 +73,17 @@ export default function ChampionsStrip({
                                         {champ.name}
                                     </span>
                                     {isMe && (
-                                        <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
+                                        <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
                                             คุณ
                                         </span>
                                     )}
                                 </div>
-                                <div className="text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
+                                <div className="text-xs text-zinc-500 dark:text-zinc-400 tabular-nums">
                                     จำนวน {champ[key]} งาน
                                 </div>
                             </>
                         ) : (
-                            <div className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">ยังไม่มีแชมป์</div>
+                            <div className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">ยังไม่มีแชมป์</div>
                         )}
                     </div>
                 )

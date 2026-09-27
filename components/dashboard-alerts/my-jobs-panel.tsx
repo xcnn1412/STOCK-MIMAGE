@@ -79,10 +79,10 @@ export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabe
     if (pending.length === 0) {
         if (!showEmpty) return null
         return (
-            <div className={cn('px-4 pt-4 md:pt-6', className)}>
-                <section className="mx-auto w-full max-w-2xl rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3">
+            <div className={cn('h-full px-4 pt-4 md:pt-6', className)}>
+                <section className="h-full w-full rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3">
                     <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                        <Briefcase className="h-4 w-4" />
+                        <Briefcase className="h-4 w-4 text-zinc-400" />
                         งานในมือคุณ (0)
                     </h2>
                     <p className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-500">
@@ -96,11 +96,13 @@ export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabe
     const shown = pending.slice(0, MAX_ROWS)
 
     return (
-        // div นอกคุมระยะขอบของหน้า (override ได้ด้วย className) — การ์ดข้างในคุมความกว้าง
-        <div className={cn('px-4 pt-4 md:pt-6', className)}>
-            <section className="mx-auto w-full max-w-2xl rounded-2xl border shadow-sm border-amber-300 dark:border-amber-500/40 bg-amber-50/60 dark:bg-amber-500/5 p-3 space-y-2">
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-900 dark:text-amber-200">
-                    <Briefcase className="h-4 w-4" />
+        // div นอกคุมระยะขอบของหน้า (override ได้ด้วย className) — ความกว้างให้ grid ของหน้าคุม
+        // การ์ดพื้นกลางชุดเดียวกับการ์ดอื่นบน dashboard — ความด่วนบอกด้วยแถบสีบนขอบ + สีไอคอน
+        <div className={cn('h-full px-4 pt-4 md:pt-6', className)}>
+            <section className="relative h-full w-full overflow-hidden rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3 pt-4 space-y-2">
+                <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-amber-400 dark:bg-amber-500" />
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                    <Briefcase className="h-4 w-4 text-amber-500" />
                     งานในมือคุณ ({pending.length})
                 </h2>
 
@@ -112,7 +114,7 @@ export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabe
                             <li key={job.id}>
                                 <Link
                                     href={hrefOf(job)}
-                                    className="group flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2 hover:border-amber-400 dark:hover:border-amber-500/60 transition-colors"
+                                    className="group flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 hover:border-amber-400 dark:hover:border-amber-500/60 transition-colors"
                                 >
                                     <div className="min-w-0 flex-1">
                                         <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
