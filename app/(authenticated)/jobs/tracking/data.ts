@@ -176,7 +176,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     const leadIds = (leads || []).map(l => l.id)
 
     // --- ระลอก B: อีเวนต์ / ใบงาน / การรับหน้าที่ ของงานชุดนี้ -------------------
-    type EventRow = { id: string; name: string | null; event_date: string | null; status: string | null; crm_lead_id: string | null }
+    type EventRow = { id: string; name: string | null; event_date: string | null; status: string | null; crm_lead_id: string | null; event_time?: string | null; event_end_time?: string | null }
     type JobRow = { id: string; job_type: string | null; status: string | null; title: string | null; assigned_to: string[] | null; claimed_by: string | null; crm_lead_id: string | null; design_status: string | null }
     type DutyRow = { lead_id: string; duty: string; claimed_by: string }
     let events: EventRow[] = []
@@ -186,7 +186,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
         const [eventsRes, jobsRes, dutyRes] = await Promise.all([
             supabase
                 .from('events')
-                .select('id, name, event_date, status, crm_lead_id')
+                .select('*') // ponytail: * so instances without events.event_time (migration 20260927) still load
                 .in('crm_lead_id', leadIds)
                 .order('event_date', { ascending: true, nullsFirst: false }),
             supabase
@@ -203,7 +203,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     }
 
     // Staff per lead — batched: events(crm_lead_id in leadIds) → event_staff → profiles
-    type LeadEvent = { id: string; name: string; event_date: string | null; status: string | null }
+    type LeadEvent = { id: string; name: string; event_date: string | null; status: string | null; event_time: string | null; event_end_time: string | null }
     const eventsByLead = new Map<string, LeadEvent[]>()
     const staffByLead = new Map<string, TrackingLead['staff']>()
 
@@ -211,7 +211,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     for (const e of events) {
         if (isClosedEvent(e.status)) continue
         const list = eventsByLead.get(e.crm_lead_id as string)
-        const row: LeadEvent = { id: e.id, name: e.name || '', event_date: e.event_date, status: e.status ?? null }
+        const row: LeadEvent = { id: e.id, name: e.name || '', event_date: e.event_date, status: e.status ?? null, event_time: e.event_time ? String(e.event_time).slice(0, 5) : null, event_end_time: e.event_end_time ? String(e.event_end_time).slice(0, 5) : null }
         if (list) list.push(row)
         else eventsByLead.set(e.crm_lead_id as string, [row])
     }

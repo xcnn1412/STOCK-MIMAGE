@@ -17,7 +17,7 @@ export interface TrackingLead {
   /** ตำแหน่งที่ต้องการ: { "<staff_role value>": จำนวนคน } — {} = ยังไม่กำหนด */
   required_roles: Record<string, number>
   /** อีเวนต์ที่ผูกกับงานนี้ (ไม่รวมที่ปิดแล้ว) — ที่สำหรับจัดคน */
-  events: { id: string; name: string; event_date: string | null; status: string | null }[]
+  events: { id: string; name: string; event_date: string | null; status: string | null; event_time?: string | null; event_end_time?: string | null }[]
   /** คนที่จัดแล้ว รวมทุกอีเวนต์ของงาน — event_id บอกว่าอยู่ในชุดของอีเวนต์ไหน */
   staff: { user_id: string; name: string; nickname: string | null; role: string; event_id: string }[]
 }
