@@ -126,6 +126,8 @@ export type ActionType =
     // หน้าที่เตรียมงาน — รับ/คืนรายหน้าที่ (จัดคน / จัดรถ / จัดกระเป๋า)
     | 'CLAIM_LEAD_DUTY'
     | 'RELEASE_LEAD_DUTY'
+    | 'WAIVE_LEAD_DUTY'
+    | 'UNWAIVE_LEAD_DUTY'
     // แก้สถานะออกแบบของใบงานกราฟิกใบเดียว (jobs.design_status — งานหนึ่งมีหลายใบ)
     | 'UPDATE_JOB_DESIGN_STATUS'
     // ใบงานจบเอง — กราฟิก (design_status พร้อม) / หน้างาน (ปิดอีเวนต์จากการคืนกระเป๋า)

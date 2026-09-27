@@ -30,6 +30,7 @@ import {
     daysUntil,
     emphasizedClaims,
     getMissing,
+    isClaimWaived,
     kitBookingConflict,
     lacksTime,
     missingLabel,
@@ -993,7 +994,10 @@ export default function PoolTabs({
 
     const visible = filtered
     // สองส่วน: "รอรับ" อยู่บนสุด แล้ว "รับแล้ว" — ค้นหา/เรียง/ชิปใบงานของฉัน ใช้กับทั้งสองส่วน (D2)
-    const waitingRows = visible.filter(r => r.job.status === AWAITING_CLAIM_STATUS)
+    // งานที่ตั้ง "ไม่ต้องออกแบบ" ไว้ ไม่นับเป็นใบรอรับ
+    const waitingRows = visible.filter(
+        r => r.job.status === AWAITING_CLAIM_STATUS && !(r.lead && isClaimWaived(r.lead, kind))
+    )
     const claimedRows = visible.filter(r => r.job.status !== AWAITING_CLAIM_STATUS)
     // เรืองแสงเฉพาะใบที่ใกล้วันงานที่สุดของแท็บนี้
     const emphasis = emphasizedClaims(

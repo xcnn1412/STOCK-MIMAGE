@@ -56,6 +56,13 @@ import {
   monthLabel,
   myQueue,
   groupQueueByLead,
+  canWaive,
+  isClaimWaived,
+  isWaivableItem,
+  isWaiverKey,
+  parseWaived,
+  WAIVER_CLAIM_KIND,
+  WAIVER_KEYS,
   nextJobDate,
   NO_DEPARTMENT_LABEL,
   personClashes,
@@ -1447,6 +1454,65 @@ assert.deepEqual(queueGroups.map((g) => g.leadId), ['B', 'A'])
 assert.deepEqual(queueGroups[0].items.map((i) => i.kind), ['graphic', 'staffing', 'kits'])
 assert.equal(queueGroups[0].customer, 'บี')
 assert.deepEqual(groupQueueByLead([]), [])
+
+// --- ไม่ต้องจัด (waiver) ------------------------------------------------------
+
+// อ่าน key skip_* จาก tracking_checklist ดิบ — key รถ/key อื่นไม่นับ
+assert.deepEqual(parseWaived(['car_triton', 'skip_kits', 'skip_design', 'lock_queue']), ['design', 'kits'])
+assert.deepEqual(parseWaived(null), [])
+assert.deepEqual(parseWaived(['skip_time']), [])
+assert.equal(WAIVER_KEYS.vehicle, 'skip_vehicle')
+assert.equal(isWaiverKey('skip_staff'), true)
+assert.equal(isWaiverKey('car_champ'), false)
+
+// เวลาเริ่มตั้งไม่ต้องจัดไม่ได้
+assert.equal(isWaivableItem('time'), false)
+assert.equal(isWaivableItem('design'), true)
+assert.equal(isWaivableItem('staff'), true)
+assert.equal(isWaivableItem('vehicle'), true)
+assert.equal(isWaivableItem('kits'), true)
+assert.equal(isWaivableItem('toString'), false)
+
+// สิ่งที่ไม่ต้องจัดไม่นับว่าขาด → งานที่ขาดแค่สิ่งเหล่านั้น "พร้อม"
+const waivedLead = mk({ design_status: 'not_started', staff: [], tracking_checklist: [], waived: ['design', 'staff', 'vehicle'] })
+const noKits: KitReadiness = { onsiteSkipped: false, bookings: [] }
+assert.deepEqual(getMissing(waivedLead), [])
+assert.equal(isReady(waivedLead), true)
+assert.deepEqual(getMissing({ ...waivedLead, waived: ['design', 'staff', 'vehicle', 'kits'] }, noKits, false), [])
+assert.deepEqual(getMissing(waivedLead, noKits), ['kits'])
+// ตั้งไม่ต้องจัดแค่บางข้อ — ข้ออื่นยังขาดตามเดิม
+assert.deepEqual(getMissing({ ...waivedLead, waived: ['vehicle'] }), ['design', 'staff'])
+// เวลาเริ่มไม่ถูกตัดออกแม้จะใส่ 'time' มาใน waived (parseWaived ไม่มีทางคืน time)
+assert.deepEqual(getMissing(mk({ event_time: null, waived: parseWaived(['skip_time']) })), ['time'])
+
+// แถบ "ของฉัน": หน้าที่/ใบงานที่ไม่ต้องจัดไม่เข้ากลุ่มรอรับ
+const qWaived = myQueue({
+  ...qArgs,
+  leads: qLeads.map((l) => (l.id === 'B' ? { ...l, waived: ['design', 'staff', 'kits'] } : l)),
+  currentUserId: 'u9',
+  myDepartment: null,
+  isAdmin: true,
+})
+assert.deepEqual(qWaived.claimable.map(qKey), [
+  'A:staffing',
+  'A:vehicle',
+  'A:kits',
+  'C:staffing',
+  'C:vehicle',
+  'C:kits',
+])
+assert.equal(isClaimWaived({ ...mk(), waived: ['vehicle'] }, 'vehicle'), true)
+assert.equal(isClaimWaived({ ...mk(), waived: ['vehicle'] }, 'onsite'), false)
+assert.equal(WAIVER_CLAIM_KIND.design, 'graphic')
+assert.equal(WAIVER_CLAIM_KIND.staff, 'staffing')
+
+// สิทธิ์ตั้ง/ยกเลิกไม่ต้องจัด: แอดมิน / ผู้ดูแลพูล / แผนกที่รับเรื่องนั้นได้
+assert.equal(canWaive(null, true, false, []), true) // แอดมิน
+assert.equal(canWaive('ฝ่ายประสานงาน', false, true, ['ฝ่ายออกแบบ']), true) // ฝ่ายประสานงาน
+assert.equal(canWaive('ฝ่ายออกแบบ', false, false, qPools[WAIVER_CLAIM_KIND.design]), true)
+assert.equal(canWaive('ฝ่ายออกแบบ', false, false, qPools[WAIVER_CLAIM_KIND.vehicle]), false)
+assert.equal(canWaive('ทีมออกหน้างาน', false, false, qPools[WAIVER_CLAIM_KIND.kits]), true)
+assert.equal(canWaive(null, false, false, ['ทีมออกหน้างาน']), false)
 
 
 console.log('tracking-logic.check: all passed')

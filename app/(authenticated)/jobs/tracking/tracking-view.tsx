@@ -17,6 +17,7 @@ import {
     claimPoolJob,
     releaseLeadDuty,
     releasePoolJob,
+    setLeadWaiver,
     updateJobDesignStatus,
     updateLeadTracking,
 } from '../actions'
@@ -49,6 +50,12 @@ import {
     CLAIM_LABELS,
     PREP_DUTIES,
     DUTY_LABELS_TH,
+    CLAIM_WAIVER_ITEM,
+    WAIVER_CLAIM_KIND,
+    WAIVER_LABELS,
+    canWaive,
+    isClaimWaived,
+    type WaivableItem,
     type ClaimCandidate,
     type ClaimGate,
     type MyQueueGroup,
@@ -85,6 +92,51 @@ const CHIPS: { chip: Chip; label: string }[] = [
 ]
 
 const PILL = 'inline-flex rounded-full px-2 py-0.5 text-xs font-medium'
+
+/**
+ * ช่อง ออกแบบ / จัดคน / จัดรถ / กระเป๋า พร้อมตัวเลือก "ไม่ต้องจัด" (ระดับงาน — ใช้ทั้งตารางและการ์ดมือถือ)
+ * - ตั้งไม่ต้องจัดแล้ว = ป้ายจาง "ไม่ต้อง…" แทนเครื่องมือเดิม (+ ปุ่มยกเลิกสำหรับคนที่มีสิทธิ์)
+ * - ยังไม่ตั้ง = เครื่องมือเดิมเป็นหลัก + ลิงก์เล็ก "ไม่ต้องจัด" สำหรับคนที่มีสิทธิ์
+ */
+function WaiverCell({ lead, item, allowed, onToggle, children }: {
+    lead: TrackingLead
+    item: WaivableItem
+    allowed: boolean
+    onToggle: (leadId: string, item: WaivableItem, on: boolean) => void
+    children: ReactNode
+}) {
+    if (lead.waived?.includes(item)) {
+        return (
+            <div className="flex flex-wrap items-center gap-1.5">
+                <span className={cn(PILL, 'border border-dashed border-zinc-300 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500')}>
+                    {WAIVER_LABELS[item]}
+                </span>
+                {allowed && (
+                    <button
+                        type="button"
+                        onClick={() => onToggle(lead.id, item, false)}
+                        className="text-[11px] text-zinc-400 hover:text-zinc-700 hover:underline dark:hover:text-zinc-200"
+                    >
+                        ยกเลิก
+                    </button>
+                )}
+            </div>
+        )
+    }
+    if (!allowed) return <>{children}</>
+    return (
+        <div className="space-y-1">
+            {children}
+            <button
+                type="button"
+                onClick={() => onToggle(lead.id, item, true)}
+                className="block text-[11px] text-zinc-400 hover:text-zinc-700 hover:underline dark:hover:text-zinc-200"
+            >
+                ไม่ต้องจัด
+            </button>
+        </div>
+    )
+}
 
 /**
  * ช่องบันทึกอิสระ (ซัพพลายเออร์ / สีฉาก) — ข้อความที่จดไว้โชว์ในช่องเลย (ตัดที่ 3 บรรทัด)
@@ -935,6 +987,36 @@ export default function TrackingView({
         })
     }
 
+    /** ตั้ง/ยกเลิก "ไม่ต้องจัด" — ช่องเปลี่ยนทันที ตอบ error = ย้อนกลับพร้อม toast */
+    const onToggleWaiver = (leadId: string, item: WaivableItem, on: boolean) => {
+        const apply = (value: boolean) =>
+            setRows(prev =>
+                prev.map(r => {
+                    if (r.id !== leadId) return r
+                    const rest = (r.waived ?? []).filter(w => w !== item)
+                    return { ...r, waived: value ? [...rest, item] : rest }
+                })
+            )
+        apply(on)
+        startTransition(async () => {
+            const res = (await setLeadWaiver(leadId, item, on)) as { error?: string } | undefined
+            if (res?.error) {
+                apply(!on)
+                toast.error(res.error)
+            } else toast.success(on ? `ตั้ง${WAIVER_LABELS[item]}แล้ว` : `ยกเลิก${WAIVER_LABELS[item]}แล้ว`)
+        })
+    }
+
+    /** ตั้ง/ยกเลิกไม่ต้องจัดได้ไหม — แอดมิน/ฝ่ายประสานงาน หรือแผนกที่รับเรื่องนั้นได้ (server ตรวจซ้ำ) */
+    const canWaiveItem = (item: WaivableItem) =>
+        canWaive(myDepartment, isAdmin, canManagePool, poolDepartments?.[WAIVER_CLAIM_KIND[item]] ?? [])
+
+    const waiverCell = (lead: TrackingLead, item: WaivableItem, children: ReactNode) => (
+        <WaiverCell lead={lead} item={item} allowed={canWaiveItem(item)} onToggle={onToggleWaiver}>
+            {children}
+        </WaiverCell>
+    )
+
     const save = (
         id: string,
         patch: { design_status?: string; supplier_note?: string | null; backdrop_note?: string | null; tracking_checklist?: string[] }
@@ -997,7 +1079,8 @@ export default function TrackingView({
     // คอลัมน์ "ออกแบบ" ไล่เป็นขั้น: ยังไม่เปิดใบงาน (ป้ายเตือน) → รอรับงาน (ปุ่มรับ) → ตัวแก้สถานะออกแบบ
     // งานที่ยังไม่มีใบงานกราฟิก (รวมงานเก่าก่อนยุคพูล) ไม่ได้ตัวแก้ไข แต่ชี้ไปเปิดใบงานที่การ์ด CRM
     // สิทธิ์แผนก/แอดมินบังคับใน claimPoolJob ฝั่ง server · หน้าที่เตรียมงานใช้ dutyGate ตามเดิม
-    const designGate = (lead: TrackingLead) => {
+    const designGate = (lead: TrackingLead) => waiverCell(lead, 'design', designTool(lead))
+    const designTool = (lead: TrackingLead) => {
         const entry = jobsByLead.get(lead.id)
         const job = entry?.graphic
         const state = designCellState(job)
@@ -1036,7 +1119,9 @@ export default function TrackingView({
     const canEditDuty = (leadId: string, duty: PrepDuty) =>
         canManagePool || (!!currentUserId && claimByDuty.get(dutyKey(leadId, duty))?.claimedBy === currentUserId)
 
-    const dutyGate = (lead: TrackingLead, duty: PrepDuty, children: ReactNode) => (
+    const dutyGate = (lead: TrackingLead, duty: PrepDuty, children: ReactNode) =>
+        waiverCell(lead, CLAIM_WAIVER_ITEM[duty]!, dutyTool(lead, duty, children))
+    const dutyTool = (lead: TrackingLead, duty: PrepDuty, children: ReactNode) => (
         <DutyGate
             leadId={lead.id}
             duty={duty}
@@ -1065,7 +1150,8 @@ export default function TrackingView({
         const label = DUTY_LABELS_TH[duty]
         const claim = claimByDuty.get(dutyKey(lead.id, duty))
         const gate = gateOf(duty)
-        if (canEditDuty(lead.id, duty) || (!claim && gate?.allowed !== false)) {
+        // ตั้งไม่ต้องจัดแล้ว = แสดงป้าย "ไม่ต้อง…" เต็มเลย ไม่ยุบ
+        if (isClaimWaived(lead, duty) || canEditDuty(lead.id, duty) || (!claim && gate?.allowed !== false)) {
             return (
                 <div>
                     <div className="text-[11px] text-zinc-500">{label}</div>
@@ -1118,12 +1204,12 @@ export default function TrackingView({
     const claimCandidates: ClaimCandidate[] = []
     for (const lead of visible) {
         const graphic = jobsByLead.get(lead.id)?.graphic
-        if (graphic?.status === AWAITING_CLAIM_STATUS) {
+        if (graphic?.status === AWAITING_CLAIM_STATUS && !isClaimWaived(lead, 'graphic')) {
             claimCandidates.push({ key: graphic.id, kind: 'graphic', date: lead.event_date })
         }
         for (const duty of PREP_DUTIES) {
             const key = dutyKey(lead.id, duty)
-            if (!claimByDuty.has(key)) claimCandidates.push({ key, kind: duty, date: lead.event_date })
+            if (!claimByDuty.has(key) && !isClaimWaived(lead, duty)) claimCandidates.push({ key, kind: duty, date: lead.event_date })
         }
     }
     const emphasis = emphasizedClaims(claimCandidates)
@@ -1178,8 +1264,12 @@ export default function TrackingView({
     const tabCount = (key: PoolTab): { waiting: number; claimed: number } => {
         if (key === 'graphic' || key === 'onsite') {
             const list = key === 'graphic' ? pool.graphic : pool.onsite
-            const waiting = list.filter(j => j.status === AWAITING_CLAIM_STATUS).length
-            return { waiting, claimed: list.length - waiting }
+            // ใบรอรับของงานที่ตั้ง "ไม่ต้องออกแบบ" ไว้ ไม่นับ
+            const waiting = list.filter(j => {
+                const lead = j.crm_lead_id ? rows.find(r => r.id === j.crm_lead_id) : undefined
+                return j.status === AWAITING_CLAIM_STATUS && !(lead && isClaimWaived(lead, key))
+            }).length
+            return { waiting, claimed: list.filter(j => j.status !== AWAITING_CLAIM_STATUS).length }
         }
         if (!isDutyTab(key)) return { waiting: 0, claimed: 0 }
         return {
@@ -1208,7 +1298,7 @@ export default function TrackingView({
                     </p>
                 ) : (
                     <p className="text-sm text-zinc-500">
-                        พูลงาน · {tab === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'} รับแล้ว {poolJobs.filter(j => j.status !== AWAITING_CLAIM_STATUS).length} ใบ — อีก {poolJobs.filter(j => j.status === AWAITING_CLAIM_STATUS).length} ใบรอรับ (กดรับได้ที่นี่)
+                        พูลงาน · {tab === 'graphic' ? 'ใบงานกราฟิก' : 'ใบงานหน้างาน'} รับแล้ว {poolJobs.filter(j => j.status !== AWAITING_CLAIM_STATUS).length} ใบ — อีก {tabCount(tab).waiting} ใบรอรับ (กดรับได้ที่นี่)
                     </p>
                 )}
             </div>
