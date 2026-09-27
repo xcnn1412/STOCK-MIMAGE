@@ -15,10 +15,12 @@ import { closeLeadPrepWarning } from '@/app/(authenticated)/jobs/actions'
 import type { DutyWarningRow, DutyWarningSeverity } from './duty-warnings'
 
 export interface DutyWarningPanelProps {
-    /** แถวคำเตือนที่ผู้ใช้คนนี้ควรเห็น — ว่าง = ไม่ render อะไรเลย */
+    /** แถวคำเตือนที่ผู้ใช้คนนี้ควรเห็น — ว่าง = ไม่ render อะไรเลย (ยกเว้น showEmpty) */
     rows: DutyWarningRow[]
     /** แถบสรุปบรรทัดเดียว กดขยายเป็นรายการเต็ม (ใช้บน /jobs/tracking ที่พูลคือเนื้อหาหลัก) */
     collapsible?: boolean
+    /** ไม่มีคำเตือน = โชว์การ์ดเปล่าแทนการหาย (ใช้บน dashboard 3 คอลัมน์ ให้ layout ไม่ยุบ) */
+    showEmpty?: boolean
     className?: string
 }
 
@@ -50,7 +52,7 @@ function worstSeverity(rows: DutyWarningRow[]): DutyWarningSeverity {
     return 'soon'
 }
 
-export default function DutyWarningPanel({ rows, collapsible = false, className }: DutyWarningPanelProps) {
+export default function DutyWarningPanel({ rows, collapsible = false, showEmpty = false, className }: DutyWarningPanelProps) {
     const router = useRouter()
     const [closing, setClosing] = useState<string | null>(null)
     // โหมดพับ: เริ่มหุบเสมอ — หน้า tracking มีป้าย "สิ่งที่ยังขาด" ในตารางอยู่แล้ว แถบนี้เป็นแค่ตัวเลขรวม
@@ -70,8 +72,24 @@ export default function DutyWarningPanel({ rows, collapsible = false, className 
         router.refresh()
     }
 
-    // แผงว่าง = ไม่ render อะไรเลย (หน้ากลับมาโล่งเหมือนเดิม)
-    if (rows.length === 0) return null
+    // แผงว่าง: ค่าเริ่มต้นไม่ render อะไรเลย (หน้ากลับมาโล่งเหมือนเดิม) · showEmpty = การ์ดเปล่าบอกว่าครบหมดแล้ว
+    // (early return อยู่หลัง hook ทุกตัวเสมอ)
+    if (rows.length === 0) {
+        if (!showEmpty) return null
+        return (
+            <div className={cn('h-full px-4 pt-3', className)}>
+                <section className="h-full w-full rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3">
+                    <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                        <AlertTriangle className="h-4 w-4 text-zinc-400" />
+                        หน้าที่ยังไม่ครบ (0)
+                    </h2>
+                    <p className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-500">
+                        ทุกงานใกล้วันงานมีหน้าที่ครบแล้ว
+                    </p>
+                </section>
+            </div>
+        )
+    }
 
     const worst = worstSeverity(rows)
     const red = worst !== 'soon'
@@ -85,17 +103,26 @@ export default function DutyWarningPanel({ rows, collapsible = false, className 
     }
 
     return (
-        // div นอกคุมระยะขอบของหน้า (override ได้ด้วย className) — การ์ดข้างในคุมความกว้าง
-        <div className={cn('px-4 pt-3', className)}>
+        // div นอกคุมระยะขอบของหน้า (override ได้ด้วย className)
+        // โหมดพับ (tracking) = แถบย้อมสีตามความแรงเหมือนเดิม · แผงเต็ม (dashboard) = การ์ดพื้นกลาง ความกว้าง/สูงตาม grid
+        <div className={cn(!collapsible && 'h-full', 'px-4 pt-3', className)}>
             <section
-                className={cn(
-                    'mx-auto w-full rounded-2xl border shadow-sm',
-                    collapsible ? 'max-w-none' : 'max-w-2xl p-3 space-y-2',
-                    red
-                        ? 'border-red-300 dark:border-red-500/40 bg-red-50/60 dark:bg-red-500/5'
-                        : 'border-amber-300 dark:border-amber-500/40 bg-amber-50/60 dark:bg-amber-500/5'
-                )}
+                className={
+                    collapsible
+                        ? cn(
+                              'mx-auto w-full rounded-2xl border shadow-sm',
+                              'max-w-none',
+                              red
+                                  ? 'border-red-300 dark:border-red-500/40 bg-red-50/60 dark:bg-red-500/5'
+                                  : 'border-amber-300 dark:border-amber-500/40 bg-amber-50/60 dark:bg-amber-500/5'
+                          )
+                        : 'relative h-full w-full overflow-hidden rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3 pt-4 space-y-2'
+                }
             >
+                {/* แผงเต็ม: ความด่วนบอกด้วยแถบสีบนขอบ (แดง = เลยวัน/≤3 วัน · เหลือง = ใกล้ถึง) + สีไอคอนหัวข้อ */}
+                {!collapsible && (
+                    <div aria-hidden className={cn('absolute inset-x-0 top-0 h-1', red ? 'bg-red-500' : 'bg-amber-400 dark:bg-amber-500')} />
+                )}
                 {collapsible ? (
                     // แถบสรุปบรรทัดเดียว — ตัวเลขแยกตามความแรง กดทั้งแถบเพื่อขยาย/หุบ
                     <button
@@ -123,13 +150,8 @@ export default function DutyWarningPanel({ rows, collapsible = false, className 
                         />
                     </button>
                 ) : (
-                    <h2
-                        className={cn(
-                            'flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold',
-                            red ? 'text-red-900 dark:text-red-200' : 'text-amber-900 dark:text-amber-200'
-                        )}
-                    >
-                        <AlertTriangle className="h-4 w-4" />
+                    <h2 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                        <AlertTriangle className={cn('h-4 w-4', red ? 'text-red-500' : 'text-amber-500')} />
                         หน้าที่ยังไม่ครบ — ใกล้วันงาน ({rows.length})
                         {/* ป้ายนับตามความด่วน — ชุดเดียวกับแถบสรุปโหมดพับ */}
                         <span className="ml-auto flex flex-wrap items-center gap-x-2 text-xs font-normal">
@@ -145,7 +167,12 @@ export default function DutyWarningPanel({ rows, collapsible = false, className 
                         {shown.map(row => (
                             <li
                                 key={row.leadId}
-                                className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2"
+                                // แผงเต็มพื้นการ์ดขาว → แถวใช้พื้นเทาอ่อนให้ยังแยกเป็นแถว · โหมดพับคงเดิม
+                                className={
+                                    collapsible
+                                        ? 'rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2'
+                                        : 'rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3 py-2'
+                                }
                             >
                                 <div className="flex items-start gap-2">
                                     {/* จุดสีบอกความแรง — การ์ดพื้นขาว ความด่วนอยู่ที่จุด+ตัวนับถอยหลัง */}

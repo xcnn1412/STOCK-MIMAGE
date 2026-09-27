@@ -21,18 +21,14 @@ export interface HeroStats {
     missingByDuty: { label: string; count: number }[]
 }
 
-/** วันนี้แบบไทยยาว — โชว์หัว hero */
-const todayLabel = () =>
-    new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-
 function Tile({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: number; accent?: boolean }) {
     return (
         <div className="rounded-xl bg-white/10 px-3 py-2.5 backdrop-blur-sm">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium text-white/70">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-white/70">
                 {icon}
                 {label}
             </div>
-            <div className={cn('mt-0.5 text-2xl font-bold tabular-nums', accent ? 'text-amber-300' : 'text-white')}>
+            <div className={cn('mt-0.5 text-3xl font-bold tabular-nums', accent ? 'text-amber-300' : 'text-white')}>
                 {value}
             </div>
         </div>
@@ -44,15 +40,14 @@ export default function DashboardHero({ stats, className }: { stats: HeroStats; 
     const max = Math.max(1, ...bars.map(b => b.count))
 
     return (
-        <div className={cn('px-4 pt-4 md:pt-6', className)}>
-            <section className="mx-auto w-full max-w-2xl overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-indigo-600 to-sky-600 p-4 text-white shadow-lg dark:from-violet-700 dark:via-indigo-800 dark:to-sky-800">
-                <div className="flex items-baseline justify-between gap-2">
-                    <h1 className="text-base font-bold">ภาพรวมงานของคุณ</h1>
-                    <span className="text-[11px] text-white/60">{todayLabel()}</span>
-                </div>
+        // h-full = การ์ดสูงเต็มช่องของ grid บน dashboard ให้ 3 การ์ดสูงเท่ากัน
+        <div className={cn('h-full px-4 pt-4 md:pt-6', className)}>
+            <section className="h-full w-full overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-indigo-600 to-sky-600 p-4 text-white shadow-lg dark:from-violet-700 dark:via-indigo-800 dark:to-sky-800">
+                {/* หน้า dashboard ถือ h1 (คำทักทาย + วันที่) — การ์ดนี้เป็นหัวข้อรอง */}
+                <h2 className="text-base font-bold">ภาพรวมงานของคุณ</h2>
 
-                {/* ตัวเลขหลัก — stat tiles (เลยวัน/ด่วนเป็นสถานะ จึงมีไอคอน+ป้ายกำกับ ไม่ใช้สีเดี่ยวๆ) */}
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {/* ตัวเลขหลัก — stat tiles 2×2 เสมอ (เลยวัน/ด่วนเป็นสถานะ จึงมีไอคอน+ป้ายกำกับ ไม่ใช้สีเดี่ยวๆ) */}
+                <div className="mt-3 grid grid-cols-2 gap-2">
                     <Tile icon={<Briefcase className="h-3.5 w-3.5" />} label="งานในมือ" value={stats.myJobs} />
                     <Tile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="หน้าที่ยังไม่ครบ" value={stats.warningJobs} />
                     <Tile icon={<Flame className="h-3.5 w-3.5" />} label="เลยวันงาน" value={stats.overdue} accent={stats.overdue > 0} />
@@ -62,7 +57,7 @@ export default function DashboardHero({ stats, className }: { stats: HeroStats; 
                 {/* กราฟแท่งนอน: จำนวนสิ่งที่ยังขาดแยกตามหน้าที่ — แท่งสีเดียว ป้าย+ตัวเลขเป็น text ปกติ */}
                 {bars.length > 0 && (
                     <div className="mt-4 space-y-1.5">
-                        <div className="text-[11px] font-medium text-white/70">สิ่งที่ยังขาด แยกตามหน้าที่</div>
+                        <div className="text-xs font-medium text-white/70">สิ่งที่ยังขาด แยกตามหน้าที่</div>
                         {bars.map(b => (
                             <div key={b.label} className="flex items-center gap-2 text-xs" title={`${b.label} ยังขาด ${b.count} งาน`}>
                                 <span className="w-16 shrink-0 text-white/80">{b.label}</span>
