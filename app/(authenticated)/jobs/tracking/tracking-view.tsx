@@ -169,6 +169,12 @@ function NoteCell({ note, label, title, placeholder, onSave }: {
     )
 }
 
+/** เวลาเปิด–ปิดของอีเวนต์ (HH:mm) — ยังไม่กรอก = ข้อความว่าง */
+function eventTimeLabel(e: { event_time?: string | null; event_end_time?: string | null }): string {
+    if (!e.event_time) return ''
+    return `${e.event_time.slice(0, 5)}${e.event_end_time ? `–${e.event_end_time.slice(0, 5)}` : ''} น.`
+}
+
 function Countdown({ date, today }: { date: string | null; today: Date }) {
     if (!date) return <span className="text-zinc-300 dark:text-zinc-600">—</span>
     const d = daysUntil(date, today)
@@ -240,6 +246,7 @@ function JobCell({ lead, today, showEvents = true }: {
                                 {e.name} ↗
                             </Link>
                             {e.event_date && <span className="text-zinc-400"> · {formatDate(e.event_date)}</span>}
+                            {eventTimeLabel(e) && <span className="text-zinc-500"> | {eventTimeLabel(e)}</span>}
                         </div>
                     ))}
                 </div>
@@ -353,7 +360,7 @@ type LeadEvent = TrackingLead['events'][number]
 
 /** ป้ายบอกว่าช่องนี้เป็นของอีเวนต์ไหน — อยู่เหนือตัวแก้ไขในแถวรายอีเวนต์ */
 function EventLabel({ event }: { event: LeadEvent }) {
-    const label = `${event.name || 'ไม่ระบุชื่อ'}${event.event_date ? ` · ${formatDate(event.event_date)}` : ''}`
+    const label = `${event.name || 'ไม่ระบุชื่อ'}${event.event_date ? ` · ${formatDate(event.event_date)}` : ''}${eventTimeLabel(event) ? ` | ${eventTimeLabel(event)}` : ''}`
     return (
         <div className="mb-1 break-words text-[11px] font-medium text-zinc-500" title={label}>
             {label}
@@ -1513,7 +1520,7 @@ export default function TrackingView({
                                                         >
                                                             {ev.name || 'ไม่ระบุชื่อ'} ↗
                                                         </Link>
-                                                        {ev.event_date && <div className="text-[11px] text-zinc-400">{formatDate(ev.event_date)}</div>}
+                                                        {ev.event_date && <div className="text-[11px] text-zinc-400">{formatDate(ev.event_date)}{eventTimeLabel(ev) && ` | ${eventTimeLabel(ev)}`}</div>}
                                                     </TableCell>
                                                     <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
                                                     {/* งานหลายอีเวนต์: เปิดให้เองเฉพาะแถวอีเวนต์แรก ไม่งั้นเด้งพร้อมกันทุกใบ */}
