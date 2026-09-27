@@ -20,6 +20,8 @@ export interface TrackingLead {
   events: { id: string; name: string; event_date: string | null; status: string | null; event_time?: string | null; event_end_time?: string | null }[]
   /** คนที่จัดแล้ว รวมทุกอีเวนต์ของงาน — event_id บอกว่าอยู่ในชุดของอีเวนต์ไหน */
   staff: { user_id: string; name: string; nickname: string | null; role: string; event_id: string }[]
+  /** สิ่งที่ตั้งว่า "ไม่ต้องจัด" ของงานนี้ (จาก key skip_* ใน tracking_checklist ดิบ) — ไม่ส่ง = ไม่มี */
+  waived?: MissingItem[]
 }
 
 export const VEHICLES = [
@@ -56,6 +58,40 @@ export const MISSING_LABELS: Record<MissingItem, string> = {
   vehicle: 'จัดรถ',
   time: 'เวลาเริ่ม',
   kits: 'กระเป๋า',
+}
+
+// --- ไม่ต้องจัด (waiver): งานที่ไม่ต้องใช้ออกแบบ/คน/รถ/กระเป๋า ---------------------
+
+/** สิ่งที่ตั้ง "ไม่ต้องจัด" ได้ — เวลาเริ่มตั้งไม่ได้ (ทุกงานต้องมีเวลา) */
+export type WaivableItem = Exclude<MissingItem, 'time'>
+
+/** สิ่งที่ตั้งไม่ต้องจัดได้ → key ที่เก็บใน crm_leads.tracking_checklist (ไม่ต้องเปลี่ยน schema) */
+export const WAIVER_KEYS: Record<WaivableItem, string> = {
+  design: 'skip_design',
+  staff: 'skip_staff',
+  vehicle: 'skip_vehicle',
+  kits: 'skip_kits',
+}
+
+export const WAIVER_LABELS: Record<WaivableItem, string> = {
+  design: 'ไม่ต้องออกแบบ',
+  staff: 'ไม่ต้องจัดคน',
+  vehicle: 'ไม่ต้องจัดรถ',
+  kits: 'ไม่ต้องจัดกระเป๋า',
+}
+
+/** ค่าที่ส่งมาเป็นสิ่งที่ตั้งไม่ต้องจัดได้จริงไหม (กันค่าที่ client ส่งมามั่ว รวมถึง 'time') */
+export function isWaivableItem(value: string): value is WaivableItem {
+  return Object.prototype.hasOwnProperty.call(WAIVER_KEYS, value)
+}
+
+/** key skip_* ไหม — ใช้แยก key ไม่ต้องจัดออกจาก key รถตอนเขียน tracking_checklist */
+export const isWaiverKey = (key: string): boolean => Object.values(WAIVER_KEYS).includes(key)
+
+/** tracking_checklist ดิบ → สิ่งที่ตั้งไม่ต้องจัดไว้ (เรียงตามลำดับเกณฑ์ความพร้อม) */
+export function parseWaived(checklist: string[] | null | undefined): WaivableItem[] {
+  const keys = Array.isArray(checklist) ? checklist : []
+  return (Object.keys(WAIVER_KEYS) as WaivableItem[]).filter((item) => keys.includes(WAIVER_KEYS[item]))
 }
 
 /** ตำแหน่งที่ยังมีคนไม่ครบ 1 รายการ */
@@ -121,7 +157,9 @@ export function getMissing(lead: TrackingLead, kit?: KitReadiness, designReady?:
   if (!VEHICLES.some((v) => lead.tracking_checklist.includes(v.key))) missing.push('vehicle')
   if (!lead.event_time) missing.push('time')
   if (kit && isMissingKits(kit)) missing.push('kits')
-  return missing
+  // สิ่งที่ตั้งว่า "ไม่ต้องจัด" ไม่นับว่าขาด
+  const waived = lead.waived ?? []
+  return waived.length > 0 ? missing.filter((m) => !waived.includes(m)) : missing
 }
 
 export function isReady(lead: TrackingLead, kit?: KitReadiness, designReady?: boolean): boolean {
@@ -1203,6 +1241,41 @@ export function claimGate(
   }
 }
 
+/** สิ่งที่ตั้งไม่ต้องจัดได้ → สิ่งที่กดรับของเรื่องนั้น (ใช้หาแผนกที่ตั้ง/ยกเลิกไม่ต้องจัดได้) */
+export const WAIVER_CLAIM_KIND: Record<WaivableItem, ClaimKind> = {
+  design: 'graphic',
+  staff: 'staffing',
+  vehicle: 'vehicle',
+  kits: 'kits',
+}
+
+/** สิ่งที่กดรับ → สิ่งที่ตั้งไม่ต้องจัดได้ (หัวหน้างานไม่มี) */
+export const CLAIM_WAIVER_ITEM: Partial<Record<ClaimKind, WaivableItem>> = {
+  graphic: 'design',
+  staffing: 'staff',
+  vehicle: 'vehicle',
+  kits: 'kits',
+}
+
+/** สิ่งที่กดรับนี้ของงานนี้ถูกตั้งว่าไม่ต้องจัดไหม */
+export function isClaimWaived(lead: TrackingLead, kind: ClaimKind): boolean {
+  const item = CLAIM_WAIVER_ITEM[kind]
+  return !!item && (lead.waived ?? []).includes(item)
+}
+
+/**
+ * ตั้ง/ยกเลิก "ไม่ต้องจัด" ได้ไหม — แอดมิน, แอดมิน/ฝ่ายประสานงาน (pool manager)
+ * หรือคนในแผนกที่รับเรื่องนั้นได้ (`departments` = แผนกของ CLAIM_CATEGORY[WAIVER_CLAIM_KIND[item]])
+ */
+export function canWaive(
+  myDepartment: string | null,
+  isAdmin: boolean,
+  isPoolManager: boolean,
+  departments: string[]
+): boolean {
+  return isPoolManager || canActOnPool(myDepartment, isAdmin, departments)
+}
+
 /** ปุ่มรับหนึ่งปุ่มในชุดที่มองเห็น — `date` = วันงาน (null = ยังไม่กำหนดวัน) */
 export interface ClaimCandidate {
   key: string
@@ -1485,7 +1558,12 @@ export function myQueue({
     const kind: ClaimKind = job.job_type
     if (currentUserId && (job.claimed_by === currentUserId || job.assigned_to.includes(currentUserId))) {
       mine.push(itemOf(lead, kind, job.id))
-    } else if (job.status === AWAITING_CLAIM_STATUS && canClaim(kind) && !isPast(lead, today)) {
+    } else if (
+      job.status === AWAITING_CLAIM_STATUS &&
+      canClaim(kind) &&
+      !isPast(lead, today) &&
+      !isClaimWaived(lead, kind)
+    ) {
       claimable.push(itemOf(lead, kind, job.id))
     }
   }
@@ -1496,7 +1574,7 @@ export function myQueue({
       const claim = claimByDuty.get(dutyKey(lead.id, duty))
       if (claim) {
         if (currentUserId && claim.claimedBy === currentUserId) mine.push(itemOf(lead, duty))
-      } else if (canClaim(duty) && !isPast(lead, today)) {
+      } else if (canClaim(duty) && !isPast(lead, today) && !isClaimWaived(lead, duty)) {
         claimable.push(itemOf(lead, duty))
       }
     }

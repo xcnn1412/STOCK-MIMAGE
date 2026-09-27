@@ -4,7 +4,7 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
 import type { TrackingLead } from './tracking-view'
-import { CLAIM_CATEGORY, VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, POOL_TEAM_DEFAULTS, type ClaimKind, type DutyClaim, type EventVehicle, type PoolDepartments, type PoolJob } from './tracking-logic'
+import { CLAIM_CATEGORY, VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, parseWaived, POOL_TEAM_DEFAULTS, type ClaimKind, type DutyClaim, type EventVehicle, type PoolDepartments, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
 // ตรรกะล้วน (ไม่มี React) — แผงเตือนอ่านแผนกชุดเดียวกัน แค่ไม่ใช้ใบงานหน้างาน
 import type { DutyDepartments } from '@/components/dashboard-alerts/duty-warnings'
@@ -354,6 +354,8 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
         backdrop_note: l.backdrop_note ?? null,
         // กรองเหลือเฉพาะ key รถ — key checklist เก่า (lock_queue/on_site) ไม่ใช้แล้วและไม่ผ่าน validation
         tracking_checklist: (Array.isArray(l.tracking_checklist) ? (l.tracking_checklist as string[]) : []).filter(k => VEHICLES.some(v => v.key === k)),
+        // "ไม่ต้องจัด" อ่านจาก key skip_* ใน tracking_checklist ดิบ (ก่อนกรองเหลือแต่ key รถ)
+        waived: parseWaived(l.tracking_checklist as string[] | null),
         required_roles: normalizeRequiredRoles(l.required_roles),
         events: eventsByLead.get(l.id) || [],
         staff: staffByLead.get(l.id) || [],

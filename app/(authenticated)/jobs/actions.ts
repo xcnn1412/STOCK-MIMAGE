@@ -11,6 +11,7 @@ import {
     READY_DESIGN_STATUSES, kitBookingConflict, shouldFinishGraphicJob,
     canActOnPool, POOL_TEAM_CATEGORIES, POOL_TEAM_DEFAULTS, isClosedEvent,
     PREP_DUTY_CATEGORY, DUTY_LABELS_TH, isPrepDuty,
+    CLAIM_CATEGORY, WAIVER_CLAIM_KIND, WAIVER_KEYS, WAIVER_LABELS, canWaive, isWaivableItem, isWaiverKey,
 } from './tracking/tracking-logic'
 import type { PoolTeamCategory, PrepDuty } from './tracking/tracking-logic'
 import { DESIGN_STATUS_VALUES } from './tracking/design-options'
@@ -1515,6 +1516,41 @@ export async function releaseLeadDuty(leadId: string, duty: string) {
 }
 
 /**
+ * ตั้ง/ยกเลิก "ไม่ต้องจัด" ของงาน (ออกแบบ/จัดคน/จัดรถ/จัดกระเป๋า) — ระดับงาน ไม่ใช่รายอีเวนต์
+ * เก็บเป็น key skip_* ใน crm_leads.tracking_checklist (key อื่นรวมถึงรถคงไว้ทั้งหมด)
+ * สิทธิ์: แอดมิน / ฝ่ายประสานงาน / แผนกที่รับเรื่องนั้นได้ (canWaive)
+ */
+export async function setLeadWaiver(leadId: string, item: string, on: boolean) {
+    const actor = await getPoolActor()
+    if (!actor) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+    if (!isWaivableItem(item)) return { error: 'รายการที่ตั้งไม่ต้องจัดไม่ถูกต้อง' }
+
+    const category = CLAIM_CATEGORY[WAIVER_CLAIM_KIND[item]]
+    const departments = await getDepartmentSetting(category, [...POOL_TEAM_DEFAULTS[category]])
+    if (!canWaive(actor.department, actor.role === 'admin', isPoolManager(actor), departments)) {
+        return { error: 'เฉพาะแอดมิน ฝ่ายประสานงาน หรือทีมที่รับผิดชอบเรื่องนี้เท่านั้นที่ตั้งไม่ต้องจัดได้' }
+    }
+
+    const supabase = createServiceClient()
+    const { data: lead } = await supabase.from('crm_leads').select('tracking_checklist').eq('id', leadId).single()
+    if (!lead) return { error: 'ไม่พบงานนี้' }
+
+    const key = WAIVER_KEYS[item]
+    const current = Array.isArray(lead.tracking_checklist) ? (lead.tracking_checklist as string[]) : []
+    const rest = current.filter(k => k !== key)
+    const tracking_checklist = Array.from(new Set(on ? [...rest, key] : rest))
+
+    const { error } = await supabase.from('crm_leads').update({ tracking_checklist }).eq('id', leadId)
+    if (error) return { error: error.message }
+
+    await logActivity(on ? 'WAIVE_LEAD_DUTY' : 'UNWAIVE_LEAD_DUTY', { leadId, item, label: WAIVER_LABELS[item] })
+
+    revalidatePath('/jobs/tracking')
+    revalidatePath('/dashboard')
+    return { success: true }
+}
+
+/**
  * ใบงานกราฟิกของงานนี้จบเอง เมื่อสถานะออกแบบถึงขั้นพร้อม (sent_email_cf / completed)
  * — ไม่คืน error: การบันทึกสถานะออกแบบต้องสำเร็จอยู่ดีแม้ใบงานจะอัปเดตพลาด (บันทึกไว้ใน console)
  * — ถ้าสถานะออกแบบถอยกลับออกจากขั้นพร้อม (เช่น "แก้ไข") จงใจไม่ปลุกใบงานที่จบไปแล้วกลับเข้าพูล
@@ -2768,7 +2804,10 @@ export async function updateLeadTracking(
     }
     if (patch.tracking_checklist !== undefined) {
         if (patch.tracking_checklist.some(k => !CHECKLIST_KEYS.includes(k))) return { error: 'รายการจัดรถไม่ถูกต้อง' }
-        update.tracking_checklist = Array.from(new Set(patch.tracking_checklist))
+        // patch แทนเฉพาะ key รถ — key "ไม่ต้องจัด" (skip_*) ที่มีอยู่บนแถวต้องคงไว้
+        const { data: lead } = await supabase.from('crm_leads').select('tracking_checklist').eq('id', leadId).single()
+        const current = Array.isArray(lead?.tracking_checklist) ? (lead?.tracking_checklist as string[]) : []
+        update.tracking_checklist = Array.from(new Set([...current.filter(isWaiverKey), ...patch.tracking_checklist]))
     }
     if (patch.required_roles !== undefined) {
         // ponytail: validation duplicated with crm/actions.ts::updateLead; extract when a third caller appears

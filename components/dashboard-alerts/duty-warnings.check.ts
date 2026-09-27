@@ -136,4 +136,10 @@ a.tracking_checklist = []
 b.tracking_checklist = []
 assert.deepEqual(buildDutyWarnings(base([a, b], admin)).map(r => r.leadId), ['LB', 'LA'])
 
+// ไม่ต้องจัด: งานที่ขาดแค่สิ่งที่ตั้งว่าไม่ต้องจัด = ไม่มีคำเตือน
+const waivedCar = lead('LW', '2026-09-03')
+waivedCar.tracking_checklist = ['skip_vehicle']
+waivedCar.waived = ['vehicle']
+assert.equal(buildDutyWarnings(base([waivedCar], admin)).length, 0)
+
 console.log('duty-warnings.check: all passed')

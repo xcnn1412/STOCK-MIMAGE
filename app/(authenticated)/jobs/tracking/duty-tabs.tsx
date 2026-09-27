@@ -10,6 +10,7 @@ import {
     VEHICLES,
     dutyKey,
     emphasizedClaims,
+    isClaimWaived,
     vehicleOf,
     type ClaimGate,
     type DutyClaim,
@@ -69,7 +70,8 @@ export function unclaimedDutyCount(
     duty: PrepDuty,
     claimByDuty: Map<string, DutyClaim>
 ): number {
-    return leads.filter(l => !claimByDuty.has(dutyKey(l.id, duty))).length
+    // งานที่ตั้ง "ไม่ต้องจัด" หน้าที่นี้ไว้ ไม่นับเป็นรอรับ
+    return leads.filter(l => !claimByDuty.has(dutyKey(l.id, duty)) && !isClaimWaived(l, duty)).length
 }
 
 /** จำนวนงานที่หน้าที่นี้ "รับแล้ว" — ตัวเลขบนป้ายแท็บ = ขนาดคิวงานในแท็บ */
@@ -199,7 +201,7 @@ export default function DutyTab({
         return <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} defaultOpen={opened} />
     }
 
-    const waitingLeads = visible.filter(l => !claimOf(l))
+    const waitingLeads = visible.filter(l => !claimOf(l) && !isClaimWaived(l, duty))
     const claimedLeads = visible.filter(l => claimOf(l))
     // เรืองแสงเฉพาะงานที่ใกล้วันงานที่สุดของหน้าที่นี้
     const emphasis = emphasizedClaims(waitingLeads.map(l => ({ key: l.id, kind: duty, date: l.event_date })))
