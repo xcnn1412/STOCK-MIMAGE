@@ -1401,8 +1401,8 @@ export default function TrackingView({
                             <TableHead className="w-11">ลำดับ</TableHead>
                             <TableHead className="w-68">งาน</TableHead>
                             <TableHead className="w-42">ออกแบบ</TableHead>
-                            <TableHead className="w-44">ซัพพลายเออร์</TableHead>
                             <TableHead className="w-44">สีฉาก</TableHead>
+                            <TableHead className="w-44">ซัพพลายเออร์</TableHead>
                             <TableHead className="w-44">จัดคน</TableHead>
                             <TableHead className="w-40">จัดรถ</TableHead>
                             <TableHead className="w-40">กระเป๋า</TableHead>
@@ -1442,7 +1442,7 @@ export default function TrackingView({
                                     const sameAsPrev = i > 0 && arr[i - 1].event_date === lead.event_date
                                     const sameAsNext = i < arr.length - 1 && arr[i + 1].event_date === lead.event_date
                                     const framed = sameAsPrev || sameAsNext
-                                    // งานหลายอีเวนต์: แถวหัวแสดงวัน/ลูกค้า + ช่องระดับงาน (ออกแบบ/ซัพพลายเออร์/สีฉาก/ความพร้อม ยืด rowSpan)
+                                    // งานหลายอีเวนต์: แถวหัวแสดงวัน/ลูกค้า + ช่องระดับงาน (ออกแบบ/สีฉาก/ซัพพลายเออร์/ความพร้อม ยืด rowSpan)
                                     // แล้วหนึ่งแถวต่ออีเวนต์ — ชื่ออีเวนต์อยู่คอลัมน์ "งาน" ปุ่มจัดคน/จัดรถ/กระเป๋าเรียงแถวเดียวกัน
                                     const multi = lead.events.length >= 2
                                     const span = lead.events.length + 1
@@ -1474,8 +1474,8 @@ export default function TrackingView({
                                                 <TableCell className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
                                                 <TableCell><JobCell lead={lead} today={today} /></TableCell>
                                                 <TableCell>{designGate(lead)}</TableCell>
-                                                <TableCell><SupplierCell lead={lead} save={save} /></TableCell>
                                                 <TableCell><BackdropCell lead={lead} save={save} /></TableCell>
+                                                <TableCell><SupplierCell lead={lead} save={save} /></TableCell>
                                                 <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={null} defaultOpen={justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
                                                 <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={null} eventVehicles={eventVehicles} autoFocus={justClaimedDuty(lead.id, 'vehicle')} />)}</TableCell>
                                                 <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} eventId={null} defaultOpen={justClaimedDuty(lead.id, 'kits')} />)}</TableCell>
@@ -1498,8 +1498,8 @@ export default function TrackingView({
                                                 <TableCell rowSpan={span} className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
                                                 <TableCell><JobCell lead={lead} today={today} showEvents={false} /></TableCell>
                                                 <TableCell rowSpan={span}>{designGate(lead)}</TableCell>
-                                                <TableCell rowSpan={span}><SupplierCell lead={lead} save={save} /></TableCell>
                                                 <TableCell rowSpan={span}><BackdropCell lead={lead} save={save} /></TableCell>
+                                                <TableCell rowSpan={span}><SupplierCell lead={lead} save={save} /></TableCell>
                                                 <TableCell colSpan={3} />
                                                 <TableCell rowSpan={span}><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></TableCell>
                                             </TableRow>
@@ -1607,12 +1607,12 @@ export default function TrackingView({
 
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                        <div className="text-[11px] text-zinc-500">ซัพพลายเออร์</div>
-                                        <SupplierCell lead={lead} save={save} />
-                                    </div>
-                                    <div>
                                         <div className="text-[11px] text-zinc-500">สีฉาก</div>
                                         <BackdropCell lead={lead} save={save} />
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] text-zinc-500">ซัพพลายเออร์</div>
+                                        <SupplierCell lead={lead} save={save} />
                                     </div>
                                 </div>
                             </div>
