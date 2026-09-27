@@ -289,6 +289,18 @@ export default function EditEventForm({
               <Input id="location" name="location" defaultValue={event.location || ''} />
             </div>
 
+            {/* เวลาเปิด / เวลาปิด — ไม่บังคับ, ล้างช่องเพื่อเอาเวลาออก */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label htmlFor="event_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาเปิด' : 'Start time'}</label>
+                <Input id="event_time" name="event_time" type="time" defaultValue={(event.event_time ?? '').slice(0, 5)} />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="event_end_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาปิด' : 'End time'}</label>
+                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(event.event_end_time ?? '').slice(0, 5)} />
+              </div>
+            </div>
+
             {/* Event Phase */}
             <div className="space-y-2">
               <Label htmlFor="phase">

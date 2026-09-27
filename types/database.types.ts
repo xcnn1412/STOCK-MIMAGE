@@ -80,6 +80,8 @@ export interface Database {
           location: string | null
           staff: string | null
           event_date: string
+          event_time: string | null
+          event_end_time: string | null
           status: string | null
           phase: string | null
           created_at: string
@@ -90,6 +92,8 @@ export interface Database {
           location?: string | null
           staff?: string | null
           event_date?: string
+          event_time?: string | null
+          event_end_time?: string | null
           status?: string | null
           phase?: string | null
           created_at?: string
@@ -100,6 +104,8 @@ export interface Database {
           location?: string | null
           staff?: string | null
           event_date?: string
+          event_time?: string | null
+          event_end_time?: string | null
           status?: string | null
           phase?: string | null
           created_at?: string

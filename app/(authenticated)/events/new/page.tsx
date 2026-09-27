@@ -39,6 +39,8 @@ export default async function NewEventPage({ searchParams }: PageProps) {
     name: string
     location: string
     eventDate: string
+    eventTime: string | null
+    eventEndTime: string | null
     crmLeadId: string
     staffAssignments: { user_id: string; full_name: string; role: string }[]
     // Legacy backward-compat (also pass sellerNames & staffNames for the old hidden inputs)
@@ -53,7 +55,7 @@ export default async function NewEventPage({ searchParams }: PageProps) {
     // new event, which is exactly why all sub-events ended up sharing one staff list.)
     const { data: lead } = await supabase
       .from('crm_leads')
-      .select('id, customer_name, package_name, event_date, event_location')
+      .select('id, customer_name, package_name, event_date, event_location, event_time, event_end_time')
       .eq('id', params.from_crm)
       .single()
 
@@ -69,6 +71,9 @@ export default async function NewEventPage({ searchParams }: PageProps) {
         name: eventName,
         location: lead.event_location || '',
         eventDate: lead.event_date || '',
+        // เวลาเปิด–ปิด จากการ์ด CRM (time → 'HH:mm:ss'); ฟอร์มตัดเหลือ HH:mm เอง
+        eventTime: lead.event_time || null,
+        eventEndTime: lead.event_end_time || null,
         crmLeadId: lead.id,
         staffAssignments: [],
         sellerNames: [],

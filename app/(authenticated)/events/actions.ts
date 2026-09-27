@@ -37,6 +37,33 @@ export async function syncLeadArraysFromEvents(supabase: ReturnType<typeof creat
 }
 
 
+// ============================================================================
+// เวลาเปิด / เวลาปิด อีเวนต์ (optional, HH:mm)
+// ============================================================================
+
+const TIME_HHMM_RE = /^\d{2}:\d{2}$/
+const INVALID_TIME_ERROR = 'รูปแบบเวลาไม่ถูกต้อง (HH:mm)'
+const MISSING_TIME_COLUMN_ERROR =
+  'ยังไม่ได้เปิดใช้ช่องเวลาอีเวนต์ในฐานข้อมูล — รัน migration 20260927_events_event_time.sql ก่อน'
+
+/** อ่านเวลาจากฟอร์ม: คืน '' เมื่อไม่กรอก, คืน null เมื่อรูปแบบผิด */
+function readTimeField(formData: FormData, key: string): string | null {
+  const raw = String(formData.get(key) ?? '').trim()
+  if (!raw) return ''
+  return TIME_HHMM_RE.test(raw) ? raw : null
+}
+
+/**
+ * ฐานข้อมูลที่ยังไม่ได้รัน migration จะตอบ PGRST204 / 42703 เมื่อเจอคอลัมน์เวลา
+ * — แปลงเป็นข้อความบอกให้รัน migration แทน error ดิบ
+ */
+function isMissingTimeColumnError(error: { code?: string | null; message?: string | null } | null): boolean {
+  if (!error) return false
+  if (error.code !== 'PGRST204' && error.code !== '42703') return false
+  const msg = error.message || ''
+  return msg.includes('event_time') || msg.includes('event_end_time')
+}
+
 export async function createEvent(prevState: ActionState, formData: FormData) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('session_user_id')?.value
@@ -61,24 +88,37 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
       return { error: 'Event name is required' }
   }
 
+  // เวลาเปิด / เวลาปิด — ไม่บังคับ; ไม่ตรวจว่าเปิดก่อนปิด (งานข้ามเที่ยงคืนได้)
+  const eventTime = readTimeField(formData, 'event_time')
+  const eventEndTime = readTimeField(formData, 'event_end_time')
+  if (eventTime === null || eventEndTime === null) {
+      return { error: INVALID_TIME_ERROR }
+  }
+
   const supabase = createServiceClient()
+
+  // ใส่คีย์เวลาเฉพาะตอนที่กรอกมา — ฐานข้อมูลที่ยังไม่ได้รัน migration จะยังสร้างอีเวนต์ได้
+  const insertPayload: Record<string, unknown> = {
+      name,
+      location,
+      staff,
+      seller,
+      event_date: formData.get('event_date') as string || new Date().toISOString(),
+      crm_lead_id: fromCrm || null,
+      phase,
+  }
+  if (eventTime) insertPayload.event_time = eventTime
+  if (eventEndTime) insertPayload.event_end_time = eventEndTime
 
   const { data: event, error: eventError } = await supabase
       .from('events')
-      .insert({
-          name,
-          location,
-          staff,
-          seller,
-          event_date: formData.get('event_date') as string || new Date().toISOString(),
-          crm_lead_id: fromCrm || null,
-          phase,
-      })
+      .insert(insertPayload)
       .select()
       .single()
 
   if (eventError) {
       console.error('Create event error:', eventError)
+      if (isMissingTimeColumnError(eventError)) return { error: MISSING_TIME_COLUMN_ERROR }
       return { error: 'Failed to create event' }
   }
 
@@ -284,14 +324,27 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 
   if (!name) return { error: 'Event name is required' }
 
+  // เวลาเปิด / เวลาปิด — ไม่บังคับ; ค่าว่าง = ล้างเวลาที่เคยกรอกไว้
+  const eventTime = readTimeField(formData, 'event_time')
+  const eventEndTime = readTimeField(formData, 'event_end_time')
+  if (eventTime === null || eventEndTime === null) {
+      return { error: INVALID_TIME_ERROR }
+  }
+
   const supabase = createServiceClient()
 
   // === Capture BEFORE state for change tracking ===
+  // select('*') โดยตั้งใจ — ทนฐานข้อมูลที่ยังไม่มีคอลัมน์เวลา (ระบุชื่อคอลัมน์จะ error ทั้งก้อน)
   const { data: oldEvent } = await supabase
       .from('events')
-      .select('name, location, staff, seller, crm_lead_id')
+      .select('*')
       .eq('id', id)
       .single()
+
+  // เวลาเดิมในฐานข้อมูล (time มาเป็น 'HH:mm:ss' — ตัดเหลือ HH:mm เวลาเทียบ)
+  const hhmm = (v: unknown) => (typeof v === 'string' && v ? v.slice(0, 5) : '')
+  const oldEventTime = hhmm((oldEvent as { event_time?: unknown } | null)?.event_time)
+  const oldEventEndTime = hhmm((oldEvent as { event_end_time?: unknown } | null)?.event_end_time)
 
   const { data: oldKitsRaw } = await supabase
       .from('kits')
@@ -314,12 +367,22 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   }
 
   // 1. Update basic info
+  // ใส่คีย์เวลาเมื่อกรอกมา หรือเมื่อแถวเดิมมีค่าอยู่แล้ว (เพื่อให้ "ล้างเวลา" ทำงาน)
+  // — ฐานข้อมูลที่ยังไม่มีคอลัมน์เวลาและไม่มีค่าเดิม จะไม่เห็นคีย์นี้เลย
+  const updatePayload: Record<string, unknown> = { name, location, staff, seller, phase }
+  if (eventTime || oldEventTime) updatePayload.event_time = eventTime || null
+  if (eventEndTime || oldEventEndTime) updatePayload.event_end_time = eventEndTime || null
+
   const { error: updateError } = await supabase
       .from('events')
-      .update({ name, location, staff, seller, phase })
+      .update(updatePayload)
       .eq('id', id)
 
-  if (updateError) return { error: 'Failed to update event details' }
+  if (updateError) {
+      console.error('Update event error:', updateError)
+      if (isMissingTimeColumnError(updateError)) return { error: MISSING_TIME_COLUMN_ERROR }
+      return { error: 'Failed to update event details' }
+  }
 
   // 2. Sync Kits
   // Strategy:
@@ -412,6 +475,12 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   }
   if ((oldEvent?.seller || '') !== (seller || '')) {
       fieldChanges.seller = { from: oldEvent?.seller || null, to: seller || null }
+  }
+  if (oldEventTime !== (eventTime || '')) {
+      fieldChanges.event_time = { from: oldEventTime || null, to: eventTime || null }
+  }
+  if (oldEventEndTime !== (eventEndTime || '')) {
+      fieldChanges.event_end_time = { from: oldEventEndTime || null, to: eventEndTime || null }
   }
 
   // Kit diff
