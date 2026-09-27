@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { AlertTriangle, ArrowRight, ChevronRight, Eye, Pencil } from 'lucide-react'
+import { AlertTriangle, ArrowRight, ChevronRight, Clock, Eye, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
     assignLeadStaff,
@@ -175,6 +175,18 @@ function eventTimeLabel(e: { event_time?: string | null; event_end_time?: string
     return `${e.event_time.slice(0, 5)}${e.event_end_time ? `–${e.event_end_time.slice(0, 5)}` : ''} น.`
 }
 
+/** ป้ายเวลาเปิด–ปิดของอีเวนต์ — ยังไม่กรอกเวลา = ไม่แสดงอะไร */
+function EventTimePill({ event }: { event: { event_time?: string | null; event_end_time?: string | null } }) {
+    const label = eventTimeLabel(event)
+    if (!label) return null
+    return (
+        <span className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums whitespace-nowrap text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300">
+            <Clock className="h-3 w-3" aria-hidden />
+            {label}
+        </span>
+    )
+}
+
 function Countdown({ date, today }: { date: string | null; today: Date }) {
     if (!date) return <span className="text-zinc-300 dark:text-zinc-600">—</span>
     const d = daysUntil(date, today)
@@ -246,7 +258,7 @@ function JobCell({ lead, today, showEvents = true }: {
                                 {e.name} ↗
                             </Link>
                             {e.event_date && <span className="text-zinc-400"> · {formatDate(e.event_date)}</span>}
-                            {eventTimeLabel(e) && <span className="text-zinc-500"> | {eventTimeLabel(e)}</span>}
+                            <div className="mt-0.5 empty:hidden"><EventTimePill event={e} /></div>
                         </div>
                     ))}
                 </div>
@@ -360,10 +372,10 @@ type LeadEvent = TrackingLead['events'][number]
 
 /** ป้ายบอกว่าช่องนี้เป็นของอีเวนต์ไหน — อยู่เหนือตัวแก้ไขในแถวรายอีเวนต์ */
 function EventLabel({ event }: { event: LeadEvent }) {
-    const label = `${event.name || 'ไม่ระบุชื่อ'}${event.event_date ? ` · ${formatDate(event.event_date)}` : ''}${eventTimeLabel(event) ? ` | ${eventTimeLabel(event)}` : ''}`
+    const label = `${event.name || 'ไม่ระบุชื่อ'}${event.event_date ? ` · ${formatDate(event.event_date)}` : ''}`
     return (
         <div className="mb-1 break-words text-[11px] font-medium text-zinc-500" title={label}>
-            {label}
+            {label} <EventTimePill event={event} />
         </div>
     )
 }
@@ -1520,7 +1532,8 @@ export default function TrackingView({
                                                         >
                                                             {ev.name || 'ไม่ระบุชื่อ'} ↗
                                                         </Link>
-                                                        {ev.event_date && <div className="text-[11px] text-zinc-400">{formatDate(ev.event_date)}{eventTimeLabel(ev) && ` | ${eventTimeLabel(ev)}`}</div>}
+                                                        {ev.event_date && <div className="text-[11px] text-zinc-400">{formatDate(ev.event_date)}</div>}
+                                                        <div className="mt-0.5 empty:hidden"><EventTimePill event={ev} /></div>
                                                     </TableCell>
                                                     <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
                                                     {/* งานหลายอีเวนต์: เปิดให้เองเฉพาะแถวอีเวนต์แรก ไม่งั้นเด้งพร้อมกันทุกใบ */}
