@@ -15,9 +15,10 @@ import {
   QrCode, Boxes, Hammer, AlertTriangle, ScrollText, Printer, ArrowDownToLine, ArrowUpFromLine,
   Target, Award, Trophy, Repeat, Coins, Gauge, MessagesSquare,
   Shield, Activity, KeyRound, UserX, Globe, Network,
+  Calculator, CircleHelp, Settings,
 } from 'lucide-react'
 
-export type HowtoViewType = 'landing' | 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin'
+export type HowtoViewType = 'landing' | 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin' | 'salary'
 
 export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType } = {}) {
   const { locale } = useLocale()
@@ -4369,6 +4370,610 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
       </section>
       )}
 
+      {/* ════════════════════════════════════════════════════════════════
+          MODULE: SALARY
+          ════════════════════════════════════════════════════════════════ */}
+      {view === 'salary' && (
+      <section className="space-y-6">
+        <ModuleHero mod={MODULES[10]} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES[10]} isEn={isEn} />
+
+        {/* ── Start here ───────────────────────────────────────────── */}
+        <div id="salary-start" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Wallet className="h-4 w-4" />}
+            title={isEn ? 'Start here — what the salary module does' : 'เริ่มที่นี่ — ระบบเงินเดือนทำอะไร'}
+          />
+          <div className="rounded-xl border-2 border-teal-200 dark:border-teal-900 bg-gradient-to-br from-teal-50 to-white dark:from-teal-950/20 dark:to-zinc-900 p-4 space-y-3">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'The system works out pay from the check-ins of each person and puts it on one slip per period. The admin checks and closes the slip, then the employee can see it.'
+                : 'ระบบคิดเงินให้จากการเช็คอินของแต่ละคน แล้วออกเป็นสลิปทีละงวด แอดมินตรวจและปิดงวดก่อน พนักงานจึงเห็นสลิปของตัวเอง'}
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <RoleCard
+                role="user"
+                title={isEn ? 'Staff — only 3 things to do' : 'พนักงาน — ทำแค่ 3 อย่าง'}
+                steps={[
+                  { n: 1, label: isEn ? 'Check in as usual. When you go on-site, tick the duties you do.' : 'เช็คอินตามปกติ ถ้า "ไปหน้างาน" ให้ติ๊กหน้าที่ที่ทำ', tag: null },
+                  { n: 2, label: isEn ? 'Wait for the admin to close the period. The bell will notify you.' : 'รอแอดมินปิดงวด ระบบจะแจ้งเตือนที่กระดิ่ง', tag: null },
+                  { n: 3, label: isEn ? 'Open "My slips" to view your slip and download the PDF.' : 'เปิดเมนู "สลิปของฉัน" ดูสลิปและดาวน์โหลด PDF', tag: null },
+                ]}
+              />
+              <RoleCard
+                role="admin"
+                title={isEn ? 'Admin — every period' : 'แอดมิน — ทำทุกงวด'}
+                steps={[
+                  { n: 1, label: isEn ? 'First-time setup (only once).' : 'ตั้งค่าครั้งแรก (ทำครั้งเดียว)', tag: null },
+                  { n: 2, label: isEn ? 'Open a period and calculate. Everyone gets a slip in the "ร่าง" (in progress) state.' : 'เปิดงวดแล้วคำนวณ ทุกคนจะได้สลิปสถานะ "ร่าง"', tag: null },
+                  { n: 3, label: isEn ? 'Check each slip and bring the open items ("งานค้าง") down to 0.' : 'ตรวจสลิป เคลียร์ "งานค้าง" ให้เหลือ 0', tag: null },
+                  { n: 4, label: isEn ? 'Press "ปิดงวด" (close). The employee sees the slip right away.' : 'กด "ปิดงวด" พนักงานเห็นสลิปทันที', tag: null },
+                  { n: 5, label: isEn ? 'Transfer the money, then press "จ่ายแล้ว" (paid).' : 'โอนเงินแล้วกด "จ่ายแล้ว"', tag: null },
+                ]}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <FlowchartBox
+              title={isEn ? 'One period — from check-in to payment' : 'หนึ่งงวด — ตั้งแต่เช็คอินจนได้เงิน'}
+              color="sky"
+            >
+              <FlowNode variant="start" emoji="📍" title={isEn ? 'Staff check in every day' : 'พนักงานเช็คอินทุกวัน'} />
+              <FlowArrow />
+              <FlowNode variant="admin" emoji="🗓" title={isEn ? 'Admin opens the period and calculates' : 'แอดมินเปิดงวดและคำนวณ'} />
+              <FlowArrow />
+              <FlowNode variant="admin" emoji="📝" title={isEn ? 'Slip is "ร่าง" (in progress) — check and edit' : 'สลิปเป็น "ร่าง" — ตรวจและแก้ได้'} subtitle={isEn ? 'Staff cannot see it yet' : 'พนักงานยังมองไม่เห็น'} />
+              <FlowArrow />
+              <FlowNode variant="decision" emoji="⚠️" title={isEn ? 'Are the open items down to 0?' : 'งานค้างเหลือ 0 หรือยัง?'} />
+              <FlowArrow label={isEn ? 'yes' : 'ใช่'} />
+              <FlowNode variant="admin" emoji="🔒" title={isEn ? 'Press "ปิดงวด" (close)' : 'กด "ปิดงวด"'} subtitle={isEn ? 'Staff now see it as "รอจ่าย" (awaiting payment)' : 'พนักงานเห็นสลิป สถานะ "รอจ่าย"'} />
+              <FlowArrow />
+              <FlowNode variant="success" emoji="💸" title={isEn ? 'Transfer the money, then press "จ่ายแล้ว"' : 'โอนเงิน แล้วกด "จ่ายแล้ว"'} />
+            </FlowchartBox>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-teal-200/60 dark:border-teal-900/50 bg-white dark:bg-zinc-900 p-3 space-y-2">
+            <p className="text-[11px] font-bold text-teal-700 dark:text-teal-300 uppercase tracking-wider">
+              {isEn ? 'Example: cut-off day 25 (default)' : 'ตัวอย่าง: วันตัดรอบ 25 (ค่าเริ่มต้น)'}
+            </p>
+            <TimelineRow time={isEn ? 'Jul 26' : '26 ก.ค.'} emoji="🟢" textTh="วันแรกของงวดเดือนสิงหาคม" textEn="First day of the August period" tagTh="เริ่มงวด" tagEn="start" isEn={isEn} />
+            <TimelineRow time={isEn ? 'Aug 25' : '25 ส.ค.'} emoji="🏁" textTh="วันสุดท้ายของงวดเดือนสิงหาคม" textEn="Last day of the August period" tagTh="วันตัดรอบ" tagEn="cut-off" isEn={isEn} variant="success" />
+            <TimelineRow time={isEn ? 'Aug 26' : '26 ส.ค.'} emoji="➡️" textTh="เช็คอินตั้งแต่วันนี้ไปอยู่งวดเดือนกันยายน" textEn="Check-ins from this day go to the September period" tagTh="งวดถัดไป" tagEn="next period" isEn={isEn} variant="highlight" />
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+              {isEn
+                ? 'The admin can change the cut-off day in Settings. The change only affects periods opened afterwards.'
+                : 'แอดมินเปลี่ยนวันตัดรอบได้ที่เมนู "ตั้งค่า" — มีผลกับงวดที่เปิดใหม่หลังจากนั้นเท่านั้น'}
+            </p>
+          </div>
+        </div>
+
+        {/* ── What the money is made of ────────────────────────────── */}
+        <div id="salary-money" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Calculator className="h-4 w-4" />}
+            title={isEn ? 'What the money is made of' : 'เงินมาจากอะไรบ้าง'}
+            color="emerald"
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Employment type' : 'ประเภทการจ้าง'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Monthly period' : 'งวดรายเดือน'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Weekly / custom period' : 'งวดรายสัปดาห์ / กำหนดเอง'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
+                <tr>
+                  <td className="px-3 py-2.5 font-medium text-zinc-800 dark:text-zinc-200 align-top">{isEn ? 'Full-time (ประจำ)' : 'ประจำ'}</td>
+                  <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{isEn ? 'Base salary + OT + on-site duty pay' : 'เงินเดือนฐาน + OT + ค่าหน้าที่หน้างาน'}</td>
+                  <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{isEn ? 'Duty pay + OT on on-site days only (no base salary)' : 'ค่าหน้าที่ + OT เฉพาะวันไปหน้างาน (ไม่มีเงินเดือนฐาน)'}</td>
+                </tr>
+                <tr>
+                  <td className="px-3 py-2.5 font-medium text-zinc-800 dark:text-zinc-200 align-top">{isEn ? 'Intern (นักศึกษาฝึกงาน)' : 'นักศึกษาฝึกงาน'}</td>
+                  <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{isEn ? 'Base salary + OT + on-site duty pay' : 'เงินเดือนฐาน + OT + ค่าหน้าที่หน้างาน'}</td>
+                  <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{isEn ? 'Duty pay + OT on on-site days only (no base salary)' : 'ค่าหน้าที่ + OT เฉพาะวันไปหน้างาน (ไม่มีเงินเดือนฐาน)'}</td>
+                </tr>
+                <tr>
+                  <td className="px-3 py-2.5 font-medium text-zinc-800 dark:text-zinc-200 align-top">{isEn ? 'Freelance (ฟรีแลนซ์)' : 'ฟรีแลนซ์'}</td>
+                  <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{isEn ? 'Duty pay + OT on on-site days only (never a base salary)' : 'ค่าหน้าที่ + OT เฉพาะวันไปหน้างาน (ไม่มีเงินเดือนฐานเลย)'}</td>
+                  <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400 align-top">{isEn ? 'Duty pay + OT on on-site days only' : 'ค่าหน้าที่ + OT เฉพาะวันไปหน้างาน'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+            {isEn
+              ? 'Every type also adds the out-of-province bonus, runner amounts and manual adjustments, if any.'
+              : 'ทุกประเภทบวกเบิ้ลต่างจังหวัด รันเนอร์ และรายการปรับมือเพิ่มด้วย (ถ้ามี)'}
+          </p>
+
+          <ul className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <NewItem icon={<Wallet className="h-3.5 w-3.5" />} titleTh="เงินเดือนฐาน" titleEn="Base salary" descTh="เฉพาะประจำและนักศึกษาฝึกงาน และเฉพาะงวดรายเดือน" descEn="Full-time and interns only, and only in monthly periods." isEn={isEn} />
+            <NewItem icon={<Clock className="h-3.5 w-3.5" />} titleTh="OT" titleEn="OT" descTh="เวลาที่อยู่นอกเวลาทำงานของคนนั้น ปัดลงทีละ 30 นาที" descEn="Time outside the working hours of that person, rounded down to 30-minute blocks." isEn={isEn} />
+            <NewItem icon={<ListChecks className="h-3.5 w-3.5" />} titleTh="ค่าหน้าที่หน้างาน (ค่าสตาฟ)" titleEn="On-site duty pay" descTh="ตามหน้าที่ที่ติ๊กตอนเช็คอินไปหน้างาน คิดเป็นครั้ง" descEn="Based on the duties ticked at on-site check-in, paid per check-in." isEn={isEn} />
+            <NewItem icon={<MapPin className="h-3.5 w-3.5" />} titleTh="เบิ้ลต่างจังหวัด" titleEn="Out-of-province bonus" descTh="ค่าเริ่มต้น 300 บาทต่อเช็คอิน แอดมินเป็นคนติ๊ก ตจว. ให้" descEn="Default 300 baht per check-in. The admin ticks ตจว. (out of province)." isEn={isEn} />
+            <NewItem icon={<Zap className="h-3.5 w-3.5" />} titleTh="รันเนอร์" titleEn="Runner" descTh="ไม่มีอัตราตายตัว แอดมินกรอกยอดเองเป็นรายวัน" descEn="No fixed rate. The admin types the amount for each day." isEn={isEn} />
+            <NewItem icon={<Edit3 className="h-3.5 w-3.5" />} titleTh="รายการปรับมือ" titleEn="Manual adjustments" descTh="ยอดบวก (เช่น โบนัส) หรือยอดลบ (เช่น หักเงิน) ที่แอดมินเพิ่มเอง" descEn="Plus lines (e.g. bonus) or minus lines (e.g. deductions) added by the admin." isEn={isEn} />
+          </ul>
+
+          <div className="mt-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3">
+            <p className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider mb-2">
+              {isEn ? 'Duty rates — defaults, the admin can change them' : 'อัตราค่าหน้าที่ — ค่าเริ่มต้น แอดมินเปลี่ยนได้'}
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+              <span className="rounded-md bg-zinc-50 dark:bg-zinc-800 px-2 py-1.5 text-zinc-700 dark:text-zinc-300">{isEn ? 'On-site staff · 700 baht' : 'ออกงานสตาฟ · 700 บาท'}</span>
+              <span className="rounded-md bg-zinc-50 dark:bg-zinc-800 px-2 py-1.5 text-zinc-700 dark:text-zinc-300">{isEn ? 'Booth delivery · 150 baht' : 'ส่งโฟโต้บูธ · 150 บาท'}</span>
+              <span className="rounded-md bg-zinc-50 dark:bg-zinc-800 px-2 py-1.5 text-zinc-700 dark:text-zinc-300">{isEn ? 'Booth pickup · 150 baht' : 'เก็บโฟโต้บูธ · 150 บาท'}</span>
+              <span className="rounded-md bg-zinc-50 dark:bg-zinc-800 px-2 py-1.5 text-zinc-700 dark:text-zinc-300">{isEn ? 'Booth driving · 300 baht' : 'ขับรถออกบูธ · 300 บาท'}</span>
+              <span className="rounded-md bg-zinc-50 dark:bg-zinc-800 px-2 py-1.5 text-zinc-700 dark:text-zinc-300">{isEn ? 'Runner · typed per day' : 'รันเนอร์ · กรอกเองรายวัน'}</span>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-lg border border-emerald-200/60 dark:border-emerald-900/50 bg-white dark:bg-zinc-900 p-3 space-y-2">
+            <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
+              {isEn ? 'OT example — working hours 10:00–19:00' : 'ตัวอย่าง OT — เวลาทำงาน 10:00–19:00'}
+            </p>
+            <TimelineRow time="09:40" emoji="🟢" textTh="เช็คอินก่อนเวลางาน 20 นาที" textEn="Checked in 20 minutes early" tagTh="+20 นาที" tagEn="+20 min" isEn={isEn} />
+            <TimelineRow time="21:10" emoji="🔴" textTh="เช็คเอาท์หลังเวลางาน 2 ชม. 10 นาที" textEn="Checked out 2 h 10 min late" tagTh="+130 นาที" tagEn="+130 min" isEn={isEn} />
+            <TimelineRow time="=" emoji="🧮" textTh="รวม 150 นาที = 5 ช่วงครึ่งชั่วโมง" textEn="Total 150 minutes = 5 half-hour blocks" tagTh="OT 2.5 ชม." tagEn="OT 2.5 h" isEn={isEn} variant="success" />
+            <ul className="space-y-1.5 pt-1 text-xs text-zinc-700 dark:text-zinc-300">
+              <li className="flex items-start gap-2"><span className="text-emerald-500">•</span><span>{isEn ? 'Only 25 minutes over (under 30) = no OT.' : 'เกินเวลาแค่ 25 นาที (ไม่ถึง 30 นาที) = ไม่มี OT'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-emerald-500">•</span><span>{isEn ? 'WFH check-ins do not count for OT.' : 'เช็คอิน WFH ไม่นับ OT'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-emerald-500">•</span><span>{isEn ? 'Forgot to check out = no OT that day until the admin fills in the time.' : 'ลืมเช็คเอาท์ = วันนั้นไม่มี OT จนกว่าแอดมินจะเติมเวลาออกให้'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-emerald-500">•</span><span>{isEn ? 'Default working hours are 10:00–19:00. The admin can set them per person.' : 'เวลาทำงานค่าเริ่มต้น 10:00–19:00 แอดมินตั้งแยกรายคนได้'}</span></li>
+              <li className="flex items-start gap-2"><span className="text-emerald-500">•</span><span>{isEn ? 'Weekly and custom periods count OT on on-site days only. No office OT.' : 'งวดรายสัปดาห์และกำหนดเอง คิด OT เฉพาะวันไปหน้างาน ไม่มี OT ออฟฟิศ'}</span></li>
+            </ul>
+          </div>
+
+          <div className="mt-3">
+            <TipCard
+              tone="amber"
+              icon={<AlertTriangle className="h-4 w-4" />}
+              titleTh="ระบบไม่หักเงินอะไรให้เอง"
+              titleEn="The system does not deduct anything by itself"
+              descTh={'ไม่หักประกันสังคม ภาษี หรือวันลา และไม่คิดตามส่วนถ้าเข้าหรือออกกลางงวด ให้แอดมินใช้ "รายการปรับมือ"'}
+              descEn="No social security, tax or leave deductions, and no pro-rating for people who join or leave mid-period. The admin uses manual adjustments."
+              isEn={isEn}
+            />
+          </div>
+        </div>
+
+        {/* ════ STAFF ════ */}
+        <p className="text-xs font-bold uppercase tracking-wider text-sky-700 dark:text-sky-400 pt-2">
+          {isEn ? 'For staff' : 'สำหรับพนักงาน'}
+        </p>
+
+        {/* ── P1: tick duties at check-in ──────────────────────────── */}
+        <div id="salary-staff-checkin" className="scroll-mt-6">
+          <SectionHeader
+            icon={<MapPin className="h-4 w-4" />}
+            title={isEn ? 'Staff: tick your duties when checking in on-site' : 'พนักงาน: ติ๊กหน้าที่ตอนเช็คอินไปหน้างาน'}
+          />
+          <RoleCard
+            role="user"
+            title={isEn ? 'Do this every time you go on-site' : 'ทำตามนี้ทุกครั้งที่ออกงาน'}
+            steps={[
+              { n: 1, label: isEn ? 'Open the check-in page and choose "ไปหน้างาน" (on-site).' : 'เปิดหน้าเช็คอิน แล้วเลือก "ไปหน้างาน"', tag: null },
+              { n: 2, label: isEn ? 'Pick the event you are going to today.' : 'เลือกอีเวนต์ที่ไปวันนี้', tag: null },
+              { n: 3, label: isEn ? 'Under "หน้าที่หน้างาน" (on-site duties), tick what you really do. You can tick several.' : 'ในช่อง "หน้าที่หน้างาน" ติ๊กสิ่งที่ทำจริง ติ๊กได้หลายข้อ เช่น ส่งและเก็บโฟโต้บูธ', tag: null },
+              { n: 4, label: isEn ? 'Take the photo and press the check-in button.' : 'ถ่ายรูป แล้วกดปุ่มเช็คอิน', tag: null },
+              { n: 5, label: isEn ? 'When you finish, remember to check out. OT is based on your check-out time.' : 'เลิกงานแล้วอย่าลืมเช็คเอาท์ เพราะ OT คิดจากเวลาออก', tag: null },
+            ]}
+          />
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="sky" icon={<CheckCircle2 className="h-4 w-4" />} titleTh="ต้องติ๊กอย่างน้อย 1 หน้าที่" titleEn="Tick at least 1 duty" descTh="ถ้ายังไม่ติ๊ก ระบบจะไม่ให้เช็คอินไปหน้างาน" descEn="You cannot check in on-site until at least one duty is ticked." isEn={isEn} />
+            <TipCard tone="amber" icon={<MapPin className="h-4 w-4" />} titleTh="ตจว. แอดมินเป็นคนติ๊ก" titleEn="The admin ticks ตจว." descTh="งานต่างจังหวัดได้เบิ้ลต่อเช็คอิน แอดมินติ๊กให้ในสลิป พนักงานไม่ต้องทำอะไร" descEn="Out-of-province work earns a bonus per check-in. The admin ticks it on the slip. Staff do nothing." isEn={isEn} />
+            <TipCard tone="emerald" icon={<Building2 className="h-4 w-4" />} titleTh="ออฟฟิศ / WFH ไม่ต้องติ๊กอะไร" titleEn="Office / WFH: nothing to tick" descTh="หน้าที่หน้างานมีเฉพาะตอนเช็คอินไปหน้างาน" descEn="Duties only apply to on-site check-ins." isEn={isEn} />
+            <TipCard tone="violet" icon={<Lock className="h-4 w-4" />} titleTh="เช็คอินหน้างานได้เงินครั้งเดียว" titleEn="Each on-site check-in is paid once" descTh="จ่ายในงวดไหนแล้ว งวดอื่นจะไม่ดึงมาคิดซ้ำ" descEn="Once it is paid in one period, no other period counts it again." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── P2: my slips + statuses ──────────────────────────────── */}
+        <div id="salary-staff-slips" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Receipt className="h-4 w-4" />}
+            title={isEn ? 'Staff: your slips and their status' : 'พนักงาน: สลิปของฉัน และสถานะ'}
+          />
+          <RoleCard
+            role="user"
+            title={isEn ? 'Find your slips' : 'หาสลิปของตัวเอง'}
+            steps={[
+              { n: 1, label: isEn ? 'Open the menu "เงินเดือน" (Salary) → "สลิปของฉัน" (My slips).' : 'เปิดเมนู "เงินเดือน" → "สลิปของฉัน"', tag: null },
+              { n: 2, label: isEn ? 'Slips are listed with the newest period on top.' : 'สลิปเรียงจากงวดล่าสุดอยู่บนสุด', tag: null },
+              { n: 3, label: isEn ? 'Look at the status badge next to the slip name.' : 'ดูป้ายสถานะข้างชื่อสลิป', tag: null },
+            ]}
+          />
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="amber" icon={<Clock className="h-4 w-4" />} titleTh="รอจ่าย" titleEn="รอจ่าย — awaiting payment" descTh="แอดมินปิดงวดแล้ว ยอดนี้คือยอดที่คุณจะได้ กำลังรอโอนเงิน" descEn="The admin has closed the period. This is the amount you will get. The transfer is pending." isEn={isEn} />
+            <TipCard tone="emerald" icon={<CheckCircle2 className="h-4 w-4" />} titleTh="จ่ายแล้ว" titleEn="จ่ายแล้ว — paid" descTh="แอดมินโอนเงินแล้ว และบันทึกว่าจ่ายแล้ว" descEn="The admin has transferred the money and marked it as paid." isEn={isEn} />
+          </div>
+          <ul className="mt-3 space-y-1.5 text-xs text-zinc-700 dark:text-zinc-300">
+            <li className="flex items-start gap-2"><span className="text-sky-500">•</span><span>{isEn ? 'You only see your own slips, never anyone else.' : 'เห็นเฉพาะสลิปของตัวเอง ไม่เห็นของคนอื่น'}</span></li>
+            <li className="flex items-start gap-2"><span className="text-sky-500">•</span><span>{isEn ? 'You only see closed periods. Slips the admin is still checking ("ร่าง") do not show up.' : 'เห็นเฉพาะงวดที่ปิดแล้ว สลิปที่แอดมินยังตรวจอยู่ (ร่าง) จะไม่ขึ้น'}</span></li>
+            <li className="flex items-start gap-2"><span className="text-sky-500">•</span><span>{isEn ? 'Empty page = the admin has not closed your period yet.' : 'หน้ายังว่าง = แอดมินยังไม่ปิดงวดของคุณ'}</span></li>
+            <li className="flex items-start gap-2"><span className="text-sky-500">•</span><span>{isEn ? 'Monthly slips are called "สลิปเงินเดือน". Weekly and custom ones are called "สลิปค่าจ้าง".' : 'งวดรายเดือนชื่อ "สลิปเงินเดือน" ส่วนงวดรายสัปดาห์และกำหนดเองชื่อ "สลิปค่าจ้าง"'}</span></li>
+          </ul>
+        </div>
+
+        {/* ── P3: read slip + PDF ──────────────────────────────────── */}
+        <div id="salary-staff-read" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Download className="h-4 w-4" />}
+            title={isEn ? 'Staff: read a slip and download the PDF' : 'พนักงาน: อ่านสลิป และดาวน์โหลด PDF'}
+          />
+          <RoleCard
+            role="user"
+            title={isEn ? 'Reading your slip' : 'อ่านสลิปของตัวเอง'}
+            steps={[
+              { n: 1, label: isEn ? 'Tap a slip in the list to open it.' : 'แตะที่สลิปในรายการเพื่อเปิดดู', tag: null },
+              { n: 2, label: isEn ? 'The top shows the net amount (baht) you will receive.' : 'ด้านบนคือยอดสุทธิ (บาท) ที่จะได้รับ', tag: null },
+              { n: 3, label: isEn ? 'The table shows one day per row: times in and out, event, duties and the pay for that day.' : 'ตารางแสดงทีละวัน: เวลาเข้า–ออก อีเวนต์ หน้าที่ และเงินของวันนั้น', tag: null },
+              { n: 4, label: isEn ? 'The bottom shows base salary, manual adjustments and the net total.' : 'ท้ายสลิปมีเงินเดือนฐาน รายการปรับมือ และยอดสุทธิ', tag: null },
+              { n: 5, label: isEn ? 'For the PDF, tap the download icon at the end of the row, or the ⋯ menu → "ดาวน์โหลด PDF".' : 'โหลด PDF: แตะไอคอนดาวน์โหลดท้ายแถวในรายการ หรือเมนู ⋯ → "ดาวน์โหลด PDF"', tag: null },
+            ]}
+          />
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="sky" icon={<Lock className="h-4 w-4" />} titleTh="สลิปเป็นแบบอ่านอย่างเดียว" titleEn="The slip is read-only" descTh="ถ้าเห็นตัวเลขผิด ให้แจ้งแอดมิน แอดมินแก้ให้ได้" descEn="If a number looks wrong, tell the admin. The admin can fix it." isEn={isEn} />
+            <TipCard tone="violet" icon={<History className="h-4 w-4" />} titleTh="เคยถูกแก้ไข?" titleEn="Was it ever edited?" descTh={'ท้ายสลิปจะมี "ประวัติการแก้ไข" บอกเหตุผล และยอดก่อน → หลัง'} descEn="The bottom of the slip shows the edit history with the reason and the amount before → after." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── P4: notifications + reopened slips ───────────────────── */}
+        <div id="salary-staff-notify" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Bell className="h-4 w-4" />}
+            title={isEn ? 'Staff: notifications and reopened slips' : 'พนักงาน: แจ้งเตือน และเมื่อสลิปถูกเปิดแก้ไข'}
+          />
+          <FlowchartBox
+            title={isEn ? 'What you will see in the bell' : 'สิ่งที่จะเห็นในกระดิ่งแจ้งเตือน'}
+            color="sky"
+          >
+            <FlowNode variant="admin" emoji="🔒" title={isEn ? 'The admin closes the period' : 'แอดมินปิดงวด'} />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="🔔" title={isEn ? 'Bell: your slip is closed, with the net amount' : 'กระดิ่งแจ้ง: สลิปปิดงวดแล้ว พร้อมยอดสุทธิ'} />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="👀" title={isEn ? 'Open it right away in "สลิปของฉัน"' : 'เปิดดูได้ทันทีที่ "สลิปของฉัน"'} />
+            <FlowArrow label={isEn ? 'if the admin finds a mistake' : 'ถ้าแอดมินพบว่าต้องแก้'} />
+            <FlowNode variant="admin" emoji="✏️" title={isEn ? 'The admin reopens the slip with a reason' : 'แอดมินกด "เปิดแก้ไข" พร้อมเหตุผล'} />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="🔔" title={isEn ? 'Bell: your slip was reopened, with the reason' : 'กระดิ่งแจ้ง: สลิปถูกเปิดแก้ไข พร้อมเหตุผล'} />
+            <FlowArrow />
+            <FlowNode variant="terminal" emoji="🙈" title={isEn ? 'While it is being fixed, the slip is hidden from you' : 'ระหว่างแก้ สลิปจะหายจากหน้าของคุณชั่วคราว'} />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="🔔" title={isEn ? 'The admin closes it again: you are notified and the slip is back' : 'แอดมินปิดงวดใหม่: ได้แจ้งเตือนอีกครั้ง สลิปกลับมา'} />
+          </FlowchartBox>
+          <div className="mt-3">
+            <TipCard tone="amber" icon={<Coins className="h-4 w-4" />} titleTh="ถ้าเคยได้เงินไปแล้ว" titleEn="If you were already paid" descTh="ยอดใหม่ต่างจากเดิม แอดมินจะโอนเพิ่ม หรือหักคืนเฉพาะส่วนต่าง" descEn="If the new amount is different, the admin transfers or takes back only the difference." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ════ ADMIN ════ */}
+        <p className="text-xs font-bold uppercase tracking-wider text-purple-700 dark:text-purple-400 pt-2">
+          {isEn ? 'For admin' : 'สำหรับแอดมิน'}
+        </p>
+
+        {/* ── A1: first-time setup ─────────────────────────────────── */}
+        <div id="salary-admin-setup" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Settings className="h-4 w-4" />}
+            title={isEn ? '1. First-time setup (only once)' : '1. ตั้งค่าครั้งแรก (ทำครั้งเดียว)'}
+            color="violet"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Menu "เงินเดือน" → "ตั้งค่า" (Settings)' : 'เมนู "เงินเดือน" → "ตั้งค่า"'}
+              steps={[
+                { n: 1, label: isEn ? 'Tab "ค่าตั้งค่างวด": set the cut-off day (default 25), then press "บันทึก" (save).' : 'แท็บ "ค่าตั้งค่างวด": ตั้ง "วันตัดรอบ" (ค่าเริ่มต้น 25) แล้วกด "บันทึก"', tag: null },
+                { n: 2, label: isEn ? 'Same tab: set the out-of-province bonus (default 300 baht per check-in).' : 'แท็บเดียวกัน: ตั้งอัตราเบิ้ลต่างจังหวัด (ค่าเริ่มต้น 300 บาทต่อครั้ง)', tag: null },
+                { n: 3, label: isEn ? 'Tab "หน้าที่หน้างาน": check the rate of each duty, edit it in the row, then press "บันทึก" on that row.' : 'แท็บ "หน้าที่หน้างาน": ตรวจอัตราของแต่ละหน้าที่ แก้ในแถว แล้วกด "บันทึก" ของแถวนั้น', tag: null },
+                { n: 4, label: isEn ? 'New duty: press "เพิ่มหน้าที่". To stop using one, switch off "เปิดใช้งาน" instead of deleting it.' : 'หน้าที่ใหม่กด "เพิ่มหน้าที่" ถ้าเลิกใช้ให้ปิดสวิตช์ "เปิดใช้งาน" แทนการลบ', tag: null },
+                { n: 5, label: isEn ? 'Tab "โปรไฟล์เงินเดือน": press the pencil icon for each person.' : 'แท็บ "โปรไฟล์เงินเดือน": กดไอคอนดินสอทีละคน', tag: null },
+                { n: 6, label: isEn ? 'Fill in employment type, base salary, working hours, OT rate, position and start date, then save.' : 'กรอก "ประเภทการจ้าง" "เงินเดือนฐาน" "เวลาเริ่มงาน" "เวลาเลิกงาน" อัตรา OT ตำแหน่ง วันเริ่มงาน แล้วกด "บันทึก"', tag: null },
+                { n: 7, label: isEn ? 'People marked "ยังไม่ตั้งค่า" (not set up) are skipped when calculating.' : 'คนที่มีป้าย "ยังไม่ตั้งค่า" จะถูกข้ามตอนคำนวณ', tag: null },
+              ]}
+            />
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Give staff access — menu "ผู้ใช้งาน" (Users)' : 'เปิดสิทธิ์ให้พนักงาน — เมนู "ผู้ใช้งาน"'}
+              steps={[
+                { n: 1, label: isEn ? 'Find the employee and open their module access ("สิทธิ์โมดูล").' : 'หาชื่อพนักงาน แล้วเปิดช่อง "สิทธิ์โมดูล" ของคนนั้น', tag: null },
+                { n: 2, label: isEn ? 'Turn on "เงินเดือน" so they can see their own slips.' : 'เปิดโมดูล "เงินเดือน" เพื่อให้เห็นสลิปของตัวเอง', tag: null },
+                { n: 3, label: isEn ? 'Admins already have access. No need to turn it on for yourself.' : 'แอดมินเข้าได้อยู่แล้ว ไม่ต้องเปิดให้ตัวเอง', tag: null },
+                { n: 4, label: isEn ? 'Press "แก้ไขข้อมูล" (edit) and fill in the bank and account number of everyone you pay by transfer.' : 'กด "แก้ไขข้อมูล" แล้วกรอก "ธนาคาร" และ "เลขบัญชี" ของทุกคนที่รับเงินโอน', tag: null },
+              ]}
+            />
+          </div>
+        </div>
+
+        {/* ── A2: open a period ────────────────────────────────────── */}
+        <div id="salary-admin-open" className="scroll-mt-6">
+          <SectionHeader
+            icon={<CalendarDays className="h-4 w-4" />}
+            title={isEn ? '2. Open a period — 3 kinds' : '2. เปิดงวด — มี 3 แบบ'}
+            color="violet"
+          />
+          <p className="text-sm text-zinc-700 dark:text-zinc-300 mb-3">
+            {isEn ? 'Everything starts from the menu "งวดคำนวณ" (pay periods).' : 'ทุกอย่างเริ่มที่เมนู "งวดคำนวณ"'}
+          </p>
+          <ul className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+            <NewItem icon={<Calendar className="h-3.5 w-3.5" />} titleTh="รายเดือน" titleEn="Monthly" descTh="ตามวันตัดรอบ มีเงินเดือนฐานและ OT ออฟฟิศ เดือนหนึ่งเปิดได้งวดเดียว" descEn="Follows the cut-off day. Has base salary and office OT. Only one per month." isEn={isEn} />
+            <NewItem icon={<CalendarDays className="h-3.5 w-3.5" />} titleTh="รายสัปดาห์" titleEn="Weekly" descTh="จันทร์–อาทิตย์ เหมาะกับฟรีแลนซ์ ไม่มีเงินเดือนฐาน ไม่มี OT ออฟฟิศ" descEn="Monday to Sunday, good for freelancers. No base salary, no office OT." isEn={isEn} />
+            <NewItem icon={<Edit3 className="h-3.5 w-3.5" />} titleTh="กำหนดเอง" titleEn="Custom" descTh="เลือกวันเริ่ม–วันสิ้นสุดเอง ไม่เกิน 62 วัน ไม่มีเงินเดือนฐาน ไม่มี OT ออฟฟิศ" descEn="Pick the start and end dates yourself, up to 62 days. No base salary, no office OT." isEn={isEn} />
+          </ul>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Fast way — one click' : 'วิธีเร็ว — กดครั้งเดียว'}
+              steps={[
+                { n: 1, label: isEn ? 'When a period is due but not opened yet, a green banner appears at the top.' : 'ถ้างวดถึงเวลาแล้วแต่ยังไม่เปิด จะมีแบนเนอร์สีเขียวขึ้นด้านบน', tag: null },
+                { n: 2, label: isEn ? 'Press "เปิดและคำนวณ" (open and calculate).' : 'กด "เปิดและคำนวณ"', tag: null },
+                { n: 3, label: isEn ? 'The system opens the period, ticks everyone with unpaid check-ins and makes their slips at once.' : 'ระบบเปิดงวด เลือกทุกคนที่มีเช็คอินค้างจ่าย และทำสลิปร่างให้ทันที', tag: null },
+                { n: 4, label: isEn ? 'A monthly period also includes every full-time employee and intern.' : 'งวดรายเดือนจะรวมพนักงานประจำและนักศึกษาฝึกงานทุกคนให้ด้วย', tag: null },
+              ]}
+            />
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Manual way — "เปิดงวดเอง"' : 'วิธีเอง — ปุ่ม "เปิดงวดเอง"'}
+              steps={[
+                { n: 1, label: isEn ? 'Press "เปิดงวดเอง" (open manually).' : 'กด "เปิดงวดเอง"', tag: null },
+                { n: 2, label: isEn ? 'Choose the period kind: monthly, weekly or custom.' : 'เลือก "ชนิดงวด": รายเดือน / รายสัปดาห์ / กำหนดเอง', tag: null },
+                { n: 3, label: isEn ? 'Enter the month, the starting Monday, or the start and end dates, depending on the kind.' : 'กรอกเดือน หรือวันจันทร์ที่เริ่ม หรือวันเริ่ม–วันสิ้นสุด ตามชนิดที่เลือก', tag: null },
+                { n: 4, label: isEn ? 'Optionally tick the option to calculate right away, then press "เปิดงวด" (open).' : 'ติ๊กให้คำนวณทันทีได้ถ้าต้องการ แล้วกด "เปิดงวด"', tag: null },
+              ]}
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="amber" icon={<AlertTriangle className="h-4 w-4" />} titleTh="เช็คอินค้างจ่ายเกิน 60 วัน" titleEn="Unpaid check-ins older than 60 days" descTh="ทุกงวดดึงเช็คอินหน้างานที่ยังไม่จ่ายย้อนหลังได้ 60 วัน เกินนั้นจะมีกล่องเตือน ให้เปิดงวดกำหนดเองย้อนหลัง หรือใช้รายการปรับมือ" descEn="Every period picks up unpaid on-site check-ins up to 60 days back. Older ones show a warning: open a custom period for those dates, or use a manual adjustment." isEn={isEn} />
+            <TipCard tone="emerald" icon={<Repeat className="h-4 w-4" />} titleTh="งวดทับกันได้ ไม่จ่ายซ้ำ" titleEn="Periods may overlap — no double pay" descTh="เช็คอินหน้างานจ่ายได้ครั้งเดียว จึงเปิดงวดรายสัปดาห์ทับช่วงงวดรายเดือนได้" descEn="Each on-site check-in is paid only once, so a weekly period can overlap a monthly one." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── A3: pick people + calculate ──────────────────────────── */}
+        <div id="salary-admin-calc" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Users className="h-4 w-4" />}
+            title={isEn ? '3. Pick people and calculate' : '3. เลือกคนและคำนวณ'}
+            color="violet"
+          />
+          <RoleCard
+            role="admin"
+            title={isEn ? 'On the period page' : 'ในหน้างวด'}
+            steps={[
+              { n: 1, label: isEn ? 'Click the period name in the table to open it.' : 'กดชื่องวดในตาราง เพื่อเข้าหน้างวด', tag: null },
+              { n: 2, label: isEn ? 'In "เลือกคนเข้างวด" (choose people), the people who should be paid are already ticked.' : 'ในส่วน "เลือกคนเข้างวด" ระบบติ๊กคนที่ควรได้เงินไว้ให้แล้ว', tag: null },
+              { n: 3, label: isEn ? 'Filter by department or employment type, then tick or untick people.' : 'กรองตาม "แผนก" หรือ "ประเภทการจ้าง" แล้วติ๊กเพิ่มหรือเอาออกได้', tag: null },
+              { n: 4, label: isEn ? 'Press "คำนวณที่เลือก" (calculate selected). Everyone ticked gets a slip.' : 'กด "คำนวณที่เลือก" ทุกคนที่ติ๊กจะได้สลิปร่าง', tag: null },
+              { n: 5, label: isEn ? 'You can add people later. Just repeat steps 2–4.' : 'เพิ่มคนเข้างวดทีหลังได้ ทำซ้ำขั้นที่ 2–4', tag: null },
+            ]}
+          />
+          <div className="mt-3">
+            <TipCard tone="amber" icon={<UserX className="h-4 w-4" />} titleTh={'คนที่ "ยังไม่ตั้งค่าเงินเดือน" ถูกข้าม'} titleEn="People without a salary profile are skipped" descTh={'ไปตั้งค่าในแท็บ "โปรไฟล์เงินเดือน" ก่อน แล้วกลับมาคำนวณอีกครั้ง'} descEn="Set them up in the salary profiles tab first, then calculate again." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── A4: check + edit the daily slip ──────────────────────── */}
+        <div id="salary-admin-edit" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Edit3 className="h-4 w-4" />}
+            title={isEn ? '4. Check and edit the day-by-day slip' : '4. ตรวจและแก้สลิปแบบรายวัน'}
+            color="violet"
+          />
+          <RoleCard
+            role="admin"
+            title={isEn ? 'Open the slip and edit right in the cells' : 'เปิดสลิปแล้วแก้ในช่องได้เลย'}
+            steps={[
+              { n: 1, label: isEn ? 'On the period page, press "เปิดดู" (view) on that person.' : 'ในหน้างวด กด "เปิดดู" ที่แถวของคนนั้น', tag: null },
+              { n: 2, label: isEn ? 'One row per day: times in and out, duties, event, ตจว. and the pay for that day.' : 'ตาราง 1 วัน 1 แถว: เวลาเข้า–ออก หน้าที่ อีเวนต์ ตจว. และเงินของวันนั้น', tag: null },
+              { n: 3, label: isEn ? 'Click a cell, type the new value, then press Enter or click somewhere else.' : 'คลิกช่องที่จะแก้ พิมพ์ค่าใหม่ แล้วกด Enter หรือคลิกที่อื่น', tag: null },
+              { n: 4, label: isEn ? 'It saves and recalculates at once. There is no calculate button to press.' : 'ระบบบันทึกและคำนวณใหม่ให้ทันที ไม่ต้องกดปุ่มคำนวณ', tag: null },
+              { n: 5, label: isEn ? 'Out-of-province job? Switch on ตจว. for that check-in.' : 'งานต่างจังหวัด ให้เปิดสวิตช์ ตจว. ของเช็คอินนั้น', tag: null },
+              { n: 6, label: isEn ? 'A day is missing? Use "เพิ่มเช็คอินที่ลืม" (add a forgotten check-in) under the table.' : 'ลืมเช็คอินบางวัน ใช้ "เพิ่มเช็คอินที่ลืม" ท้ายตาราง', tag: null },
+            ]}
+          />
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="violet" icon={<Edit3 className="h-4 w-4" />} titleTh="พิมพ์ยอดทับตัวเลขที่ระบบคิด" titleEn="Typing over a calculated amount" descTh="คลิกยอดเงิน (ค่าสตาฟ เบิ้ล OT) แล้วพิมพ์ยอดใหม่ ต้องใส่เหตุผลทุกครั้ง ยอดที่พิมพ์ไม่หายแม้ระบบคำนวณใหม่" descEn="Click an amount (duty pay, bonus, OT) and type a new one. A reason is always required. Your amount stays even after recalculation." isEn={isEn} />
+            <TipCard tone="sky" icon={<RefreshCw className="h-4 w-4" />} titleTh="อยากกลับไปใช้ยอดของระบบ" titleEn="Back to the calculated amount" descTh={'กดไอคอนลูกศรวนข้างยอดนั้น ("ล้างการแก้มือ") ยอดจะกลับเป็นค่าที่ระบบคำนวณ'} descEn="Press the circular-arrow icon next to the amount (clear manual edit) to go back to the calculated value." isEn={isEn} />
+            <TipCard tone="amber" icon={<Clock className="h-4 w-4" />} titleTh="เวลาออกน้อยกว่าเวลาเข้า" titleEn="Check-out earlier than check-in" descTh="ระบบจะถามก่อนว่าเป็นงานข้ามคืนหรือไม่ ไม่บันทึกเองเงียบๆ" descEn="The system asks first whether it was an overnight job. It never saves this silently." isEn={isEn} />
+            <TipCard tone="emerald" icon={<Smile className="h-4 w-4" />} titleTh="บนมือถือ" titleEn="On mobile" descTh="แต่ละวันเป็นการ์ด แตะการ์ดเพื่อเปิดช่องแก้ใต้การ์ด" descEn="Each day is a card. Tap the card to open the edit fields below it." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── A5: open items + accept ──────────────────────────────── */}
+        <div id="salary-admin-pending" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ClipboardList className="h-4 w-4" />}
+            title={isEn ? '5. Open items ("งานค้าง") and the accept button' : '5. งานค้าง และปุ่มยอมรับ'}
+            color="violet"
+          />
+          <p className="text-sm text-zinc-700 dark:text-zinc-300 mb-3 leading-relaxed">
+            {isEn
+              ? 'The box "งานค้างก่อนปิดงวด" at the top of the slip counts what is left. It must reach 0 before the slip can be closed.'
+              : 'กล่อง "งานค้างก่อนปิดงวด" อยู่บนสุดของสลิป บอกว่าเหลือกี่รายการ ต้องเหลือ 0 ถึงจะปิดงวดได้'}
+          </p>
+          <RoleCard
+            role="admin"
+            title={isEn ? 'Clear the open items' : 'เคลียร์งานค้าง'}
+            steps={[
+              { n: 1, label: isEn ? 'Click an item. The page jumps to that day and highlights it.' : 'คลิกรายการ หน้าจอจะเลื่อนไปวันนั้นและไฮไลต์ให้', tag: null },
+              { n: 2, label: isEn ? 'Fix the data. The item disappears by itself.' : 'แก้ข้อมูลให้ถูก รายการจะหายไปเอง', tag: null },
+              { n: 3, label: isEn ? 'Already correct? Press "ยอมรับ" (accept). It no longer counts as open.' : 'ถ้าถูกอยู่แล้วไม่ต้องแก้ กด "ยอมรับ" รายการนั้นจะไม่นับเป็นงานค้าง', tag: null },
+              { n: 4, label: isEn ? 'Pressed by mistake? Press "ยกเลิกการยอมรับ" (undo).' : 'กดผิด กด "ยกเลิกการยอมรับ" ได้', tag: null },
+            ]}
+          />
+          <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Item' : 'รายการ'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'What to do' : 'ต้องทำอะไร'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Can accept?' : 'กดยอมรับได้ไหม'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
+                <ChecklistRow emoji="🕘" label={isEn ? 'No check-out time' : 'ไม่มีเวลาออก'} required={isEn ? 'Fill in the check-out time' : 'เติมเวลาออก'} passes={isEn ? 'Yes' : 'ได้'} />
+                <ChecklistRow emoji="🎪" label={isEn ? 'No event linked' : 'ไม่ได้ผูกอีเวนต์'} required={isEn ? 'Pick the event' : 'เลือกอีเวนต์'} passes={isEn ? 'Yes' : 'ได้'} />
+                <ChecklistRow emoji="🧰" label={isEn ? 'No duty ticked' : 'ไม่ได้ติ๊กหน้าที่'} required={isEn ? 'Tick the duties' : 'ติ๊กหน้าที่'} passes={isEn ? 'Yes' : 'ได้'} />
+                <ChecklistRow emoji="✍️" label={isEn ? 'A typed amount was lost' : 'ค่าที่แก้มือหาย'} required={isEn ? 'Check the amount again' : 'ตรวจยอดนั้นอีกครั้ง'} passes={isEn ? 'Yes' : 'ได้'} />
+                <ChecklistRow emoji="🏃" label={isEn ? 'Runner amount empty' : 'รันเนอร์ยังไม่กรอกยอด'} required={isEn ? 'Type the amount (0 is allowed)' : 'กรอกยอด (ใส่ 0 ได้)'} passes={isEn ? 'No — must be filled in' : 'ไม่ได้ ต้องกรอกเท่านั้น'} />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── A6: runner + manual adjustments ──────────────────────── */}
+        <div id="salary-admin-runner" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Coins className="h-4 w-4" />}
+            title={isEn ? '6. Runner amounts and manual adjustments' : '6. รันเนอร์ และรายการปรับมือ'}
+            color="violet"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Runner — type the amount per day' : 'รันเนอร์ — กรอกยอดรายวัน'}
+              steps={[
+                { n: 1, label: isEn ? 'Days with the runner duty ticked have an empty runner cell.' : 'วันที่ติ๊กหน้าที่รันเนอร์ จะมีช่องรันเนอร์ว่างรอกรอก', tag: null },
+                { n: 2, label: isEn ? 'Type the amount, then press Tab to jump to the next empty day.' : 'พิมพ์ยอด แล้วกด Tab เพื่อไปวันถัดไปที่ยังว่าง', tag: null },
+                { n: 3, label: isEn ? 'Same amount every day? Press "ใช้ยอดนี้กับวันที่ยังว่าง" to fill them all at once.' : 'ยอดเท่ากันทุกวัน กด "ใช้ยอดนี้กับวันที่ยังว่าง" เติมให้ครบในครั้งเดียว', tag: null },
+                { n: 4, label: isEn ? 'No runner pay that day? Type 0. Do not leave it empty.' : 'วันไหนไม่ได้เงินรันเนอร์ ให้ใส่ 0 ห้ามปล่อยว่าง', tag: null },
+              ]}
+            />
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Manual adjustments — add or deduct money' : 'รายการปรับมือ — บวกหรือหักเงินเอง'}
+              steps={[
+                { n: 1, label: isEn ? 'Scroll to the bottom of the slip, to "รายการปรับมือ".' : 'เลื่อนลงท้ายสลิป ไปที่ "รายการปรับมือ"', tag: null },
+                { n: 2, label: isEn ? 'Type a name, e.g. bonus or social security.' : 'พิมพ์ชื่อรายการ เช่น โบนัส หรือหักประกันสังคม', tag: null },
+                { n: 3, label: isEn ? 'Type the amount: positive adds money, negative deducts it. It cannot be 0.' : 'ใส่จำนวนเงิน ยอดบวก = เพิ่มเงิน ยอดติดลบ = หักเงิน (ใส่ 0 ไม่ได้)', tag: null },
+                { n: 4, label: isEn ? 'Press "เพิ่มรายการปรับมือ" (add).' : 'กด "เพิ่มรายการปรับมือ"', tag: null },
+              ]}
+            />
+          </div>
+          <div className="mt-3">
+            <TipCard tone="sky" icon={<Edit3 className="h-4 w-4" />} titleTh="ใช้รายการปรับมือเมื่อไร" titleEn="When to use manual adjustments" descTh="ประกันสังคม ภาษี หักวันลา โบนัส และคนที่เข้าหรือออกกลางงวด" descEn="Social security, tax, leave deductions, bonuses, and people who join or leave mid-period." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── A7: close the period ─────────────────────────────────── */}
+        <div id="salary-admin-close" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Lock className="h-4 w-4" />}
+            title={isEn ? '7. Close the period' : '7. ปิดงวด'}
+            color="violet"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Close one slip' : 'ปิดทีละใบ'}
+              steps={[
+                { n: 1, label: isEn ? 'Bring the open items down to 0.' : 'เคลียร์งานค้างให้เหลือ 0', tag: null },
+                { n: 2, label: isEn ? 'Press "ปิดงวด" in the slip header. While items are open it shows the count and cannot be pressed.' : 'กด "ปิดงวด" บนหัวสลิป ถ้ายังมีงานค้าง ปุ่มจะบอกจำนวนค้างและกดไม่ได้', tag: null },
+                { n: 3, label: isEn ? 'Confirm. The slip locks, and the employee is notified and can see it.' : 'กดยืนยัน สลิปล็อก พนักงานได้แจ้งเตือนและเห็นสลิปทันที', tag: null },
+              ]}
+            />
+            <RoleCard
+              role="admin"
+              title={isEn ? 'Close all the rest' : 'ปิดที่เหลือทั้งหมด'}
+              steps={[
+                { n: 1, label: isEn ? 'On the period page press "ปิดงวดที่เหลือทั้งหมด" (close all remaining).' : 'ในหน้างวด กด "ปิดงวดที่เหลือทั้งหมด"', tag: null },
+                { n: 2, label: isEn ? 'Slips that still have open items are skipped, and their names are shown.' : 'ใบที่ยังมีงานค้างจะถูกข้าม ระบบบอกชื่อให้', tag: null },
+                { n: 3, label: isEn ? 'Fix the skipped slips, then press it again.' : 'แก้ใบที่ถูกข้าม แล้วกดอีกครั้ง', tag: null },
+              ]}
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <TipCard tone="emerald" icon={<Receipt className="h-4 w-4" />} titleTh="ปิดแล้วส่งเข้าต้นทุนให้เอง" titleEn="Sent to Costs automatically" descTh="ค่าสตาฟ เบิ้ลต่างจังหวัด และรันเนอร์ ถูกส่งเข้าโมดูลต้นทุนของแต่ละอีเวนต์ ส่วน OT และรายการปรับมือไม่ส่ง" descEn="Duty pay, out-of-province bonus and runner amounts go to the Costs module of each event. OT and manual adjustments do not." isEn={isEn} />
+            <TipCard tone="sky" icon={<Send className="h-4 w-4" />} titleTh="ส่งเข้าต้นทุนไม่สำเร็จ" titleEn="Costs did not update?" descTh={'เมนู ⋯ บนหัวสลิป → "ส่งเข้าต้นทุนอีกครั้ง"'} descEn="Slip header ⋯ menu → send to Costs again." isEn={isEn} />
+            <TipCard tone="amber" icon={<Lock className="h-4 w-4" />} titleTh="ปิดแล้วแก้ตัวเลขไม่ได้" titleEn="Closed slips are locked" descTh={'ต้องการแก้ ให้ใช้ "เปิดแก้ไข" (ข้อ 9)'} descEn="To change anything, reopen the slip (step 9)." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── A8: transfer summary + paid ──────────────────────────── */}
+        <div id="salary-admin-pay" className="scroll-mt-6">
+          <SectionHeader
+            icon={<FileSpreadsheet className="h-4 w-4" />}
+            title={isEn ? '8. Transfer summary, Excel and marking paid' : '8. สรุปยอดโอน Excel และบันทึกว่าจ่ายแล้ว'}
+            color="violet"
+          />
+          <RoleCard
+            role="admin"
+            title={isEn ? 'Pay everyone' : 'จ่ายเงินทุกคน'}
+            steps={[
+              { n: 1, label: isEn ? 'On the period page scroll down to "สรุปยอดโอน" (transfer summary).' : 'ในหน้างวด เลื่อนลงไปที่ "สรุปยอดโอน"', tag: null },
+              { n: 2, label: isEn ? 'Check the name, bank, account number and amount of each person.' : 'ดูชื่อ ธนาคาร เลขบัญชี และยอดโอนของแต่ละคน', tag: null },
+              { n: 3, label: isEn ? 'People without an account are flagged. Fill it in under the menu "ผู้ใช้งาน".' : 'ใครยังไม่มีเลขบัญชีจะมีคำเตือน ให้ไปกรอกที่เมนู "ผู้ใช้งาน"', tag: null },
+              { n: 4, label: isEn ? 'Press "ดาวน์โหลด Excel" to get the file for the bank transfer.' : 'กด "ดาวน์โหลด Excel" ไว้ใช้โอนเงิน', tag: null },
+              { n: 5, label: isEn ? 'After transferring, press "จ่ายแล้วทั้งหมด" (all paid), or "จ่ายแล้ว" for one person.' : 'โอนเสร็จ กด "จ่ายแล้วทั้งหมด" หรือกด "จ่ายแล้ว" ทีละคน', tag: null },
+              { n: 6, label: isEn ? 'The employee slip changes from "รอจ่าย" to "จ่ายแล้ว".' : 'สลิปของพนักงานเปลี่ยนจาก "รอจ่าย" เป็น "จ่ายแล้ว"', tag: null },
+            ]}
+          />
+        </div>
+
+        {/* ── A9: reopen after closing ─────────────────────────────── */}
+        <div id="salary-admin-reopen" className="scroll-mt-6">
+          <SectionHeader
+            icon={<RefreshCw className="h-4 w-4" />}
+            title={isEn ? '9. Reopen a slip after closing' : '9. เปิดแก้ไขหลังปิดงวด'}
+            color="violet"
+          />
+          <FlowchartBox
+            title={isEn ? 'Found a mistake after closing' : 'พบข้อผิดพลาดหลังปิดงวด'}
+            color="purple"
+          >
+            <FlowNode variant="admin" emoji="⋯" title={isEn ? 'Open the slip → ⋯ menu → "เปิดแก้ไข" (reopen)' : 'เปิดสลิป → เมนู ⋯ → "เปิดแก้ไข"'} />
+            <FlowArrow />
+            <FlowNode variant="admin" emoji="✍️" title={isEn ? 'Type the reason — at least 10 characters' : 'ใส่ "เหตุผลที่เปิดแก้ไข" อย่างน้อย 10 ตัวอักษร'} />
+            <FlowArrow />
+            <FlowNode variant="terminal" emoji="🙈" title={isEn ? 'The slip goes back to "ร่าง" and is hidden from the employee' : 'สลิปกลับเป็น "ร่าง" พนักงานมองไม่เห็นชั่วคราว'} />
+            <FlowArrow />
+            <FlowNode variant="admin" emoji="✏️" title={isEn ? 'Fix it, then press "ปิดงวด" again' : 'แก้ให้ถูก แล้วกด "ปิดงวด" ใหม่'} />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="🔔" title={isEn ? 'The employee is notified on reopen and again on re-close' : 'พนักงานได้แจ้งเตือนทั้งตอนเปิดแก้และตอนปิดงวดใหม่'} />
+          </FlowchartBox>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="amber" icon={<Banknote className="h-4 w-4" />} titleTh="สลิปที่จ่ายแล้วก็เปิดแก้ได้" titleEn="Paid slips can be reopened too" descTh={'หัวสลิปจะบอกยอดที่จ่ายไป ยอดใหม่ และส่วนต่าง ว่าต้องโอนเพิ่มหรือหักคืน จนกว่าจะกด "จ่ายแล้ว" อีกครั้ง'} descEn="The slip header shows the amount paid, the new amount and the difference to transfer or take back, until you press paid again." isEn={isEn} />
+            <TipCard tone="sky" icon={<History className="h-4 w-4" />} titleTh="เก็บประวัติทุกครั้ง" titleEn="Every change is recorded" descTh={'ท้ายสลิปและใน PDF มี "ประวัติการแก้ไข": ใคร เมื่อไร เหตุผล ยอดก่อน → หลัง'} descEn="The bottom of the slip and the PDF show the edit history: who, when, why, and the amount before → after." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── FAQ ──────────────────────────────────────────────────── */}
+        <div id="salary-faq" className="scroll-mt-6">
+          <SectionHeader
+            icon={<CircleHelp className="h-4 w-4" />}
+            title={isEn ? 'Frequently asked questions' : 'คำถามที่พบบ่อย'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="ทำไมยังไม่เห็นสลิป?" titleEn="Why can I not see my slip yet?" descTh="แอดมินยังไม่ปิดงวด หรือสลิปกำลังถูกเปิดแก้ไข สลิปจะขึ้นเมื่อปิดงวดแล้ว" descEn="The admin has not closed it yet, or it is being fixed. It appears once it is closed." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="ทำไมวันนั้นไม่มี OT?" titleEn="Why is there no OT for that day?" descTh="อาจลืมเช็คเอาท์ เกินเวลาไม่ถึง 30 นาที หรือเป็นเช็คอิน WFH" descEn="You may have forgotten to check out, stayed less than 30 minutes extra, or it was a WFH check-in." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="ฟรีแลนซ์ได้เงินเดือนฐานไหม?" titleEn="Do freelancers get a base salary?" descTh="ไม่ได้ ฟรีแลนซ์ได้ค่าหน้าที่ และ OT เฉพาะวันไปหน้างาน" descEn="No. Freelancers get duty pay and OT on on-site days only." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="ใครเป็นคนติ๊ก ตจว.?" titleEn="Who ticks ตจว. (out of province)?" descTh="แอดมินติ๊กในสลิป ได้เบิ้ลต่างจังหวัดต่อเช็คอิน (ค่าเริ่มต้น 300 บาท)" descEn="The admin ticks it on the slip. It adds the out-of-province bonus per check-in (default 300 baht)." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="ระบบหักประกันสังคมหรือภาษีให้ไหม?" titleEn="Does it deduct social security or tax?" descTh="ไม่หักให้เอง แอดมินใส่เป็นรายการปรับมือยอดติดลบ" descEn="Not by itself. The admin adds a negative manual adjustment." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="เช็คอินเดียวจะถูกจ่ายซ้ำสองงวดไหม?" titleEn="Can one check-in be paid twice?" descTh="ไม่ เช็คอินหน้างานจ่ายได้ครั้งเดียว งวดอื่นจะไม่ดึงมาอีก" descEn="No. An on-site check-in is paid once. Other periods will not pick it up again." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="เปลี่ยนวันตัดรอบแล้ว งวดเก่าเปลี่ยนด้วยไหม?" titleEn="Does changing the cut-off day change old periods?" descTh="ไม่ มีผลกับงวดที่เปิดใหม่หลังจากนั้นเท่านั้น" descEn="No. It only affects periods opened afterwards." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="ปุ่มปิดงวดกดไม่ได้?" titleEn="The close button cannot be pressed?" descTh={'ยังมีงานค้าง ดูกล่อง "งานค้างก่อนปิดงวด" แล้วแก้หรือกด "ยอมรับ" จนเหลือ 0'} descEn="There are still open items. Check the open-items box, then fix them or accept them until 0 are left." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="เดือนหนึ่งเปิดงวดรายเดือนได้กี่งวด?" titleEn="How many monthly periods per month?" descTh="ได้งวดเดียว ถ้าต้องการเพิ่มคน ให้เพิ่มเข้างวดเดิม" descEn="Only one. To add people, add them to the existing period." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Menu shortcuts ───────────────────────────────────────── */}
+        <div id="salary-menu" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ExternalLink className="h-4 w-4" />}
+            title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/salary"          labelEn="My slips"                 labelTh="สลิปของฉัน" />
+            <MenuLink href="/salary/runs"     labelEn="Pay periods (admin)"      labelTh="งวดคำนวณ (แอดมิน)" />
+            <MenuLink href="/salary/settings" labelEn="Salary settings (admin)"  labelTh="ตั้งค่าเงินเดือน (แอดมิน)" />
+            <MenuLink href="/check-in"        labelEn="Check in"                 labelTh="เช็คอิน" />
+          </div>
+        </div>
+      </section>
+      )}
+
       {/* ── Footer note (landing only) ─────────────────────────────── */}
       {view === 'landing' && (
         <p className="text-xs text-zinc-400 text-center pt-4">
@@ -4735,7 +5340,7 @@ interface ModuleSubGroup {
 interface ModuleConfig {
   id: string                    // anchor id used inside a module page (e.g. "mod-overview")
   /** URL slug — module is reachable at /howto/{slug} */
-  slug: 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin'
+  slug: 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin' | 'salary'
   accent: ModuleAccent
   Icon: typeof BookOpen
   titleTh: string
@@ -5215,6 +5820,54 @@ const MODULES: ModuleConfig[] = [
         items: [
           { id: 'checkin-tips', titleTh: 'เคล็ดลับและข้อควรรู้', titleEn: 'Tips & gotchas' },
           { id: 'checkin-menu', titleTh: 'เมนูทั้งหมด',          titleEn: 'Menu shortcuts' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'mod-salary',
+    slug: 'salary',
+    accent: 'teal',
+    Icon: Wallet,
+    titleTh: 'เงินเดือน — สลิปและงวดคำนวณ',
+    titleEn: 'Salary — Slips & Pay Periods',
+    descTh: 'พนักงานดูสลิปของตัวเอง แอดมินเปิดงวด คำนวณ ปิดงวด และจ่ายเงิน',
+    descEn: 'Staff view their own slips. Admins open periods, calculate, close and pay.',
+    badge: { th: 'ฟีเจอร์ใหม่', en: 'NEW', tone: 'new' },
+    groups: [
+      {
+        titleTh: 'ทั่วไป (ทุกคนอ่าน)',
+        titleEn: 'General (everyone)',
+        items: [
+          { id: 'salary-start', titleTh: 'เริ่มที่นี่',          titleEn: 'Start here' },
+          { id: 'salary-money', titleTh: 'เงินมาจากอะไรบ้าง',  titleEn: 'What the money is made of' },
+          { id: 'salary-faq',   titleTh: 'คำถามที่พบบ่อย',      titleEn: 'FAQ' },
+          { id: 'salary-menu',  titleTh: 'เมนูทั้งหมด',         titleEn: 'Menu shortcuts' },
+        ],
+      },
+      {
+        titleTh: 'สำหรับพนักงาน',
+        titleEn: 'For staff',
+        items: [
+          { id: 'salary-staff-checkin', titleTh: 'ติ๊กหน้าที่ตอนเช็คอิน',   titleEn: 'Tick duties at check-in' },
+          { id: 'salary-staff-slips',   titleTh: 'สลิปของฉัน และสถานะ',    titleEn: 'My slips & statuses' },
+          { id: 'salary-staff-read',    titleTh: 'อ่านสลิป / โหลด PDF',     titleEn: 'Read a slip / get PDF' },
+          { id: 'salary-staff-notify',  titleTh: 'แจ้งเตือน และสลิปถูกแก้', titleEn: 'Notifications & reopened slips' },
+        ],
+      },
+      {
+        titleTh: 'สำหรับแอดมิน',
+        titleEn: 'For admin',
+        items: [
+          { id: 'salary-admin-setup',   titleTh: '1. ตั้งค่าครั้งแรก',        titleEn: '1. First-time setup' },
+          { id: 'salary-admin-open',    titleTh: '2. เปิดงวด',               titleEn: '2. Open a period' },
+          { id: 'salary-admin-calc',    titleTh: '3. เลือกคนและคำนวณ',       titleEn: '3. Pick people & calculate' },
+          { id: 'salary-admin-edit',    titleTh: '4. ตรวจและแก้สลิปรายวัน',   titleEn: '4. Check & edit the daily slip' },
+          { id: 'salary-admin-pending', titleTh: '5. งานค้าง และยอมรับ',     titleEn: '5. Open items & accept' },
+          { id: 'salary-admin-runner',  titleTh: '6. รันเนอร์ และรายการปรับมือ', titleEn: '6. Runner & manual adjustments' },
+          { id: 'salary-admin-close',   titleTh: '7. ปิดงวด',                titleEn: '7. Close the period' },
+          { id: 'salary-admin-pay',     titleTh: '8. สรุปยอดโอน และจ่ายเงิน', titleEn: '8. Transfer summary & pay' },
+          { id: 'salary-admin-reopen',  titleTh: '9. เปิดแก้ไขหลังปิดงวด',    titleEn: '9. Reopen after closing' },
         ],
       },
     ],
