@@ -24,8 +24,12 @@ export function toRunKind(v: unknown): RunKind {
   return v === 'weekly' || v === 'custom' ? v : 'monthly'
 }
 
-/** หน้าต่าง "เก็บตก" — เช็คอินหน้างานที่ยังไม่ถูกจ่ายย้อนหลังได้ไม่เกินกี่วันจากวันสิ้นงวด */
-export const CATCH_UP_DAYS = 60
+/**
+ * เช็คอินหน้างานที่ยังไม่ถูกจ่ายและเก่ากว่านี้ (วัน) ขึ้นกล่องเตือนในหน้างวดคำนวณ
+ * ไม่เกี่ยวกับการคิดเงิน — กติกาเจ้าของ 2026-09-28: ยกเลิก "เก็บตก" ทุกชนิดงวด
+ * แต่ละงวดคิดเฉพาะเช็คอินในช่วงวันของตัวเอง งานที่ตกหล่นต้องเปิดงวดกำหนดเองหรือใช้รายการปรับมือ
+ */
+export const UNPAID_ALERT_DAYS = 60
 
 export interface SalaryProfileInput {
   employment_type: EmploymentType
@@ -109,9 +113,8 @@ export interface ComputeInput {
   runKind?: RunKind
   /**
    * วันแรกที่เช็คอิน "หน้างาน" ยังนับเข้าสลิปได้ (YYYY-MM-DD)
-   * ไม่ส่ง = periodStart สำหรับงวดเดือน / periodEnd − 60 วันสำหรับงวดสัปดาห์-กำหนดเอง
-   * ผู้เรียกจริง (actions.ts) ส่งวันเก็บตกเข้ามาเสมอ — เช็คอินค้างจ่ายจากงวดก่อนจึงตกมาในงวดนี้ได้
-   * (เช็คอินออฟฟิศไม่เกี่ยว — ใช้ periodStart เสมอ)
+   * ไม่ส่ง = periodStart ทุกชนิดงวด · ผู้เรียกจริงส่ง onsiteFromFor(run) ซึ่งก็คือวันเริ่มงวด
+   * (ยกเลิกเก็บตกแล้ว — เช็คอินก่อนวันเริ่มงวดไม่ถูกคิดในงวดนี้)
    */
   onsiteFrom?: string
   /** บรรทัดของการคำนวณครั้งก่อน — ใช้คงค่าที่แก้มือไว้ */
@@ -227,11 +230,6 @@ export function shiftDay(date: string, days: number): string {
   return new Date(t + days * 86_400_000).toISOString().slice(0, 10)
 }
 
-/** วันแรกที่เช็คอินหน้างานค้างจ่ายยังตกเข้างวดที่จบวันที่ periodEnd ได้ */
-export function catchUpStart(periodEnd: string): string {
-  return shiftDay(periodEnd, -CATCH_UP_DAYS)
-}
-
 /** ช่วงงวดเท่าที่ตัวเลือกเช็คอินต้องรู้ */
 export interface RunWindow {
   kind: RunKind
@@ -243,13 +241,11 @@ export interface RunWindow {
  * วันแรก (วันไทย) ที่เช็คอิน "หน้างาน" ยังตกเข้างวดนี้ได้ — นิยามเดียวของขอบล่าง
  * ที่ทั้งการเลือกเช็คอิน การคำนวณ และตารางในหน้าสลิปต้องใช้ร่วมกัน
  *
- * = วันเริ่มงวด หรือ วันเก็บตก 60 วัน แล้วแต่ตัวไหน "เก่ากว่า"
- * - งวดสั้น (สัปดาห์/เดือน): ได้หน้าต่างเก็บตก 60 วันเต็มเหมือนเดิม
- * - งวดกำหนดเองที่ยาวกว่า 60 วัน: ครอบคลุมช่วงที่เลือกทั้งหมด ไม่ตัดวันต้นงวดทิ้ง
+ * = วันเริ่มงวด ทุกชนิดงวด (กติกาเจ้าของ 2026-09-28: ยกเลิกเก็บตก)
+ * คงฟังก์ชันไว้เป็นจุดเดียวที่นิยามขอบล่าง — ถ้ากติกาเปลี่ยนอีก แก้ที่นี่ที่เดียว
  */
 export function onsiteFromFor(run: RunWindow): string {
-  const catchUp = catchUpStart(run.period_end)
-  return run.period_start && run.period_start < catchUp ? run.period_start : catchUp
+  return run.period_start
 }
 
 /** แถวเช็คอินขั้นต่ำที่ selectCheckinsForRun ต้องใช้ (รับแถวจาก DB หรือ CheckinInput ก็ได้) */
@@ -262,8 +258,8 @@ export interface SelectableCheckin {
 
 /**
  * เลือกเช็คอินที่ "ควรอยู่ในสลิปของงวดนี้"
- * - onsite: ยังไม่ถูกจ่าย (หรือถูกจ่ายโดยสลิปใบนี้เอง) และอยู่ใน [onsiteFromFor(run), periodEnd]
- *   → งวดทับซ้อนกันได้โดยไม่จ่ายซ้ำ และเช็คอินที่ตกงวดก่อนถูกเก็บตกอัตโนมัติ
+ * - onsite: ยังไม่ถูกจ่าย (หรือถูกจ่ายโดยสลิปใบนี้เอง) และอยู่ในช่วงงวด [periodStart, periodEnd]
+ *   → งวดทับซ้อนกันได้โดยไม่จ่ายซ้ำ · เช็คอินก่อนวันเริ่มงวดไม่ถูกดึงมา (ไม่มีเก็บตก)
  * - office: เฉพาะงวดเดือน และเฉพาะในช่วงงวด (ใช้คิด OT ที่ไปกับเงินเดือนฐาน)
  * - remote: ไม่นับเลย
  * slipId = สลิปที่กำลังคำนวณใหม่ — เช็คอินที่ประทับด้วยสลิปใบนี้ยังต้องอยู่ในสลิปเดิม
@@ -380,12 +376,11 @@ export function computeSlip(input: ComputeInput): ComputeResult {
   const runKind = input.runKind ?? 'monthly'
 
   // 1. ขอบเขต
-  //    - onsite: นับทุกชนิดงวด ตั้งแต่ onsiteFrom ถึงวันสิ้นงวด (เก็บตกงวดก่อนได้)
+  //    - onsite: นับทุกชนิดงวด ตั้งแต่ onsiteFrom (= วันเริ่มงวด ไม่มีเก็บตก) ถึงวันสิ้นงวด
   //    - office: เฉพาะงวดเดือนของประจำ/ฝึกงาน และเฉพาะในช่วงงวด (OT ออฟฟิศไปกับเงินเดือนฐาน)
   //    - remote: ไม่นับเลย
   const officeCounts = runKind === 'monthly' && profile.employment_type !== 'freelance'
-  const onsiteFrom = input.onsiteFrom
-    ?? (runKind === 'monthly' ? periodStart : shiftDay(periodEnd, -CATCH_UP_DAYS))
+  const onsiteFrom = input.onsiteFrom ?? periodStart
 
   const scoped = input.checkins
     .map(c => ({ c, date: bangkokDate(c.checked_in_at) }))
@@ -546,10 +541,14 @@ export function computeSlip(input: ComputeInput): ComputeResult {
 
   // ค่าที่แก้มือไว้ซึ่งจับคู่บรรทัดใหม่ไม่ได้ (เช่น เช็คอินถูกย้ายวัน/เปลี่ยนหน้าที่ → key เปลี่ยน)
   // จะหายไปเงียบๆ ไม่ได้ — ต้องเตือนให้ admin แก้ซ้ำ
+  // ยกเว้นบรรทัดของวันที่ไม่อยู่ในงวดนี้แล้ว (เช่น สลิปที่เคยคำนวณตอนยังมีเก็บตก):
+  // วันนั้นไม่ใช่ของสลิปใบนี้อีกต่อไป จึงไม่มีอะไรให้แก้ซ้ำ
+  const firstDay = onsiteFrom < periodStart ? onsiteFrom : periodStart
   const newKeys = new Set(lines.map(l => l.key))
   for (const prev of input.previousLines ?? []) {
     const wasManual = !!prev.override_note?.trim() || (prev.kind === 'runner' && prev.amount != null)
-    if (wasManual && !newKeys.has(prev.key)) {
+    const inPeriod = prev.date >= firstDay && prev.date <= periodEnd
+    if (wasManual && inPeriod && !newKeys.has(prev.key)) {
       warnings.push({
         code: 'override_dropped', date: prev.date, line_key: prev.key,
         message: `ค่าที่แก้มือไว้ "${prev.label}" (${prev.date}) หายไปหลังคำนวณใหม่ เพราะบรรทัดเดิมไม่มีแล้ว — ตรวจและแก้มือซ้ำถ้าจำเป็น`,

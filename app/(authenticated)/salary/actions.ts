@@ -16,10 +16,10 @@ import { createNotifications } from '@/lib/notifications'
 import { getSession, requireAdmin } from './session'
 import { fmtMoney, periodLabel, slipTitle, todayBangkok } from './format'
 import {
-  bangkokDate, bangkokParts, catchUpStart, computeSlip, isAcceptable, isMissingAmount,
+  bangkokDate, bangkokParts, computeSlip, isAcceptable, isMissingAmount,
   lastFinishedWeek, lineAmount, onsiteFromFor, pendingItems, periodKeyFor, periodRange,
   REOPEN_MIN_REASON, selectCheckinsForRun, shiftDay, toCheckinInput, toEmploymentType, toRunKind,
-  weekRangeFor, weekdayOf,
+  UNPAID_ALERT_DAYS, weekRangeFor, weekdayOf,
 } from './compute'
 import type {
   AcceptedWarning, CheckinInput, EmploymentType, RunKind, RunWindow, SalaryAdjustment, SalaryLine,
@@ -69,11 +69,11 @@ export interface RunSuggestion {
   label: string
   /** จำนวนคนที่ควรได้สลิปในงวดนี้ */
   users: number
-  /** จำนวนเช็คอินหน้างานค้างจ่ายในหน้าต่างเก็บตกของงวด */
+  /** จำนวนเช็คอินหน้างานที่ยังไม่ถูกจ่ายในช่วงวันของงวด */
   checkins: number
 }
 
-/** เช็คอินหน้างานค้างจ่ายที่เลยหน้าต่างเก็บตกไปแล้ว — ต้องเปิดงวดกำหนดเองย้อนหลัง */
+/** เช็คอินหน้างานที่ยังไม่ถูกจ่ายและเก่าเกินเกณฑ์เตือน — ต้องเปิดงวดกำหนดเองให้ครอบวันนั้น */
 export interface OverdueCheckinRow {
   id: string
   user_id: string
@@ -253,7 +253,7 @@ const PERIOD_KEY_RE = /^\d{4}-(0[1-9]|1[0-2])$/
  * ขอบเขต "วันไทย" ที่เช็คอินหน้างานยังตกเข้างวดนี้ได้ → instant UTC ที่ยิง filter ได้
  * ขอบล่างมาจาก onsiteFromFor(run) ตัวเดียวกับที่ selectCheckinsForRun/computeSlip ใช้
  */
-function catchUpWindowISO(run: RunWindow): { fromISO: string; toISO: string } {
+function runWindowISO(run: RunWindow): { fromISO: string; toISO: string } {
   return {
     fromISO: new Date(`${onsiteFromFor(run)}T00:00:00+07:00`).toISOString(),
     toISO: new Date(`${run.period_end}T23:59:59.999+07:00`).toISOString(),
@@ -581,7 +581,7 @@ export async function createSalaryRun(
 
 /**
  * คนที่ควรถูกติ๊กไว้ให้เองในงวดหนึ่ง
- * - ทุกชนิดงวด: ใครก็ตามที่มีเช็คอินหน้างาน "ค้างจ่าย" ในหน้าต่างเก็บตกของงวด
+ * - ทุกชนิดงวด: ใครก็ตามที่มีเช็คอินหน้างาน "ค้างจ่าย" ในช่วงวันของงวด
  * - งวดเดือนเพิ่ม: ประจำ/ฝึกงานทุกคนที่มีโปรไฟล์เงินเดือน (ต้องได้เงินเดือนฐานแม้ไม่ได้ออกงาน)
  */
 export async function autoSelectUserIds(run: RunWindow): Promise<string[]> {
@@ -589,7 +589,7 @@ export async function autoSelectUserIds(run: RunWindow): Promise<string[]> {
   if ('error' in auth) return []
 
   const supabase = createServiceClient()
-  const { fromISO, toISO } = catchUpWindowISO(run)
+  const { fromISO, toISO } = runWindowISO(run)
 
   const [checkinsRes, profilesRes] = await Promise.all([
     supabase
@@ -619,15 +619,15 @@ export async function autoSelectUserIds(run: RunWindow): Promise<string[]> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// ข้อเสนอเปิดงวด + เช็คอินค้างจ่ายที่เลยหน้าต่างเก็บตก (หน้า /salary/runs)
+// ข้อเสนอเปิดงวด + เช็คอินค้างจ่ายที่เก่าเกินเกณฑ์เตือน (หน้า /salary/runs)
 // ────────────────────────────────────────────────────────────────────────────
 
-/** นับคน/เช็คอินหน้างานค้างจ่ายในหน้าต่างเก็บตกของงวดหนึ่ง */
+/** นับคน/เช็คอินหน้างานที่ยังไม่ถูกจ่ายในช่วงวันของงวดหนึ่ง */
 async function countUnpaidOnsite(
   supabase: ReturnType<typeof createServiceClient>,
   run: RunWindow
 ): Promise<{ users: Set<string>; checkins: number }> {
-  const { fromISO, toISO } = catchUpWindowISO(run)
+  const { fromISO, toISO } = runWindowISO(run)
   const { data } = await supabase
     .from('staff_checkins')
     .select('user_id')
@@ -726,24 +726,38 @@ export async function getRunSuggestions(): Promise<RunSuggestion[]> {
 const OVERDUE_LIMIT = 200
 
 /**
- * เช็คอินหน้างานค้างจ่ายที่เก่ากว่าหน้าต่างเก็บตก — งวดปกติดึงไม่ถึงแล้ว
- * admin ต้องเปิดงวด "กำหนดเอง" ย้อนหลังหรือใช้รายการปรับมือ (เรียงเก่าสุดก่อน)
+ * เช็คอินหน้างานที่ยังไม่ถูกจ่ายและเก่ากว่า UNPAID_ALERT_DAYS วัน (เรียงเก่าสุดก่อน)
+ * ไม่มีงวดไหนดึงมาให้เองแล้ว (ยกเลิกเก็บตก) — admin ต้องเปิดงวด "กำหนดเอง" ให้ครอบวันนั้น
+ * หรือใช้รายการปรับมือ
+ *
+ * นับตั้งแต่ "งวดแรกที่เคยปิดงวดจริง" เท่านั้น: เช็คอินก่อนเริ่มใช้ระบบถูกจ่ายนอกระบบไปแล้ว
+ * และจะไม่มีวันถูกประทับว่าจ่าย ถ้านับด้วยกล่องเตือนจะเต็มไปด้วยรายการที่ทำอะไรไม่ได้
+ * ponytail: จุดเริ่ม = วันเริ่มของงวดแรกที่มีสลิปปิดงวด ไม่มีช่องตั้งค่า —
+ * เพิ่ม "วันเริ่มใช้ระบบ" ใน app_settings เมื่อมีคนต้องการกำหนดเอง
  */
 export async function listOverdueUnpaidCheckins(): Promise<OverdueCheckinRow[]> {
   const auth = await requireAdmin()
   if ('error' in auth) return []
 
   const supabase = createServiceClient()
-  // "เกินหน้าต่างเก็บตก" ต้องนิยามแบบเดียวกับที่งวดใช้: วันไทยก่อน catchUpStart(วันนี้)
-  // (ไม่ใช่ now() − 60 วันบน UTC ซึ่งคลาดกันได้ครึ่งวันจนรายการหลุดเข้า/ออกกล่องเตือนผิด)
-  const cutoffISO = new Date(`${catchUpStart(todayBangkok())}T00:00:00+07:00`).toISOString()
+  const { data: firstClosed } = await supabase
+    .from('salary_runs')
+    .select('period_start, salary_slips!inner(status)')
+    .in('salary_slips.status', ['finalized', 'paid'])
+    .order('period_start', { ascending: true })
+    .limit(1)
+  const since = ((firstClosed || []) as unknown as { period_start: string }[])[0]?.period_start
+  // ขอบบนเป็น "วันไทย" (ไม่ใช่ now() − N วันบน UTC ซึ่งคลาดกันได้ครึ่งวัน)
+  const cutoff = shiftDay(todayBangkok(), -UNPAID_ALERT_DAYS)
+  if (!since || since >= cutoff) return []
 
   const { data } = await supabase
     .from('staff_checkins')
     .select('id, user_id, checked_in_at, events:event_id(name)')
     .eq('check_type', 'onsite')
     .is('paid_slip_id', null)
-    .lt('checked_in_at', cutoffISO)
+    .gte('checked_in_at', new Date(`${since}T00:00:00+07:00`).toISOString())
+    .lt('checked_in_at', new Date(`${cutoff}T00:00:00+07:00`).toISOString())
     .order('checked_in_at', { ascending: true })
     .limit(OVERDUE_LIMIT)
 
@@ -910,9 +924,9 @@ async function computeSlipsCore(
   const runId = run.id
 
   // ขอบเขตเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
-  // ดึงกว้างถึงต้นหน้าต่างเก็บตก แล้วให้ selectCheckinsForRun คัดตามชนิดงวด/สถานะจ่าย
+  // ดึงเช็คอินในช่วงวันของงวด แล้วให้ selectCheckinsForRun คัดตามชนิดงวด/สถานะจ่าย
   const onsiteFrom = onsiteFromFor(run)
-  const { fromISO, toISO } = catchUpWindowISO(run)
+  const { fromISO, toISO } = runWindowISO(run)
 
   // ทุกอย่างอ่านพร้อมกันรอบเดียว · readDuties คืนทุกหน้าที่รวมที่ปิดใช้งาน —
   // ตั้งใจ: สลิปเก่าอาจอ้างรหัสที่เพิ่งปิดไป
@@ -1358,7 +1372,7 @@ async function loadSlipCalc(
 
 /**
  * อีเวนต์ที่ใช้เลือกผูกกับเช็คอินในสลิปนี้ — กว้างกว่าหน้าต่างเช็คอินของงวดข้างละ 7 วัน
- * (ผู้เรียกส่ง from = onsiteFromFor(run) จึงครอบคลุมเช็คอินเก็บตกด้วย)
+ * (ผู้เรียกส่ง from = onsiteFromFor(run) = วันเริ่มงวด)
  * เพราะงานที่จัดคร่อมรอยต่องวด (เช่น เช็คอินวันที่ 25 แต่ event_date วันที่ 26)
  * ยังต้องเลือกได้ — ไม่งั้นสลิปจะติด warning "ไม่ได้ผูกกับอีเวนต์" แก้ไม่ได้
  */
@@ -1459,7 +1473,7 @@ async function listSlipCheckins(
   if (!run.period_start || !run.period_end) return []
 
   // ขอบเขตเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
-  const { fromISO, toISO } = catchUpWindowISO(run)
+  const { fromISO, toISO } = runWindowISO(run)
 
   const { data } = await supabase
     .from('staff_checkins')

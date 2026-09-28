@@ -4710,7 +4710,7 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
               steps={[
                 { n: 1, label: isEn ? 'When a period is due but not opened yet, a green banner appears at the top.' : 'ถ้างวดถึงเวลาแล้วแต่ยังไม่เปิด จะมีแบนเนอร์สีเขียวขึ้นด้านบน', tag: null },
                 { n: 2, label: isEn ? 'Press "เปิดและคำนวณ" (open and calculate).' : 'กด "เปิดและคำนวณ"', tag: null },
-                { n: 3, label: isEn ? 'The system opens the period, ticks everyone with unpaid check-ins and makes their slips at once.' : 'ระบบเปิดงวด เลือกทุกคนที่มีเช็คอินค้างจ่าย และทำสลิปร่างให้ทันที', tag: null },
+                { n: 3, label: isEn ? 'The system opens the period, ticks everyone with unpaid check-ins inside the period dates and makes their slips at once.' : 'ระบบเปิดงวด เลือกทุกคนที่มีเช็คอินยังไม่ถูกจ่ายในช่วงวันของงวด และทำสลิปร่างให้ทันที', tag: null },
                 { n: 4, label: isEn ? 'A monthly period also includes every full-time employee and intern.' : 'งวดรายเดือนจะรวมพนักงานประจำและนักศึกษาฝึกงานทุกคนให้ด้วย', tag: null },
               ]}
             />
@@ -4726,7 +4726,7 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
             />
           </div>
           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <TipCard tone="amber" icon={<AlertTriangle className="h-4 w-4" />} titleTh="เช็คอินค้างจ่ายเกิน 60 วัน" titleEn="Unpaid check-ins older than 60 days" descTh="ทุกงวดดึงเช็คอินหน้างานที่ยังไม่จ่ายย้อนหลังได้ 60 วัน เกินนั้นจะมีกล่องเตือน ให้เปิดงวดกำหนดเองย้อนหลัง หรือใช้รายการปรับมือ" descEn="Every period picks up unpaid on-site check-ins up to 60 days back. Older ones show a warning: open a custom period for those dates, or use a manual adjustment." isEn={isEn} />
+            <TipCard tone="amber" icon={<AlertTriangle className="h-4 w-4" />} titleTh="แต่ละงวดนับเฉพาะวันในงวด" titleEn="Each period counts only its own dates" descTh="งวดจะคิดเฉพาะเช็คอินที่อยู่ในช่วงวันของงวดนั้น ไม่ดึงงานก่อนวันเริ่มงวดมาให้ ถ้ามีเช็คอินหน้างานที่ยังไม่ถูกจ่ายเกิน 60 วันจะมีกล่องเตือน ให้เปิดงวดกำหนดเองให้ครอบวันนั้น หรือใช้รายการปรับมือ" descEn="A period pays only the check-ins inside its own dates. Work before the start date is not pulled in. On-site check-ins still unpaid after 60 days show a warning: open a custom period that covers those dates, or use a manual adjustment." isEn={isEn} />
             <TipCard tone="emerald" icon={<Repeat className="h-4 w-4" />} titleTh="งวดทับกันได้ ไม่จ่ายซ้ำ" titleEn="Periods may overlap — no double pay" descTh="เช็คอินหน้างานจ่ายได้ครั้งเดียว จึงเปิดงวดรายสัปดาห์ทับช่วงงวดรายเดือนได้" descEn="Each on-site check-in is paid only once, so a weekly period can overlap a monthly one." isEn={isEn} />
           </div>
         </div>

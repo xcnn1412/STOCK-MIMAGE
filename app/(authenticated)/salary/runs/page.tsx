@@ -18,7 +18,7 @@ export default async function SalaryRunsPage() {
   if (session.role !== 'admin') redirect('/salary')
 
   // วันตัดรอบส่งไปให้ dialog "เปิดงวด" พรีวิวช่วงวันที่ก่อนกดยืนยัน
-  // ข้อเสนอ + เช็คอินค้างเกินหน้าต่างเก็บตก = แบนเนอร์/กล่องเตือนบนสุดของหน้า
+  // ข้อเสนอ + เช็คอินค้างจ่ายที่เก่าเกินเกณฑ์เตือน = แบนเนอร์/กล่องเตือนบนสุดของหน้า
   const [runs, settings, suggestions, overdue] = await Promise.all([
     listRuns(),
     getSalarySettings(),
