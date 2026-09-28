@@ -32,6 +32,20 @@ function getModuleForPath(pathname: string): { moduleKey: string; adminOnly: boo
 }
 
 /**
+ * Redirect that works for both page loads and server actions.
+ * A server action is a fetch() POST — answering 307 makes the browser re-POST to the
+ * target and get a non-RSC body back, which surfaces as "An unexpected response was
+ * received from the server". `x-action-redirect` is the header Next's own redirect()
+ * emits from an action; the client then navigates to the target itself.
+ */
+function redirectTo(request: NextRequest, target: string): NextResponse {
+  if (request.method === 'POST' && request.headers.has('next-action')) {
+    return new NextResponse(null, { status: 303, headers: { 'x-action-redirect': `${target};replace` } })
+  }
+  return NextResponse.redirect(new URL(target, request.url))
+}
+
+/**
  * Lightweight HMAC verification for Edge Runtime (middleware).
  * Uses Web Crypto API instead of Node.js crypto module.
  */
@@ -87,7 +101,7 @@ export async function proxy(request: NextRequest) {
       const t = new URL(target)
       // Don't redirect into ourselves — would cause an infinite loop.
       if (t.origin !== request.nextUrl.origin) {
-        return NextResponse.redirect(target, 307)
+        return redirectTo(request, target)
       }
     } catch {
       // Fall through if the redirect URL is malformed — better to serve the
@@ -173,7 +187,7 @@ export async function proxy(request: NextRequest) {
 
   // 1. If not valid session AND protected route -> redirect to login
   if (!isValidSession && !isPublicPath) {
-    const response = NextResponse.redirect(new URL('/login', request.url))
+    const response = redirectTo(request, '/login')
 
     if (userId || legacyUserId) {
       response.cookies.delete('session_token')
@@ -187,7 +201,7 @@ export async function proxy(request: NextRequest) {
 
   // 2. If valid session AND public path -> redirect to Dashboard
   if (isValidSession && isPublicPath) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    return redirectTo(request, '/dashboard')
   }
 
   // 3. Module access guard — check if user has permission for this route
@@ -198,12 +212,12 @@ export async function proxy(request: NextRequest) {
 
       // Admin-only check
       if (adminOnly && role !== 'admin') {
-        return NextResponse.redirect(new URL('/dashboard', request.url))
+        return redirectTo(request, '/dashboard')
       }
 
       // Module permission check
       if (!allowedModules.includes(moduleKey)) {
-        return NextResponse.redirect(new URL('/dashboard', request.url))
+        return redirectTo(request, '/dashboard')
       }
     }
   }
