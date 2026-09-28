@@ -199,6 +199,8 @@ export type ActionType =
     | 'EDIT_SALARY_CHECKIN'
     | 'UPDATE_CHECKIN_DUTIES'
     | 'UPDATE_CHECKIN_LOCATION'
+    // Sales Board — เป้าค่าคอมแอดมิน
+    | 'UPDATE_COMMISSION_TARGET'
     // User Profile
     | 'UPDATE_USER_PROFILE'
     | 'UPDATE_MY_PROFILE'

@@ -442,6 +442,16 @@ export async function getLeadEvents(leadId: string): Promise<{ data: LinkedLeadE
   return { data: list }
 }
 
+// จำนวนตู้ — เก็บเฉพาะงานขาย (จำนวนเต็ม ≥ 1; ว่าง/ผิดรูปแบบ = 1) ประเภทอื่นเก็บ null
+// ข้อความ error ของ PostgREST/Postgres เมื่อคอลัมน์ unit_count ยังไม่มี (ยังไม่รัน migration 20260928)
+const isUnitCountMissing = (message: string) => /unit_count/.test(message || '')
+
+function unitCountFor(raw: FormDataEntryValue | null, workType: string | null): number | null {
+  if (workType !== 'sale') return null
+  const n = Math.floor(Number(raw))
+  return Number.isFinite(n) && n >= 1 ? n : 1
+}
+
 export async function createLead(formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
@@ -472,6 +482,7 @@ export async function createLead(formData: FormData) {
     event_details: formData.get('event_details') as string || null,
     package_name: formData.get('package_name') as string || null,
     work_type: formData.get('work_type') as string || null,
+    unit_count: unitCountFor(formData.get('unit_count'), formData.get('work_type') as string || null),
     quoted_price: Number(formData.get('quoted_price') || 0),
     confirmed_price: Number(formData.get('confirmed_price') || 0),
     deposit: Number(formData.get('deposit') || 0),
@@ -487,7 +498,13 @@ export async function createLead(formData: FormData) {
     assigned_staff: (formData.get('assigned_staff') as string || '').split(',').filter(Boolean),
   }
 
-  const { data, error } = await supabase.from('crm_leads').insert(lead).select().single()
+  let { data, error } = await supabase.from('crm_leads').insert(lead).select().single()
+  // ยังไม่รัน migration 20260928 (ไม่มีคอลัมน์ unit_count) → สร้างการ์ดโดยไม่มีจำนวนตู้ ดีกว่าสร้างไม่ได้เลย
+  if (error && isUnitCountMissing(error.message)) {
+    const withoutUnitCount: Record<string, unknown> = { ...lead }
+    delete withoutUnitCount.unit_count
+    ;({ data, error } = await supabase.from('crm_leads').insert(withoutUnitCount).select().single())
+  }
   if (error) return { error: error.message }
 
   // Save dynamic installments
@@ -615,6 +632,16 @@ export async function updateLead(id: string, formData: FormData) {
     updates.required_roles = clean
   }
 
+  // จำนวนตู้ — แตะคอลัมน์เฉพาะเมื่อฟอร์มส่งมา; ประเภทงานใช้ค่าที่ส่งมาพร้อมกัน ถ้าไม่มีอ่านจาก DB
+  if (formData.has('unit_count')) {
+    let workType = formData.has('work_type') ? (formData.get('work_type') as string) || null : null
+    if (!formData.has('work_type')) {
+      const { data: cur } = await supabase.from('crm_leads').select('work_type').eq('id', id).single()
+      workType = (cur?.work_type as string | null) ?? null
+    }
+    updates.unit_count = unitCountFor(formData.get('unit_count'), workType)
+  }
+
   // Auto-calculate event_days
   const ed = (updates.event_date as string) || null
   const eed = (updates.event_end_date as string) || null
@@ -623,7 +650,12 @@ export async function updateLead(id: string, formData: FormData) {
     updates.event_days = Math.max(1, diff)
   }
 
-  const { error } = await supabase.from('crm_leads').update(updates).eq('id', id)
+  let { error } = await supabase.from('crm_leads').update(updates).eq('id', id)
+  // ยังไม่รัน migration 20260928 → บันทึกฟิลด์อื่นต่อได้ โดยข้ามจำนวนตู้
+  if (error && 'unit_count' in updates && isUnitCountMissing(error.message)) {
+    delete updates.unit_count
+    ;({ error } = await supabase.from('crm_leads').update(updates).eq('id', id))
+  }
   if (error) return { error: error.message }
 
   // NOTE: staff is no longer edited at the lead level — it is managed per event

@@ -195,6 +195,12 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
               </RadioGroup>
             </div>
 
+            {/* จำนวนตู้ — server บันทึกเฉพาะเมื่อประเภทงาน = ขาย (ประเภทอื่นเก็บเป็นค่าว่าง) */}
+            <div className="space-y-2">
+              <Label htmlFor="unit_count" className="text-sm font-medium">{locale === 'th' ? 'จำนวนตู้ (เฉพาะงานขาย)' : 'Units (sale only)'}</Label>
+              <Input id="unit_count" name="unit_count" type="number" inputMode="numeric" min={1} step={1} defaultValue={1} className="w-32" />
+            </div>
+
             {/* Customer Type: New / Returning */}
             <div className="space-y-2">
               <Label className="text-sm font-medium">{tc.customerStatus}</Label>
