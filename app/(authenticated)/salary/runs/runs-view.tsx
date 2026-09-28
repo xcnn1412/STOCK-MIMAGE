@@ -25,7 +25,7 @@ import {
 import { formatThaiDate } from '@/lib/thai-date'
 import { RUN_KIND_LABEL, periodLabel, todayBangkok } from '../format'
 import {
-  CATCH_UP_DAYS, lastFinishedWeek, periodRange, weekRangeFor, weekdayOf, type RunKind,
+  lastFinishedWeek, periodRange, UNPAID_ALERT_DAYS, weekRangeFor, weekdayOf, type RunKind,
 } from '../compute'
 import {
   createSalaryRun,
@@ -38,7 +38,7 @@ interface Props {
   cutoffDay: number
   /** งวดที่ถึงเวลาเปิดแล้วแต่ยังไม่เปิด (สูงสุด 2 ใบ) */
   suggestions: RunSuggestion[]
-  /** เช็คอินหน้างานค้างจ่ายที่เก่ากว่าหน้าต่างเก็บตก */
+  /** เช็คอินหน้างานที่ยังไม่ถูกจ่ายและเก่าเกินเกณฑ์เตือน */
   overdue: OverdueCheckinRow[]
 }
 
@@ -185,7 +185,7 @@ export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Prop
         </Card>
       ))}
 
-      {/* ── เช็คอินค้างจ่ายเกินหน้าต่างเก็บตก — งวดปกติดึงไม่ถึงแล้ว ── */}
+      {/* ── เช็คอินที่ยังไม่ถูกจ่ายและเก่าเกินเกณฑ์เตือน — ไม่มีงวดไหนดึงมาให้เอง ── */}
       {overdue.length > 0 && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/30">
           <button
@@ -195,7 +195,7 @@ export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Prop
           >
             <AlertTriangle className="size-4 shrink-0" />
             <span className="flex-1">
-              เช็คอินหน้างานค้างจ่ายเกิน {CATCH_UP_DAYS} วัน {overdue.length} รายการ
+              เช็คอินหน้างานที่ยังไม่ถูกจ่าย เกิน {UNPAID_ALERT_DAYS} วัน {overdue.length} รายการ
             </span>
             {showOverdue ? (
               <ChevronDown className="size-4 shrink-0" />
@@ -204,7 +204,7 @@ export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Prop
             )}
           </button>
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
-            เปิดงวดกำหนดเองย้อนหลัง หรือใช้รายการปรับมือในสลิปงวดถัดไป
+            แต่ละงวดนับเฉพาะเช็คอินในช่วงวันของงวดนั้น — เปิดงวดกำหนดเองให้ครอบวันเหล่านี้ หรือใช้รายการปรับมือในสลิปงวดถัดไป
           </p>
           {showOverdue && (
             <ul className="mt-2 max-h-64 space-y-0.5 overflow-y-auto text-xs text-amber-700 dark:text-amber-500">

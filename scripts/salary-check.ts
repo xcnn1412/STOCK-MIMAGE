@@ -339,15 +339,18 @@ function partA() {
     assertEq(r.total, 1100, 'total = 400 + 700 (ไม่มีเงินเดือนฐาน 15000)')
   }
 
-  // ── 13. selectCheckinsForRun — เก็บตก 60 วัน / จ่ายแล้วไม่ซ้ำ / office เฉพาะงวดเดือน ──
-  console.log('\n[A13] selectCheckinsForRun: catch-up window, paid-once, office by kind')
+  // ── 13. selectCheckinsForRun — เฉพาะในช่วงงวด (ไม่เก็บตก) / จ่ายแล้วไม่ซ้ำ / office เฉพาะงวดเดือน ──
+  console.log('\n[A13] selectCheckinsForRun: period only (no catch-up), paid-once, office by kind')
   {
     const rows = [
-      { id: 'in40', check_type: 'onsite' as const, checked_in_at: ts('2026-07-28', '10:00'), paid_slip_id: null },
-      { id: 'out61', check_type: 'onsite' as const, checked_in_at: ts('2026-07-07', '10:00'), paid_slip_id: null },
+      // ค้างจ่ายจากก่อนงวด — เดิมถูกเก็บตก ตอนนี้ไม่ถูกดึงมาแม้ห่างแค่วันเดียว
+      { id: 'dayBefore', check_type: 'onsite' as const, checked_in_at: ts('2026-08-30', '10:00'), paid_slip_id: null },
+      { id: 'monthBefore', check_type: 'onsite' as const, checked_in_at: ts('2026-07-28', '10:00'), paid_slip_id: null },
+      { id: 'first', check_type: 'onsite' as const, checked_in_at: ts('2026-08-31', '00:30'), paid_slip_id: null },
       { id: 'paidOther', check_type: 'onsite' as const, checked_in_at: ts('2026-09-02', '10:00'), paid_slip_id: 'slip-other' },
       { id: 'paidSelf', check_type: 'onsite' as const, checked_in_at: ts('2026-09-03', '10:00'), paid_slip_id: 'slip-self' },
       { id: 'office', check_type: 'office' as const, checked_in_at: ts('2026-09-04', '10:00'), paid_slip_id: null },
+      { id: 'last', check_type: 'onsite' as const, checked_in_at: ts('2026-09-06', '23:30'), paid_slip_id: null },
       { id: 'after', check_type: 'onsite' as const, checked_in_at: ts('2026-09-07', '10:00'), paid_slip_id: null },
       { id: 'remote', check_type: 'remote' as const, checked_in_at: ts('2026-09-04', '10:00'), paid_slip_id: null },
     ]
@@ -355,18 +358,18 @@ function partA() {
 
     assertEq(
       selectCheckinsForRun(rows, weekly).map(r => r.id),
-      ['in40'],
-      'งวดสัปดาห์: เอาเฉพาะ onsite ค้างจ่ายใน 60 วัน (61 วัน/จ่ายแล้ว/office/remote/หลังงวด ตกหมด)'
+      ['first', 'last'],
+      'งวดสัปดาห์: เอาเฉพาะ onsite ค้างจ่ายในช่วงงวด (ก่อนงวด/จ่ายแล้ว/office/remote/หลังงวด ตกหมด)'
     )
     assertEq(
       selectCheckinsForRun(rows, weekly, 'slip-self').map(r => r.id),
-      ['in40', 'paidSelf'],
+      ['first', 'paidSelf', 'last'],
       'เช็คอินที่สลิปใบนี้เองจ่าย ยังอยู่ตอนคำนวณใหม่'
     )
     assertEq(
       selectCheckinsForRun(rows, { ...weekly, kind: 'monthly' }).map(r => r.id),
-      ['in40', 'office'],
-      'งวดเดือน: office ในช่วงงวดถูกนับด้วย'
+      ['first', 'office', 'last'],
+      'งวดเดือน: office ในช่วงงวดถูกนับด้วย และไม่เก็บตกเหมือนกัน'
     )
     assertEq(
       selectCheckinsForRun(
@@ -472,8 +475,8 @@ function partA() {
     )
   }
 
-  // ── 17. งวดกำหนดเองที่ยาวกว่าหน้าต่างเก็บตก 60 วัน ต้องครอบคลุมทั้งช่วง ────
-  console.log('\n[A17] onsiteFromFor: long custom run covers its whole range, short run still catches up')
+  // ── 17. ขอบล่างของเช็คอินหน้างาน = วันเริ่มงวดเสมอ (ยกเลิกเก็บตกทุกชนิดงวด) ────
+  console.log('\n[A17] onsiteFromFor: always the period start, for every run kind')
   {
     const early = {
       id: 'early', check_type: 'onsite' as const,
@@ -490,22 +493,48 @@ function partA() {
       'เช็คอินวันแรกของงวดกำหนดเอง 62 วัน ยังอยู่ในสลิป'
     )
 
-    // งวดสัปดาห์สั้นๆ ยังเก็บตกย้อนหลัง 60 วันเหมือนเดิม
     const weekly = {
       kind: 'weekly' as RunKind, period_start: '2026-08-31', period_end: '2026-09-06',
     }
-    assertEq(onsiteFromFor(weekly), '2026-07-08', 'งวดสัปดาห์ → ขอบล่าง = วันสิ้นงวด − 60 วัน')
-    assertEq(
-      selectCheckinsForRun(
-        [{
-          id: 'catchup', check_type: 'onsite' as const,
-          checked_in_at: ts('2026-07-10', '10:00'), paid_slip_id: null,
-        }],
-        weekly
-      ).map(r => r.id),
-      ['catchup'],
-      'งวดสัปดาห์ 31 ส.ค. – 6 ก.ย. ยังเก็บตกเช็คอิน 10 ก.ค. ได้'
-    )
+    const monthly = {
+      kind: 'monthly' as RunKind, period_start: '2026-08-26', period_end: '2026-09-25',
+    }
+    assertEq(onsiteFromFor(weekly), '2026-08-31', 'งวดสัปดาห์ → ขอบล่าง = วันเริ่มงวด')
+    assertEq(onsiteFromFor(monthly), '2026-08-26', 'งวดเดือน → ขอบล่าง = วันเริ่มงวด')
+    const old = {
+      id: 'old', check_type: 'onsite' as const,
+      checked_in_at: ts('2026-07-28', '10:00'), paid_slip_id: null,
+    }
+    assertEq(selectCheckinsForRun([old], weekly).map(r => r.id), [], 'งวดสัปดาห์ไม่ดึงเช็คอิน 28 ก.ค. มา')
+    assertEq(selectCheckinsForRun([old], monthly).map(r => r.id), [], 'งวดเดือน ก.ย. ไม่ดึงเช็คอิน 28 ก.ค. มา')
+  }
+
+  // ── 17b. computeSlip: ไม่ส่ง onsiteFrom = เริ่มที่วันเริ่มงวดทุกชนิดงวด ·
+  //        ค่าที่แก้มือของวันนอกงวดหายไปเงียบๆ (ไม่มีอะไรให้แก้ซ้ำ) แต่ของวันในงวดยังเตือน ──
+  console.log('\n[A17b] computeSlip: no catch-up by default, dropped overrides warn only inside the period')
+  {
+    const before: CheckinInput = {
+      id: 'before', check_type: 'onsite',
+      checked_in_at: ts('2026-08-25', '10:00'), checked_out_at: ts('2026-08-25', '18:00'),
+      event_id: 'e1', event_name: 'งาน A', duties: ['onsite_staff'], out_of_province: false,
+    }
+    const inside: CheckinInput = { ...before, id: 'inside', checked_in_at: ts('2026-09-01', '10:00'), checked_out_at: ts('2026-09-01', '18:00') }
+    const manual = (key: string, date: string): SalaryLine => ({
+      key, kind: 'site', date, label: 'แก้มือ', computed_amount: 700, amount: 0, override_note: 'จ่ายแล้ว',
+    })
+    for (const runKind of ['weekly', 'custom', 'monthly'] as RunKind[]) {
+      const r = computeSlip({
+        profile: FULLTIME, checkins: [before, inside], duties: DUTIES, oopRate: 300,
+        periodStart: '2026-08-26', periodEnd: '2026-09-25', runKind,
+        previousLines: [manual('site:2026-07-28:gone:onsite_staff', '2026-07-28'), manual('site:2026-09-02:gone:onsite_staff', '2026-09-02')],
+      })
+      assertEq(siteLines(r).map(l => l.date), ['2026-09-01'], `${runKind}: เช็คอิน 25 ส.ค. (ก่อนงวด) ไม่ถูกคิด`)
+      assertEq(
+        r.warnings.filter(w => w.code === 'override_dropped').map(w => w.date),
+        ['2026-09-02'],
+        `${runKind}: เตือนค่าที่แก้มือหายเฉพาะวันที่อยู่ในงวด`
+      )
+    }
   }
 
   // ── 18. มุมมองรายวัน: 2 เช็คอินวันเดียว → 1 แถว 2 แถวย่อย, OT/รันเนอร์เกาะวัน ──
