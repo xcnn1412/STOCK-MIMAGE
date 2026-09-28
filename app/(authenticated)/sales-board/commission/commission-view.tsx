@@ -43,8 +43,9 @@ const WARNING_LABEL: Record<WarningCode, string> = {
   dup_quotation_ref: 'เลขใบเสนอราคาซ้ำกัน',
   possible_duplicate: 'อาจเป็นงานเดียวกันซ้ำ (ลูกค้า + วันจัดงานเดียวกัน)',
   no_history: 'ไม่มีประวัติเปลี่ยนสถานะ (ใช้วันสร้างการ์ดแทน)',
+  cutoff_day: 'ล็อคคิววันที่ 25 (ถูกนับสองงวด)',
 }
-const WARNING_ORDER: WarningCode[] = ['no_work_type', 'possible_duplicate', 'dup_quotation_ref', 'end_before_start', 'no_event_date', 'no_quotation_ref', 'no_history']
+const WARNING_ORDER: WarningCode[] = ['no_work_type', 'cutoff_day', 'possible_duplicate', 'dup_quotation_ref', 'end_before_start', 'no_event_date', 'no_quotation_ref', 'no_history']
 
 export default function CommissionView(props: Props) {
   const router = useRouter()

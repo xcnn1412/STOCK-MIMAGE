@@ -43,7 +43,7 @@ export type Row = {
 
 export type WarningCode =
   | 'no_work_type' | 'no_event_date' | 'end_before_start'
-  | 'no_quotation_ref' | 'dup_quotation_ref' | 'possible_duplicate' | 'no_history'
+  | 'no_quotation_ref' | 'dup_quotation_ref' | 'possible_duplicate' | 'no_history' | 'cutoff_day'
 
 export type Warning = { code: WarningCode; leadId: string; customer: string; detail: string }
 
@@ -79,14 +79,18 @@ export function bangkokDay(iso: string): string {
   return ymd(ms + BKK_OFFSET_MS)
 }
 
-/** งวดของเดือน 'YYYY-MM' = วันที่ 26 ของเดือนก่อน → วันที่ 25 ของเดือนนั้น (รูปแบบผิด = null) */
+/**
+ * งวดของเดือน 'YYYY-MM' = วันที่ 25 ของเดือนก่อน → วันที่ 25 ของเดือนนั้น นับทั้งสองปลาย (รูปแบบผิด = null)
+ * กติกาเจ้าของ 2026-09-28: วันที่ 25 อยู่ทั้งงวดที่สิ้นสุดและงวดที่เริ่มวันนั้น — การ์ดที่ล็อคคิววันที่ 25
+ * จึงถูกนับสองงวด และติดคำเตือน cutoff_day ให้คนจ่ายค่าคอมเห็น
+ */
 export function commissionPeriod(month: string): { from: string; to: string } | null {
   const m = /^(\d{4})-(\d{2})$/.exec(month || '')
   if (!m) return null
   const y = Number(m[1]), mo = Number(m[2])
   if (mo < 1 || mo > 12) return null
   return {
-    from: ymd(Date.UTC(y, mo - 2, COMMISSION_CUTOFF_DAY + 1)),
+    from: ymd(Date.UTC(y, mo - 2, COMMISSION_CUTOFF_DAY)),
     to: ymd(Date.UTC(y, mo - 1, COMMISSION_CUTOFF_DAY)),
   }
 }
@@ -208,6 +212,10 @@ export function buildCommission(input: {
 
   for (const r of all) if (noHistory.has(r.leadId))
     warn('no_history', r, `ไม่มีประวัติเปลี่ยนสถานะ — ใช้วันสร้างการ์ด ${r.lockDate} เป็นวันล็อคคิว`)
+
+  // วันตัดรอบอยู่สองงวด (งวด 25 → 25) — การ์ดที่ล็อคคิววันนั้นถูกนับทั้งงวดก่อนและงวดถัดไป
+  for (const r of all) if (Number(r.lockDate.slice(8, 10)) === COMMISSION_CUTOFF_DAY)
+    warn('cutoff_day', r, `ล็อคคิววันที่ ${COMMISSION_CUTOFF_DAY} — ถูกนับทั้งงวดที่สิ้นสุดและงวดที่เริ่มวันนี้ ตรวจว่าจ่ายค่าคอมงวดเดียว`)
 
   return {
     booths, events, unclassified,

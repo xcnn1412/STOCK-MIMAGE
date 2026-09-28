@@ -27,15 +27,17 @@ const lead = (id: string, over: Partial<CommissionLead> = {}): CommissionLead =>
 })
 const act = (lead_id: string, created_at: string, new_status: string): StatusActivity =>
   ({ lead_id, created_at, new_status, activity_type: 'status_change' })
-const JUN = { from: '2026-05-26', to: '2026-06-25' }
+const JUN = { from: '2026-05-25', to: '2026-06-25' }
+const JUL = { from: '2026-06-25', to: '2026-07-25' }
 const run = (leads: CommissionLead[], acts: StatusActivity[], range = JUN) =>
   buildCommission({ leads, lockDates: buildLockDates(acts), ...range })
 const codesOf = (leadId: string, r: ReturnType<typeof run>) =>
   r.warnings.filter((w) => w.leadId === leadId).map((w) => w.code).sort()
 
 check('C1', 'commissionPeriod', () => {
-  assert.deepEqual(commissionPeriod('2026-06'), { from: '2026-05-26', to: '2026-06-25' })
-  assert.deepEqual(commissionPeriod('2026-01'), { from: '2025-12-26', to: '2026-01-25' })
+  assert.deepEqual(commissionPeriod('2026-06'), JUN)
+  assert.deepEqual(commissionPeriod('2026-07'), JUL)
+  assert.deepEqual(commissionPeriod('2026-01'), { from: '2025-12-25', to: '2026-01-25' })
   assert.equal(commissionPeriod('2026-13'), null)
   assert.equal(commissionPeriod('2026-6'), null)
   assert.equal(commissionPeriod('abc'), null)
@@ -63,14 +65,17 @@ check('C3', 'วันล็อคคิว = ตอบรับครั้ง�
   assert.equal(buildLockDates([act('c', '2026-06-10T03:00:00Z', 'accepted'), act('c', '2026-06-02T03:00:00Z', 'DR')]).get('c'), '2026-06-02')
 })
 
-check('C4', 'ขอบงวด 06-25 นับ · 06-26 ไม่นับ', () => {
+check('C4', 'ขอบงวด 05-25 และ 06-25 นับ · 05-24 และ 06-26 ไม่นับ', () => {
   const r = run(
-    [lead('in'), lead('out')],
-    [act('in', '2026-06-25T10:00:00Z', 'accepted'), act('out', '2026-06-26T03:00:00Z', 'accepted')],
+    [lead('start'), lead('end'), lead('before'), lead('after')],
+    [
+      act('start', '2026-05-25T00:00:00Z', 'accepted'),   // 25 พ.ค. 07:00 เวลาไทย
+      act('end', '2026-06-25T10:00:00Z', 'accepted'),
+      act('before', '2026-05-24T10:00:00Z', 'accepted'),
+      act('after', '2026-06-26T03:00:00Z', 'accepted'),
+    ],
   )
-  assert.deepEqual(r.events.map((x) => x.leadId), ['in'])
-  const r2 = run([lead('start')], [act('start', '2026-05-26T00:00:00Z', 'accepted')])
-  assert.equal(r2.eventCount, 1)
+  assert.deepEqual(r.events.map((x) => x.leadId), ['start', 'end'])
 })
 
 check('C5', 'โซนเวลาไทย', () => {
@@ -188,7 +193,7 @@ check('C14', 'buildExportSheet', () => {
   ]
   const r = run(leads, leads.map((l) => act(l.id, '2026-06-01T03:00:00Z', 'accepted')))
   const sheet = buildExportSheet(r, { booths: 10, events: 40 }, JUN)
-  assert.match(String(sheet[0][1]), /^เป้าหมายแอดมิน ขายตู้ 10 ตู้ ขายงานอีเวนต์ 40 งาน กำหนดเวลา 26\/5\/2569 - 25\/6\/2569$/)
+  assert.match(String(sheet[0][1]), /^เป้าหมายแอดมิน ขายตู้ 10 ตู้ ขายงานอีเวนต์ 40 งาน กำหนดเวลา 25\/5\/2569 - 25\/6\/2569$/)
   assert.equal(sheet[4].length, 12)
   assert.equal(sheet[4][0], 'ลำดับ')
   assert.equal(sheet[4][2], 'จำนวนตู้ที่สั่งผลิต')
@@ -203,8 +208,20 @@ check('C14', 'buildExportSheet', () => {
   for (const row of data) assert.equal(row.length, 12)
 })
 
+check('C15', 'วันที่ 25 อยู่สองงวด — นับทั้งสองงวด และติดคำเตือน cutoff_day', () => {
+  const leads = [lead('on25'), lead('on24')]
+  const acts = [act('on25', '2026-06-25T03:00:00Z', 'accepted'), act('on24', '2026-06-24T03:00:00Z', 'accepted')]
+  const jun = run(leads, acts, JUN)
+  const jul = run(leads, acts, JUL)
+  assert.deepEqual(jun.events.map((x) => x.leadId), ['on24', 'on25'])
+  assert.deepEqual(jul.events.map((x) => x.leadId), ['on25'])
+  assert.deepEqual(codesOf('on25', jun), ['cutoff_day'])
+  assert.deepEqual(codesOf('on25', jul), ['cutoff_day'])
+  assert.deepEqual(codesOf('on24', jun), [])
+})
+
 if (failed > 0) {
   console.log(`\n${failed} case(s) FAILED`)
   process.exit(1)
 }
-console.log('\ncommission-check: ผ่านทั้งหมด (C1–C14)')
+console.log('\ncommission-check: ผ่านทั้งหมด (C1–C15)')
