@@ -12,7 +12,7 @@
 
 import Link from 'next/link'
 import {
-  ArrowLeft, BanknoteArrowUp, ChevronLeft, FileDown, Lock, MoreHorizontal,
+  ArrowLeft, BanknoteArrowUp, ChevronLeft, FileDown, Loader2, Lock, MoreHorizontal,
   PenLine, Receipt, RefreshCw,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +33,8 @@ interface Props {
   pendingCount: number
   /** มี action กำลังทำงานอยู่ — ปิดปุ่มทั้งแถบไว้ก่อน */
   busy: boolean
+  /** มีการแก้ในแถวที่ server ยังไม่ยืนยัน — ตัวเลขบนจอยังเป็นภาพตัวอย่าง */
+  saving: boolean
   onFinalize: () => void
   onMarkPaid: () => void
   onReopen: () => void
@@ -41,7 +43,7 @@ interface Props {
 }
 
 export default function SlipHeader({
-  slip, isAdmin, pendingCount, busy,
+  slip, isAdmin, pendingCount, busy, saving,
   onFinalize, onMarkPaid, onReopen, onSyncCosts, onRecompute,
 }: Props) {
   const name = slip.full_name || slip.nickname || '(ไม่มีชื่อ)'
@@ -52,9 +54,12 @@ export default function SlipHeader({
   // admin โหลดได้ทุกสถานะ (ร่างได้ PDF ที่มีลายน้ำ "ร่าง") เจ้าของได้เฉพาะที่ปิดงวดแล้ว
   const canDownloadPdf = isAdmin || !isDraft
   const blocked = pendingCount > 0
-  const finalizeHint = blocked
-    ? `เคลียร์งานค้าง ${pendingCount} รายการก่อนปิดงวด`
-    : 'ปิดงวดสลิปใบนี้'
+  // กันปิดงวดด้วยตัวเลขที่ server ยังไม่ยืนยัน
+  const finalizeHint = saving
+    ? 'รอบันทึกให้เสร็จก่อนปิดงวด'
+    : blocked
+      ? `เคลียร์งานค้าง ${pendingCount} รายการก่อนปิดงวด`
+      : 'ปิดงวดสลิปใบนี้'
 
   // สลิปที่เปิดแก้หลังจ่ายแล้ว — ยอดที่จ่ายไปกับยอดปัจจุบันไม่ตรงกัน ต้องโอนเพิ่ม/หักคืนเอง
   const paidTotal = slip.paid_total
@@ -93,6 +98,15 @@ export default function SlipHeader({
               {fmtMoney(slip.total)}
             </div>
             <div className="text-xs text-muted-foreground">ยอดสุทธิ (บาท)</div>
+            {/* อยู่ใน DOM ตลอดเพื่อให้ screen reader ประกาศตอนข้อความโผล่ — มีข้อความคู่ไอคอนเสมอ */}
+            <div role="status" aria-live="polite" className="text-xs text-muted-foreground">
+              {saving && (
+                <span className="inline-flex items-center gap-1">
+                  <Loader2 className="size-3.5 motion-safe:animate-spin" aria-hidden="true" />
+                  กำลังบันทึก…
+                </span>
+              )}
+            </div>
           </div>
 
           {isAdmin && isDraft && blocked && (
@@ -109,7 +123,7 @@ export default function SlipHeader({
             <span title={finalizeHint} className="order-last w-full sm:order-0 sm:w-auto">
               <Button
                 className="w-full sm:w-auto"
-                disabled={busy || blocked}
+                disabled={busy || blocked || saving}
                 onClick={onFinalize}
               >
                 <Lock className="size-4" />
