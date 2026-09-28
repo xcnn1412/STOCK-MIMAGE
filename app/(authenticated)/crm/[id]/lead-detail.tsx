@@ -128,6 +128,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     customer_phone: lead.customer_phone || '',
     customer_type: sanitizeType(lead.customer_type),
     work_type: lead.work_type || '',
+    unit_count: String(lead.unit_count ?? 1),
     lead_source: sanitizeSource(lead.lead_source),
     is_returning: lead.is_returning || false,
     event_date: lead.event_date || '',
@@ -197,7 +198,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
 
     // Choose which fields to save based on section
     const fieldsBySection: Record<CardSection, string[]> = {
-      customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'work_type', 'lead_source', 'is_returning'],
+      customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'work_type', 'unit_count', 'lead_source', 'is_returning'],
       event: ['event_date', 'event_end_date', 'event_time', 'event_end_time', 'event_location', 'event_details', 'required_roles'],
       financial: ['package_name', 'quoted_price', 'confirmed_price', 'deposit', 'vat_mode', 'wht_rate', 'quotation_ref', 'notes'],
     }
@@ -249,6 +250,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
       customer_phone: lead.customer_phone || '',
       customer_type: sanitizeType(lead.customer_type),
       work_type: lead.work_type || '',
+      unit_count: String(lead.unit_count ?? 1),
       lead_source: sanitizeSource(lead.lead_source),
       is_returning: lead.is_returning || false,
       event_date: lead.event_date || '',
@@ -1197,6 +1199,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                       options={workTypeOptions}
                       placeholder={locale === 'th' ? 'เลือกประเภทงาน' : 'Select work type'}
                     />
+                    {form.work_type === 'sale' && (
+                      <EditField label={locale === 'th' ? 'จำนวนตู้' : 'Units'} type="number" value={form.unit_count} onChange={v => updateForm('unit_count', v)} placeholder="1" />
+                    )}
                     <EditSelect
                       label={tc.channel}
                       value={form.lead_source}
@@ -1227,6 +1232,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                     <InfoRow label={tc.phone} value={lead.customer_phone} />
                     <InfoRow label={tc.type} value={typeSetting ? getSettingLabel(typeSetting) : lead.customer_type} />
                     <InfoRow label={locale === 'th' ? 'ประเภทงาน' : 'Work Type'} value={workTypeLabel || lead.work_type} />
+                    {lead.work_type === 'sale' && (
+                      <InfoRow label={locale === 'th' ? 'จำนวนตู้' : 'Units'} value={String(lead.unit_count && lead.unit_count > 0 ? lead.unit_count : 1)} />
+                    )}
                     <InfoRow label={tc.channel} value={sourceSetting ? getSettingLabel(sourceSetting) : lead.lead_source} />
                     <InfoRow label={tc.package} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
                   </>

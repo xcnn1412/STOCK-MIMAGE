@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   ChevronLeft, ChevronRight, Settings2, RefreshCw, Trophy, CheckCircle2,
   Banknote, Wallet, TrendingUp, Handshake, Package, Target,
@@ -445,6 +446,9 @@ export default function SalesBoardView(props: Props) {
           </div>
           {month !== curMonth() && <Button variant="outline" size="sm" onClick={() => setMonth(curMonth())}>เดือนนี้</Button>}
           <Button variant="ghost" size="icon" onClick={() => router.refresh()} title="รีเฟรช"><RefreshCw className="h-4 w-4" /></Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/sales-board/commission"><Coins className="mr-1.5 h-4 w-4" /> ค่าคอมแอดมิน</Link>
+          </Button>
           <Button size="sm" onClick={() => setEditorOpen(true)}><Settings2 className="mr-1.5 h-4 w-4" /> ตั้งเป้า</Button>
         </div>
       </div>

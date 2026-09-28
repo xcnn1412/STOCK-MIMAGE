@@ -72,6 +72,7 @@ export interface CrmLead {
   customer_phone: string | null
   customer_type: string | null
   work_type: string | null // 'sale' | 'event' | 'gp'
+  unit_count?: number | null // จำนวนตู้ — ใช้เฉพาะงานขาย (ไม่มีคอลัมน์ถ้ายังไม่รัน migration 20260928)
   lead_source: string | null
   event_date: string | null
   event_end_date: string | null
