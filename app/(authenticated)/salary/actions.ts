@@ -16,14 +16,14 @@ import { createNotifications } from '@/lib/notifications'
 import { getSession, requireAdmin } from './session'
 import { fmtMoney, periodLabel, slipTitle, todayBangkok } from './format'
 import {
-  bangkokDate, bangkokParts, computeSlip, isAcceptable, isMissingAmount,
-  lastFinishedWeek, lineAmount, onsiteFromFor, pendingItems, periodKeyFor, periodRange,
+  bangkokParts, computeSlip, groupUnpaidByPeriod, isAcceptable, isMissingAmount,
+  lastFinishedMonth, lastFinishedWeek, lineAmount, onsiteFromFor, pendingItems, periodKeyFor, periodRange,
   REOPEN_MIN_REASON, selectCheckinsForRun, shiftDay, toCheckinInput, toEmploymentType, toRunKind,
-  UNPAID_ALERT_DAYS, weekRangeFor, weekdayOf,
+  weekRangeFor, weekdayOf,
 } from './compute'
 import type {
   AcceptedWarning, CheckinInput, EmploymentType, RunKind, RunWindow, SalaryAdjustment, SalaryLine,
-  SalaryWarning, SlipCalcInputs,
+  SalaryWarning, SlipCalcInputs, UnpaidCheckinLite,
 } from './compute'
 import { getSalarySettings, listDuties } from './settings/actions'
 import type { SalaryDutyRow } from './settings/actions'
@@ -73,14 +73,18 @@ export interface RunSuggestion {
   checkins: number
 }
 
-/** เช็คอินหน้างานที่ยังไม่ถูกจ่ายและเก่าเกินเกณฑ์เตือน — ต้องเปิดงวดกำหนดเองให้ครอบวันนั้น */
-export interface OverdueCheckinRow {
-  id: string
-  user_id: string
-  full_name: string | null
-  /** วันเช็คอินตามเวลาไทย (YYYY-MM-DD) */
-  date: string
-  event_name?: string | null
+/** งานหน้างานของงวดก่อนที่ยังไม่ถูกจ่าย หนึ่งงวดเดือน (กล่องเตือนหน้างวด/สลิป/หน้าแรก) */
+export interface UnpaidPeriodRow {
+  /** 'YYYY-MM' */
+  month: string
+  start: string
+  end: string
+  /** ชื่องวดที่ผู้ใช้เห็น (periodLabel) */
+  label: string
+  checkins: number
+  /** งวดเดือนนี้ที่เปิดไว้แล้ว (null = ยังไม่เปิด) */
+  run_id: string | null
+  people: { user_id: string; full_name: string | null; checkins: number; slip_id: string | null }[]
 }
 
 /** งวดคำนวณ + จำนวนสลิปแต่ละสถานะ (หน้า /salary/runs) */
@@ -660,14 +664,8 @@ export async function getRunSuggestions(): Promise<RunSuggestion[]> {
   const week = lastFinishedWeek(today)
   const weekKey = periodKeyFor('weekly', week.start, week.end)
 
-  // งวดเดือนล่าสุดที่ตัดรอบไปแล้ว — ถอยจากเดือนนี้ทีละเดือนจนเจอเดือนที่ period_end ผ่านไปแล้ว
-  let month = today.slice(0, 7)
-  let monthRange = periodRange(month, cutoff_day)
-  for (let i = 0; i < 3 && monthRange.end >= today; i += 1) {
-    const [y, m] = month.split('-').map(Number)
-    month = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7)
-    monthRange = periodRange(month, cutoff_day)
-  }
+  // งวดเดือนล่าสุดที่ตัดรอบไปแล้ว
+  const { month, ...monthRange } = lastFinishedMonth(today, cutoff_day)
   const monthFinished = monthRange.end < today
 
   const { data: existing } = await supabase
@@ -722,63 +720,90 @@ export async function getRunSuggestions(): Promise<RunSuggestion[]> {
   return suggestions
 }
 
-/** เพดานรายการที่ส่งกลับให้กล่องเตือน — กันหน้าเว็บบวมเมื่อค้างสะสมเยอะ */
-const OVERDUE_LIMIT = 200
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 /**
- * เช็คอินหน้างานที่ยังไม่ถูกจ่ายและเก่ากว่า UNPAID_ALERT_DAYS วัน (เรียงเก่าสุดก่อน)
- * ไม่มีงวดไหนดึงมาให้เองแล้ว (ยกเลิกเก็บตก) — admin ต้องเปิดงวด "กำหนดเอง" ให้ครอบวันนั้น
- * หรือใช้รายการปรับมือ
+ * งานหน้างานของงวดก่อนที่ยังไม่ถูกจ่ายในสลิปใบไหนเลย จัดกลุ่มตามงวดเดือน (เก่าสุดก่อน)
+ * ไม่มีงวดไหนดึงมาให้เองแล้ว (ยกเลิกเก็บตก) — จ่ายได้โดยปิดงวดสลิปของงวดนั้น
  *
- * นับตั้งแต่ "งวดแรกที่เคยปิดงวดจริง" เท่านั้น: เช็คอินก่อนเริ่มใช้ระบบถูกจ่ายนอกระบบไปแล้ว
- * และจะไม่มีวันถูกประทับว่าจ่าย ถ้านับด้วยกล่องเตือนจะเต็มไปด้วยรายการที่ทำอะไรไม่ได้
- * ponytail: จุดเริ่ม = วันเริ่มของงวดแรกที่มีสลิปปิดงวด ไม่มีช่องตั้งค่า —
- * เพิ่ม "วันเริ่มใช้ระบบ" ใน app_settings เมื่อมีคนต้องการกำหนดเอง
+ * นับตั้งแต่วันเริ่มของงวดแรกสุดที่มีในระบบ: เช็คอินก่อนเริ่มใช้ระบบถูกจ่ายนอกระบบไปแล้ว
+ * ขอบบน = วันเริ่มของงวดเดือนล่าสุดที่ตัดรอบแล้ว (งวดนั้นยังปิดไม่ทันไม่ถือว่าค้าง)
+ * หรือ opts.before (หน้าสลิปส่งวันเริ่มงวดของสลิปนั้น) · opts.userId = เฉพาะคนเดียว
+ * ponytail: PostgREST คืนสูงสุด 1000 แถวต่อครั้ง — ค้างเกินนั้นตัวเลขจะน้อยกว่าจริง
+ * ถ้าเกิดขึ้นให้แบ่งหน้าอ่าน (.range) จนหมด
  */
-export async function listOverdueUnpaidCheckins(): Promise<OverdueCheckinRow[]> {
+export async function listUnpaidPreviousPeriods(
+  opts?: { userId?: string; before?: string }
+): Promise<UnpaidPeriodRow[]> {
   const auth = await requireAdmin()
   if ('error' in auth) return []
 
-  const supabase = createServiceClient()
-  const { data: firstClosed } = await supabase
-    .from('salary_runs')
-    .select('period_start, salary_slips!inner(status)')
-    .in('salary_slips.status', ['finalized', 'paid'])
-    .order('period_start', { ascending: true })
-    .limit(1)
-  const since = ((firstClosed || []) as unknown as { period_start: string }[])[0]?.period_start
-  // ขอบบนเป็น "วันไทย" (ไม่ใช่ now() − N วันบน UTC ซึ่งคลาดกันได้ครึ่งวัน)
-  const cutoff = shiftDay(todayBangkok(), -UNPAID_ALERT_DAYS)
-  if (!since || since >= cutoff) return []
+  const userId = typeof opts?.userId === 'string' && opts.userId.length > 0 && opts.userId.length <= 64
+    ? opts.userId : null
+  const beforeOpt = typeof opts?.before === 'string' && DATE_ONLY_RE.test(opts.before)
+    ? opts.before : null
 
-  const { data } = await supabase
+  const supabase = createServiceClient()
+  const [{ data: runsRaw }, { cutoff_day }] = await Promise.all([
+    supabase.from('salary_runs').select('id, kind, period_key, period_start'),
+    readSalarySettings(supabase),
+  ])
+  const runs = (runsRaw || []) as unknown as {
+    id: string; kind: string; period_key: string; period_start: string
+  }[]
+  if (runs.length === 0) return []
+
+  const since = runs.reduce((min, r) => (r.period_start < min ? r.period_start : min), runs[0].period_start)
+  const before = beforeOpt ?? lastFinishedMonth(todayBangkok(), cutoff_day).start
+  if (since >= before) return []
+
+  let query = supabase
     .from('staff_checkins')
-    .select('id, user_id, checked_in_at, events:event_id(name)')
+    .select('user_id, checked_in_at')
     .eq('check_type', 'onsite')
     .is('paid_slip_id', null)
     .gte('checked_in_at', new Date(`${since}T00:00:00+07:00`).toISOString())
-    .lt('checked_in_at', new Date(`${cutoff}T00:00:00+07:00`).toISOString())
-    .order('checked_in_at', { ascending: true })
-    .limit(OVERDUE_LIMIT)
+    .lt('checked_in_at', new Date(`${before}T00:00:00+07:00`).toISOString())
+  if (userId) query = query.eq('user_id', userId)
+  const { data } = await query.order('checked_in_at', { ascending: true })
 
-  type Raw = {
-    id: string
-    user_id: string | null
-    checked_in_at: string
-    // PostgREST คืน to-one เป็น object แต่บางเวอร์ชันห่อเป็น array — รับทั้งสองแบบ
-    events: { name: string | null } | { name: string | null }[] | null
-  }
-  const rows = ((data || []) as unknown as Raw[]).filter(r => !!r.user_id)
-  const names = await namesByUserId(supabase, rows.map(r => r.user_id as string))
+  const rows = ((data || []) as unknown as { user_id: string | null; checked_in_at: string }[])
+    .filter((r): r is UnpaidCheckinLite => !!r.user_id)
+  const periods = groupUnpaidByPeriod(rows, cutoff_day, since, before)
+  if (periods.length === 0) return []
 
-  return rows.map(r => {
-    const embedded = Array.isArray(r.events) ? r.events[0] : r.events
+  // งวดเดือนที่เปิดไว้แล้ว + สลิปของแต่ละคนในงวดนั้น — ทำลิงก์ไปที่งวด/สลิปได้ตรงๆ
+  const runByMonth = new Map(
+    runs.filter(r => r.kind === 'monthly').map(r => [r.period_key, r.id])
+  )
+  const runIds = periods.flatMap(p => runByMonth.get(p.month) ?? [])
+  const userIds = periods.flatMap(p => p.people.map(x => x.user_id))
+  const [names, slipsRes] = await Promise.all([
+    namesByUserId(supabase, userIds),
+    runIds.length > 0
+      ? supabase.from('salary_slips').select('id, run_id, user_id').in('run_id', runIds)
+      : Promise.resolve({ data: [] }),
+  ])
+  const slipOf = new Map(
+    ((slipsRes.data || []) as unknown as { id: string; run_id: string; user_id: string }[])
+      .map(s => [`${s.run_id}:${s.user_id}`, s.id])
+  )
+
+  return periods.map(p => {
+    const runId = runByMonth.get(p.month) ?? null
     return {
-      id: r.id,
-      user_id: r.user_id as string,
-      full_name: actorName(names, r.user_id),
-      date: bangkokDate(r.checked_in_at),
-      event_name: embedded?.name ?? null,
+      month: p.month,
+      start: p.start,
+      end: p.end,
+      label: periodLabel(p.month),
+      checkins: p.checkins,
+      run_id: runId,
+      people: p.people.map(x => ({
+        user_id: x.user_id,
+        full_name: actorName(names, x.user_id),
+        checkins: x.checkins,
+        slip_id: runId ? slipOf.get(`${runId}:${x.user_id}`) ?? null : null,
+      })),
     }
   })
 }

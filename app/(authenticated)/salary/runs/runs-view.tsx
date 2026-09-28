@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, CalendarClock, ChevronDown, ChevronRight, Plus, Zap,
+  CalendarClock, ChevronRight, Plus, Zap,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -25,12 +25,13 @@ import {
 import { formatThaiDate } from '@/lib/thai-date'
 import { RUN_KIND_LABEL, periodLabel, todayBangkok } from '../format'
 import {
-  lastFinishedWeek, periodRange, UNPAID_ALERT_DAYS, weekRangeFor, weekdayOf, type RunKind,
+  lastFinishedWeek, periodRange, weekRangeFor, weekdayOf, type RunKind,
 } from '../compute'
 import {
   createSalaryRun,
-  type CreateRunInput, type OverdueCheckinRow, type RunListRow, type RunSuggestion,
+  type CreateRunInput, type RunListRow, type RunSuggestion, type UnpaidPeriodRow,
 } from '../actions'
+import UnpaidPeriodsNotice from '../components/unpaid-periods-notice'
 
 interface Props {
   runs: RunListRow[]
@@ -38,8 +39,8 @@ interface Props {
   cutoffDay: number
   /** งวดที่ถึงเวลาเปิดแล้วแต่ยังไม่เปิด (สูงสุด 2 ใบ) */
   suggestions: RunSuggestion[]
-  /** เช็คอินหน้างานที่ยังไม่ถูกจ่ายและเก่าเกินเกณฑ์เตือน */
-  overdue: OverdueCheckinRow[]
+  /** งานงวดก่อนที่ยังไม่ถูกจ่าย จัดกลุ่มตามงวดเดือน */
+  unpaid: UnpaidPeriodRow[]
 }
 
 const PERIOD_KEY_RE = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -50,7 +51,7 @@ function currentPeriodKey(): string {
   return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 7)
 }
 
-export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Props) {
+export default function RunsView({ runs, cutoffDay, suggestions, unpaid }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [open, setOpen] = useState(false)
@@ -62,8 +63,6 @@ export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Prop
   const [customStart, setCustomStart] = useState(() => lastFinishedWeek(todayBangkok()).start)
   const [customEnd, setCustomEnd] = useState(() => lastFinishedWeek(todayBangkok()).end)
   const [autoCompute, setAutoCompute] = useState(true)
-
-  const [showOverdue, setShowOverdue] = useState(false)
 
   const monthValid = PERIOD_KEY_RE.test(periodKey)
   const weekValid = DATE_RE.test(weekStart)
@@ -185,39 +184,8 @@ export default function RunsView({ runs, cutoffDay, suggestions, overdue }: Prop
         </Card>
       ))}
 
-      {/* ── เช็คอินที่ยังไม่ถูกจ่ายและเก่าเกินเกณฑ์เตือน — ไม่มีงวดไหนดึงมาให้เอง ── */}
-      {overdue.length > 0 && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/30">
-          <button
-            type="button"
-            onClick={() => setShowOverdue(v => !v)}
-            className="flex w-full items-center gap-2 text-left font-medium text-amber-800 dark:text-amber-400"
-          >
-            <AlertTriangle className="size-4 shrink-0" />
-            <span className="flex-1">
-              เช็คอินหน้างานที่ยังไม่ถูกจ่าย เกิน {UNPAID_ALERT_DAYS} วัน {overdue.length} รายการ
-            </span>
-            {showOverdue ? (
-              <ChevronDown className="size-4 shrink-0" />
-            ) : (
-              <ChevronRight className="size-4 shrink-0" />
-            )}
-          </button>
-          <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
-            แต่ละงวดนับเฉพาะเช็คอินในช่วงวันของงวดนั้น — เปิดงวดกำหนดเองให้ครอบวันเหล่านี้ หรือใช้รายการปรับมือในสลิปงวดถัดไป
-          </p>
-          {showOverdue && (
-            <ul className="mt-2 max-h-64 space-y-0.5 overflow-y-auto text-xs text-amber-700 dark:text-amber-500">
-              {overdue.map(c => (
-                <li key={c.id}>
-                  {c.full_name || 'ไม่ทราบชื่อ'} · {formatThaiDate(c.date)}
-                  {c.event_name ? ` · ${c.event_name}` : ''}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      {/* ── งานงวดก่อนที่ยังไม่ถูกจ่าย — ไม่มีงวดไหนดึงมาให้เอง ── */}
+      <UnpaidPeriodsNotice rows={unpaid} mode="all" />
 
       {runs.length === 0 ? (
         <Card>

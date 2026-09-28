@@ -3,7 +3,7 @@
 // ============================================================================
 // หน้าสลิปหนึ่งใบ — spec: docs/specs/salary-slip-daily-ui.md
 //
-// ประกอบร่าง: SlipHeader (ติดขอบบน) → PendingChecklist
+// ประกอบร่าง: SlipHeader (ติดขอบบน) → UnpaidPeriodsNotice → PendingChecklist
 //            → SlipDayTable (≥ md) / SlipDayCards (< md)
 //            → บัญชีรับเงิน → ReopenHistory → บรรทัดสรุปท้ายหน้า
 //
@@ -28,12 +28,13 @@ import SlipHeader from './components/slip-header'
 import PendingChecklist from './components/pending-checklist'
 import ReopenDialog from './components/reopen-dialog'
 import ReopenHistory from './components/reopen-history'
+import UnpaidPeriodsNotice from '../components/unpaid-periods-notice'
 import { useHighlightRow } from './components/use-highlight-row'
 import { useSlipEdits } from './components/use-slip-edits'
 import { pendingItems, type SlipCalcInputs } from '../compute'
 import {
   finalizeSlip, markSlipPaid, recomputeSlip, syncSlipToCosts,
-  type SlipCheckinRow, type SlipDetail, type SlipEventOption,
+  type SlipCheckinRow, type SlipDetail, type SlipEventOption, type UnpaidPeriodRow,
 } from '../actions'
 import type { SalaryDutyRow } from '../settings/actions'
 
@@ -47,10 +48,12 @@ interface Props {
   events: SlipEventOption[]
   /** ค่าที่ภาพตัวอย่างใช้ — null เมื่อไม่ใช่ admin / ไม่มีโปรไฟล์เงินเดือน */
   calc: SlipCalcInputs | null
+  /** งานงวดก่อนของคนนี้ที่ยังไม่ถูกจ่าย — ว่างเสมอเมื่อไม่ใช่ admin */
+  unpaidBefore: UnpaidPeriodRow[]
 }
 
 export default function SlipView({
-  slip: initialSlip, isAdmin, checkins: initialCheckins, duties, events, calc,
+  slip: initialSlip, isAdmin, checkins: initialCheckins, duties, events, calc, unpaidBefore,
 }: Props) {
   const router = useRouter()
   // ตารางรายวันคืนสลิปที่คำนวณใหม่แล้วกลับมาทุกครั้งที่แก้ — เก็บไว้ใน state
@@ -165,6 +168,9 @@ export default function SlipView({
         onSyncCosts={runSyncCosts}
         onRecompute={() => setRecomputeOpen(true)}
       />
+
+      {/* ── งานงวดก่อนที่ยังไม่ถูกจ่าย — สลิปนี้ไม่ได้จ่ายให้ ต้องปิดงวดสลิปของงวดนั้น ── */}
+      <UnpaidPeriodsNotice rows={unpaidBefore} mode="person" />
 
       {/* ── งานค้างก่อนปิดงวด — คลิกแล้วเลื่อนไปแถววันนั้นในตาราง ─────────────── */}
       <PendingChecklist

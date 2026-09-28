@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import { getSession } from '../session'
-import { getSlipForView } from '../actions'
+import { getSlipForView, listUnpaidPreviousPeriods } from '../actions'
 import SlipView from './slip-view'
 
 export const revalidate = 0
@@ -21,6 +21,11 @@ export default async function SalarySlipPage({ params }: { params: Promise<{ sli
   const res = await getSlipForView(slipId)
   if ('error' in res) notFound()
 
+  // งานงวดก่อนของคนนี้ที่ยังไม่ถูกจ่าย (ก่อนวันเริ่มงวดของสลิปนี้) — admin เท่านั้น
+  const unpaidBefore = res.isAdmin
+    ? await listUnpaidPreviousPeriods({ userId: res.slip.user_id, before: res.slip.period_start })
+    : []
+
   // ไม่ใช่ admin = เจ้าของสลิป: ได้เช็คอินของตัวเองเฉพาะที่จ่ายในสลิปใบนี้ (อ่านอย่างเดียว)
   // + รายชื่อหน้าที่ไว้แปลงรหัสเป็นชื่อ แต่ไม่ได้ลิสต์อีเวนต์ของทั้งบริษัท และได้ calc = null
   // (ไม่มีการแก้ในแถว จึงไม่ต้องรู้เวลาทำงาน/อัตรา) — บังคับใน action
@@ -32,6 +37,7 @@ export default async function SalarySlipPage({ params }: { params: Promise<{ sli
       duties={res.duties}
       events={res.events}
       calc={res.calc}
+      unpaidBefore={unpaidBefore}
     />
   )
 }
