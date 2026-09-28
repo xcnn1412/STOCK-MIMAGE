@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import {
   buildCommission, buildExportSheet, buildLockDates, commissionPeriod, defaultPeriodMonth,
-  bangkokDay, isWonStatus, mergeTargets,
+  bangkokDay, isWonStatus, mergeTargets, buildLeadFinance, summarizeFinance,
   type CommissionLead, type StatusActivity,
 } from '../app/(authenticated)/sales-board/commission-logic'
 
@@ -220,8 +220,89 @@ check('C15', 'วันที่ 25 อยู่สองงวด — นับ
   assert.deepEqual(codesOf('on24', jun), [])
 })
 
+// ── สรุปการเงินของงวด ──
+const claim = (id: string, job_event_id: string | null, amount: number, over: Record<string, unknown> = {}) =>
+  ({ id, job_event_id, claim_type: 'event', status: 'paid', amount, actual_spent_amount: null, ...over })
+
+check('C16', 'การเงินต่อการ์ด: ยอดขาย · ต้นทุน · รายจ่าย ผูกผ่านอีเวนต์ของการ์ด', () => {
+  const f = buildLeadFinance({
+    leads: [
+      { id: 'L1', confirmed_price: 10000, quoted_price: 12000 },
+      { id: 'L2', confirmed_price: 0, quoted_price: 5000 },   // ไม่มีราคายืนยัน → ใช้ราคาเสนอ
+      { id: 'L3', confirmed_price: null, quoted_price: null },
+    ],
+    events: [
+      { id: 'E1', linked_lead_id: 'L1' }, { id: 'E1b', linked_lead_id: 'L1' },   // 1 การ์ด หลายอีเวนต์
+      { id: 'E2', linked_lead_id: 'L2' }, { id: 'EX', linked_lead_id: null },    // อีเวนต์ลอย ไม่เข้าการ์ดใด
+    ],
+    costItems: [
+      { job_event_id: 'E1', amount: 1000, notes: null },
+      { job_event_id: 'E1b', amount: 500, notes: 'salary_slip::S1::site:2026-06-01:C1:onsite_staff' },
+      { job_event_id: 'EX', amount: 9999, notes: null },
+    ],
+    claims: [
+      claim('C1', 'E1', 300),
+      claim('C2', 'E1b', 200, { status: 'pending' }),
+      claim('C3', 'E1', 700, { status: 'rejected' }),                                         // ไม่นับ
+      claim('C4', 'E2', 900, { claim_type: 'advance', status: 'refund_confirmed', actual_spent_amount: 650 }),
+      claim('C5', null, 4000),                                                                 // ไม่ผูกงาน → ไม่นับ
+      claim('C6', 'EX', 4000),                                                                 // อีเวนต์ลอย → ไม่นับ
+    ],
+  })
+  assert.deepEqual(f.L1, { sales: 10000, cost: 1500, expense: 500, expenseInCost: 0 })
+  assert.deepEqual(f.L2, { sales: 5000, cost: 0, expense: 650, expenseInCost: 0 })
+  assert.deepEqual(f.L3, { sales: 0, cost: 0, expense: 0, expenseInCost: 0 })
+})
+
+check('C17', 'ใบเบิกที่ถูกคัดลอกเข้าต้นทุนแล้ว ไม่ถูกหักซ้ำ', () => {
+  const f = buildLeadFinance({
+    leads: [{ id: 'L1', confirmed_price: 10000, quoted_price: 0 }],
+    events: [{ id: 'E1', linked_lead_id: 'L1' }],
+    costItems: [
+      { job_event_id: 'E1', amount: 300, notes: 'EXP-0001::C1' },      // มาจากใบเบิก C1
+      { job_event_id: 'E1', amount: 1000, notes: 'salary_slip::S1::k' }, // ค่าสตาฟ ไม่ใช่ใบเบิก
+    ],
+    claims: [claim('C1', 'E1', 300), claim('C2', 'E1', 200, { status: 'pending' })],
+  })
+  assert.deepEqual(f.L1, { sales: 10000, cost: 1300, expense: 500, expenseInCost: 300 })
+  const leads = [lead('L1')]
+  const s = summarizeFinance(run(leads, [act('L1', '2026-06-01T03:00:00Z', 'accepted')]), f)
+  // กำไร = 10000 − 1300 − (500 − 300) — ไม่ใช่ 10000 − 1300 − 500
+  assert.equal(s.total.profit, 8500)
+  assert.equal(s.total.expense, 500)
+  assert.equal(s.total.expenseInCost, 300)
+})
+
+check('C18', 'สรุปแยกตู้/อีเวนต์ · ไม่ระบุประเภทและ GP ไม่ถูกรวม · นับงานที่มีข้อมูลแล้ว', () => {
+  const leads = [
+    lead('b1', { work_type: 'sale', unit_count: 3 }), lead('e1'), lead('e2'),
+    lead('u1', { work_type: null }), lead('g1', { work_type: 'gp' }),
+    lead('late'),                                                        // ล็อคนอกงวด
+  ]
+  const acts = [
+    ...['b1', 'e1', 'e2', 'u1', 'g1'].map((id) => act(id, '2026-06-01T03:00:00Z', 'accepted')),
+    act('late', '2026-07-30T03:00:00Z', 'accepted'),
+  ]
+  const fin = Object.fromEntries(
+    [['b1', 50000, 20000, 0], ['e1', 8000, 1000, 500], ['e2', 6000, 0, 0], ['u1', 7000, 0, 0], ['g1', 9000, 0, 0], ['late', 4000, 0, 0]]
+      .map(([id, sales, cost, expense]) => [id, { sales, cost, expense, expenseInCost: 0 }]),
+  ) as Parameters<typeof summarizeFinance>[1]
+  const s = summarizeFinance(run(leads, acts), fin)
+  assert.deepEqual(s.booths, { deals: 1, withData: 1, sales: 50000, cost: 20000, expense: 0, expenseInCost: 0, profit: 30000 })
+  assert.deepEqual(s.events, { deals: 2, withData: 1, sales: 14000, cost: 1000, expense: 500, expenseInCost: 0, profit: 12500 })
+  assert.deepEqual(s.total, { deals: 3, withData: 2, sales: 64000, cost: 21000, expense: 500, expenseInCost: 0, profit: 42500 })
+  assert.deepEqual(s.unclassified, { deals: 1, sales: 7000 })
+  assert.equal(s.noPrice, 0)
+})
+
+check('C19', 'การ์ดที่ไม่มีข้อมูลการเงินส่งมา = 0 ทุกช่อง ไม่พัง', () => {
+  const s = summarizeFinance(run([lead('x')], [act('x', '2026-06-01T03:00:00Z', 'accepted')]), {})
+  assert.deepEqual(s.total, { deals: 1, withData: 0, sales: 0, cost: 0, expense: 0, expenseInCost: 0, profit: 0 })
+  assert.equal(s.noPrice, 1) // งานที่นับแล้วแต่ยังไม่ใส่ราคา
+})
+
 if (failed > 0) {
   console.log(`\n${failed} case(s) FAILED`)
   process.exit(1)
 }
-console.log('\ncommission-check: ผ่านทั้งหมด (C1–C15)')
+console.log('\ncommission-check: ผ่านทั้งหมด (C1–C19)')

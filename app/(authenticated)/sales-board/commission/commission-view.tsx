@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Settings2, Download, Coins,
-  Tag, CalendarDays, AlertTriangle, RotateCcw, Info,
+  Tag, CalendarDays, AlertTriangle, RotateCcw, Info, Banknote,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -17,9 +17,11 @@ import {
 import {
   BOOTH_HEADERS, EVENT_HEADERS, TH_MONTHS_LONG,
   buildCommission, buildExportSheet, commissionPeriod, defaultPeriodMonth, shiftMonth,
-  summaryLine, thaiDay, thaiEventRange,
-  type CommissionLead, type CommissionTargets, type Row, type WarningCode,
+  summarizeFinance, summaryLine, thaiDay, thaiEventRange,
+  type CommissionLead, type CommissionTargets, type FinanceSummary, type FinanceTotals,
+  type LeadFinance, type Row, type WarningCode,
 } from '../commission-logic'
+import { fmt, fmtSign } from '../../overview/pl/pl-lib'
 import { saveCommissionTargets } from '../actions'
 
 interface Props {
@@ -30,6 +32,7 @@ interface Props {
   statusLabels: Record<string, string> // สถานะ (ตัวพิมพ์เล็ก) → ป้ายไทยจาก crm_settings
   isAdmin: boolean
   unitCountAvailable: boolean
+  finance: Record<string, LeadFinance> | null // lead_id → ตัวเลขการเงิน · null = ไม่ใช่ admin (server ไม่ส่งมา)
 }
 
 const periodLabel = (m: string) => { const [y, mo] = m.split('-').map(Number); return `${TH_MONTHS_LONG[mo - 1]} ${y + 543}` }
@@ -68,6 +71,11 @@ export default function CommissionView(props: Props) {
   const result = useMemo(
     () => buildCommission({ leads: props.leads, lockDates: lockMap, from: range.from, to: range.to }),
     [props.leads, lockMap, range.from, range.to],
+  )
+
+  const financeSummary = useMemo(
+    () => (props.finance ? summarizeFinance(result, props.finance) : null),
+    [result, props.finance],
   )
 
   const statusLabel = (s: string) => props.statusLabels[s.toLowerCase()] || s || '—'
@@ -141,6 +149,9 @@ export default function CommissionView(props: Props) {
           tint="from-cyan-100 to-cyan-50/40 dark:from-cyan-950/50 dark:to-zinc-900" text="text-cyan-700 dark:text-cyan-300"
           bar="bg-cyan-500" border="border-cyan-300 dark:border-cyan-800" />
       </div>
+
+      {/* ── สรุปการเงินของงวด (เฉพาะ admin — server ส่ง finance มาเฉพาะ admin) ── */}
+      {financeSummary && <FinancePanel summary={financeSummary} />}
 
       {/* ── กล่องต้องตรวจสอบ ── */}
       {warningGroups.length > 0 && (
@@ -224,6 +235,101 @@ function GoalCard({ label, unit, actual, target, icon: Icon, tint, text, bar, bo
         <p className="mt-1.5 text-xs text-muted-foreground">ยังไม่ได้ตั้งเป้างวดนี้</p>
       )}
     </div>
+  )
+}
+
+// ── สรุปการเงินของงวด: ยอดขาย · ต้นทุน · รายจ่าย · กำไร ──
+// ตัวเลขใช้สีตัวอักษรปกติ (อ่านง่ายทั้งโหมดสว่าง/มืด) · ขาดทุนบอกด้วยคำและเครื่องหมายลบ ไม่พึ่งสีอย่างเดียว
+const baht = (n: number) => `฿${fmt(n)}`
+
+function FinancePanel({ summary }: { summary: FinanceSummary }) {
+  const t = summary.total
+  const outside = t.expense - t.expenseInCost
+  const margin = t.sales > 0 ? Math.round((t.profit / t.sales) * 100) : null
+  const loss = t.profit < 0
+  const missing = t.deals - t.withData
+  return (
+    <section aria-labelledby="cm-finance-title" className="rounded-xl border bg-card p-3">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <h2 id="cm-finance-title" className="flex items-center gap-1.5 text-sm font-semibold">
+          <Banknote className="h-4 w-4 text-emerald-600" /> สรุปการเงินของงวด
+        </h2>
+        <span className="rounded-full border px-1.5 py-0.5 text-[11px] text-muted-foreground">เฉพาะ admin</span>
+        <span className="text-xs text-muted-foreground">
+          คิดจากงานที่ตอบรับในงวดนี้ (ชุดเดียวกับตารางด้านล่าง) · ราคาเต็มตามที่ตกลง
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <FinanceTile label="ยอดขาย" value={baht(t.sales)} sub={`${t.deals} งาน`} />
+        <FinanceTile label="ต้นทุน" value={baht(t.cost)} sub="จากโมดูลต้นทุน ของงานชุดนี้" />
+        <FinanceTile label="รายจ่าย" value={baht(t.expense)}
+          sub={`ใบเบิกที่ผูกงานชุดนี้ · อยู่ในต้นทุนแล้ว ${baht(t.expenseInCost)} · ยังไม่เข้าต้นทุน ${baht(outside)}`} />
+        <FinanceTile label={loss ? 'ขาดทุน' : 'กำไร'} value={fmtSign(t.profit)} emphasis
+          sub={`ยอดขาย − ต้นทุน − รายจ่ายที่ยังไม่เข้าต้นทุน${margin === null ? '' : ` · ${margin}% ของยอดขาย`}`} />
+      </div>
+
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-xs text-muted-foreground">
+              <th scope="col" className="px-2 py-1.5 text-left font-medium">ประเภทงาน</th>
+              {['จำนวนงาน', 'ยอดขาย', 'ต้นทุน', 'รายจ่าย', 'กำไร'].map((h) => (
+                <th key={h} scope="col" className="whitespace-nowrap px-2 py-1.5 text-right font-medium">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <FinanceRow label="ตู้" totals={summary.booths} />
+            <FinanceRow label="อีเวนต์" totals={summary.events} />
+            <FinanceRow label="รวม" totals={t} total />
+          </tbody>
+        </table>
+      </div>
+
+      {(missing > 0 || summary.unclassified.deals > 0 || summary.noPrice > 0) && (
+        <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+          {summary.noPrice > 0 && (
+            <li className="flex items-start gap-1.5">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              มี {summary.noPrice} งานที่ยังไม่ใส่ราคาในการ์ด CRM — ยอดขายจึงต่ำกว่าจริง
+            </li>
+          )}
+          {missing > 0 && (
+            <li className="flex items-start gap-1.5">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              มีต้นทุนหรือรายจ่ายบันทึกแล้ว {t.withData} จาก {t.deals} งาน — อีก {missing} งานยังไม่มีข้อมูล (มักเป็นงานที่ยังไม่ถึงวันจัด) กำไรจึงอาจสูงกว่าจริง
+            </li>
+          )}
+          {summary.unclassified.deals > 0 && (
+            <li className="flex items-start gap-1.5">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              ไม่รวมการ์ดที่ยังไม่ระบุประเภทงาน {summary.unclassified.deals} ใบ (ยอด {baht(summary.unclassified.sales)})
+            </li>
+          )}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function FinanceTile({ label, value, sub, emphasis }: { label: string; value: string; sub: string; emphasis?: boolean }) {
+  return (
+    <div className={cn('rounded-lg border p-3', emphasis && 'border-2')}>
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-2xl font-bold tabular-nums">{value}</div>
+      <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{sub}</div>
+    </div>
+  )
+}
+
+function FinanceRow({ label, totals, total }: { label: string; totals: FinanceTotals; total?: boolean }) {
+  const cells = [String(totals.deals), baht(totals.sales), baht(totals.cost), baht(totals.expense), fmtSign(totals.profit)]
+  return (
+    <tr className={cn('border-b last:border-0', total && 'font-semibold')}>
+      <th scope="row" className="px-2 py-1.5 text-left font-medium">{label}</th>
+      {cells.map((c, i) => <td key={i} className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">{c}</td>)}
+    </tr>
   )
 }
 
