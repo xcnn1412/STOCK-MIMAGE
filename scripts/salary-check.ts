@@ -14,12 +14,16 @@ import { config } from 'dotenv'
 import {
   computeSlip,
   groupSlipByDay,
+  groupUnpaidByPeriod,
   hasMissingAmounts,
+  lastFinishedMonth,
   lastFinishedWeek,
+  monthKeyForDate,
   onsiteFromFor,
   pendingItems,
   periodRange,
   selectCheckinsForRun,
+  shiftDay,
   type AcceptedWarning,
   type CheckinInput,
   type DutyInput,
@@ -535,6 +539,54 @@ function partA() {
         `${runKind}: เตือนค่าที่แก้มือหายเฉพาะวันที่อยู่ในงวด`
       )
     }
+  }
+
+  // ── 17c. งานงวดก่อนค้างจ่าย: งวดเดือนของวันหนึ่ง / งวดเดือนที่ตัดรอบแล้ว / จัดกลุ่มตามงวด ──
+  console.log('\n[A17c] monthKeyForDate / lastFinishedMonth / groupUnpaidByPeriod: unpaid previous-period work')
+  {
+    assertEq(monthKeyForDate('2026-08-25', 25), '2026-08', 'monthKeyForDate: 25 ส.ค. (วันตัดรอบ) → งวด ส.ค.')
+    assertEq(monthKeyForDate('2026-08-26', 25), '2026-09', 'monthKeyForDate: 26 ส.ค. → งวด ก.ย.')
+    assertEq(monthKeyForDate('2026-12-26', 25), '2027-01', 'monthKeyForDate: 26 ธ.ค. → งวด ม.ค. ปีถัดไป')
+    assertEq(monthKeyForDate('2026-01-01', 25), '2026-01', 'monthKeyForDate: 1 ม.ค. → งวด ม.ค.')
+    for (const cutoff of [25, 31]) {
+      const outside: string[] = []
+      for (let d = '2026-01-01'; d <= '2026-12-31'; d = shiftDay(d, 1)) {
+        const r = periodRange(monthKeyForDate(d, cutoff), cutoff)
+        if (d < r.start || d > r.end) outside.push(d)
+      }
+      assertEq(outside, [], `monthKeyForDate: ทุกวันของปี 2026 (ตัดรอบ ${cutoff}) อยู่ในช่วงของงวดที่ได้`)
+    }
+
+    assertEq(
+      lastFinishedMonth('2026-09-29', 25),
+      { month: '2026-09', start: '2026-08-26', end: '2026-09-25' },
+      'lastFinishedMonth: 29 ก.ย. → งวด ก.ย. (26 ส.ค. – 25 ก.ย.)'
+    )
+    assertEq(lastFinishedMonth('2026-09-25', 25).month, '2026-08', 'lastFinishedMonth: 25 ก.ย. (วันตัดรอบยังไม่จบ) → งวด ส.ค.')
+    assertEq(lastFinishedMonth('2026-09-26', 25).month, '2026-09', 'lastFinishedMonth: 26 ก.ย. → งวด ก.ย.')
+
+    const rows = [
+      { user_id: 'u-early', checked_in_at: ts('2026-06-30', '10:00') }, // ก่อน since → ทิ้ง
+      { user_id: 'u1', checked_in_at: ts('2026-07-01', '10:00') },
+      { user_id: 'u2', checked_in_at: ts('2026-07-10', '10:00') },
+      { user_id: 'u2', checked_in_at: ts('2026-07-20', '10:00') },
+      { user_id: 'u1', checked_in_at: '2026-08-25T18:30:00Z' }, // ไทย = 26 ส.ค. → งวด ก.ย.
+      { user_id: 'u-late', checked_in_at: ts('2026-09-26', '10:00') }, // = before → ทิ้ง
+    ]
+    const periods = groupUnpaidByPeriod(rows, 25, '2026-07-01', '2026-09-26')
+    assertEq(periods.map(p => p.month), ['2026-07', '2026-09'], 'groupUnpaidByPeriod: ทิ้งก่อน since/ตั้งแต่ before · งวดเก่าสุดก่อน')
+    assertEq(
+      periods[0],
+      {
+        month: '2026-07', start: '2026-06-26', end: '2026-07-25', checkins: 3,
+        people: [{ user_id: 'u2', checkins: 2 }, { user_id: 'u1', checkins: 1 }],
+      },
+      'groupUnpaidByPeriod: งวด ก.ค. 3 เช็คอิน 2 คน เรียงคนที่ค้างมากสุดก่อน'
+    )
+    assertEq(
+      periods[1].people, [{ user_id: 'u1', checkins: 1 }],
+      'groupUnpaidByPeriod: 25 ส.ค. 18:30 UTC = 26 ส.ค. เวลาไทย → งวด ก.ย.'
+    )
   }
 
   // ── 18. มุมมองรายวัน: 2 เช็คอินวันเดียว → 1 แถว 2 แถวย่อย, OT/รันเนอร์เกาะวัน ──

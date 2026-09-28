@@ -24,13 +24,6 @@ export function toRunKind(v: unknown): RunKind {
   return v === 'weekly' || v === 'custom' ? v : 'monthly'
 }
 
-/**
- * เช็คอินหน้างานที่ยังไม่ถูกจ่ายและเก่ากว่านี้ (วัน) ขึ้นกล่องเตือนในหน้างวดคำนวณ
- * ไม่เกี่ยวกับการคิดเงิน — กติกาเจ้าของ 2026-09-28: ยกเลิก "เก็บตก" ทุกชนิดงวด
- * แต่ละงวดคิดเฉพาะเช็คอินในช่วงวันของตัวเอง งานที่ตกหล่นต้องเปิดงวดกำหนดเองหรือใช้รายการปรับมือ
- */
-export const UNPAID_ALERT_DAYS = 60
-
 export interface SalaryProfileInput {
   employment_type: EmploymentType
   base_salary: number
@@ -358,6 +351,92 @@ export function lastFinishedWeek(todayBangkokDate: string): { start: string; end
   const dow = weekdayOf(todayBangkokDate)
   const end = shiftDay(todayBangkokDate, -(dow === 0 ? 7 : dow))
   return { start: shiftDay(end, -6), end }
+}
+
+/** เลื่อนคีย์เดือน 'YYYY-MM' ไป n เดือน */
+function shiftMonth(month: string, n: number): string {
+  const [y, m] = month.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7)
+}
+
+/**
+ * งวดเดือน ('YYYY-MM') ที่วันไทย date ตกอยู่ — หาจาก periodRange ตัวเดียว
+ * (ไม่คิดวันเอง) จึงตรงกับช่วงวันของงวดเสมอไม่ว่าวันตัดรอบจะเป็นวันไหน
+ */
+export function monthKeyForDate(date: string, cutoffDay: number): string {
+  let month = date.slice(0, 7)
+  for (let i = 0; i < 3; i += 1) {
+    const { start, end } = periodRange(month, cutoffDay)
+    if (date < start) month = shiftMonth(month, -1)
+    else if (date > end) month = shiftMonth(month, 1)
+    else break
+  }
+  return month
+}
+
+/**
+ * งวดเดือนล่าสุดที่ตัดรอบไปแล้ว (วันสิ้นงวด < วันไทย today)
+ * ถอยจากเดือนนี้ทีละเดือนจนเจอเดือนที่ period_end ผ่านไปแล้ว
+ */
+export function lastFinishedMonth(
+  today: string,
+  cutoffDay: number
+): { month: string; start: string; end: string } {
+  let month = today.slice(0, 7)
+  let range = periodRange(month, cutoffDay)
+  for (let i = 0; i < 3 && range.end >= today; i += 1) {
+    month = shiftMonth(month, -1)
+    range = periodRange(month, cutoffDay)
+  }
+  return { month, ...range }
+}
+
+/** เช็คอินหน้างานที่ยังไม่ถูกจ่าย — เท่าที่การจัดกลุ่มตามงวดต้องใช้ */
+export interface UnpaidCheckinLite {
+  user_id: string
+  /** ISO instant */
+  checked_in_at: string
+}
+
+/** งานงวดก่อนที่ยังไม่ถูกจ่าย หนึ่งงวดเดือน */
+export interface UnpaidPeriod {
+  month: string
+  start: string
+  end: string
+  checkins: number
+  people: { user_id: string; checkins: number }[]
+}
+
+/**
+ * จัดกลุ่มเช็คอินค้างจ่ายตามงวดเดือน — เก็บเฉพาะวันไทย since <= วัน < before
+ * งวดเรียงเก่าสุดก่อน · คนในงวดเรียงจำนวนเช็คอินมากสุดก่อน (เท่ากันเรียงตาม user_id)
+ */
+export function groupUnpaidByPeriod(
+  checkins: UnpaidCheckinLite[],
+  cutoffDay: number,
+  since: string,
+  before: string
+): UnpaidPeriod[] {
+  const byMonth = new Map<string, Map<string, number>>()
+  for (const c of checkins) {
+    const date = bangkokDate(c.checked_in_at)
+    if (date < since || date >= before) continue
+    const month = monthKeyForDate(date, cutoffDay)
+    const people = byMonth.get(month) ?? new Map<string, number>()
+    people.set(c.user_id, (people.get(c.user_id) ?? 0) + 1)
+    byMonth.set(month, people)
+  }
+
+  return Array.from(byMonth, ([month, people]) => {
+    const list = Array.from(people, ([user_id, n]) => ({ user_id, checkins: n }))
+      .sort((a, b) => b.checkins - a.checkins || cmp(a.user_id, b.user_id))
+    return {
+      month,
+      ...periodRange(month, cutoffDay),
+      checkins: list.reduce((s, p) => s + p.checkins, 0),
+      people: list,
+    }
+  }).sort((a, b) => cmp(a.month, b.month))
 }
 
 /** period_key ของงวด — เดือน 'YYYY-MM' / สัปดาห์-กำหนดเอง 'YYYY-MM-DD_YYYY-MM-DD' */

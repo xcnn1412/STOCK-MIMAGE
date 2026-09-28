@@ -258,7 +258,9 @@ export default function RunView({
   }
 
   const slipTotal = slips.reduce((sum, s) => sum + s.total, 0)
-  const draftCount = slips.filter(s => s.status === 'draft').length
+  // user_id ของสลิปร่างทุกใบ — ปุ่ม "คำนวณใหม่ทุกใบที่เป็นร่าง"
+  const draftUserIds = slips.filter(s => s.status === 'draft').map(s => s.user_id)
+  const draftCount = draftUserIds.length
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -434,6 +436,17 @@ export default function RunView({
                 </span>{' '}
                 บาท
               </p>
+              {slips.length > 0 && (
+                <Button
+                  variant="outline"
+                  disabled={isPending || draftCount === 0}
+                  onClick={() => runCompute(draftUserIds, 'คำนวณใหม่')}
+                  title="คำนวณสลิปร่างทุกใบใหม่จากข้อมูลล่าสุด ค่าที่แก้มือไว้ยังอยู่"
+                >
+                  <RefreshCw className="size-4" />
+                  คำนวณใหม่ทุกใบที่เป็นร่าง ({draftCount})
+                </Button>
+              )}
               <Button
                 variant="outline"
                 disabled={isPending || draftCount === 0}

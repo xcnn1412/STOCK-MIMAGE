@@ -1,4 +1,4 @@
-// หน้าแรก — หัวทักทาย+วันที่ · แถวแชมป์ · 3 คอลัมน์: [ภาพรวมงาน] [งานในมือคุณ] [หน้าที่ยังไม่ครบ]
+// หน้าแรก — หัวทักทาย+วันที่ · แถวแชมป์ · (admin) งานงวดก่อนค้างจ่าย · 3 คอลัมน์: [ภาพรวมงาน] [งานในมือคุณ] [หน้าที่ยังไม่ครบ]
 // (สเปค: docs/specs/dashboard-alerts.md + docs/specs/team-reports.md · layout ตาม mock ผู้ใช้ 2026-09-01)
 import Link from 'next/link'
 import { CheckCircle2, Trophy } from 'lucide-react'
@@ -10,10 +10,17 @@ import { buildAlertData } from '@/components/dashboard-alerts/alert-panels'
 import DashboardHero from '@/components/dashboard-alerts/dashboard-hero'
 import MyJobsPanel from '@/components/dashboard-alerts/my-jobs-panel'
 import DutyWarningPanel from '@/components/dashboard-alerts/duty-warning-panel'
+import { listUnpaidPreviousPeriods } from '@/app/(authenticated)/salary/actions'
+import UnpaidPeriodsNotice from '@/app/(authenticated)/salary/components/unpaid-periods-notice'
 
 export default async function DashboardPage() {
     // currentUserId มาจาก getSessionLight ใน snapshot — ไม่ต้องเช็ค session ซ้ำ
-    const [snapshot, report] = await Promise.all([getTrackingSnapshot(), getReportStats()])
+    // listUnpaidPreviousPeriods ตรวจ admin เอง — คนอื่นได้ [] จึงไม่เห็นการ์ดเงินเดือน
+    const [snapshot, report, unpaid] = await Promise.all([
+        getTrackingSnapshot(),
+        getReportStats(),
+        listUnpaidPreviousPeriods(),
+    ])
     const { leadDates, warnings, myJobsCount, heroStats } = buildAlertData(snapshot)
     const hasAlerts = myJobsCount > 0 || warnings.length > 0
 
@@ -53,6 +60,14 @@ export default async function DashboardPage() {
                 </div>
                 <ChampionsStrip stats={allTimeStats} currentUserId={report.currentUserId} />
             </div>
+
+            {/* งานงวดก่อนที่ยังไม่ถูกจ่าย (admin) — มีเมื่อมีงานค้างเท่านั้น */}
+            {unpaid.length > 0 && (
+                <div className="rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 shadow-sm">
+                    <h2 className="mb-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">เงินเดือน</h2>
+                    <UnpaidPeriodsNotice rows={unpaid} mode="all" />
+                </div>
+            )}
 
             {/* 3 คอลัมน์: ภาพรวมงาน · งานในมือคุณ · หน้าที่ยังไม่ครบ
                 จอเล็กเรียงลงล่าง · md = hero เต็มแถว + 2 แผงคู่กัน · xl = 3 คอลัมน์สูงเท่ากัน (items-stretch + h-full) */}
