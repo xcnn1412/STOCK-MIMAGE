@@ -29,7 +29,8 @@ import PendingChecklist from './components/pending-checklist'
 import ReopenDialog from './components/reopen-dialog'
 import ReopenHistory from './components/reopen-history'
 import { useHighlightRow } from './components/use-highlight-row'
-import { pendingItems } from '../compute'
+import { useSlipEdits } from './components/use-slip-edits'
+import { pendingItems, type SlipCalcInputs } from '../compute'
 import {
   finalizeSlip, markSlipPaid, recomputeSlip, syncSlipToCosts,
   type SlipCheckinRow, type SlipDetail, type SlipEventOption,
@@ -44,17 +45,38 @@ interface Props {
   duties: SalaryDutyRow[]
   /** ตัวเลือกอีเวนต์รอบๆ งวด สำหรับผูกเช็คอิน — ว่างเสมอเมื่อไม่ใช่ admin */
   events: SlipEventOption[]
+  /** ค่าที่ภาพตัวอย่างใช้ — null เมื่อไม่ใช่ admin / ไม่มีโปรไฟล์เงินเดือน */
+  calc: SlipCalcInputs | null
 }
 
-export default function SlipView({ slip: initialSlip, isAdmin, checkins, duties, events }: Props) {
+export default function SlipView({
+  slip: initialSlip, isAdmin, checkins: initialCheckins, duties, events, calc,
+}: Props) {
   const router = useRouter()
   // ตารางรายวันคืนสลิปที่คำนวณใหม่แล้วกลับมาทุกครั้งที่แก้ — เก็บไว้ใน state
   // เพื่อให้ยอด/งานค้างบนหัวขยับทันทีโดยไม่ต้องรอ server component รอบใหม่
+  // แถวเช็คอินก็เป็น state เพื่อแพตช์ทันทีตอนแก้ (จัดกลุ่มรายวันถูกแม้แก้เวลาจนย้ายวัน)
   const [slip, setSlip] = useState(initialSlip)
-  const [seenSlip, setSeenSlip] = useState(initialSlip)
-  if (seenSlip !== initialSlip) {
-    setSeenSlip(initialSlip)
+  const [checkins, setCheckins] = useState(initialCheckins)
+
+  // แก้ได้เฉพาะ admin + สลิปร่าง — เจ้าของสลิปและสลิปที่ปิดงวดแล้วอ่านอย่างเดียว
+  // (ทุก action ตรวจซ้ำฝั่ง server และ trigger ที่ DB กันอีกชั้น)
+  const editable = isAdmin && slip.status === 'draft'
+  const edits = useSlipEdits({
+    slip, checkins, duties, events,
+    calc: editable ? calc : null,
+    onSlipChange: setSlip,
+    onCheckinsChange: setCheckins,
+  })
+
+  // ของจริงจาก server (props) มาใหม่ → รับเข้า state แต่ "รอ" ถ้ายังมีการแก้ค้างอยู่
+  // ไม่งั้นหน้าที่ server วาดจากคำขอเก่าจะทับภาพตัวอย่างของการแก้ที่ใหม่กว่า
+  // (รับทันทีที่คำขอสุดท้ายจบ — pattern เดียวกับ useDraftValue ใน inline-cells)
+  const [applied, setApplied] = useState({ slip: initialSlip, checkins: initialCheckins })
+  if (!edits.saving && (applied.slip !== initialSlip || applied.checkins !== initialCheckins)) {
+    setApplied({ slip: initialSlip, checkins: initialCheckins })
     setSlip(initialSlip)
+    setCheckins(initialCheckins)
   }
 
   const [confirmFinalize, setConfirmFinalize] = useState(false)
@@ -66,9 +88,6 @@ export default function SlipView({ slip: initialSlip, isAdmin, checkins, duties,
 
   const name = slip.full_name || slip.nickname || '(ไม่มีชื่อ)'
   const hasBank = !!(slip.bank_name || slip.bank_account_number || slip.account_holder_name)
-  // แก้ได้เฉพาะ admin + สลิปร่าง — เจ้าของสลิปและสลิปที่ปิดงวดแล้วอ่านอย่างเดียว
-  // (ทุก action ตรวจซ้ำฝั่ง server และ trigger ที่ DB กันอีกชั้น)
-  const editable = isAdmin && slip.status === 'draft'
   // เกณฑ์เดียวกับที่ finalizeSlip ใช้ฝั่ง server — ปุ่มจึงไม่พาไปเจอ error ที่รู้ล่วงหน้าอยู่แล้ว
   const pendingCount = pendingItems(slip.warnings, slip.accepted_warnings, slip.lines).count
   const todayLabel = formatThaiDate(new Date())
@@ -139,6 +158,7 @@ export default function SlipView({ slip: initialSlip, isAdmin, checkins, duties,
         isAdmin={isAdmin}
         pendingCount={pendingCount}
         busy={isPending}
+        saving={edits.saving}
         onFinalize={() => setConfirmFinalize(true)}
         onMarkPaid={() => setConfirmPaid(true)}
         onReopen={() => setReopenOpen(true)}
@@ -165,6 +185,7 @@ export default function SlipView({ slip: initialSlip, isAdmin, checkins, duties,
           events={events}
           editable={editable}
           highlightDate={highlightDate}
+          edits={edits}
           onSlipChange={setSlip}
         />
       </div>
@@ -176,6 +197,7 @@ export default function SlipView({ slip: initialSlip, isAdmin, checkins, duties,
           events={events}
           editable={editable}
           highlightDate={highlightDate}
+          edits={edits}
           onSlipChange={setSlip}
         />
       </div>

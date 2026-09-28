@@ -310,7 +310,7 @@ export function DutiesCell({
     shown.length === 0
       ? <span className="text-muted-foreground">—</span>
       : (
-        <span className="flex flex-wrap gap-1">
+        <span className="flex min-w-0 flex-wrap gap-1">
           {shown.map(code => (
             <Badge key={code} variant="outline" className="text-[11px] font-normal">
               {nameOf.get(code) || code}
@@ -319,7 +319,8 @@ export function DutiesCell({
         </span>
       )
 
-  if (disabled) return <span className="px-1.5">{badges}</span>
+  // block: ป้ายเป็นกล่อง flex — ถ้าห่อด้วย inline จะถูกดันลงไปอีกบรรทัด ไม่ตรงแนวกับเวลาเข้า–ออก
+  if (disabled) return <span className="block px-1.5 py-1">{badges}</span>
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -327,10 +328,11 @@ export function DutiesCell({
         <button
           type="button"
           aria-label={ariaLabel}
-          className={cn(CELL_BUTTON, 'max-w-52 flex-wrap', flash && FLASH_CLASS)}
+          // ลูกศรเกาะบรรทัดแรกเหมือนช่องอีเวนต์ — ป้ายหลายอันขึ้นบรรทัดใหม่ได้โดยลูกศรไม่ตกไปอยู่บรรทัดของตัวเอง
+          className={cn(CELL_BUTTON, 'max-w-52 items-start gap-1.5 py-1', flash && FLASH_CLASS)}
         >
           {badges}
-          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          <ChevronDown className="mt-1 size-3 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 space-y-2">
@@ -383,6 +385,11 @@ interface EventCellProps {
   disabled?: boolean
 }
 
+/** ชื่ออีเวนต์แสดงเต็ม — ตัดบรรทัดที่ช่องว่าง/คำไทย และหักคำยาวที่ไม่มีช่องว่างได้ */
+const EVENT_NAME = 'min-w-0 text-pretty wrap-anywhere leading-snug'
+/** ความกว้างของช่องอีเวนต์ — แคบสุดยังอ่านได้ กว้างสุดไม่ยืดตารางจนคอลัมน์เงินตกขอบ */
+const EVENT_WIDTH = 'min-w-52 max-w-80'
+
 export function EventCell({ value, eventName, events, onSave, disabled }: EventCellProps) {
   const { flash, run } = useCellSave()
   const [shown, setShown] = useDraftValue(value, v => v ?? '')
@@ -402,7 +409,9 @@ export function EventCell({ value, eventName, events, onSave, disabled }: EventC
 
   if (disabled) {
     return (
-      <span className={cn('px-1.5', !label && 'text-muted-foreground')}>{label || '—'}</span>
+      <span className={cn('block px-1.5 py-1', EVENT_WIDTH, EVENT_NAME, !label && 'text-muted-foreground')}>
+        {label || '—'}
+      </span>
     )
   }
 
@@ -411,14 +420,19 @@ export function EventCell({ value, eventName, events, onSave, disabled }: EventC
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label="อีเวนต์ที่ผูกกับเช็คอิน"
-          className={cn(CELL_BUTTON, 'max-w-48', !label && 'text-muted-foreground', flash && FLASH_CLASS)}
+          // ชื่ออีเวนต์อยู่ในป้ายด้วย — ไม่งั้นโปรแกรมอ่านหน้าจออ่านได้แค่ชื่อช่อง
+          aria-label={`อีเวนต์ที่ผูกกับเช็คอิน: ${label || 'ไม่ผูกอีเวนต์'}`}
+          className={cn(
+            // ชื่อเต็ม ขึ้นบรรทัดใหม่ได้ · ลูกศรชิดขวาเกาะบรรทัดแรก จึงเรียงตรงกันทุกแถว
+            CELL_BUTTON, 'w-full items-start justify-between gap-2 py-1', EVENT_WIDTH,
+            !label && 'text-muted-foreground', flash && FLASH_CLASS
+          )}
         >
-          <span className="truncate">{label || 'ไม่ผูกอีเวนต์'}</span>
-          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          <span className={EVENT_NAME}>{label || 'ไม่ผูกอีเวนต์'}</span>
+          <ChevronDown className="mt-1 size-3 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-0">
+      <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)] p-0">
         <Command>
           <CommandInput placeholder="ค้นชื่ออีเวนต์…" />
           <CommandList>
@@ -429,11 +443,16 @@ export function EventCell({ value, eventName, events, onSave, disabled }: EventC
                 ไม่ผูกอีเวนต์
               </CommandItem>
               {events.map(e => (
-                <CommandItem key={e.id} value={`${e.name} ${e.event_date}`} onSelect={() => choose(e.id)}>
-                  <Check className={cn('size-4', shown === e.id ? 'opacity-100' : 'opacity-0')} />
-                  <span className="truncate">{e.name}</span>
-                  <span className="ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                    {e.event_date}
+                <CommandItem
+                  key={e.id}
+                  value={`${e.name} ${e.event_date}`}
+                  onSelect={() => choose(e.id)}
+                  className="items-start"
+                >
+                  <Check className={cn('mt-0.5 size-4', shown === e.id ? 'opacity-100' : 'opacity-0')} />
+                  <span className={EVENT_NAME}>{e.name}</span>
+                  <span className="mt-0.5 ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                    {shortThaiDate(e.event_date)}
                   </span>
                 </CommandItem>
               ))}

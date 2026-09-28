@@ -22,7 +22,8 @@ export default async function SalarySlipPage({ params }: { params: Promise<{ sli
   if ('error' in res) notFound()
 
   // ไม่ใช่ admin = เจ้าของสลิป: ได้เช็คอินของตัวเองเฉพาะที่จ่ายในสลิปใบนี้ (อ่านอย่างเดียว)
-  // + รายชื่อหน้าที่ไว้แปลงรหัสเป็นชื่อ แต่ไม่ได้ลิสต์อีเวนต์ของทั้งบริษัท — บังคับใน action
+  // + รายชื่อหน้าที่ไว้แปลงรหัสเป็นชื่อ แต่ไม่ได้ลิสต์อีเวนต์ของทั้งบริษัท และได้ calc = null
+  // (ไม่มีการแก้ในแถว จึงไม่ต้องรู้เวลาทำงาน/อัตรา) — บังคับใน action
   return (
     <SlipView
       slip={res.slip}
@@ -30,6 +31,7 @@ export default async function SalarySlipPage({ params }: { params: Promise<{ sli
       checkins={res.checkins}
       duties={res.duties}
       events={res.events}
+      calc={res.calc}
     />
   )
 }

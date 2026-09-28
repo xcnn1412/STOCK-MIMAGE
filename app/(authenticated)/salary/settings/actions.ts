@@ -14,11 +14,10 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { requireAdmin } from '../session'
 import { toEmploymentType, type DutyInput, type EmploymentType } from '../compute'
-
-const CUTOFF_KEY = 'salary_cutoff_day'
-const OOP_RATE_KEY = 'salary_out_of_province_rate'
-const DEFAULT_CUTOFF_DAY = 25
-const DEFAULT_OOP_RATE = 300
+// แกนอ่านที่ไม่ตรวจสิทธิ์อยู่ในไฟล์ธรรมดา — ที่นี่ตรวจ admin แล้วค่อยเรียก
+import {
+  CUTOFF_KEY, DEFAULT_SALARY_SETTINGS, OOP_RATE_KEY, readDuties, readSalarySettings,
+} from '../queries'
 
 const DUTY_CODE_RE = /^[a-z0-9_]{2,40}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -52,31 +51,10 @@ export interface SalarySettings {
 
 /** อ่านค่าตั้งค่า — ค่าที่อ่านไม่ได้/เพี้ยน ตกกลับไปใช้ค่าเริ่มต้นตาม migration */
 export async function getSalarySettings(): Promise<SalarySettings> {
-  const fallback: SalarySettings = {
-    cutoff_day: DEFAULT_CUTOFF_DAY,
-    out_of_province_rate: DEFAULT_OOP_RATE,
-  }
-
   const auth = await requireAdmin()
-  if ('error' in auth) return fallback
+  if ('error' in auth) return { ...DEFAULT_SALARY_SETTINGS }
 
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('app_settings')
-    .select('key, value')
-    .in('key', [CUTOFF_KEY, OOP_RATE_KEY])
-
-  const map = new Map(
-    ((data || []) as unknown as { key: string; value: string | null }[]).map(r => [r.key, r.value])
-  )
-
-  const cutoff = Math.trunc(Number(map.get(CUTOFF_KEY)))
-  const rate = Number(map.get(OOP_RATE_KEY))
-
-  return {
-    cutoff_day: Number.isFinite(cutoff) && cutoff >= 1 && cutoff <= 28 ? cutoff : fallback.cutoff_day,
-    out_of_province_rate: Number.isFinite(rate) && rate >= 0 ? rate : fallback.out_of_province_rate,
-  }
+  return readSalarySettings(createServiceClient())
 }
 
 export async function updateSalarySettings(
@@ -121,18 +99,7 @@ export async function listDuties(): Promise<SalaryDutyRow[]> {
   const auth = await requireAdmin()
   if ('error' in auth) return []
 
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('salary_duties')
-    .select('code, name_th, rate, pay_mode, is_active, sort_order')
-    .order('sort_order', { ascending: true })
-    .order('code', { ascending: true })
-
-  return ((data || []) as unknown as SalaryDutyRow[]).map(d => ({
-    ...d,
-    rate: Number(d.rate || 0),
-    sort_order: Number(d.sort_order || 0),
-  }))
+  return readDuties(createServiceClient())
 }
 
 export interface DutyFormInput {

@@ -18,15 +18,17 @@ import { fmtMoney, periodLabel, slipTitle, todayBangkok } from './format'
 import {
   bangkokDate, bangkokParts, catchUpStart, computeSlip, isAcceptable, isMissingAmount,
   lastFinishedWeek, lineAmount, onsiteFromFor, pendingItems, periodKeyFor, periodRange,
-  REOPEN_MIN_REASON, selectCheckinsForRun, shiftDay, toEmploymentType, toRunKind, weekRangeFor,
-  weekdayOf,
+  REOPEN_MIN_REASON, selectCheckinsForRun, shiftDay, toCheckinInput, toEmploymentType, toRunKind,
+  weekRangeFor, weekdayOf,
 } from './compute'
 import type {
   AcceptedWarning, CheckinInput, EmploymentType, RunKind, RunWindow, SalaryAdjustment, SalaryLine,
-  SalaryWarning,
+  SalaryWarning, SlipCalcInputs,
 } from './compute'
 import { getSalarySettings, listDuties } from './settings/actions'
 import type { SalaryDutyRow } from './settings/actions'
+// แกนอ่านที่ไม่ตรวจสิทธิ์ (ไฟล์ธรรมดา ไม่ใช่ 'use server') — ผู้เรียกในไฟล์นี้ตรวจสิทธิ์ก่อนเสมอ
+import { readDuties, readSalarySettings } from './queries'
 import { costsNotesKey, costsRowsForSlip } from './costs-sync'
 import type { CostsSkip, CostsSyncCheckin } from './costs-sync'
 // แก้ต้นทาง (เช็คอิน) จากในสลิป — เรียก action ของโมดูลเช็คอินตัวเดียวกับหน้า /check-in
@@ -258,13 +260,6 @@ function catchUpWindowISO(run: RunWindow): { fromISO: string; toISO: string } {
   }
 }
 
-/**
- * เช็คอินที่ event_id ถูกล้างตอนบันทึก (admin เลือก closure / job_cost_events)
- * เก็บที่มาไว้ใน note เป็น [ref:closure:UUID] / [ref:jce:UUID] — นับว่า "ผูกอีเวนต์แล้ว"
- * ดูจุดที่เขียน tag ใน app/(authenticated)/check-in/actions.ts
- */
-const REF_TAG_RE = /\[ref:(closure|jce):[0-9a-fA-F-]{36}\]/
-
 /** เรียงข้อความแบบ deterministic (ไม่พึ่ง locale ของเครื่อง server) */
 function cmpText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
@@ -285,31 +280,33 @@ type CheckinRaw = {
   events: { name: string | null } | { name: string | null }[] | null
 }
 
-/** แถวดิบจาก staff_checkins → input ของเครื่องคำนวณ */
-function toCheckinInput(raw: CheckinRaw): CheckinInput {
-  const embedded = Array.isArray(raw.events) ? raw.events[0] : raw.events
-  let event_id = raw.event_id
-  let event_name = embedded?.name ?? null
+/** ชื่ออีเวนต์ที่ PostgREST ฝังมากับแถวเช็คอิน (object หรือ array ก็ได้) */
+function embeddedEventName(events: CheckinRaw['events']): string | null {
+  const embedded = Array.isArray(events) ? events[0] : events
+  return embedded?.name ?? null
+}
 
-  if (!event_id) {
-    const ref = raw.note ? REF_TAG_RE.exec(raw.note) : null
-    if (ref) {
-      // ถือว่าผูกอีเวนต์แล้ว — ไม่งั้น compute จะขึ้น warning no_event ทั้งที่ข้อมูลครบ
-      event_id = ref[0]
-      event_name = 'อีเวนต์ (อ้างอิง)'
-    }
-  }
+/**
+ * แถวดิบจาก staff_checkins → input ของเครื่องคำนวณ
+ * ใช้ toCheckinInput ของ compute.ts ตัวเดียวกับภาพตัวอย่างฝั่ง client (รวมกติกา ref-tag)
+ */
+function rawToCheckinInput(raw: CheckinRaw): CheckinInput {
+  return toCheckinInput({ ...raw, event_name: embeddedEventName(raw.events) })
+}
 
+/**
+ * แถว salary_profiles → เวลาทำงาน/อัตรา OT/อัตราเบิ้ลที่เครื่องคำนวณใช้ (ค่าว่าง = ค่าเริ่มต้น)
+ * computeSlips กับ calc ที่ส่งให้ภาพตัวอย่างฝั่ง client ผ่านตัวนี้ตัวเดียว
+ */
+function calcFromProfile(
+  sp: { work_start: string | null; work_end: string | null; ot_rate: number | string | null },
+  oopRate: number
+): SlipCalcInputs {
   return {
-    id: raw.id,
-    check_type: raw.check_type,
-    checked_in_at: raw.checked_in_at,
-    checked_out_at: raw.checked_out_at,
-    event_id,
-    event_name,
-    duties: Array.isArray(raw.duties) ? raw.duties : [],
-    out_of_province: !!raw.out_of_province,
-    paid_slip_id: raw.paid_slip_id ?? null,
+    work_start: sp.work_start || '10:00',
+    work_end: sp.work_end || '19:00',
+    ot_rate: Number(sp.ot_rate || 0),
+    oop_rate: oopRate,
   }
 }
 
@@ -896,15 +893,32 @@ export async function computeSlips(
     period_end: runRow.period_end,
   }
 
-  // listDuties() คืนทุกหน้าที่รวมที่ปิดใช้งาน — ตั้งใจ: สลิปเก่าอาจอ้างรหัสที่เพิ่งปิดไป
-  const [settings, duties] = await Promise.all([getSalarySettings(), listDuties()])
+  // คืนเฉพาะผลสรุป — แถวที่เขียนเป็นของผู้เรียกภายในไฟล์นี้เท่านั้น
+  const res = await computeSlipsCore(supabase, run, ids)
+  return res.error ? { error: res.error } : { computed: res.computed, skipped: res.skipped }
+}
+
+/**
+ * แกนของ computeSlips — ไม่ตรวจสิทธิ์ (ไม่ export: ผู้เรียกทุกตัวในไฟล์นี้ตรวจ admin แล้ว)
+ * คืนแถวที่ upsert ไปด้วย ให้ action ที่แก้สลิปใบเดียวสร้าง SlipDetail ได้โดยไม่ต้องอ่านซ้ำ
+ */
+async function computeSlipsCore(
+  supabase: ReturnType<typeof createServiceClient>,
+  run: RunWindow & { id: string },
+  ids: string[]
+): Promise<ComputeSlipsResult & { rows?: Record<string, unknown>[] }> {
+  const runId = run.id
 
   // ขอบเขตเป็น "วันไทย" — แปลงเป็น instant UTC ก่อนยิง filter
   // ดึงกว้างถึงต้นหน้าต่างเก็บตก แล้วให้ selectCheckinsForRun คัดตามชนิดงวด/สถานะจ่าย
   const onsiteFrom = onsiteFromFor(run)
   const { fromISO, toISO } = catchUpWindowISO(run)
 
-  const [profilesRes, salaryProfilesRes, existingRes, checkinsRes] = await Promise.all([
+  // ทุกอย่างอ่านพร้อมกันรอบเดียว · readDuties คืนทุกหน้าที่รวมที่ปิดใช้งาน —
+  // ตั้งใจ: สลิปเก่าอาจอ้างรหัสที่เพิ่งปิดไป
+  const [settings, duties, profilesRes, salaryProfilesRes, existingRes, checkinsRes] = await Promise.all([
+    readSalarySettings(supabase),
+    readDuties(supabase),
     // ผู้ใช้ที่ถูกลบไปแล้วจะไม่เจอที่นี่ → ตกไปอยู่ใน skipped ว่า 'ไม่พบผู้ใช้'
     supabase.from('profiles').select('id, full_name, nickname').in('id', ids).is('deleted_at', null),
     supabase
@@ -965,8 +979,8 @@ export async function computeSlips(
   const checkinsByUser = new Map<string, CheckinInput[]>()
   for (const raw of (checkinsRes.data || []) as unknown as CheckinRaw[]) {
     const list = checkinsByUser.get(raw.user_id)
-    if (list) list.push(toCheckinInput(raw))
-    else checkinsByUser.set(raw.user_id, [toCheckinInput(raw)])
+    if (list) list.push(rawToCheckinInput(raw))
+    else checkinsByUser.set(raw.user_id, [rawToCheckinInput(raw)])
   }
 
   const skipped: SkippedUser[] = []
@@ -1003,18 +1017,19 @@ export async function computeSlips(
     // เช็คอินที่เข้าสลิปนี้ได้จริง — ตัดที่จ่ายไปแล้ว (ยกเว้นที่สลิปใบนี้เองจ่าย) และ
     // ตัดเช็คอินออฟฟิศออกเมื่อไม่ใช่งวดเดือน ก่อนส่งเข้าเครื่องคำนวณ
     const checkins = selectCheckinsForRun(checkinsByUser.get(userId) || [], run, prev?.id)
+    const calc = calcFromProfile(sp, settings.out_of_province_rate)
 
     const result = computeSlip({
       profile: {
         employment_type,
         base_salary,
-        work_start: sp.work_start || '10:00',
-        work_end: sp.work_end || '19:00',
-        ot_rate: Number(sp.ot_rate || 0),
+        work_start: calc.work_start,
+        work_end: calc.work_end,
+        ot_rate: calc.ot_rate,
       },
       checkins,
       duties,
-      oopRate: settings.out_of_province_rate,
+      oopRate: calc.oop_rate,
       periodStart: run.period_start,
       periodEnd: run.period_end,
       runKind: run.kind,
@@ -1074,7 +1089,7 @@ export async function computeSlips(
 
   revalidatePath(`/salary/runs/${runId}`)
   revalidatePath('/salary/runs')
-  return { computed: rows.length, skipped }
+  return { computed: rows.length, skipped, rows }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1132,8 +1147,12 @@ export async function deleteSlip(slipId: string): Promise<{ error?: string; succ
  *
  * เฉพาะ admin ได้ `checkins` (ข้อมูลต้นทางในงวด) + `duties` (rate card ทั้งหมด
  * รวมที่ปิดใช้งาน — ใช้แปลรหัสหน้าที่ของเช็คอินเก่าเป็นชื่อ) + `events`
- * (ตัวเลือกอีเวนต์รอบๆ งวด ใช้ผูกเช็คอินในไดอะล็อก) ติดมาด้วย
- * พนักงานได้อาร์เรย์ว่างเสมอ
+ * (ตัวเลือกอีเวนต์รอบๆ งวด ใช้ผูกเช็คอินในไดอะล็อก) + `calc` (เวลาทำงาน/อัตรา OT
+ * ของเจ้าของสลิป + อัตราเบิ้ล — ใช้ทำภาพตัวอย่างตอนแก้ในแถว) ติดมาด้วย
+ * พนักงานได้อีเวนต์ว่างและ `calc: null` เสมอ
+ *
+ * rate card อ่านด้วย readDuties (ไม่ผ่านด่าน admin ของ listDuties ที่คืน [] ให้เจ้าของสลิป)
+ * เพราะสิทธิ์ถูกตรวจที่นี่แล้ว และ rate card ไม่ใช่ข้อมูลส่วนบุคคลของใคร
  */
 export async function getSlipForView(
   slipId: string
@@ -1145,6 +1164,8 @@ export async function getSlipForView(
       checkins: SlipCheckinRow[]
       duties: SalaryDutyRow[]
       events: SlipEventOption[]
+      /** null = ไม่ใช่ admin หรือเจ้าของสลิปยังไม่มีโปรไฟล์เงินเดือน (หน้าจอข้ามภาพตัวอย่าง) */
+      calc: SlipCalcInputs | null
     }
 > {
   const { userId, role } = await getSession()
@@ -1152,41 +1173,101 @@ export async function getSlipForView(
   const isAdmin = role === 'admin'
 
   const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('salary_slips')
-    .select(
-      'id, run_id, user_id, status, employment_type, base_salary, lines, adjustments, warnings, accepted_warnings, reopen_history, paid_history, paid_total, total, computed_at, finalized_at, finalized_by, paid_at, paid_by, costs_synced_at'
-    )
-    .eq('id', slipId)
-    .maybeSingle()
-  if (!data) return { error: 'ไม่พบสลิป' }
-
-  type SlipRaw = {
-    id: string
-    run_id: string
-    user_id: string
-    status: SlipStatus
-    employment_type: EmploymentType
-    base_salary: number | string | null
-    lines: SalaryLine[] | null
-    adjustments: SalaryAdjustment[] | null
-    warnings: SalaryWarning[] | null
-    accepted_warnings: AcceptedWarning[] | null
-    reopen_history: ReopenEntry[] | null
-    paid_history: PaidEntry[] | null
-    paid_total: number | string | null
-    total: number | string | null
-    computed_at: string | null
-    finalized_at: string | null
-    finalized_by: string | null
-    paid_at: string | null
-    paid_by: string | null
-    costs_synced_at: string | null
-  }
-  const raw = data as unknown as SlipRaw
+  const raw = await fetchSlipRaw(supabase, slipId)
+  if (!raw) return { error: 'ไม่พบสลิป' }
 
   if (!isAdmin && (raw.user_id !== userId || raw.status === 'draft')) return { error: 'ไม่พบสลิป' }
 
+  const slip = toSlipDetail(raw, await loadSlipHeader(supabase, raw))
+
+  // เจ้าของสลิป: เห็นมุมมองรายวันของตัวเองแบบอ่านอย่างเดียว จึงต้องได้เช็คอินที่
+  // ถูกจ่ายในสลิปใบนี้ + รายชื่อหน้าที่ (ไว้แปลงรหัสเป็นชื่อไทย) แต่ไม่ได้ลิสต์
+  // อีเวนต์ทั้งช่วงงวด (เป็นข้อมูลของทั้งบริษัท และไม่มีช่องให้เลือกอยู่แล้ว —
+  // ชื่ออีเวนต์ที่ผูกไว้ติดมากับแถวเช็คอินเอง) และไม่ได้ค่าคำนวณ (ไม่มีการแก้ในแถว)
+  if (!isAdmin) {
+    const [ownCheckins, duties] = await Promise.all([
+      listOwnerSlipCheckins(supabase, raw.user_id, slip.id),
+      readDuties(supabase),
+    ])
+    return { slip, isAdmin, checkins: ownCheckins, duties, events: [], calc: null }
+  }
+
+  // ขอบเขตของตาราง/ตัวเลือกในหน้าสลิป = ขอบเขตเดียวกับที่เครื่องคำนวณใช้ (onsiteFromFor)
+  const runWindow: RunWindow = {
+    kind: slip.kind,
+    period_start: slip.period_start,
+    period_end: slip.period_end,
+  }
+  const [checkins, duties, events, calc] = await Promise.all([
+    listSlipCheckins(supabase, slip.user_id, slip.id, runWindow),
+    readDuties(supabase),
+    listPeriodEvents(supabase, onsiteFromFor(runWindow), slip.period_end),
+    loadSlipCalc(supabase, slip.user_id),
+  ])
+  return { slip, isAdmin, checkins, duties, events, calc }
+}
+
+/** คอลัมน์ของ salary_slips ที่ SlipDetail ต้องใช้ */
+const SLIP_COLUMNS =
+  'id, run_id, user_id, status, employment_type, base_salary, lines, adjustments, warnings, accepted_warnings, reopen_history, paid_history, paid_total, total, computed_at, finalized_at, finalized_by, paid_at, paid_by, costs_synced_at'
+
+type SlipRaw = {
+  id: string
+  run_id: string
+  user_id: string
+  status: SlipStatus
+  employment_type: EmploymentType
+  base_salary: number | string | null
+  lines: SalaryLine[] | null
+  adjustments: SalaryAdjustment[] | null
+  warnings: SalaryWarning[] | null
+  accepted_warnings: AcceptedWarning[] | null
+  reopen_history: ReopenEntry[] | null
+  paid_history: PaidEntry[] | null
+  paid_total: number | string | null
+  total: number | string | null
+  computed_at: string | null
+  finalized_at: string | null
+  finalized_by: string | null
+  paid_at: string | null
+  paid_by: string | null
+  costs_synced_at: string | null
+}
+
+/** ส่วนของ SlipDetail ที่มาจากตารางอื่น (งวด · เจ้าของสลิป · คนกดปิดงวด/จ่าย) */
+type SlipHeaderParts = {
+  /** null = หางวดไม่เจอ */
+  run: (RunWindow & { id: string; period_key: string }) | null
+  who: {
+    full_name?: string | null
+    nickname?: string | null
+    department?: string | null
+    bank_name?: string | null
+    bank_account_number?: string | null
+    account_holder_name?: string | null
+  }
+  actors: Map<string, { full_name: string | null; nickname: string | null }>
+}
+
+/** แถวสลิปดิบ — ไม่ตรวจสิทธิ์ (ผู้เรียกตรวจแล้ว) · ไม่มี id / หาไม่เจอ = null */
+async function fetchSlipRaw(
+  supabase: ReturnType<typeof createServiceClient>,
+  slipId: string
+): Promise<SlipRaw | null> {
+  if (!slipId) return null
+  const { data } = await supabase
+    .from('salary_slips')
+    .select(SLIP_COLUMNS)
+    .eq('id', slipId)
+    .maybeSingle()
+  return (data as unknown as SlipRaw | null) ?? null
+}
+
+/** งวด + ชื่อ/บัญชีเจ้าของสลิป + ชื่อคนกดปิดงวด/จ่าย — ยิงพร้อมกันรอบเดียว */
+async function loadSlipHeader(
+  supabase: ReturnType<typeof createServiceClient>,
+  raw: Pick<SlipRaw, 'run_id' | 'user_id' | 'finalized_by' | 'paid_by'>
+): Promise<SlipHeaderParts> {
   const [runRes, profileRes, actors] = await Promise.all([
     supabase
       .from('salary_runs')
@@ -1202,22 +1283,31 @@ export async function getSlipForView(
     namesByUserId(supabase, [raw.finalized_by, raw.paid_by].filter((v): v is string => !!v)),
   ])
 
-  const runRow = (runRes.data || {}) as unknown as Partial<RunHeader> & { kind?: unknown }
-  const who = (profileRes.data || {}) as unknown as {
-    full_name?: string | null
-    nickname?: string | null
-    department?: string | null
-    bank_name?: string | null
-    bank_account_number?: string | null
-    account_holder_name?: string | null
+  const runRow = runRes.data as unknown as (Partial<RunHeader> & { kind?: unknown }) | null
+  return {
+    run: runRow
+      ? {
+          id: raw.run_id,
+          kind: toRunKind(runRow.kind),
+          period_key: runRow.period_key || '',
+          period_start: runRow.period_start || '',
+          period_end: runRow.period_end || '',
+        }
+      : null,
+    who: (profileRes.data || {}) as unknown as SlipHeaderParts['who'],
+    actors,
   }
+}
 
-  const slip: SlipDetail = {
+/** แถวดิบ + ส่วนหัว → SlipDetail (รูปเดียวที่หน้าเพจและทุก action ที่แก้สลิปคืน) */
+function toSlipDetail(raw: SlipRaw, h: SlipHeaderParts): SlipDetail {
+  const { who, actors } = h
+  return {
     id: raw.id,
     run_id: raw.run_id,
     user_id: raw.user_id,
     status: raw.status,
-    kind: toRunKind(runRow.kind),
+    kind: h.run ? h.run.kind : toRunKind(undefined),
     employment_type: toEmploymentType(raw.employment_type),
     base_salary: Number(raw.base_salary || 0),
     lines: Array.isArray(raw.lines) ? raw.lines : [],
@@ -1234,9 +1324,9 @@ export async function getSlipForView(
     costs_synced_at: raw.costs_synced_at,
     finalized_by_name: actorName(actors, raw.finalized_by),
     paid_by_name: actorName(actors, raw.paid_by),
-    period_key: runRow.period_key || '',
-    period_start: runRow.period_start || '',
-    period_end: runRow.period_end || '',
+    period_key: h.run?.period_key || '',
+    period_start: h.run?.period_start || '',
+    period_end: h.run?.period_end || '',
     full_name: who.full_name ?? null,
     nickname: who.nickname ?? null,
     department: who.department ?? null,
@@ -1244,55 +1334,26 @@ export async function getSlipForView(
     bank_account_number: who.bank_account_number ?? null,
     account_holder_name: who.account_holder_name ?? null,
   }
-
-  // เจ้าของสลิป: เห็นมุมมองรายวันของตัวเองแบบอ่านอย่างเดียว จึงต้องได้เช็คอินที่
-  // ถูกจ่ายในสลิปใบนี้ + รายชื่อหน้าที่ (ไว้แปลงรหัสเป็นชื่อไทย) แต่ไม่ได้ลิสต์
-  // อีเวนต์ทั้งช่วงงวด (เป็นข้อมูลของทั้งบริษัท และไม่มีช่องให้เลือกอยู่แล้ว —
-  // ชื่ออีเวนต์ที่ผูกไว้ติดมากับแถวเช็คอินเอง)
-  if (!isAdmin) {
-    const [ownCheckins, duties] = await Promise.all([
-      listOwnerSlipCheckins(supabase, raw.user_id, slip.id),
-      listDutyRows(supabase),
-    ])
-    return { slip, isAdmin, checkins: ownCheckins, duties, events: [] }
-  }
-
-  // ขอบเขตของตาราง/ตัวเลือกในหน้าสลิป = ขอบเขตเดียวกับที่เครื่องคำนวณใช้ (onsiteFromFor)
-  const runWindow: RunWindow = {
-    kind: slip.kind,
-    period_start: slip.period_start,
-    period_end: slip.period_end,
-  }
-  const [checkins, duties, events] = await Promise.all([
-    listSlipCheckins(supabase, slip.user_id, slip.id, runWindow),
-    listDutyRows(supabase),
-    listPeriodEvents(supabase, onsiteFromFor(runWindow), slip.period_end),
-  ])
-  return { slip, isAdmin, checkins, duties, events }
 }
 
 /**
- * rate card ทั้งใบ (รวมหน้าที่ที่ปิดใช้งานแล้ว) โดยไม่ผ่านด่าน admin
- *
- * listDuties() ใน settings/actions ตรวจ requireAdmin แล้วคืน [] — เจ้าของสลิปจึงได้
- * รายการว่างและมุมมองรายวันแปลรหัสหน้าที่เป็นชื่อไทยไม่ได้ (เห็นเป็น 'onsite_staff')
- * ที่นี่อ่านตรงจากตารางแทน เพราะสิทธิ์ถูกตรวจโดยผู้เรียก (getSlipForView) ไปแล้ว
- * และ rate card ไม่ใช่ข้อมูลส่วนบุคคลของใคร
+ * ค่าที่ภาพตัวอย่างฝั่ง client ต้องใช้ — โปรไฟล์เงินเดือนของเจ้าของสลิป + อัตราเบิ้ล
+ * ผ่าน calcFromProfile ตัวเดียวกับ computeSlips · ไม่มีโปรไฟล์ = null
  */
-async function listDutyRows(
-  supabase: ReturnType<typeof createServiceClient>
-): Promise<SalaryDutyRow[]> {
-  const { data } = await supabase
-    .from('salary_duties')
-    .select('code, name_th, rate, pay_mode, is_active, sort_order')
-    .order('sort_order', { ascending: true })
-    .order('code', { ascending: true })
-
-  return ((data || []) as unknown as SalaryDutyRow[]).map(d => ({
-    ...d,
-    rate: Number(d.rate || 0),
-    sort_order: Number(d.sort_order || 0),
-  }))
+async function loadSlipCalc(
+  supabase: ReturnType<typeof createServiceClient>,
+  userId: string
+): Promise<SlipCalcInputs | null> {
+  const [spRes, settings] = await Promise.all([
+    supabase
+      .from('salary_profiles')
+      .select('work_start, work_end, ot_rate')
+      .eq('user_id', userId)
+      .maybeSingle(),
+    readSalarySettings(supabase),
+  ])
+  const sp = spRes.data as unknown as Parameters<typeof calcFromProfile>[0] | null
+  return sp ? calcFromProfile(sp, settings.out_of_province_rate) : null
 }
 
 /**
@@ -1344,14 +1405,13 @@ type SlipCheckinRaw = {
 }
 
 function toSlipCheckinRow(r: SlipCheckinRaw): SlipCheckinRow {
-  const embedded = Array.isArray(r.events) ? r.events[0] : r.events
   return {
     id: r.id,
     check_type: r.check_type,
     checked_in_at: r.checked_in_at,
     checked_out_at: r.checked_out_at,
     event_id: r.event_id,
-    event_name: embedded?.name ?? null,
+    event_name: embeddedEventName(r.events),
     duties: Array.isArray(r.duties) ? r.duties : [],
     province: r.province,
     district: r.district,
@@ -1738,17 +1798,35 @@ export async function recomputeSlip(
   if ('error' in auth) return { error: auth.error }
 
   const supabase = createServiceClient()
-  const loaded = await loadDraftSlip(supabase, slipId)
-  if ('error' in loaded) return { error: loaded.error }
-  const { slip } = loaded
+  const raw = await fetchSlipRaw(supabase, slipId)
+  if (!raw) return { error: 'ไม่พบสลิป' }
+  if (raw.status !== 'draft') return { error: 'สลิปที่ปิดงวดแล้วแก้ไม่ได้' }
 
-  const res = await computeSlips(slip.run_id, [slip.user_id])
+  const res = await recomputeLoaded(supabase, raw, await loadSlipHeader(supabase, raw))
+  return 'error' in res ? { error: res.error } : { success: true }
+}
+
+/**
+ * แกนของ "คำนวณสลิปใบนี้ใหม่" — ไม่ตรวจสิทธิ์ (ไม่ export: ผู้เรียกตรวจ admin แล้ว)
+ * รับสลิป + ส่วนหัวที่ผู้เรียกโหลดไว้แล้ว (ไม่โหลดซ้ำ) แล้วคืน SlipDetail ที่สร้างจาก
+ * แถวที่เพิ่ง upsert จริง — ไม่ต้องอ่านสลิปกลับมาอีกรอบ
+ */
+async function recomputeLoaded(
+  supabase: ReturnType<typeof createServiceClient>,
+  raw: SlipRaw,
+  header: SlipHeaderParts
+): Promise<SlipEditResult> {
+  if (!header.run) return { error: 'ไม่พบงวดนี้' }
+
+  const res = await computeSlipsCore(supabase, header.run, [raw.user_id])
   if (res.error) return { error: res.error }
   const skipped = (res.skipped || [])[0]
   if (skipped) return { error: `คำนวณใหม่ไม่สำเร็จ — ${skipped.reason}` }
 
-  revalidatePath(`/salary/${slipId}`)
-  return { success: true }
+  // แถวในฐานข้อมูลหลัง upsert = แถวเดิม + คอลัมน์ที่เพิ่งเขียนทับ
+  const written = (res.rows || []).find(r => r.user_id === raw.user_id)
+  revalidatePath(`/salary/${raw.id}`)
+  return { slip: toSlipDetail({ ...raw, ...written } as SlipRaw, header) }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1794,16 +1872,23 @@ export interface AddSlipCheckinInput {
   out_of_province?: boolean
 }
 
-/** สลิปที่คำนวณใหม่แล้ว — รูปเดียวกับที่หน้าเพจได้จาก getSlipForView */
+/**
+ * สลิปใบเดียวในรูปเดียวกับที่หน้าเพจได้จาก getSlipForView — เฉพาะตัวสลิป
+ * (ไม่โหลดเช็คอิน/หน้าที่/อีเวนต์ที่ action ไม่ได้คืน) · ไม่ตรวจสิทธิ์: ผู้เรียกตรวจ admin แล้ว
+ */
 async function reloadSlip(slipId: string): Promise<SlipEditResult> {
-  const res = await getSlipForView(slipId)
-  if ('error' in res) return { error: res.error }
-  return { slip: res.slip }
+  const supabase = createServiceClient()
+  const raw = await fetchSlipRaw(supabase, slipId)
+  if (!raw) return { error: 'ไม่พบสลิป' }
+  return { slip: toSlipDetail(raw, await loadSlipHeader(supabase, raw)) }
 }
 
 /**
  * แก้เช็คอินหนึ่งใบจากในสลิป แล้วคำนวณสลิปใหม่ให้เสร็จในครั้งเดียว
  * เขียน staff_checkins ผ่าน action ของโมดูลเช็คอินเสมอ (validation/log/ref-tag อยู่ที่นั่น)
+ *
+ * ลำดับรอบฐานข้อมูล (spec salary-slip-smooth-edit §B — งบ ≤ 10 รอบต่อเนื่อง):
+ * ตรวจ admin → สลิป ∥ เช็คอิน → เขียนเช็คอิน ∥ ส่วนหัวสลิป → log ∥ คำนวณใหม่
  */
 export async function editSlipCheckin(
   slipId: string,
@@ -1815,15 +1900,18 @@ export async function editSlipCheckin(
   if (!checkinId) return { error: 'ไม่พบเช็คอินนี้' }
 
   const supabase = createServiceClient()
-  const loaded = await loadDraftSlip(supabase, slipId)
-  if ('error' in loaded) return { error: loaded.error }
-  const { slip } = loaded
+  const [raw, { data }] = await Promise.all([
+    fetchSlipRaw(supabase, slipId),
+    supabase
+      .from('staff_checkins')
+      .select('id, user_id, paid_slip_id')
+      .eq('id', checkinId)
+      .maybeSingle(),
+  ])
+  if (!raw) return { error: 'ไม่พบสลิป' }
+  if (raw.status !== 'draft') return { error: 'สลิปที่ปิดงวดแล้วแก้ไม่ได้' }
+  const slip = raw
 
-  const { data } = await supabase
-    .from('staff_checkins')
-    .select('id, user_id, paid_slip_id')
-    .eq('id', checkinId)
-    .maybeSingle()
   if (!data) return { error: 'ไม่พบเช็คอินนี้' }
   const row = data as unknown as { id: string; user_id: string; paid_slip_id: string | null }
   if (row.user_id !== slip.user_id) return { error: 'เช็คอินนี้ไม่ใช่ของเจ้าของสลิป' }
@@ -1869,33 +1957,44 @@ export async function editSlipCheckin(
     touched = true
   }
 
-  let saved = false
-  if (touched) {
-    const res = await adminEditCheckin(fd)
-    if (res.error) return { error: res.error }
-    saved = true
+  /** เขียนเช็คอินผ่าน action ของโมดูลเช็คอิน — ตามลำดับเดิมทุกอย่าง */
+  async function write(): Promise<{ error?: string; saved: boolean }> {
+    let saved = false
+    if (touched) {
+      const res = await adminEditCheckin(fd)
+      if (res.error) return { error: res.error, saved }
+      saved = true
+    }
+
+    // adminEditCheckin ไม่แตะ event_id — ต้องยิง action แยกและให้เสร็จก่อนคำนวณใหม่
+    if (patch.event_id !== undefined) {
+      const linked = await adminUpdateCheckinEvent(
+        checkinId,
+        patch.event_id ? `stock:${patch.event_id}` : null
+      )
+      if (linked.error) return { error: linked.error, saved }
+      saved = true
+    }
+    return { saved }
   }
 
-  // adminEditCheckin ไม่แตะ event_id — ต้องยิง action แยกและให้เสร็จก่อนคำนวณใหม่
-  if (patch.event_id !== undefined) {
-    const linked = await adminUpdateCheckinEvent(
-      checkinId,
-      patch.event_id ? `stock:${patch.event_id}` : null
-    )
-    if (linked.error) return { error: linked.error }
-    saved = true
-  }
+  // ส่วนหัวสลิป (งวด/ชื่อ) ไม่ขึ้นกับเช็คอิน — โหลดไปพร้อมกับการเขียน
+  const [header, written] = await Promise.all([loadSlipHeader(supabase, slip), write()])
+  if (written.error) return { error: written.error }
+  const { saved } = written
 
-  if (saved) {
-    await logActivity(
-      'EDIT_SALARY_CHECKIN',
-      { slipId: slip.id, checkinId, patch: Object.keys(patch) },
-      slip.user_id
-    )
-  }
-
-  const recomputed = await recomputeSlip(slipId)
-  if (recomputed.error) {
+  // log ต้องเสร็จก่อน action คืนค่า — ยิงพร้อมกับการคำนวณใหม่แล้วรอทั้งคู่
+  const [, recomputed] = await Promise.all([
+    saved
+      ? logActivity(
+          'EDIT_SALARY_CHECKIN',
+          { slipId: slip.id, checkinId, patch: Object.keys(patch) },
+          slip.user_id
+        )
+      : undefined,
+    recomputeLoaded(supabase, slip, header),
+  ])
+  if ('error' in recomputed) {
     // เช็คอินถูกแก้ไปแล้วจริง — ข้อความต้องบอกให้ชัด ไม่งั้น admin คิดว่าไม่มีอะไรเกิดขึ้น
     return {
       error: saved
@@ -1903,7 +2002,7 @@ export async function editSlipCheckin(
         : recomputed.error,
     }
   }
-  return reloadSlip(slipId)
+  return recomputed
 }
 
 /** เพิ่มเช็คอิน "ไปหน้างาน" ย้อนหลังให้เจ้าของสลิป แล้วคำนวณสลิปใหม่ */
@@ -1915,9 +2014,9 @@ export async function addSlipCheckin(
   if ('error' in auth) return { error: auth.error }
 
   const supabase = createServiceClient()
-  const loaded = await loadDraftSlip(supabase, slipId)
-  if ('error' in loaded) return { error: loaded.error }
-  const { slip } = loaded
+  const slip = await fetchSlipRaw(supabase, slipId)
+  if (!slip) return { error: 'ไม่พบสลิป' }
+  if (slip.status !== 'draft') return { error: 'สลิปที่ปิดงวดแล้วแก้ไม่ได้' }
 
   if (!input.date) return { error: 'กรุณาเลือกวันที่' }
   if (!input.checkin_time) return { error: 'กรุณาระบุเวลาเข้า' }
@@ -1945,27 +2044,29 @@ export async function addSlipCheckin(
   fd.set('out_of_province', input.out_of_province ? 'true' : 'false')
   fd.set('note', 'เพิ่มย้อนหลังจากสลิปเงินเดือน')
 
-  const res = await adminCheckIn(fd)
+  // ส่วนหัวสลิปไม่ขึ้นกับเช็คอิน — โหลดไปพร้อมกับการเพิ่ม (แกนเดียวกับ editSlipCheckin)
+  const [header, res] = await Promise.all([loadSlipHeader(supabase, slip), adminCheckIn(fd)])
   if (res.error) return { error: res.error }
 
-  await logActivity(
-    'ADD_SALARY_CHECKIN',
-    {
-      slipId: slip.id,
-      runId: slip.run_id,
-      date: input.date,
-      duties: input.duties,
-      overnight: !!input.overnight,
-    },
-    slip.user_id
-  )
-
-  const recomputed = await recomputeSlip(slipId)
+  const [, recomputed] = await Promise.all([
+    logActivity(
+      'ADD_SALARY_CHECKIN',
+      {
+        slipId: slip.id,
+        runId: slip.run_id,
+        date: input.date,
+        duties: input.duties,
+        overnight: !!input.overnight,
+      },
+      slip.user_id
+    ),
+    recomputeLoaded(supabase, slip, header),
+  ])
   // เช็คอินถูกเพิ่มไปแล้วจริง — ต้องบอกให้ชัดว่าเหลือแค่ขั้นคำนวณใหม่ที่ล้ม
-  if (recomputed.error) {
+  if ('error' in recomputed) {
     return { error: `เพิ่มเช็คอินแล้ว แต่คำนวณใหม่ไม่สำเร็จ: ${recomputed.error}` }
   }
-  return reloadSlip(slipId)
+  return recomputed
 }
 
 /**

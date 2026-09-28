@@ -8,13 +8,12 @@
 // (ค่าสตาฟ เบิ้ล OT รันเนอร์) ไว้ในแถวเดียว แก้ได้ตรงในช่อง
 //
 // ทุกการแก้ยิง server action ตัวเดียวที่ทำ "แก้ → คำนวณใหม่ → คืนสลิปใหม่" ให้เสร็จ
-// แล้วส่งสลิปใหม่กลับผ่าน onSlipChange — ไม่มีปุ่ม "คำนวณใหม่" ให้กดเองอีก
-// การแก้ "เช็คอิน" ต้อง router.refresh() ด้วย เพราะ action คืนมาแค่สลิป
-// ส่วนแถวเช็คอิน/อีเวนต์มาจาก server component ของหน้าเพจ
+// ผ่าน `edits` (useSlipEdits ของ slip-view) — การแก้เช็คอินขึ้นภาพตัวอย่างทันที
+// แถวของวันที่ยังรอ server ยืนยันถูกทำเครื่องหมาย aria-busy + ช่องเงินจางลง
 // ============================================================================
 
 import Link from 'next/link'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatThaiDate } from '@/lib/thai-date'
 import { fmtMoney } from '../format'
@@ -27,7 +26,7 @@ import {
 import { CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
 import SlipFooter from './components/slip-footer'
-import { useDayView, useSlipEdits } from './components/use-slip-edits'
+import { useDayView, type SlipEdits } from './components/use-slip-edits'
 
 interface Props {
   slip: SlipDetail
@@ -39,6 +38,8 @@ interface Props {
   editable: boolean
   /** วันไทยที่เพิ่งถูกคลิกจาก checklist งานค้าง — แถวของวันนั้นถูกไฮไลต์ชั่วคราว */
   highlightDate?: string | null
+  /** ตัวบันทึกของหน้าสลิป (ชุดเดียวกับการ์ดมือถือ) */
+  edits: SlipEdits
   /** สลิปที่ action คืนกลับมาหลังบันทึก — ตัวเรียกเก็บไว้ใน state */
   onSlipChange: (slip: SlipDetail) => void
 }
@@ -46,23 +47,28 @@ interface Props {
 /** จำนวนคอลัมน์ของตาราง — ใช้กับ colSpan ของแถวท้ายตาราง */
 const COLUMNS = 10
 
+/** ช่องเงินของวันที่ตัวเลขยังรอ server ยืนยัน */
+const WAITING_MONEY = 'opacity-50 transition-opacity'
+
 export default function SlipDayTable({
-  slip, checkins, duties, events, editable, highlightDate, onSlipChange,
+  slip, checkins, duties, events, editable, highlightDate, edits, onSlipChange,
 }: Props) {
   const { days, dutyName, emptyRunnerKeys, applyRunnerKey } =
     useDayView(slip, checkins, duties, editable)
-  const { saveCheckin, saveOverride, clearOverride, saveRunner, applyRunnerToEmpty } =
-    useSlipEdits(slip.id, onSlipChange)
+  const {
+    saveCheckin, saveOverride, clearOverride, saveRunner, applyRunnerToEmpty, pendingDates,
+  } = edits
 
   return (
     <div className="overflow-x-auto rounded-md border">
       <table className="w-full min-w-280 text-sm">
         <thead>
-          <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
+          <tr className="border-b bg-muted/40 text-xs whitespace-nowrap text-muted-foreground">
             <th className="px-3 py-2 text-left font-medium">วันที่</th>
             <th className="px-3 py-2 text-left font-medium">เช็คอิน</th>
             <th className="px-3 py-2 text-left font-medium">หน้าที่</th>
-            <th className="px-3 py-2 text-left font-medium">อีเวนต์</th>
+            {/* คอลัมน์เดียวที่ข้อความยาว — ขอที่ว่างส่วนเกินของตารางมาไว้ที่นี่ ชื่ออีเวนต์จะได้ไม่ตกหลายบรรทัด */}
+            <th className="w-80 px-3 py-2 text-left font-medium">อีเวนต์</th>
             <th className="px-3 py-2 text-left font-medium">ตจว.</th>
             <th className="px-3 py-2 text-right font-medium">ค่าสตาฟ</th>
             <th className="px-3 py-2 text-right font-medium">เบิ้ล</th>
@@ -85,6 +91,9 @@ export default function SlipDayTable({
             const subs = day.checkins
             const span = Math.max(1, subs.length)
             const rows = subs.length > 0 ? subs : [null]
+            // ตัวเลขของวันนี้ยังเป็นภาพตัวอย่าง — จางลง + aria-busy จนกว่า server ยืนยัน
+            const waiting = pendingDates.has(day.date)
+            const money = waiting ? WAITING_MONEY : undefined
 
             return rows.map((sub, idx) => {
               const c = sub?.checkin
@@ -100,6 +109,7 @@ export default function SlipDayTable({
                 <tr
                   key={c ? c.id : day.date}
                   id={idx === 0 ? `day-${day.date}` : undefined}
+                  aria-busy={waiting || undefined}
                   className={cn(
                     'border-b align-top',
                     paidElsewhere && 'text-muted-foreground',
@@ -219,7 +229,7 @@ export default function SlipDayTable({
                   </td>
 
                   {/* ค่าสตาฟ — 1 บรรทัดต่อหน้าที่ */}
-                  <td className="px-3 py-2.5 text-right">
+                  <td className={cn('px-3 py-2.5 text-right', money)}>
                     {!sub || sub.siteLines.length === 0 ? (
                       <span className="text-muted-foreground">—</span>
                     ) : (
@@ -227,7 +237,7 @@ export default function SlipDayTable({
                         {sub.siteLines.map(l => (
                           <span key={l.key} className="flex items-center justify-end gap-1">
                             {sub.siteLines.length > 1 && (
-                              <span className="text-[11px] text-muted-foreground">
+                              <span className="text-[11px] whitespace-nowrap text-muted-foreground">
                                 {dutyName.get(l.duty || '') || l.duty}
                               </span>
                             )}
@@ -247,7 +257,7 @@ export default function SlipDayTable({
                   </td>
 
                   {/* เบิ้ลต่างจังหวัด */}
-                  <td className="px-3 py-2.5 text-right">
+                  <td className={cn('px-3 py-2.5 text-right', money)}>
                     {oopLine ? (
                       <MoneyCell
                         amount={oopLine.amount}
@@ -265,7 +275,7 @@ export default function SlipDayTable({
 
                   {/* OT — ชั่วโมง + ยอด (คิดรวมทั้งวัน จึงเกาะแถวแรก) */}
                   {idx === 0 && (
-                    <td rowSpan={span} className="px-3 py-2.5 text-right">
+                    <td rowSpan={span} className={cn('px-3 py-2.5 text-right', money)}>
                       {otLine ? (
                         <div className="flex flex-col items-end gap-0.5">
                           <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -289,7 +299,7 @@ export default function SlipDayTable({
 
                   {/* รันเนอร์ — กรอกยอดเอง เกาะแถวแรกของวัน */}
                   {idx === 0 && (
-                    <td rowSpan={span} className="px-3 py-2.5 text-right">
+                    <td rowSpan={span} className={cn('px-3 py-2.5 text-right', money)}>
                       {day.runnerLines.length === 0 ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
@@ -315,7 +325,17 @@ export default function SlipDayTable({
 
                   {idx === 0 && (
                     <td rowSpan={span} className="px-3 py-2.5 text-right font-medium tabular-nums">
-                      {fmtMoney(day.dayTotal)}
+                      {/* ไอคอนคู่กับการจาง — ไม่บอกสถานะด้วยความจางอย่างเดียว */}
+                      <span className={cn('inline-flex items-center justify-end gap-1', money)}>
+                        {waiting && (
+                          <Loader2
+                            className="size-3.5 text-muted-foreground motion-safe:animate-spin"
+                            role="img"
+                            aria-label="รอยืนยันยอด"
+                          />
+                        )}
+                        {fmtMoney(day.dayTotal)}
+                      </span>
                     </td>
                   )}
                 </tr>

@@ -288,6 +288,62 @@ export function selectCheckinsForRun<T extends SelectableCheckin>(
   })
 }
 
+// ── แถวเช็คอิน → input ของเครื่องคำนวณ ──────────────────────────────────────
+// ตัวเดียวที่ทั้ง server (actions.ts::computeSlips) และภาพตัวอย่างฝั่ง client
+// (previewSlip) ใช้ — ห้ามมีสำเนาที่อื่น ไม่งั้นตัวเลขสองฝั่งจะเพี้ยนคนละทาง
+
+/**
+ * เช็คอินที่ event_id ถูกล้างตอนบันทึก (admin เลือก closure / job_cost_events)
+ * เก็บที่มาไว้ใน note เป็น [ref:closure:UUID] / [ref:jce:UUID] — นับว่า "ผูกอีเวนต์แล้ว"
+ * ดูจุดที่เขียน tag ใน app/(authenticated)/check-in/actions.ts
+ */
+export const REF_TAG_RE = /\[ref:(closure|jce):[0-9a-fA-F-]{36}\]/
+
+/**
+ * แถวเช็คอินเท่าที่การแปลงต้องใช้ — ชื่ออีเวนต์ต้องแตกออกจาก embed มาแล้ว
+ * แถวของหน้าสลิป (SlipCheckinRow) ส่งเข้ามาได้ตรงๆ
+ */
+export interface PreviewCheckin {
+  id: string
+  check_type: CheckinInput['check_type']
+  /** ISO instant */
+  checked_in_at: string
+  checked_out_at: string | null
+  event_id: string | null
+  event_name?: string | null
+  duties: string[] | null
+  out_of_province: boolean | null
+  note: string | null
+  paid_slip_id?: string | null
+}
+
+/** แถวเช็คอิน → input ของเครื่องคำนวณ (รวมกติกา ref-tag) */
+export function toCheckinInput(c: PreviewCheckin): CheckinInput {
+  let event_id = c.event_id
+  let event_name = c.event_name ?? null
+
+  if (!event_id) {
+    const ref = c.note ? REF_TAG_RE.exec(c.note) : null
+    if (ref) {
+      // ถือว่าผูกอีเวนต์แล้ว — ไม่งั้น compute จะขึ้น warning no_event ทั้งที่ข้อมูลครบ
+      event_id = ref[0]
+      event_name = 'อีเวนต์ (อ้างอิง)'
+    }
+  }
+
+  return {
+    id: c.id,
+    check_type: c.check_type,
+    checked_in_at: c.checked_in_at,
+    checked_out_at: c.checked_out_at,
+    event_id,
+    event_name,
+    duties: Array.isArray(c.duties) ? c.duties : [],
+    out_of_province: !!c.out_of_province,
+    paid_slip_id: c.paid_slip_id ?? null,
+  }
+}
+
 /** สัปดาห์จันทร์–อาทิตย์ที่เริ่มวันจันทร์ mondayDate */
 export function weekRangeFor(mondayDate: string): { start: string; end: string } {
   return { start: mondayDate, end: shiftDay(mondayDate, 6) }
@@ -536,6 +592,66 @@ function mergeIntervals(intervals: Array<[number, number]>): Array<[number, numb
     else out.push([from, to])
   }
   return out
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ภาพตัวอย่างฝั่ง client (spec: docs/specs/salary-slip-smooth-edit.md §A)
+// ────────────────────────────────────────────────────────────────────────────
+
+/** ค่าที่ภาพตัวอย่างต้องรู้นอกเหนือจากตัวสลิป — getSlipForView ส่งให้เฉพาะ admin */
+export interface SlipCalcInputs {
+  /** 'HH:MM' */
+  work_start: string
+  work_end: string
+  /** บาท/ชม. */
+  ot_rate: number
+  /** อัตราเบิ้ลต่างจังหวัดต่อเช็คอิน */
+  oop_rate: number
+}
+
+/**
+ * คำนวณสลิปใหม่ในเบราว์เซอร์ทันทีที่แก้เช็คอิน — ผลเป็นแค่ภาพตัวอย่าง ไม่ถูกส่งไปบันทึก
+ * ขั้นตอนเดียวกับ computeSlips ฝั่ง server ทุกอย่าง: toCheckinInput → selectCheckinsForRun
+ * → computeSlip (onsiteFromFor ตัวเดียวกัน) · previousLines = บรรทัดปัจจุบันของสลิป
+ * (ค่าที่แก้มือ/รันเนอร์ที่กรอกแล้วจึงคงอยู่) · ฐานใช้ค่า snapshot ของสลิป
+ */
+export function previewSlip(input: {
+  slip: {
+    id: string
+    kind: RunKind
+    employment_type: EmploymentType
+    base_salary: number
+    lines: SalaryLine[]
+    adjustments: SalaryAdjustment[]
+    period_start: string
+    period_end: string
+  }
+  checkins: PreviewCheckin[]
+  duties: DutyInput[]
+  calc: SlipCalcInputs
+}): ComputeResult {
+  const { slip, calc } = input
+  const run: RunWindow = { kind: slip.kind, period_start: slip.period_start, period_end: slip.period_end }
+  const checkins = selectCheckinsForRun(input.checkins.map(toCheckinInput), run, slip.id)
+
+  return computeSlip({
+    profile: {
+      employment_type: slip.employment_type,
+      base_salary: slip.base_salary,
+      work_start: calc.work_start,
+      work_end: calc.work_end,
+      ot_rate: calc.ot_rate,
+    },
+    checkins,
+    duties: input.duties,
+    oopRate: calc.oop_rate,
+    periodStart: slip.period_start,
+    periodEnd: slip.period_end,
+    runKind: slip.kind,
+    onsiteFrom: onsiteFromFor(run),
+    previousLines: slip.lines,
+    adjustments: slip.adjustments,
+  })
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, ChevronDown } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { fmtMoney, shortThaiDate } from '../format'
 import type { SlipCheckinRow, SlipDetail, SlipEventOption } from '../actions'
@@ -29,7 +29,7 @@ import { CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
 import PanelRow from './components/panel-row'
 import SlipFooter from './components/slip-footer'
-import { useDayView, useSlipEdits, type SlipEdits } from './components/use-slip-edits'
+import { useDayView, type SlipEdits } from './components/use-slip-edits'
 
 interface Props {
   slip: SlipDetail
@@ -41,16 +41,17 @@ interface Props {
   editable: boolean
   /** วันไทยที่เพิ่งถูกคลิกจาก checklist งานค้าง — การ์ดของวันนั้นถูกไฮไลต์ชั่วคราว */
   highlightDate?: string | null
+  /** ตัวบันทึกของหน้าสลิป (ชุดเดียวกับตารางเดสก์ท็อป) */
+  edits: SlipEdits
   /** สลิปที่ action คืนกลับมาหลังบันทึก — ตัวเรียกเก็บไว้ใน state */
   onSlipChange: (slip: SlipDetail) => void
 }
 
 export default function SlipDayCards({
-  slip, checkins, duties, events, editable, highlightDate, onSlipChange,
+  slip, checkins, duties, events, editable, highlightDate, edits, onSlipChange,
 }: Props) {
   const { days, dutyName, emptyRunnerKeys, applyRunnerKey } =
     useDayView(slip, checkins, duties, editable)
-  const edits = useSlipEdits(slip.id, onSlipChange)
 
   return (
     <div className="space-y-2">
@@ -70,6 +71,7 @@ export default function SlipDayCards({
           dutyName={dutyName}
           editable={editable}
           highlighted={highlightDate === day.date}
+          waiting={edits.pendingDates.has(day.date)}
           edits={edits}
           applyRunnerKey={applyRunnerKey}
           emptyRunnerKeys={emptyRunnerKeys}
@@ -110,6 +112,8 @@ interface DayCardProps {
   dutyName: Map<string, string>
   editable: boolean
   highlighted: boolean
+  /** ตัวเลขของวันนี้ยังเป็นภาพตัวอย่าง รอ server ยืนยัน */
+  waiting: boolean
   edits: SlipEdits
   /** บรรทัดรันเนอร์ที่ได้ปุ่ม "ใช้ยอดนี้กับวันที่ยังว่าง" (ทั้งใบมีได้ช่องเดียว) */
   applyRunnerKey: string | null
@@ -117,10 +121,12 @@ interface DayCardProps {
 }
 
 function DayCard({
-  day, slipId, duties, events, dutyName, editable, highlighted, edits,
+  day, slipId, duties, events, dutyName, editable, highlighted, waiting, edits,
   applyRunnerKey, emptyRunnerKeys,
 }: DayCardProps) {
   const [open, setOpen] = useState(false)
+  /** ช่องเงินของวันที่รอ server ยืนยัน — จางลง (คู่กับไอคอนหมุนที่ยอดรวมวัน) */
+  const money = waiting ? 'opacity-50 transition-opacity' : undefined
 
   const eventNames = Array.from(
     new Set(day.checkins.map(s => s.checkin.event_name).filter((n): n is string => !!n))
@@ -145,11 +151,18 @@ function DayCard({
           )}
         </div>
         {eventNames && (
-          <p className="truncate text-xs text-muted-foreground">{eventNames}</p>
+          <p className="text-xs leading-snug text-pretty wrap-anywhere text-muted-foreground">{eventNames}</p>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <span className="text-sm font-medium tabular-nums">{fmtMoney(day.dayTotal)}</span>
+        {waiting && (
+          <Loader2
+            className="size-3.5 text-muted-foreground motion-safe:animate-spin"
+            role="img"
+            aria-label="รอยืนยันยอด"
+          />
+        )}
+        <span className={cn('text-sm font-medium tabular-nums', money)}>{fmtMoney(day.dayTotal)}</span>
         {editable && (
           <ChevronDown
             className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-180')}
@@ -162,6 +175,7 @@ function DayCard({
   return (
     <div
       id={`day-${day.date}-m`}
+      aria-busy={waiting || undefined}
       className={cn(
         'overflow-hidden rounded-md border',
         highlighted && 'ring-2 ring-amber-400 ring-inset'
@@ -210,7 +224,7 @@ function DayCard({
             </p>
           )
         })}
-        {summary && <p>{summary}</p>}
+        {summary && <p className={money}>{summary}</p>}
       </div>
 
       {/* ── แผงแก้ใต้การ์ด — ช่องเดียวกับเดสก์ท็อป เรียงเป็นป้าย/ค่า ───────── */}
@@ -304,29 +318,33 @@ function DayCard({
                         : 'ค่าสตาฟ'
                     }
                   >
-                    <MoneyCell
-                      amount={l.amount}
-                      computed={l.computed_amount}
-                      overrideNote={l.override_note}
-                      disabled={!editable}
-                      ariaLabel={`ค่าสตาฟ ${l.label}`}
-                      onSave={(amount, note) => edits.saveOverride(l.key, amount, note)}
-                      onClear={() => edits.clearOverride(l.key)}
-                    />
+                    <span className={money}>
+                      <MoneyCell
+                        amount={l.amount}
+                        computed={l.computed_amount}
+                        overrideNote={l.override_note}
+                        disabled={!editable}
+                        ariaLabel={`ค่าสตาฟ ${l.label}`}
+                        onSave={(amount, note) => edits.saveOverride(l.key, amount, note)}
+                        onClear={() => edits.clearOverride(l.key)}
+                      />
+                    </span>
                   </PanelRow>
                 ))}
 
                 {oopLine && (
                   <PanelRow label="เบิ้ลต่างจังหวัด">
-                    <MoneyCell
-                      amount={oopLine.amount}
-                      computed={oopLine.computed_amount}
-                      overrideNote={oopLine.override_note}
-                      disabled={!editable}
-                      ariaLabel={`เบิ้ลต่างจังหวัด ${day.date}`}
-                      onSave={(amount, note) => edits.saveOverride(oopLine.key, amount, note)}
-                      onClear={() => edits.clearOverride(oopLine.key)}
-                    />
+                    <span className={money}>
+                      <MoneyCell
+                        amount={oopLine.amount}
+                        computed={oopLine.computed_amount}
+                        overrideNote={oopLine.override_note}
+                        disabled={!editable}
+                        ariaLabel={`เบิ้ลต่างจังหวัด ${day.date}`}
+                        onSave={(amount, note) => edits.saveOverride(oopLine.key, amount, note)}
+                        onClear={() => edits.clearOverride(oopLine.key)}
+                      />
+                    </span>
                   </PanelRow>
                 )}
               </div>
@@ -335,7 +353,7 @@ function DayCard({
 
           {/* ── เงินระดับวัน: OT (คิดรวมทั้งวัน) + รันเนอร์ ─────────────────── */}
           {(otLine || day.runnerLines.length > 0) && (
-            <div className="space-y-2 rounded-md border bg-background p-2.5">
+            <div className={cn('space-y-2 rounded-md border bg-background p-2.5', money)}>
               <p className="text-xs font-medium">เงินของวันนี้</p>
 
               {otLine && (
@@ -372,7 +390,7 @@ function DayCard({
 
           <p className="flex items-center justify-between text-sm font-medium">
             <span>รวมวันนี้</span>
-            <span className="tabular-nums">{fmtMoney(day.dayTotal)}</span>
+            <span className={cn('tabular-nums', money)}>{fmtMoney(day.dayTotal)}</span>
           </p>
         </div>
       )}
