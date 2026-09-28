@@ -1,6 +1,9 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { requireAuth } from '@/lib/auth'
-import { bangkokDay, buildLockDates, isWonStatus, type CommissionLead, type StatusActivity } from '../commission-logic'
+import {
+  bangkokDay, buildLeadFinance, buildLockDates, isWonStatus,
+  type CommissionLead, type LeadFinance, type StatusActivity,
+} from '../commission-logic'
 import CommissionView from './commission-view'
 
 export const metadata = { title: 'สรุปค่าคอมแอดมิน — Sales Board' }
@@ -67,11 +70,29 @@ export default async function CommissionPage() {
   // วันนี้เวลาไทย — คำนวณฝั่ง server แล้วส่งเป็น prop (กัน hydration mismatch)
   const today = bangkokDay(new Date().toISOString())
 
+  // สรุปการเงิน (ยอดขาย/ต้นทุน/รายจ่าย/กำไร) — เฉพาะ admin: คนอื่นไม่ถูกดึงและไม่ถูกส่งไป browser เลย
+  const isAdmin = session?.role === 'admin'
+  let finance: Record<string, LeadFinance> | null = null
+  if (isAdmin) {
+    const [priceRes, eventRes, itemRes, claimRes] = await Promise.all([
+      fetchAll('crm_leads', 'id, confirmed_price, quoted_price'),
+      fetchAll('job_cost_events', 'id, linked_lead_id', (q) => q.not('linked_lead_id', 'is', null)),
+      fetchAll('job_cost_items', 'job_event_id, amount, notes'),
+      fetchAll('expense_claims', 'id, job_event_id, claim_type, status, amount, actual_spent_amount', (q) =>
+        q.not('job_event_id', 'is', null)),
+    ])
+    const wonIds = new Set(leads.map((l) => l.id))
+    finance = buildLeadFinance({
+      leads: priceRes.rows.filter((l) => wonIds.has(l.id)),
+      events: eventRes.rows, costItems: itemRes.rows, claims: claimRes.rows,
+    })
+  }
+
   return (
     <CommissionView
       leads={leads} lockDates={lockDates} today={today}
       initialTargets={targetStore} statusLabels={statusLabels}
-      isAdmin={session?.role === 'admin'} unitCountAvailable={unitCountAvailable}
+      isAdmin={isAdmin} unitCountAvailable={unitCountAvailable} finance={finance}
     />
   )
 }

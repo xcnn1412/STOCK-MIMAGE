@@ -5,6 +5,9 @@
 // วันที่ทั้งหมดคำนวณด้วย Date.UTC เท่านั้น (ไม่พึ่งโซนเวลาของเครื่องที่รัน)
 // ============================================================================
 
+// กติกายอดใบเบิก (เงินทดลองจ่ายที่เคลียร์แล้วใช้ยอดใช้จริง) ใช้ตัวเดียวกับโมดูลต้นทุน/CRM — pure ไม่มี IO
+import { claimEffectiveAmount, type ClaimLite } from '../costs/lib/crm-cost-grouping'
+
 // ponytail: วันตัดรอบเป็นค่าคงที่ (ตรงกับตัวนับถอยหลังของ Sales Board) — ย้ายไป app_settings เมื่อมีคนขอเปลี่ยนจริง
 export const COMMISSION_CUTOFF_DAY = 25
 
@@ -222,6 +225,90 @@ export function buildCommission(input: {
     boothUnits: booths.reduce((s, r) => s + r.units, 0),
     eventCount: events.length,
     warnings,
+  }
+}
+
+// ── สรุปการเงินของงวด (เฉพาะ admin) ──
+// ทุกตัวเลขเป็นของ "การ์ดที่ตอบรับในงวด" ชุดเดียวกับตาราง และเป็นราคาเต็มตามที่ตกลง
+// (ฐานเดียวกับยอดขายของ Sales Board และกำไรต่อ CRM ของโมดูลต้นทุน)
+export type FinanceLead = { id: string; confirmed_price: number | null; quoted_price: number | null }
+export type FinanceEvent = { id: string; linked_lead_id: string | null }
+export type FinanceCostItem = { job_event_id: string; amount: number | null; notes: string | null }
+
+export type LeadFinance = {
+  sales: number          // ราคายืนยัน ถ้าไม่มีใช้ราคาเสนอ
+  cost: number           // Σ job_cost_items ของอีเวนต์ที่ผูกการ์ดนี้ (โมดูลต้นทุน)
+  expense: number        // Σ ใบเบิกของอีเวนต์ที่ผูกการ์ดนี้ ไม่รวมที่ปฏิเสธ/ยกเลิก
+  expenseInCost: number  // ส่วนของ expense ที่ถูกคัดลอกเข้าต้นทุนแล้ว — ห้ามหักซ้ำ
+}
+
+const emptyFinance = (): LeadFinance => ({ sales: 0, cost: 0, expense: 0, expenseInCost: 0 })
+
+/**
+ * ตัวเลขการเงินต่อการ์ด — ต้นทุนและใบเบิกผูกกับการ์ดผ่าน job_cost_events.linked_lead_id
+ * ใบเบิกที่อนุมัติแล้วถูกคัดลอกเป็น job_cost_items โดย finance/actions.ts พร้อม notes
+ * รูปแบบ `<เลขใบเบิก>::<claim id>` — ใช้ท้าย notes จับว่าใบเบิกใบไหนอยู่ในต้นทุนแล้ว
+ */
+export function buildLeadFinance(input: {
+  leads: FinanceLead[]; events: FinanceEvent[]; costItems: FinanceCostItem[]; claims: ClaimLite[]
+}): Record<string, LeadFinance> {
+  const out: Record<string, LeadFinance> = {}
+  for (const l of input.leads) {
+    out[l.id] = { ...emptyFinance(), sales: Number(l.confirmed_price) || Number(l.quoted_price) || 0 }
+  }
+  const leadOfEvent = new Map<string, string>()
+  for (const e of input.events) if (e.linked_lead_id && out[e.linked_lead_id]) leadOfEvent.set(e.id, e.linked_lead_id)
+
+  const inCost = new Set<string>() // claim id ที่มีรายการต้นทุนอ้างถึง
+  for (const it of input.costItems) {
+    const leadId = leadOfEvent.get(it.job_event_id)
+    if (!leadId) continue
+    out[leadId].cost += Number(it.amount) || 0
+    const ref = (it.notes || '').split('::').pop()
+    if (ref) inCost.add(ref)
+  }
+  for (const c of input.claims) {
+    const leadId = c.job_event_id ? leadOfEvent.get(c.job_event_id) : undefined
+    if (!leadId || c.status === 'rejected' || c.status === 'cancelled') continue
+    const amount = claimEffectiveAmount(c)
+    out[leadId].expense += amount
+    if (inCost.has(c.id)) out[leadId].expenseInCost += amount
+  }
+  return out
+}
+
+export type FinanceTotals = {
+  deals: number; withData: number   // withData = การ์ดที่มีต้นทุนหรือใบเบิกบันทึกแล้ว
+  sales: number; cost: number; expense: number; expenseInCost: number
+  profit: number                    // ยอดขาย − ต้นทุน − ใบเบิกที่ยังไม่อยู่ในต้นทุน
+}
+export type FinanceSummary = {
+  booths: FinanceTotals; events: FinanceTotals; total: FinanceTotals
+  unclassified: { deals: number; sales: number } // ยังไม่ระบุประเภทงาน — ไม่ถูกรวมในยอดใด
+  noPrice: number                                // งานที่นับแล้วแต่ยังไม่ใส่ราคา — ยอดขายต่ำกว่าจริง
+}
+
+/** รวมตัวเลขการเงินของแถวที่นับในงวด แยกตู้/อีเวนต์ */
+export function summarizeFinance(result: CommissionResult, finance: Record<string, LeadFinance>): FinanceSummary {
+  const sum = (rows: Row[]): FinanceTotals => {
+    const t: FinanceTotals = { deals: rows.length, withData: 0, sales: 0, cost: 0, expense: 0, expenseInCost: 0, profit: 0 }
+    for (const r of rows) {
+      const f = finance[r.leadId] || emptyFinance()
+      t.sales += f.sales; t.cost += f.cost; t.expense += f.expense; t.expenseInCost += f.expenseInCost
+      if (f.cost > 0 || f.expense > 0) t.withData++
+    }
+    t.profit = t.sales - t.cost - (t.expense - t.expenseInCost)
+    return t
+  }
+  const booths = sum(result.booths), events = sum(result.events)
+  const counted = [...result.booths, ...result.events]
+  return {
+    booths, events, total: sum(counted),
+    noPrice: counted.filter((r) => !((finance[r.leadId]?.sales || 0) > 0)).length,
+    unclassified: {
+      deals: result.unclassified.length,
+      sales: result.unclassified.reduce((s, r) => s + (finance[r.leadId]?.sales || 0), 0),
+    },
   }
 }
 
