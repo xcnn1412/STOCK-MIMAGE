@@ -3,19 +3,21 @@
 import { useEffect, useOptimistic, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins } from 'lucide-react'
+import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins, FileStack, FolderCheck, CheckSquare } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
-import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../costs/types'
+import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getClaimChecklist } from '../costs/types'
 import { ChecklistBadges, FundingBadge } from './doc-badges'
 import { useConfirm } from './use-confirm'
 import type { FinanceCategory } from './settings-actions'
 import { cancelClaim } from './actions'
 import {
-  EMPTY_FILTERS, categoryValues, filterClaims, hasFilters, initialFilters, listQuery,
-  monthOptions, rememberListQuery, submitterOptions,
+  EMPTY_FILTERS, MAX_BUNDLE_SELECTION, categoryValues, claimFileCount, filedState, filterClaims, hasFilters,
+  initialFilters, listQuery, monthOptions, rememberListQuery, selectableIds, submitterOptions,
 } from './claims-filter'
-import type { ClaimFilters } from './claims-filter'
+import type { ClaimFilters, FiledFilter } from './claims-filter'
+import BundleDialog from './bundle-dialog'
+import type { BundleClaimRef } from './bundle-dialog'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -48,6 +50,37 @@ const selectCls = (active: boolean) =>
       ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400 font-medium'
       : 'border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300'
   }`
+
+/** ป้ายสถานะแฟ้มในแถว — ไม่แสดงอะไรเมื่อยังไม่เข้าแฟ้ม (รวมฐานข้อมูลที่ยังไม่มีคอลัมน์) */
+function FiledBadge({ claim, isEn }: { claim: ExpenseClaim; isEn: boolean }) {
+  const state = filedState(claim)
+  if (state === 'none') return null
+  if (state === 'filed') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400">
+        <FolderCheck className="h-2.5 w-2.5" />
+        {isEn ? 'Filed' : 'เข้าแฟ้มแล้ว'}
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+      <AlertCircle className="h-2.5 w-2.5" />
+      {isEn ? 'Attachments changed after filing' : 'ไฟล์แนบเปลี่ยนหลังเข้าแฟ้ม'}
+    </span>
+  )
+}
+
+const toBundleRef = (c: ExpenseClaim): BundleClaimRef => ({
+  id: c.id,
+  claim_number: c.claim_number,
+  title: c.title,
+  incomplete: !getClaimChecklist(c).isComplete,
+  fileCount: claimFileCount(c),
+})
+
+const rowCheckboxCls = 'h-4 w-4 shrink-0 accent-emerald-600 cursor-pointer'
+const rowBundleBtnCls = 'p-1.5 rounded-lg text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/20 transition-colors'
 
 const statusIcons: Record<string, typeof Clock> = {
   draft:             FileEdit,
@@ -90,6 +123,12 @@ export default function ClaimsListView({
   const [, startTransition] = useTransition()
   const [loadingMonth, startMonthLoad] = useTransition()
   const [cancellingId, setCancellingId] = useState<string | null>(null)
+  // หน้าต่างจับชุด: เก็บภาพของใบที่เลือก ณ ตอนเปิด — ข้อมูลโหลดใหม่ระหว่างทำงาน ชุดต้องไม่เปลี่ยน
+  const [bundleFor, setBundleFor] = useState<BundleClaimRef[] | null>(null)
+  // โหมดเลือกหลายใบ (แอดมิน) — เก็บแค่ id
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
+  const selectMode = isAdmin && selecting
   // ตัวกรองชุดเดียวใช้ร่วมกันทุกแท็บ ค่าเริ่มต้นอ่านจาก URL — ปุ่ม "กลับ" ของหน้าใบเบิกพากลับมาพร้อมตัวกรองเดิม
   const [filters, setFilters] = useState<ClaimFilters>(() =>
     initialFilters(searchParams, [...claims, ...paidClaims], isAdmin)
@@ -141,6 +180,18 @@ export default function ClaimsListView({
     else startTransition(() => router.refresh())
   }
 
+  // ปุ่มในแถว (แถวเป็น <Link>) — กันไม่ให้คลิกทะลุไปเปิดหน้าใบเบิก
+  const bundleOne = (claim: ExpenseClaim, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setBundleFor([toBundleRef(claim)])
+  }
+  const bundleLabel = isEn ? 'Bundle documents' : 'จับชุดเอกสาร'
+  const exitSelecting = () => {
+    setSelecting(false)
+    setSelected(new Set())
+  }
+
   // Active = everything except paid (archive) and cancelled —
   // EXCEPT advance claims that are paid but not yet settled (user still
   // needs to report actual spend), which we keep visible so the claimant
@@ -170,6 +221,20 @@ export default function ClaimsListView({
   const totalAllPaidNet = paidClaims.reduce((sum, c) => sum + netOf(c), 0)
 
   const allClaims = [...claims, ...paidClaims]
+  // id ที่เลือกไว้แต่ไม่อยู่ในข้อมูลที่โหลดอยู่ (เช่นเปลี่ยนเดือนของแท็บชำระแล้ว) ไม่นับและไม่ส่งเข้าชุด
+  // ใบทดลองจ่ายที่จ่ายแล้วอยู่ได้ทั้งสองชุด — Map กันซ้ำด้วย id
+  const loadedById = new Map(allClaims.map(c => [c.id, c]))
+  const selectedClaims = [...selected].flatMap(id => loadedById.get(id) ?? [])
+  const selectAllIds = selectableIds(filtered)
+  const overLimit = filtered.length > MAX_BUNDLE_SELECTION || selectedClaims.length >= MAX_BUNDLE_SELECTION
+  const toggleSelected = (id: string) =>
+    setSelected(prev => {
+      // นับเพดานจากใบที่โหลดอยู่จริง — id ค้างจากเดือนก่อนไม่กินโควตา
+      const next = new Set([...prev].filter(x => loadedById.has(x)))
+      if (next.has(id)) next.delete(id)
+      else if (next.size < MAX_BUNDLE_SELECTION) next.add(id)
+      return next
+    })
   const people = submitterOptions(allClaims, shown)
   const months = monthOptions(shown, 'expense_date', filters.month)
   const categoryOptions = categoryValues(allClaims)
@@ -187,8 +252,18 @@ export default function ClaimsListView({
   const totalPendingMonthEnd = activeClaims.filter(c => c.status === 'pending_month_end').length
 
   return (
-    <div className="space-y-6">
+    // เว้นที่ใต้รายการเท่าความสูงแถบเลือกหลายใบ — แถวสุดท้ายต้องไม่ถูกแถบบัง
+    <div className={`space-y-6 ${selectMode ? 'pb-48 md:pb-36' : ''}`}>
       {confirmDialog}
+      {bundleFor && (
+        <BundleDialog
+          claims={bundleFor}
+          isAdmin={isAdmin}
+          isEn={isEn}
+          onClose={() => setBundleFor(null)}
+          onFiled={() => startTransition(() => router.refresh())}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -383,6 +458,18 @@ export default function ClaimsListView({
           )
         )}
 
+        <select
+          value={filters.filed}
+          onChange={e => setFilter({ filed: e.target.value as FiledFilter })}
+          aria-label={isEn ? 'Filing status' : 'สถานะแฟ้ม'}
+          className={selectCls(filters.filed !== 'all')}
+        >
+          <option value="all">{isEn ? 'Any filing status' : 'ทุกสถานะแฟ้ม'}</option>
+          <option value="no">{isEn ? 'Not filed yet' : 'ยังไม่เข้าแฟ้ม'}</option>
+          <option value="yes">{isEn ? 'Filed' : 'เข้าแฟ้มแล้ว'}</option>
+          <option value="changed">{isEn ? 'Attachments changed after filing' : 'ไฟล์แนบเปลี่ยนหลังเข้าแฟ้ม'}</option>
+        </select>
+
         <button
           onClick={() => setFilter({ incomplete: !filters.incomplete })}
           aria-pressed={filters.incomplete}
@@ -391,6 +478,18 @@ export default function ClaimsListView({
           <AlertCircle className="h-3 w-3" />
           {isEn ? 'Missing documents' : 'เอกสารไม่ครบ'}
         </button>
+
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => (selecting ? exitSelecting() : setSelecting(true))}
+            aria-pressed={selecting}
+            className={`inline-flex items-center gap-1 ${pillCls} ${selecting ? 'bg-emerald-600 text-white' : pillIdleCls}`}
+          >
+            <CheckSquare className="h-3 w-3" />
+            {isEn ? 'Select multiple' : 'เลือกหลายใบ'}
+          </button>
+        )}
 
         {filtering && (
           <button
@@ -440,15 +539,28 @@ export default function ClaimsListView({
                 : claim.claim_type === 'petty_cash'
                   ? (isEn ? 'Petty Cash' : 'เงินสดย่อย')
                   : (isEn ? 'Other' : 'ค่าอื่นๆ')
-            return (
-              <Link
-                key={claim.id}
-                href={`/finance/${claim.id}`}
-                className="flex items-center justify-between p-4 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-emerald-300 dark:hover:border-emerald-800 transition-colors group"
-              >
-                <div className="flex items-center gap-4 min-w-0">
+            const checked = selected.has(claim.id)
+            const rowCls = `flex items-center justify-between p-4 rounded-xl border hover:border-emerald-300 dark:hover:border-emerald-800 transition-colors group ${
+              checked
+                ? 'border-emerald-400 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30'
+                : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'
+            }`
+            const body = (
+              <>
+                <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                  {/* ช่องติ๊กต้องเป็นตัวแรกใน <label> — คลิกตรงไหนของแถวก็ติ๊ก */}
+                  {selectMode && (
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSelected(claim.id)}
+                      aria-label={isEn ? `Select ${claim.claim_number}` : `เลือก ${claim.claim_number}`}
+                      className={rowCheckboxCls}
+                    />
+                  )}
+                  {/* โหมดเลือกบนจอแคบ: ช่องติ๊กแทนไอคอนสถานะ (สถานะยังอยู่ในป้าย) — เหลือที่ให้หัวข้อ */}
                   <div
-                    className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0"
+                    className={`${selectMode ? 'hidden sm:flex' : 'flex'} items-center justify-center h-10 w-10 rounded-lg shrink-0`}
                     style={{ backgroundColor: `${statusColor}15` }}
                   >
                     <StatusIcon className="h-5 w-5" style={{ color: statusColor }} />
@@ -462,6 +574,7 @@ export default function ClaimsListView({
                       >
                         {getClaimStatusLabel(claim.status, locale)}
                       </span>
+                      <FiledBadge claim={claim} isEn={isEn} />
                       {isUnsettledAdvance(claim) && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500 text-white inline-flex items-center gap-1 animate-pulse">
                           <AlertCircle className="h-2.5 w-2.5" />
@@ -497,7 +610,7 @@ export default function ClaimsListView({
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0 ml-4">
+                <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-2 sm:ml-4">
                   <div className="text-right">
                     <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
                       ฿{(claim.amount || 0).toLocaleString()}
@@ -516,7 +629,26 @@ export default function ClaimsListView({
                       <Ban className="h-4 w-4" />
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={e => bundleOne(claim, e)}
+                    aria-label={bundleLabel}
+                    title={bundleLabel}
+                    className={rowBundleBtnCls}
+                  >
+                    <FileStack className="h-4 w-4" />
+                  </button>
                 </div>
+              </>
+            )
+            // โหมดเลือก: ทั้งแถวเป็น <label> ของช่องติ๊ก (คลิกแถว = ติ๊ก ไม่เปิดหน้าใบเบิก)
+            return selectMode ? (
+              <label key={claim.id} className={`${rowCls} cursor-pointer`}>
+                {body}
+              </label>
+            ) : (
+              <Link key={claim.id} href={`/finance/${claim.id}`} className={rowCls}>
+                {body}
               </Link>
             )
           })}
@@ -599,9 +731,33 @@ export default function ClaimsListView({
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
                   {filtered.map(c => {
                     const { netPayable } = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
+                    const checked = selected.has(c.id)
+                    // โหมดเลือก: แถวเป็น <label> ของช่องติ๊ก — ลิงก์เปิดใบเบิกยังกดได้ตามปกติ
+                    const Row = selectMode ? 'label' : 'div'
                     return (
-                      <div key={c.id} className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-                        <div className="col-span-2 text-xs font-mono text-zinc-500">{c.claim_number}</div>
+                      <Row
+                        key={c.id}
+                        className={`grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors ${
+                          selectMode ? 'cursor-pointer' : ''
+                        } ${checked ? 'bg-emerald-50/60 dark:bg-emerald-950/20' : ''}`}
+                      >
+                        <div className="col-span-2 min-w-0">
+                          <div className="flex items-center gap-2">
+                            {selectMode && (
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleSelected(c.id)}
+                                aria-label={isEn ? `Select ${c.claim_number}` : `เลือก ${c.claim_number}`}
+                                className={rowCheckboxCls}
+                              />
+                            )}
+                            <span className="text-xs font-mono text-zinc-500 truncate">{c.claim_number}</span>
+                          </div>
+                          {filedState(c) !== 'none' && (
+                            <div className="mt-1"><FiledBadge claim={c} isEn={isEn} /></div>
+                          )}
+                        </div>
                         <div className="col-span-2 truncate font-medium text-zinc-700 dark:text-zinc-300">{c.submitter?.full_name || '—'}</div>
                         <div className="col-span-3 truncate text-zinc-900 dark:text-zinc-100">{c.title}</div>
                         <div className="col-span-1 text-xs text-zinc-500">{getCategoryLabel(c.category, locale, categories)}</div>
@@ -611,12 +767,21 @@ export default function ClaimsListView({
                             ? new Date(c.paid_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                             : '—'}
                         </div>
-                        <div className="col-span-1 text-right">
-                          <Link href={`/finance/${c.id}`} className="text-zinc-400 hover:text-teal-500 transition-colors">
+                        <div className="col-span-1 flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={e => bundleOne(c, e)}
+                            aria-label={bundleLabel}
+                            title={bundleLabel}
+                            className={rowBundleBtnCls}
+                          >
+                            <FileStack className="h-3.5 w-3.5" />
+                          </button>
+                          <Link href={`/finance/${c.id}`} className="p-1.5 text-zinc-400 hover:text-teal-500 transition-colors">
                             <ExternalLink className="h-3.5 w-3.5 inline" />
                           </Link>
                         </div>
-                      </div>
+                      </Row>
                     )
                   })}
                 </div>
@@ -626,13 +791,29 @@ export default function ClaimsListView({
               <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
                 {filtered.map(c => {
                   const { netPayable } = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
-                  return (
-                    <Link key={c.id} href={`/finance/${c.id}`} className="block p-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-mono text-zinc-400">{c.claim_number}</p>
+                  const checked = selected.has(c.id)
+                  const cardCls = `block p-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors ${
+                    checked ? 'bg-emerald-50/60 dark:bg-emerald-950/20' : ''
+                  }`
+                  const card = (
+                    <>
+                      <div className="flex items-start gap-2">
+                        {selectMode && (
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSelected(c.id)}
+                            aria-label={isEn ? `Select ${c.claim_number}` : `เลือก ${c.claim_number}`}
+                            className={`${rowCheckboxCls} mt-0.5`}
+                          />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="text-[10px] font-mono text-zinc-400">{c.claim_number}</p>
+                            <FiledBadge claim={c} isEn={isEn} />
+                          </div>
                           <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{c.title}</p>
-                          <p className="text-xs text-zinc-500 mt-0.5">{c.submitter?.full_name || '—'}</p>
+                          <p className="text-xs text-zinc-500 mt-0.5 truncate">{c.submitter?.full_name || '—'}</p>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-sm font-bold text-teal-600 dark:text-teal-400">฿{fmtDec(netPayable)}</p>
@@ -642,17 +823,87 @@ export default function ClaimsListView({
                           </span>
                         </div>
                       </div>
-                      {c.paid_at && (
-                        <p className="text-[10px] text-zinc-400 mt-1">
-                          {new Date(c.paid_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <p className="text-[10px] text-zinc-400">
+                          {c.paid_at
+                            ? new Date(c.paid_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            : ''}
                         </p>
-                      )}
-                    </Link>
+                        <button
+                          type="button"
+                          onClick={e => bundleOne(c, e)}
+                          aria-label={bundleLabel}
+                          title={bundleLabel}
+                          className={`${rowBundleBtnCls} -my-1`}
+                        >
+                          <FileStack className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </>
+                  )
+                  return selectMode ? (
+                    <label key={c.id} className={`${cardCls} cursor-pointer`}>{card}</label>
+                  ) : (
+                    <Link key={c.id} href={`/finance/${c.id}`} className={cardCls}>{card}</Link>
                   )
                 })}
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* แถบเลือกหลายใบ — มือถือเต็มความกว้างติดขอบล่าง (เว้น safe area) · จอใหญ่ลอยมุมขวาล่าง ไม่ทับแถบเมนูซ้าย */}
+      {selectMode && (
+        <div
+          role="region"
+          aria-label={isEn ? 'Selected claims' : 'ใบเบิกที่เลือก'}
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] pb-[env(safe-area-inset-bottom)] md:inset-x-auto md:right-6 md:bottom-6 md:max-w-[calc(100vw-244px-3rem)] md:rounded-2xl md:border md:pb-0"
+        >
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+            <p className="mr-auto text-sm font-semibold text-zinc-900 dark:text-zinc-100" aria-live="polite">
+              {isEn ? `${selectedClaims.length} selected` : `เลือกแล้ว ${selectedClaims.length} ใบ`}
+            </p>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set(selectAllIds))}
+              disabled={selectAllIds.length === 0}
+              className={`${pillCls} ${pillIdleCls} disabled:opacity-40`}
+            >
+              {isEn ? `Select all filtered (${selectAllIds.length})` : `เลือกทุกใบที่กรองอยู่ (${selectAllIds.length})`}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              disabled={selectedClaims.length === 0}
+              className={`${pillCls} ${pillIdleCls} disabled:opacity-40`}
+            >
+              {isEn ? 'Clear selection' : 'ล้างที่เลือก'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setBundleFor(selectedClaims.map(toBundleRef))}
+              disabled={selectedClaims.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FileStack className="h-3.5 w-3.5" />
+              {isEn ? 'Bundle documents' : 'จับชุดเอกสาร'}
+            </button>
+            <button
+              type="button"
+              onClick={exitSelecting}
+              className="px-3 py-1.5 text-xs rounded-lg text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition-colors"
+            >
+              {isEn ? 'Exit selection' : 'ออกจากโหมดเลือก'}
+            </button>
+            {overLimit && (
+              <p className="basis-full text-[11px] text-amber-700 dark:text-amber-400">
+                {isEn
+                  ? `Up to ${MAX_BUNDLE_SELECTION} claims at a time`
+                  : `เลือกได้ครั้งละไม่เกิน ${MAX_BUNDLE_SELECTION} ใบ`}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -4,9 +4,15 @@
 
 import { CLAIM_STATUSES, getClaimChecklist } from '../costs/types'
 import type { ExpenseClaim } from '../costs/types'
+import { BUNDLE_MAX_CLAIMS_PER_FILE } from '@/lib/claim-bundle-labels'
+import type { BundleLayout } from '@/lib/claim-bundle-labels'
 
 export const CLAIM_TYPE_FILTERS = ['all', 'event', 'advance', 'petty_cash', 'other'] as const
 export type ClaimTypeFilter = typeof CLAIM_TYPE_FILTERS[number]
+
+/** สถานะแฟ้ม: no = ยังไม่เข้าแฟ้ม · yes = เข้าแฟ้มแล้ว (รวมที่ไฟล์เปลี่ยน) · changed = เข้าแฟ้มแล้วแต่ไฟล์แนบเปลี่ยน */
+export const FILED_FILTERS = ['all', 'no', 'yes', 'changed'] as const
+export type FiledFilter = typeof FILED_FILTERS[number]
 
 export interface ClaimFilters {
   /** 'all' หรือสถานะใบเบิก — 'paid' คือแท็บ "ชำระเงินแล้ว" (เฉพาะแอดมิน) */
@@ -20,13 +26,15 @@ export interface ClaimFilters {
   /** เฉพาะใบที่เอกสารยังไม่ครบ */
   incomplete: boolean
   q: string
+  /** สถานะเข้าแฟ้ม (URL: filed — ไม่ใส่เมื่อเป็น 'all') */
+  filed: FiledFilter
 }
 
 /** แท็บชำระแล้วนับเดือนตามวันที่จ่าย แท็บอื่นนับตามวันที่ใช้จ่าย (ตรงกับวันที่ที่แสดงในแต่ละแท็บ) */
 export type MonthField = 'expense_date' | 'paid_at'
 
 export const EMPTY_FILTERS: ClaimFilters = {
-  status: 'all', type: 'all', by: '', category: '', month: '', incomplete: false, q: '',
+  status: 'all', type: 'all', by: '', category: '', month: '', incomplete: false, q: '', filed: 'all',
 }
 
 /** อ่านตัวกรองจาก query string — ค่าที่ไม่รู้จักถูกทิ้ง */
@@ -34,6 +42,7 @@ export function filtersFromQuery(params: { get(name: string): string | null }): 
   const status = params.get('status') || 'all'
   const type = params.get('type') || 'all'
   const month = params.get('month') || ''
+  const filed = params.get('filed') || 'all'
   return {
     status: status === 'all' || CLAIM_STATUSES.some(s => s.value === status) ? status : 'all',
     type: (CLAIM_TYPE_FILTERS as readonly string[]).includes(type) ? (type as ClaimTypeFilter) : 'all',
@@ -42,6 +51,7 @@ export function filtersFromQuery(params: { get(name: string): string | null }): 
     month: /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : '',
     incomplete: params.get('docs') === 'missing',
     q: (params.get('q') || '').slice(0, 100),
+    filed: (FILED_FILTERS as readonly string[]).includes(filed) ? (filed as FiledFilter) : 'all',
   }
 }
 
@@ -68,6 +78,7 @@ export function filtersToQuery(f: ClaimFilters): string {
   if (f.month) p.set('month', f.month)
   if (f.incomplete) p.set('docs', 'missing')
   if (f.q.trim()) p.set('q', f.q.trim())
+  if (f.filed !== 'all') p.set('filed', f.filed)
   const qs = p.toString()
   return qs ? `?${qs}` : ''
 }
@@ -92,7 +103,7 @@ export function initialFilters(
 
 /** มีตัวกรองอื่นนอกจากแท็บสถานะหรือไม่ */
 export function hasFilters(f: ClaimFilters): boolean {
-  return f.type !== 'all' || !!f.by || !!f.category || !!f.month || f.incomplete || !!f.q.trim()
+  return f.type !== 'all' || !!f.by || !!f.category || !!f.month || f.incomplete || !!f.q.trim() || f.filed !== 'all'
 }
 
 const THAI_OFFSET_MS = 7 * 60 * 60 * 1000
@@ -114,6 +125,12 @@ export function filterClaims(claims: ExpenseClaim[], f: ClaimFilters, monthField
     if (f.category && c.category !== f.category) return false
     if (f.month && thaiMonth(c[monthField]) !== f.month) return false
     if (f.incomplete && getClaimChecklist(c).isComplete) return false
+    if (f.filed !== 'all') {
+      const state = filedState(c)
+      if (f.filed === 'no' && state !== 'none') return false
+      if (f.filed === 'yes' && state === 'none') return false
+      if (f.filed === 'changed' && state !== 'changed') return false
+    }
     if (!q) return true
     return [c.claim_number, c.title, c.submitter?.full_name, c.job_event?.event_name]
       .some(text => !!text && text.toLowerCase().includes(q))
@@ -151,6 +168,64 @@ export function monthOptions(shown: ExpenseClaim[], monthField: MonthField, sele
 /** หมวดหมู่ที่มีใช้จริงในข้อมูล (รวมหมวดเก่าที่ไม่อยู่ในตั้งค่าแล้ว) */
 export function categoryValues(all: ExpenseClaim[]): string[] {
   return [...new Set(all.map(c => c.category).filter(Boolean))]
+}
+
+// ── จับชุดเอกสาร + เครื่องหมายเข้าแฟ้ม ─────────────────────────────────────────
+
+/** ช่องไฟล์แนบของใบเบิก — unknown เพราะแถวจากฐานข้อมูลอาจเป็น null (server action ส่งแถวดิบมาได้) */
+export interface ClaimFileFields {
+  receipt_urls?: unknown
+  actual_receipt_urls?: unknown
+  tax_invoice_urls?: unknown
+  refund_slip_urls?: unknown
+}
+
+/** นับเฉพาะสตริงที่ไม่ว่าง — tax_invoice_urls ใช้ '' แทนใบกำกับที่มีแต่เลขที่ ไม่มีไฟล์ */
+const countUrls = (v: unknown) =>
+  Array.isArray(v) ? v.filter(u => typeof u === 'string' && u.trim() !== '').length : 0
+
+/** จำนวนไฟล์แนบทุกช่องของใบเบิก (ใบเสร็จ + ใบเสร็จตอนเคลียร์ + ใบกำกับภาษี + สลิปคืนเงิน) */
+export function claimFileCount(c: ClaimFileFields): number {
+  return countUrls(c.receipt_urls) + countUrls(c.actual_receipt_urls) + countUrls(c.tax_invoice_urls) + countUrls(c.refund_slip_urls)
+}
+
+export type FiledState = 'none' | 'filed' | 'changed'
+
+/** none = ยังไม่เข้าแฟ้ม · changed = เข้าแฟ้มแล้วแต่จำนวนไฟล์แนบตอนนี้ไม่เท่ากับตอนเข้าแฟ้ม */
+export function filedState(c: ClaimFileFields & { filed_at?: string | null; filed_file_count?: number | null }): FiledState {
+  // ฐานข้อมูลที่ยังไม่รัน migration ไม่มีคอลัมน์ = undefined → ถือว่ายังไม่เข้าแฟ้ม
+  if (!c.filed_at) return 'none'
+  // constraint บังคับให้มีคู่กับ filed_at — ถ้าไม่มีจริงก็ไม่มีอะไรให้เทียบ ไม่เตือนมั่ว
+  if (c.filed_file_count == null) return 'filed'
+  return claimFileCount(c) === c.filed_file_count ? 'filed' : 'changed'
+}
+
+/** เลือกหลายใบได้ครั้งละไม่เกินนี้ (= 10 ไฟล์ PDF) — กันกดทีเดียวทั้งปีแล้วรอเป็นชั่วโมง */
+export const MAX_BUNDLE_SELECTION = 200
+
+// เทียบตัวเลขในเลขที่ใบเบิกแบบตัวเลข: EXP-202609-1000 ต้องมาหลัง EXP-202609-999
+const CLAIM_NUMBER_ORDER = new Intl.Collator('en', { numeric: true })
+const byClaimNumber = (a: { claim_number: string }, b: { claim_number: string }) =>
+  CLAIM_NUMBER_ORDER.compare(a.claim_number, b.claim_number)
+
+/** เรียงตามเลขที่ใบเบิกจากน้อยไปมาก แล้วแบ่งกลุ่มละไม่เกิน size */
+export function chunkClaims<T extends { claim_number: string }>(claims: T[], size: number = BUNDLE_MAX_CLAIMS_PER_FILE): T[][] {
+  const step = Number.isFinite(size) && size >= 1 ? Math.floor(size) : BUNDLE_MAX_CLAIMS_PER_FILE
+  const sorted = [...claims].sort(byClaimNumber)
+  const groups: T[][] = []
+  for (let i = 0; i < sorted.length; i += step) groups.push(sorted.slice(i, i + step))
+  return groups
+}
+
+/** ลิงก์ route ชุดเอกสาร — ไม่ใส่ duplex เมื่อไม่พิมพ์สองหน้า (ค่าเริ่มต้นของ route) */
+export function bundleUrl(ids: string[], options: { layout: BundleLayout; duplex: boolean }): string {
+  const layout = options.layout === 'two' ? 'two' : 'one'
+  return `/api/pdf/claim-bundle?ids=${ids.map(encodeURIComponent).join(',')}&layout=${layout}${options.duplex ? '&duplex=1' : ''}`
+}
+
+/** ใบที่เลือกได้ในครั้งเดียว: เรียงตามเลขที่ใบเบิก ตัดที่ MAX_BUNDLE_SELECTION */
+export function selectableIds(claims: { id: string; claim_number: string }[]): string[] {
+  return [...claims].sort(byClaimNumber).slice(0, MAX_BUNDLE_SELECTION).map(c => c.id)
 }
 
 const LIST_QUERY_KEY = 'finance:list-query'

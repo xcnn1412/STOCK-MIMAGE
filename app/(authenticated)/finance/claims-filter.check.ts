@@ -7,6 +7,7 @@ import type { ExpenseClaim } from '../costs/types'
 import {
   EMPTY_FILTERS, categoryValues, filterClaims, filtersFromQuery, filtersToQuery, financeListHref,
   hasFilters, initialFilters, listQuery, monthOptions, sanitizeFilters, submitterOptions, thaiMonth,
+  MAX_BUNDLE_SELECTION, bundleUrl, chunkClaims, claimFileCount, filedState, selectableIds,
 } from './claims-filter'
 
 const claim = (over: Partial<ExpenseClaim>): ExpenseClaim => ({
@@ -58,7 +59,7 @@ assert.equal(only({ month: '2026-10' }, 'paid_at'), 'd')
 assert.equal(only({ month: '2026-09' }, 'paid_at'), '', 'ใบที่ยังไม่จ่ายไม่มีเดือนจ่าย')
 
 // (f) query string ไป-กลับได้ค่าเดิม และหน้าที่ไม่กรองไม่มี query
-const full = { status: 'pending', type: 'advance' as const, by: 'u2', category: 'food', month: '2026-09', incomplete: true, q: 'ค่า เดินทาง' }
+const full = { status: 'pending', type: 'advance' as const, by: 'u2', category: 'food', month: '2026-09', incomplete: true, q: 'ค่า เดินทาง', filed: 'all' as const }
 assert.deepEqual(filtersFromQuery(new URLSearchParams(filtersToQuery(full))), full)
 assert.equal(filtersToQuery(EMPTY_FILTERS), '')
 assert.equal(filtersToQuery({ ...EMPTY_FILTERS, q: '   ' }), '')
@@ -119,5 +120,78 @@ assert.deepEqual(fromUrl('status=pending&month=2026-05&by=u2&cat=ghost', false),
 assert.deepEqual(fromUrl('month=2026-05', true), { ...EMPTY_FILTERS, month: '2026-05' })
 // ไป-กลับ: URL ที่ listQuery สร้างให้แท็บชำระแล้ว อ่านกลับได้ตัวกรองเดิมยกเว้นเดือน
 assert.deepEqual(fromUrl(listQuery(paidTab, '2026-09').slice(1), true), { ...paidTab, month: '' })
+
+// ── จับชุดเอกสาร + เข้าแฟ้ม ──────────────────────────────────────────────────
+
+// (n) claimFileCount: รวมสี่ช่อง · '' (ใบกำกับที่มีแต่เลขที่) และค่าที่ไม่ใช่สตริงไม่นับ · ช่องที่เป็น null = 0
+assert.equal(claimFileCount({ receipt_urls: ['r1', 'r2'], actual_receipt_urls: ['s1'], tax_invoice_urls: ['t1', ''], refund_slip_urls: ['f1'] }), 5)
+assert.equal(claimFileCount({ receipt_urls: [], actual_receipt_urls: null, tax_invoice_urls: null, refund_slip_urls: null }), 0)
+assert.equal(claimFileCount({ receipt_urls: ['  ', null, 3, 'r'] }), 1)
+assert.equal(claimFileCount({}), 0)
+
+// (o) filedState: none / filed / changed
+const FILED_AT = '2026-09-29T03:00:00+00:00'
+assert.equal(filedState(claim({})), 'none', 'ฐานข้อมูลที่ยังไม่มีคอลัมน์ = ยังไม่เข้าแฟ้ม')
+assert.equal(filedState(claim({ filed_at: null, filed_file_count: null })), 'none')
+assert.equal(filedState(claim({ filed_at: FILED_AT, filed_file_count: 1 })), 'filed', 'receipt_urls 1 ไฟล์ = ตอนเข้าแฟ้ม')
+assert.equal(filedState(claim({ receipt_urls: [], filed_at: FILED_AT, filed_file_count: 0 })), 'filed', 'เข้าแฟ้มตอนไม่มีไฟล์ และยังไม่มีไฟล์ = filed')
+assert.equal(filedState(claim({ receipt_urls: ['r1', 'r2'], filed_at: FILED_AT, filed_file_count: 1 })), 'changed', 'ไฟล์เพิ่มหลังเข้าแฟ้ม')
+assert.equal(filedState(claim({ receipt_urls: [], filed_at: FILED_AT, filed_file_count: 1 })), 'changed', 'ไฟล์ถูกลบหลังเข้าแฟ้ม')
+assert.equal(filedState(claim({ tax_invoice_urls: ['t1'], filed_at: FILED_AT, filed_file_count: 1 })), 'changed', 'นับใบกำกับภาษีด้วย')
+assert.equal(filedState(claim({ tax_invoice_urls: [''], tax_invoice_numbers: ['IV-1'], filed_at: FILED_AT, filed_file_count: 1 })), 'filed', 'ใส่เลขที่ใบกำกับอย่างเดียวไม่ใช่ไฟล์')
+
+// (p) ตัวกรอง filed
+const filedSet = [
+  claim({ id: 'n' }),                                                                   // ยังไม่เข้าแฟ้ม
+  claim({ id: 'f', filed_at: FILED_AT, filed_file_count: 1 }),                          // เข้าแฟ้มแล้ว
+  claim({ id: 'z', receipt_urls: [], filed_at: FILED_AT, filed_file_count: 0 }),        // เข้าแฟ้มแล้ว ไม่มีไฟล์
+  claim({ id: 'x', receipt_urls: ['a', 'b'], filed_at: FILED_AT, filed_file_count: 1 }), // ไฟล์เปลี่ยน
+]
+const filedIds = (filed: typeof EMPTY_FILTERS['filed']) => ids(filterClaims(filedSet, { ...EMPTY_FILTERS, filed }, 'expense_date'))
+assert.equal(filedIds('all'), 'nfzx')
+assert.equal(filedIds('no'), 'n', 'filed=no = เฉพาะใบที่ filed_at ว่าง')
+assert.equal(filedIds('yes'), 'fzx', 'filed=yes รวมใบที่ไฟล์เปลี่ยน')
+assert.equal(filedIds('changed'), 'x', 'filed=changed = เฉพาะจำนวนไฟล์ ≠ filed_file_count')
+assert.equal(ids(filterClaims(claims, { ...EMPTY_FILTERS, filed: 'no' }, 'expense_date')), 'abcd', 'ข้อมูลที่ไม่มีคอลัมน์ = ยังไม่เข้าแฟ้มทั้งหมด')
+assert.equal(hasFilters({ ...EMPTY_FILTERS, filed: 'no' }), true)
+assert.equal(hasFilters({ ...EMPTY_FILTERS, filed: 'all' }), false)
+assert.equal(filtersToQuery({ ...EMPTY_FILTERS, filed: 'changed' }), '?filed=changed')
+assert.equal(filtersToQuery({ ...EMPTY_FILTERS, filed: 'all' }), '', 'all ไม่ลง URL')
+for (const v of ['no', 'yes', 'changed'] as const) {
+  assert.equal(filtersFromQuery(new URLSearchParams(filtersToQuery({ ...EMPTY_FILTERS, filed: v }))).filed, v)
+}
+assert.equal(filtersFromQuery(new URLSearchParams('filed=maybe')).filed, 'all', 'ค่าแปลกถูกทิ้ง')
+assert.equal(filtersFromQuery(new URLSearchParams('filed=YES')).filed, 'all')
+
+// (q) chunkClaims: เรียงเลขที่ใบเบิกน้อย → มาก แล้วแบ่งกลุ่มละ 20 · 45 ใบ → 20 / 20 / 5
+const numbered = (n: number) => ({ id: `id-${n}`, claim_number: `EXP-202609-${String(n).padStart(3, '0')}` })
+const shuffled = Array.from({ length: 45 }, (_, i) => numbered(((i * 17) % 45) + 1))
+const snapshot = JSON.stringify(shuffled)
+const chunks = chunkClaims(shuffled)
+assert.deepEqual(chunks.map(g => g.length), [20, 20, 5])
+assert.deepEqual(chunks.flat().map(c => c.claim_number), Array.from({ length: 45 }, (_, i) => numbered(i + 1).claim_number))
+assert.equal(JSON.stringify(shuffled), snapshot, 'ไม่แก้ array ที่ส่งเข้ามา')
+assert.deepEqual(chunkClaims([]), [])
+assert.deepEqual(chunkClaims(shuffled.slice(0, 7), 3).map(g => g.length), [3, 3, 1])
+assert.deepEqual(chunkClaims([numbered(1)]), [[numbered(1)]])
+// เลขที่ยาวเกิน 3 หลัก เทียบแบบตัวเลข
+assert.deepEqual(
+  chunkClaims([{ claim_number: 'EXP-202609-1000' }, { claim_number: 'EXP-202609-999' }, { claim_number: 'EXP-202608-500' }]).flat().map(c => c.claim_number),
+  ['EXP-202608-500', 'EXP-202609-999', 'EXP-202609-1000'],
+)
+
+// (r) bundleUrl
+assert.equal(bundleUrl(['a', 'b'], { layout: 'two', duplex: true }), '/api/pdf/claim-bundle?ids=a,b&layout=two&duplex=1')
+assert.equal(bundleUrl(['a', 'b'], { layout: 'two', duplex: false }), '/api/pdf/claim-bundle?ids=a,b&layout=two')
+assert.equal(bundleUrl(['a'], { layout: 'one', duplex: false }), '/api/pdf/claim-bundle?ids=a&layout=one')
+assert.ok(!bundleUrl(['a'], { layout: 'one', duplex: false }).includes('duplex'))
+
+// (s) selectableIds: 250 ใบ (สลับลำดับ) → 200 ใบแรกตามเลขที่ใบเบิก
+const many = Array.from({ length: 250 }, (_, i) => numbered(((i * 101) % 250) + 1))
+assert.equal(new Set(many.map(c => c.id)).size, 250)
+assert.equal(MAX_BUNDLE_SELECTION, 200)
+assert.deepEqual(selectableIds(many), Array.from({ length: 200 }, (_, i) => `id-${i + 1}`))
+assert.deepEqual(selectableIds(many.slice(0, 3)), [...many.slice(0, 3)].sort((a, b) => a.claim_number.localeCompare(b.claim_number)).map(c => c.id))
+assert.deepEqual(selectableIds([]), [])
 
 console.log('claims-filter: ผ่านทั้งหมด')

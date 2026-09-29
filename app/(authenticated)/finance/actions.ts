@@ -6,7 +6,7 @@ import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
 import { requireAuth } from '@/lib/auth'
-import { thaiMonth } from './claims-filter'
+import { claimFileCount, thaiMonth } from './claims-filter'
 
 // Resolve the acting user with a DB-verified role. NEVER trust the raw
 // `session_role` cookie — it is unsigned and user-editable, so reading role
@@ -2741,4 +2741,104 @@ export async function reopenPettyCashMonth(id: string) {
   revalidatePath(`/finance/${id}`)
   revalidatePath('/finance/petty-cash')
   return { success: true }
+}
+
+// ============================================================================
+// จับชุดเอกสาร — เครื่องหมาย "เข้าแฟ้มแล้ว" (admin เท่านั้น)
+// คอลัมน์มาจาก supabase/migrations/20260929_claim_filed.sql — ฐานข้อมูลที่ยังไม่รันต้องได้ข้อความบอก ไม่ใช่ล้ม
+// ============================================================================
+
+const CLAIM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const FILED_MIGRATION_MISSING = 'ยังใช้เครื่องหมายเข้าแฟ้มไม่ได้ — ต้องรันไฟล์ SQL 20260929_claim_filed.sql บนฐานข้อมูลก่อน'
+/** 42703 = Postgres ไม่รู้จักคอลัมน์ · PGRST204 = PostgREST หาคอลัมน์ใน schema cache ไม่เจอ */
+const isMissingFiledColumn = (error: { code?: string } | null | undefined) =>
+  error?.code === '42703' || error?.code === 'PGRST204'
+
+/** ทำเครื่องหมายว่าเข้าแฟ้มแล้ว — จำจำนวนไฟล์แนบ ณ ตอนนี้ไว้เทียบว่าไฟล์เปลี่ยนหลังพิมพ์หรือไม่ */
+export async function markClaimsFiled(ids: string[]): Promise<{ success?: true; count?: number; error?: string }> {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+  if (role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้นที่ทำเครื่องหมายเข้าแฟ้มได้' }
+
+  // ไฟล์ 'use server' — ids มาจากใครก็ได้ ตรวจรูปแบบก่อนแตะฐานข้อมูล
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 100) {
+    return { error: 'ทำเครื่องหมายได้ครั้งละ 1–100 ใบ' }
+  }
+  if (!ids.every(id => typeof id === 'string' && CLAIM_ID_RE.test(id))) {
+    return { error: 'รหัสใบเบิกไม่ถูกต้อง' }
+  }
+  // uuid ตัวพิมพ์ต่างกันคือใบเดียวกัน — เทียบซ้ำหลังทำเป็นตัวเล็ก
+  const list = ids.map(id => id.toLowerCase())
+  if (new Set(list).size !== list.length) return { error: 'มีใบเบิกซ้ำกันในรายการ' }
+
+  try {
+    const supabase = createServiceClient()
+    const { data, error: loadError } = await supabase
+      .from('expense_claims')
+      .select('id, claim_number, receipt_urls, actual_receipt_urls, tax_invoice_urls, refund_slip_urls')
+      .in('id', list)
+    if (loadError) return { error: `เกิดข้อผิดพลาด: ${loadError.message}` }
+    const rows = (data ?? []) as ({ id: string; claim_number: string } & Parameters<typeof claimFileCount>[0])[]
+    if (rows.length !== list.length) {
+      return { error: `ไม่พบใบเบิก ${list.length - rows.length} ใบ จาก ${list.length} ใบ — ไม่ได้ทำเครื่องหมายใบใดเลย` }
+    }
+
+    // จำนวนไฟล์ต่างกันต้องเขียนค่าต่างกัน — จัดกลุ่มตามจำนวน อัปเดตครั้งละกลุ่ม (ใบส่วนใหญ่มี 1–5 ไฟล์ = ไม่กี่ครั้ง)
+    const byCount = new Map<number, string[]>()
+    for (const row of rows) {
+      const n = claimFileCount(row)
+      byCount.set(n, [...(byCount.get(n) ?? []), row.id])
+    }
+    const filedAt = new Date().toISOString()
+    for (const [count, group] of byCount) {
+      const { error } = await supabase
+        .from('expense_claims')
+        .update({ filed_at: filedAt, filed_by: userId, filed_file_count: count })
+        .in('id', group)
+      if (error) return { error: isMissingFiledColumn(error) ? FILED_MIGRATION_MISSING : `เกิดข้อผิดพลาด: ${error.message}` }
+    }
+
+    await logActivity('MARK_CLAIM_FILED', {
+      claims: rows.map(r => r.claim_number).sort(),
+      count: rows.length,
+    })
+    revalidatePath('/finance')
+    return { success: true, count: rows.length }
+  } catch (e) {
+    console.error('markClaimsFiled:', e)
+    return { error: 'เกิดข้อผิดพลาด ทำเครื่องหมายเข้าแฟ้มไม่สำเร็จ' }
+  }
+}
+
+/** ยกเลิกเครื่องหมายเข้าแฟ้ม — ล้างทั้งสามช่อง (เช่น ทำเครื่องหมายผิดใบ หรือจะพิมพ์ใหม่) */
+export async function unmarkClaimFiled(id: string): Promise<{ success?: true; error?: string }> {
+  const { userId, role } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+  if (role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้นที่ทำเครื่องหมายเข้าแฟ้มได้' }
+  if (typeof id !== 'string' || !CLAIM_ID_RE.test(id)) return { error: 'รหัสใบเบิกไม่ถูกต้อง' }
+
+  try {
+    const supabase = createServiceClient()
+    const { data: claim, error: loadError } = await supabase
+      .from('expense_claims')
+      .select('id, claim_number')
+      .eq('id', id.toLowerCase())
+      .maybeSingle()
+    if (loadError) return { error: `เกิดข้อผิดพลาด: ${loadError.message}` }
+    if (!claim) return { error: 'ไม่พบใบเบิก' }
+
+    const { error } = await supabase
+      .from('expense_claims')
+      .update({ filed_at: null, filed_by: null, filed_file_count: null })
+      .eq('id', claim.id)
+    if (error) return { error: isMissingFiledColumn(error) ? FILED_MIGRATION_MISSING : `เกิดข้อผิดพลาด: ${error.message}` }
+
+    await logActivity('UNMARK_CLAIM_FILED', { claim: claim.claim_number })
+    revalidatePath('/finance')
+    revalidatePath(`/finance/${claim.id}`)
+    return { success: true }
+  } catch (e) {
+    console.error('unmarkClaimFiled:', e)
+    return { error: 'เกิดข้อผิดพลาด ยกเลิกเครื่องหมายไม่สำเร็จ' }
+  }
 }

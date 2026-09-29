@@ -1,40 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { renderToBuffer } from '@react-pdf/renderer'
-import React from 'react'
-import { PaymentVoucherPDF } from '@/components/pdf/payment-voucher'
-import type { PaymentVoucherData } from '@/components/pdf/payment-voucher'
 import { createServiceClient } from '@/lib/supabase-server'
 import { requireAuth } from '@/lib/auth'
-import { formatThaiDate } from '@/lib/thai-date'
-import QRCode from 'qrcode'
+import {
+  VOUCHER_CLAIM_SELECT, buildVoucherData, canViewClaimDocs, renderVoucherPdf,
+} from '@/lib/claim-voucher'
 
 // Force Node.js runtime for @react-pdf/renderer
 export const runtime = 'nodejs'
 
 // ============================================================================
-// Tax Calculation (same logic as claim form)
-// ============================================================================
-function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-  let totalWithVat = amount
-
-  if (vatMode === 'included') {
-    baseAmount = amount / 1.07
-    vatAmount = amount - baseAmount
-    totalWithVat = amount
-  } else if (vatMode === 'excluded') {
-    vatAmount = amount * 0.07
-    totalWithVat = amount + vatAmount
-  }
-
-  const whtAmount = baseAmount * (whtRatePercent / 100)
-  const netPayable = totalWithVat - whtAmount
-  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
-}
-
-// ============================================================================
-// GET handler
+// GET handler — ตรรกะหน้าใบเบิกอยู่ที่ lib/claim-voucher.ts (ชุดเอกสารใช้ร่วม)
+// คำตอบ/สถานะ/หัวต้องเหมือนเดิม — scripts/claim-voucher.check.ts เทียบกับผลอ้างอิงของ route เดิม
 // ============================================================================
 export async function GET(req: NextRequest) {
   try {
@@ -55,14 +31,9 @@ export async function GET(req: NextRequest) {
     // Use service client to fetch claim data
     const supabase = createServiceClient()
 
-    // Fetch claim data
     const { data: claim, error } = await supabase
       .from('expense_claims')
-      .select(`
-        *,
-        submitter:profiles!expense_claims_submitted_by_fkey(id, full_name),
-        approver:profiles!expense_claims_approved_by_fkey(id, full_name)
-      `)
+      .select(VOUCHER_CLAIM_SELECT)
       .eq('id', claimId)
       .single()
 
@@ -71,232 +42,24 @@ export async function GET(req: NextRequest) {
     }
 
     // Non-admins may only export their own claim's voucher — except petty-cash
-    // docs (fund / top-up / box expense), which belong to the shared office box
-    // and are printable by any staff member (mirrors getClaim's visibility).
-    const isPettyRelated = claim.claim_type === 'petty_cash' || !!claim.pettycash_fund_id
-    if (session.role !== 'admin' && claim.submitted_by !== session.userId && !isPettyRelated) {
+    // docs (fund / top-up / box expense), which belong to the shared office box.
+    if (!canViewClaimDocs(session, claim)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Calculate tax
-    const amount = Number(claim.amount) || 0
-    const quantity = Number(claim.quantity) || 1
-    const totalBeforeTax = amount * quantity
-    const vatMode = claim.vat_mode || 'none'
-    const whtRate = Number(claim.withholding_tax_rate) || 0
-    const tax = calcTax(totalBeforeTax, vatMode, whtRate)
+    const pdf = await renderVoucherPdf(await buildVoucherData(supabase, claim))
 
-    // Build description
-    const descParts: string[] = []
-    if (claim.title) descParts.push(claim.title)
-    if (claim.description) descParts.push(claim.description)
-
-    // Build items
-    const items = [{
-      no: 1,
-      description: descParts.join(' - '),
-      amount: totalBeforeTax,
-    }]
-
-    // Build voucher data
-    const voucherData: PaymentVoucherData = {
-      claimNumber: claim.claim_number || '',
-      date: formatThaiDate(claim.expense_date || claim.created_at),
-      payeeName: claim.account_holder_name || claim.submitter?.full_name || '',
-      paymentMethod: claim.bank_name ? 'transfer' : 'cash',
-      bankName: claim.bank_name || undefined,
-      accountName: claim.account_holder_name || undefined,
-      accountNumber: claim.bank_account_number || undefined,
-      description: claim.description || undefined,
-      items,
-      totalAmount: totalBeforeTax,
-      vatAmount: tax.vatAmount > 0 ? tax.vatAmount : undefined,
-      whtAmount: tax.whtAmount > 0 ? tax.whtAmount : undefined,
-      netAmount: tax.netPayable,
-      vatMode: vatMode !== 'none' ? vatMode : undefined,
-      whtRate: whtRate > 0 ? whtRate : undefined,
-      receiverName: claim.account_holder_name || claim.submitter?.full_name || undefined,
-      approverName: claim.approver?.full_name || undefined,
-    }
-
-    // ── Advance (ทดลองจ่าย) overrides ──
-    if (claim.claim_type === 'advance') {
-      const actualItems = Array.isArray(claim.actual_spent_items) ? claim.actual_spent_items : []
-      const actualSpent = claim.actual_spent_amount != null ? Number(claim.actual_spent_amount) : null
-      const refundAmount = claim.refund_amount != null ? Number(claim.refund_amount) : 0
-
-      voucherData.isAdvance = true
-      voucherData.docTitle = 'เงินทดลองจ่าย'
-      voucherData.docTitleEn = 'ADVANCE PAYMENT VOUCHER'
-      voucherData.advanceAmount = totalBeforeTax
-      voucherData.actualSpent = actualSpent ?? undefined
-      voucherData.refundAmount = refundAmount
-
-      // Table = itemized actual spend once settled; otherwise keep the advance line
-      if (actualItems.length > 0) {
-        voucherData.items = actualItems.map((it: { description?: string; amount?: number }, i: number) => ({
-          no: i + 1,
-          description: it.description || '(ไม่ระบุ)',
-          amount: Number(it.amount) || 0,
-        }))
-        const sum = actualSpent ?? voucherData.items.reduce((a, b) => a + b.amount, 0)
-        voucherData.totalAmount = sum
-        voucherData.netAmount = sum
-        // Advance has no VAT/WHT
-        voucherData.vatAmount = undefined
-        voucherData.whtAmount = undefined
-      }
-
-      // Refund proof page — fetch slip images (skip PDFs, can't embed inline)
-      const slipUrls: string[] = Array.isArray(claim.refund_slip_urls) ? claim.refund_slip_urls : []
-      if (refundAmount > 0 && slipUrls.length > 0) {
-        const images: string[] = []
-        for (const url of slipUrls) {
-          if (url.toLowerCase().endsWith('.pdf')) continue
-          try {
-            const res = await fetch(url)
-            if (!res.ok) continue
-            const buf = Buffer.from(await res.arrayBuffer())
-            const mime = res.headers.get('content-type') || 'image/jpeg'
-            images.push(`data:${mime};base64,${buf.toString('base64')}`)
-          } catch {
-            // skip unreachable slip
-          }
-        }
-        if (images.length > 0) {
-          voucherData.refundSlipImages = images
-          voucherData.refundConfirmedAt = claim.refund_confirmed_at
-            ? formatThaiDate(claim.refund_confirmed_at)
-            : claim.advance_settled_at
-              ? formatThaiDate(claim.advance_settled_at)
-              : undefined
-          voucherData.refundPayerName = claim.account_holder_name || claim.submitter?.full_name || undefined
-          voucherData.refundBankName = claim.bank_name || undefined
-          voucherData.refundAccountNumber = claim.bank_account_number || undefined
-          voucherData.refundAccountName = claim.account_holder_name || undefined
-        }
-      }
-    }
-
-    // ── Petty cash FUND (วงเงินสดย่อยประจำเดือน) — monthly summary ──
-    // Top-ups (petty_cash + fund_id) and box expenses fall through to the
-    // normal voucher; only the fund itself gets the monthly-report layout.
-    if (claim.claim_type === 'petty_cash' && !claim.pettycash_fund_id) {
-      // Children: expenses (any type + fund_id) and top-ups (petty_cash + fund_id)
-      const { data: childRows } = await supabase
-        .from('expense_claims')
-        .select('claim_number, claim_type, title, amount, expense_date, status, refund_amount')
-        .eq('pettycash_fund_id', claimId)
-        .order('expense_date', { ascending: true })
-      const live = (childRows || []).filter(c => !['cancelled', 'rejected'].includes(c.status))
-      const topups = live.filter(c => c.claim_type === 'petty_cash')
-      const expenses = live.filter(c => c.claim_type !== 'petty_cash')
-
-      // Mirror the app's balance math: the initial only counts once the fund
-      // was actually paid out, and every sum is rounded to satang.
-      const round2 = (n: number) => Math.round(n * 100) / 100
-      const funded = ['paid', 'refund_confirmed'].includes(claim.status)
-      const nominal = round2(Number(claim.amount) || 0)
-      const initial = funded ? nominal : 0
-      const topupPaid = round2(topups.filter(t => t.status === 'paid').reduce((s, t) => s + (Number(t.amount) || 0), 0))
-      // Fund-linked advance with confirmed refund: leftover went back in the box.
-      const effAmount = (e: { claim_type: string; status: string; amount: unknown; refund_amount?: unknown }) =>
-        round2((Number(e.amount) || 0) - (e.claim_type === 'advance' && e.status === 'refund_confirmed' ? (Number(e.refund_amount) || 0) : 0))
-      const spent = round2(expenses.reduce((s, e) => s + effAmount(e), 0))
-
-      voucherData.isPettyCash = true
-      voucherData.docTitle = 'สรุปเงินสดย่อยประจำเดือน'
-      voucherData.docTitleEn = 'PETTY CASH MONTHLY SUMMARY'
-      voucherData.pettyOpening = initial
-      voucherData.pettyTopup = topupPaid
-      voucherData.pettyStarting = round2(initial + topupPaid)
-      voucherData.pettySpent = spent
-      voucherData.pettyClosing = round2(initial + topupPaid - spent)
-      voucherData.pettyPeriodStart = claim.pettycash_period_start || undefined
-      voucherData.pettyPeriodEnd = claim.pettycash_period_end || undefined
-      voucherData.vatAmount = undefined
-      voucherData.whtAmount = undefined
-
-      if (expenses.length > 0) {
-        voucherData.items = expenses.map((e, i) => ({
-          no: i + 1,
-          date: e.expense_date || undefined,
-          description: `${e.title || '(ไม่ระบุ)'}  [${e.claim_number}]`,
-          amount: effAmount(e),
-        }))
-        voucherData.totalAmount = spent
-        voucherData.netAmount = spent
-      } else {
-        // No expenses yet — the voucher doubles as the initial disbursement doc
-        // (nominal = requested amount, shown even before payout).
-        voucherData.items = [{ no: 1, description: claim.title || 'เงินสดย่อยสำรอง Office', amount: nominal }]
-        voucherData.totalAmount = nominal
-        voucherData.netAmount = nominal
-      }
-
-      // Month-end return proof — reuse the advance refund page for the leftover
-      // that was returned to the company.
-      const pettyRefund = claim.refund_amount != null ? Number(claim.refund_amount) : 0
-      const pettySlipUrls: string[] = Array.isArray(claim.refund_slip_urls) ? claim.refund_slip_urls : []
-      if (pettyRefund > 0 && pettySlipUrls.length > 0) {
-        const images: string[] = []
-        for (const url of pettySlipUrls) {
-          if (url.toLowerCase().endsWith('.pdf')) continue
-          try {
-            const res = await fetch(url)
-            if (!res.ok) continue
-            const buf = Buffer.from(await res.arrayBuffer())
-            const mime = res.headers.get('content-type') || 'image/jpeg'
-            images.push(`data:${mime};base64,${buf.toString('base64')}`)
-          } catch {
-            // skip unreachable slip
-          }
-        }
-        if (images.length > 0) {
-          voucherData.refundSlipImages = images
-          voucherData.refundAmount = pettyRefund
-          voucherData.refundConfirmedAt = claim.pettycash_closed_at ? formatThaiDate(claim.pettycash_closed_at) : undefined
-          voucherData.refundPayerName = claim.account_holder_name || claim.submitter?.full_name || undefined
-          voucherData.refundBankName = claim.bank_name || undefined
-          voucherData.refundAccountNumber = claim.bank_account_number || undefined
-          voucherData.refundAccountName = claim.account_holder_name || undefined
-        }
-      }
-    }
-
-    // Generate QR Code as base64 PNG data URL
-    // Content = claim number for document verification
-    const qrContent = claim.claim_number || claimId
-    try {
-      const qrDataUrl = await QRCode.toDataURL(qrContent, {
-        errorCorrectionLevel: 'M',
-        type: 'image/png',
-        width: 200,
-        margin: 1,
-        color: { dark: '#000000', light: '#ffffff' },
-      })
-      voucherData.qrCodeDataUrl = qrDataUrl
-    } catch (qrErr) {
-      console.warn('QR code generation failed:', qrErr)
-    }
-
-    // Render PDF
-    const pdfBuffer = await renderToBuffer(
-      React.createElement(PaymentVoucherPDF, { data: voucherData }) as any
-    )
-
-    // Return PDF — convert Buffer to Uint8Array for NextResponse compatibility
-    return new NextResponse(new Uint8Array(pdfBuffer), {
+    return new NextResponse(new Uint8Array(pdf), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `inline; filename="payment-voucher-${claim.claim_number || claimId}.pdf"`,
         'X-Frame-Options': 'SAMEORIGIN',
       },
     })
-  } catch (err: any) {
+  } catch (err) {
     console.error('PDF generation error:', err)
     return NextResponse.json(
-      { error: 'Failed to generate PDF', details: err?.message },
+      { error: 'Failed to generate PDF', details: (err as { message?: string } | null)?.message },
       { status: 500 }
     )
   }

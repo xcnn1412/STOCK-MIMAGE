@@ -10,6 +10,7 @@
 |-------|-----------|-------------|
 | `/finance` | `ClaimsListView` | รายการใบเบิกทั้งหมด (filtered by role) — ตัวกรองฝั่ง browser: สถานะ ประเภท ผู้เบิก หมวดหมู่ เดือน เอกสารไม่ครบ ค้นหา (`claims-filter.ts`, เก็บใน query string: `status` `type` `by` `cat` `month` `docs=missing` `q`) |
 | `/finance/new` | New claim form | สร้างใบเบิกใหม่ |
+| `/api/pdf/claim-bundle` | `route.ts` | จับชุดเอกสาร: หน้าใบเบิก + ไฟล์แนบของใบเบิก 1–20 ใบ เป็น PDF เดียว (`?ids=&layout=one\|two&duplex=1`) — สเปก `docs/specs/claim-document-bundle.md` |
 | `/finance/[id]` | `ClaimDetailView` | รายละเอียดใบเบิก + workflow actions |
 | `/finance/payouts` | Payouts page | ใบเบิกที่รออนุมัติจ่าย (Admin only) |
 | `/finance/archive` | Archive page | ประวัติใบเบิกที่จ่ายแล้ว (Admin only) |
@@ -85,6 +86,7 @@ draft ──► pending ──► approved ──► waiting_tax_invoice ──�
 | `getClaims(filters?)` | Any authenticated user | Admin เห็นทุกใบ; Staff เห็นเฉพาะของตัวเอง · อ่านทีละหน้า 1,000 แถวจนครบ (PostgREST ตัดผลที่ 1,000 แถวโดยไม่แจ้ง) · `open: true` = ใบที่ยังไม่จบ · `paidMonth: 'YYYY-MM'` = จ่ายในเดือนนั้นตามเวลาไทย |
 | `getPaidMonths()` | Admin | เดือนที่มีการจ่ายพร้อมจำนวนใบ — ตัวเลือกเดือนของแท็บชำระเงินแล้ว (หน้า `/finance` โหลดใบที่จ่ายแล้วทีละเดือน) |
 | `getClaim(id)` | Any authenticated user | Admin เห็นทุกใบ; Staff เห็นเฉพาะของตัวเอง |
+| `markClaimsFiled(ids)` / `unmarkClaimFiled(id)` | Admin | เครื่องหมาย "เข้าแฟ้มแล้ว" (ครั้งละ 1–100 ใบ) — ต้องรัน `20260929_claim_filed.sql` ก่อน ไม่งั้นได้ข้อความแจ้งให้รัน |
 | `getClaimLogs(claimId)` | Any authenticated user | ดึง audit log ของใบเบิก |
 
 ### Create / Edit

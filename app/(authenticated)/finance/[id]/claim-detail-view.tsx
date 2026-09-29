@@ -4,15 +4,16 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useConfirm } from '../use-confirm'
-import { financeListHref } from '../claims-filter'
+import { claimFileCount, filedState, financeListHref } from '../claims-filter'
+import BundleDialog from '../bundle-dialog'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
   Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
   Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert,
   Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle,
-  ChevronDown, ChevronRight, Coins, Lock,
+  ChevronDown, ChevronRight, Coins, Lock, FileStack, FolderCheck,
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, removeReceiptFile, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, removeReceiptFile, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash, markClaimsFiled, unmarkClaimFiled } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES, getClaimChecklist, getFundingSourceLabel, getFundingSourceColor, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -148,6 +149,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [bundleOpen, setBundleOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [overrideStatus, setOverrideStatus] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
@@ -296,6 +298,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     { label: isEn ? 'Net payable' : 'ยอดจ่ายจริง', value: `฿${fmtDec(viewTax.netPayable)}` },
     { label: isEn ? 'Submitter' : 'ผู้เบิก', value: claim.submitter?.full_name || '—' },
   ]
+
+  // จับชุดเอกสาร: สถานะเข้าแฟ้ม (ฐานข้อมูลที่ยังไม่มีคอลัมน์ = none) + ปุ่มทำ/ยกเลิกเครื่องหมายของแอดมิน
+  const filed = filedState(claim)
+  const handleFiled = async (mark: boolean) => {
+    setLoading(true)
+    setError(null)
+    const result = mark ? await markClaimsFiled([claim.id]) : await unmarkClaimFiled(claim.id)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { router.refresh(); setLoading(false) }
+  }
 
   const handleApprove = async () => {
     const ok = await askConfirm({
@@ -753,13 +765,28 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   return (
     <div className="max-w-3xl mx-auto">
       {confirmDialog}
+      {bundleOpen && (
+        <BundleDialog
+          claims={[{
+            id: claim.id,
+            claim_number: claim.claim_number,
+            title: claim.title,
+            incomplete: !getClaimChecklist(claim).isComplete,
+            fileCount: claimFileCount(claim),
+          }]}
+          isAdmin={isAdmin}
+          isEn={isEn}
+          onClose={() => setBundleOpen(false)}
+          onFiled={() => router.refresh()}
+        />
+      )}
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className={`flex items-center justify-between gap-2 ${filed !== 'none' || isAdmin ? 'mb-3' : 'mb-6'}`}>
         <button onClick={() => router.push(financeListHref())} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400">
           <ArrowLeft className="h-4 w-4" />
           {isEn ? 'Back' : 'กลับ'}
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {canEdit && !editing && (
             <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg transition-colors">
               <Edit3 className="h-4 w-4" />
@@ -773,6 +800,13 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             <FileDown className="h-4 w-4" />
             {isEn ? 'Export PDF' : 'ส่งออก PDF'}
           </button>
+          <button
+            onClick={() => setBundleOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/20 rounded-lg transition-colors"
+          >
+            <FileStack className="h-4 w-4" />
+            {isEn ? 'Bundle documents' : 'จับชุดเอกสาร'}
+          </button>
           {isAdmin && (
             <button onClick={handleDelete} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors">
               <Trash2 className="h-4 w-4" />
@@ -781,6 +815,47 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
           )}
         </div>
       </div>
+
+      {/* สถานะเข้าแฟ้ม — ไม่แสดงเมื่อยังไม่เข้าแฟ้ม (แอดมินเห็นปุ่มทำเครื่องหมาย) */}
+      {(filed !== 'none' || isAdmin) && (
+        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+          {filed !== 'none' && claim.filed_at && (
+            <span className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400">
+              <FolderCheck className="h-3.5 w-3.5 shrink-0" />
+              {isEn ? 'Filed on ' : 'เข้าแฟ้มแล้ว เมื่อ '}
+              {/* ระบุเขตเวลา — server กับ browser ต้องได้ข้อความเดียวกัน */}
+              {new Date(claim.filed_at).toLocaleDateString(isEn ? 'en-GB' : 'th-TH', {
+                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok',
+              })}
+            </span>
+          )}
+          {filed === 'changed' && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              {isEn ? 'Attachments changed after filing — reprint recommended' : 'ไฟล์แนบเปลี่ยนหลังเข้าแฟ้ม — ควรพิมพ์ใหม่'}
+            </span>
+          )}
+          {isAdmin && filed !== 'filed' && (
+            <button
+              onClick={() => handleFiled(true)}
+              disabled={loading}
+              className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              <FolderCheck className="h-3.5 w-3.5" />
+              {isEn ? 'Mark as filed' : 'ทำเครื่องหมายว่าเข้าแฟ้มแล้ว'}
+            </button>
+          )}
+          {isAdmin && filed !== 'none' && (
+            <button
+              onClick={() => handleFiled(false)}
+              disabled={loading}
+              className="rounded-lg px-2.5 py-1 font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              {isEn ? 'Remove mark' : 'ยกเลิกเครื่องหมาย'}
+            </button>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 p-4 bg-red-50 dark:bg-red-950/20 rounded-xl text-red-600 text-sm">{error}</div>

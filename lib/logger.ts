@@ -155,6 +155,10 @@ export type ActionType =
     // จัดซื้อ ↔ ใบเบิก — ผูก/เลิกผูกรายการจัดซื้อกับ expense_claims (purchase_items.expense_claim_id)
     | 'LINK_PURCHASE_ITEM_CLAIM'
     | 'UNLINK_PURCHASE_ITEM_CLAIM'
+    // จับชุดเอกสารใบเบิก — ส่งออก PDF ชุดพิมพ์ (มีเลขบัญชี จึงต้องมีประวัติ) และเครื่องหมายเข้าแฟ้ม
+    | 'EXPORT_CLAIM_BUNDLE'
+    | 'MARK_CLAIM_FILED'
+    | 'UNMARK_CLAIM_FILED'
     // Ticket Module
     | 'CREATE_TICKET'
     | 'UPDATE_TICKET_STATUS'

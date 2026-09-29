@@ -180,6 +180,10 @@ export interface ExpenseClaim {
   cancelled_at: string | null
   cancelled_by: string | null
   created_at: string
+  /** จับชุดเอกสาร: เครื่องหมายเข้าแฟ้ม (คอลัมน์มาจาก 20260929_claim_filed.sql — ฐานข้อมูลที่ยังไม่รันจะไม่มี) */
+  filed_at?: string | null
+  filed_by?: string | null
+  filed_file_count?: number | null
   // Joined
   submitter?: { id: string; full_name: string } | null
   approver?: { id: string; full_name: string } | null

@@ -1,0 +1,316 @@
+{
+  "cases": [
+    {
+      "label": "(a) ใบปกติ VAT แยก + หัก ณ ที่จ่าย 3% + บัญชีธนาคาร",
+      "data": {
+        "claimNumber": "EXP-202609-101",
+        "date": "15 กันยายน 2569",
+        "payeeName": "พนักงาน ทดสอบหนึ่ง",
+        "paymentMethod": "transfer",
+        "bankName": "ธนาคารทดสอบ",
+        "accountName": "พนักงาน ทดสอบหนึ่ง",
+        "accountNumber": "000-0-00000-0",
+        "description": "งานทดสอบ ห้องประชุมใหญ่",
+        "items": [
+          {
+            "no": 1,
+            "description": "ค่าเช่าเครื่องเสียง - งานทดสอบ ห้องประชุมใหญ่",
+            "amount": 2501
+          }
+        ],
+        "totalAmount": 2501,
+        "vatAmount": 175.07000000000002,
+        "whtAmount": 75.03,
+        "netAmount": 2601.04,
+        "vatMode": "excluded",
+        "whtRate": 3,
+        "receiverName": "พนักงาน ทดสอบหนึ่ง",
+        "approverName": "แอดมิน ทดสอบ",
+        "qrCodeDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAAAklEQVR4AewaftIAAAPiSURBVO3BW47cVgBDQZLo/W+ZmV8Dpq5jdZR5nCr3gwD8VgRgigBMEYApAjBFAKYIwBQBmCIA00t/wLZ+mra6y7ZO2uqzsK2fpq2uRACmCMAUAZgiAFMEYIoATBGAKQIwvfQmbfVV2Bb+Tlt9FbZ1VwRgigBMEYApAjBFAKYIwBQBmCIA00sPsq0ntNVn0FYntnXSVl+FbT2hrZ4QAZgiAFMEYIoATBGAKQIwRQCml/At2NaVtsK/FwGYIgBTBGCKAEwRgCkCMEUApgjA9BL+M7b1DraF/0cEYIoATBGAKQIwRQCmCMAUAZgiANNLD2qr78S27mqr76StvpMIwBQBmCIAUwRgigBMEYApAjC99Ca2hV+11YltnbTViW1daat3sK2fJAIwRQCmCMAUAZgiAFMEYIoATBGAyf0gAL8VAZgiAFMEYIoATBGAKQIwRQCmCMD00h+wrZO2usu2TtrqxLbuaqsT2/pO2urEtq601XcSAZgiAFMEYIoATBGAKQIwRQCml97Etu5qqxPbOmmrJ7TVE2zrpK0+A9t6Qlud2NZJW12JAEwRgCkCMEUApgjAFAGYIgBTBGB66Q+01TvY1hNs6wlt9VXY1klb4VcRgCkCMEUApgjAFAGYIgBTBGCKAEwvvYltfRVtdWJbd9nWSVudtNWJbV1pq3doq58kAjBFAKYIwBQBmCIAUwRgigBMEYDJ/aAD23qHtrpiWydtdWJbd7XVZ2FbJ211l22dtNVdtnVXWz0hAjBFAKYIwBQBmCIAUwRgigBM7gfhr9jWlbY6sa2TtvosbOuutjqxrSttdWJbJ211JQIwRQCmCMAUAZgiAFMEYIoATBGAyf2gA9v6adrqLtv6LNrqCbb1hLZ6QgRgigBMEYApAjBFAKYIwBQBmCIA00tv0lZfhW29g23d1VZPsK2TtjqxrSttdWJbJ211l22dtNWVCMAUAZgiAFMEYIoATBGAKQIwvfQg23pCWz2hre6yrZO2OrGtu2zrpK2eYFtX2uoJEYApAjBFAKYIwBQBmCIAUwRgigBML+Gv2daVtjppq3doq7ts68S2rrTVO7TVFdt6QgRgigBMEYApAjBFAKYIwBQBmCIA00v4a211xbZO2urEtk7a6gltdcW2TtrqrrY6sa27IgBTBGCKAEwRgCkCMEUApgjA9NKD2gq/sq13sK0rbXXSVne11Ylt3dVWT4gATBGAKQIwRQCmCMAUAZgiAFMEYHrpTWzrp7GtK211YlsnbfVV2NZn0VZ3RQCmCMAUAZgiAFMEYIoATBGAKQIwuR8E4LciAFMEYIoATBGAKQIwRQCmCMD0D6lHBpLWC0OoAAAAAElFTkSuQmCC"
+      },
+      "response": {
+        "label": "(a) ใบปกติ VAT แยก + หัก ณ ที่จ่าย 3% + บัญชีธนาคาร",
+        "status": 200,
+        "headers": {
+          "content-type": "application/pdf",
+          "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-101.pdf\"",
+          "x-frame-options": "SAMEORIGIN",
+          "cache-control": null
+        },
+        "body": "%PDF-1.4 fake voucher"
+      }
+    },
+    {
+      "label": "(b) เงินทดลองจ่าย เคลียร์แล้ว + สลิปคืนเงินรูป 2 ไฟล์",
+      "data": {
+        "claimNumber": "EXP-202609-102",
+        "date": "12 กันยายน 2569",
+        "payeeName": "พนักงาน ทดสอบหนึ่ง",
+        "paymentMethod": "transfer",
+        "bankName": "ธนาคารทดสอบ",
+        "accountName": "พนักงาน ทดสอบหนึ่ง",
+        "accountNumber": "000-0-00000-0",
+        "description": "[undefined]",
+        "items": [
+          {
+            "no": 1,
+            "description": "ดอกไม้หน้างาน",
+            "amount": 1200
+          },
+          {
+            "no": 2,
+            "description": "(ไม่ระบุ)",
+            "amount": 800.5
+          },
+          {
+            "no": 3,
+            "description": "(ไม่ระบุ)",
+            "amount": 300
+          }
+        ],
+        "totalAmount": 2300.5,
+        "vatAmount": "[undefined]",
+        "whtAmount": "[undefined]",
+        "netAmount": 2300.5,
+        "vatMode": "[undefined]",
+        "whtRate": "[undefined]",
+        "receiverName": "พนักงาน ทดสอบหนึ่ง",
+        "approverName": "แอดมิน ทดสอบ",
+        "isAdvance": true,
+        "docTitle": "เงินทดลองจ่าย",
+        "docTitleEn": "ADVANCE PAYMENT VOUCHER",
+        "advanceAmount": 5000,
+        "actualSpent": 2300.5,
+        "refundAmount": 2699.5,
+        "refundSlipImages": [
+          "data:image/jpeg;base64,/9j/4AAQSkZJRgAB/9k=",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+        ],
+        "refundConfirmedAt": "21 กันยายน 2569",
+        "refundPayerName": "พนักงาน ทดสอบหนึ่ง",
+        "refundBankName": "ธนาคารทดสอบ",
+        "refundAccountNumber": "000-0-00000-0",
+        "refundAccountName": "พนักงาน ทดสอบหนึ่ง",
+        "qrCodeDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAAAklEQVR4AewaftIAAAPMSURBVO3BQXIkVQBDQUlR97+ymAUbIlD9gW4Kt/0y3V8E4G9FAKYIwBQBmCIAUwRgigBMEYApAjBd+g229dO01SexrTttdWJbP01b3YkATBGAKQIwRQCmCMAUAZgiAFMEYLr0Jm31KWzrCbb13bTVp7CtV0UApgjAFAGYIgBTBGCKAEwRgCkCMF16kG09oa2eYFt32urEtk7a6sS2vgLbekJbPSECMEUApgjAFAGYIgBTBGCKAEyX8L9qqxPbwv8jAjBFAKYIwBQBmCIAUwRgigBMEYDpEv4ztnXSVvi6IgBTBGCKAEwRgCkCMEUApgjAFAGYLj2orX6StjqxrZO2OrGtr6CtvpMIwBQBmCIAUwRgigBMEYApAjBdehPbwvdnWz9JBGCKAEwRgCkCMEUApgjAFAGYIgCT+4vwr9jWp2gr/HMRgCkCMEUApgjAFAGYIgBTBGCKAEyXfoNtnbTViW19irY6aauvwrZeZVufoq2eEAGYIgBTBGCKAEwRgCkCMEUApktvYlufoq1ObOukre7Y1klbPcG2TtrqxLZe1Vavsq13aKs7EYApAjBFAKYIwBQBmCIAUwRgigBMl76htrpjWydtdWJbT7Ctk7Z6lW2dtNUd2zqxrSe01asiAFMEYIoATBGAKQIwRQCmCMAUAZgu/Ya2eoJtnbTVq9rqxLZe1VYntnXSVq+yrSe01TvY1lcQAZgiAFMEYIoATBGAKQIwRQCmCMDk/qIPYltPaKsT23pVW53Y1klbPcG2voK2OrGtk7a6EwGYIgBTBGCKAEwRgCkCMEUApksfpq0+RVud2NY72NadtnpCW53Y1klbfQURgCkCMEUApgjAFAGYIgBTBGCKAEyXfoNt/TRtddJWT2irE9v6FG11Ylt32uqkrV4VAZgiAFMEYIoATBGAKQIwRQCmCMB06U3a6lPY1jvY1qva6sS28Fe29Q5tdScCMEUApgjAFAGYIgBTBGCKAEyXHmRbT2ir76StTmzrU9jWE9rqVRGAKQIwRQCmCMAUAZgiAFMEYIoATJeAP9nWp2irJ0QApgjAFAGYIgBTBGCKAEwRgCkCMF3Cf6at3sG2TtrqVW11YluvaqtPEQGYIgBTBGCKAEwRgCkCMEUApksPaqvvpK3u2NY7tNVX0VZ3bOukrZ5gWydtdScCMEUApgjAFAGYIgBTBGCKAEwRgOnSm9jWT2Nbd9rqHWzrpK2eYFt32uodbOtOW5201asiAFMEYIoATBGAKQIwRQCmCMAUAZjcXwTgb0UApgjAFAGYIgBTBGCKAEwRgOkPRdDyjtuyTqcAAAAASUVORK5CYII="
+      },
+      "response": {
+        "label": "(b) เงินทดลองจ่าย เคลียร์แล้ว + สลิปคืนเงินรูป 2 ไฟล์",
+        "status": 200,
+        "headers": {
+          "content-type": "application/pdf",
+          "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-102.pdf\"",
+          "x-frame-options": "SAMEORIGIN",
+          "cache-control": null
+        },
+        "body": "%PDF-1.4 fake voucher"
+      }
+    },
+    {
+      "label": "(c) วงเงินสดย่อยประจำเดือน + รายการลูก",
+      "data": {
+        "claimNumber": "EXP-202609-103",
+        "date": "1 กันยายน 2569",
+        "payeeName": "พนักงาน ทดสอบสอง",
+        "paymentMethod": "transfer",
+        "bankName": "ธนาคารทดสอบ",
+        "accountName": "พนักงาน ทดสอบสอง",
+        "accountNumber": "000-0-00000-0",
+        "description": "[undefined]",
+        "items": [
+          {
+            "no": 1,
+            "date": "2026-09-02",
+            "description": "(ไม่ระบุ)  [EXP-202609-115]",
+            "amount": 120
+          },
+          {
+            "no": 2,
+            "date": "2026-09-05",
+            "description": "ค่ากาแฟ  [EXP-202609-111]",
+            "amount": 350.25
+          },
+          {
+            "no": 3,
+            "date": "2026-09-08",
+            "description": "ทดลองจ่ายจากกล่อง  [EXP-202609-113]",
+            "amount": 750
+          }
+        ],
+        "totalAmount": 1220.25,
+        "vatAmount": "[undefined]",
+        "whtAmount": "[undefined]",
+        "netAmount": 1220.25,
+        "vatMode": "[undefined]",
+        "whtRate": "[undefined]",
+        "receiverName": "พนักงาน ทดสอบสอง",
+        "approverName": "แอดมิน ทดสอบ",
+        "isPettyCash": true,
+        "docTitle": "สรุปเงินสดย่อยประจำเดือน",
+        "docTitleEn": "PETTY CASH MONTHLY SUMMARY",
+        "pettyOpening": 10000,
+        "pettyTopup": 3000,
+        "pettyStarting": 13000,
+        "pettySpent": 1220.25,
+        "pettyClosing": 11779.75,
+        "pettyPeriodStart": "2026-09-01",
+        "pettyPeriodEnd": "2026-09-30",
+        "refundSlipImages": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+        ],
+        "refundAmount": 1000,
+        "refundConfirmedAt": "30 กันยายน 2569",
+        "refundPayerName": "พนักงาน ทดสอบสอง",
+        "refundBankName": "ธนาคารทดสอบ",
+        "refundAccountNumber": "000-0-00000-0",
+        "refundAccountName": "พนักงาน ทดสอบสอง",
+        "qrCodeDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAAAklEQVR4AewaftIAAAQSSURBVO3BUXIj2REEwciyvv+VU/Mrs61+1ADqBclwT/9A0j8aJK0GSatB0mqQtBokrQZJq0HSapC0uviCJPw2bXlCEk7a8oQk/DZtuTNIWg2SVoOk1SBpNUhaDZJWg6TVIGl18SZt+S6S8A5JuNOWk7acJOFVbXmHtnwXSXjVIGk1SFoNklaDpNUgaTVIWg2SVoOk1cWDkvCEtjyhLXeS8A5t+S6S8IS2PGGQtBokrQZJq0HSapC0GiStBkmrC/3ftOUkCSdJOGmL3m+QtBokrQZJq0HSapC0GiStBkmrQdLqQn8tCXfactKWkyScJOFOW/S/GyStBkmrQdJqkLQaJK0GSatB0mqQtLp4UFt+krZ8irZ8grb8JIOk1SBpNUhaDZJWg6TVIGk1SFpdvEkSfpsk3GnLSRJO2nKShDtteYck/CaDpNUgaTVIWg2SVoOk1SBpNUhaDZJW6R/oX5OEk7bo3zFIWg2SVoOk1SBpNUhaDZJWg6TVIGl18QVJOGnLSRLutOUkCSdtuZOEk7Y8oS3vkIQ7bXlCEk7a8qoknLTlVYOk1SBpNUhaDZJWg6TVIGk1SFpdfDNtOUnCnbacJOEJbTlJwklbnpCEVyXhVW05ScJJW+4MklaDpNUgaTVIWg2SVoOk1SBpNUhaXbxJEk7a8gmScNKWkyTov7XlJAmvSsITBkmrQdJqkLQaJK0GSatB0mqQtBokrS6+oC2fIgknbXlVEk7a8imScKctJ0k4acsT2vIJBkmrQdJqkLQaJK0GSatB0mqQtBokrS6+IAknbTlJwidIwjsk4U5bntKWnyQJd9ryhEHSapC0GiStBkmrQdJqkLQaJK3SP9BfScKdtnyKJJy05SQJd9ryDkl4QlvuDJJWg6TVIGk1SFoNklaDpNUgaTVIWl18QRJ+m7actOVTJOFOW06ScNKWO0k4acur2nKShFcNklaDpNUgaTVIWg2SVoOk1SBpNUhaXbxJW76LJPw0bbmThJO2nCThTltOknDSlk8wSFoNklaDpNUgaTVIWg2SVoOk1cWDkvCEtjwhCU9oy0kS7rTlJAknbbmThHdIwicYJK0GSatB0mqQtBokrQZJq0HSapC0utBfa8udJJy05SQJJ215QhLutOUJSThpy6sGSatB0mqQtBokrQZJq0HSapC0GiStLvTXkvDbtOVOEk7a8qq2nCThpC13BkmrQdJqkLQaJK0GSatB0mqQtLp4UFt+kra8KgnvkIRXteUJSfguBkmrQdJqkLQaJK0GSatB0mqQtBokrS7eJAm/TRLutOWkLSdJOGnLq5Jw0pZXteUkCXfacpKEVw2SVoOk1SBpNUhaDZJWg6TVIGk1SFqlfyDpHw2SVoOk1SBpNUhaDZJWg6TVIGn1H4mIHKCBQDLjAAAAAElFTkSuQmCC"
+      },
+      "response": {
+        "label": "(c) วงเงินสดย่อยประจำเดือน + รายการลูก",
+        "status": 200,
+        "headers": {
+          "content-type": "application/pdf",
+          "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-103.pdf\"",
+          "x-frame-options": "SAMEORIGIN",
+          "cache-control": null
+        },
+        "body": "%PDF-1.4 fake voucher"
+      }
+    },
+    {
+      "label": "(d) ไม่มีบัญชีธนาคาร",
+      "data": {
+        "claimNumber": "EXP-202609-104",
+        "date": "22 กันยายน 2569",
+        "payeeName": "พนักงาน ทดสอบสอง",
+        "paymentMethod": "cash",
+        "bankName": "[undefined]",
+        "accountName": "[undefined]",
+        "accountNumber": "[undefined]",
+        "description": "[undefined]",
+        "items": [
+          {
+            "no": 1,
+            "description": "ของใช้ส่วนกลาง",
+            "amount": 535
+          }
+        ],
+        "totalAmount": 535,
+        "vatAmount": 35.00000000000006,
+        "whtAmount": "[undefined]",
+        "netAmount": 535,
+        "vatMode": "included",
+        "whtRate": "[undefined]",
+        "receiverName": "พนักงาน ทดสอบสอง",
+        "approverName": "[undefined]",
+        "qrCodeDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAADICAYAAACtWK6eAAAAAklEQVR4AewaftIAAAQTSURBVO3BiXXkVhAEwax+8N/lEg3Yxl9xRhCPjEg/IOmPBkmrQdJqkLQaJK0GSatB0mqQtBokrS7+QhJ+m7Y8IQknbXlCEn6bttwZJK0GSatB0mqQtBokrQZJq0HSapC0uniTtnwXSXiHJNxpy0lbTpJw0pYntOW7SMKrBkmrQdJqkLQaJK0GSatB0mqQtBokrS4elIQntOUJbbmThN8mCU9oyxMGSatB0mqQtBokrQZJq0HSapC0utD/qi36ugZJq0HSapC0GiStBkmrQdJqkLQaJK0u9GlJuNOWkyQ8oS369wZJq0HSapC0GiStBkmrQdJqkLQaJK0uHtSWn6Qtd5LwlLZ8BW35SQZJq0HSapC0GiStBkmrQdJqkLS6eJMk/DZJuNOWkySctOUkCXfa8g5J+E0GSatB0mqQtBokrQZJq0HSapC0GiSt0g/oP5GEd2iL/h+DpNUgaTVIWg2SVoOk1SBpNUhaDZJWF38hCSdtOUnCnbacJOGkLXeScNKWV7XlKUm405YnJOGkLa9KwklbXjVIWg2SVoOk1SBpNUhaDZJWg6RV+oE3SMJJW76LJHwnbXlCEr6Ctpwk4aQtdwZJq0HSapC0GiStBkmrQdJqkLQaJK0u3qQtJ0n4LtryhCT8JG05ScKrkvCEQdJqkLQaJK0GSatB0mqQtBokrQZJq4svpC1fRRJO2nInCU9Jwp22nCThpC1PaMtXMEhaDZJWg6TVIGk1SFoNklaDpNUgaXXxJkk4acudJLxDW+4k4aQtJ0l4VVtOknDSlp8kCXfa8oRB0mqQtBokrQZJq0HSapC0GiSt0g/oU5LwhLa8KgknbTlJwp22vEMSntCWO4Ok1SBpNUhaDZJWg6TVIGk1SFoNklYXfyEJv01bTtpyJwknbXmHJNxpy0kSTtpyJwknbXlVW06S8KpB0mqQtBokrQZJq0HSapC0GiStBkmrizdpy3eRhCe05SQJJ205acudJJy05SQJd9pykoSTtnwFg6TVIGk1SFoNklaDpNUgaTVIWl08KAlPaMsTknCnLU9JwquScNKWO0l4hyR8BYOk1SBpNUhaDZJWg6TVIGk1SFoNklYX+rS23EnCSVtOknDSljtJOGnLSRLutOUJSThpy6sGSatB0mqQtBokrQZJq0HSapC0GiStLvRpSbjTlpMkPKEtJ0k4acudJJy05VVtOUnCSVvuDJJWg6TVIGk1SFoNklaDpNUgaXXxoLb8JG15VVtOknCShFe15QlJ+C4GSatB0mqQtBokrQZJq0HSapC0GiStLt4kCb9NEu605SlteVUSTtryqracJOFOW06S8KpB0mqQtBokrQZJq0HSapC0GiStBkmr9AOS/miQtBokrQZJq0HSapC0GiStBkmrfwDqoyOWbY1yBAAAAABJRU5ErkJggg=="
+      },
+      "response": {
+        "label": "(d) ไม่มีบัญชีธนาคาร",
+        "status": 200,
+        "headers": {
+          "content-type": "application/pdf",
+          "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-104.pdf\"",
+          "x-frame-options": "SAMEORIGIN",
+          "cache-control": null
+        },
+        "body": "%PDF-1.4 fake voucher"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "label": "ไม่ได้ล็อกอิน → 401",
+      "status": 401,
+      "headers": {
+        "content-type": "application/json",
+        "content-disposition": null,
+        "x-frame-options": null,
+        "cache-control": null
+      },
+      "body": {
+        "error": "Unauthorized"
+      }
+    },
+    {
+      "label": "ไม่ส่ง id → 400",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json",
+        "content-disposition": null,
+        "x-frame-options": null,
+        "cache-control": null
+      },
+      "body": {
+        "error": "Missing claim ID"
+      }
+    },
+    {
+      "label": "ไม่พบใบ → 404",
+      "status": 404,
+      "headers": {
+        "content-type": "application/json",
+        "content-disposition": null,
+        "x-frame-options": null,
+        "cache-control": null
+      },
+      "body": {
+        "error": "Claim not found"
+      }
+    },
+    {
+      "label": "พนักงานขอใบของคนอื่น → 403",
+      "status": 403,
+      "headers": {
+        "content-type": "application/json",
+        "content-disposition": null,
+        "x-frame-options": null,
+        "cache-control": null
+      },
+      "body": {
+        "error": "Forbidden"
+      }
+    },
+    {
+      "label": "พนักงานขอใบของตัวเอง → 200",
+      "status": 200,
+      "headers": {
+        "content-type": "application/pdf",
+        "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-101.pdf\"",
+        "x-frame-options": "SAMEORIGIN",
+        "cache-control": null
+      },
+      "body": "%PDF-1.4 fake voucher"
+    },
+    {
+      "label": "พนักงานขอใบวงเงินสดย่อยของคนอื่น → 200",
+      "status": 200,
+      "headers": {
+        "content-type": "application/pdf",
+        "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-103.pdf\"",
+        "x-frame-options": "SAMEORIGIN",
+        "cache-control": null
+      },
+      "body": "%PDF-1.4 fake voucher"
+    },
+    {
+      "label": "render พัง → 500",
+      "status": 500,
+      "headers": {
+        "content-type": "application/json",
+        "content-disposition": null,
+        "x-frame-options": null,
+        "cache-control": null
+      },
+      "body": {
+        "error": "Failed to generate PDF",
+        "details": "render failed (จำลอง)"
+      }
+    }
+  ],
+  "fetched": [
+    "https://project-ref.supabase.co/storage/v1/object/public/receipts/refund-slips/1758300000000_slip01.jpg",
+    "https://project-ref.supabase.co/storage/v1/object/public/receipts/refund-slips/1758300000001_slip02.png",
+    "https://project-ref.supabase.co/storage/v1/object/public/receipts/refund-slips/1758300000003_fund01.png"
+  ]
+}
