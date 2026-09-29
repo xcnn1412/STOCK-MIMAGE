@@ -271,7 +271,8 @@ export async function logActivity(
             location = 'Localhost'
         }
 
-        // Determine Actor — use signed token first, fallback to legacy cookie
+        // Determine Actor — signed token only (unsigned legacy cookies are ignored).
+        // Kept DB-free on purpose — authorization is the caller's job (requireAuth()).
         let userId = overrideUserId
         if (!userId) {
             const cookieStore = await cookies()
@@ -279,10 +280,6 @@ export async function logActivity(
             if (token) {
                 const verified = verifySessionToken(token)
                 if (verified) userId = verified.userId
-            }
-            // Fallback to legacy cookie
-            if (!userId) {
-                userId = cookieStore.get('session_user_id')?.value
             }
         }
 

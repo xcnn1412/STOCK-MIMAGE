@@ -1,13 +1,13 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import ReportsView from './reports-view'
 
 export const revalidate = 0
 
 export default async function ReportsPage() {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
-  const role = cookieStore.get('session_role')?.value
+  const session = await requireAuth()
+  const userId = session?.userId
+  const role = session?.role
   const isAdmin = role === 'admin'
 
   // ดึง evaluations พร้อม assignment + template + profile

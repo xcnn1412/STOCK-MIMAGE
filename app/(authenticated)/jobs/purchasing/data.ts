@@ -2,7 +2,7 @@
 // แถวของแผงเตือนหน้าแรก ("ของยังไม่ครบ — ใกล้วันงาน") และรายการที่ผูกกับใบเบิกหนึ่งใบ (หน้า /finance/[id])
 // server-only: มี service-role client อยู่ข้างใน — ห้าม import จาก client component
 import { createServiceClient } from '@/lib/supabase-server'
-import { getSessionLight } from '@/lib/auth'
+import { requireAuth } from '@/lib/auth'
 import {
     COORDINATOR_DEPARTMENT,
     PURCHASE_ITEM_COLUMNS,
@@ -69,14 +69,14 @@ export interface PurchasingSnapshot {
     missingTables: boolean
 }
 
-/** ตัวเลือกของ getPurchasingSnapshot — ไม่ส่ง = ค่าเดิม (ตัดใบเก่า, อ่าน session จาก cookie) */
+/** ตัวเลือกของ getPurchasingSnapshot — ไม่ส่ง = ค่าเดิม (ตัดใบเก่า, อ่าน session ที่ยืนยันแล้วจาก requireAuth()) */
 export interface PurchasingSnapshotOptions {
     /** true = โหลดทุกเช็กลิสต์ (หน้าเปิดด้วย ?past=1) */
     includePast?: boolean
     /**
-     * session ที่ผู้เรียกมีอยู่แล้ว — ใส่มาเพื่อข้าม getSessionLight()
+     * session ที่ผู้เรียกมีอยู่แล้ว — ใส่มาเพื่อข้าม requireAuth()
      * สคริปต์ที่รันนอก request ต้องส่งเอง เพราะ cookies() ใช้ได้เฉพาะใน request
-     * (role ไม่ใช้ตัดสินสิทธิ์ — อ่านจาก profiles แทน เพราะ cookie session_role ไม่ได้เซ็น)
+     * (role ไม่ใช้ตัดสินสิทธิ์ — อ่านจาก profiles แทน)
      */
     session?: { userId?: string; role?: string }
 }
@@ -243,10 +243,10 @@ export async function getPurchasingSnapshot(opts?: PurchasingSnapshotOptions): P
                 supabase.from('purchase_items').select('list_id').neq('status', 'done').order('id').range(from, to)),
         supabase.from('profiles').select('id, full_name, nickname, department, role').eq('is_approved', true).order('full_name'),
         supabase.from('purchase_templates').select('id, name, items, created_by, created_at, updated_at').order('name'),
-        opts?.session ? Promise.resolve(opts.session) : getSessionLight(),
+        opts?.session ? Promise.resolve(opts.session) : requireAuth(),
     ])
 
-    // คน + ผู้ใช้ปัจจุบัน — role อ่านจาก profiles (ไม่เชื่อ cookie session_role ที่ไม่ได้เซ็น)
+    // คน + ผู้ใช้ปัจจุบัน — role อ่านจาก profiles (ไม่เชื่อ role ที่ส่งมากับ session)
     const profiles = (profilesRes.data || []) as Row[]
     const people: PurchasePerson[] = profiles.map(p => ({
         id: String(p.id),
@@ -254,7 +254,7 @@ export async function getPurchasingSnapshot(opts?: PurchasingSnapshotOptions): P
         nickname: textOrNull(p.nickname),
         department: textOrNull(p.department),
     }))
-    const currentUserId = session.userId ?? null
+    const currentUserId = session?.userId ?? null
     const me = profiles.find(p => p.id === currentUserId)
     const isAdmin = me?.role === 'admin'
     const myDepartment = textOrNull(me?.department)
@@ -320,8 +320,8 @@ export async function getPurchaseAlerts(opts?: { session?: { userId?: string; ro
         return []
     }
     try {
-        const session = opts?.session ?? (await getSessionLight())
-        const userId = session.userId
+        const session = opts?.session ?? (await requireAuth())
+        const userId = session?.userId
         if (!userId) return []
 
         const supabase = createServiceClient()

@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { getOverviewData } from './actions'
 import OverviewView from './overview-view'
@@ -11,8 +11,8 @@ export const metadata = {
 export const revalidate = 0
 
 export default async function OverviewPage() {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const session = await requireAuth()
+  const role = session?.role ?? 'staff'
 
   if (role !== 'admin') redirect('/dashboard')
 

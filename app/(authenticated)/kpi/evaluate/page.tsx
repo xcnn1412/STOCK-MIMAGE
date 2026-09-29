@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import EvaluateView from './evaluate-view'
@@ -7,8 +7,8 @@ export const revalidate = 0
 
 export default async function EvaluatePage() {
   // ตรวจสอบ admin only
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value
+  const session = await requireAuth()
+  const role = session?.role
   if (role !== 'admin') {
     redirect('/kpi/dashboard')
   }

@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-server'
 import { notFound, redirect } from 'next/navigation'
 import EditEventForm from './edit-event-form'
@@ -10,8 +10,8 @@ import type { Kit } from '@/types'
 export const revalidate = 0
 
 export default async function EditEventPage(props: { params: Promise<{ id: string }> }) {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const session = await requireAuth()
+  const role = session?.role ?? 'staff'
   if (role !== 'admin') redirect('/events')
 
   const params = await props.params;

@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { getCheckinReportData, getActiveDuties } from '../actions'
 import { getJobEventsForSelect } from '../../finance/actions'
@@ -12,9 +12,9 @@ export const metadata = {
 export const revalidate = 0
 
 export default async function CheckinReportPage() {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
-  const userId = cookieStore.get('session_user_id')?.value
+  const session = await requireAuth()
+  const role = session?.role ?? 'staff'
+  const userId = session?.userId
   if (!userId) redirect('/login')
   const isAdmin = role === 'admin'
 

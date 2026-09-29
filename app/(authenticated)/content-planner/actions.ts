@@ -2,7 +2,7 @@
 
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { logActivity } from '@/lib/logger'
 import * as XLSX from 'xlsx'
 import {
@@ -16,10 +16,8 @@ import { fetchMetricsForUrl, getMetaToken, META_TOKEN_KEY, ERR_TIKTOK, type Fetc
 // ============================================================================
 
 async function getSession() {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
-  const role = cookieStore.get('session_role')?.value
-  return { userId, role }
+  const session = await requireAuth()
+  return { userId: session?.userId, role: session?.role }
 }
 
 // ============================================================================

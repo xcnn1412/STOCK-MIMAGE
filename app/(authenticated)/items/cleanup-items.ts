@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceClient } from '@/lib/supabase-server'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import type { Database } from '@/types'
 
 
@@ -11,8 +11,8 @@ import type { Database } from '@/types'
  * and resets their status to 'available'
  */
 export async function cleanupOrphanedItems() {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
     
     if (!userId) {
         return { error: 'Unauthorized: No active session found' }

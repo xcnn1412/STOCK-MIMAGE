@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs'
 import { logActivity } from '@/lib/logger'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { createSessionToken } from '@/lib/session'
+import { requireAuth } from '@/lib/auth'
 import { checkIpBlocked } from '@/lib/ip-check'
 import type { ActionState } from '@/types'
 
@@ -155,11 +156,11 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
         // HMAC-signed session token instead of raw UUID
         const sessionToken = createSessionToken(user.id)
         await cookieStore.set('session_token', sessionToken, cookieOptions)
-
-        // Keep legacy cookie for backward compatibility during migration
-        await cookieStore.set('session_user_id', user.id, cookieOptions)
-        await cookieStore.set('session_role', user.role, cookieOptions)
         await cookieStore.set('session_id', sessionId, cookieOptions)
+
+        // Legacy unsigned cookies are no longer issued or read — clear any stale ones
+        cookieStore.delete('session_user_id')
+        cookieStore.delete('session_role')
 
     } catch (err: unknown) {
         console.error('Unexpected error:', err)
@@ -225,15 +226,17 @@ export async function registerUser(prevState: ActionState, formData: FormData) {
 }
 
 export async function logout() {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    // Only a verified session may clear active_session_id — an unsigned cookie
+    // must not be able to log someone else out
+    const session = await requireAuth()
 
-    if (userId) {
-        await logActivity('LOGOUT', {}, undefined, userId)
+    if (session) {
+        await logActivity('LOGOUT', {}, undefined, session.userId)
         const supabase = createServiceClient()
-        await supabase.from('profiles').update({ active_session_id: null }).eq('id', userId)
+        await supabase.from('profiles').update({ active_session_id: null }).eq('id', session.userId)
     }
 
+    const cookieStore = await cookies()
     cookieStore.delete('session_token')
     cookieStore.delete('session_user_id')
     cookieStore.delete('session_role')

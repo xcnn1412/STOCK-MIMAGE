@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import AssignmentsView from './assignments-view'
@@ -7,8 +7,8 @@ export const revalidate = 0
 
 export default async function AssignmentsPage() {
   // Admin only — Staff ไม่สามารถจัดการ Assignments ได้
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value
+  const session = await requireAuth()
+  const role = session?.role
   if (role !== 'admin') {
     redirect('/kpi/dashboard')
   }

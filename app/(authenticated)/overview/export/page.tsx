@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase-server'
 import ExportView from './export-view'
@@ -23,7 +23,7 @@ async function fetchAll(table: string, cols: string) {
 }
 
 export default async function ExportPage() {
-  const role = (await cookies()).get('session_role')?.value || 'staff'
+  const role = (await requireAuth())?.role ?? 'staff'
   if (role !== 'admin') redirect('/dashboard')
 
   const [leads, claims, jobEvents, costItems, installments, profiles] = await Promise.all([

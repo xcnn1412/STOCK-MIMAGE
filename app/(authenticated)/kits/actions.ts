@@ -4,13 +4,13 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import type { ActionState, Database } from '@/types'
 
 
 export async function createKit(prevState: ActionState, formData: FormData) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const session = await requireAuth()
+  const userId = session?.userId
   if (!userId) {
       return { error: 'Unauthorized: No active session' }
   }
@@ -35,8 +35,8 @@ export async function createKit(prevState: ActionState, formData: FormData) {
 }
 
 export async function deleteKit(id: string) {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
     if (!userId) {
         throw new Error('Unauthorized: No active session')
     }

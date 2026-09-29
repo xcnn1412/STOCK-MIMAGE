@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { getLeads, getCrmSettings } from '../actions'
 import DownloadView from './download-view'
@@ -9,8 +9,8 @@ export const metadata = {
 }
 
 export default async function DownloadPage() {
-    const cookieStore = await cookies()
-    const role = cookieStore.get('session_role')?.value
+    const session = await requireAuth()
+    const role = session?.role
 
     if (role !== 'admin') {
         redirect('/crm')

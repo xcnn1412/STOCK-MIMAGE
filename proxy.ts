@@ -110,7 +110,6 @@ export async function proxy(request: NextRequest) {
   }
 
   const sessionToken = request.cookies.get('session_token')?.value
-  const legacyUserId = request.cookies.get('session_user_id')?.value
   const sessionId = request.cookies.get('session_id')?.value
   const { pathname } = request.nextUrl
 
@@ -123,21 +122,17 @@ export async function proxy(request: NextRequest) {
   // บทบาทจากฐานข้อมูล — cookie session_role ไม่ได้เซ็น ผู้ใช้แก้เองได้ จึงใช้ตัดสินสิทธิ์ไม่ได้
   let dbRole: string | null = null
 
-  // 1. Try to verify signed session token first
+  // 1. Verify the signed session token — the only accepted identity (needs session_id too).
+  // cookie id/บทบาทแบบเก่าไม่ได้เซ็น (ใครก็พิมพ์ id คนอื่นใส่ได้) จึงไม่อ่านอีกแล้ว
   const sessionSecret = process.env.SESSION_SECRET || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'fallback-dev-secret-change-in-production'
-  if (sessionToken) {
+  if (sessionToken && sessionId) {
     const verified = await verifySessionTokenEdge(sessionToken, sessionSecret)
     if (verified) {
       userId = verified.userId
     }
   }
 
-  // 2. Fallback to legacy cookie for backward compatibility
-  if (!userId && legacyUserId) {
-    userId = legacyUserId
-  }
-
-  // 3. Verify session against DB if we have a userId
+  // 2. Verify session against DB if the token checked out
   if (userId) {
     // ใช้กุญแจฝั่ง server (อยู่ใน env ของ server เท่านั้น ไม่ถูกส่งไป browser)
     // เดิมใช้กุญแจสาธารณะ ตาราง profiles จึงต้องเปิดให้กุญแจสาธารณะอ่าน = ใครก็อ่านข้อมูลพนักงานได้
@@ -159,8 +154,9 @@ export async function proxy(request: NextRequest) {
 
       if (data && data.is_approved && !data.is_blocked) {
         dbRole = typeof data.role === 'string' ? data.role : null
-        if (data.active_session_id && data.active_session_id !== sessionId) {
-          isValidSession = false // Session mismatch (logged in elsewhere)
+        // active_session_id ต้องมีค่าและตรงกับ cookie — null = ออกจากระบบ/ถูกเตะออกแล้ว
+        if (typeof data.active_session_id !== 'string' || data.active_session_id !== sessionId) {
+          isValidSession = false // Logged out, or logged in elsewhere
         } else {
           isValidSession = true
           if (data.allowed_modules && Array.isArray(data.allowed_modules)) {
@@ -193,15 +189,14 @@ export async function proxy(request: NextRequest) {
   }
 
   // 1. If not valid session AND protected route -> redirect to login
+  // Always clear the session cookies (incl. leftover legacy ones) so a dead session can't linger
   if (!isValidSession && !isPublicPath) {
     const response = redirectTo(request, '/login')
 
-    if (userId || legacyUserId) {
-      response.cookies.delete('session_token')
-      response.cookies.delete('session_user_id')
-      response.cookies.delete('session_role')
-      response.cookies.delete('session_id')
-    }
+    response.cookies.delete('session_token')
+    response.cookies.delete('session_user_id')
+    response.cookies.delete('session_role')
+    response.cookies.delete('session_id')
 
     return response
   }

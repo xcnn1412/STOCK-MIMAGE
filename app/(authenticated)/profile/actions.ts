@@ -5,8 +5,13 @@ import { saveAvatar, clearAvatar } from '@/lib/avatar'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
-import { cookies } from 'next/headers'
 import bcrypt from 'bcryptjs'
+
+/**
+ * ผู้ใช้ที่ล็อกอินอยู่ — จาก session ที่ยืนยันแล้ว (requireAuth) เท่านั้น
+ * (ทุก action ในไฟล์นี้แก้ได้เฉพาะโปรไฟล์ตัวเอง เพราะ userId มาจาก session เท่านั้น)
+ */
+const getOwnUserId = async (): Promise<string | null> => (await requireAuth())?.userId ?? null
 
 export async function updateMyProfile(data: {
   full_name?: string
@@ -18,8 +23,7 @@ export async function updateMyProfile(data: {
   bank_account_number?: string
   account_holder_name?: string
 }) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const userId = await getOwnUserId()
   if (!userId) {
     return { error: 'Unauthorized: No active session' }
   }
@@ -44,8 +48,7 @@ export async function updateMyProfile(data: {
 }
 
 export async function getMyProfile() {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const userId = await getOwnUserId()
   if (!userId) return null
 
   const supabase = createServiceClient()
@@ -63,29 +66,6 @@ export async function getMyProfile() {
 // bucket สร้างโดย migration 20260827_create_documents_module.sql (ไม่มี bucket 'avatars' ในระบบ)
 const SIGNATURE_BUCKET = 'doc-assets'
 const SIGNATURE_MAX_BYTES = 1 * 1024 * 1024
-
-/**
- * ผู้ใช้ที่ล็อกอินอยู่ — รองรับทั้ง session_token ใหม่และคุกกี้ legacy
- * (ทั้งสอง action ด้านล่างแก้ได้เฉพาะโปรไฟล์ตัวเอง เพราะ userId มาจาก session เท่านั้น)
- */
-async function getOwnUserId(): Promise<string | null> {
-  const session = await requireAuth()
-  if (session) return session.userId
-
-  const cookieStore = await cookies()
-  if (cookieStore.get('session_token')?.value) return null
-  const legacyId = cookieStore.get('session_user_id')?.value
-  if (!legacyId) return null
-
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('profiles')
-    .select('id, is_approved')
-    .eq('id', legacyId)
-    .single()
-
-  return data?.is_approved ? data.id : null
-}
 
 export async function updateSignature(formData: FormData): Promise<{ error?: string; url?: string }> {
   const userId = await getOwnUserId()
@@ -196,8 +176,7 @@ export async function changePin(formData: {
   newPin: string
   confirmPin: string
 }) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const userId = await getOwnUserId()
   if (!userId) {
     return { error: 'Unauthorized: No active session' }
   }

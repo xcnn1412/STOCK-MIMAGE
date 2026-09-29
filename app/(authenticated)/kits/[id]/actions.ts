@@ -3,13 +3,13 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 
 
 
 export async function addItemToKit(kitId: string, itemId: string, quantity: number = 1) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const session = await requireAuth()
+  const userId = session?.userId
   if (!userId) {
       return { error: 'Unauthorized: No active session' }
   }
@@ -52,8 +52,8 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
 }
 
 export async function removeItemFromKit(contentId: string, kitId: string) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const session = await requireAuth()
+  const userId = session?.userId
   if (!userId) {
       return { error: 'Unauthorized: No active session' }
   }
@@ -88,8 +88,8 @@ export async function removeItemFromKit(contentId: string, kitId: string) {
 }
 
 export async function updateKitItemQuantity(contentId: string, quantity: number) {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
     if (!userId) {
         throw new Error('Unauthorized: No active session')
     }
@@ -125,8 +125,8 @@ export async function updateKitItemQuantity(contentId: string, quantity: number)
 }
 
 export async function updateKitDetails(kitId: string, name: string, description: string) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const session = await requireAuth()
+  const userId = session?.userId
   if (!userId) {
       return { error: 'Unauthorized: No active session' }
   }

@@ -1,13 +1,11 @@
 'use server'
 
 import { createServiceClient } from '@/lib/supabase-server'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 
 async function getSession() {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
-  const userId = cookieStore.get('session_user')?.value || ''
-  return { role, userId }
+  const session = await requireAuth()
+  return { role: session?.role ?? 'staff', userId: session?.userId ?? '' }
 }
 
 // ดึงทุกแถวแบบแบ่งหน้า — `.select()` เดี่ยวๆ ถูก PostgREST ตัดที่ 1000 แถวเงียบๆ

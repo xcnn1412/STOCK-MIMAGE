@@ -1,13 +1,13 @@
 'use server'
 import { createServiceClient } from '@/lib/supabase-server'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 
 
 
 export async function checkoutItems(eventId: string, kitId: string, itemIds: string[]) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
+  const session = await requireAuth()
+  const userId = session?.userId
 
   if (!userId) return { error: "Unauthorized" }
 
@@ -39,8 +39,8 @@ export async function checkoutItems(eventId: string, kitId: string, itemIds: str
 }
 
 export async function checkinItem(eventId: string, kitId: string, itemId: string, condition: 'good' | 'damaged' | 'lost', note?: string) {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
 
     if (!userId) return { error: "Unauthorized" }
 

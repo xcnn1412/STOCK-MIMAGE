@@ -656,12 +656,12 @@ async function main() {
   assert.deepEqual(nationalIdReads()[0].filters[0].slice('in:id='.length).split('|').sort(), wantPeople)
   pass(`P0-A9 แอดมิน: ส่ง ${sent.length}/${db.expense_claims.length} ใบ (เฉพาะหัก ณ ที่จ่าย, เฉพาะช่องที่ใช้) · profileMap ${Object.keys(profileMap ?? {}).length} คนจาก ${db.profiles.length} (เฉพาะผู้เบิกของใบเหล่านั้น · อ่านด้วย in(id))`)
 
-  // ══ P0-A10: ไม่มีไฟล์ใต้ finance อ่าน cookie บทบาท/ผู้ใช้แบบเก่า (ยกเว้น actions.ts, viewer.ts) ═════
-  const allowed = new Set(['actions.ts', 'viewer.ts'].map(f => path.join(FINANCE, f)))
+  // ══ P0-A10: ไม่มีไฟล์ใต้ finance อ่าน cookie บทบาท/ผู้ใช้แบบเก่า (ไม่มีข้อยกเว้นตั้งแต่ v1.24.2) ═════
+  const allowed = new Set<string>()
   const cookieNames = /['"`]session_(role|user_id)['"`]/
   const offenders = walk(FINANCE).filter(f => /\.(ts|tsx)$/.test(f) && !allowed.has(f) && cookieNames.test(read(f)))
   assert.deepEqual(offenders.map(rel), [], 'ไฟล์ที่ยังอ่าน session_role / session_user_id')
-  assert.ok(cookieNames.test(read(path.join(FINANCE, 'viewer.ts'))), 'ตัวตรวจต้องจับรูปแบบนี้ได้ (viewer.ts มี session_user_id)')
+  assert.ok(cookieNames.test("get('session_user_id')"), 'ตัวตรวจต้องจับรูปแบบนี้ได้')
   // ตรวจการทำงานจริงด้วย: layout ให้แท็บตามบทบาทจากฐานข้อมูล ไม่ใช่ cookie
   staffPosingAsAdmin()
   const layout = await FinanceLayout({ children: null }) as ReactElement<{ children: ReactElement<{ role: string }>[] }>

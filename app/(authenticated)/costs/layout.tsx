@@ -1,9 +1,8 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import CostsNav from './costs-nav'
 
 export default async function CostsLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value
+  const role = (await requireAuth())?.role
   const isAdmin = role === 'admin'
 
   return (

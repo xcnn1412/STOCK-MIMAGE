@@ -1,15 +1,15 @@
 import { getTodayCheckins, getMyCheckinHistory, getTodayEvents, getStaffList, getActiveDuties } from './actions'
 import { getMyLeaves, getPendingLeaves } from './leave-actions'
 import { getJobEventsForSelect } from '../finance/actions'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import CheckInView from './check-in-view'
 
 export const revalidate = 0
 
 export default async function CheckInPage() {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value || ''
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const session = await requireAuth()
+  const userId = session?.userId ?? ''
+  const role = session?.role ?? 'staff'
 
   const isAdmin = role === 'admin'
 

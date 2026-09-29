@@ -3,7 +3,8 @@
 //
 // ตรวจว่า: (1) อ่าน profiles ด้วยกุญแจฝั่ง server ไม่ใช่กุญแจสาธารณะ
 //          (2) ประตูของหน้าแอดมินใช้บทบาทจากฐานข้อมูล ไม่ใช่ cookie session_role ที่ผู้ใช้แก้เองได้
-//          (3) session ที่ใช้ไม่ได้ถูกส่งไปหน้าล็อกอิน
+//          (3) session ที่ใช้ไม่ได้ถูกส่งไปหน้าล็อกอิน (รวม cookie แบบเก่าที่ไม่ได้เซ็น, active_session_id เป็น null,
+//              ไม่มี session_id) และ cookie ของ session ถูกลบทุกครั้ง
 // ไม่แตะฐานข้อมูลหรือเครือข่ายจริง · ผู้ใช้สังเคราะห์
 // บรรทัดสุดท้ายของผลลัพธ์ต้องเป็น "proxy-session: ผ่านทั้งหมด"
 
@@ -17,12 +18,14 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'SERVER-KEY'
 
 type Row = Record<string, unknown>
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
-const ADMIN = uid(1), STAFF = uid(2), BLOCKED = uid(3), PENDING = uid(4)
+const ADMIN = uid(1), STAFF = uid(2), BLOCKED = uid(3), PENDING = uid(4), LOGGED_OUT = uid(5)
 const profiles: Row[] = [
   { id: ADMIN, role: 'admin', is_approved: true, is_blocked: false, active_session_id: 'sess-admin', allowed_modules: ['stock'] },
   { id: STAFF, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-staff', allowed_modules: ['stock', 'finance', 'admin'] },
   { id: BLOCKED, role: 'staff', is_approved: true, is_blocked: true, active_session_id: 'sess-blocked', allowed_modules: ['stock'] },
   { id: PENDING, role: 'staff', is_approved: false, is_blocked: false, active_session_id: 'sess-pending', allowed_modules: ['stock'] },
+  // แอดมินที่ออกจากระบบแล้ว (หรือถูกเตะออก) — active_session_id เป็น null
+  { id: LOGGED_OUT, role: 'admin', is_approved: true, is_blocked: false, active_session_id: null, allowed_modules: ['stock'] },
 ]
 
 const keysUsed: string[] = []
@@ -111,6 +114,34 @@ async function main() {
   assert.equal(await outcome('/finance', { session_token: `${ADMIN}:${Date.now()}:deadbeef`, session_id: 'sess-admin' }), '/login', 'token ลายเซ็นปลอม')
   assert.equal(await outcome('/finance', signed(uid(99), 'x')), '/login', 'ผู้ใช้ที่ไม่มีอยู่')
   pass('ไม่ล็อกอิน / ล็อกอินที่อื่น / ถูกระงับ / ยังไม่อนุมัติ / token ปลอม / ไม่มีผู้ใช้ → ไปหน้าล็อกอิน')
+
+  // (3b) cookie แบบเก่า (ไม่ได้เซ็น) ไม่ใช่ตัวตนอีกต่อไป · active_session_id ต้องมีค่าและตรงกับ cookie
+  assert.equal(await outcome('/dashboard', { session_user_id: ADMIN, session_role: 'admin', session_id: 'sess-admin' }), '/login', 'cookie แบบเก่าอย่างเดียว (แม้ session_id ตรง) → ไปหน้าล็อกอิน')
+  assert.equal(await outcome('/dashboard', { session_user_id: LOGGED_OUT }), '/login', 'session_user_id ของคนที่ active_session_id เป็น null → ไปหน้าล็อกอิน')
+  assert.equal(await outcome('/dashboard', signed(LOGGED_OUT, 'anything')), '/login', 'token ถูกต้องแต่ active_session_id เป็น null (ออกจากระบบแล้ว) → ไปหน้าล็อกอิน')
+  assert.equal(await outcome('/dashboard', { session_token: createSessionToken(STAFF) }), '/login', 'token ถูกต้องแต่ไม่มี cookie session_id → ไปหน้าล็อกอิน')
+  pass('cookie แบบเก่าอย่างเดียว / active_session_id เป็น null / ไม่มี session_id → ไปหน้าล็อกอิน')
+
+  // token ของพนักงาน + cookie แบบเก่าปลอมเป็นแอดมิน → ตัวตนคือพนักงานเสมอ
+  const forged = signed(STAFF, 'sess-staff', { session_user_id: ADMIN, session_role: 'admin' })
+  assert.equal(await outcome('/users', forged), '/dashboard', 'พนักงาน + cookie แอดมินปลอม เข้า /users ไม่ได้')
+  assert.equal(await outcome('/finance', forged), 'next', 'พนักงาน + cookie แอดมินปลอม ยังใช้โมดูลของตัวเองได้ตามปกติ')
+  pass('token พนักงาน + session_user_id=แอดมิน + session_role=admin: /users → /dashboard · /finance ผ่าน (ตัวตน = พนักงาน)')
+
+  // หน้าล็อกอินที่ถูกส่งไปต้องลบ cookie ของ session ทั้งสี่ตัวเสมอ (รวม cookie แบบเก่าที่ค้างอยู่)
+  const toLogin: Record<string, string>[] = [{}, { session_user_id: ADMIN, session_role: 'admin', session_id: 'sess-admin' }, signed(LOGGED_OUT, 'anything')]
+  for (const cookies of toLogin) {
+    const res = await proxy(request('/dashboard', cookies))
+    assert.equal(new URL(res.headers.get('location') ?? 'http://x/none').pathname, '/login')
+    const setCookies = res.headers.getSetCookie()
+    for (const name of ['session_token', 'session_user_id', 'session_role', 'session_id']) {
+      const line = setCookies.find(c => c.startsWith(`${name}=`))
+      assert.ok(line, `ต้องมี Set-Cookie ลบ ${name} (cookie ที่ส่งมา: ${Object.keys(cookies).join(',') || 'ไม่มี'})`)
+      assert.match(line, /^[a-z_]+=;/, `${name} ต้องถูกตั้งเป็นค่าว่าง`)
+      assert.match(line, /Expires=Thu, 01 Jan 1970|Max-Age=0/i, `${name} ต้องหมดอายุทันที`)
+    }
+  }
+  pass('ถูกส่งไปหน้าล็อกอิน → Set-Cookie ลบ session_token / session_user_id / session_role / session_id ทุกครั้ง')
 
   // (4) สิทธิ์โมดูลยังทำงาน
   assert.equal(await outcome('/finance', signed(STAFF, 'sess-staff')), 'next')

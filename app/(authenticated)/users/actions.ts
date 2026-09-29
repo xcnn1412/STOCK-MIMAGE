@@ -3,17 +3,17 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { saveAvatar, clearAvatar } from '@/lib/avatar'
 
 
 
 export async function toggleUserApproval(userId: string, currentStatus: boolean) {
-  const cookieStore = await cookies()
-  const sessionUserId = cookieStore.get('session_user_id')?.value
-  if (!sessionUserId) {
+  const session = await requireAuth()
+  if (!session) {
       return { error: 'Unauthorized: No active session' }
   }
+  if (session.role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
   const supabase = createServiceClient()
   
@@ -37,9 +37,9 @@ export async function toggleUserApproval(userId: string, currentStatus: boolean)
 }
 
 export async function toggleUserBlock(userId: string, currentlyBlocked: boolean) {
-  const cookieStore = await cookies()
-  const sessionUserId = cookieStore.get('session_user_id')?.value
-  const sessionRole = cookieStore.get('session_role')?.value
+  const session = await requireAuth()
+  const sessionUserId = session?.userId
+  const sessionRole = session?.role
   if (!sessionUserId || sessionRole !== 'admin') {
       return { error: 'เฉพาะ admin เท่านั้น' }
   }
@@ -68,11 +68,11 @@ export async function toggleUserBlock(userId: string, currentlyBlocked: boolean)
 }
 
 export async function updateUserRole(userId: string, role: string) {
-    const cookieStore = await cookies()
-    const sessionUserId = cookieStore.get('session_user_id')?.value
-    if (!sessionUserId) {
+    const session = await requireAuth()
+    if (!session) {
         return { error: 'Unauthorized: No active session' }
     }
+    if (session.role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
     const supabase = createServiceClient()
     
@@ -93,9 +93,9 @@ export async function updateUserRole(userId: string, role: string) {
 
 // Soft delete — ตั้ง deleted_at + is_blocked (gate เดิมทุกจุดเช็ค is_blocked อยู่แล้ว) แถวยังอยู่ กู้คืนได้ใน DB
 export async function deleteUser(userId: string) {
-    const cookieStore = await cookies()
-    const sessionUserId = cookieStore.get('session_user_id')?.value
-    const sessionRole = cookieStore.get('session_role')?.value
+    const session = await requireAuth()
+    const sessionUserId = session?.userId
+    const sessionRole = session?.role
     if (!sessionUserId || sessionRole !== 'admin') {
         return { error: 'เฉพาะ admin เท่านั้น' }
     }
@@ -121,11 +121,11 @@ export async function deleteUser(userId: string) {
 }
 
 export async function updateUserModules(userId: string, modules: string[]) {
-    const cookieStore = await cookies()
-    const sessionUserId = cookieStore.get('session_user_id')?.value
-    if (!sessionUserId) {
+    const session = await requireAuth()
+    if (!session) {
         return { error: 'Unauthorized: No active session' }
     }
+    if (session.role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
     const supabase = createServiceClient()
     
@@ -154,11 +154,11 @@ export async function updateUserProfile(userId: string, data: {
   bank_account_number?: string
   account_holder_name?: string
 }) {
-    const cookieStore = await cookies()
-    const sessionUserId = cookieStore.get('session_user_id')?.value
-    if (!sessionUserId) {
+    const session = await requireAuth()
+    if (!session) {
         return { error: 'Unauthorized: No active session' }
     }
+    if (session.role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
     const supabase = createServiceClient()
     
@@ -181,10 +181,8 @@ export async function updateUserProfile(userId: string, data: {
 // ─── รูปโปรไฟล์แทน user (แอดมินเท่านั้น) — ตรรกะจริงอยู่ใน lib/avatar.ts ────
 
 async function requireAdmin(): Promise<string | null> {
-    const cookieStore = await cookies()
-    const sessionUserId = cookieStore.get('session_user_id')?.value
-    const sessionRole = cookieStore.get('session_role')?.value
-    return sessionUserId && sessionRole === 'admin' ? sessionUserId : null
+    const s = await requireAuth()
+    return s && s.role === 'admin' ? s.userId : null
 }
 
 /** revalidate ทุกหน้าที่โชว์ avatar — /users, ทำเนียบแชมป์, การ์ดอันดับ, หน้าโปรไฟล์เจ้าตัว */

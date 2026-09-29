@@ -4,27 +4,20 @@ import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { reverseGeocodeThai } from '@/lib/reverse-geocode'
 import { logActivity } from '@/lib/logger'
 import { revalidatePath } from 'next/cache'
-import { cookies } from 'next/headers'
-import { getSessionLight } from '@/lib/auth'
+import { requireAuth } from '@/lib/auth'
 import type { DutyInput } from '../salary/compute'
 import { ONSITE_ARRIVED_STATUS, ONSITE_JOB_TYPE, shouldAdvanceToOnsite } from '../jobs/board-logic'
 
 /**
- * ผู้ใช้ที่กำลังทำรายการ — คุกกี้ legacy ก่อน แล้วค่อยตกไปที่ session_token
+ * ผู้ใช้ที่กำลังทำรายการ — จาก session ที่ยืนยันกับฐานข้อมูลแล้ว (requireAuth) เท่านั้น
+ * บทบาทมาจากฐานข้อมูล ไม่ใช่คุกกี้แบบเก่าที่ไม่ได้เซ็น (แก้เองได้)
  *
- * โมดูลอื่น (เช่นหน้าสลิปเงินเดือนที่เรียก adminEditCheckin/adminCheckIn ต่อ) ใช้
- * session แบบโทเคนล้วนได้ ถ้าอ่านแต่คุกกี้ legacy ที่นี่ การแก้เช็คอินจากในสลิป
- * จะเด้ง 'Unauthorized' ทั้งที่ล็อกอินเป็น admin อยู่
+ * โมดูลอื่น (เช่นหน้าสลิปเงินเดือนที่เรียก adminEditCheckin/adminCheckIn ต่อ) ใช้ session
+ * ชุดเดียวกัน — requireAuth ถูก cache ต่อคำขอ จึงไม่คิวรีซ้ำ
  */
 async function getSession() {
-  const cookieStore = await cookies()
-  const legacyId = cookieStore.get('session_user_id')?.value
-  if (legacyId) {
-    return { userId: legacyId, role: cookieStore.get('session_role')?.value || 'staff' }
-  }
-
-  const light = await getSessionLight()
-  return { userId: light.userId, role: light.role || 'staff' }
+  const s = await requireAuth()
+  return { userId: s?.userId, role: s?.role ?? 'staff' }
 }
 
 // ─── หน้าที่หน้างาน (salary_duties) ───────────────────────

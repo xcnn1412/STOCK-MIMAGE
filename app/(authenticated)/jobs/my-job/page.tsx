@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import {
     getMyJobs,
@@ -11,9 +11,9 @@ import MyJobDashboard from './my-job-dashboard'
 import JobsLoading from '../loading'
 
 export default async function MyJobPage() {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
-    const role   = cookieStore.get('session_role')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
+    const role   = session?.role
 
     if (!userId) redirect('/login')
 

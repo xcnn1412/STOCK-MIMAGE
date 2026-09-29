@@ -4,7 +4,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { logActivity } from '@/lib/logger'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import type { ActionState, KitContent, Item, Database } from '@/types'
 import { isClosedEvent } from '../jobs/tracking/tracking-logic'
 
@@ -65,9 +65,9 @@ function isMissingTimeColumnError(error: { code?: string | null; message?: strin
 }
 
 export async function createEvent(prevState: ActionState, formData: FormData) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const session = await requireAuth()
+  const userId = session?.userId
+  const role = session?.role ?? 'staff'
   if (!userId) {
       return { error: 'Unauthorized: No active session' }
   }
@@ -165,11 +165,9 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
   // auto-create the paired cost event so it shows in the lead's combined cost
   // summary without a manual "Import to Costs" step.
   if (fromCrm) {
-    const cookieStore2 = await cookies()
-    const uid = cookieStore2.get('session_user_id')?.value
     await supabase.from('crm_activities').insert({
       lead_id: fromCrm,
-      created_by: uid,
+      created_by: userId,
       activity_type: 'note',
       description: `เปิดอีเวนต์แล้ว: ${name}`,
     })
@@ -248,9 +246,9 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
 // ============================================================================
 
 export async function linkEventToCrm(eventId: string, leadId: string) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const session = await requireAuth()
+  const userId = session?.userId
+  const role = session?.role ?? 'staff'
   if (!userId) return { error: 'Unauthorized' }
   if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
@@ -275,9 +273,9 @@ export async function linkEventToCrm(eventId: string, leadId: string) {
 }
 
 export async function unlinkEventFromCrm(eventId: string) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const session = await requireAuth()
+  const userId = session?.userId
+  const role = session?.role ?? 'staff'
   if (!userId) return { error: 'Unauthorized' }
   if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
@@ -303,9 +301,9 @@ export async function unlinkEventFromCrm(eventId: string) {
 }
 
 export async function updateEvent(id: string, prevState: ActionState, formData: FormData) {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const session = await requireAuth()
+  const userId = session?.userId
+  const role = session?.role ?? 'staff'
   if (!userId) {
       return { error: 'Unauthorized: No active session' }
   }
@@ -636,9 +634,9 @@ export async function processEventReturn(
     itemStatuses: { itemId: string, status: string }[],
     imageUrls: string[] = []
 ): Promise<{ error: string } | { success: true }> {
-     const cookieStore = await cookies()
-     const userId = cookieStore.get('session_user_id')?.value
-     const role = cookieStore.get('session_role')?.value || 'staff'
+     const session = await requireAuth()
+     const userId = session?.userId
+     const role = session?.role ?? 'staff'
      if (!userId) {
          return { error: 'Unauthorized: No active session' }
      }
@@ -765,9 +763,9 @@ export async function processEventReturn(
 // cookie session, not Supabase Auth), and the `event_closures` bucket only allows
 // INSERT for `authenticated` — so uploads must go through the service-role client here.
 export async function uploadClosureImage(formData: FormData): Promise<{ url?: string; error?: string }> {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
-    const role = cookieStore.get('session_role')?.value || 'staff'
+    const session = await requireAuth()
+    const userId = session?.userId
+    const role = session?.role ?? 'staff'
     if (!userId) return { error: 'Unauthorized: No active session' }
     if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้นที่ปิดงานได้' }
 

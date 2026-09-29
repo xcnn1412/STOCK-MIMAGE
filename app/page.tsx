@@ -6,18 +6,8 @@ export default async function Home() {
   const cookieStore = await cookies()
   const token = cookieStore.get('session_token')?.value
 
-  // Fallback: also check legacy cookie for backward compatibility
-  const legacySessionId = cookieStore.get('session_user_id')?.value
-
-  if (token) {
-    const verified = verifySessionToken(token)
-    if (verified) {
-      redirect('/dashboard')
-    }
-  }
-
-  // Backward compatibility: if legacy cookie exists but no signed token
-  if (legacySessionId) {
+  // Signed token only — proxy.ts does the full DB check on /dashboard
+  if (token && verifySessionToken(token)) {
     redirect('/dashboard')
   }
 

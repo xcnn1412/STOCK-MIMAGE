@@ -1,9 +1,8 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import JobsNav from './jobs-nav'
 
 export default async function JobsLayout({ children }: { children: React.ReactNode }) {
-    const cookieStore = await cookies()
-    const role = cookieStore.get('session_role')?.value
+    const role = (await requireAuth())?.role
     return (
         <>
             {/* Nav stays within parent max-w constraints */}
