@@ -15,7 +15,7 @@ export interface ClaimFilters {
   /** id ผู้เบิก ('' = ทุกคน) */
   by: string
   category: string
-  /** 'YYYY-MM' ตามเวลาไทย */
+  /** เดือนที่ใช้จ่าย 'YYYY-MM' ตามเวลาไทย ของแท็บที่ยังไม่จ่าย — แท็บชำระแล้วใช้เดือนที่ server โหลดมาแทน (ดู listQuery) */
   month: string
   /** เฉพาะใบที่เอกสารยังไม่ครบ */
   incomplete: boolean
@@ -70,6 +70,24 @@ export function filtersToQuery(f: ClaimFilters): string {
   if (f.q.trim()) p.set('q', f.q.trim())
   const qs = p.toString()
   return qs ? `?${qs}` : ''
+}
+
+/** query string ของหน้ารายการ — แท็บชำระแล้วใช้เดือนที่ server โหลดมา แท็บอื่นใช้เดือนที่ใช้จ่าย */
+export function listQuery(f: ClaimFilters, paidMonth: string): string {
+  return filtersToQuery(f.status === 'paid' ? { ...f, month: paidMonth } : f)
+}
+
+/** ค่าเริ่มต้นจาก URL — เดือนใน URL ของแท็บชำระแล้วเป็นเดือนที่จ่าย ไม่ใช่ตัวกรองเดือนที่ใช้จ่าย */
+export function initialFilters(
+  params: { get(name: string): string | null },
+  known: ExpenseClaim[],
+  isAdmin: boolean,
+): ClaimFilters {
+  const fromUrl = filtersFromQuery(params)
+  const f = sanitizeFilters(fromUrl, known, isAdmin)
+  // ดู status ใน URL ไม่ใช่หลัง sanitize — คนที่ไม่ใช่แอดมินเปิดลิงก์แท็บชำระแล้วตกไปแท็บ "ทั้งหมด"
+  // และเดือนที่จ่ายต้องไม่กลายเป็นตัวกรองเดือนที่ใช้จ่ายของแท็บนั้น
+  return fromUrl.status === 'paid' ? { ...f, month: '' } : f
 }
 
 /** มีตัวกรองอื่นนอกจากแท็บสถานะหรือไม่ */

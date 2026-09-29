@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import type { ExpenseClaim } from '../costs/types'
 import {
   EMPTY_FILTERS, categoryValues, filterClaims, filtersFromQuery, filtersToQuery, financeListHref,
-  hasFilters, monthOptions, sanitizeFilters, submitterOptions, thaiMonth,
+  hasFilters, initialFilters, listQuery, monthOptions, sanitizeFilters, submitterOptions, thaiMonth,
 } from './claims-filter'
 
 const claim = (over: Partial<ExpenseClaim>): ExpenseClaim => ({
@@ -96,5 +96,28 @@ assert.deepEqual(categoryValues(claims).sort(), ['food', 'travel'])
 
 // (k) ไม่มี sessionStorage (ฝั่ง server / ปิด storage) → กลับหน้ารายการแบบไม่กรอง ไม่ล้ม
 assert.equal(financeListHref(), '/finance')
+
+// (l) listQuery: แท็บชำระแล้วใส่เดือนที่ server โหลดมา (ไม่ใช่เดือนที่ใช้จ่ายที่ค้างใน state) · แท็บอื่นใช้เดือนที่ใช้จ่าย
+const paidTab = { ...EMPTY_FILTERS, status: 'paid', month: '2026-08', by: 'u2', q: 'ค่า' }
+const paidQuery = new URLSearchParams(listQuery(paidTab, '2026-09'))
+assert.equal(paidQuery.get('status'), 'paid')
+assert.equal(paidQuery.get('month'), '2026-09', 'เดือนใน URL ของแท็บชำระแล้ว = เดือนที่โหลดอยู่')
+assert.equal(paidQuery.get('by'), 'u2', 'ตัวกรองอื่นยังอยู่ครบ')
+assert.equal(listQuery({ ...EMPTY_FILTERS, status: 'paid', month: '2026-08' }, ''), '?status=paid', 'ยังไม่มีเดือนที่จ่าย = ไม่มี month')
+assert.equal(listQuery({ ...EMPTY_FILTERS, month: '2026-08' }, '2026-09'), '?month=2026-08', 'แท็บอื่นไม่สนเดือนที่โหลด')
+assert.equal(listQuery({ ...EMPTY_FILTERS, status: 'pending' }, '2026-09'), '?status=pending')
+assert.equal(listQuery(EMPTY_FILTERS, '2026-09'), '')
+
+// (m) initialFilters: month ใน URL ของแท็บชำระแล้วคือเดือนที่จ่าย — ห้ามกลายเป็นตัวกรองเดือนที่ใช้จ่าย
+const fromUrl = (qs: string, isAdmin: boolean) => initialFilters(new URLSearchParams(qs), claims, isAdmin)
+assert.deepEqual(fromUrl('status=paid&month=2026-05', true), { ...EMPTY_FILTERS, status: 'paid' })
+assert.equal(fromUrl('status=paid&month=2026-05', true).month, '')
+// คนที่ไม่ใช่แอดมินตกไปแท็บ "ทั้งหมด" และต้องไม่ได้ตัวกรองเดือนที่ใช้จ่าย 2026-05 ติดมา
+assert.deepEqual(fromUrl('status=paid&month=2026-05', false), EMPTY_FILTERS)
+// แท็บอื่น: month คือเดือนที่ใช้จ่ายตามเดิม · ค่าอื่นผ่าน sanitizeFilters เหมือนเดิม
+assert.deepEqual(fromUrl('status=pending&month=2026-05&by=u2&cat=ghost', false), { ...EMPTY_FILTERS, status: 'pending', month: '2026-05', by: 'u2' })
+assert.deepEqual(fromUrl('month=2026-05', true), { ...EMPTY_FILTERS, month: '2026-05' })
+// ไป-กลับ: URL ที่ listQuery สร้างให้แท็บชำระแล้ว อ่านกลับได้ตัวกรองเดิมยกเว้นเดือน
+assert.deepEqual(fromUrl(listQuery(paidTab, '2026-09').slice(1), true), { ...paidTab, month: '' })
 
 console.log('claims-filter: ผ่านทั้งหมด')
