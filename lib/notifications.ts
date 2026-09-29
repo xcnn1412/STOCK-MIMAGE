@@ -23,6 +23,9 @@ export type NotificationType =
   | 'job_pool_released'
   | 'job_pool_skipped'
   | 'job_pool_assigned'
+  // จัดซื้อ (reference_type = 'job', reference_id = id เช็กลิสต์) — กระดิ่งพาไป /jobs/purchasing?list=<id>
+  | 'job_purchase_assigned'   // ถูกมอบหมายรายการจัดซื้อ
+  | 'job_purchase_done'       // ทุกรายการในเช็กลิสต์เสร็จครบ → ผู้รับผิดชอบ + คนสร้างเช็กลิสต์
   // รับ/คืนหน้าที่เตรียมงาน (reference_type = 'crm_lead') — กระดิ่งพาไป /jobs/tracking?lead=<id>
   | 'duty_claimed'
   | 'duty_released'

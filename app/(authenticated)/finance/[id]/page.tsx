@@ -4,6 +4,8 @@ import { notFound } from 'next/navigation'
 import ClaimDetailView from './claim-detail-view'
 import { cookies } from 'next/headers'
 import type { ExpenseClaim } from '../../costs/types'
+import { getClaimPurchaseItems } from '../../jobs/purchasing/data'
+import { ClaimLinkedItems } from '../../jobs/purchasing/components/claim-linked-items'
 
 export const revalidate = 0
 
@@ -27,6 +29,17 @@ export default async function ClaimDetailPage({ params }: { params: Promise<{ id
   const pettyChildren = isPettyFund ? await getPettyCashChildren(id) : null
   // Claims (event/other/advance) that admin can pull into this fund
   const linkableClaims = isPettyFund && role === 'admin' ? (await getLinkablePettyClaims()).data : null
+  // รายการจัดซื้อที่ผูกกับใบเบิกนี้ — อ่านหลัง getClaim ผ่านสิทธิ์แล้วเท่านั้น (ฟังก์ชันนี้ไม่ตรวจสิทธิ์เอง) · พลาด = []
+  const purchaseItems = await getClaimPurchaseItems(id)
 
-  return <ClaimDetailView claim={claim} role={role} categories={categories} logs={logs} userId={userId} jobEvents={jobEvents} pettyChildren={pettyChildren as any} linkableClaims={linkableClaims as any} />
+  return (
+    <>
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- cast เดิมของหน้านี้ (มีก่อนส่วนจัดซื้อ) ไม่ได้แก้ในงานนี้ */}
+      <ClaimDetailView claim={claim} role={role} categories={categories} logs={logs} userId={userId} jobEvents={jobEvents} pettyChildren={pettyChildren as any} linkableClaims={linkableClaims as any} />
+      {/* ความกว้างเดียวกับ ClaimDetailView (max-w-3xl กึ่งกลาง) — ไม่มีรายการที่ผูก = ไม่แสดงอะไร */}
+      <div className="max-w-3xl mx-auto">
+        <ClaimLinkedItems rows={purchaseItems} claim={claim} />
+      </div>
+    </>
+  )
 }

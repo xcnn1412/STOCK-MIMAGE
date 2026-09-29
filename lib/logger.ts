@@ -142,6 +142,19 @@ export type ActionType =
     | 'ASSIGN_EVENT_VEHICLE'
     // ตั้งค่าทีมของพูลงาน — แผนกไหนรับใบงานประเภทไหน / แผนกไหนจอง-ย้ายกระเป๋าได้
     | 'UPDATE_POOL_TEAM_SETTINGS'
+    // จัดซื้อ (/jobs/purchasing) — เช็กลิสต์ / รายการ (รวมรูปแนบ) / ชุดสำเร็จรูป
+    | 'CREATE_PURCHASE_LIST'
+    | 'UPDATE_PURCHASE_LIST'
+    | 'DELETE_PURCHASE_LIST'
+    | 'CREATE_PURCHASE_ITEM'
+    | 'UPDATE_PURCHASE_ITEM'
+    | 'UPDATE_PURCHASE_ITEM_STATUS'
+    | 'DELETE_PURCHASE_ITEM'
+    | 'SAVE_PURCHASE_TEMPLATE'
+    | 'DELETE_PURCHASE_TEMPLATE'
+    // จัดซื้อ ↔ ใบเบิก — ผูก/เลิกผูกรายการจัดซื้อกับ expense_claims (purchase_items.expense_claim_id)
+    | 'LINK_PURCHASE_ITEM_CLAIM'
+    | 'UNLINK_PURCHASE_ITEM_CLAIM'
     // Ticket Module
     | 'CREATE_TICKET'
     | 'UPDATE_TICKET_STATUS'
@@ -208,7 +221,7 @@ export type ActionType =
 
 export async function logActivity(
     action: ActionType,
-    details: any = {},
+    details: unknown = {},
     targetUserId?: string,
     overrideUserId?: string // For login/register (when cookie isn't set/ready yet)
 ) {

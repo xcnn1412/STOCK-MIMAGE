@@ -48,6 +48,8 @@ export const TYPE_CONFIG: Record<string, TypeConfig> = {
   job_pool_released:           { icon: '↩️', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'คืนใบงาน' },
   job_pool_skipped:            { icon: '⏭️', color: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',           label: 'ข้ามใบงาน' },
   job_pool_assigned:           { icon: '⭐', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'มอบหมายใบงาน' },
+  job_purchase_assigned:       { icon: '🛒', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'มอบหมายรายการจัดซื้อ' },
+  job_purchase_done:           { icon: '✅', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'ของครบแล้ว' },
   duty_claimed:                { icon: '🙋', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'รับหน้าที่แล้ว' },
   duty_released:               { icon: '↩️', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'คืนหน้าที่' },
   ticket_assigned:             { icon: '🎫', color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400', label: 'Ticket ใหม่' },
