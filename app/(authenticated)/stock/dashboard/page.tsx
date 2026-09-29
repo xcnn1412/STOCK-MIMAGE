@@ -1,12 +1,12 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import DashboardView from './dashboard-view'
 
 export const revalidate = 0
 
 export default async function StockDashboardPage() {
-  const cookieStore = await cookies()
-  const userId = cookieStore.get('session_user_id')?.value || ''
+  const session = await requireAuth()
+  const userId = session?.userId ?? ''
 
   // Fetch data in parallel
   const [

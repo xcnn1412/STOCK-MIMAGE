@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { getSystemUsers } from '../actions'
 import { getMyJobs, getMyTickets, getMyJobSettings } from '../my-job/actions'
@@ -11,9 +11,9 @@ interface AdminJobPageProps {
 }
 
 export default async function AdminJobPage({ searchParams }: AdminJobPageProps) {
-    const cookieStore = await cookies()
-    const role = cookieStore.get('session_role')?.value
-    const currentUserId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const role = session?.role
+    const currentUserId = session?.userId
 
     if (role !== 'admin') redirect('/jobs/my-job')
 

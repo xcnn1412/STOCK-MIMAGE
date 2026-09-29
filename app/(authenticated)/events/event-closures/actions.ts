@@ -3,13 +3,13 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { Database } from '@/types/database.types'
 
 
 export async function cleanupOldClosures() {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
     if (!userId) {
         return { error: 'Unauthorized' }
     }

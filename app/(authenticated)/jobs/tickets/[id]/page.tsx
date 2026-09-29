@@ -1,12 +1,12 @@
 import { notFound } from 'next/navigation'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { getTicket, getTicketReplies, getJobSettings, getSystemUsers, getTicketCategories, getTicketReactions, getTicketEmojis, getCustomEmojis } from '../../actions'
 import TicketDetail from './ticket-detail'
 
 export default async function TicketDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
-    const cookieStore = await cookies()
-    const currentUserId = cookieStore.get('session_user_id')?.value || ''
+    const session = await requireAuth()
+    const currentUserId = session?.userId ?? ''
     const [ticketResult, repliesResult, settingsResult, users, categoriesResult, reactionsResult, emojisResult, customEmojisResult] = await Promise.all([
         getTicket(id),
         getTicketReplies(id),

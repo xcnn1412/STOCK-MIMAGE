@@ -1,5 +1,5 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import EventClosuresView from './event-closures-view'
 
@@ -8,11 +8,10 @@ import type { EventClosure } from '@/types'
 export const revalidate = 0
 
 export default async function EventClosuresPage() {
-    const cookieStore = await cookies()
-    const role = cookieStore.get('session_role')?.value
+    const session = await requireAuth()
 
     // Allow any authenticated user to view closures
-    if (!role) {
+    if (!session) {
         redirect('/login')
     }
 

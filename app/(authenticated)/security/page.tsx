@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase-server'
 import SecurityDashboard from './security-dashboard'
@@ -6,8 +6,8 @@ import SecurityDashboard from './security-dashboard'
 export const revalidate = 30
 
 export default async function SecurityPage() {
-    const cookieStore = await cookies()
-    const role = cookieStore.get('session_role')?.value
+    const session = await requireAuth()
+    const role = session?.role
 
     if (role !== 'admin') {
         redirect('/dashboard')

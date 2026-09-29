@@ -1,9 +1,8 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import CrmNav from './crm-nav'
 
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const role = (await requireAuth())?.role ?? 'staff'
 
   return (
     <>

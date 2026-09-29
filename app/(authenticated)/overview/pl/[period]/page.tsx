@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { getOverviewData } from '../../actions'
 import PLDetailView from './detail-view'
@@ -9,7 +9,7 @@ export default async function PLDetailPage({ params }: { params: Promise<{ perio
   const { period: raw } = await params
   const period = decodeURIComponent(raw)
 
-  const role = (await cookies()).get('session_role')?.value || 'staff'
+  const role = (await requireAuth())?.role ?? 'staff'
   if (role !== 'admin') redirect('/dashboard')
 
   const data = await getOverviewData()

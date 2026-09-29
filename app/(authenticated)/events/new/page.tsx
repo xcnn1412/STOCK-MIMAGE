@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import CreateEventForm from './create-event-form'
@@ -11,8 +11,8 @@ interface PageProps {
 }
 
 export default async function NewEventPage({ searchParams }: PageProps) {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const session = await requireAuth()
+  const role = session?.role ?? 'staff'
   if (role !== 'admin') redirect('/events')
 
   const params = await searchParams

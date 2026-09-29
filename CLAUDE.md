@@ -47,23 +47,28 @@ Next.js 16 (App Router, Turbopack, `reactCompiler: true`) · React 19 · TypeScr
 The Next.js middleware file is named `proxy.ts` and exports `proxy(request)` (matcher excludes `/api`, `_next/*`, and any path with a dot). It is the **only** place that enforces module routing. Three gates run in order:
 
 1. **License gate** — `getLicenseStatus()` reads `LICENSE_EXPIRES_AT`; fail-closed (missing/malformed env = expired). Expired instances redirect everywhere (even `/login`) to `LICENSE_EXPIRED_REDIRECT_URL`.
-2. **Session gate** — verifies the HMAC-signed `session_token` cookie via Web Crypto (Edge runtime, see `verifySessionTokenEdge`), falls back to the legacy `session_user_id` cookie, then hits `profiles` to confirm `is_approved` and that `active_session_id` matches the cookie's `session_id` (single-session enforcement — logging in elsewhere kicks the previous session).
-3. **Module gate** — maps the path to a `ModuleKey` via the inlined `MODULE_ROUTES` table and checks `profiles.allowed_modules`. The `admin` key additionally requires `session_role === 'admin'`.
+2. **Session gate** — verifies the HMAC-signed `session_token` cookie via Web Crypto (Edge runtime, see `verifySessionTokenEdge`), then reads `profiles` with the service-role key to confirm `is_approved`, `!is_blocked`, and that a **non-null** `active_session_id` equals the cookie's `session_id` (single-session enforcement — logging in elsewhere kicks the previous session; logout nulls it). No token, no `session_id`, or a null `active_session_id` → `/login`.
+3. **Module gate** — maps the path to a `ModuleKey` via the inlined `MODULE_ROUTES` table and checks `profiles.allowed_modules`. The `admin` key additionally requires `profiles.role === 'admin'` (from the DB row, never from a cookie).
 
 `MODULE_ROUTES` in `proxy.ts` is **duplicated** from `lib/nav-config.ts` because the middleware runs in the Edge runtime and cannot import the lucide-react icons used in nav-config. **If you add a route to a module, update both.**
 
 ⚠️ **`MODULE_ROUTES` is currently a strict subset of `NAV_GROUPS`** — it only covers `stock`, `events`, `kpi`, `costs`, `crm`, `finance`, and `admin`. The `overview`, `jobs`, and `checkin` modules exist in `nav-config.ts` (and therefore hide from the sidebar for users who lack the module) but their URLs (`/overview*`, `/jobs*`, `/check-in*`) are **not** enforced by the proxy. Any authenticated user can reach them by typing the URL. If you need real route-level enforcement for those, add them to `MODULE_ROUTES` and/or guard inside the route's `page.tsx`.
 
-### Authentication has two parallel cookie systems
+### Authentication: signed token + session id only
 
-The project is mid-migration from legacy plain-userId cookies to HMAC-signed tokens. Both must keep working:
+Since v1.24.2 a user is recognised **only** by:
 
-- **New (preferred):** `session_token` = `userId:timestamp:hex-hmac-sha256` (7-day expiry), signed with `SESSION_SECRET`. Created by `lib/session.ts::createSessionToken`, verified server-side by `verifySessionToken` and in Edge by `verifySessionTokenEdge` in `proxy.ts`.
-- **Legacy:** `session_user_id`, `session_role`, `session_id` cookies — still read as a fallback in both `proxy.ts` and server actions.
+- `session_token` = `userId:timestamp:hex-hmac-sha256` (7-day expiry), signed with `SESSION_SECRET`. Created by `lib/session.ts::createSessionToken`, verified server-side by `verifySessionToken` and in Edge by `verifySessionTokenEdge` in `proxy.ts`; **and**
+- `session_id`, which must equal the profile's non-null `active_session_id`.
+
+The old unsigned cookies `session_user_id` and `session_role` are **never read** — anyone can set them. Login no longer writes them; login/logout/proxy only delete leftovers. Role and admin rights always come from `profiles.role`. `scripts/session-hardening.check.ts` and `scripts/proxy-session.check.ts` enforce this (including a static scan for cookie reads).
 
 Server-side auth helpers in `lib/auth.ts`:
-- `requireAuth()` — full check (token verify + DB lookup for `is_approved` + session match). Use in mutating server actions.
-- `getSessionLight()` — token verify only, no DB. Use for non-critical reads (e.g., layouts).
+- `requireAuth()` — the single verified session (token + `session_id` + DB row: `is_approved`, non-null matching `active_session_id`), `cache()`d per request. Use it everywhere identity or role matters.
+- `getSessionLight()` — same result as `requireAuth()` reduced to `{ userId, role, sessionId }`; kept for older call sites (it is DB-backed now, but cached).
+- Module helpers (`finance/viewer.ts`, `documents/session.ts`, `salary/session.ts`) delegate to `requireAuth()`; new code should call it directly.
+
+`SESSION_SECRET` still falls back to the anon key when unset (so a missing Railway variable does not lock everyone out); the non-null session-id rule keeps a forged token useless, but production must set a real secret.
 
 ### Two Supabase clients with different trust levels
 

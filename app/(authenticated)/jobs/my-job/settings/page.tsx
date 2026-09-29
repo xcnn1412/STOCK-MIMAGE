@@ -1,13 +1,13 @@
 import { Suspense } from 'react'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { getMyJobSettings } from '../actions'
 import MyJobSettingsView from './my-job-settings-view'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default async function MyJobSettingsPage() {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
     if (!userId) redirect('/login')
 
     const { data: settings } = await getMyJobSettings()

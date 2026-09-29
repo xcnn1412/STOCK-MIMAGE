@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { readPublicSchema, computeFingerprint } from '@/lib/schema-introspect'
 import { getAppliedMigrations, type AppliedMigration } from './actions'
@@ -20,8 +20,8 @@ interface ManifestResponse {
 }
 
 export default async function CheckUpdatePage() {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
+  const session = await requireAuth()
+  const role = session?.role ?? 'staff'
   if (role !== 'admin') redirect('/dashboard')
 
   const masterApiUrl = (process.env.MASTER_API_URL || '').replace(/\/$/, '')

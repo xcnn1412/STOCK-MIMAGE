@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { getLeavesInRange } from '../leave-actions'
 import LeaveDashboardView from './leave-dashboard-view'
@@ -11,9 +11,9 @@ export const metadata = {
 export const revalidate = 0
 
 export default async function LeaveDashboardPage() {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
-  const userId = cookieStore.get('session_user_id')?.value || ''
+  const session = await requireAuth()
+  const role = session?.role ?? 'staff'
+  const userId = session?.userId ?? ''
 
   if (!userId) redirect('/login')
 

@@ -2,15 +2,15 @@
 
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 
 
 
 import { logActivity } from '@/lib/logger'
 
 export async function updateTemplateStatus(itemId: string, status: string) {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
     if (!userId) return { error: 'Unauthorized' }
 
     const supabase = createServiceClient()
@@ -42,8 +42,8 @@ export async function updateTemplateStatus(itemId: string, status: string) {
 }
 
 export async function addTemplateItem(templateId: string, name: string, quantity: number) {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
     if (!userId) return { error: 'Unauthorized' }
 
     const supabase = createServiceClient()
@@ -75,8 +75,8 @@ export async function addTemplateItem(templateId: string, name: string, quantity
 }
 
 export async function removeTemplateItem(itemId: string, templateId: string) {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
     if (!userId) return { error: 'Unauthorized' }
 
     const supabase = createServiceClient()
@@ -107,8 +107,8 @@ export async function removeTemplateItem(itemId: string, templateId: string) {
 }
 
 export async function updateTemplateDetails(templateId: string, formData: FormData) {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
+    const session = await requireAuth()
+    const userId = session?.userId
     if (!userId) return { error: 'Unauthorized' }
 
     const supabase = createServiceClient()

@@ -80,10 +80,10 @@ The system now relies on Headers (`x-vercel-ip-city`, etc.) for location logging
 
 ### ยังเปิดอยู่ — เรียงตามความเสี่ยง
 
-1. **cookie ที่ไม่ได้เซ็นถูกเชื่อในราว 20 โมดูล** — ตัวช่วย `getSession()` ประจำไฟล์อ่าน `session_user_id` และ `session_role` ตรงๆ (jobs, jobs/my-job, crm, kpi, costs, content-planner, users, security, finance/settings, check-in/leave, events, items, kits, profile ฯลฯ) ผู้ใช้ที่ล็อกอินแล้วแก้ cookie สองตัวนี้เพื่อทำการในนามคนอื่นหรืออ้างเป็นแอดมินใน action เหล่านั้นได้ · ทางแก้: ตัวช่วยกลางแบบเดียวกับ `finance/actions.ts` (ใช้ `requireAuth()` ก่อน ตกไป cookie เก่าเฉพาะเมื่อไม่มี token และอ่าน role จากฐานข้อมูลเสมอ) แล้วเปลี่ยนทีละโมดูล
-2. **proxy.ts** — ตกไปใช้ `session_user_id` เมื่อ token ไม่มีหรือไม่ผ่าน และด่านหน้าแอดมินใช้ `session_role` ที่ไม่ได้เซ็น
+1. **ปิดแล้วใน v1.24.2** · **cookie ที่ไม่ได้เซ็นถูกเชื่อในราว 20 โมดูล** — ตัวช่วย `getSession()` ประจำไฟล์อ่าน `session_user_id` และ `session_role` ตรงๆ (jobs, jobs/my-job, crm, kpi, costs, content-planner, users, security, finance/settings, check-in/leave, events, items, kits, profile ฯลฯ) ผู้ใช้ที่ล็อกอินแล้วแก้ cookie สองตัวนี้เพื่อทำการในนามคนอื่นหรืออ้างเป็นแอดมินใน action เหล่านั้นได้ · ทางแก้: ตัวช่วยกลางแบบเดียวกับ `finance/actions.ts` (ใช้ `requireAuth()` ก่อน ตกไป cookie เก่าเฉพาะเมื่อไม่มี token และอ่าน role จากฐานข้อมูลเสมอ) แล้วเปลี่ยนทีละโมดูล
+2. **ปิดแล้วใน v1.24.2** · **proxy.ts** — ตกไปใช้ `session_user_id` เมื่อ token ไม่มีหรือไม่ผ่าน และด่านหน้าแอดมินใช้ `session_role` ที่ไม่ได้เซ็น (ด่านหน้าแอดมินแก้ใน v1.24.1)
 3. **policy แบบเดียวกันในบัคเก็ตอื่น** — `checkin_photos_all` (รูปเช็คอิน) เป็น FOR ALL ไม่ระบุ role เหมือนกัน · `docs/legacy-sql/setup_storage_policies.sql` ให้ role public เขียนและลบ `login_selfies` ได้ (ต้องตรวจว่ายังใช้อยู่บน production หรือไม่)
-4. **ตัวอัปโหลดอื่นของบัคเก็ต ticket-attachments** — `uploadMyCommentAttachments` (jobs/my-job) และ `uploadContentExampleImages` (content-planner) ยังใช้ cookie ที่ไม่ได้เซ็นและเอานามสกุลจากชื่อไฟล์
+4. **ตัวอัปโหลดอื่นของบัคเก็ต ticket-attachments** — `uploadMyCommentAttachments` (jobs/my-job) และ `uploadContentExampleImages` (content-planner) ยังใช้ cookie ที่ไม่ได้เซ็นและเอานามสกุลจากชื่อไฟล์ · ส่วน cookie **ปิดแล้วใน v1.24.2** (`getSession()` ของทั้งสองไฟล์มาจาก `requireAuth()`) · เรื่องนามสกุลจากชื่อไฟล์ยังเปิดอยู่
 5. **สคริปต์ล้างไฟล์จะลบไฟล์ที่ยังใช้อยู่** — `scripts/cleanup-storage.mjs` และ `cleanup-storage.sql` ตัดสินว่าไฟล์ใน ticket-attachments เป็นไฟล์กำพร้าโดยดูแค่ tickets, ticket_replies, my_job_comments, my_ticket_comments ไม่ได้ดู `kpi_evaluation_replies.attachments` และรูปตัวอย่างของ content-planner — **ห้ามรันแบบ --apply จนกว่าจะแก้**
 
 
@@ -125,8 +125,32 @@ The system now relies on Headers (`x-vercel-ip-city`, etc.) for location logging
 
 ### ยังเปิดอยู่ — เรียงตามความเสี่ยง
 
-1. **session แบบเก่าใน `proxy.ts`**: ยังยอมรับ `session_user_id` ที่ไม่ได้เซ็นเมื่อไม่มี token หลังปิดสิทธิ์กุญแจสาธารณะแล้วคนนอกอ่าน `active_session_id` ไม่ได้ แต่ผู้ใช้ที่ล็อกอินอยู่ยังปลอมเป็นคนอื่นได้ถ้ารู้ค่าทั้งสอง · ทางแก้: เลิกรับ session แบบเก่า (ทุกคนต้องล็อกอินใหม่หนึ่งครั้ง)
-2. **cookie ที่ไม่ได้เซ็นในราว 20 โมดูล** (ข้อ 1 ของรอบ 2026-09-29) ยังเหมือนเดิม ยกเว้นส่วนใบเบิกที่แก้ครบแล้ว
+1. **ปิดแล้วใน v1.24.2** · **session แบบเก่าใน `proxy.ts`**: ยังยอมรับ `session_user_id` ที่ไม่ได้เซ็นเมื่อไม่มี token หลังปิดสิทธิ์กุญแจสาธารณะแล้วคนนอกอ่าน `active_session_id` ไม่ได้ แต่ผู้ใช้ที่ล็อกอินอยู่ยังปลอมเป็นคนอื่นได้ถ้ารู้ค่าทั้งสอง · ทางแก้: เลิกรับ session แบบเก่า (ทุกคนต้องล็อกอินใหม่หนึ่งครั้ง)
+2. **ปิดแล้วใน v1.24.2** · **cookie ที่ไม่ได้เซ็นในราว 20 โมดูล** (ข้อ 1 ของรอบ 2026-09-29) ยังเหมือนเดิม ยกเว้นส่วนใบเบิกที่แก้ครบแล้ว
 3. `/api/schema/*` และ `/api/migrations/*` เปิดให้อ่านโครงสร้างฐานข้อมูลและไฟล์ migration โดยไม่ต้องล็อกอิน (ตั้งใจไว้สำหรับเทียบรุ่นระหว่างเครื่อง — ให้เจ้าของยืนยันว่ายังต้องเปิด)
-4. `/api/ai-analyze` ตรวจแอดมินจาก cookie `session_role`
+4. **ปิดแล้วใน v1.24.2** · `/api/ai-analyze` ตรวจแอดมินจาก cookie `session_role`
 5. ข้อ 4–5 ของรอบ 2026-09-29 (ตัวอัปโหลดอื่น, สคริปต์ล้างไฟล์) ยังเหมือนเดิม
+
+## 2026-09-30 — เลิกรับ session แบบเก่า (v1.24.2)
+
+### เปลี่ยนอะไร
+
+- **ไม่มีโค้ดฝั่ง server อ่าน cookie `session_user_id` / `session_role` อีกแล้ว** — ทั้ง `proxy.ts`, `lib/auth.ts`, `lib/logger.ts`, `getSession()` ประจำไฟล์ของทุกโมดูล, หน้าและ layout ที่เคยอ่านบทบาทจาก cookie และ `/api/ai-analyze` · หน้าล็อกอินเลิกตั้ง cookie สองตัวนี้และลบของเก่าที่ค้างอยู่ · `proxy.ts` ลบ cookie ของ session ทั้งสี่ตัวทุกครั้งที่ส่งไปหน้าล็อกอิน
+- **ตัวตน = `session_token` ที่เซ็นแล้ว + cookie `session_id` ที่ตรงกับ `profiles.active_session_id` ที่ไม่เป็น null** ของโปรไฟล์ที่อนุมัติแล้ว (`proxy.ts` ตรวจ `is_blocked` ด้วย) · ก่อนหน้านี้ `requireAuth()` ยอมรับ token เมื่อ `active_session_id` เป็น null หรือเมื่อไม่มี cookie `session_id` — token ของคนที่ออกจากระบบแล้ว ถูกแอดมินเตะออก หรือถูกระงับ จึงยังใช้ได้จนหมดอายุ 7 วัน
+- **บทบาทมาจากฐานข้อมูลเสมอ** · `requireAuth()` เป็นแหล่งเดียว ถูก cache ต่อคำขอ (`react` `cache`) · `getSessionLight()` ดึงจาก `requireAuth()` จึงได้บทบาทจากฐานข้อมูลด้วย
+- `/api/ai-analyze` (ไม่ผ่าน `proxy.ts`) และ `users/actions.ts` ตรวจแอดมินที่ยืนยันแล้ว — พนักงานได้ `{ error: 'เฉพาะ admin เท่านั้น' }` ก่อนหน้านี้ `updateUserRole` / `updateUserModules` / `toggleUserApproval` / `updateUserProfile` เช็คแค่ว่ามี cookie `session_user_id` (พนักงานเลื่อนตัวเองเป็นแอดมินได้)
+- `logout()` ล้าง `active_session_id` เฉพาะของ session ที่ยืนยันแล้ว ก่อนหน้านี้ตั้ง cookie `session_user_id` เป็น id ของใครก็เตะคนนั้นออกได้
+- ผู้กระทำใน `activity_logs` มาจาก token ที่เซ็นเท่านั้น
+
+ตรวจด้วย `npx tsx scripts/proxy-session.check.ts` และ `npx tsx scripts/session-hardening.check.ts` (รัน `requireAuth`, action, layout, route และ `logout` ตัวจริงกับฐานข้อมูลจำลอง: cookie แบบเก่าอย่างเดียว, `active_session_id` เป็น null, ไม่มี/ไม่ตรง `session_id`, ถูกระงับ, ยังไม่อนุมัติ, token พนักงาน + cookie แอดมินปลอม · และสแกนทั้ง `app/` `lib/` `components/` `proxy.ts`)
+
+### ผลต่อผู้ใช้ และสิ่งที่ต้องทำเอง
+
+- session ที่มีแค่ cookie แบบเก่า (ไม่มี token หรือไม่มี `session_id`) ถูกส่งไปหน้าล็อกอินหนึ่งครั้ง · session ที่ล็อกอินหลังมี token แล้วใช้ต่อได้ตามปกติ
+- ถ้าต้องการให้ทุกคนล็อกอินใหม่จริงตามที่แจ้งในหน้า "มีอะไรใหม่" (แนะนำ เพราะ `active_session_id` เคยอ่านได้จากภายนอกก่อน v1.24.1): หลัง deploy ให้เปลี่ยนค่า `SESSION_SECRET` ใน Railway (token เดิมทั้งหมดใช้ไม่ได้ทันที) หรือรัน `UPDATE profiles SET active_session_id = NULL;` บน production
+
+### ยังเปิดอยู่
+
+1. ข้อ 3 และ 5 ของรอบ v1.24.1 (`/api/schema/*`, `/api/migrations/*` · ตัวอัปโหลดอื่นเอานามสกุลจากชื่อไฟล์, สคริปต์ล้างไฟล์)
+2. ตัวเซ็น session ยังถอยไปใช้กุญแจสาธารณะเมื่อไม่ได้ตั้ง `SESSION_SECRET` (ข้อ 2 ของ "ต้องทำเองในหน้า Supabase และ Railway" รอบ v1.24.1)
+3. ข้อ 3 ของรอบ 2026-09-29 (policy แบบ FOR ALL ในบัคเก็ตอื่น)

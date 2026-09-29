@@ -1,13 +1,13 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import UsersView from './users-view'
 
 export const revalidate = 0
 
 export default async function UserManagementPage() {
-    const cookieStore = await cookies()
-    const role = cookieStore.get('session_role')?.value
+    const session = await requireAuth()
+    const role = session?.role
 
     if (role !== 'admin') {
         redirect('/dashboard')

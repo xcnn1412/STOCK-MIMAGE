@@ -1,5 +1,5 @@
-import { cookies } from 'next/headers'
 import { NextRequest } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 
 const COST_LABELS: Record<string, string> = {
   staff: 'ค่าแรง', travel: 'ค่าเดินทาง', electrical_equipment: 'อุปกรณ์ไฟฟ้า',
@@ -128,9 +128,9 @@ function buildDataPayload(events: any[], sections: string[]): string {
 }
 
 export async function POST(request: NextRequest) {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
-  if (role !== 'admin') {
+  // /api ไม่ผ่าน proxy.ts — ต้องตรวจ session + บทบาทจากฐานข้อมูลเองที่นี่
+  const session = await requireAuth()
+  if (!session || session.role !== 'admin') {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }
 
