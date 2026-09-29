@@ -364,6 +364,7 @@ const {
   markAsPendingMonthEnd, markAsWaitingTaxInvoice, uploadTaxInvoice, markAsPaid, deleteClaim, adminOverrideStatus,
   getJobEventsForSelect, settleAdvanceClaim, confirmRefundReceived, addPettyCashExpense, createPettyCashTopup,
   closePettyCashMonth,
+  reopenRejectedClaim,
 } = actions
 
 // ── ตัวช่วย ──────────────────────────────────────────────────────────────────
@@ -983,6 +984,213 @@ async function main() {
     }
   }
   pass('v1.24.3 เคลียร์ใบทดลองจ่าย: ทีละครั้งแก้ยอดได้ · มีคนบันทึกไปก่อน / แอดมินยืนยันเงินคืน / ยกเลิก ระหว่างทาง → "ถูกบันทึกหรือเปลี่ยนสถานะไปแล้ว" ไม่เขียนทับ ไม่มีผลข้างเคียง ไฟล์ถูกลบ · กดพร้อมกันสองครั้ง → สำเร็จหนึ่ง ไฟล์ของอีกคำขอไม่ค้าง · ทางสำรองมีเงื่อนไขเดียวกัน')
+
+  // ══ v1.25.0 ขั้น 1: ยื่นทันที · แจ้งเตือนยื่น/จ่าย · เปิดใบที่ถูกปฏิเสธ · เหตุผลเฉพาะที่จำเป็น ═══════════════
+  {
+    rpcMode = 'installed'
+    const lastNote = () => notifications.at(-1) as Row
+    const actionsOf = (claimId: string) => activity.filter(a => (a.details as Row).claimId === claimId).map(a => a.action)
+
+    // (a) สร้างแล้วยื่นทันที: รออนุมัติ + submitted_at + ประวัติ submit + activity สร้าง/ยื่น + แจ้งแอดมินทุกคน
+    loginAs(STAFF)
+    let notes0 = notifications.length
+    const submitted = await createClaim(claimForm({ intent: 'submit', title: 'ยื่นทันที' }, [file('r.jpg')]))
+    assert.equal(submitted.error, undefined, `ยื่นทันทีต้องสำเร็จ (ได้ ${submitted.error})`)
+    const submittedId = String(submitted.id)
+    const submittedRow = claimRow(submittedId)
+    assert.equal(submitted.status, 'pending')
+    assert.equal(submitted.claimNumber, submittedRow.claim_number)
+    assert.equal(submittedRow.status, 'pending')
+    assert.ok(submittedRow.submitted_at, 'submitted_at ต้องมีค่า')
+    assert.equal((submittedRow.receipt_urls as string[]).length, 1)
+    assert.deepEqual(logsOf(submittedId).map(l => l.action), ['submit'], 'ประวัติ submit หนึ่งแถว')
+    assert.deepEqual(actionsOf(submittedId), ['CREATE_EXPENSE_CLAIM', 'SUBMIT_EXPENSE_CLAIM'])
+    assert.equal(notifications.length - notes0, 1, 'แจ้งเตือนหนึ่งครั้ง')
+    assert.equal(lastNote().type, 'expense_submitted')
+    assert.ok((lastNote().userIds as string[]).includes(ADMIN) && (lastNote().userIds as string[]).includes(ADMIN_B), 'แจ้งแอดมินทุกคน')
+    assert.deepEqual(
+      { actorId: lastNote().actorId, referenceType: lastNote().referenceType, referenceId: lastNote().referenceId, title: lastNote().title },
+      { actorId: STAFF, referenceType: 'expense_claim', referenceId: submittedId, title: `ใบเบิก ${submittedRow.claim_number} ยื่นขออนุมัติ — ฿300` },
+    )
+
+    // (b) ยื่นทันทีโดยไม่แนบใบเสร็จ (ค่าอื่นๆ / งานอีเวนต์ที่ต้องนำเข้า) → error ก่อนเขียนอะไร: ไม่ขอเลข ไม่นำเข้างาน ไม่อัปโหลด ไม่แจ้ง
+    const noReceiptForms: Record<string, string>[] = [
+      { intent: 'submit', title: 'ไม่มีใบเสร็จ' },
+      { intent: 'submit', title: 'งานไม่มีใบเสร็จ', claim_type: 'event', job_event_id: 'stock:00000000-0000-4000-8000-000000000777' },
+    ]
+    for (const over of noReceiptForms) {
+      const claimsBefore = db.expense_claims.length
+      const storageBefore = JSON.stringify(storageKeys())
+      const uploads = uploadCalls
+      notes0 = notifications.length
+      mark = ops.length
+      const res = await createClaim(claimForm(over))
+      assert.match(String(res.error), /อย่างน้อย 1 ไฟล์/, `${over.title}: ต้องได้ error เรื่องใบเสร็จ`)
+      assert.equal(writesSince(mark).length, 0, `${over.title}: ต้องไม่เขียนอะไร — ได้ ${JSON.stringify(writesSince(mark))}`)
+      assert.equal(ops.slice(mark).filter(o => o.action === 'rpc').length, 0, `${over.title}: ไม่ขอเลขที่`)
+      assert.equal(db.expense_claims.length, claimsBefore)
+      assert.equal(JSON.stringify(storageKeys()), storageBefore)
+      assert.equal(uploadCalls, uploads)
+      assert.equal(notifications.length, notes0)
+    }
+
+    // (c) ทดลองจ่ายยื่นทันทีโดยไม่แนบ → รออนุมัติ
+    notes0 = notifications.length
+    const advance = await createClaim(claimForm({ claim_type: 'advance', intent: 'submit', title: 'ทดลองจ่ายยื่นทันที' }))
+    assert.equal(advance.error, undefined, `ทดลองจ่ายยื่นทันทีต้องสำเร็จ (ได้ ${advance.error})`)
+    assert.equal(advance.status, 'pending')
+    assert.equal(claimRow(String(advance.id)).status, 'pending')
+    assert.equal(notifications.length - notes0, 1)
+
+    // (d) ไม่ส่ง intent / intent อื่น → แบบร่าง ไม่แจ้งใคร ไม่มีประวัติยื่น
+    for (const intent of [null, 'yes']) {
+      notes0 = notifications.length
+      const draft = await createClaim(claimForm({ intent, title: `แบบร่าง ${intent}` }))
+      assert.equal(draft.error, undefined)
+      assert.equal(draft.status, 'draft')
+      const row = claimRow(String(draft.id))
+      assert.equal(row.status, 'draft')
+      assert.equal(row.submitted_at, null)
+      assert.equal(draft.claimNumber, row.claim_number)
+      assert.equal(notifications.length, notes0, 'แบบร่างไม่แจ้งใคร')
+      assert.equal(logsOf(String(draft.id)).length, 0)
+      assert.deepEqual(actionsOf(String(draft.id)), ['CREATE_EXPENSE_CLAIM'])
+    }
+
+    // (e) กดยื่นแบบร่างของตัวเองทีหลัง → แจ้งแอดมินหนึ่งครั้ง · กติกาใบเสร็จเดียวกับยื่นทันที
+    const ownDraft = seedClaim({ status: 'draft', submitted_by: STAFF, title: 'ยื่นทีหลัง' })
+    notes0 = notifications.length
+    assert.deepEqual(await submitClaim(ownDraft), { success: true })
+    assert.equal(notifications.length - notes0, 1, 'แจ้งเตือนหนึ่งครั้ง')
+    assert.deepEqual(
+      { type: lastNote().type, referenceType: lastNote().referenceType, referenceId: lastNote().referenceId, actorId: lastNote().actorId },
+      { type: 'expense_submitted', referenceType: 'expense_claim', referenceId: ownDraft, actorId: STAFF },
+    )
+    assert.ok((lastNote().userIds as string[]).includes(ADMIN) && (lastNote().userIds as string[]).includes(ADMIN_B))
+    const bareEvent = seedClaim({ status: 'draft', submitted_by: STAFF, receipt_urls: [] })
+    notes0 = notifications.length
+    mark = ops.length
+    assert.equal((await submitClaim(bareEvent)).error, 'กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นใบเบิก')
+    assert.equal(writesSince(mark).length, 0)
+    assert.equal(notifications.length, notes0)
+    const bareAdvance = seedClaim({ claim_type: 'advance', job_event_id: null, status: 'draft', submitted_by: STAFF, receipt_urls: [] })
+    assert.deepEqual(await submitClaim(bareAdvance), { success: true }, 'ทดลองจ่ายยื่นได้โดยไม่แนบ')
+
+    // (f) จ่ายเงินแล้ว → แจ้งผู้เบิกหนึ่งครั้ง
+    loginAs(ADMIN)
+    const toPay = seedClaim({ status: 'approved', submitted_by: STAFF, title: 'รอจ่าย' })
+    notes0 = notifications.length
+    assert.deepEqual(await markAsPaid(toPay), { success: true })
+    assert.equal(notifications.length - notes0, 1, 'แจ้งเตือนหนึ่งครั้ง')
+    assert.deepEqual(
+      { type: lastNote().type, userIds: lastNote().userIds, referenceType: lastNote().referenceType, referenceId: lastNote().referenceId, actorId: lastNote().actorId, title: lastNote().title },
+      { type: 'expense_paid', userIds: [STAFF], referenceType: 'expense_claim', referenceId: toPay, actorId: ADMIN, title: `ใบเบิก ${claimRow(toPay).claim_number} จ่ายเงินแล้ว ฿300` },
+    )
+
+    // (g) เจ้าของเปิดใบที่ถูกปฏิเสธกลับเป็นแบบร่าง
+    const rejected = seedClaim({
+      status: 'rejected', submitted_by: STAFF, title: 'ถูกปฏิเสธ', reject_reason: 'เอกสารไม่ครบ', approved_by: ADMIN,
+      approved_at: '2026-09-28T03:00:00.000Z', submitted_at: '2026-09-27T03:00:00.000Z',
+    })
+    // แอดมินที่ไม่ใช่เจ้าของ → error ไม่เขียน
+    let before = JSON.stringify(claimRow(rejected))
+    mark = ops.length
+    let res = await reopenRejectedClaim(rejected)
+    assert.match(String(res.error), /เฉพาะเจ้าของใบเบิก/)
+    assert.equal(writesSince(mark).length, 0)
+    assert.equal(JSON.stringify(claimRow(rejected)), before)
+    // เจ้าของ แต่ใบยังรออนุมัติ → error ไม่เขียน
+    loginAs(STAFF)
+    const stillPending = seedClaim({ status: 'pending', submitted_by: STAFF })
+    before = JSON.stringify(claimRow(stillPending))
+    mark = ops.length
+    res = await reopenRejectedClaim(stillPending)
+    assert.match(String(res.error), /เฉพาะใบเบิกที่ถูกปฏิเสธ/)
+    assert.equal(writesSince(mark).length, 0)
+    assert.equal(JSON.stringify(claimRow(stillPending)), before)
+    // รายการในวงเงินสดย่อยที่ปิดเดือนแล้ว → error ไม่เขียน
+    const closedFund = seedClaim({
+      claim_type: 'petty_cash', job_event_id: null, status: 'paid', submitted_by: CUSTODIAN, receipt_urls: [],
+      pettycash_closed_at: '2026-09-30T09:00:00.000Z',
+    })
+    const frozen = seedClaim({ claim_type: 'petty_cash', job_event_id: null, status: 'rejected', submitted_by: STAFF, pettycash_fund_id: closedFund })
+    mark = ops.length
+    res = await reopenRejectedClaim(frozen)
+    assert.match(String(res.error), /ปิดแล้ว/)
+    assert.equal(writesSince(mark).length, 0)
+    assert.equal(claimRow(frozen).status, 'rejected')
+    // เจ้าของ + ถูกปฏิเสธ → แบบร่าง ล้างเหตุผล/ผู้อนุมัติ/เวลาอนุมัติ/เวลายื่น
+    res = await reopenRejectedClaim(rejected)
+    assert.deepEqual(res, { success: true })
+    const reopened = claimRow(rejected)
+    assert.deepEqual(
+      { status: reopened.status, reject_reason: reopened.reject_reason, approved_by: reopened.approved_by, approved_at: reopened.approved_at, submitted_at: reopened.submitted_at },
+      { status: 'draft', reject_reason: null, approved_by: null, approved_at: null, submitted_at: null },
+    )
+    assert.deepEqual(logsOf(rejected).map(l => l.action), ['reopen'])
+    assert.match(String(logsOf(rejected)[0].note), /เอกสารไม่ครบ/)
+    assert.deepEqual(activity.at(-1), { action: 'REOPEN_REJECTED_CLAIM', details: { claimId: rejected, claimNumber: reopened.claim_number, rejectReason: 'เอกสารไม่ครบ' } })
+    assert.equal(costItemsOf(rejected).length, 0)
+    // เปิดแล้วยื่นใหม่ได้ตามปกติ
+    assert.deepEqual(await submitClaim(rejected), { success: true })
+    assert.equal(claimRow(rejected).status, 'pending')
+    // สถานะถูกเปลี่ยนระหว่างอ่านกับเขียน → STALE ไม่มีผลข้างเคียง
+    const rejected2 = seedClaim({ status: 'rejected', submitted_by: STAFF, reject_reason: 'ยอดผิด' })
+    await expectStale('reopenRejectedClaim', rejected2, { status: 'cancelled', cancelled_by: STAFF }, () => reopenRejectedClaim(rejected2))
+
+    // (h) เหตุผล: เดินหน้า/ปิดใบที่ยังไม่จ่าย เว้นว่างได้ · ถอย/เปิดใบที่ปิด/ปิดใบที่จ่ายแล้ว/แก้ใบที่จ่ายแล้ว ต้องมี
+    loginAs(ADMIN)
+    const overrideNote = (id: string) => String(logsOf(id).filter(l => l.action === 'admin_override').at(-1)?.note)
+    const forward = seedClaim({ status: 'pending', submitted_by: STAFF })
+    assert.deepEqual(await adminOverrideStatus(forward, 'approved', ''), { success: true })
+    assert.equal(claimRow(forward).status, 'approved')
+    assert.equal(overrideNote(forward), '[Admin Override] ไม่ระบุเหตุผล')
+    assert.equal((activity.at(-1)?.details as Row).reason, 'ไม่ระบุเหตุผล')
+    assert.equal(lastNote().body, 'ไม่ระบุเหตุผล', 'แจ้งเจ้าของใบด้วยข้อความเดียวกัน')
+    for (const [from, to, reason] of [
+      ['approved', 'pending', ''], ['paid', 'approved', ''], ['rejected', 'draft', ''], ['paid', 'cancelled', '   '],
+      ['waiting_tax_invoice', 'draft', ''], ['refund_confirmed', 'paid', ''],
+    ]) {
+      const id = seedClaim({ status: from })
+      before = JSON.stringify(claimRow(id))
+      mark = ops.length
+      res = await adminOverrideStatus(id, to, reason)
+      assert.match(String(res.error), /เหตุผล/, `${from} → ${to} ไม่มีเหตุผล: ต้องได้ error (ได้ ${JSON.stringify(res)})`)
+      assert.equal(writesSince(mark).length, 0, `${from} → ${to}: ต้องไม่เขียน`)
+      assert.equal(JSON.stringify(claimRow(id)), before)
+    }
+    const rejectNoReason = seedClaim({ status: 'pending' })
+    assert.deepEqual(await adminOverrideStatus(rejectNoReason, 'rejected', ''), { success: true })
+    assert.equal(claimRow(rejectNoReason).reject_reason, 'ไม่ระบุเหตุผล')
+    const backward = seedClaim({ status: 'waiting_tax_invoice' })
+    assert.deepEqual(await adminOverrideStatus(backward, 'draft', 'ลูกค้าขอแก้'), { success: true })
+    assert.equal(claimRow(backward).status, 'draft')
+    assert.equal(overrideNote(backward), '[Admin Override] ลูกค้าขอแก้')
+
+    // แก้ใบที่จ่ายแล้ว / ยืนยันเงินคืนแล้ว: ไม่มีเหตุผล (หรือช่องว่างล้วน) → error ไม่เขียน
+    const paid = seedClaim({ status: 'paid', title: 'จ่ายแล้ว' })
+    const refunded = seedClaim({ claim_type: 'advance', job_event_id: null, status: 'refund_confirmed', title: 'คืนเงินแล้ว' })
+    for (const [id, reason] of [[paid, undefined], [paid, '  '], [refunded, undefined]] as const) {
+      before = JSON.stringify(claimRow(id))
+      mark = ops.length
+      res = await updateClaim(id, { title: 'แก้ชื่อ', ...(reason === undefined ? {} : { reason }) })
+      assert.match(String(res.error), /เหตุผล/, `แก้ใบ ${claimRow(id).status} ไม่มีเหตุผล: ต้องได้ error`)
+      assert.equal(writesSince(mark).length, 0)
+      assert.equal(JSON.stringify(claimRow(id)), before)
+    }
+    // มีเหตุผล → สำเร็จ · เหตุผลอยู่ในประวัติ ไม่ใช่ช่องที่ถูกแก้
+    assert.deepEqual(await updateClaim(paid, { title: 'จ่ายแล้ว (แก้ชื่อ)', reason: 'พิมพ์ผิด' }), { success: true })
+    assert.equal(claimRow(paid).title, 'จ่ายแล้ว (แก้ชื่อ)')
+    const updates = logsOf(paid).filter(l => l.action === 'update')
+    assert.equal(updates.length, 1)
+    assert.match(String(updates[0].note), /พิมพ์ผิด/)
+    assert.deepEqual(Object.keys(updates[0].changes as Row), ['title'])
+    // ใบที่ยังไม่จ่าย ไม่ต้องมีเหตุผล
+    const draftEdit = seedClaim({ status: 'draft', submitted_by: STAFF })
+    assert.deepEqual(await updateClaim(draftEdit, { title: 'แก้แบบร่าง' }), { success: true })
+    assert.equal(claimRow(draftEdit).title, 'แก้แบบร่าง')
+  }
+  pass('v1.25.0 ขั้น 1 createClaim intent=submit → รออนุมัติ + submitted_at + ประวัติ submit + activity สร้าง/ยื่น + แจ้งแอดมินทุกคน · ไม่แนบ (ค่าอื่นๆ/งาน) → error ไม่เขียน ไม่ขอเลข · ทดลองจ่ายไม่แนบยื่นได้ · ไม่ส่ง intent = แบบร่าง ไม่แจ้ง · submitClaim แจ้งแอดมิน · markAsPaid แจ้งผู้เบิก · reopenRejectedClaim เฉพาะเจ้าของ + ใบที่ถูกปฏิเสธ (ล้างช่องอนุมัติ, STALE ไม่มีผลข้างเคียง) · เหตุผลบังคับเฉพาะถอย/เปิดใบที่ปิด/ปิดใบที่จ่ายแล้ว/แก้ใบที่จ่ายแล้ว')
 
   console.log('\nfinance-integrity: ผ่านทั้งหมด')
 }

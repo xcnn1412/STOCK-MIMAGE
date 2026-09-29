@@ -28,6 +28,7 @@ export default async function NewClaimPage() {
       categoryItems={categoryItems}
       staffProfiles={staffProfiles}
       isAdmin={viewer.isAdmin}
+      viewerId={viewer.userId}
     />
   )
 }

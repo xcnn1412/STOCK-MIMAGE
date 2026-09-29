@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { Banknote, Users, Calendar, Filter, ChevronDown, ExternalLink, CheckCircle2, Search, AlertCircle } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import { getCategoryLabel, getClaimChecklist } from '../../costs/types'
@@ -77,7 +78,8 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
     if (!ok) return
     setPayingId(c.id)
     const res = await markAsPaid(c.id)
-    if (res.error) alert(res.error)
+    if (res.error) toast.error(res.error)
+    else toast.success(isEn ? `Claim ${c.claim_number} marked as paid` : `บันทึกว่าจ่ายแล้ว — ${c.claim_number}`)
     setPayingId(null)
     router.refresh()
   }
@@ -95,7 +97,8 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
     if (!ok) return
     setDeferringId(c.id)
     const res = await markAsPendingMonthEnd(c.id)
-    if (res.error) alert(res.error)
+    if (res.error) toast.error(res.error)
+    else toast.success(isEn ? `Claim ${c.claim_number} deferred to month end` : `เลื่อนเป็นรอจ่ายสิ้นเดือนแล้ว — ${c.claim_number}`)
     setDeferringId(null)
     router.refresh()
   }

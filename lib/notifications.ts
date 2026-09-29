@@ -33,6 +33,8 @@ export type NotificationType =
   | 'ticket_reply'
   | 'ticket_mentioned'
   | 'ticket_status_changed'
+  | 'expense_submitted'     // มีใบเบิกยื่นขออนุมัติ → แอดมินทุกคน
+  | 'expense_paid'          // จ่ายเงินแล้ว → ผู้เบิก
   | 'expense_approved'
   | 'expense_rejected'
   | 'expense_waiting_tax_invoice'

@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { useConfirm } from '../use-confirm'
 import { claimFileCount, filedState, financeListHref } from '../claims-filter'
 import BundleDialog from '../bundle-dialog'
@@ -13,7 +14,7 @@ import {
   Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle,
   ChevronDown, ChevronRight, Coins, Lock, FileStack, FolderCheck,
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, removeReceiptFile, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash, markClaimsFiled, unmarkClaimFiled } from '../actions'
+import { approveClaim, rejectClaim, deleteClaim, updateClaim, removeReceiptFile, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash, markClaimsFiled, unmarkClaimFiled, reopenRejectedClaim } from '../actions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES, getClaimChecklist, getFundingSourceLabel, getFundingSourceColor, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -22,7 +23,7 @@ import BankSelect from '@/components/bank-select'
 import { compressImage } from '@/lib/utils'
 import { thaiTodayIso } from '@/lib/thai-date'
 import EventSelectCombobox from '../new/event-select-combobox'
-import { canSeeWorkPanel } from '../claim-rules'
+import { canSeeWorkPanel, receiptRequiredForSubmit, reasonRequiredForTransition, reasonRequiredForEdit } from '../claim-rules'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -42,6 +43,18 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 }
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** ข้อผิดพลาดของปุ่มที่เพิ่งกด — แสดงใต้กลุ่มปุ่มนั้น (k = busy key ของปุ่มในกลุ่ม) */
+type ActionErrorState = { key: string; message: string } | null
+function ActionError({ k, error, className = '' }: { k: string | readonly string[]; error: ActionErrorState; className?: string }) {
+  if (!error || !(typeof k === 'string' ? error.key === k : k.includes(error.key))) return null
+  return (
+    <div role="alert" className={`flex items-start gap-2 p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 rounded-lg text-sm text-red-600 dark:text-red-400 ${className}`}>
+      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+      <span className="min-w-0 break-words">{error.message}</span>
+    </div>
+  )
+}
 
 // ── Collapsible section (inline component) ───────────────────────────
 function CollapsibleSection({
@@ -147,14 +160,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const router = useRouter()
   const { locale } = useLocale()
   const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
-  const [loading, setLoading] = useState(false)
+  // ปุ่มที่กำลังทำงาน (หมุนเฉพาะปุ่มนั้น — ปุ่มอื่นแค่ปิดไว้) และข้อผิดพลาดของปุ่มที่กดล่าสุด
+  const [busy, setBusy] = useState<string | null>(null)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<ActionErrorState>(null)
   const [bundleOpen, setBundleOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [overrideStatus, setOverrideStatus] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
+  const [editReason, setEditReason] = useState('')
   const [editReceiptFiles, setEditReceiptFiles] = useState<File[]>([])
 
   /**
@@ -281,6 +296,10 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const canCancel = isOwner && !isAdmin && (isDraft || isPending)
   const statusColor = getClaimStatusColor(claim.status)
   const isEn = locale === 'en'
+  // แอดมินบังคับเปลี่ยนสถานะ: ต้องมีเหตุผลเฉพาะตอนถอยสถานะ / ปิดใบที่จ่ายแล้ว — เดินหน้าตามขั้นตอนไม่ต้อง
+  const needsReason = !!overrideStatus && reasonRequiredForTransition(claim.status, overrideStatus)
+  // แก้ใบที่จ่ายเงินแล้ว ต้องบอกเหตุผล
+  const editNeedsReason = reasonRequiredForEdit(claim.status)
 
   const editComputedAmount = (Number(editUnitPrice) || 0) * (Number(editQuantity) || 1)
   const editWhtRateNum = Number(editWhtRate) || 0
@@ -300,14 +319,50 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     { label: isEn ? 'Submitter' : 'ผู้เบิก', value: claim.submitter?.full_name || '—' },
   ]
 
+  /** ข้อผิดพลาดที่ตรวจเจอฝั่งหน้าจอ (ยังไม่ได้เรียก server) — แสดงใต้ปุ่มที่กด + toast */
+  const fail = (key: string, message: string) => {
+    setActionError({ key, message })
+    toast.error(message)
+  }
+
+  /**
+   * กดปุ่มหนึ่งปุ่ม: หมุนเฉพาะปุ่ม key · ผิดพลาด = ข้อความใต้กลุ่มปุ่มนั้น + toast · สำเร็จ = toast แล้ว after()
+   * แล้วโหลดหน้าใหม่ — after คืน true = ออกจากหน้านี้แล้ว (ลบใบเบิก) ไม่ต้องโหลดหน้าเดิมซ้ำ
+   */
+  const run = async <R extends { error?: string | null }>(
+    key: string,
+    action: () => Promise<R>,
+    successMsg: string,
+    after?: (res: R) => boolean | void,
+  ): Promise<boolean> => {
+    setBusy(key)
+    setActionError(null)
+    let res: R | null = null
+    try {
+      res = await action()
+    } catch {
+      res = null // เครือข่ายหลุด / server ล้ม — แจ้งเป็นข้อผิดพลาดทั่วไป
+    }
+    if (!res || res.error) {
+      setBusy(null)
+      fail(key, res?.error || (isEn ? 'Something went wrong — please try again' : 'เกิดข้อผิดพลาด กรุณาลองใหม่'))
+      return false
+    }
+    toast.success(successMsg)
+    if (after?.(res) === true) return true
+    router.refresh()
+    setBusy(null)
+    return true
+  }
+
   // จับชุดเอกสาร: สถานะเข้าแฟ้ม (ฐานข้อมูลที่ยังไม่มีคอลัมน์ = none) + ปุ่มทำ/ยกเลิกเครื่องหมายของแอดมิน
   const filed = filedState(claim)
   const handleFiled = async (mark: boolean) => {
-    setLoading(true)
-    setError(null)
-    const result = mark ? await markClaimsFiled([claim.id]) : await unmarkClaimFiled(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run(
+      'filed',
+      async () => mark ? await markClaimsFiled([claim.id]) : await unmarkClaimFiled(claim.id),
+      mark ? (isEn ? 'Marked as filed' : 'ทำเครื่องหมายเข้าแฟ้มแล้ว') : (isEn ? 'Filing mark removed' : 'ยกเลิกเครื่องหมายเข้าแฟ้มแล้ว'),
+    )
   }
 
   const handleApprove = async () => {
@@ -319,19 +374,11 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
     })
     if (!ok) return
-    setLoading(true)
-    setError(null)
-    const result = await approveClaim(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run('approve', () => approveClaim(claim.id), isEn ? 'Approved' : 'อนุมัติแล้ว')
   }
 
   const handleReject = async () => {
-    setLoading(true)
-    setError(null)
-    const result = await rejectClaim(claim.id, rejectReason)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { setRejectOpen(false); router.refresh(); setLoading(false) }
+    await run('reject', () => rejectClaim(claim.id, rejectReason), isEn ? 'Rejected' : 'ปฏิเสธแล้ว', () => { setRejectOpen(false) })
   }
 
   const handleDelete = async () => {
@@ -346,10 +393,10 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
     })
     if (!ok) return
-    setLoading(true)
-    const result = await deleteClaim(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.push(financeListHref()) }
+    await run('delete', () => deleteClaim(claim.id), isEn ? 'Claim deleted' : 'ลบใบเบิกแล้ว', () => {
+      router.push(financeListHref())
+      return true // ออกจากหน้านี้ — ปุ่มหมุนค้างไว้จนเปลี่ยนหน้า
+    })
   }
 
   const handleSubmit = async () => {
@@ -360,11 +407,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
     })
     if (!ok) return
-    setLoading(true)
-    setError(null)
-    const result = await submitClaim(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run('submit', () => submitClaim(claim.id), isEn ? 'Claim submitted — awaiting approval' : 'ยื่นใบเบิกแล้ว — รออนุมัติ')
   }
 
   const handleCancel = async () => {
@@ -379,11 +422,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Keep' : 'ไม่ยกเลิก',
     })
     if (!ok) return
-    setLoading(true)
-    setError(null)
-    const result = await cancelClaim(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run('cancel', () => cancelClaim(claim.id), isEn ? 'Claim cancelled' : 'ยกเลิกใบเบิกแล้ว')
   }
 
   const handleMarkPaid = async () => {
@@ -398,11 +437,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Not yet' : 'ยังไม่จ่าย',
     })
     if (!ok) return
-    setLoading(true)
-    setError(null)
-    const result = await markAsPaid(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run('markPaid', () => markAsPaid(claim.id), isEn ? 'Marked as paid' : 'บันทึกว่าจ่ายแล้ว')
   }
 
   const handleDeferMonthEnd = async () => {
@@ -413,11 +448,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
     })
     if (!ok) return
-    setLoading(true)
-    setError(null)
-    const result = await markAsPendingMonthEnd(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run('deferMonthEnd', () => markAsPendingMonthEnd(claim.id), isEn ? 'Deferred to month end' : 'เลื่อนเป็นรอจ่ายสิ้นเดือนแล้ว')
   }
 
   const handleApproveAsMonthEnd = async () => {
@@ -428,63 +459,47 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
     })
     if (!ok) return
-    setLoading(true)
-    setError(null)
-    const result = await approveAsPendingMonthEnd(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run('approveMonthEnd', () => approveAsPendingMonthEnd(claim.id), isEn ? 'Approved — pay at month end' : 'อนุมัติแล้ว — รอจ่ายสิ้นเดือน')
   }
 
   const handleMarkWaitingTaxInvoice = async () => {
-    setLoading(true)
-    setError(null)
-    const result = await markAsWaitingTaxInvoice(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run('waitingTaxInvoice', () => markAsWaitingTaxInvoice(claim.id), isEn ? 'Now waiting for the tax invoice' : 'เปลี่ยนเป็นรอใบกำกับภาษีแล้ว')
   }
 
   const handleUploadTaxInvoice = async () => {
     const validRows = taxInvoiceRows.filter(r => r.file || r.number.trim())
     if (validRows.length === 0) {
-      setError(isEn
+      fail('uploadTaxInvoice', isEn
         ? 'Please add at least one tax invoice (file or number).'
         : 'กรุณาเพิ่มใบกำกับภาษีอย่างน้อย 1 รายการ (แนบไฟล์หรือกรอกเลขที่)')
       return
     }
-    setLoading(true)
-    setError(null)
-    const formData = new FormData()
-    // Append files and numbers in matching order — server pairs them by index.
-    for (const row of validRows) {
-      if (row.file) {
-        const compressed = row.file.type.startsWith('image/')
-          ? await compressImage(row.file)
-          : row.file
-        formData.append('tax_invoice_files', compressed)
-      } else {
-        // Empty Blob preserves index alignment when there's only a number.
-        formData.append('tax_invoice_files', new Blob([]), '')
+    await run('uploadTaxInvoice', async () => {
+      const formData = new FormData()
+      // Append files and numbers in matching order — server pairs them by index.
+      for (const row of validRows) {
+        if (row.file) {
+          const compressed = row.file.type.startsWith('image/')
+            ? await compressImage(row.file)
+            : row.file
+          formData.append('tax_invoice_files', compressed)
+        } else {
+          // Empty Blob preserves index alignment when there's only a number.
+          formData.append('tax_invoice_files', new Blob([]), '')
+        }
+        formData.append('tax_invoice_numbers', row.number.trim())
       }
-      formData.append('tax_invoice_numbers', row.number.trim())
-    }
-    const result = await uploadTaxInvoice(claim.id, formData)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else {
+      return uploadTaxInvoice(claim.id, formData)
+    }, isEn ? 'Tax invoices saved' : 'บันทึกใบกำกับภาษีแล้ว', () => {
       setTaxInvoiceRows([{ id: nextTaxInvoiceRowId(), file: null, number: '' }])
-      router.refresh()
-      setLoading(false)
-    }
+    })
   }
 
   const handleSaveTaxEntries = async () => {
-    setLoading(true)
-    setError(null)
-    const result = await setTaxInvoiceEntries(
+    await run('saveTaxEntries', () => setTaxInvoiceEntries(
       claim.id,
       editTaxEntries.map(e => ({ url: e.url, number: e.number })),
-    )
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { setEditingTaxEntries(false); router.refresh(); setLoading(false) }
+    ), isEn ? 'Tax invoices updated' : 'บันทึกการแก้ไขใบกำกับภาษีแล้ว', () => { setEditingTaxEntries(false) })
   }
 
   const handleSettleAdvance = async () => {
@@ -492,30 +507,26 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       .map(it => ({ description: it.description.trim(), amount: Number(it.amount) || 0 }))
       .filter(it => it.amount > 0)
     if (cleanItems.length === 0) {
-      setError(isEn ? 'Please add at least one expense item.' : 'กรุณาเพิ่มรายการค่าใช้จ่ายอย่างน้อย 1 รายการ')
+      fail('settleAdvance', isEn ? 'Please add at least one expense item.' : 'กรุณาเพิ่มรายการค่าใช้จ่ายอย่างน้อย 1 รายการ')
       return
     }
-    setLoading(true)
-    setError(null)
-    const formData = new FormData()
-    formData.append('actual_spent_items', JSON.stringify(cleanItems))
-    for (const f of actualReceiptFiles) {
-      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-      formData.append('actual_receipt_files', compressed)
-    }
-    for (const f of refundSlipFiles) {
-      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-      formData.append('refund_slip_files', compressed)
-    }
-    const result = await settleAdvanceClaim(claim.id, formData)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else {
+    await run('settleAdvance', async () => {
+      const formData = new FormData()
+      formData.append('actual_spent_items', JSON.stringify(cleanItems))
+      for (const f of actualReceiptFiles) {
+        const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+        formData.append('actual_receipt_files', compressed)
+      }
+      for (const f of refundSlipFiles) {
+        const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+        formData.append('refund_slip_files', compressed)
+      }
+      return settleAdvanceClaim(claim.id, formData)
+    }, isEn ? 'Actual spending saved' : 'บันทึกค่าใช้จ่ายจริงแล้ว', () => {
       setActualReceiptFiles([])
       setRefundSlipFiles([])
       setItemsEditMode(false)
-      router.refresh()
-      setLoading(false)
-    }
+    })
   }
 
   // Group fund expenses into calendar weeks of the month (1–7, 8–14, …) for
@@ -536,31 +547,32 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
 
   // Log an expense paid from the box (any staff member, while the fund is open)
   const handleAddPettyExpense = async () => {
-    if (!qaTitle.trim()) { setError(isEn ? 'Enter the expense description.' : 'กรุณากรอกรายการค่าใช้จ่าย'); return }
-    if (!(Number(qaAmount) > 0)) { setError(isEn ? 'Enter a valid amount.' : 'กรุณากรอกจำนวนเงินให้ถูกต้อง'); return }
-    setLoading(true)
-    setError(null)
-    const fd = new FormData()
-    fd.append('title', qaTitle.trim())
-    fd.append('category', qaCategory)
-    fd.append('amount', qaAmount)
-    fd.append('expense_date', qaDate)
-    for (const f of qaFiles) {
-      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-      fd.append('receipt_files', compressed)
-    }
-    const res = await addPettyCashExpense(claim.id, fd)
-    if (res.error) { setError(res.error); setLoading(false); return }
-    setQaTitle('')
-    setQaAmount('')
-    setQaFiles([])
-    if ((res.balance ?? 0) < 0) {
-      setError(isEn
-        ? `Saved — but the box balance is now negative (฿${fmtDec(res.balance ?? 0)}). Request a top-up.`
-        : `บันทึกแล้ว — แต่เงินในกล่องติดลบ (฿${fmtDec(res.balance ?? 0)}) กรุณาเบิกเพิ่ม`)
-    }
-    router.refresh()
-    setLoading(false)
+    if (!qaTitle.trim()) { fail('pettyExpense', isEn ? 'Enter the expense description.' : 'กรุณากรอกรายการค่าใช้จ่าย'); return }
+    if (!(Number(qaAmount) > 0)) { fail('pettyExpense', isEn ? 'Enter a valid amount.' : 'กรุณากรอกจำนวนเงินให้ถูกต้อง'); return }
+    await run('pettyExpense', async () => {
+      const fd = new FormData()
+      fd.append('title', qaTitle.trim())
+      fd.append('category', qaCategory)
+      fd.append('amount', qaAmount)
+      fd.append('expense_date', qaDate)
+      for (const f of qaFiles) {
+        const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+        fd.append('receipt_files', compressed)
+      }
+      return addPettyCashExpense(claim.id, fd)
+    }, isEn ? 'Expense saved' : 'บันทึกรายจ่ายแล้ว', res => {
+      setQaTitle('')
+      setQaAmount('')
+      setQaFiles([])
+      if ((res.balance ?? 0) < 0) {
+        // บันทึกสำเร็จแล้ว — แค่เตือนว่าเงินในกล่องติดลบ
+        const warning = isEn
+          ? `Saved — but the box balance is now negative (฿${fmtDec(res.balance ?? 0)}). Request a top-up.`
+          : `บันทึกแล้ว — แต่เงินในกล่องติดลบ (฿${fmtDec(res.balance ?? 0)}) กรุณาเบิกเพิ่ม`
+        setActionError({ key: 'pettyExpense', message: warning })
+        toast.warning(warning)
+      }
+    })
   }
 
   const claimTypeShort = (t: string) =>
@@ -571,56 +583,57 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   // Pull an approved claim into the fund (admin) — pays it from the box
   const handleLinkClaim = async () => {
     if (!linkClaimId) return
-    setLoading(true)
-    setError(null)
-    const res = await linkClaimToPettyCash(claim.id, linkClaimId)
-    if (res.error) { setError(res.error); setLoading(false); return }
-    if (res.warning) setError(res.warning) // link succeeded — date-outside-month notice only
-    setLinkClaimId('')
-    router.refresh()
-    setLoading(false)
+    await run('linkClaim', () => linkClaimToPettyCash(claim.id, linkClaimId), isEn ? 'Claim pulled into the fund' : 'ดึงใบเบิกเข้าวงเงินแล้ว', res => {
+      if (res.warning) {
+        // link succeeded — date-outside-month notice only
+        setActionError({ key: 'linkClaim', message: res.warning })
+        toast.warning(res.warning)
+      }
+      setLinkClaimId('')
+    })
   }
 
   // Undo a pull (admin, month still open) — claim returns to the payout queue
   const handleUnlinkClaim = async () => {
-    if (!confirm(isEn
-      ? 'Unlink this claim from the petty cash fund? It returns to the payout queue as approved.'
-      : 'ยกเลิกการดึงใบเบิกนี้ออกจากวงเงินสดย่อย? ใบเบิกจะกลับเข้าคิวจ่ายเงิน (สถานะอนุมัติแล้ว)')) return
-    setLoading(true)
-    setError(null)
-    const res = await unlinkClaimFromPettyCash(claim.id)
-    if (res.error) { setError(res.error); setLoading(false); return }
-    router.refresh()
-    setLoading(false)
+    const ok = await askConfirm({
+      title: isEn ? 'Unlink this claim from the petty cash fund?' : 'ยกเลิกการดึงใบเบิกนี้ออกจากวงเงินสดย่อย?',
+      description: isEn
+        ? 'It returns to the payout queue as approved.'
+        : 'ใบเบิกจะกลับเข้าคิวจ่ายเงิน (สถานะอนุมัติแล้ว)',
+      details: claimContextDetails,
+      variant: 'destructive',
+      confirmLabel: isEn ? 'Unlink' : 'ยกเลิกการดึง',
+      cancelLabel: isEn ? 'Keep' : 'ไม่ยกเลิก',
+    })
+    if (!ok) return
+    await run('unlinkClaim', () => unlinkClaimFromPettyCash(claim.id), isEn ? 'Unlinked — back in the payout queue' : 'ยกเลิกการดึงแล้ว — ใบเบิกกลับเข้าคิวจ่ายเงิน')
   }
 
   // Request a mid-month top-up (fund owner or admin) → normal approve→pay flow
   const handleCreateTopup = async () => {
-    if (!(Number(tuAmount) > 0)) { setError(isEn ? 'Enter a valid top-up amount.' : 'กรุณากรอกจำนวนเงินให้ถูกต้อง'); return }
-    setLoading(true)
-    setError(null)
-    const fd = new FormData()
-    fd.append('amount', tuAmount)
-    fd.append('note', tuNote.trim())
-    const res = await createPettyCashTopup(claim.id, fd)
-    if (res.error) { setError(res.error); setLoading(false); return }
-    setTuAmount('')
-    setTuNote('')
-    setShowTopupForm(false)
-    router.refresh()
-    setLoading(false)
+    if (!(Number(tuAmount) > 0)) { fail('createTopup', isEn ? 'Enter a valid top-up amount.' : 'กรุณากรอกจำนวนเงินให้ถูกต้อง'); return }
+    await run('createTopup', () => {
+      const fd = new FormData()
+      fd.append('amount', tuAmount)
+      fd.append('note', tuNote.trim())
+      return createPettyCashTopup(claim.id, fd)
+    }, isEn ? 'Top-up requested — awaiting approval' : 'ส่งขอเบิกเพิ่มแล้ว — รออนุมัติ', () => {
+      setTuAmount('')
+      setTuNote('')
+      setShowTopupForm(false)
+    })
   }
 
   // Close the month: leftover returned to the company (slip required when > 0)
   const handleCloseMonth = async () => {
     if (pettyTopupPending > 0) {
-      setError(isEn
+      fail('closeMonth', isEn
         ? 'There are unresolved top-up requests — pay or cancel them before closing.'
         : 'มีรายการเติมเงินค้างดำเนินการ — อนุมัติ/จ่าย หรือยกเลิกให้เรียบร้อยก่อนปิดเดือน')
       return
     }
     if (pettyBalance > 0 && refundSlipFiles.length === 0 && (claim.refund_slip_urls?.length ?? 0) === 0) {
-      setError(isEn
+      fail('closeMonth', isEn
         ? `Attach the return transfer slip (฿${fmtDec(pettyBalance)}) before closing.`
         : `กรุณาแนบสลิปโอนเงินคืนบริษัท ฿${fmtDec(pettyBalance)} ก่อนปิดเดือน`)
       return
@@ -639,16 +652,14 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Not yet' : 'ยังไม่ปิด',
     })
     if (!ok) return
-    setLoading(true)
-    setError(null)
-    const fd = new FormData()
-    for (const f of refundSlipFiles) {
-      const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-      fd.append('refund_slip_files', compressed)
-    }
-    const res = await closePettyCashMonth(claim.id, fd)
-    if (res.error) { setError(res.error); setLoading(false) }
-    else { setRefundSlipFiles([]); router.refresh(); setLoading(false) }
+    await run('closeMonth', async () => {
+      const fd = new FormData()
+      for (const f of refundSlipFiles) {
+        const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+        fd.append('refund_slip_files', compressed)
+      }
+      return closePettyCashMonth(claim.id, fd)
+    }, isEn ? 'Month closed' : 'ปิดเดือนแล้ว', () => { setRefundSlipFiles([]) })
   }
 
   // Admin escape hatch: reopen a closed (not yet confirmed) month for corrections
@@ -664,11 +675,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
     })
     if (!ok) return
-    setLoading(true)
-    setError(null)
-    const res = await reopenPettyCashMonth(claim.id)
-    if (res.error) { setError(res.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run('reopenMonth', () => reopenPettyCashMonth(claim.id), isEn ? 'Month reopened' : 'เปิดรอบเดือนอีกครั้งแล้ว')
   }
 
   const handleConfirmRefund = async () => {
@@ -686,61 +693,87 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       cancelLabel: isEn ? 'Not yet' : 'ยังไม่ได้รับ',
     })
     if (!ok) return
-    setLoading(true)
-    setError(null)
-    const result = await confirmRefundReceived(claim.id)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { router.refresh(); setLoading(false) }
+    await run('confirmRefund', () => confirmRefundReceived(claim.id), isEn ? 'Refund confirmed' : 'ยืนยันรับเงินคืนแล้ว')
   }
 
   const handleAdminOverride = async () => {
     if (!overrideStatus) return
-    if (!overrideReason.trim()) { setError(isEn ? 'Please enter a reason for the override.' : 'กรุณาระบุเหตุผลในการเปลี่ยนสถานะ'); return }
-    setLoading(true)
-    setError(null)
-    const result = await adminOverrideStatus(claim.id, overrideStatus, overrideReason)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { setOverrideStatus(''); setOverrideReason(''); router.refresh(); setLoading(false) }
+    if (needsReason && !overrideReason.trim()) { fail('override', isEn ? 'Please enter a reason — moving back or closing a paid claim needs one.' : 'กรุณาระบุเหตุผล — ถอยสถานะ / ยกเลิกใบที่จ่ายแล้ว ต้องระบุเหตุผล'); return }
+    await run('override', () => adminOverrideStatus(claim.id, overrideStatus, overrideReason), isEn ? 'Status changed' : 'เปลี่ยนสถานะแล้ว', () => {
+      setOverrideStatus('')
+      setOverrideReason('')
+    })
   }
 
   const handleSaveEdit = async () => {
-    setLoading(true)
-    setError(null)
-    let receiptFormData: FormData | undefined
-    if (editReceiptFiles.length > 0) {
-      receiptFormData = new FormData()
-      // Compress images before uploading to avoid body size limit on mobile
-      for (const f of editReceiptFiles) {
-        const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-        receiptFormData.append('receipt_files', compressed)
+    if (editNeedsReason && !editReason.trim()) { fail('saveEdit', isEn ? 'Please give a reason for editing a paid claim.' : 'กรุณาระบุเหตุผลในการแก้ไขใบเบิกที่จ่ายเงินแล้ว'); return }
+    await run('saveEdit', async () => {
+      let receiptFormData: FormData | undefined
+      if (editReceiptFiles.length > 0) {
+        receiptFormData = new FormData()
+        // Compress images before uploading to avoid body size limit on mobile
+        for (const f of editReceiptFiles) {
+          const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
+          receiptFormData.append('receipt_files', compressed)
+        }
       }
-    }
-    const result = await updateClaim(claim.id, {
-      title: editTitle,
-      description: editDescription || null,
-      category: editCategory,
-      amount: editComputedAmount,
-      unit_price: Number(editUnitPrice) || 0,
-      unit: editUnit,
-      quantity: Number(editQuantity) || 1,
-      expense_date: editDate,
-      vat_mode: editVatMode,
-      include_vat: editVatMode !== 'none',
-      withholding_tax_rate: editWhtRateNum,
-      notes: editNotes || null,
-      bank_name: editBankName || null,
-      bank_account_number: editBankAccount || null,
-      account_holder_name: editAccountHolder || null,
-      claim_type: editClaimType,
-      job_event_id: editClaimType === 'event' ? editEventId || null : null,
-      funding_source: editFundingSource,
-    }, receiptFormData)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { setEditing(false); setEditReceiptFiles([]); router.refresh(); setLoading(false) }
+      return updateClaim(claim.id, {
+        title: editTitle,
+        description: editDescription || null,
+        category: editCategory,
+        amount: editComputedAmount,
+        unit_price: Number(editUnitPrice) || 0,
+        unit: editUnit,
+        quantity: Number(editQuantity) || 1,
+        expense_date: editDate,
+        vat_mode: editVatMode,
+        include_vat: editVatMode !== 'none',
+        withholding_tax_rate: editWhtRateNum,
+        notes: editNotes || null,
+        bank_name: editBankName || null,
+        bank_account_number: editBankAccount || null,
+        account_holder_name: editAccountHolder || null,
+        claim_type: editClaimType,
+        job_event_id: editClaimType === 'event' ? editEventId || null : null,
+        funding_source: editFundingSource,
+        reason: editReason,
+      }, receiptFormData)
+    }, isEn ? 'Changes saved' : 'บันทึกการแก้ไขแล้ว', () => {
+      setEditing(false)
+      setEditReceiptFiles([])
+      setEditReason('')
+    })
+  }
+
+  const handleRemoveReceiptFile = async (url: string) => {
+    const ok = await askConfirm({
+      title: isEn ? 'Delete this file?' : 'ลบไฟล์นี้?',
+      description: isEn ? 'This cannot be undone.' : 'ลบแล้วกู้คืนไม่ได้',
+      variant: 'destructive',
+      confirmLabel: isEn ? 'Delete file' : 'ลบไฟล์',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
+    await run(`removeReceipt:${url}`, () => removeReceiptFile(claim.id, url), isEn ? 'File deleted' : 'ลบไฟล์แล้ว')
+  }
+
+  // ใบที่ถูกปฏิเสธ: เจ้าของเปิดกลับเป็นแบบร่าง แก้แล้วยื่นใหม่
+  const handleReopen = async () => {
+    if (!(isOwner && claim.status === 'rejected')) return
+    const ok = await askConfirm({
+      title: isEn ? 'Reopen this claim for editing?' : 'เปิดใบเบิกนี้กลับมาแก้ไข?',
+      description: isEn ? 'It goes back to draft — edit it, then submit again.' : 'ใบจะกลับเป็นแบบร่าง แก้ไขแล้วกดยื่นอีกครั้ง',
+      details: claimContextDetails,
+      confirmLabel: isEn ? 'Reopen as draft' : 'เปิดกลับมาแก้ไข',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
+    await run('reopen', () => reopenRejectedClaim(claim.id), isEn ? 'Back to draft — edit it, then submit again' : 'เปิดกลับเป็นแบบร่างแล้ว — แก้ไขแล้วกดยื่นใหม่')
   }
 
   const handleCancelEdit = () => {
     setEditing(false)
+    setEditReason('')
     setEditTitle(claim.title)
     setEditDescription(claim.description || '')
     setEditCategory(claim.category)
@@ -809,9 +842,9 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             {isEn ? 'Bundle documents' : 'จับชุดเอกสาร'}
           </button>
           {isAdmin && (
-            <button onClick={handleDelete} disabled={loading} className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors">
+            <button onClick={handleDelete} disabled={busy !== null} className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 disabled:opacity-50 rounded-lg transition-colors">
               <Trash2 className="h-4 w-4" />
-              {isEn ? 'Delete' : 'ลบ'}
+              {busy === 'delete' ? '...' : (isEn ? 'Delete' : 'ลบ')}
             </button>
           )}
         </div>
@@ -839,27 +872,29 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
           {isAdmin && filed !== 'filed' && (
             <button
               onClick={() => handleFiled(true)}
-              disabled={loading}
+              disabled={busy !== null}
               className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               <FolderCheck className="h-3.5 w-3.5" />
-              {isEn ? 'Mark as filed' : 'ทำเครื่องหมายว่าเข้าแฟ้มแล้ว'}
+              {busy === 'filed' ? '...' : (isEn ? 'Mark as filed' : 'ทำเครื่องหมายว่าเข้าแฟ้มแล้ว')}
             </button>
           )}
           {isAdmin && filed !== 'none' && (
             <button
               onClick={() => handleFiled(false)}
-              disabled={loading}
+              disabled={busy !== null}
               className="rounded-lg px-2.5 py-1 font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
             >
-              {isEn ? 'Remove mark' : 'ยกเลิกเครื่องหมาย'}
+              {busy === 'filed' ? '...' : (isEn ? 'Remove mark' : 'ยกเลิกเครื่องหมาย')}
             </button>
           )}
+          {/* ข้อผิดพลาดของปุ่มลบ (หัวหน้า) และปุ่มเข้าแฟ้ม */}
+          {actionError && ['delete', 'filed'].includes(actionError.key) && (
+            <div className="basis-full">
+              <ActionError k={['delete', 'filed']} error={actionError} />
+            </div>
+          )}
         </div>
-      )}
-
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 dark:bg-red-950/20 rounded-xl text-red-600 text-sm">{error}</div>
       )}
 
       {/* Document Checklist Panel — pre-accounting handover */}
@@ -1272,27 +1307,23 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 {claim.receipt_urls && claim.receipt_urls.length > 0 && (
                   <div className="mb-2 space-y-1.5">
                     {claim.receipt_urls.map((url, i) => (
-                      <div key={url} className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded text-xs">
-                        <a href={url} target="_blank" rel="noopener noreferrer" className="truncate text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 hover:underline">
-                          {isEn ? 'File' : 'ไฟล์'} {i + 1} — {decodeURIComponent(url.split('/').pop() || '')}
-                        </a>
-                        <button
-                          type="button"
-                          disabled={loading}
-                          onClick={async () => {
-                            if (!confirm(isEn ? 'Delete this file? This cannot be undone.' : 'ลบไฟล์นี้? ลบแล้วกู้คืนไม่ได้')) return
-                            setLoading(true)
-                            setError(null)
-                            const result = await removeReceiptFile(claim.id, url)
-                            if (result.error) setError(result.error)
-                            else router.refresh()
-                            setLoading(false)
-                          }}
-                          className="text-zinc-400 hover:text-red-500 ml-2 shrink-0 disabled:opacity-50"
-                          title={isEn ? 'Delete file' : 'ลบไฟล์'}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                      <div key={url} className="space-y-1.5">
+                        <div className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded text-xs">
+                          <a href={url} target="_blank" rel="noopener noreferrer" className="truncate text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 hover:underline">
+                            {isEn ? 'File' : 'ไฟล์'} {i + 1} — {decodeURIComponent(url.split('/').pop() || '')}
+                          </a>
+                          <button
+                            type="button"
+                            disabled={busy !== null}
+                            onClick={() => handleRemoveReceiptFile(url)}
+                            className="text-zinc-400 hover:text-red-500 ml-2 shrink-0 disabled:opacity-50"
+                            title={isEn ? 'Delete file' : 'ลบไฟล์'}
+                            aria-label={isEn ? 'Delete file' : 'ลบไฟล์'}
+                          >
+                            {busy === `removeReceipt:${url}` ? '...' : <Trash2 className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
+                        <ActionError k={`removeReceipt:${url}`} error={actionError} />
                       </div>
                     ))}
                   </div>
@@ -1327,15 +1358,35 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 )}
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
-                <button onClick={handleSaveEdit} disabled={loading || !editTitle} className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
-                  <Save className="h-4 w-4" />
-                  {loading ? '...' : (isEn ? 'Save' : 'บันทึก')}
-                </button>
-                <button onClick={handleCancelEdit} className="flex items-center gap-1.5 px-4 py-2 text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-sm transition-colors">
-                  <X className="h-4 w-4" />
-                  {isEn ? 'Cancel' : 'ยกเลิก'}
-                </button>
+              {/* ใบที่จ่ายเงินแล้ว: ต้องบอกเหตุผลที่แก้ (ลงประวัติ) */}
+              {editNeedsReason && (
+                <div>
+                  <label htmlFor="edit-reason" className="text-xs font-medium text-zinc-500 mb-1 block">
+                    {isEn ? 'Reason for editing (this claim is already paid)' : 'เหตุผลที่แก้ไข (ใบนี้จ่ายเงินแล้ว)'} *
+                  </label>
+                  <input
+                    id="edit-reason"
+                    value={editReason}
+                    onChange={e => setEditReason(e.target.value)}
+                    required
+                    placeholder={isEn ? 'e.g. Typo in the title' : 'เช่น พิมพ์ชื่อรายการผิด'}
+                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800 text-base sm:text-sm outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center gap-2">
+                  <button onClick={handleSaveEdit} disabled={busy !== null || !editTitle || (editNeedsReason && !editReason.trim())} className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
+                    <Save className="h-4 w-4" />
+                    {busy === 'saveEdit' ? '...' : (isEn ? 'Save' : 'บันทึก')}
+                  </button>
+                  <button onClick={handleCancelEdit} className="flex items-center gap-1.5 px-4 py-2 text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-sm transition-colors">
+                    <X className="h-4 w-4" />
+                    {isEn ? 'Cancel' : 'ยกเลิก'}
+                  </button>
+                </div>
+                <ActionError k="saveEdit" error={actionError} />
               </div>
             </div>
           ) : (
@@ -1540,14 +1591,35 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 </div>
               </div>
 
-              {/* Reject Reason */}
-              {claim.status === 'rejected' && claim.reject_reason && (
-                <div className="flex items-start gap-2 text-sm p-3 bg-red-50 dark:bg-red-950/20 rounded-lg">
-                  <MessageSquare className="h-4 w-4 text-red-500 mt-0.5" />
-                  <div>
-                    <p className="text-red-600 font-medium">{isEn ? 'Rejection reason:' : 'เหตุผลที่ปฏิเสธ:'}</p>
-                    <p className="text-red-500">{claim.reject_reason}</p>
+              {/* Reject Reason — เจ้าของใบเปิดกลับเป็นแบบร่างได้จากตรงนี้ (แผงทำงานถูกซ่อนสำหรับผู้ใช้ทั่วไปเมื่อถูกปฏิเสธ) */}
+              {claim.status === 'rejected' && (
+                <div className="text-sm p-3 bg-red-50 dark:bg-red-950/20 rounded-lg space-y-3">
+                  <div className="flex items-start gap-2">
+                    <MessageSquare className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-red-600 font-medium">{isEn ? 'Rejection reason:' : 'เหตุผลที่ปฏิเสธ:'}</p>
+                      <p className="text-red-500 break-words">{claim.reject_reason || (isEn ? 'No reason given' : 'ไม่ระบุเหตุผล')}</p>
+                    </div>
                   </div>
+                  {isOwner && claim.status === 'rejected' && (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleReopen}
+                          disabled={busy !== null}
+                          className="flex items-center justify-center gap-2 min-h-11 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          {busy === 'reopen' ? '...' : (isEn ? 'Fix & resubmit' : 'แก้ไขแล้วยื่นใหม่')}
+                        </button>
+                        <p className="text-xs text-red-600/80 dark:text-red-400/80">
+                          {isEn ? 'Reopens as a draft so you can edit and submit again.' : 'เปิดกลับเป็นแบบร่าง แก้ไขแล้วกดยื่นอีกครั้ง'}
+                        </p>
+                      </div>
+                      <ActionError k="reopen" error={actionError} />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1683,14 +1755,15 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       <button
                         type="button"
                         onClick={handleConfirmRefund}
-                        disabled={loading}
+                        disabled={busy !== null}
                         className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" />
-                        {loading ? '...' : (isEn ? 'Confirm Received' : 'ยืนยันรับเงิน')}
+                        {busy === 'confirmRefund' ? '...' : (isEn ? 'Confirm Received' : 'ยืนยันรับเงิน')}
                       </button>
                     </div>
                   )}
+                  {canConfirmRefund && <ActionError k="confirmRefund" error={actionError} className="mt-2" />}
                 </div>
               )}
 
@@ -1898,11 +1971,11 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                         <div className="flex items-center justify-end gap-2 pt-1">
                           <button
                             onClick={handleSaveTaxEntries}
-                            disabled={loading}
+                            disabled={busy !== null}
                             className="flex items-center gap-1 px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-md font-semibold"
                           >
                             <Save className="h-3 w-3" />
-                            {loading ? '...' : (isEn ? 'Save' : 'บันทึก')}
+                            {busy === 'saveTaxEntries' ? '...' : (isEn ? 'Save' : 'บันทึก')}
                           </button>
                           <button
                             onClick={() => { setEditingTaxEntries(false); setEditTaxEntries(buildExistingEntries()) }}
@@ -1911,6 +1984,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                             {isEn ? 'Cancel' : 'ยกเลิก'}
                           </button>
                         </div>
+                        <ActionError k="saveTaxEntries" error={actionError} />
                       </div>
                     )}
                   </div>
@@ -1928,34 +2002,44 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
 
             {/* ── Owner: Submit draft ── */}
             {canSubmit && (
-              <div className="flex items-center gap-3">
-                <div className="flex-1 text-xs text-zinc-500">
-                  {isEn
-                    ? 'Attach at least one receipt, then submit for approval.'
-                    : 'แนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นขออนุมัติ'}
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 text-xs text-zinc-500">
+                    {receiptRequiredForSubmit(claim.claim_type)
+                      ? (isEn
+                          ? 'Attach at least one receipt, then submit for approval.'
+                          : 'แนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นขออนุมัติ')
+                      : (isEn
+                          ? 'You can submit now — attach receipts later when you settle.'
+                          : 'ยื่นขออนุมัติได้เลย ใบเสร็จแนบทีหลังตอนเคลียร์')}
+                  </div>
+                  <button
+                    onClick={handleSubmit}
+                    disabled={busy !== null || (receiptRequiredForSubmit(claim.claim_type) && (claim.receipt_urls || []).length === 0)}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    <Send className="h-4 w-4" />
+                    {busy === 'submit' ? '...' : (isEn ? 'Submit Claim' : 'ยื่นใบเบิก')}
+                  </button>
                 </div>
-                <button
-                  onClick={handleSubmit}
-                  disabled={loading || (claim.receipt_urls || []).length === 0}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors"
-                >
-                  <Send className="h-4 w-4" />
-                  {loading ? '...' : (isEn ? 'Submit Claim' : 'ยื่นใบเบิก')}
-                </button>
+                <ActionError k="submit" error={actionError} />
               </div>
             )}
 
             {/* ── Owner: Cancel (draft or pending) ── */}
             {canCancel && (
-              <div className="flex justify-end">
-                <button
-                  onClick={handleCancel}
-                  disabled={loading}
-                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-zinc-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors"
-                >
-                  <Ban className="h-4 w-4" />
-                  {isEn ? 'Cancel Claim' : 'ยกเลิกใบเบิก'}
-                </button>
+              <div className="space-y-2">
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleCancel}
+                    disabled={busy !== null}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm text-zinc-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 disabled:opacity-50 rounded-lg transition-colors"
+                  >
+                    <Ban className="h-4 w-4" />
+                    {busy === 'cancel' ? '...' : (isEn ? 'Cancel Claim' : 'ยกเลิกใบเบิก')}
+                  </button>
+                </div>
+                <ActionError k="cancel" error={actionError} />
               </div>
             )}
 
@@ -1971,29 +2055,30 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={handleApprove}
-                      disabled={loading}
+                      disabled={busy !== null}
                       className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
                     >
                       <CheckCircle2 className="h-4 w-4" />
-                      {loading ? '...' : (isEn ? 'Approve' : 'อนุมัติ')}
+                      {busy === 'approve' ? '...' : (isEn ? 'Approve' : 'อนุมัติ')}
                     </button>
                     <button
                       onClick={handleApproveAsMonthEnd}
-                      disabled={loading}
+                      disabled={busy !== null}
                       className="flex items-center gap-2 px-4 py-2.5 border-2 border-violet-300 dark:border-violet-800 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
                     >
                       <Clock className="h-4 w-4" />
-                      {loading ? '...' : (isEn ? 'Approve — Month End' : 'อนุมัติ — สิ้นเดือน')}
+                      {busy === 'approveMonthEnd' ? '...' : (isEn ? 'Approve — Month End' : 'อนุมัติ — สิ้นเดือน')}
                     </button>
                     <button
                       onClick={() => setRejectOpen(true)}
-                      disabled={loading}
+                      disabled={busy !== null}
                       className="ml-auto flex items-center gap-2 px-4 py-2.5 border-2 border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
                     >
                       <XCircle className="h-4 w-4" />
                       {isEn ? 'Reject' : 'ปฏิเสธ'}
                     </button>
                   </div>
+                  <ActionError k={['approve', 'approveMonthEnd', 'reject']} error={actionError} />
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -2007,10 +2092,10 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   <div className="flex gap-2">
                     <button
                       onClick={handleReject}
-                      disabled={loading}
+                      disabled={busy !== null}
                       className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
                     >
-                      {loading ? '...' : (isEn ? 'Confirm Reject' : 'ยืนยันปฏิเสธ')}
+                      {busy === 'reject' ? '...' : (isEn ? 'Confirm Reject' : 'ยืนยันปฏิเสธ')}
                     </button>
                     <button
                       onClick={() => { setRejectOpen(false); setRejectReason('') }}
@@ -2019,6 +2104,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       {isEn ? 'Back' : 'ยกเลิก'}
                     </button>
                   </div>
+                  <ActionError k={['approve', 'approveMonthEnd', 'reject']} error={actionError} />
                 </div>
               )
             )}
@@ -2034,33 +2120,34 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={handleMarkPaid}
-                    disabled={loading}
+                    disabled={busy !== null}
                     className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
                   >
                     <CheckCircle2 className="h-4 w-4" />
-                    {loading ? '...' : (isEn ? 'Mark as Paid' : 'ชำระเงินแล้ว')}
+                    {busy === 'markPaid' ? '...' : (isEn ? 'Mark as Paid' : 'ชำระเงินแล้ว')}
                   </button>
                   {(isApproved || isWaitingTaxInvoice) && (
                     <button
                       onClick={handleDeferMonthEnd}
-                      disabled={loading}
+                      disabled={busy !== null}
                       className="flex items-center gap-2 px-4 py-2.5 border-2 border-violet-300 dark:border-violet-800 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
                     >
                       <Clock className="h-4 w-4" />
-                      {loading ? '...' : (isEn ? 'Defer to Month End' : 'เลื่อนสิ้นเดือน')}
+                      {busy === 'deferMonthEnd' ? '...' : (isEn ? 'Defer to Month End' : 'เลื่อนสิ้นเดือน')}
                     </button>
                   )}
                   {isApproved && (
                     <button
                       onClick={handleMarkWaitingTaxInvoice}
-                      disabled={loading}
+                      disabled={busy !== null}
                       className="flex items-center gap-2 px-4 py-2.5 border-2 border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
                     >
                       <Receipt className="h-4 w-4" />
-                      {loading ? '...' : (isEn ? 'Request Tax Invoice' : 'ขอใบกำกับภาษี')}
+                      {busy === 'waitingTaxInvoice' ? '...' : (isEn ? 'Request Tax Invoice' : 'ขอใบกำกับภาษี')}
                     </button>
                   )}
                 </div>
+                <ActionError k={['markPaid', 'deferMonthEnd', 'waitingTaxInvoice']} error={actionError} />
               </div>
             )}
 
@@ -2186,15 +2273,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   </button>
                   <button
                     onClick={handleUploadTaxInvoice}
-                    disabled={loading || taxInvoiceRows.every(r => !r.file && !r.number.trim())}
+                    disabled={busy !== null || taxInvoiceRows.every(r => !r.file && !r.number.trim())}
                     className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors"
                   >
                     <Upload className="h-4 w-4" />
-                    {loading
+                    {busy === 'uploadTaxInvoice'
                       ? '...'
                       : (isEn ? 'Save All Invoices' : 'บันทึกใบกำกับภาษี')}
                   </button>
                 </div>
+                <ActionError k="uploadTaxInvoice" error={actionError} />
               </div>
             )}
 
@@ -2509,11 +2597,11 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                 <div className="flex items-center gap-2 pt-1">
                   <button
                     onClick={handleSettleAdvance}
-                    disabled={loading || spentItemsTotal <= 0}
+                    disabled={busy !== null || spentItemsTotal <= 0}
                     className="flex items-center gap-1.5 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
                   >
                     <Save className="h-4 w-4" />
-                    {loading ? '...' : (isEn ? 'Save Settlement' : 'บันทึกการอัพเดท')}
+                    {busy === 'settleAdvance' ? '...' : (isEn ? 'Save Settlement' : 'บันทึกการอัพเดท')}
                   </button>
                   <p className="text-[11px] text-zinc-400">
                     {isEn
@@ -2521,6 +2609,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : 'อัพเดทได้หลายครั้ง — แต่ละครั้งจะถูกบันทึกในประวัติ'}
                   </p>
                 </div>
+                <ActionError k="settleAdvance" error={actionError} />
               </div>
             )}
 
@@ -2550,12 +2639,13 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       <button
                         type="button"
                         onClick={handleUnlinkClaim}
-                        disabled={loading}
+                        disabled={busy !== null}
                         className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-950/40 rounded-md transition-colors disabled:opacity-50"
                       >
                         <X className="h-3 w-3" />
-                        {isEn ? 'Unlink from fund (back to payout queue)' : 'ยกเลิกการดึง — คืนใบเบิกเข้าคิวจ่ายเงิน'}
+                        {busy === 'unlinkClaim' ? '...' : (isEn ? 'Unlink from fund (back to payout queue)' : 'ยกเลิกการดึง — คืนใบเบิกเข้าคิวจ่ายเงิน')}
                       </button>
+                      <ActionError k="unlinkClaim" error={actionError} className="mt-1.5" />
                     </div>
                   )}
                 </div>
@@ -2715,13 +2805,14 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       <button
                         type="button"
                         onClick={handleAddPettyExpense}
-                        disabled={loading}
+                        disabled={busy !== null}
                         className="ml-auto flex items-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors"
                       >
                         <Save className="h-3.5 w-3.5" />
-                        {loading ? '...' : (isEn ? 'Save Expense' : 'บันทึกรายจ่าย')}
+                        {busy === 'pettyExpense' ? '...' : (isEn ? 'Save Expense' : 'บันทึกรายจ่าย')}
                       </button>
                     </div>
+                    <ActionError k="pettyExpense" error={actionError} />
                     <p className="text-[10px] text-zinc-400">
                       {isEn
                         ? 'Saved as a paid claim immediately — the cash already left the box. Admin audits at month close.'
@@ -2758,14 +2849,15 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                         <button
                           type="button"
                           onClick={handleLinkClaim}
-                          disabled={loading || !linkClaimId}
+                          disabled={busy !== null || !linkClaimId}
                           className="flex items-center justify-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
                         >
                           <Plus className="h-3.5 w-3.5" />
-                          {loading ? '...' : (isEn ? 'Pull into fund' : 'ดึงเข้าวงเงิน')}
+                          {busy === 'linkClaim' ? '...' : (isEn ? 'Pull into fund' : 'ดึงเข้าวงเงิน')}
                         </button>
                       </div>
                     )}
+                    <ActionError k="linkClaim" error={actionError} />
                     <p className="text-[10px] text-zinc-400">
                       {isEn
                         ? 'The claim becomes "paid" and its amount is deducted from the box — blocked if the box balance can\'t cover it.'
@@ -2869,16 +2961,17 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                           <button
                             type="button"
                             onClick={handleCreateTopup}
-                            disabled={loading}
+                            disabled={busy !== null}
                             className="flex items-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors"
                           >
                             <Send className="h-3.5 w-3.5" />
-                            {loading ? '...' : (isEn ? 'Submit for approval' : 'ส่งขออนุมัติ')}
+                            {busy === 'createTopup' ? '...' : (isEn ? 'Submit for approval' : 'ส่งขออนุมัติ')}
                           </button>
                           <p className="text-[10px] text-zinc-400">
                             {isEn ? 'Goes through approve → pay like a normal claim.' : 'เข้าคิวอนุมัติ → จ่ายเงิน เหมือนใบเบิกปกติ'}
                           </p>
                         </div>
+                        <ActionError k="createTopup" error={actionError} />
                       </div>
                     )}
 
@@ -2964,12 +3057,13 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     <button
                       type="button"
                       onClick={handleCloseMonth}
-                      disabled={loading || pettyTopupPending > 0 || (pettyBalance > 0 && refundSlipFiles.length === 0 && (claim.refund_slip_urls?.length ?? 0) === 0)}
+                      disabled={busy !== null || pettyTopupPending > 0 || (pettyBalance > 0 && refundSlipFiles.length === 0 && (claim.refund_slip_urls?.length ?? 0) === 0)}
                       className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
                     >
                       <Lock className="h-4 w-4" />
-                      {isEn ? 'Close Month & Return' : 'ปิดเดือน + คืนเงิน'}
+                      {busy === 'closeMonth' ? '...' : (isEn ? 'Close Month & Return' : 'ปิดเดือน + คืนเงิน')}
                     </button>
+                    <ActionError k="closeMonth" error={actionError} />
                   </div>
                 )}
 
@@ -2994,13 +3088,14 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                         <button
                           type="button"
                           onClick={handleReopenMonth}
-                          disabled={loading}
+                          disabled={busy !== null}
                           className="mt-2 flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium text-cyan-700 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-700 hover:bg-cyan-100 dark:hover:bg-cyan-950/40 disabled:opacity-50 rounded-md transition-colors"
                         >
                           <RefreshCw className="h-3 w-3" />
-                          {isEn ? 'Reopen month (admin)' : 'เปิดรอบอีกครั้ง เพื่อแก้ไข (admin)'}
+                          {busy === 'reopenMonth' ? '...' : (isEn ? 'Reopen month (admin)' : 'เปิดรอบอีกครั้ง เพื่อแก้ไข (admin)')}
                         </button>
                       )}
+                      <ActionError k="reopenMonth" error={actionError} className="mt-2" />
                     </div>
                   </div>
                 )}
@@ -3022,14 +3117,15 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     <button
                       type="button"
                       onClick={handleConfirmRefund}
-                      disabled={loading}
+                      disabled={busy !== null}
                       className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      {isEn ? 'Confirm received' : 'ยืนยันรับเงินแล้ว'}
+                      {busy === 'confirmRefund' ? '...' : (isEn ? 'Confirm received' : 'ยืนยันรับเงินแล้ว')}
                     </button>
                   </div>
                 )}
+                {canConfirmRefund && isPettyFund && <ActionError k="confirmRefund" error={actionError} />}
 
                 {/* Return slips */}
                 {claim.refund_slip_urls && claim.refund_slip_urls.length > 0 && (
@@ -3093,22 +3189,24 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     })}
                   </select>
 
-                  {/* Reason input */}
+                  {/* Reason input — จำเป็นเฉพาะตอนถอยสถานะ / ปิดใบที่จ่ายแล้ว */}
                   <input
                     type="text"
                     value={overrideReason}
                     onChange={e => setOverrideReason(e.target.value)}
-                    placeholder={isEn ? 'Reason (required)' : 'เหตุผล (จำเป็น)'}
+                    placeholder={needsReason
+                      ? (isEn ? 'Reason (required)' : 'เหตุผล (จำเป็น)')
+                      : (isEn ? 'Reason (optional)' : 'เหตุผล (ไม่บังคับ)')}
                     className="flex-1 min-w-40 px-3 py-2 text-sm border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
                   />
 
                   {/* Confirm */}
                   <button
                     onClick={handleAdminOverride}
-                    disabled={loading || !overrideStatus || !overrideReason.trim()}
+                    disabled={busy !== null || !overrideStatus || (needsReason && !overrideReason.trim())}
                     className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors"
                   >
-                    {loading ? '...' : (isEn ? 'Confirm' : 'ยืนยัน')}
+                    {busy === 'override' ? '...' : (isEn ? 'Confirm' : 'ยืนยัน')}
                   </button>
 
                   {/* Clear form */}
@@ -3121,6 +3219,14 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     </button>
                   )}
                 </div>
+                {overrideStatus && (
+                  <p className="text-[11px] text-zinc-500">
+                    {needsReason
+                      ? (isEn ? 'Moving back / cancelling a paid claim needs a reason' : 'ถอยสถานะ / ยกเลิกใบที่จ่ายแล้ว ต้องระบุเหตุผล')
+                      : (isEn ? 'Moving forward in the workflow — no reason needed' : 'เดินหน้าตามขั้นตอน ไม่ต้องระบุเหตุผล')}
+                  </p>
+                )}
+                <ActionError k="override" error={actionError} />
               </div>
             )}
 
@@ -3159,6 +3265,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'auto_transition'      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
                       : log.action === 'settle_advance'       ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
                       : log.action === 'renumber_claim'       ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
+                      : log.action === 'reopen'               ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
                       :                                    'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}>
                       {log.action === 'update'          ? (isEn ? 'Edit' : 'แก้ไข')
@@ -3177,6 +3284,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'auto_transition'      ? (isEn ? 'Auto Transition' : 'เปลี่ยนสถานะอัตโนมัติ')
                       : log.action === 'settle_advance'       ? (isEn ? 'Advance Settled' : 'อัพเดทค่าใช้จ่ายจริง')
                       : log.action === 'renumber_claim'       ? (isEn ? 'Renumbered (duplicate fixed)' : 'เปลี่ยนเลขที่ (แก้เลขที่ซ้ำ)')
+                      : log.action === 'reopen'               ? (isEn ? 'Reopened' : 'เปิดกลับมาแก้ไข')
                       : log.action}
                     </span>
                     <span className="text-xs text-zinc-500">

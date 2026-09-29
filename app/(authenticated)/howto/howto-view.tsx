@@ -3209,10 +3209,12 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
             title={isEn ? 'Notifications the system sends' : 'การแจ้งเตือนที่ระบบส่ง'}
           />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <NotifRow emoji="📨" code="expense_submitted" labelTh="มีใบเบิกยื่นขออนุมัติ" labelEn="Claim submitted" toTh="Admin" toEn="Admin" isEn={isEn} />
             <NotifRow emoji="✅" code="expense_approved" labelTh="ใบเบิกถูกอนุมัติ" labelEn="Claim approved" toTh="เจ้าของใบเบิก" toEn="Claimant" isEn={isEn} />
             <NotifRow emoji="❌" code="expense_rejected" labelTh="ใบเบิกถูกปฏิเสธ" labelEn="Claim rejected" toTh="เจ้าของใบเบิก" toEn="Claimant" isEn={isEn} />
             <NotifRow emoji="🧾" code="expense_waiting_tax_invoice" labelTh="ต้องแนบใบกำกับภาษี" labelEn="Tax invoice required" toTh="เจ้าของใบเบิก" toEn="Claimant" isEn={isEn} />
             <NotifRow emoji="📤" code="expense_tax_invoice_uploaded" labelTh="แนบใบกำกับภาษีแล้ว" labelEn="Tax invoice uploaded" toTh="Admin" toEn="Admin" isEn={isEn} />
+            <NotifRow emoji="💵" code="expense_paid" labelTh="ใบเบิกจ่ายเงินแล้ว" labelEn="Claim paid" toTh="เจ้าของใบเบิก" toEn="Claimant" isEn={isEn} />
             <NotifRow emoji="💸" code="expense_refund_confirmed" labelTh="ยืนยันรับเงินคืนแล้ว" labelEn="Refund confirmed" toTh="เจ้าของใบเบิก" toEn="Claimant" isEn={isEn} />
           </div>
         </div>

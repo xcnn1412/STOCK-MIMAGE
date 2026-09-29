@@ -4,6 +4,7 @@
 
 import assert from 'node:assert/strict'
 import { COST_ITEM_STATUSES, canSeeWorkPanel, claimIdFromCostNote, costItemNote, shouldHaveCostItem } from './claim-rules'
+import { STATUS_RANK, isBackwardTransition, reasonRequiredForEdit, reasonRequiredForTransition, receiptRequiredForSubmit } from './claim-rules'
 
 const ID = '00000000-0000-4000-8000-000000000101'
 const EVENT = '00000000-0000-4000-8000-000000000901'
@@ -53,6 +54,48 @@ assert.equal(panel({ status: 'paid', canSettleAdvance: true }), true)
 // กำลังแก้ไข → ไม่เห็น ไม่ว่าใคร
 for (const over of [{ isAdmin: true }, { canManagePettyFund: true }, { canSettleAdvance: true }, { status: 'draft' }]) {
   assert.equal(panel({ ...over, editing: true }), false, `กำลังแก้ไข ${JSON.stringify(over)} → false`)
+}
+
+// (d) ใบเสร็จก่อนยื่น (v1.25.0) — ใบงานอีเวนต์/ค่าอื่นๆ ต้องแนบ · ทดลองจ่าย/เงินสดย่อยแนบทีหลังได้
+for (const type of ['event', 'other']) assert.equal(receiptRequiredForSubmit(type), true, `${type} → ต้องแนบก่อนยื่น`)
+for (const type of ['advance', 'petty_cash']) assert.equal(receiptRequiredForSubmit(type), false, `${type} → ไม่บังคับ`)
+
+// (e) ลำดับสถานะ — ขั้นเดียวกันมีค่าเท่ากัน
+assert.equal(STATUS_RANK.draft < STATUS_RANK.pending && STATUS_RANK.pending < STATUS_RANK.approved, true)
+assert.equal(STATUS_RANK.waiting_tax_invoice, STATUS_RANK.pending_month_end)
+assert.equal(STATUS_RANK.awaiting_payment, STATUS_RANK.pending_month_end)
+assert.equal(STATUS_RANK.pending_month_end < STATUS_RANK.paid && STATUS_RANK.paid < STATUS_RANK.refund_confirmed, true)
+
+// (f) แอดมินเปลี่ยนสถานะเอง: เดินหน้า/ปิดใบที่เงินยังไม่ออก ไม่ต้องมีเหตุผล · ถอย/เปิดใบที่ปิดแล้ว/ปิดใบที่จ่ายแล้ว ต้องมี
+const forward: [string, string][] = [
+  ['draft', 'pending'], ['draft', 'approved'], ['draft', 'paid'], ['pending', 'approved'], ['pending', 'paid'],
+  ['approved', 'waiting_tax_invoice'], ['approved', 'pending_month_end'], ['approved', 'paid'], ['waiting_tax_invoice', 'paid'],
+  ['pending_month_end', 'paid'], ['pending_month_end', 'waiting_tax_invoice'], ['paid', 'refund_confirmed'],
+  ['pending', 'rejected'], ['pending', 'cancelled'], ['draft', 'cancelled'], ['approved', 'cancelled'],
+]
+for (const [from, to] of forward) {
+  assert.equal(reasonRequiredForTransition(from, to), false, `${from} → ${to}: ไม่ต้องมีเหตุผล`)
+}
+const needsReason: [string, string][] = [
+  ['waiting_tax_invoice', 'draft'], ['approved', 'pending'], ['pending', 'draft'], ['pending_month_end', 'approved'],
+  ['paid', 'approved'], ['paid', 'pending_month_end'], ['paid', 'draft'], ['refund_confirmed', 'paid'],
+  ['paid', 'cancelled'], ['paid', 'rejected'], ['refund_confirmed', 'cancelled'],
+  ['rejected', 'draft'], ['rejected', 'pending'], ['cancelled', 'draft'], ['cancelled', 'pending'], ['x', 'paid'],
+]
+for (const [from, to] of needsReason) {
+  assert.equal(reasonRequiredForTransition(from, to), true, `${from} → ${to}: ต้องมีเหตุผล`)
+}
+// ถอยจริง vs ปิดใบที่จ่ายแล้ว (ไม่ใช่การถอย แต่ต้องมีเหตุผล)
+assert.equal(isBackwardTransition('approved', 'pending'), true)
+assert.equal(isBackwardTransition('pending_month_end', 'waiting_tax_invoice'), false, 'ขั้นเดียวกัน ไม่นับว่าถอย')
+assert.equal(isBackwardTransition('paid', 'cancelled'), false, 'ปิดใบ ไม่นับว่าถอย')
+assert.equal(isBackwardTransition('rejected', 'pending'), true, 'เปิดใบที่ปิดแล้ว = ถอย')
+assert.equal(isBackwardTransition('x', 'paid'), true, 'สถานะที่ไม่รู้จัก = ถอย')
+
+// (g) แก้ข้อมูลใบเบิก ต้องมีเหตุผลเฉพาะใบที่เงินออกไปแล้ว
+for (const status of ['paid', 'refund_confirmed']) assert.equal(reasonRequiredForEdit(status), true, `แก้ใบ ${status} → ต้องมีเหตุผล`)
+for (const status of ['draft', 'pending', 'approved', 'waiting_tax_invoice', 'pending_month_end', 'rejected']) {
+  assert.equal(reasonRequiredForEdit(status), false, `แก้ใบ ${status} → ไม่ต้องมีเหตุผล`)
 }
 
 console.log('claim-rules: ผ่านทั้งหมด')

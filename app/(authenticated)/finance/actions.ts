@@ -6,7 +6,14 @@ import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { thaiTodayIso, thaiYearMonth } from '@/lib/thai-date'
 import { claimFileCount, thaiMonth } from './claims-filter'
-import { claimIdFromCostNote, costItemNote, shouldHaveCostItem } from './claim-rules'
+import {
+  claimIdFromCostNote,
+  costItemNote,
+  reasonRequiredForEdit,
+  reasonRequiredForTransition,
+  receiptRequiredForSubmit,
+  shouldHaveCostItem,
+} from './claim-rules'
 import { getFinanceViewer } from './viewer'
 
 type Db = ReturnType<typeof createServiceClient>
@@ -159,6 +166,44 @@ async function syncClaimCostItem(supabase: Db, claim: CostSyncClaim, actorId: st
     if (error) return { error: error.message }
   }
   return {}
+}
+
+// ============================================================================
+// ข้อความกติกาที่ใช้หลายจุด + แจ้งเตือนแอดมินเมื่อมีใบยื่นเข้ามา
+// ============================================================================
+
+/** ยื่นใบที่ต้องมีใบเสร็จ (receiptRequiredForSubmit) โดยยังไม่แนบ — ใช้ทั้งตอนสร้างแล้วยื่นทันทีและตอนกดยื่นทีหลัง */
+const RECEIPT_REQUIRED_ERROR = 'กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นใบเบิก'
+/** แอดมินเปลี่ยนสถานะในกรณีที่ reasonRequiredForTransition บอกว่าต้องมีเหตุผล แต่ไม่ได้พิมพ์ */
+const REASON_REQUIRED_ERROR = 'กรุณาระบุเหตุผล — การถอยสถานะ ยกเลิก/ปฏิเสธใบที่จ่ายแล้ว หรือแก้ใบที่จ่ายแล้ว ต้องมีเหตุผล'
+
+/** id ของแอดมินทุกคน (อ่านไม่ได้ = ไม่มีผู้รับ) */
+async function adminIds(supabase: Db): Promise<string[]> {
+  const { data, error } = await supabase.from('profiles').select('id').eq('role', 'admin')
+  if (error) {
+    console.error('adminIds:', error.message)
+    return []
+  }
+  return (data || []).map((p: { id: string }) => p.id)
+}
+
+/** แจ้งแอดมินทุกคนว่ามีใบเบิกยื่นขออนุมัติ — createNotifications ตัดผู้ยื่นออกเอง (แอดมินยื่นใบของตัวเองไม่แจ้งตัวเอง) */
+async function notifyAdminsOfSubmission(
+  supabase: Db,
+  claim: { id: string; claim_number: string; title: string; amount: number },
+  actorId: string,
+) {
+  const userIds = await adminIds(supabase)
+  if (userIds.length === 0) return
+  await createNotifications({
+    userIds,
+    type: 'expense_submitted',
+    title: `ใบเบิก ${claim.claim_number} ยื่นขออนุมัติ — ฿${Number(claim.amount).toLocaleString()}`,
+    body: claim.title,
+    referenceType: 'expense_claim',
+    referenceId: claim.id,
+    actorId,
+  })
 }
 
 // ============================================================================
@@ -383,6 +428,8 @@ export async function createClaim(formData: FormData) {
     return raw === null || raw === '' ? fallback : Number(raw)
   }
   const claim_type = formData.get('claim_type') as string
+  // ปุ่ม "ยื่นใบเบิก" ส่ง intent=submit · ค่าอื่น/ไม่ส่ง = บันทึกแบบร่าง (ไม่มีทางยื่นโดยไม่ตั้งใจ)
+  const intent: 'submit' | 'draft' = formData.get('intent') === 'submit' ? 'submit' : 'draft'
   const title = formData.get('title') as string
   const descriptionPart = (formData.get('description') as string || '').trim()
   const additionalDetails = (formData.get('additional_details') as string || '').trim()
@@ -470,6 +517,10 @@ export async function createClaim(formData: FormData) {
   if (!title) return { error: 'กรุณากรอกหัวข้อการเบิก' }
   if (amount <= 0 && unit_price <= 0) return { error: 'กรุณากรอกจำนวนเงินที่ถูกต้อง (ราคาต่อหน่วยต้องมากกว่า 0)' }
   if (claim_type === 'event' && !job_event_id) return { error: 'กรุณาเลือกอีเวนต์' }
+  // ยื่นทันทีใช้กติกาใบเสร็จเดียวกับ submitClaim — ตรวจก่อนนำเข้างาน ขอเลขที่ และอัปโหลด (ไม่เขียนอะไรเลย)
+  if (intent === 'submit' && receiptRequiredForSubmit(claim_type) && receiptFiles.length === 0) {
+    return { error: RECEIPT_REQUIRED_ERROR }
+  }
 
   // Auto-import stock event → job_cost_events ถ้าเลือกจาก events table
   if (job_event_id && job_event_id.startsWith('stock:')) {
@@ -511,6 +562,8 @@ export async function createClaim(formData: FormData) {
     receipt_urls = uploaded.urls
   }
 
+  const status: 'draft' | 'pending' = intent === 'submit' ? 'pending' : 'draft'
+  const now = new Date().toISOString()
   const insertData: Record<string, any> = {
     claim_type,
     job_event_id: claim_type === 'event' ? job_event_id : null,
@@ -532,7 +585,8 @@ export async function createClaim(formData: FormData) {
     receipt_urls,
     funding_source,
     submitted_by: userId,
-    status: 'draft',
+    status,
+    submitted_at: intent === 'submit' ? now : null,
   }
   // Only reference the pettycash_* columns for petty cash, so non-petty claim
   // creation keeps working even if the petty-cash migration hasn't been applied.
@@ -565,8 +619,28 @@ export async function createClaim(formData: FormData) {
     claim_type,
   })
 
+  if (intent === 'submit') {
+    // ใบที่เพิ่งยื่น (รออนุมัติ) ยังไม่ต้องมีรายการต้นทุน (shouldHaveCostItem = false) — ไม่ต้อง sync
+    await supabase.from('expense_claim_logs').insert({
+      claim_id: data.id,
+      action: 'submit',
+      changed_by: userId,
+      changes: { status: { from: null, to: 'pending' } },
+      note: 'สร้างและยื่นใบเบิกทันที',
+    })
+
+    await logActivity('SUBMIT_EXPENSE_CLAIM', {
+      claimId: data.id,
+      claimNumber,
+      title,
+      amount: insertData.amount,
+    })
+
+    await notifyAdminsOfSubmission(supabase, { id: data.id, claim_number: claimNumber, title, amount: insertData.amount }, userId)
+  }
+
   revalidatePath('/finance')
-  return { success: true, id: data?.id }
+  return { success: true, id: data.id, claimNumber, status }
 }
 
 // ============================================================================
@@ -593,6 +667,8 @@ export async function updateClaim(id: string, updateData: {
   job_event_id?: string | null
   funding_source?: 'company' | 'personal'
   tax_invoice_numbers?: string[] | null
+  /** เหตุผลที่แก้ — บังคับเมื่อใบจ่ายเงินแล้ว (reasonRequiredForEdit) · ลงในประวัติเท่านั้น ไม่ใช่คอลัมน์ของใบเบิก */
+  reason?: string
 }, receiptFormData?: FormData) {
   const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
@@ -613,6 +689,10 @@ export async function updateClaim(id: string, updateData: {
   // Admin แก้ไขได้ทุกสถานะ; เจ้าของแก้ไขได้เฉพาะ draft / pending เท่านั้น
   if (!isAdmin && !['draft', 'pending'].includes(claim.status)) return { error: 'แก้ไขได้เฉพาะใบเบิกที่ยังไม่ถูกดำเนินการ' }
   if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
+
+  // ใบที่เงินออกไปแล้ว แก้ได้เมื่อระบุเหตุผล (ลงในประวัติการแก้ไข) — ตรวจก่อนเขียนหรืออัปโหลดอะไร
+  const editReason = (updateData.reason ?? '').trim()
+  if (reasonRequiredForEdit(claim.status) && !editReason) return { error: 'กรุณาระบุเหตุผลในการแก้ไขใบเบิกที่จ่ายเงินแล้ว' }
 
   // ประเภทใบเปลี่ยนได้เฉพาะ event ↔ other — ทดลองจ่าย/เงินสดย่อยมีช่องข้อมูลของตัวเอง เปลี่ยนแล้วยอดและวงเงินเพี้ยน
   if ('claim_type' in updateData && updateData.claim_type !== claim.claim_type) {
@@ -763,9 +843,11 @@ export async function updateClaim(id: string, updateData: {
       action: 'update',
       changed_by: userId,
       changes,
-      note: newReceiptUrls.length > 0
-        ? `แก้ไขข้อมูล + อัพโหลดเอกสาร ${newReceiptUrls.length} ไฟล์`
-        : 'แก้ไขข้อมูล',
+      note: editReason
+        ? `แก้ไขข้อมูล — เหตุผล: ${editReason}${newReceiptUrls.length > 0 ? ` + อัพโหลดเอกสาร ${newReceiptUrls.length} ไฟล์` : ''}`
+        : newReceiptUrls.length > 0
+          ? `แก้ไขข้อมูล + อัพโหลดเอกสาร ${newReceiptUrls.length} ไฟล์`
+          : 'แก้ไขข้อมูล',
     })
   } else if (newReceiptUrls.length > 0) {
     await supabase.from('expense_claim_logs').insert({
@@ -773,7 +855,7 @@ export async function updateClaim(id: string, updateData: {
       action: 'upload_receipt',
       changed_by: userId,
       changes: { receipt_urls: { from: (claim.receipt_urls || []).length, to: (claim.receipt_urls || []).length + newReceiptUrls.length } },
-      note: `อัพโหลดเอกสาร ${newReceiptUrls.length} ไฟล์`,
+      note: `อัพโหลดเอกสาร ${newReceiptUrls.length} ไฟล์${editReason ? ` — เหตุผล: ${editReason}` : ''}`,
     })
   }
 
@@ -887,9 +969,9 @@ export async function submitClaim(id: string) {
   if (claim.submitted_by !== userId) return { error: 'คุณไม่มีสิทธิ์ยื่นใบเบิกนี้' }
   if (claim.status !== 'draft') return { error: 'ยื่นได้เฉพาะใบเบิกที่อยู่ในสถานะ "แบบร่าง" เท่านั้น' }
   // Advance (ทดลองจ่าย) and petty cash (เงินสดย่อย) don't require receipts at
-  // submission — they're uploaded later as expenses are logged.
-  if (claim.claim_type !== 'advance' && claim.claim_type !== 'petty_cash' && (!claim.receipt_urls || claim.receipt_urls.length === 0)) {
-    return { error: 'กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นใบเบิก' }
+  // submission — they're uploaded later as expenses are logged. (กติกาเดียวกับ createClaim ที่ยื่นทันที)
+  if (receiptRequiredForSubmit(claim.claim_type) && (!claim.receipt_urls || claim.receipt_urls.length === 0)) {
+    return { error: RECEIPT_REQUIRED_ERROR }
   }
 
   const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, { status: 'pending', submitted_at: new Date().toISOString() })
@@ -912,6 +994,9 @@ export async function submitClaim(id: string) {
     title: claim.title,
     amount: claim.amount,
   })
+
+  // หลัง update แบบมีเงื่อนไขเท่านั้น — ทางที่สถานะถูกเปลี่ยนไปก่อน (STALE) ไม่แจ้งใคร
+  await notifyAdminsOfSubmission(supabase, { id, claim_number: claim.claim_number, title: claim.title, amount: claim.amount }, userId)
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -1093,6 +1178,70 @@ export async function rejectClaim(id: string, reason: string) {
   }
 
   revalidatePath('/finance')
+  if (synced.error) return { error: COST_SYNC_ERROR }
+  return { success: true }
+}
+
+// ============================================================================
+// Reopen Rejected Claim (owner only) — rejected → draft เพื่อแก้แล้วยื่นใหม่
+// ============================================================================
+
+export async function reopenRejectedClaim(id: string) {
+  const { userId } = await getSession()
+  if (!userId) return { error: 'Unauthorized' }
+
+  const supabase = createServiceClient()
+
+  const { data: claim } = await supabase
+    .from('expense_claims')
+    .select(`${CLAIM_SYNC_SELECT}, submitted_by, reject_reason, claim_type, pettycash_fund_id`)
+    .eq('id', id)
+    .single()
+
+  if (!claim) return { error: 'ไม่พบใบเบิก' }
+  if (claim.submitted_by !== userId) return { error: 'เฉพาะเจ้าของใบเบิกเท่านั้นที่เปิดใบที่ถูกปฏิเสธกลับมาแก้ไขได้' }
+  if (claim.status !== 'rejected') return { error: 'เปิดกลับมาแก้ไขได้เฉพาะใบเบิกที่ถูกปฏิเสธ' }
+
+  // รายการในวงเงินสดย่อยที่ปิดเดือนแล้วแก้ไม่ได้ (ยอดคืนตอนปิดเดือนต้องตรง)
+  if (claim.pettycash_fund_id) {
+    const { data: parentFund } = await supabase
+      .from('expense_claims')
+      .select('pettycash_closed_at')
+      .eq('id', claim.pettycash_fund_id)
+      .single()
+    if (parentFund?.pettycash_closed_at) {
+      return { error: 'รอบเดือนของวงเงินนี้ปิดแล้ว ไม่สามารถแก้ไขรายการได้ (admin ต้องเปิดรอบอีกครั้งก่อน)' }
+    }
+  }
+
+  const { row, error } = await updateClaimFromStatus(supabase, id, 'rejected', {
+    status: 'draft',
+    reject_reason: null,
+    approved_by: null,
+    approved_at: null,
+    submitted_at: null,
+  })
+
+  if (error) return { error: 'เกิดข้อผิดพลาด' }
+  if (!row) return { error: STALE_STATUS_ERROR }
+  const synced = await syncClaimCostItem(supabase, row, userId)
+
+  await supabase.from('expense_claim_logs').insert({
+    claim_id: id,
+    action: 'reopen',
+    changed_by: userId,
+    changes: { status: { from: 'rejected', to: 'draft' } },
+    note: `เจ้าของใบเปิดกลับมาแก้ไข (เหตุผลที่ถูกปฏิเสธ: ${claim.reject_reason || 'ไม่ระบุ'})`,
+  })
+
+  await logActivity('REOPEN_REJECTED_CLAIM', {
+    claimId: id,
+    claimNumber: claim.claim_number,
+    rejectReason: claim.reject_reason,
+  })
+
+  revalidatePath('/finance')
+  revalidatePath(`/finance/${id}`)
   if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
@@ -1529,6 +1678,19 @@ export async function markAsPaid(id: string) {
     totalAmount: claim.total_amount,
   })
 
+  // แจ้งผู้เบิกว่าจ่ายเงินแล้ว (createNotifications ไม่แจ้งตัวเอง — แอดมินจ่ายใบของตัวเองไม่มีแจ้งเตือน)
+  if (claim.submitted_by) {
+    await createNotifications({
+      userIds: [claim.submitted_by],
+      type: 'expense_paid',
+      title: `ใบเบิก ${claim.claim_number} จ่ายเงินแล้ว ฿${Number(claim.total_amount ?? claim.amount).toLocaleString()}`,
+      body: claim.title,
+      referenceType: 'expense_claim',
+      referenceId: id,
+      actorId: userId,
+    })
+  }
+
   revalidatePath('/finance')
   revalidatePath('/finance/payouts')
   revalidatePath('/finance/archive')
@@ -1615,7 +1777,6 @@ export async function deleteClaim(id: string) {
 export async function adminOverrideStatus(id: string, newStatus: string, reason: string) {
   const { userId, role } = await getSession()
   if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถ Override สถานะได้' }
-  if (!reason?.trim()) return { error: 'กรุณาระบุเหตุผลในการเปลี่ยนสถานะ' }
 
   const validStatuses = ['draft', 'pending', 'approved', 'waiting_tax_invoice', 'pending_month_end', 'paid', 'rejected', 'cancelled']
   if (!validStatuses.includes(newStatus)) return { error: 'สถานะไม่ถูกต้อง' }
@@ -1630,6 +1791,11 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
 
   if (!claim) return { error: 'ไม่พบใบเบิก' }
   if (claim.status === newStatus) return { error: 'สถานะเดิมและสถานะใหม่เหมือนกัน' }
+
+  // เหตุผลบังคับเฉพาะการถอยสถานะ / เปิดใบที่ปิดแล้ว / ปฏิเสธ-ยกเลิกใบที่จ่ายแล้ว · เดินหน้าตามขั้นตอนเว้นว่างได้
+  const trimmed = (reason ?? '').trim()
+  if (reasonRequiredForTransition(claim.status, newStatus) && !trimmed) return { error: REASON_REQUIRED_ERROR }
+  const reasonText = trimmed || 'ไม่ระบุเหตุผล'
 
   // Petty-cash guardrails: children of a closed month are frozen, and a fund
   // with children must stay a live fund (its children reference it).
@@ -1714,7 +1880,7 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
     updatePayload.reject_reason = null
     if (!claim.submitted_at) updatePayload.submitted_at = now
   } else if (newStatus === 'rejected') {
-    updatePayload.reject_reason = reason
+    updatePayload.reject_reason = reasonText
     updatePayload.approved_by = userId
     updatePayload.approved_at = now
     updatePayload.paid_at = null
@@ -1740,7 +1906,7 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
     action: 'admin_override',
     changed_by: userId,
     changes: { status: { from: fromStatus, to: newStatus } },
-    note: `[Admin Override] ${reason}`,
+    note: `[Admin Override] ${reasonText}`,
   })
 
   await logActivity('ADMIN_OVERRIDE_CLAIM_STATUS', {
@@ -1748,7 +1914,7 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
     claimNumber: claim.claim_number,
     fromStatus,
     toStatus: newStatus,
-    reason,
+    reason: reasonText,
   })
 
   // Notify submitter of the override
@@ -1757,7 +1923,7 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
       userIds: [claim.submitted_by],
       type: 'expense_approved',
       title: `ใบเบิก ${claim.claim_number} สถานะถูกเปลี่ยนเป็น "${newStatus}" โดย Admin`,
-      body: reason,
+      body: reasonText,
       referenceType: 'expense_claim',
       referenceId: id,
       actorId: userId,

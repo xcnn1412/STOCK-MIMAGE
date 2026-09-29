@@ -56,6 +56,8 @@ export const TYPE_CONFIG: Record<string, TypeConfig> = {
   ticket_reply:                { icon: '📝', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',         label: 'ตอบกลับ' },
   ticket_mentioned:            { icon: '📣', color: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400', label: 'ถูกแท็กใน Ticket' },
   ticket_status_changed:       { icon: '🔔', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',         label: 'สถานะ Ticket' },
+  expense_submitted:           { icon: '📨', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'ยื่นใบเบิก' },
+  expense_paid:                { icon: '💵', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',         label: 'จ่ายเงินแล้ว' },
   expense_approved:            { icon: '✅', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'อนุมัติแล้ว' },
   expense_rejected:            { icon: '❌', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',             label: 'ถูกปฏิเสธ' },
   expense_waiting_tax_invoice: { icon: '🧾', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',             label: 'รอใบกำกับภาษี' },
