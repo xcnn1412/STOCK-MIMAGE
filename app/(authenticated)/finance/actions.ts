@@ -87,6 +87,8 @@ async function insertNumberedClaim(supabase: Db, claimNumber: string, row: Recor
 // ============================================================================
 
 const STALE_STATUS_ERROR = 'ใบเบิกนี้ถูกเปลี่ยนสถานะไปแล้ว กรุณาโหลดหน้าใหม่'
+/** การเคลียร์ใบทดลองจ่ายบันทึกซ้ำได้โดยสถานะไม่เปลี่ยน — คนที่ช้ากว่าอาจชนการบันทึก ไม่ใช่แค่การเปลี่ยนสถานะ */
+const STALE_SETTLE_ERROR = 'ใบเบิกนี้ถูกบันทึกหรือเปลี่ยนสถานะไปแล้ว กรุณาโหลดหน้าใหม่'
 const COST_SYNC_ERROR = 'เปลี่ยนสถานะแล้ว แต่ปรับรายการต้นทุนไม่สำเร็จ — แจ้งผู้ดูแลระบบ'
 
 /** คอลัมน์ที่ syncClaimCostItem ใช้ — ขอคืนจาก update แบบมีเงื่อนไข (ได้ค่าหลังเปลี่ยนในคำสั่งเดียว) */
@@ -2002,10 +2004,14 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
     updatePayload.refund_slip_urls = [...existingRefund, ...newRefundSlipUrls]
   }
 
-  let { error } = await supabase
-    .from('expense_claims')
-    .update(updatePayload)
-    .eq('id', id)
+  // เขียนได้เฉพาะเมื่อสถานะและเวลาเคลียร์ครั้งก่อนยังเป็นค่าที่อ่านมา — กดซ้ำ / สองแท็บ /
+  // แอดมินยืนยันเงินคืนหรือใบถูกยกเลิกไปก่อน → ได้ 0 แถว (ไม่งั้นรายการไฟล์และยอดเงินคืนถูกเขียนทับ)
+  const writeSettlement = (payload: Record<string, unknown>) => {
+    const q = supabase.from('expense_claims').update(payload).eq('id', id).eq('status', claim.status)
+    return (claim.advance_settled_at ? q.eq('advance_settled_at', claim.advance_settled_at) : q.is('advance_settled_at', null)).select('id')
+  }
+
+  let { data: written, error } = await writeSettlement(updatePayload)
 
   // Fallback: if the itemized column hasn't been added to the DB yet,
   // retry without it so the totals (actual_spent_amount / refund_amount)
@@ -2014,10 +2020,8 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
   if (error && /actual_spent_items/i.test(error.message)) {
     console.warn('actual_spent_items column missing — retrying without it. Run migration 20260423_add_advance_spent_items.sql.')
     const { actual_spent_items: _dropped, ...fallbackPayload } = updatePayload
-    const retry = await supabase
-      .from('expense_claims')
-      .update(fallbackPayload)
-      .eq('id', id)
+    const retry = await writeSettlement(fallbackPayload)
+    written = retry.data
     error = retry.error
   }
 
@@ -2025,6 +2029,10 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
     console.error('Settle advance error:', error)
     await removeStorageByUrls(supabase, 'receipts', [...newActualReceiptUrls, ...newRefundSlipUrls])
     return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
+  }
+  if (!written || written.length === 0) {
+    await removeStorageByUrls(supabase, 'receipts', [...newActualReceiptUrls, ...newRefundSlipUrls])
+    return { error: STALE_SETTLE_ERROR }
   }
 
   await supabase.from('expense_claim_logs').insert({
