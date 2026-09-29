@@ -6,6 +6,19 @@ import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { parseAddress, formatAddress } from '@/lib/thai-address'
+import { escapeHtml } from '@/lib/escape-html'
+import { thaiTodayIso } from '@/lib/thai-date'
+
+/** ช่องของใบเบิกที่หน้านี้ใช้ — page.tsx ส่งมาเฉพาะเท่านี้ (ไม่ส่งทั้งแถว) */
+export type WhtClaim = Pick<ExpenseClaim,
+  'id' | 'status' | 'expense_date' | 'created_at' | 'submitted_by' | 'submitter' | 'amount' | 'vat_mode' |
+  'withholding_tax_rate' | 'bank_name' | 'bank_account_number' | 'account_holder_name'>
+
+export interface WhtProfile {
+  nickname: string | null
+  national_id: string | null
+  address: string | null
+}
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -25,9 +38,9 @@ const fmtDec = (n: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 interface Props {
-  claims: ExpenseClaim[]
+  claims: WhtClaim[]
   categories: FinanceCategory[]
-  profileMap?: Record<string, { nickname: string | null; national_id: string | null; address: string | null }>
+  profileMap?: Record<string, WhtProfile>
 }
 
 export default function FinanceDownloadView({ claims, profileMap = {} }: Props) {
@@ -114,7 +127,7 @@ export default function FinanceDownloadView({ claims, profileMap = {} }: Props) 
     const XLSX = (await import('xlsx')).default || await import('xlsx')
     const wb = XLSX.utils.book_new()
 
-    const rows: Record<string, any>[] = whtSummary.map(p => ({
+    const rows: Record<string, string | number>[] = whtSummary.map(p => ({
       'ชื่อ-สกุล': p.name,
       'ชื่อเล่น': p.nickname,
       'เลขบัตรประชาชน': p.nationalId,
@@ -147,7 +160,7 @@ export default function FinanceDownloadView({ claims, profileMap = {} }: Props) 
       { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
     ]
     XLSX.utils.book_append_sheet(wb, ws, 'สรุปหัก ณ ที่จ่าย')
-    XLSX.writeFile(wb, `wht-summary-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, `wht-summary-${thaiTodayIso()}.xlsx`)
   }
 
   // ========== PDF Export ==========
@@ -166,17 +179,18 @@ export default function FinanceDownloadView({ claims, profileMap = {} }: Props) 
       @media print { body { padding: 0; } }
     </style></head><body>`
 
+    // ทุกค่าที่มาจากใบเบิก/โปรไฟล์ผ่าน escapeHtml — ชื่อหรือที่อยู่ที่มี <script> ต้องเป็นแค่ตัวหนังสือบนหน้าพิมพ์
     html += `<h1>สรุปหัก ณ ที่จ่าย 3%</h1>`
-    html += `<h2>วันที่ออกรายงาน: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })} | ${whtSummary.length} คน | รวมหัก ฿${fmtDec(totalWhtAll)}</h2>`
+    html += `<h2>วันที่ออกรายงาน: ${escapeHtml(new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }))} | ${escapeHtml(whtSummary.length)} คน | รวมหัก ฿${escapeHtml(fmtDec(totalWhtAll))}</h2>`
     html += `<table>
       <tr><th>#</th><th>ชื่อ-สกุล</th><th>ชื่อเล่น</th><th>เลขบัตรประชาชน</th><th>ที่อยู่</th><th>ธนาคาร</th><th>เลขบัญชี</th><th class="num">จำนวน</th><th class="num">ยอดรวม</th><th class="num">หัก 3%</th><th class="num">จ่ายจริง</th></tr>`
     whtSummary.forEach((p, i) => {
       html += `<tr>
-        <td>${i + 1}</td><td>${p.name}</td><td>${p.nickname}</td><td>${p.nationalId}</td><td style="font-size:9px">${p.address}</td><td>${p.bankName}</td><td>${p.bankAccount}</td>
-        <td class="num">${p.count}</td><td class="num">${fmtDec(p.totalGross)}</td><td class="num">${fmtDec(p.totalWht)}</td><td class="num">${fmtDec(p.totalNet)}</td>
+        <td>${i + 1}</td><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.nickname)}</td><td>${escapeHtml(p.nationalId)}</td><td style="font-size:9px">${escapeHtml(p.address)}</td><td>${escapeHtml(p.bankName)}</td><td>${escapeHtml(p.bankAccount)}</td>
+        <td class="num">${escapeHtml(p.count)}</td><td class="num">${escapeHtml(fmtDec(p.totalGross))}</td><td class="num">${escapeHtml(fmtDec(p.totalWht))}</td><td class="num">${escapeHtml(fmtDec(p.totalNet))}</td>
       </tr>`
     })
-    html += `<tr class="total-row"><td colspan="7">รวมทั้งหมด</td><td class="num">${totalCountAll}</td><td class="num">${fmtDec(totalGrossAll)}</td><td class="num">${fmtDec(totalWhtAll)}</td><td class="num">${fmtDec(totalNetAll)}</td></tr>`
+    html += `<tr class="total-row"><td colspan="7">รวมทั้งหมด</td><td class="num">${escapeHtml(totalCountAll)}</td><td class="num">${escapeHtml(fmtDec(totalGrossAll))}</td><td class="num">${escapeHtml(fmtDec(totalWhtAll))}</td><td class="num">${escapeHtml(fmtDec(totalNetAll))}</td></tr>`
     html += `</table></body></html>`
 
     const win = window.open('', '_blank')

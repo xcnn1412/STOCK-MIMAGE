@@ -1,6 +1,7 @@
-import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { getClaims, getPaidMonths } from './actions'
 import { getFinanceCategories } from './settings-actions'
+import { getFinanceViewer } from './viewer'
 import ClaimsListView from './claims-list-view'
 import type { ExpenseClaim } from '../costs/types'
 
@@ -16,10 +17,10 @@ export default async function FinancePage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const cookieStore = await cookies()
-  const role = cookieStore.get('session_role')?.value || 'staff'
-  const userId = cookieStore.get('session_user_id')?.value || ''
-  const isAdmin = role === 'admin'
+  // บทบาทและ id จากการล็อกอินที่ยืนยันแล้ว — ไม่ใช่ cookie แบบเก่าที่ไม่ได้เซ็น (ผู้ใช้แก้เองได้)
+  const viewer = await getFinanceViewer()
+  if (!viewer) redirect('/login')
+  const { userId, isAdmin } = viewer
 
   // โหลดเฉพาะใบที่ยังไม่จบ — ใบที่จ่ายแล้วโหลดทีละเดือน (ครบทุกใบราว 5MB ต่อการเปิดหน้า และโตทุกเดือน)
   const [params, { data, error }, categories, paidMonths] = await Promise.all([

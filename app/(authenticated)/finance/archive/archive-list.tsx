@@ -8,6 +8,7 @@ import { getCategoryLabel, getClaimStatusLabel, getClaimStatusColor } from '../.
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { FundingBadge } from '../doc-badges'
+import { thaiTodayIso } from '@/lib/thai-date'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -28,10 +29,11 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-/** Format date to YYYY-MM-DD for input[type=date] */
+/** วันที่ตามเวลาไทย เป็น YYYY-MM-DD — ใบที่จ่ายก่อน 07:00 ต้องนับเป็นวันนั้น ไม่ใช่วันก่อนหน้า */
 function toDateStr(d: string | null | undefined): string {
   if (!d) return ''
-  return new Date(d).toISOString().split('T')[0]
+  const t = new Date(d)
+  return Number.isNaN(t.getTime()) ? '' : thaiTodayIso(t)
 }
 
 /** Check if date string falls within range */

@@ -1,5 +1,7 @@
+import { redirect } from 'next/navigation'
 import { getClaims } from '../actions'
 import { getFinanceCategories } from '../settings-actions'
+import { getFinanceViewer } from '../viewer'
 import PayoutDashboard from './payout-dashboard'
 import type { ExpenseClaim } from '../../costs/types'
 
@@ -11,6 +13,11 @@ export const metadata = {
 }
 
 export default async function PayoutsPage() {
+  // หน้าของแอดมิน — ตรวจก่อนโหลดใบเบิก
+  const viewer = await getFinanceViewer()
+  if (!viewer) redirect('/login')
+  if (!viewer.isAdmin) redirect('/finance')
+
   // Fetch all payable statuses: approved (new), awaiting_payment (legacy), pending_month_end
   const [{ data: approvedData }, { data: legacyData }, { data: monthEndData }, categories] = await Promise.all([
     getClaims({ status: 'approved' }),

@@ -112,7 +112,6 @@ export async function proxy(request: NextRequest) {
   const sessionToken = request.cookies.get('session_token')?.value
   const legacyUserId = request.cookies.get('session_user_id')?.value
   const sessionId = request.cookies.get('session_id')?.value
-  const role = request.cookies.get('session_role')?.value
   const { pathname } = request.nextUrl
 
   // Define public paths
@@ -121,6 +120,8 @@ export async function proxy(request: NextRequest) {
   let userId: string | null = null
   let isValidSession = false
   let allowedModules: string[] = ['stock']
+  // บทบาทจากฐานข้อมูล — cookie session_role ไม่ได้เซ็น ผู้ใช้แก้เองได้ จึงใช้ตัดสินสิทธิ์ไม่ได้
+  let dbRole: string | null = null
 
   // 1. Try to verify signed session token first
   const sessionSecret = process.env.SESSION_SECRET || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'fallback-dev-secret-change-in-production'
@@ -138,9 +139,14 @@ export async function proxy(request: NextRequest) {
 
   // 3. Verify session against DB if we have a userId
   if (userId) {
+    // ใช้กุญแจฝั่ง server (อยู่ใน env ของ server เท่านั้น ไม่ถูกส่งไป browser)
+    // เดิมใช้กุญแจสาธารณะ ตาราง profiles จึงต้องเปิดให้กุญแจสาธารณะอ่าน = ใครก็อ่านข้อมูลพนักงานได้
+    // ต้อง deploy โค้ดนี้ก่อนรัน 20260930_lock_public_access.sql ไม่งั้นทุกคนจะถูกเด้งไปหน้าล็อกอิน
+    // ponytail: ยังถอยไปใช้กุญแจสาธารณะเมื่อไม่มีกุญแจฝั่ง server (เครื่องพัฒนาที่ตั้งค่าไม่ครบ) — หลังปิดสิทธิ์แล้วทางนี้จะอ่านไม่ได้
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
     )
 
     try {
@@ -152,6 +158,7 @@ export async function proxy(request: NextRequest) {
         .single()
 
       if (data && data.is_approved && !data.is_blocked) {
+        dbRole = typeof data.role === 'string' ? data.role : null
         if (data.active_session_id && data.active_session_id !== sessionId) {
           isValidSession = false // Session mismatch (logged in elsewhere)
         } else {
@@ -210,8 +217,8 @@ export async function proxy(request: NextRequest) {
     if (moduleInfo) {
       const { moduleKey, adminOnly } = moduleInfo
 
-      // Admin-only check
-      if (adminOnly && role !== 'admin') {
+      // Admin-only check — บทบาทจากฐานข้อมูล ไม่ใช่จาก cookie
+      if (adminOnly && dbRole !== 'admin') {
         return redirectTo(request, '/dashboard')
       }
 

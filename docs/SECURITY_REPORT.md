@@ -86,3 +86,47 @@ The system now relies on Headers (`x-vercel-ip-city`, etc.) for location logging
 4. **ตัวอัปโหลดอื่นของบัคเก็ต ticket-attachments** — `uploadMyCommentAttachments` (jobs/my-job) และ `uploadContentExampleImages` (content-planner) ยังใช้ cookie ที่ไม่ได้เซ็นและเอานามสกุลจากชื่อไฟล์
 5. **สคริปต์ล้างไฟล์จะลบไฟล์ที่ยังใช้อยู่** — `scripts/cleanup-storage.mjs` และ `cleanup-storage.sql` ตัดสินว่าไฟล์ใน ticket-attachments เป็นไฟล์กำพร้าโดยดูแค่ tickets, ticket_replies, my_job_comments, my_ticket_comments ไม่ได้ดู `kpi_evaluation_replies.attachments` และรูปตัวอย่างของ content-planner — **ห้ามรันแบบ --apply จนกว่าจะแก้**
 
+
+## 2026-09-30 — ปิดสิทธิ์กุญแจสาธารณะ และช่องโหว่ของส่วนใบเบิก (v1.24.1)
+
+พบระหว่างสำรวจเพื่อวางแผน refactor ส่วนใบเบิก (`docs/specs/finance-refactor-plan.md` ขั้น 0) ทุกข้อในหัวข้อ "สิ่งที่พบ" ตรวจกับฐานข้อมูลจริงแบบอ่านอย่างเดียวแล้ว
+
+### สิ่งที่พบ
+
+| # | ปัญหา | หลักฐาน |
+|---|---|---|
+| 1 | **กุญแจสาธารณะ (anon key) อ่านได้ 23 จาก 70 ตาราง รวม 8,102 แถว** โดยไม่ต้องล็อกอิน: `profiles` 52 แถว (PIN ที่เข้ารหัส, เลขบัตรประชาชน, ที่อยู่, เบอร์โทร, เลขบัญชี, `active_session_id`), `staff_checkins` 2,361, `jobs` 588, `job_checklist_items` 2,222, `tickets` 118, `ticket_replies` 441, `events` 187, `event_closures` 461, `items` 343, `kits` 130, `kpi_evaluations` 18 ฯลฯ | นับด้วยกุญแจสาธารณะ 2026-09-30 |
+| 2 | **เข้าระบบเป็นคนอื่นได้** เมื่อรวมข้อ 1 กับ session แบบเก่า: `proxy.ts` ยอมรับ `session_user_id` + `session_id` ที่ไม่ได้เซ็น และทั้งสองค่าอ่านได้จากตาราง `profiles` ด้วยกุญแจสาธารณะ | อ่านโค้ด `proxy.ts` + ข้อ 1 (ไม่ได้ทดลองเข้าจริง) |
+| 3 | คำสั่งแก้และลบด้วยกุญแจสาธารณะไม่ถูกปฏิเสธ บนตาราง `profiles`, `staff_checkins`, `jobs`, `tickets`, `events`, `items`, `kits` | ทดสอบกับ id ที่ไม่มีอยู่จริง (ไม่มีข้อมูลถูกเปลี่ยน) — ไม่ได้พิสูจน์ด้วยการเขียนจริง |
+| 4 | โครงการเปิดให้สมัครบัญชีเอง (`disable_signup = false`) และหลายตารางมี policy `TO authenticated USING (true)` ใครสมัครด้วยอีเมลของตัวเองก็ได้สิทธิ์ `authenticated` | `/auth/v1/settings` + ไฟล์ migration (ไม่ได้ทดลองสมัคร) |
+| 5 | ฟังก์ชันในฐานข้อมูลเรียกได้โดย `authenticated` และบางตัวโดย `anon`: `purge_test_documents`, `purge_test_salary_run`, `issue_document_number`, `next_doc_counter`, `salary_backfill_paid_slip_ids`, `get_schema_summary` · `REVOKE ... FROM PUBLIC` อย่างเดียวไม่ถอนสิทธิ์ที่ Supabase ให้ `anon`/`authenticated` ไว้ตรงๆ | ไฟล์ migration + ทดสอบกับ postgres 17 |
+| 6 | `/finance/download` ส่งเลขบัตรประชาชนและที่อยู่ของทุกคนให้ผู้ใช้ทุกคน · `/finance/new` ส่งเลขบัญชีของทุกคน | อ่านโค้ด |
+| 7 | `finance/settings-actions.ts` ตัดสินสิทธิ์จาก cookie `session_role` (7 ฟังก์ชันที่เขียน) และมี 3 ฟังก์ชันที่ไม่ตรวจการล็อกอิน | อ่านโค้ด |
+| 8 | หน้าพิมพ์ของ `/finance/overview` และ `/finance/download` ใส่ชื่อใบเบิกลง HTML โดยไม่กรอง (stored XSS) | อ่านโค้ด |
+
+### แก้แล้วในรุ่นนี้
+
+| จุด | การแก้ |
+|---|---|
+| `proxy.ts` | อ่าน `profiles` ด้วยกุญแจฝั่ง server · ประตูหน้าแอดมินใช้บทบาทจากฐานข้อมูล ไม่ใช่ cookie · ตรวจด้วย `scripts/proxy-session.check.ts` |
+| ฐานข้อมูล | `supabase/migrations/20260930_lock_public_access.sql`: เปิด RLS ทุกตารางใน public, ลบ policy ทุกตัวของ public และของ `storage.objects`, ถอนสิทธิ์ตาราง วิว ลำดับ และฟังก์ชันจาก `anon` และ `authenticated` · ทดสอบกับ postgres 17 ผ่าน 51 ข้อ · **ต้อง deploy โค้ดก่อน แล้วจึงรันบน production** |
+| ส่วนใบเบิก | ข้อ 6–8 และหน้าของแอดมินตรวจบทบาทที่ยืนยันแล้ว · ตรวจด้วย `scripts/finance-access.check.ts` |
+
+### ต้องทำเองในหน้า Supabase และ Railway
+
+1. Supabase → Authentication → ปิดการสมัครบัญชีใหม่ (ระบบนี้ไม่ได้ใช้ Supabase Auth)
+2. Railway → ตรวจว่าตั้งค่า `SESSION_SECRET` แล้ว ถ้าไม่ได้ตั้ง โค้ดจะใช้กุญแจสาธารณะเป็นกุญแจเซ็น session แทน ซึ่งทำให้ปลอม session ของใครก็ได้
+3. เพราะ PIN ที่เข้ารหัสและ `active_session_id` เคยอ่านได้จากภายนอก: ให้ผู้ใช้ทุกคนเปลี่ยน PIN และล็อกอินใหม่หลังรัน SQL (PIN เป็นตัวเลขสั้น เมื่อได้ค่าที่เข้ารหัสไปแล้วเดาย้อนกลับได้ไม่ยาก)
+
+### กติกาสำหรับ migration ใหม่ (Postgres ตั้งค่าเริ่มต้นให้ไม่ได้)
+
+- ตารางใหม่: `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` และไม่สร้าง policy
+- ฟังก์ชันใหม่: `REVOKE ALL ON FUNCTION ... FROM PUBLIC, anon, authenticated` แล้ว `GRANT EXECUTE ... TO service_role`
+
+### ยังเปิดอยู่ — เรียงตามความเสี่ยง
+
+1. **session แบบเก่าใน `proxy.ts`**: ยังยอมรับ `session_user_id` ที่ไม่ได้เซ็นเมื่อไม่มี token หลังปิดสิทธิ์กุญแจสาธารณะแล้วคนนอกอ่าน `active_session_id` ไม่ได้ แต่ผู้ใช้ที่ล็อกอินอยู่ยังปลอมเป็นคนอื่นได้ถ้ารู้ค่าทั้งสอง · ทางแก้: เลิกรับ session แบบเก่า (ทุกคนต้องล็อกอินใหม่หนึ่งครั้ง)
+2. **cookie ที่ไม่ได้เซ็นในราว 20 โมดูล** (ข้อ 1 ของรอบ 2026-09-29) ยังเหมือนเดิม ยกเว้นส่วนใบเบิกที่แก้ครบแล้ว
+3. `/api/schema/*` และ `/api/migrations/*` เปิดให้อ่านโครงสร้างฐานข้อมูลและไฟล์ migration โดยไม่ต้องล็อกอิน (ตั้งใจไว้สำหรับเทียบรุ่นระหว่างเครื่อง — ให้เจ้าของยืนยันว่ายังต้องเปิด)
+4. `/api/ai-analyze` ตรวจแอดมินจาก cookie `session_role`
+5. ข้อ 4–5 ของรอบ 2026-09-29 (ตัวอัปโหลดอื่น, สคริปต์ล้างไฟล์) ยังเหมือนเดิม

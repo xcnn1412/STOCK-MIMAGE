@@ -1,5 +1,7 @@
+import { redirect } from 'next/navigation'
 import { getClaims } from '../actions'
 import { getFinanceCategories } from '../settings-actions'
+import { getFinanceViewer } from '../viewer'
 import ArchiveList from './archive-list'
 import type { ExpenseClaim } from '../../costs/types'
 
@@ -11,6 +13,10 @@ export const metadata = {
 }
 
 export default async function ArchivePage() {
+  // พนักงานเข้าได้ (ดูใบที่จ่ายแล้วของตัวเอง — getClaims กรองตามผู้เบิกให้เอง)
+  const viewer = await getFinanceViewer()
+  if (!viewer) redirect('/login')
+
   const [{ data }, categories] = await Promise.all([
     getClaims({ status: ['paid', 'refund_confirmed'] }),
     getFinanceCategories(),

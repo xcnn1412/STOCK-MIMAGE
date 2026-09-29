@@ -132,12 +132,14 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
   const handleSaveCat = () => {
     if (!editCatId) return
     startTransition(async () => {
-      await updateCategory(editCatId, { label: editLabel, label_th: editLabelTh, color: editColor, detail_source: editDetailSource })
+      const r = await updateCategory(editCatId, { label: editLabel, label_th: editLabelTh, color: editColor, detail_source: editDetailSource })
+      // บันทึกไม่ผ่าน = ค้างโหมดแก้ไขไว้พร้อมข้อความ (เดิมปิดโหมดแก้ไขเงียบๆ เหมือนบันทึกสำเร็จ)
+      if (r.error) { setError(r.error); return }
       setEditCatId(null); router.refresh()
     })
   }
   const handleToggleCat = (cat: FinanceCategory) => {
-    startTransition(async () => { await updateCategory(cat.id, { is_active: !cat.is_active }); router.refresh() })
+    startTransition(async () => { const r = await updateCategory(cat.id, { is_active: !cat.is_active }); if (r.error) setError(r.error); else router.refresh() })
   }
   const handleDeleteCat = (cat: FinanceCategory) => {
     if (!confirm(isEn ? `Delete "${cat.label}"?` : `ลบหมวด "${cat.label_th}"?`)) return
@@ -159,7 +161,8 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
   const handleSaveItem = () => {
     if (!editItemId) return
     startTransition(async () => {
-      await updateCategoryItem(editItemId, { label: editItemLabel })
+      const r = await updateCategoryItem(editItemId, { label: editItemLabel })
+      if (r.error) { setError(r.error); return }
       setEditItemId(null); router.refresh()
     })
   }

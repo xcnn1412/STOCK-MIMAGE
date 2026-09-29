@@ -159,6 +159,8 @@ export type ActionType =
     | 'EXPORT_CLAIM_BUNDLE'
     | 'MARK_CLAIM_FILED'
     | 'UNMARK_CLAIM_FILED'
+    // ดูบัญชีธนาคารของพนักงานคนอื่นเพื่อกรอกเป็นผู้รับเงินในใบเบิก (คนที่ไม่ใช่แอดมินได้ทีละคน มีประวัติทุกครั้ง)
+    | 'VIEW_STAFF_BANK_DETAILS'
     // Ticket Module
     | 'CREATE_TICKET'
     | 'UPDATE_TICKET_STATUS'
