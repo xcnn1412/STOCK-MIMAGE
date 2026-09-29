@@ -4,6 +4,7 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useConfirm } from '../use-confirm'
+import { financeListHref } from '../claims-filter'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
   Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
@@ -335,7 +336,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     setLoading(true)
     const result = await deleteClaim(claim.id)
     if (result.error) { setError(result.error); setLoading(false) }
-    else { router.push('/finance') }
+    else { router.push(financeListHref()) }
   }
 
   const handleSubmit = async () => {
@@ -754,7 +755,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       {confirmDialog}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <button onClick={() => router.push('/finance')} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400">
+        <button onClick={() => router.push(financeListHref())} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400">
           <ArrowLeft className="h-4 w-4" />
           {isEn ? 'Back' : 'กลับ'}
         </button>
