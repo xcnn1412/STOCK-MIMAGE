@@ -20,7 +20,9 @@ import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../../costs/types'
 import BankSelect from '@/components/bank-select'
 import { compressImage } from '@/lib/utils'
+import { thaiTodayIso } from '@/lib/thai-date'
 import EventSelectCombobox from '../new/event-select-combobox'
+import { canSeeWorkPanel } from '../claim-rules'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -203,7 +205,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [qaTitle, setQaTitle] = useState('')
   const [qaCategory, setQaCategory] = useState(categories[0]?.value || 'other')
   const [qaAmount, setQaAmount] = useState('')
-  const [qaDate, setQaDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [qaDate, setQaDate] = useState(() => thaiTodayIso())
   const [qaFiles, setQaFiles] = useState<File[]>([])
   const [tuAmount, setTuAmount] = useState('')
   const [tuNote, setTuNote] = useState('')
@@ -241,7 +243,6 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const isWaitingTaxInvoice = claim.status === 'waiting_tax_invoice'
   const isCancelled = claim.status === 'cancelled'
   const isRefundConfirmed = claim.status === 'refund_confirmed'
-  const isTerminal = ['paid', 'rejected', 'cancelled', 'refund_confirmed'].includes(claim.status)
   const isAdvance = claim.claim_type === 'advance'
 
   // Petty cash (เงินสดย่อย) — monthly fund model.
@@ -864,7 +865,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       {/* Document Checklist Panel — pre-accounting handover */}
       {(() => {
         const ck = getClaimChecklist(claim)
-        const items: { key: string; labelTh: string; labelEn: string; done: boolean; required: boolean; note?: string }[] = [
+        const items: { key: string; labelTh: string; labelEn: string; done: boolean; required: boolean; note?: string; chips?: string[] }[] = [
           {
             key: 'receipt',
             labelTh: 'แนบใบเสร็จ/เอกสาร',
@@ -1030,7 +1031,15 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               )}
             </div>
           </div>
-          <span className="text-sm font-mono text-zinc-500">{claim.claim_number}</span>
+          <div className="text-right shrink-0">
+            <span className="text-sm font-mono text-zinc-500 whitespace-nowrap">{claim.claim_number}</span>
+            {/* ใบที่ถูกเปลี่ยนเลขเพราะเลขซ้ำ — เอกสารที่พิมพ์ไปแล้วยังเป็นเลขเดิม */}
+            {claim.original_claim_number && (
+              <span className="block text-xs font-mono text-zinc-400 whitespace-nowrap">
+                {isEn ? 'Previously' : 'เลขเดิม'} {claim.original_claim_number}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Content */}
@@ -1912,8 +1921,9 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
         </div>
 
         {/* ===== Workflow Action Bar ===== */}
-        {/* Owners of advance claims can still settle after the advance is paid out */}
-        {!editing && (!isTerminal || isAdmin || canSettleAdvance) && (
+        {/* Owners of advance claims can still settle after the advance is paid out;
+            ผู้ถือวงเงินสดย่อยใช้แผงวงเงินได้ขณะวงเงิน "จ่ายแล้ว" — ปุ่มของแอดมินข้างในมีเงื่อนไขของตัวเอง */}
+        {canSeeWorkPanel({ editing, status: claim.status, isAdmin, canSettleAdvance, canManagePettyFund }) && (
           <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/40 print:hidden space-y-3">
 
             {/* ── Owner: Submit draft ── */}
@@ -3148,6 +3158,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'upload_tax_invoice'  ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
                       : log.action === 'auto_transition'      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
                       : log.action === 'settle_advance'       ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                      : log.action === 'renumber_claim'       ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
                       :                                    'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}>
                       {log.action === 'update'          ? (isEn ? 'Edit' : 'แก้ไข')
@@ -3165,10 +3176,12 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'upload_tax_invoice'  ? (isEn ? 'Tax Invoice Upload' : 'อัพโหลดใบกำกับภาษี')
                       : log.action === 'auto_transition'      ? (isEn ? 'Auto Transition' : 'เปลี่ยนสถานะอัตโนมัติ')
                       : log.action === 'settle_advance'       ? (isEn ? 'Advance Settled' : 'อัพเดทค่าใช้จ่ายจริง')
+                      : log.action === 'renumber_claim'       ? (isEn ? 'Renumbered (duplicate fixed)' : 'เปลี่ยนเลขที่ (แก้เลขที่ซ้ำ)')
                       : log.action}
                     </span>
                     <span className="text-xs text-zinc-500">
-                      {log.editor?.full_name || (isEn ? 'Unknown' : 'ไม่ทราบ')}
+                      {log.editor?.full_name
+                        || (log.action === 'renumber_claim' ? (isEn ? 'System' : 'ระบบ') : (isEn ? 'Unknown' : 'ไม่ทราบ'))}
                     </span>
                   </div>
                   <span className="text-[10px] text-zinc-400">

@@ -6,7 +6,9 @@ import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTrian
 import { createClaim, getOpenPettyCashFund } from '../actions'
 import { CLAIM_TYPES, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
+import { getStaffBankDetails } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
+import { thaiTodayIso } from '@/lib/thai-date'
 import BankSelect from '@/components/bank-select'
 import { compressImage } from '@/lib/utils'
 import EventSelectCombobox from './event-select-combobox'
@@ -23,6 +25,8 @@ interface Props {
   categories: FinanceCategory[]
   categoryItems: CategoryItem[]
   staffProfiles: StaffProfile[]
+  /** แอดมิน = staffProfiles มีบัญชีธนาคารของทุกคนแล้ว · คนอื่น = มีแค่ของตัวเอง ต้องขอของคนอื่นทีละคน */
+  isAdmin: boolean
 }
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
@@ -46,7 +50,7 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-export default function CreateClaimForm({ jobEvents, categories, categoryItems, staffProfiles }: Props) {
+export default function CreateClaimForm({ jobEvents, categories, categoryItems, staffProfiles, isAdmin }: Props) {
   const router = useRouter()
   const { locale } = useLocale()
   const isEn = locale === 'en'
@@ -58,7 +62,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
 
   // Petty cash — this form OPENS the monthly fund. Only one fund may be open at
   // a time; expenses/top-ups are added from the fund page afterwards.
-  const [pettyMonth, setPettyMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  // เดือนตามเวลาไทย (เวลาสากลก่อน 07:00 ของวันที่ 1 ยังเป็นเดือนก่อน)
+  const [pettyMonth, setPettyMonth] = useState(() => thaiTodayIso().slice(0, 7))
   const [openFund, setOpenFund] = useState<{ id: string; claimNumber: string; periodStart: string | null; periodEnd: string | null } | null>(null)
   useEffect(() => {
     if (claimType !== 'petty_cash') return
@@ -87,6 +92,11 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const [bankAccountNumber, setBankAccountNumber] = useState('')
   const [accountHolderName, setAccountHolderName] = useState('')
   const [staffAutoFilled, setStaffAutoFilled] = useState(false)
+  // บัญชีธนาคารของเพื่อนร่วมงาน (ไม่ใช่แอดมิน) ขอจาก server ตอนเลือกชื่อ
+  const [bankLoading, setBankLoading] = useState(false)
+  const [bankError, setBankError] = useState<string | null>(null)
+  // เลขคำขอล่าสุด — เลือกชื่อใหม่ระหว่างรอ คำตอบของชื่อเก่าต้องไม่มาทับ
+  const bankRequest = useRef(0)
   const [selectedEventId, setSelectedEventId] = useState('')
   const [calendarOpen, setCalendarOpen] = useState(false)
 
@@ -137,6 +147,55 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
     }
     setReceiptFiles(prev => prev.filter((_, i) => i !== index))
     setPreviewUrls(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // เลือกผู้รับเงินจากรายชื่อพนักงาน → เติมบัญชีธนาคาร (ช่องยังแก้ต่อได้)
+  const pickStaff = (staff: StaffProfile | undefined) => {
+    const request = ++bankRequest.current // คำขอที่ค้างอยู่ (ถ้ามี) ถูกทิ้ง
+    setBankLoading(false)
+    setBankError(null)
+    if (!staff) {
+      setSelectedStaffId(null)
+      setSelectedBank('')
+      setBankAccountNumber('')
+      setAccountHolderName('')
+      setStaffAutoFilled(false)
+      return
+    }
+    setSelectedStaffId(staff.id)
+    const hasBank = !!(staff.bank_name || staff.bank_account_number || staff.account_holder_name)
+    if (isAdmin || hasBank) {
+      // Auto-fill bank info from profile
+      setSelectedBank(staff.bank_name || '')
+      setBankAccountNumber(staff.bank_account_number || '')
+      setAccountHolderName(staff.account_holder_name || '')
+      setStaffAutoFilled(true)
+      return
+    }
+    // ไม่ใช่แอดมิน: รายชื่อไม่มีบัญชีของคนอื่น — ขอทีละคนตอนเลือก (server ลงประวัติการดู)
+    setSelectedBank('')
+    setBankAccountNumber('')
+    setAccountHolderName('')
+    setStaffAutoFilled(false)
+    setBankLoading(true)
+    getStaffBankDetails(staff.id)
+      .then(res => {
+        if (request !== bankRequest.current) return
+        if ('error' in res) {
+          setBankError(res.error)
+          return
+        }
+        setSelectedBank(res.bank_name || '')
+        setBankAccountNumber(res.bank_account_number || '')
+        setAccountHolderName(res.account_holder_name || '')
+        setStaffAutoFilled(true)
+      })
+      .catch(() => {
+        if (request === bankRequest.current) setBankError(isEn ? 'Could not load bank details' : 'ดึงข้อมูลธนาคารไม่สำเร็จ')
+      })
+      .finally(() => {
+        if (request === bankRequest.current) setBankLoading(false)
+      })
   }
 
   // Cleanup all object URLs on unmount
@@ -377,6 +436,10 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               if (val !== 'staff') {
                 setSelectedStaffId(null)
                 setStaffAutoFilled(false)
+                // ทิ้งคำขอบัญชีธนาคารที่ค้างอยู่ — คำตอบมาทีหลังต้องไม่เติมช่อง
+                bankRequest.current++
+                setBankLoading(false)
+                setBankError(null)
               }
             }}
             className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
@@ -407,21 +470,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                     value={selectedStaffId ? staffProfiles.find(s => s.id === selectedStaffId)?.full_name || '' : ''}
                     onChange={e => {
                       const staffName = e.target.value
-                      const staff = staffProfiles.find(s => s.full_name === staffName)
-                      if (staff) {
-                        setSelectedStaffId(staff.id)
-                        // Auto-fill bank info from profile
-                        setSelectedBank(staff.bank_name || '')
-                        setBankAccountNumber(staff.bank_account_number || '')
-                        setAccountHolderName(staff.account_holder_name || '')
-                        setStaffAutoFilled(true)
-                      } else {
-                        setSelectedStaffId(null)
-                        setSelectedBank('')
-                        setBankAccountNumber('')
-                        setAccountHolderName('')
-                        setStaffAutoFilled(false)
-                      }
+                      pickStaff(staffProfiles.find(s => s.full_name === staffName))
                     }}
                   >
                     <option value="">{isEn ? '— Select staff —' : '— เลือกชื่อพนักงาน —'}</option>
@@ -564,7 +613,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             <input
               type="date"
               name="expense_date"
-              defaultValue={new Date().toISOString().split('T')[0]}
+              defaultValue={thaiTodayIso()}
               className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
             />
           </div>
@@ -757,6 +806,21 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             )}
           </div>
 
+          {/* กำลังดึงบัญชีของพนักงานที่เลือก / ดึงไม่สำเร็จ */}
+          {bankLoading && (
+            <p role="status" className="text-xs text-zinc-500 dark:text-zinc-400">
+              {isEn ? 'Loading bank details…' : 'กำลังดึงข้อมูลธนาคาร…'}
+            </p>
+          )}
+          {bankError && (
+            <div role="alert" className="flex items-start gap-2 p-2.5 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-800">
+              <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-red-700 dark:text-red-300">
+                {bankError} — {isEn ? 'fill in the bank details below yourself' : 'กรอกข้อมูลธนาคารด้านล่างเองได้'}
+              </p>
+            </div>
+          )}
+
           {/* Warning: missing bank data */}
           {staffAutoFilled && selectedStaffId && (!selectedBank || !bankAccountNumber || !accountHolderName) && (
             <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
@@ -768,7 +832,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* ระหว่างดึงบัญชี: ช่องขึ้น "กำลังโหลด…" และพิมพ์ไม่ได้ (คำตอบจะมาทับสิ่งที่พิมพ์) — readOnly ไม่ใช่ disabled ให้ค่ายังส่งไปกับฟอร์ม */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" aria-busy={bankLoading}>
             <div>
               <label className="block text-xs font-medium text-zinc-500 mb-1">
                 {isEn ? 'Bank Name' : 'ชื่อธนาคาร'}
@@ -777,7 +842,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 value={selectedBank}
                 onChange={v => { setSelectedBank(v); if (staffAutoFilled) setStaffAutoFilled(false) }}
                 name="bank_name"
-                placeholder={isEn ? 'Select bank' : 'เลือกธนาคาร'}
+                placeholder={bankLoading ? (isEn ? 'Loading…' : 'กำลังโหลด…') : (isEn ? 'Select bank' : 'เลือกธนาคาร')}
+                className={bankLoading ? 'opacity-60 pointer-events-none' : ''}
               />
             </div>
             <div>
@@ -788,9 +854,10 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 type="text"
                 name="bank_account_number"
                 value={bankAccountNumber}
+                readOnly={bankLoading}
                 onChange={e => { setBankAccountNumber(e.target.value); if (staffAutoFilled) setStaffAutoFilled(false) }}
-                placeholder={isEn ? 'e.g. 123-4-56789-0' : 'เช่น 123-4-56789-0'}
-                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+                placeholder={bankLoading ? (isEn ? 'Loading…' : 'กำลังโหลด…') : (isEn ? 'e.g. 123-4-56789-0' : 'เช่น 123-4-56789-0')}
+                className={`w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none ${bankLoading ? 'opacity-60 animate-pulse' : ''}`}
               />
             </div>
             <div>
@@ -801,9 +868,10 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 type="text"
                 name="account_holder_name"
                 value={accountHolderName}
+                readOnly={bankLoading}
                 onChange={e => { setAccountHolderName(e.target.value); if (staffAutoFilled) setStaffAutoFilled(false) }}
-                placeholder={isEn ? 'Account holder name' : 'ชื่อ-นามสกุล'}
-                className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+                placeholder={bankLoading ? (isEn ? 'Loading…' : 'กำลังโหลด…') : (isEn ? 'Account holder name' : 'ชื่อ-นามสกุล')}
+                className={`w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none ${bankLoading ? 'opacity-60 animate-pulse' : ''}`}
               />
             </div>
           </div>

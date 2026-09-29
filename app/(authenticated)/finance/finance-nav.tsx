@@ -6,14 +6,15 @@ import { Banknote, LayoutDashboard, PlusCircle, Globe, Wallet, Archive, BarChart
 import { useLocale } from '@/lib/i18n/context'
 import type { Locale } from '@/lib/i18n'
 
+// adminOnly: หน้าที่ตรวจบทบาทใน page.tsx แล้ว — ซ่อนแท็บด้วย ไม่ให้พนักงานกดแล้วเด้งกลับ
 const tabMeta = [
-  { href: '/finance', key: 'claims' as const, icon: LayoutDashboard, exact: true },
-  { href: '/finance/overview', key: 'overview' as const, icon: BarChart3, exact: false },
-  { href: '/finance/payouts', key: 'payouts' as const, icon: Wallet, exact: false },
-  { href: '/finance/petty-cash', key: 'pettyCash' as const, icon: Coins, exact: false },
-  { href: '/finance/archive', key: 'archive' as const, icon: Archive, exact: false },
-  { href: '/finance/download', key: 'download' as const, icon: Percent, exact: false },
-  { href: '/finance/new', key: 'newClaim' as const, icon: PlusCircle, exact: false },
+  { href: '/finance', key: 'claims' as const, icon: LayoutDashboard, exact: true, adminOnly: false },
+  { href: '/finance/overview', key: 'overview' as const, icon: BarChart3, exact: false, adminOnly: true },
+  { href: '/finance/payouts', key: 'payouts' as const, icon: Wallet, exact: false, adminOnly: true },
+  { href: '/finance/petty-cash', key: 'pettyCash' as const, icon: Coins, exact: false, adminOnly: false },
+  { href: '/finance/archive', key: 'archive' as const, icon: Archive, exact: false, adminOnly: false },
+  { href: '/finance/download', key: 'download' as const, icon: Percent, exact: false, adminOnly: true },
+  { href: '/finance/new', key: 'newClaim' as const, icon: PlusCircle, exact: false, adminOnly: false },
 ]
 
 const labels = {
@@ -21,10 +22,13 @@ const labels = {
   th: { claims: 'ใบเบิก', overview: 'รายงานตรวจสอบ', payouts: 'สรุปยอดจ่าย', pettyCash: 'เงินสดย่อย', archive: 'คลังเก็บ', download: 'หัก ณ ที่จ่าย', newClaim: 'สร้างใบเบิก' },
 }
 
+/** role มาจาก layout (บทบาทที่ยืนยันกับฐานข้อมูลแล้ว) */
 export default function FinanceNav({ role }: { role: string }) {
   const pathname = usePathname()
   const { locale, setLocale } = useLocale()
   const t = labels[locale] || labels.th
+  const isEn = locale === 'en'
+  const tabs = role === 'admin' ? tabMeta : tabMeta.filter(tab => !tab.adminOnly)
 
   const isActive = (href: string, exact: boolean) => {
     if (exact) return pathname === href
@@ -44,9 +48,12 @@ export default function FinanceNav({ role }: { role: string }) {
           </span>
         </div>
 
-        {/* Tabs — horizontal scroll on mobile */}
-        <nav className="flex gap-1 overflow-x-auto scrollbar-hide -mx-1 px-1">
-          {tabMeta.map(tab => {
+        {/* Tabs — แถวเดียว เลื่อนแนวนอนบนจอแคบ (min-w-0 ให้หดได้ ไม่ดันหน้าให้กว้างเกินจอ) · ชื่อแท็บแสดงทุกขนาดจอ */}
+        <nav
+          aria-label={isEn ? 'Finance sections' : 'เมนูใบเบิก'}
+          className="flex flex-1 min-w-0 flex-nowrap gap-1 overflow-x-auto -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {tabs.map(tab => {
             const Icon = tab.icon
             const active = isActive(tab.href, tab.exact)
             const label = t[tab.key]
@@ -54,6 +61,7 @@ export default function FinanceNav({ role }: { role: string }) {
               <Link
                 key={tab.href}
                 href={tab.href}
+                aria-current={active ? 'page' : undefined}
                 className={`
                   relative flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium
                   transition-all duration-200 whitespace-nowrap shrink-0
@@ -63,8 +71,8 @@ export default function FinanceNav({ role }: { role: string }) {
                   }
                 `}
               >
-                <Icon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 transition-colors ${active ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
-                <span className="hidden xs:inline sm:inline">{label}</span>
+                <Icon aria-hidden="true" className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 transition-colors ${active ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
+                <span>{label}</span>
                 {active && (
                   <span className="absolute -bottom-[9px] left-3 right-3 h-[2px] rounded-full bg-emerald-500 dark:bg-emerald-400 hidden sm:block" />
                 )}

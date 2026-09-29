@@ -4,52 +4,159 @@ import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
-import { cookies } from 'next/headers'
-import { requireAuth } from '@/lib/auth'
+import { thaiTodayIso, thaiYearMonth } from '@/lib/thai-date'
 import { claimFileCount, thaiMonth } from './claims-filter'
+import { claimIdFromCostNote, costItemNote, shouldHaveCostItem } from './claim-rules'
+import { getFinanceViewer } from './viewer'
 
-// Resolve the acting user with a DB-verified role. NEVER trust the raw
-// `session_role` cookie — it is unsigned and user-editable, so reading role
-// from it let a staff user set `session_role=admin` and approve/pay/delete.
-// Prefer the HMAC session_token (requireAuth); fall back to the legacy
-// session_user_id cookie only when no token exists, and even then read role
-// from the DB. ponytail: 8 lines of fallback, but the dual-cookie invariant
-// in CLAUDE.md requires it — drop it once legacy sessions are fully retired.
+type Db = ReturnType<typeof createServiceClient>
+
+// ตัวตนที่ยืนยันแล้ว (บทบาทอ่านจากฐานข้อมูล ไม่เชื่อ cookie session_role) มาจาก getFinanceViewer ที่เดียว
+// — ตรวจกับฐานข้อมูลครั้งเดียวต่อคำขอ · คงรูปคืนค่าเดิม { userId?, role? } ให้ผู้เรียกทุกจุดไม่ต้องแก้
 async function getSession(): Promise<{ userId?: string; role?: string }> {
-  const session = await requireAuth()
-  if (session) return { userId: session.userId, role: session.role }
-
-  const cookieStore = await cookies()
-  // A token present but rejected by requireAuth (bad sig / kicked session) is a
-  // hard no — don't let the legacy path re-grant it.
-  if (cookieStore.get('session_token')?.value) return {}
-  const legacyId = cookieStore.get('session_user_id')?.value
-  if (!legacyId) return {}
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('profiles')
-    .select('id, role, is_approved')
-    .eq('id', legacyId)
-    .single()
-  if (!data || !data.is_approved) return {}
-  return { userId: data.id, role: data.role || 'staff' }
+  const viewer = await getFinanceViewer()
+  return viewer ? { userId: viewer.userId, role: viewer.role } : {}
 }
 
 // ============================================================================
-// Generate claim number: EXP-YYYYMM-NNN
+// Generate claim number: EXP-YYYYMM-NNN (เดือนตามเวลาไทย)
 // ============================================================================
 
-async function generateClaimNumber(supabase: any) {
-  const now = new Date()
-  const prefix = `EXP-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
+/** เลขลำดับ = กลุ่มตัวเลขหลังเดือน ไม่รวมตัวต่อท้าย -2, -3 ของใบที่เคยซ้ำ (กติกาเดียวกับ next_claim_number) */
+const CLAIM_SEQ_RE = /^EXP-\d{6}-(\d+)/
 
-  const { count } = await supabase
+async function generateClaimNumber(supabase: Db): Promise<{ claimNumber: string } | { error: string }> {
+  // ตัวนับในฐานข้อมูล (supabase/migrations/20260930_claim_numbers.sql) — ไม่ซ้ำแม้สร้างพร้อมกัน
+  const { data, error } = await supabase.rpc('next_claim_number')
+  if (!error && typeof data === 'string' && data) return { claimNumber: data }
+  // PGRST202 = PostgREST ไม่รู้จักฟังก์ชัน · 42883 = Postgres ไม่มีฟังก์ชัน → ฐานข้อมูลยังไม่รัน migration ใช้ทางสำรอง
+  if (error?.code !== 'PGRST202' && error?.code !== '42883') {
+    console.error('next_claim_number:', error)
+    return { error: 'ออกเลขที่ใบเบิกไม่สำเร็จ กรุณาลองใหม่' }
+  }
+
+  // ทางสำรอง: เลขสูงสุดที่มีจริงของเดือน + 1 (ไม่ใช่จำนวนใบ — นับจำนวนแล้วซ้ำเมื่อมีใบถูกลบ)
+  // ponytail: อ่านครั้งเดียว — เดือนหนึ่งราว 230 ใบ ไม่ถึงเพดาน 1,000 แถวของ PostgREST · ทิ้งได้เมื่อรัน migration แล้ว
+  const prefix = `EXP-${thaiYearMonth()}-`
+  const { data: rows, error: readError } = await supabase
     .from('expense_claims')
-    .select('id', { count: 'exact', head: true })
+    .select('claim_number')
     .like('claim_number', `${prefix}%`)
+  if (readError) {
+    console.error('generateClaimNumber:', readError)
+    return { error: 'ออกเลขที่ใบเบิกไม่สำเร็จ กรุณาลองใหม่' }
+  }
+  let max = 0
+  for (const row of rows ?? []) {
+    const seq = Number(CLAIM_SEQ_RE.exec(String(row.claim_number))?.[1])
+    if (Number.isFinite(seq) && seq > max) max = seq
+  }
+  return { claimNumber: `${prefix}${String(max + 1).padStart(3, '0')}` }
+}
 
-  const seq = (count || 0) + 1
-  return `${prefix}-${String(seq).padStart(3, '0')}`
+/** 23505 = unique violation — เลขที่ใบเบิกชนกับใบที่มีอยู่ (unique index ของ migration 20260930) */
+const UNIQUE_VIOLATION = '23505'
+const MAX_NUMBER_ATTEMPTS = 3
+
+/**
+ * insert ใบเบิกใหม่ด้วยเลขที่ที่ออกให้ — เลขชนกัน (23505) ขอเลขใหม่แล้วลองอีก รวมไม่เกิน 3 ครั้ง
+ * (ตัวนับของฐานข้อมูลไม่ชน แต่ทางสำรองที่อ่านเลขสูงสุดชนได้เมื่อสร้างพร้อมกัน)
+ * คืน claim = สำเร็จ · message = ข้อความพร้อมแสดง · dbError = ฐานข้อมูลปฏิเสธด้วยเหตุอื่น (ผู้เรียกจัดข้อความเอง)
+ */
+async function insertNumberedClaim(supabase: Db, claimNumber: string, row: Record<string, unknown>) {
+  let current = claimNumber
+  for (let attempt = 1; ; attempt++) {
+    const { data, error } = await supabase
+      .from('expense_claims')
+      .insert({ ...row, claim_number: current })
+      .select('id')
+      .single()
+    if (!error) return { claim: { id: data.id as string, claimNumber: current } }
+    if (error.code !== UNIQUE_VIOLATION) return { dbError: error }
+    if (attempt >= MAX_NUMBER_ATTEMPTS) {
+      return { message: `ออกเลขที่ใบเบิกไม่สำเร็จ (เลขชนกัน ${MAX_NUMBER_ATTEMPTS} ครั้ง) — ยังไม่ได้บันทึก กรุณาลองใหม่` }
+    }
+    const next = await generateClaimNumber(supabase)
+    if ('error' in next) return { message: next.error }
+    current = next.claimNumber
+  }
+}
+
+// ============================================================================
+// เปลี่ยนสถานะแบบมีเงื่อนไข + รายการต้นทุนตามสถานะ
+// ============================================================================
+
+const STALE_STATUS_ERROR = 'ใบเบิกนี้ถูกเปลี่ยนสถานะไปแล้ว กรุณาโหลดหน้าใหม่'
+const COST_SYNC_ERROR = 'เปลี่ยนสถานะแล้ว แต่ปรับรายการต้นทุนไม่สำเร็จ — แจ้งผู้ดูแลระบบ'
+
+/** คอลัมน์ที่ syncClaimCostItem ใช้ — ขอคืนจาก update แบบมีเงื่อนไข (ได้ค่าหลังเปลี่ยนในคำสั่งเดียว) */
+const CLAIM_SYNC_SELECT = 'id, claim_number, status, job_event_id, category, title, amount, unit_price, quantity'
+
+type CostSyncClaim = {
+  id: string
+  claim_number: string
+  status: string
+  job_event_id: string | null
+  category: string
+  title: string
+  amount: number
+  unit_price: number
+  quantity: number
+}
+
+/**
+ * update ใบเบิกเฉพาะเมื่อสถานะยังเป็นค่าที่อ่านมา — กดซ้ำ / สองคนกดพร้อมกัน คนหลังไม่ได้แถวกลับ
+ * row = null (ไม่มี error) → สถานะถูกเปลี่ยนไปก่อนแล้ว: ผู้เรียกคืน STALE_STATUS_ERROR และไม่ทำงานข้างเคียงใดๆ
+ */
+async function updateClaimFromStatus(supabase: Db, id: string, fromStatus: string, values: Record<string, unknown>) {
+  const { data, error } = await supabase
+    .from('expense_claims')
+    .update(values)
+    .eq('id', id)
+    .eq('status', fromStatus)
+    .select(CLAIM_SYNC_SELECT)
+  return { row: ((data ?? [])[0] ?? null) as CostSyncClaim | null, error }
+}
+
+/** รายการต้นทุนของใบเบิก เก่า → ใหม่ — จับคู่ด้วย id ท้าย notes เท่านั้น (เลขที่ใบเบิกซ้ำได้/ถูกเปลี่ยนได้) */
+async function findClaimCostItems(supabase: Db, claimId: string): Promise<{ ids: string[]; error?: string }> {
+  const { data, error } = await supabase
+    .from('job_cost_items')
+    .select('id, notes, created_at')
+    .like('notes', `%::${claimId}`)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+  if (error) return { ids: [], error: error.message }
+  return { ids: (data ?? []).filter(r => claimIdFromCostNote(r.notes) === claimId).map(r => r.id as string) }
+}
+
+/** ทำให้รายการต้นทุนของใบเบิกตรงกับสถานะ: ต้องมี = มีหนึ่งรายการ, ไม่ต้องมี = ไม่มี */
+async function syncClaimCostItem(supabase: Db, claim: CostSyncClaim, actorId: string): Promise<{ error?: string }> {
+  const found = await findClaimCostItems(supabase, claim.id)
+  if (found.error) return { error: found.error }
+  const must = shouldHaveCostItem(claim)
+  // เก็บรายการเก่าสุดไว้หนึ่งรายการ (ถ้าต้องมี) ที่เหลือลบ — รายการซ้ำจากการกดอนุมัติซ้ำในอดีตหายไปด้วย
+  const extra = found.ids.slice(must ? 1 : 0)
+  if (extra.length > 0) {
+    const { error } = await supabase.from('job_cost_items').delete().in('id', extra)
+    if (error) return { error: error.message }
+  }
+  if (must && found.ids.length === 0) {
+    // ค่าเดียวกับที่ approveClaim เคยสร้าง
+    const { error } = await supabase.from('job_cost_items').insert({
+      job_event_id: claim.job_event_id,
+      category: claim.category,
+      description: `[เบิกเงิน] ${claim.title}`,
+      amount: claim.amount || (claim.unit_price * claim.quantity),
+      unit_price: claim.unit_price || claim.amount,
+      quantity: claim.quantity,
+      unit: 'รายการ',
+      recorded_by: actorId,
+      notes: costItemNote(claim),
+    })
+    if (error) return { error: error.message }
+  }
+  return {}
 }
 
 // ============================================================================
@@ -210,8 +317,14 @@ export async function getClaim(id: string) {
 // Upload receipt files to Supabase Storage
 // ============================================================================
 
-async function uploadReceiptFiles(supabase: any, files: File[], claimNumber: string): Promise<string[]> {
+/**
+ * อัปโหลดทุกไฟล์ของคำขอ — ไฟล์ไหนไม่สำเร็จ ลบไฟล์ที่ขึ้นไปแล้วของรอบนี้ทิ้ง แล้วคืน error บอกจำนวนและชื่อไฟล์
+ * (เดิมข้ามไฟล์ที่พังแบบเงียบ ใบเบิกได้ใบเสร็จน้อยกว่าที่เลือกโดยไม่มีใครรู้) · ผู้เรียกต้องไม่บันทึกอะไรเมื่อได้ error
+ */
+async function uploadReceiptFiles(supabase: Db, files: File[], claimNumber: string): Promise<{ urls: string[]; error?: undefined } | { urls?: undefined; error: string }> {
   const urls: string[] = []
+  const uploadedPaths: string[] = []
+  const failed: string[] = []
   for (let i = 0; i < files.length; i++) {
     const file = files[i]
     const ext = file.name.split('.').pop() || 'jpg'
@@ -225,10 +338,12 @@ async function uploadReceiptFiles(supabase: any, files: File[], claimNumber: str
         upsert: false,
       })
 
-    if (error) {
+    if (error || !data) {
       console.error('Upload receipt error:', error)
+      failed.push(file.name || `ไฟล์ที่ ${i + 1}`)
       continue
     }
+    uploadedPaths.push(data.path)
 
     const { data: publicUrl } = supabase.storage
       .from('receipts')
@@ -236,9 +351,18 @@ async function uploadReceiptFiles(supabase: any, files: File[], claimNumber: str
 
     if (publicUrl?.publicUrl) {
       urls.push(publicUrl.publicUrl)
+    } else {
+      failed.push(file.name || `ไฟล์ที่ ${i + 1}`)
     }
   }
-  return urls
+  if (failed.length > 0) {
+    if (uploadedPaths.length > 0) {
+      const { error } = await supabase.storage.from('receipts').remove(uploadedPaths)
+      if (error) console.error('Remove partial upload error:', error)
+    }
+    return { error: `อัพโหลดไฟล์ไม่สำเร็จ ${failed.length} จาก ${files.length} ไฟล์ (${failed.join(', ')}) — ยังไม่ได้บันทึก กรุณาลองใหม่` }
+  }
+  return { urls }
 }
 
 // ============================================================================
@@ -250,22 +374,37 @@ export async function createClaim(formData: FormData) {
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
-  const claimNumber = await generateClaimNumber(supabase)
 
+  // ตัวเลขจากฟอร์ม: ช่องว่าง = ค่าเริ่มต้น · ค่าอื่นแปลงตรงๆ (ข้อความ/ติดลบ/ศูนย์ ไม่ถูกกลืนเป็นค่าเริ่มต้นแบบเงียบ)
+  const formNumber = (key: string, fallback: number) => {
+    const raw = formData.get(key)
+    return raw === null || raw === '' ? fallback : Number(raw)
+  }
   const claim_type = formData.get('claim_type') as string
   const title = formData.get('title') as string
   const descriptionPart = (formData.get('description') as string || '').trim()
   const additionalDetails = (formData.get('additional_details') as string || '').trim()
   const description = [descriptionPart, additionalDetails].filter(Boolean).join(' — ') || null
   const category = formData.get('category') as string || 'other'
-  const amount = Number(formData.get('amount')) || 0
-  const unit_price = Number(formData.get('unit_price')) || 0
+  const amount = formNumber('amount', 0)
+  const unit_price = formNumber('unit_price', 0)
   const unit = formData.get('unit') as string || 'บาท'
-  const quantity = Number(formData.get('quantity')) || 1
-  const expense_date = formData.get('expense_date') as string || new Date().toISOString().split('T')[0]
+  const quantity = formNumber('quantity', 1)
+  const expense_date = formData.get('expense_date') as string || thaiTodayIso()
   const vat_mode = formData.get('vat_mode') as string || 'none'
   const include_vat = vat_mode !== 'none'
-  const withholding_tax_rate = Number(formData.get('withholding_tax_rate')) || 0
+  const withholding_tax_rate = formNumber('withholding_tax_rate', 0)
+
+  // server action เรียกตรงได้โดยไม่ผ่านฟอร์ม — ตรวจค่าก่อนเขียนอะไรทั้งนั้น (รวมการขอเลขที่ ซึ่งนับตัวนับในฐานข้อมูล)
+  if (!['event', 'other', 'advance', 'petty_cash'].includes(claim_type)) return { error: 'ประเภทใบเบิกไม่ถูกต้อง' }
+  if (![amount, unit_price, quantity].every(n => Number.isFinite(n) && n >= 0)) {
+    return { error: 'จำนวนเงิน ราคาต่อหน่วย และจำนวน ต้องเป็นตัวเลขที่ไม่ติดลบ' }
+  }
+  if (quantity < 1) return { error: 'จำนวนต้องมีอย่างน้อย 1' }
+  if (!['none', 'included', 'excluded'].includes(vat_mode)) return { error: 'รูปแบบ VAT ไม่ถูกต้อง' }
+  if (!Number.isFinite(withholding_tax_rate) || withholding_tax_rate < 0 || withholding_tax_rate > 100) {
+    return { error: 'อัตราหัก ณ ที่จ่ายต้องอยู่ระหว่าง 0–100%' }
+  }
   const notes = formData.get('notes') as string || null
   let job_event_id = formData.get('job_event_id') as string || null
   const bank_name = (formData.get('bank_name') as string || '').trim() || null
@@ -358,14 +497,19 @@ export async function createClaim(formData: FormData) {
     }
   }
 
-  // Upload receipt files first
+  // เลขที่ออกหลังตรวจข้อมูลครบแล้วเท่านั้น
+  const numbered = await generateClaimNumber(supabase)
+  if ('error' in numbered) return { error: numbered.error }
+
+  // Upload receipt files first — ไฟล์ไม่ครบ = ไม่สร้างใบเบิก
   let receipt_urls: string[] = []
   if (receiptFiles.length > 0) {
-    receipt_urls = await uploadReceiptFiles(supabase, receiptFiles, claimNumber)
+    const uploaded = await uploadReceiptFiles(supabase, receiptFiles, numbered.claimNumber)
+    if (uploaded.error !== undefined) return { error: uploaded.error }
+    receipt_urls = uploaded.urls
   }
 
   const insertData: Record<string, any> = {
-    claim_number: claimNumber,
     claim_type,
     job_event_id: claim_type === 'event' ? job_event_id : null,
     title,
@@ -398,17 +542,18 @@ export async function createClaim(formData: FormData) {
     insertData.pettycash_fund_id = null
   }
 
-  const { data, error } = await supabase
-    .from('expense_claims')
-    .insert(insertData)
-    .select('id')
-    .single()
-
-  if (error) {
+  const inserted = await insertNumberedClaim(supabase, numbered.claimNumber, insertData)
+  if (!inserted.claim) {
+    // ไม่ได้ใบเบิก = ไฟล์ที่อัปโหลดไว้ไม่มีเจ้าของ ลบทิ้ง
+    await removeStorageByUrls(supabase, 'receipts', receipt_urls)
+    if (inserted.message) return { error: inserted.message }
+    const error = inserted.dbError
     console.error('Create claim error:', error)
-    const detail = error.details || error.hint || ''
-    return { error: `เกิดข้อผิดพลาดในการสร้างใบเบิก: ${error.message}${detail ? ` (${detail})` : ''} [${error.code}]` }
+    const detail = error?.details || error?.hint || ''
+    return { error: `เกิดข้อผิดพลาดในการสร้างใบเบิก: ${error?.message}${detail ? ` (${detail})` : ''} [${error?.code}]` }
   }
+  const data = { id: inserted.claim.id }
+  const claimNumber = inserted.claim.claimNumber
 
   await logActivity('CREATE_EXPENSE_CLAIM', {
     claimId: data?.id,
@@ -466,6 +611,14 @@ export async function updateClaim(id: string, updateData: {
   // Admin แก้ไขได้ทุกสถานะ; เจ้าของแก้ไขได้เฉพาะ draft / pending เท่านั้น
   if (!isAdmin && !['draft', 'pending'].includes(claim.status)) return { error: 'แก้ไขได้เฉพาะใบเบิกที่ยังไม่ถูกดำเนินการ' }
   if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
+
+  // ประเภทใบเปลี่ยนได้เฉพาะ event ↔ other — ทดลองจ่าย/เงินสดย่อยมีช่องข้อมูลของตัวเอง เปลี่ยนแล้วยอดและวงเงินเพี้ยน
+  if ('claim_type' in updateData && updateData.claim_type !== claim.claim_type) {
+    const switchable = ['event', 'other']
+    if (!switchable.includes(claim.claim_type) || !switchable.includes(String(updateData.claim_type))) {
+      return { error: 'เปลี่ยนประเภทใบเบิกได้เฉพาะระหว่าง "เบิกงานอีเวนต์" กับ "ค่าอื่นๆ" เท่านั้น' }
+    }
+  }
 
   // A closed petty-cash month is frozen — its leftover snapshot (refund_amount)
   // must keep reconciling with the children.
@@ -529,7 +682,9 @@ export async function updateClaim(id: string, updateData: {
       if (entry instanceof File && entry.size > 0) files.push(entry)
     }
     if (files.length > 0) {
-      newReceiptUrls = await uploadReceiptFiles(supabase, files, claim.claim_number)
+      const uploaded = await uploadReceiptFiles(supabase, files, claim.claim_number)
+      if (uploaded.error !== undefined) return { error: uploaded.error }
+      newReceiptUrls = uploaded.urls
     }
   }
 
@@ -564,28 +719,38 @@ export async function updateClaim(id: string, updateData: {
     .update(finalData)
     .eq('id', id)
 
-  if (error) return { error: 'เกิดข้อผิดพลาดในการแก้ไข' }
+  if (error) {
+    await removeStorageByUrls(supabase, 'receipts', newReceiptUrls)
+    return { error: 'เกิดข้อผิดพลาดในการแก้ไข' }
+  }
 
   // Sync ต้นทุนในโมดูล Costs: ใบเบิกที่ผูก event จะ auto-สร้าง job_cost_item ไว้
   // (notes = "<claim_number>::<id>") เป็น snapshot ตอน approve ครั้งเดียว — เมื่อแก้ใบเบิก
-  // ทีหลัง (เช่น แก้ยอด) ต้อง sync ให้ตรง ไม่งั้น Costs จะคิดต้นทุนผิด. แตะเฉพาะ row
-  // ที่ auto-สร้าง (มี "::<id>" ใน notes) เท่านั้น — รายการที่กรอกมือไม่โดน.
+  // ทีหลัง (เช่น แก้ยอด / เปลี่ยนหรือเลิกผูกงาน) ต้อง sync ให้ตรง ไม่งั้น Costs จะคิดต้นทุนผิด.
+  // จับคู่ด้วย id ท้าย notes เท่านั้น — รายการที่กรอกมือไม่โดน.
+  let costSyncFailed = false
   {
     const eff = { ...claim, ...finalData }
+    // จำนวนรายการตามสถานะ + การผูกงาน (ผูกงานใหม่ตอนอนุมัติแล้ว = สร้าง · เลิกผูก = ลบ)
+    const synced = await syncClaimCostItem(supabase, eff, userId)
     const linkedEventId: string | null = eff.job_event_id ?? null
-    if (linkedEventId) {
-      const amount = Number(eff.amount) || (Number(eff.unit_price) || 0) * (Number(eff.quantity) || 0)
-      await supabase.from('job_cost_items').update({
-        job_event_id: linkedEventId,
-        category: eff.category,
-        description: `[เบิกเงิน] ${eff.title}`,
-        amount,
-        unit_price: Number(eff.unit_price) || amount,
-        quantity: eff.quantity,
-      }).like('notes', `%::${id}`)
-    } else {
-      // เลิกผูก event → ลบ cost item ที่ออโต้สร้างไว้
-      await supabase.from('job_cost_items').delete().like('notes', `%::${id}`)
+    if (synced.error) {
+      costSyncFailed = true
+    } else if (linkedEventId) {
+      const found = await findClaimCostItems(supabase, id)
+      if (found.error) costSyncFailed = true
+      else if (found.ids.length > 0) {
+        const amount = Number(eff.amount) || (Number(eff.unit_price) || 0) * (Number(eff.quantity) || 0)
+        const { error: itemError } = await supabase.from('job_cost_items').update({
+          job_event_id: linkedEventId,
+          category: eff.category,
+          description: `[เบิกเงิน] ${eff.title}`,
+          amount,
+          unit_price: Number(eff.unit_price) || amount,
+          quantity: eff.quantity,
+        }).in('id', found.ids)
+        if (itemError) costSyncFailed = true
+      }
     }
   }
 
@@ -613,6 +778,7 @@ export async function updateClaim(id: string, updateData: {
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
   revalidatePath('/costs')
+  if (costSyncFailed) return { error: 'บันทึกการแก้ไขแล้ว แต่ปรับรายการต้นทุนไม่สำเร็จ — แจ้งผู้ดูแลระบบ' }
   return { success: true }
 }
 
@@ -724,12 +890,11 @@ export async function submitClaim(id: string) {
     return { error: 'กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นใบเบิก' }
   }
 
-  const { error } = await supabase
-    .from('expense_claims')
-    .update({ status: 'pending', submitted_at: new Date().toISOString() })
-    .eq('id', id)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, { status: 'pending', submitted_at: new Date().toISOString() })
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+  if (!row) return { error: STALE_STATUS_ERROR }
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -748,6 +913,7 @@ export async function submitClaim(id: string) {
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -773,16 +939,15 @@ export async function cancelClaim(id: string) {
     return { error: 'ยกเลิกได้เฉพาะใบเบิกที่อยู่ในสถานะ "แบบร่าง" หรือ "รออนุมัติ" เท่านั้น' }
   }
 
-  const { error } = await supabase
-    .from('expense_claims')
-    .update({
-      status: 'cancelled',
-      cancelled_at: new Date().toISOString(),
-      cancelled_by: userId,
-    })
-    .eq('id', id)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, {
+    status: 'cancelled',
+    cancelled_at: new Date().toISOString(),
+    cancelled_by: userId,
+  })
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+  if (!row) return { error: STALE_STATUS_ERROR }
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -800,6 +965,7 @@ export async function cancelClaim(id: string) {
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -825,17 +991,15 @@ export async function approveClaim(id: string) {
 
   const now = new Date().toISOString()
 
-  // Update claim status: pending → approved
-  const { error } = await supabase
-    .from('expense_claims')
-    .update({
-      status: 'approved',
-      approved_by: userId,
-      approved_at: now,
-    })
-    .eq('id', id)
+  // Update claim status: pending → approved (เฉพาะเมื่อยังรออนุมัติ — กดซ้ำไม่อนุมัติซ้ำ)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, {
+    status: 'approved',
+    approved_by: userId,
+    approved_at: now,
+  })
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+  if (!row) return { error: STALE_STATUS_ERROR }
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -845,20 +1009,8 @@ export async function approveClaim(id: string) {
     note: 'อนุมัติใบเบิก',
   })
 
-  // If linked to event → job_event_id ชี้ไป job_cost_events.id ตรงๆ แล้ว
-  if (claim.job_event_id) {
-    await supabase.from('job_cost_items').insert({
-      job_event_id: claim.job_event_id,
-      category: claim.category,
-      description: `[เบิกเงิน] ${claim.title}`,
-      amount: claim.amount || (claim.unit_price * claim.quantity),
-      unit_price: claim.unit_price || claim.amount,
-      quantity: claim.quantity,
-      unit: 'รายการ',
-      recorded_by: userId,
-      notes: `${claim.claim_number}::${id}`,
-    })
-  }
+  // ผูกงาน → รายการต้นทุนหนึ่งรายการ (ผ่าน helper: มีอยู่แล้วไม่สร้างซ้ำ)
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await logActivity('APPROVE_EXPENSE_CLAIM', {
     claimId: id,
@@ -881,6 +1033,7 @@ export async function approveClaim(id: string) {
 
   revalidatePath('/finance')
   revalidatePath('/costs')
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -899,17 +1052,16 @@ export async function rejectClaim(id: string, reason: string) {
   if (!claim) return { error: 'ไม่พบใบเบิก' }
   if (claim.status !== 'pending') return { error: 'ปฏิเสธได้เฉพาะใบเบิกที่อยู่ในสถานะ "รออนุมัติ" เท่านั้น' }
 
-  const { error } = await supabase
-    .from('expense_claims')
-    .update({
-      status: 'rejected',
-      approved_by: userId,
-      approved_at: new Date().toISOString(),
-      reject_reason: reason || 'ไม่ระบุเหตุผล',
-    })
-    .eq('id', id)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, {
+    status: 'rejected',
+    approved_by: userId,
+    approved_at: new Date().toISOString(),
+    reject_reason: reason || 'ไม่ระบุเหตุผล',
+  })
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+  if (!row) return { error: STALE_STATUS_ERROR }
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -939,6 +1091,7 @@ export async function rejectClaim(id: string, reason: string) {
   }
 
   revalidatePath('/finance')
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -967,31 +1120,17 @@ export async function approveAsPendingMonthEnd(id: string) {
 
   const now = new Date().toISOString()
 
-  const { error } = await supabase
-    .from('expense_claims')
-    .update({
-      status: 'pending_month_end',
-      approved_by: userId,
-      approved_at: now,
-    })
-    .eq('id', id)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, {
+    status: 'pending_month_end',
+    approved_by: userId,
+    approved_at: now,
+  })
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+  if (!row) return { error: STALE_STATUS_ERROR }
 
-  // Create cost item if linked to event (same as approveClaim)
-  if (claim.job_event_id) {
-    await supabase.from('job_cost_items').insert({
-      job_event_id: claim.job_event_id,
-      category: claim.category,
-      description: `[เบิกเงิน] ${claim.title}`,
-      amount: claim.amount || (claim.unit_price * claim.quantity),
-      unit_price: claim.unit_price || claim.amount,
-      quantity: claim.quantity,
-      unit: 'รายการ',
-      recorded_by: userId,
-      notes: `${claim.claim_number}::${id}`,
-    })
-  }
+  // Create cost item if linked to event (same as approveClaim — helper ไม่สร้างซ้ำ)
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -1022,6 +1161,7 @@ export async function approveAsPendingMonthEnd(id: string) {
   revalidatePath('/finance')
   revalidatePath('/finance/payouts')
   revalidatePath('/costs')
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -1043,12 +1183,11 @@ export async function markAsPendingMonthEnd(id: string) {
     return { error: 'เลื่อนจ่ายสิ้นเดือนได้เฉพาะใบเบิกที่อนุมัติแล้วเท่านั้น' }
   }
 
-  const { error } = await supabase
-    .from('expense_claims')
-    .update({ status: 'pending_month_end' })
-    .eq('id', id)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, { status: 'pending_month_end' })
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+  if (!row) return { error: STALE_STATUS_ERROR }
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -1066,6 +1205,7 @@ export async function markAsPendingMonthEnd(id: string) {
 
   revalidatePath('/finance')
   revalidatePath('/finance/payouts')
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -1090,12 +1230,11 @@ export async function markAsWaitingTaxInvoice(id: string) {
     return { error: 'ขอใบกำกับภาษีได้เฉพาะใบเบิกที่อยู่ในสถานะ "อนุมัติแล้ว" เท่านั้น' }
   }
 
-  const { error } = await supabase
-    .from('expense_claims')
-    .update({ status: 'waiting_tax_invoice' })
-    .eq('id', id)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, { status: 'waiting_tax_invoice' })
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+  if (!row) return { error: STALE_STATUS_ERROR }
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -1124,6 +1263,7 @@ export async function markAsWaitingTaxInvoice(id: string) {
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -1179,10 +1319,9 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
   const filesToUpload = pairs.filter(p => p.file).map(p => p.file as File)
   let uploadedUrls: string[] = []
   if (filesToUpload.length > 0) {
-    uploadedUrls = await uploadReceiptFiles(supabase, filesToUpload, `${claim.claim_number}-tax-invoice`)
-    if (uploadedUrls.length !== filesToUpload.length) {
-      return { error: 'เกิดข้อผิดพลาดในการอัพโหลดไฟล์ใบกำกับภาษี' }
-    }
+    const uploaded = await uploadReceiptFiles(supabase, filesToUpload, `${claim.claim_number}-tax-invoice`)
+    if (uploaded.error !== undefined) return { error: uploaded.error }
+    uploadedUrls = uploaded.urls
   }
 
   // Re-map uploaded URLs back into pair order (entries without a file get '')
@@ -1204,12 +1343,14 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
     status: 'approved',
   }
 
-  const { error } = await supabase
-    .from('expense_claims')
-    .update(updatePayload)
-    .eq('id', id)
+  // สองคนแนบพร้อมกัน / สถานะถูกเปลี่ยนระหว่างอัปโหลด → คนหลังไม่เขียนทับ (ไฟล์ที่เพิ่งขึ้นไปลบทิ้ง)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, updatePayload)
 
-  if (error) return { error: 'เกิดข้อผิดพลาดในการบันทึก' }
+  if (error || !row) {
+    await removeStorageByUrls(supabase, 'receipts', uploadedUrls)
+    return { error: error ? 'เกิดข้อผิดพลาดในการบันทึก' : STALE_STATUS_ERROR }
+  }
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   // Log: how many invoice entries were added (file + number pairs)
   const filesAdded = newUrls.filter(u => u !== '').length
@@ -1258,6 +1399,7 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
   revalidatePath('/finance/payouts')
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true, autoTransitioned: true }
 }
 
@@ -1361,16 +1503,15 @@ export async function markAsPaid(id: string) {
     }
   }
 
-  const { error } = await supabase
-    .from('expense_claims')
-    .update({
-      status: 'paid',
-      paid_at: new Date().toISOString(),
-      paid_by: userId,
-    })
-    .eq('id', id)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, {
+    status: 'paid',
+    paid_at: new Date().toISOString(),
+    paid_by: userId,
+  })
 
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+  if (!row) return { error: STALE_STATUS_ERROR }
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -1389,6 +1530,7 @@ export async function markAsPaid(id: string) {
   revalidatePath('/finance')
   revalidatePath('/finance/payouts')
   revalidatePath('/finance/archive')
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -1405,7 +1547,7 @@ export async function deleteClaim(id: string) {
 
   const { data: claim } = await supabase
     .from('expense_claims')
-    .select('claim_number, claim_type, submitted_by, status, job_event_id, receipt_urls, tax_invoice_urls, actual_receipt_urls, pettycash_fund_id')
+    .select(`${CLAIM_SYNC_SELECT}, claim_type, submitted_by, receipt_urls, tax_invoice_urls, actual_receipt_urls, refund_slip_urls, pettycash_fund_id`)
     .eq('id', id)
     .single()
 
@@ -1435,24 +1577,23 @@ export async function deleteClaim(id: string) {
     }
   }
 
-  // ถ้าเคย approved → ลบ cost item ที่สร้างจากใบเบิกนี้ด้วย
-  // job_event_id ชี้ไป job_cost_events.id ตรงๆ
-  if (claim.status === 'approved' && claim.job_event_id) {
-    await supabase
-      .from('job_cost_items')
-      .delete()
-      .eq('job_event_id', claim.job_event_id)
-      .like('notes', `%${claim.claim_number}%`)
-  }
+  // ใบที่ถูกลบต้องไม่เหลือรายการต้นทุน ไม่ว่าสถานะไหน (เดิมลบเฉพาะสถานะ approved และจับคู่ด้วยเลขที่)
+  // ลบรายการก่อน: ถ้าลบใบไม่สำเร็จ ยังคืนรายการตามสถานะเดิมได้ — กลับลำดับแล้วรายการกำพร้าจะไม่มีใครเก็บ
+  const unlinked = await syncClaimCostItem(supabase, { ...claim, id, job_event_id: null }, userId)
+  if (unlinked.error) return { error: 'ลบรายการต้นทุนของใบเบิกไม่สำเร็จ — ยังไม่ได้ลบใบเบิก กรุณาลองใหม่' }
 
   const { error } = await supabase.from('expense_claims').delete().eq('id', id)
-  if (error) return { error: 'เกิดข้อผิดพลาดในการลบ' }
+  if (error) {
+    await syncClaimCostItem(supabase, { ...claim, id }, userId)
+    return { error: 'เกิดข้อผิดพลาดในการลบ' }
+  }
 
-  // ลบไฟล์ใบเสร็จออกจาก Storage ไม่ให้กลายเป็น orphan
+  // ลบไฟล์ใบเสร็จออกจาก Storage ไม่ให้กลายเป็น orphan (ใบเสร็จ · ใบกำกับภาษี · ใบเสร็จตอนเคลียร์ · สลิปคืนเงิน)
   await removeStorageByUrls(supabase, 'receipts', [
     ...(claim.receipt_urls || []),
     ...(claim.tax_invoice_urls || []),
     ...(claim.actual_receipt_urls || []),
+    ...(claim.refund_slip_urls || []),
   ])
 
   await logActivity('DELETE_EXPENSE_CLAIM', {
@@ -1585,12 +1726,12 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
     updatePayload.paid_by = null
   }
 
-  const { error } = await supabase
-    .from('expense_claims')
-    .update(updatePayload)
-    .eq('id', id)
+  const { row, error } = await updateClaimFromStatus(supabase, id, fromStatus, updatePayload)
 
   if (error) return { error: 'เกิดข้อผิดพลาดในการเปลี่ยนสถานะ' }
+  if (!row) return { error: STALE_STATUS_ERROR }
+  // ข้ามขั้นเข้า/ออกจากช่วง "อนุมัติแล้วขึ้นไป" ต้องสร้าง/ลบรายการต้นทุนด้วย (เดิมไม่ทำ — ต้นทุนเพี้ยน)
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -1625,6 +1766,7 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
   revalidatePath(`/finance/${id}`)
   revalidatePath('/finance/payouts')
   revalidatePath('/costs')
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -1633,6 +1775,10 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
 // ============================================================================
 
 export async function getJobEventsForSelect() {
+  // ไฟล์ 'use server' — ทุก export เป็น endpoint ที่ใครก็เรียกได้ ไม่ล็อกอิน = ไม่ได้รายชื่องาน
+  const { userId } = await getSession()
+  if (!userId) return []
+
   const supabase = createServiceClient()
 
   // 1. ดึงจาก job_cost_events (อีเวนต์ที่ import เข้าระบบ costs แล้ว)
@@ -1824,11 +1970,19 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
 
   let newActualReceiptUrls: string[] = []
   if (actualReceiptFiles.length > 0) {
-    newActualReceiptUrls = await uploadReceiptFiles(supabase, actualReceiptFiles, `${claim.claim_number}-actual`)
+    const uploaded = await uploadReceiptFiles(supabase, actualReceiptFiles, `${claim.claim_number}-actual`)
+    if (uploaded.error !== undefined) return { error: uploaded.error }
+    newActualReceiptUrls = uploaded.urls
   }
   let newRefundSlipUrls: string[] = []
   if (refundSlipFiles.length > 0) {
-    newRefundSlipUrls = await uploadReceiptFiles(supabase, refundSlipFiles, `${claim.claim_number}-refund`)
+    const uploaded = await uploadReceiptFiles(supabase, refundSlipFiles, `${claim.claim_number}-refund`)
+    if (uploaded.error !== undefined) {
+      // สลิปไม่ครบ = ไม่บันทึกทั้งคำขอ — ใบเสร็จที่ขึ้นไปก่อนหน้าในคำขอนี้ลบทิ้งด้วย
+      await removeStorageByUrls(supabase, 'receipts', newActualReceiptUrls)
+      return { error: uploaded.error }
+    }
+    newRefundSlipUrls = uploaded.urls
   }
 
   const existingActual: string[] = claim.actual_receipt_urls || []
@@ -1869,6 +2023,7 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
 
   if (error) {
     console.error('Settle advance error:', error)
+    await removeStorageByUrls(supabase, 'receipts', [...newActualReceiptUrls, ...newRefundSlipUrls])
     return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
   }
 
@@ -1975,19 +2130,18 @@ export async function confirmRefundReceived(id: string) {
   }
 
   const nowIso = new Date().toISOString()
-  const { error } = await supabase
-    .from('expense_claims')
-    .update({
-      status: 'refund_confirmed',
-      refund_confirmed_at: nowIso,
-      refund_confirmed_by: userId,
-    })
-    .eq('id', id)
+  const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, {
+    status: 'refund_confirmed',
+    refund_confirmed_at: nowIso,
+    refund_confirmed_by: userId,
+  })
 
   if (error) {
     console.error('Confirm refund error:', error)
     return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
   }
+  if (!row) return { error: STALE_STATUS_ERROR }
+  const synced = await syncClaimCostItem(supabase, row, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,
@@ -2020,6 +2174,7 @@ export async function confirmRefundReceived(id: string) {
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -2172,7 +2327,7 @@ export async function addPettyCashExpense(fundId: string, formData: FormData) {
   const title = (formData.get('title') as string || '').trim()
   const category = (formData.get('category') as string) || 'other'
   const amount = roundBaht(Number(formData.get('amount')) || 0)
-  const expense_date = (formData.get('expense_date') as string) || new Date().toISOString().split('T')[0]
+  const expense_date = (formData.get('expense_date') as string) || thaiTodayIso()
   const description = (formData.get('description') as string || '').trim() || null
   if (!title) return { error: 'กรุณากรอกรายการค่าใช้จ่าย' }
   if (amount <= 0) return { error: 'กรุณากรอกจำนวนเงินให้ถูกต้อง' }
@@ -2187,42 +2342,45 @@ export async function addPettyCashExpense(fundId: string, formData: FormData) {
     if (entry instanceof File && entry.size > 0) receiptFiles.push(entry)
   }
 
-  const claimNumber = await generateClaimNumber(supabase)
+  const numbered = await generateClaimNumber(supabase)
+  if ('error' in numbered) return { error: numbered.error }
   let receipt_urls: string[] = []
   if (receiptFiles.length > 0) {
-    receipt_urls = await uploadReceiptFiles(supabase, receiptFiles, claimNumber)
+    const uploaded = await uploadReceiptFiles(supabase, receiptFiles, numbered.claimNumber)
+    if (uploaded.error !== undefined) return { error: uploaded.error }
+    receipt_urls = uploaded.urls
   }
 
   const now = new Date().toISOString()
-  const { data, error } = await supabase
-    .from('expense_claims')
-    .insert({
-      claim_number: claimNumber,
-      claim_type: 'other',
-      pettycash_fund_id: fundId,
-      title,
-      description,
-      category,
-      amount,
-      unit_price: amount,
-      unit: 'บาท',
-      quantity: 1,
-      expense_date,
-      vat_mode: 'none',
-      include_vat: false,
-      withholding_tax_rate: 0,
-      receipt_urls,
-      funding_source: 'company',
-      submitted_by: userId,
-      submitted_at: now,
-      status: 'paid',
-      paid_at: now,
-      paid_by: userId,
-    })
-    .select('id')
-    .single()
+  const inserted = await insertNumberedClaim(supabase, numbered.claimNumber, {
+    claim_type: 'other',
+    pettycash_fund_id: fundId,
+    title,
+    description,
+    category,
+    amount,
+    unit_price: amount,
+    unit: 'บาท',
+    quantity: 1,
+    expense_date,
+    vat_mode: 'none',
+    include_vat: false,
+    withholding_tax_rate: 0,
+    receipt_urls,
+    funding_source: 'company',
+    submitted_by: userId,
+    submitted_at: now,
+    status: 'paid',
+    paid_at: now,
+    paid_by: userId,
+  })
 
-  if (error) return { error: `บันทึกรายจ่ายไม่สำเร็จ: ${error.message}` }
+  if (!inserted.claim) {
+    await removeStorageByUrls(supabase, 'receipts', receipt_urls)
+    return { error: inserted.message ?? `บันทึกรายจ่ายไม่สำเร็จ: ${inserted.dbError?.message}` }
+  }
+  const data = { id: inserted.claim.id }
+  const claimNumber = inserted.claim.claimNumber
 
   // Race guard: if the fund was closed while this insert was in flight, void
   // the row — money must not enter a closed month.
@@ -2235,6 +2393,7 @@ export async function addPettyCashExpense(fundId: string, formData: FormData) {
     .single()
   if (fundAfterInsert?.pettycash_closed_at) {
     await supabase.from('expense_claims').delete().eq('id', data.id)
+    await removeStorageByUrls(supabase, 'receipts', receipt_urls)
     return { error: 'วงเงินถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก กรุณาติดต่อ admin' }
   }
 
@@ -2293,39 +2452,37 @@ export async function createPettyCashTopup(fundId: string, formData: FormData) {
   const note = (formData.get('note') as string || '').trim()
   if (amount <= 0) return { error: 'กรุณากรอกจำนวนเงินให้ถูกต้อง' }
 
-  const claimNumber = await generateClaimNumber(supabase)
+  const numbered = await generateClaimNumber(supabase)
+  if ('error' in numbered) return { error: numbered.error }
   const now = new Date().toISOString()
 
-  const { data, error } = await supabase
-    .from('expense_claims')
-    .insert({
-      claim_number: claimNumber,
-      claim_type: 'petty_cash',
-      pettycash_fund_id: fundId,
-      title: `เติมเงินสดย่อย ${fund.claim_number}${note ? ` — ${note}` : ''}`,
-      description: note || null,
-      category: 'other',
-      amount,
-      unit_price: amount,
-      unit: 'บาท',
-      quantity: 1,
-      expense_date: now.split('T')[0],
-      vat_mode: 'none',
-      include_vat: false,
-      withholding_tax_rate: 0,
-      // Payout transfers to the fund custodian's account (copied from the fund).
-      bank_name: fund.bank_name,
-      bank_account_number: fund.bank_account_number,
-      account_holder_name: fund.account_holder_name,
-      funding_source: 'company',
-      submitted_by: userId,
-      submitted_at: now,
-      status: 'pending',
-    })
-    .select('id')
-    .single()
+  const inserted = await insertNumberedClaim(supabase, numbered.claimNumber, {
+    claim_type: 'petty_cash',
+    pettycash_fund_id: fundId,
+    title: `เติมเงินสดย่อย ${fund.claim_number}${note ? ` — ${note}` : ''}`,
+    description: note || null,
+    category: 'other',
+    amount,
+    unit_price: amount,
+    unit: 'บาท',
+    quantity: 1,
+    expense_date: thaiTodayIso(),
+    vat_mode: 'none',
+    include_vat: false,
+    withholding_tax_rate: 0,
+    // Payout transfers to the fund custodian's account (copied from the fund).
+    bank_name: fund.bank_name,
+    bank_account_number: fund.bank_account_number,
+    account_holder_name: fund.account_holder_name,
+    funding_source: 'company',
+    submitted_by: userId,
+    submitted_at: now,
+    status: 'pending',
+  })
 
-  if (error) return { error: `สร้างรายการเติมเงินไม่สำเร็จ: ${error.message}` }
+  if (!inserted.claim) return { error: inserted.message ?? `สร้างรายการเติมเงินไม่สำเร็จ: ${inserted.dbError?.message}` }
+  const data = { id: inserted.claim.id }
+  const claimNumber = inserted.claim.claimNumber
 
   // Race guard: void the request if the fund closed mid-flight.
   const { data: fundAfterInsert } = await supabase
@@ -2433,11 +2590,17 @@ export async function linkClaimToPettyCash(fundId: string, claimId: string) {
   }
 
   const now = new Date().toISOString()
-  const { error } = await supabase
+  // เฉพาะเมื่อสถานะยังเท่าที่อ่านมาและยังไม่อยู่ในวงเงินใด — สองคนดึงพร้อมกันไม่หักเงินกล่องซ้ำ
+  const { data: linkedRows, error } = await supabase
     .from('expense_claims')
     .update({ pettycash_fund_id: fundId, status: 'paid', paid_at: now, paid_by: userId })
     .eq('id', claimId)
+    .eq('status', claim.status)
+    .is('pettycash_fund_id', null)
+    .select(CLAIM_SYNC_SELECT)
   if (error) return { error: `ดึงใบเบิกไม่สำเร็จ: ${error.message}` }
+  const linked = (linkedRows ?? [])[0] as CostSyncClaim | undefined
+  if (!linked) return { error: STALE_STATUS_ERROR }
 
   // Race guard (same as addPettyCashExpense): fund closed mid-flight → revert.
   const { data: fundAfter } = await supabase
@@ -2450,8 +2613,11 @@ export async function linkClaimToPettyCash(fundId: string, claimId: string) {
       .from('expense_claims')
       .update({ pettycash_fund_id: null, status: claim.status, paid_at: claim.paid_at, paid_by: claim.paid_by })
       .eq('id', claimId)
+      .eq('status', 'paid')
+      .eq('pettycash_fund_id', fundId)
     return { error: 'วงเงินถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก' }
   }
+  const synced = await syncClaimCostItem(supabase, linked, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: claimId,
@@ -2478,6 +2644,7 @@ export async function linkClaimToPettyCash(fundId: string, claimId: string) {
   revalidatePath(`/finance/${fundId}`)
   revalidatePath(`/finance/${claimId}`)
   revalidatePath('/finance/petty-cash')
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true, warning }
 }
 
@@ -2511,11 +2678,17 @@ export async function unlinkClaimFromPettyCash(claimId: string) {
     return { error: 'รอบเดือนของวงเงินปิดแล้ว — เปิดรอบอีกครั้งก่อนจึงจะยกเลิกการดึงได้' }
   }
 
-  const { error } = await supabase
+  const { data: unlinkedRows, error } = await supabase
     .from('expense_claims')
     .update({ pettycash_fund_id: null, status: 'approved', paid_at: null, paid_by: null })
     .eq('id', claimId)
+    .eq('status', claim.status)
+    .eq('pettycash_fund_id', claim.pettycash_fund_id)
+    .select(CLAIM_SYNC_SELECT)
   if (error) return { error: 'เกิดข้อผิดพลาด' }
+  const unlinked = (unlinkedRows ?? [])[0] as CostSyncClaim | undefined
+  if (!unlinked) return { error: STALE_STATUS_ERROR }
+  const synced = await syncClaimCostItem(supabase, unlinked, userId)
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: claimId,
@@ -2534,6 +2707,7 @@ export async function unlinkClaimFromPettyCash(claimId: string) {
   revalidatePath(`/finance/${claim.pettycash_fund_id}`)
   revalidatePath(`/finance/${claimId}`)
   revalidatePath('/finance/petty-cash')
+  if (synced.error) return { error: COST_SYNC_ERROR }
   return { success: true }
 }
 
@@ -2593,6 +2767,8 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
     pettycash_closed_by: userId,
   }
   let note = 'ปิดวงเงินสดย่อยประจำเดือน — ไม่มีเงินคงเหลือ'
+  // สลิปที่อัปโหลดในคำขอนี้ — ปิดเดือนไม่สำเร็จต้องลบทิ้ง
+  let slipUrls: string[] = []
 
   if (leftover > 0) {
     const slipFiles: File[] = []
@@ -2605,15 +2781,15 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
     if (slipFiles.length === 0 && existingSlips.length === 0) {
       return { error: `ต้องแนบสลิปโอนเงินคืนบริษัท ฿${leftover.toLocaleString()} ก่อนปิดเดือน` }
     }
-    let slipUrls: string[] = []
     if (slipFiles.length > 0) {
-      slipUrls = await uploadReceiptFiles(supabase, slipFiles, `${fund.claim_number}-return`)
+      const uploaded = await uploadReceiptFiles(supabase, slipFiles, `${fund.claim_number}-return`)
       // Abort BEFORE committing the close if any slip failed to upload —
       // otherwise the month closes with a refund but no proof, and can never
       // be confirmed.
-      if (slipUrls.length !== slipFiles.length) {
-        return { error: 'อัพโหลดสลิปไม่สำเร็จครบทุกไฟล์ — ยังไม่ปิดเดือน กรุณาลองใหม่อีกครั้ง' }
+      if (uploaded.error !== undefined) {
+        return { error: `${uploaded.error} (ยังไม่ปิดเดือน)` }
       }
+      slipUrls = uploaded.urls
     }
     updatePayload.refund_amount = leftover
     if (slipUrls.length > 0) updatePayload.refund_slip_urls = [...existingSlips, ...slipUrls]
@@ -2621,20 +2797,23 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
   }
 
   // Conditional close — a concurrent close (double-click / second admin) must
-  // not silently re-run and overwrite the snapshot.
+  // not silently re-run and overwrite the snapshot. สถานะวงเงินต้องยังเป็นค่าที่อ่านมาด้วย (ถูกข้ามขั้นระหว่างนั้น = ไม่ปิด)
   const { data: closedRows, error } = await supabase
     .from('expense_claims')
     .update(updatePayload)
     .eq('id', id)
+    .eq('status', fund.status)
     .is('pettycash_closed_at', null)
     .select('id')
 
   if (error) {
     console.error('Close petty cash month error:', error)
+    await removeStorageByUrls(supabase, 'receipts', slipUrls)
     return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
   }
   if ((closedRows?.length ?? 0) === 0) {
-    return { error: 'ปิดเดือนไปแล้ว (มีการกดปิดซ้อนกัน)' }
+    await removeStorageByUrls(supabase, 'receipts', slipUrls)
+    return { error: STALE_STATUS_ERROR }
   }
 
   await supabase.from('expense_claim_logs').insert({
@@ -2709,7 +2888,8 @@ export async function reopenPettyCashMonth(id: string) {
     return { error: 'ยืนยันรับเงินคืนไปแล้ว ไม่สามารถเปิดรอบได้อีก' }
   }
 
-  const { error } = await supabase
+  // เฉพาะเมื่อยังปิดอยู่ด้วยเวลาเดิมและสถานะเดิม — กดเปิดซ้ำ / ยืนยันเงินคืนไปพร้อมกัน ไม่ล้างยอดที่บันทึกไว้
+  const { data: reopenedRows, error } = await supabase
     .from('expense_claims')
     .update({
       pettycash_closed_at: null,
@@ -2717,8 +2897,12 @@ export async function reopenPettyCashMonth(id: string) {
       refund_amount: null,
     })
     .eq('id', id)
+    .eq('status', fund.status)
+    .eq('pettycash_closed_at', fund.pettycash_closed_at)
+    .select('id')
 
   if (error) return { error: `เกิดข้อผิดพลาด: ${error.message}` }
+  if ((reopenedRows?.length ?? 0) === 0) return { error: STALE_STATUS_ERROR }
 
   await supabase.from('expense_claim_logs').insert({
     claim_id: id,

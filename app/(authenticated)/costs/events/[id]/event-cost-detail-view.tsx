@@ -641,8 +641,8 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
                                   const StatusBadge = badge
                                     ? <span className={`mt-1 inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.cls}`}>{badge.label}</span>
                                     : null
-                                  // Format: "EXP-202602-001::uuid"
-                                  const match = item.notes.match(/^(EXP-\d{6}-\d{3})::(.+)$/)
+                                  // Format: "EXP-202602-001::uuid" — เลขลำดับยาวกว่า 3 หลักได้ และใบที่เคยเลขซ้ำมีตัวต่อท้าย (-2, -3)
+                                  const match = item.notes.match(/^(EXP-\d{6}-\d+(?:-\d+)?)::(.+)$/)
                                   if (match) {
                                     return (
                                       <span className="flex flex-col gap-0.5">
@@ -658,7 +658,7 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
                                     )
                                   }
                                   // Fallback: old format "จากใบเบิก EXP-XXX"
-                                  const oldMatch = item.notes.match(/EXP-\d{6}-\d{3}/)
+                                  const oldMatch = item.notes.match(/EXP-\d{6}-\d+(?:-\d+)?/)
                                   if (oldMatch) {
                                     return (
                                       <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">

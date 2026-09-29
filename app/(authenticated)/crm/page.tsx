@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js'
 import CrmDashboard from './crm-dashboard'
 import { getLeads, getCrmSettings, getSystemUsers } from './actions'
 

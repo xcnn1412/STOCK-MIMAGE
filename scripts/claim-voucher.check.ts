@@ -3,6 +3,7 @@
 //       npx tsx scripts/claim-voucher.check.ts --write-golden  (เก็บผลอ้างอิงใหม่ — ทำครั้งเดียวจาก route ก่อนย้ายตรรกะ)
 //
 // ผลอ้างอิงเก็บจาก route "ก่อน" ย้ายตรรกะไป lib/claim-voucher.ts — หลังย้ายต้องได้ข้อมูลเท่าเดิมทุกกรณี (AC1)
+// เก็บใหม่หลังแก้ D2 ของ docs/specs/finance-refactor-plan.md (ยอดรวม = amount ไม่คูณจำนวนซ้ำ — กรณี (a) จำนวน 2 เปลี่ยน)
 // ชี้ไปไฟล์อื่นได้ด้วย VOUCHER_ROUTE_MODULE=<path จาก repo root> (เช่นสำเนา route ต้นฉบับ) เพื่อยืนยันว่าผลอ้างอิงมาจากตัวเดิมจริง
 // ไม่แตะฐานข้อมูล สตอเรจ หรือเครือข่ายจริง: แทน next/headers, @/lib/supabase-server, @/lib/logger, fetch และ renderToBuffer
 // ด้วยตัวจำลอง (เทคนิคเดียวกับ scripts/ticket-attachments.check.ts) · คนและบัญชีทั้งหมดสังเคราะห์
@@ -242,6 +243,7 @@ M._load = function (this: unknown, request: string, ...rest: unknown[]) {
 const { createSessionToken } = require('../lib/session') as typeof import('../lib/session')
 const { NextRequest } = require('next/server') as typeof import('next/server')
 const route = require(resolve(ROOT, ROUTE)) as { GET: (req: InstanceType<typeof NextRequest>) => Promise<Response> }
+const { buildVoucherData } = require('../lib/claim-voucher') as typeof import('../lib/claim-voucher')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 function loginAs(userId: string) {
@@ -309,6 +311,24 @@ async function main() {
   }
 
   const snapshot = { cases, responses, fetched: [...new Set(fetched)].sort() }
+
+  // ── D2: amount คือยอดรวมแล้ว (ราคาต่อหน่วย × จำนวน) — ห้ามคูณจำนวนซ้ำ (ตรวจทั้งตอนเก็บและตอนเทียบผลอ้างอิง) ──
+  // แถวแบบที่ createClaim เก็บ: unit_price 100 × quantity 3 = amount 300
+  const threeItems = {
+    id: uid(106), claim_number: 'EXP-202609-106', claim_type: 'other', status: 'approved',
+    unit_price: 100, quantity: 3, amount: 300, vat_mode: 'none', withholding_tax_rate: 0, title: 'ของใช้ 3 ชิ้น',
+  }
+  const multi = await buildVoucherData(fakeClient as unknown as Parameters<typeof buildVoucherData>[0], threeItems)
+  assert.equal(multi.totalAmount, 300, `ราคาต่อหน่วย 100 × 3 = amount 300 → ยอดรวมต้องเป็น 300 (ได้ ${multi.totalAmount})`)
+  assert.equal(multi.items[0].amount, 300, 'รายการในตารางต้องเป็น 300')
+  assert.equal(multi.netAmount, 300, 'ยอดสุทธิ (ไม่มีภาษี) ต้องเป็น 300')
+  const multiVat = await buildVoucherData(fakeClient as unknown as Parameters<typeof buildVoucherData>[0], {
+    id: uid(107), claim_number: 'EXP-202609-107', claim_type: 'event', status: 'approved',
+    amount: 2501, quantity: 2, vat_mode: 'excluded', withholding_tax_rate: 3, title: 'จำนวน 2 + VAT แยก',
+  })
+  assert.equal(multiVat.totalAmount, 2501, 'จำนวน 2 + VAT แยก: ยอดก่อนภาษีต้องเป็น amount')
+  assert.equal(Math.round((multiVat.netAmount ?? NaN) * 100) / 100, Math.round((2501 * 1.07 - 2501 * 0.03) * 100) / 100, 'ยอดสุทธิคิดจาก amount')
+  console.log('PASS  D2 ราคาต่อหน่วย 100 × จำนวน 3 (amount 300) → totalAmount 300 ไม่คูณจำนวนซ้ำ · VAT/หัก ณ ที่จ่ายคิดจาก amount')
 
   if (WRITE) {
     mkdirSync(dirname(GOLDEN), { recursive: true })

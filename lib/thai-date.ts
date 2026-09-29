@@ -38,3 +38,18 @@ export function formatThaiDate(dateStr: string | Date | null | undefined): strin
   if (!month) return ''
   return `${get('day')} ${month} ${get('year') + 543}`
 }
+
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000
+
+/**
+ * วันนี้ตามเวลาไทย เป็น 'YYYY-MM-DD' — ใช้เป็นค่าเริ่มต้นของช่องวันที่
+ * ห้ามใช้ new Date().toISOString().slice(0, 10): นั่นคือวันตามเวลาสากล ก่อน 07:00 จะได้วันเมื่อวาน
+ */
+export function thaiTodayIso(now: Date = new Date()): string {
+  return new Date(now.getTime() + BANGKOK_OFFSET_MS).toISOString().slice(0, 10)
+}
+
+/** เดือนนี้ตามเวลาไทย เป็น 'YYYYMM' — ใช้ในเลขที่เอกสาร */
+export function thaiYearMonth(now: Date = new Date()): string {
+  return thaiTodayIso(now).slice(0, 7).replace('-', '')
+}

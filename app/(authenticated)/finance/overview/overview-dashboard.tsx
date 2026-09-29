@@ -20,6 +20,8 @@ import {
 } from '../../costs/types'
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
+import { escapeHtml } from '@/lib/escape-html'
+import { thaiTodayIso } from '@/lib/thai-date'
 
 // ============================================================================
 // Helpers
@@ -277,8 +279,7 @@ export default function OverviewDashboard({
     ]
     XLSX.utils.book_append_sheet(wb, ws, 'รายงานตรวจสอบ')
 
-    const today = new Date().toISOString().slice(0, 10)
-    XLSX.writeFile(wb, `finance-audit-${today}.xlsx`)
+    XLSX.writeFile(wb, `finance-audit-${thaiTodayIso()}.xlsx`)
   }
 
   // ========== PDF Export (printable HTML window) ==========
@@ -307,19 +308,20 @@ export default function OverviewDashboard({
       @media print { body { padding: 0; } }
     </style></head><body>`
 
+    // ทุกค่าที่มาจากใบเบิก/ผู้ใช้ผ่าน escapeHtml — หัวข้อใบเบิกที่มี <script> ต้องเป็นแค่ตัวหนังสือในหน้าต่างพิมพ์ของแอดมิน
     html += `<h1>${isEn ? 'Expense Claim Audit Report' : 'รายงานตรวจสอบใบเบิกค่าใช้จ่าย'}</h1>`
-    html += `<h2>${isEn ? 'Period' : 'ช่วงวันที่'}: ${dateLabel} • ${isEn ? 'Generated' : 'ออกรายงาน'}: ${new Date().toLocaleString('th-TH')}</h2>`
+    html += `<h2>${isEn ? 'Period' : 'ช่วงวันที่'}: ${escapeHtml(dateLabel)} • ${isEn ? 'Generated' : 'ออกรายงาน'}: ${escapeHtml(new Date().toLocaleString('th-TH'))}</h2>`
 
     html += `<div class="summary">
-      <div>${isEn ? 'Total claims' : 'จำนวนใบเบิก'}<b>${summary.total}</b></div>
-      <div>${isEn ? 'Ready for accounting' : 'พร้อมส่งบัญชี'}<b class="ok">${summary.completeCount}</b></div>
-      <div>${isEn ? 'Incomplete' : 'ยังไม่ครบ'}<b class="bad">${summary.incompleteCount}</b></div>
-      <div>${isEn ? 'Total amount' : 'ยอดรวม'}<b>฿${fmtDec(summary.totalGross)}</b></div>
-      <div>${isEn ? 'Total before WHT' : 'ยอดก่อนหัก ณ ที่จ่ายรวม'}<b>฿${fmtDec(summary.totalNet + summary.totalWht)}</b></div>
-      <div>${isEn ? 'Total WHT' : 'หัก ณ ที่จ่ายรวม'}<b>฿${fmtDec(summary.totalWht)}</b></div>
-      <div>${isEn ? 'Net paid' : 'จ่ายจริงรวม'}<b>฿${fmtDec(summary.totalNet)}</b></div>
-      <div>${isEn ? 'Tax inv. pending' : 'รอใบกำกับภาษี'}<b>${summary.pendingTaxInvoice}</b></div>
-      <div>${isEn ? 'Refund pending' : 'รอคืนเงินบริษัท'}<b>${summary.pendingRefund}</b></div>
+      <div>${isEn ? 'Total claims' : 'จำนวนใบเบิก'}<b>${escapeHtml(summary.total)}</b></div>
+      <div>${isEn ? 'Ready for accounting' : 'พร้อมส่งบัญชี'}<b class="ok">${escapeHtml(summary.completeCount)}</b></div>
+      <div>${isEn ? 'Incomplete' : 'ยังไม่ครบ'}<b class="bad">${escapeHtml(summary.incompleteCount)}</b></div>
+      <div>${isEn ? 'Total amount' : 'ยอดรวม'}<b>฿${escapeHtml(fmtDec(summary.totalGross))}</b></div>
+      <div>${isEn ? 'Total before WHT' : 'ยอดก่อนหัก ณ ที่จ่ายรวม'}<b>฿${escapeHtml(fmtDec(summary.totalNet + summary.totalWht))}</b></div>
+      <div>${isEn ? 'Total WHT' : 'หัก ณ ที่จ่ายรวม'}<b>฿${escapeHtml(fmtDec(summary.totalWht))}</b></div>
+      <div>${isEn ? 'Net paid' : 'จ่ายจริงรวม'}<b>฿${escapeHtml(fmtDec(summary.totalNet))}</b></div>
+      <div>${isEn ? 'Tax inv. pending' : 'รอใบกำกับภาษี'}<b>${escapeHtml(summary.pendingTaxInvoice)}</b></div>
+      <div>${isEn ? 'Refund pending' : 'รอคืนเงินบริษัท'}<b>${escapeHtml(summary.pendingRefund)}</b></div>
     </div>`
 
     html += `<table>
@@ -341,10 +343,11 @@ export default function OverviewDashboard({
       const ck = getClaimChecklist(c)
       const tax = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
       const taxNumStr = (c.tax_invoice_numbers || []).join(' / ')
+      // ช่องนี้เป็น markup ที่ประกอบจากข้อความคงที่ + เลขที่ใบกำกับที่ escape แล้ว
       const taxInvoiceCell = !ck.taxInvoiceRequired
         ? '<span class="muted">—</span>'
         : ck.hasTaxInvoice
-          ? `<span class="ok">✓</span>${taxNumStr ? ` <span class="muted">${taxNumStr}</span>` : ''}`
+          ? '<span class="ok">✓</span>' + (taxNumStr ? ` <span class="muted">${escapeHtml(taxNumStr)}</span>` : '')
           : '<span class="bad">✗</span>'
       const refundCell = !ck.refundRequired
         ? '<span class="muted">—</span>'
@@ -355,17 +358,17 @@ export default function OverviewDashboard({
             : '<span class="bad">✗</span>'
       html += `<tr class="${ck.isComplete ? '' : 'row-incomplete'}">
         <td>${i + 1}</td>
-        <td>${c.claim_number || ''}</td>
-        <td>${c.expense_date || ''}</td>
-        <td>${c.submitter?.full_name || ''}</td>
-        <td>${(c.staff_roles || []).map(r => r.label).join(', ')}</td>
-        <td>${c.title || ''}</td>
+        <td>${escapeHtml(c.claim_number)}</td>
+        <td>${escapeHtml(c.expense_date)}</td>
+        <td>${escapeHtml(c.submitter?.full_name)}</td>
+        <td>${escapeHtml((c.staff_roles || []).map(r => r.label).join(', '))}</td>
+        <td>${escapeHtml(c.title)}</td>
         <td>${c.claim_type === 'event' ? 'อีเวนต์' : c.claim_type === 'advance' ? 'ทดลองจ่าย' : c.claim_type === 'petty_cash' ? 'เงินสดย่อย' : 'อื่นๆ'}</td>
-        <td>${getFundingSourceLabel(c.funding_source, 'th')}</td>
-        <td class="num">${fmtDec(c.amount || 0)}</td>
-        <td class="num">${fmtDec(tax.totalWithVat)}</td>
-        <td class="num">${tax.whtAmount > 0 ? fmtDec(tax.whtAmount) : '—'}</td>
-        <td>${getClaimStatusLabel(c.status, 'th')}</td>
+        <td>${escapeHtml(getFundingSourceLabel(c.funding_source, 'th'))}</td>
+        <td class="num">${escapeHtml(fmtDec(c.amount || 0))}</td>
+        <td class="num">${escapeHtml(fmtDec(tax.totalWithVat))}</td>
+        <td class="num">${escapeHtml(tax.whtAmount > 0 ? fmtDec(tax.whtAmount) : '—')}</td>
+        <td>${escapeHtml(getClaimStatusLabel(c.status, 'th'))}</td>
         <td>${ck.hasReceipt ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'}</td>
         <td>${taxInvoiceCell}</td>
         <td>${refundCell}</td>

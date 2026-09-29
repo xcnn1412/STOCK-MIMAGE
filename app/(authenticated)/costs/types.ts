@@ -184,6 +184,8 @@ export interface ExpenseClaim {
   filed_at?: string | null
   filed_by?: string | null
   filed_file_count?: number | null
+  /** เลขที่เดิมของใบที่ถูกเปลี่ยนเลขเพราะซ้ำ (คอลัมน์มาจาก 20260930_claim_numbers.sql — ว่าง = ไม่เคยเปลี่ยน) */
+  original_claim_number?: string | null
   // Joined
   submitter?: { id: string; full_name: string } | null
   approver?: { id: string; full_name: string } | null

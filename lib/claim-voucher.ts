@@ -29,6 +29,7 @@ export interface VoucherClaim {
   status?: string | null
   submitted_by?: string | null
   pettycash_fund_id?: string | null
+  /** ยอดรวมก่อนภาษี (ราคาต่อหน่วย × จำนวน คูณมาแล้ว) */
   amount?: number | string | null
   quantity?: number | string | null
   vat_mode?: string | null
@@ -109,10 +110,9 @@ async function slipImages(urls: unknown): Promise<string[]> {
 
 /** ข้อมูลหน้าใบเบิกทั้งหมด (รวม QR) — supabase ใช้อ่านรายการลูกของวงเงินสดย่อย */
 export async function buildVoucherData(supabase: ServiceClient, claim: VoucherClaim): Promise<PaymentVoucherData> {
-  // Calculate tax
-  const amount = Number(claim.amount) || 0
-  const quantity = Number(claim.quantity) || 1
-  const totalBeforeTax = amount * quantity
+  // Calculate tax — amount คือยอดรวมก่อนภาษีแล้ว (createClaim เก็บ unit_price × quantity)
+  // ห้ามคูณ quantity ซ้ำ: เคยทำให้ใบที่จำนวนมากกว่า 1 พิมพ์ยอดเกินหน้าจอ
+  const totalBeforeTax = Number(claim.amount) || 0
   const vatMode = claim.vat_mode || 'none'
   const whtRate = Number(claim.withholding_tax_rate) || 0
   const tax = calcTax(totalBeforeTax, vatMode, whtRate)
