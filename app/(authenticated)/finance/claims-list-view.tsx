@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useOptimistic, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins } from 'lucide-react'
@@ -12,10 +12,10 @@ import { useConfirm } from './use-confirm'
 import type { FinanceCategory } from './settings-actions'
 import { cancelClaim } from './actions'
 import {
-  EMPTY_FILTERS, categoryValues, filterClaims, filtersFromQuery, filtersToQuery, hasFilters,
-  monthOptions, rememberListQuery, sanitizeFilters, submitterOptions,
+  EMPTY_FILTERS, categoryValues, filterClaims, hasFilters, initialFilters, listQuery,
+  monthOptions, rememberListQuery, submitterOptions,
 } from './claims-filter'
-import type { ClaimFilters, MonthField } from './claims-filter'
+import type { ClaimFilters } from './claims-filter'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -68,13 +68,19 @@ export default function ClaimsListView({
   isAdmin = false,
   userId = '',
   paidClaims = [],
+  paidMonths = [],
+  paidMonth = '',
 }: {
   claims: ExpenseClaim[]
   error: string | null
   categories?: FinanceCategory[]
   isAdmin?: boolean
   userId?: string
+  /** ใบที่จ่ายแล้วของเดือน paidMonth เท่านั้น (server โหลดทีละเดือน) */
   paidClaims?: ExpenseClaim[]
+  paidMonths?: { month: string; count: number }[]
+  /** เดือนที่จ่ายที่ server โหลดมา 'YYYY-MM' ('' = ยังไม่มีการจ่าย) */
+  paidMonth?: string
 }) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
@@ -82,23 +88,33 @@ export default function ClaimsListView({
   const searchParams = useSearchParams()
   const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
   const [, startTransition] = useTransition()
+  const [loadingMonth, startMonthLoad] = useTransition()
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   // ตัวกรองชุดเดียวใช้ร่วมกันทุกแท็บ ค่าเริ่มต้นอ่านจาก URL — ปุ่ม "กลับ" ของหน้าใบเบิกพากลับมาพร้อมตัวกรองเดิม
   const [filters, setFilters] = useState<ClaimFilters>(() =>
-    sanitizeFilters(filtersFromQuery(searchParams), [...claims, ...paidClaims], isAdmin)
+    initialFilters(searchParams, [...claims, ...paidClaims], isAdmin)
   )
   const setFilter = (patch: Partial<ClaimFilters>) => setFilters(f => ({ ...f, ...patch }))
   const clearFilters = () => setFilters(f => ({ ...EMPTY_FILTERS, status: f.status }))
 
   // เขียนตัวกรองลง URL โดยไม่โหลดข้อมูลใหม่ (กรองฝั่ง browser ทั้งหมด) และจำไว้ให้ปุ่มกลับ
   useEffect(() => {
-    const query = filtersToQuery(filters)
+    const query = listQuery(filters, paidMonth)
     rememberListQuery(query)
     if (window.location.search === query) return
     try {
       window.history.replaceState(null, '', query || window.location.pathname)
     } catch { /* เบราว์เซอร์จำกัดความถี่การแก้ URL — ตัวกรองยังทำงานจาก state */ }
-  }, [filters])
+  }, [filters, paidMonth])
+
+  // เดือนของแท็บชำระแล้วอยู่ที่ server — เปลี่ยนเดือน = ขอหน้าใหม่ ตัวกรองอื่นใน state อยู่ครบ
+  // ระหว่างรอ กล่องเลือกแสดงเดือนที่เพิ่งเลือก (ไม่เด้งกลับเดือนเดิม) จนกว่าข้อมูลเดือนใหม่มาถึง
+  const [shownPaidMonth, showPaidMonth] = useOptimistic(paidMonth)
+  const choosePaidMonth = (month: string) =>
+    startMonthLoad(() => {
+      showPaidMonth(month)
+      router.replace('/finance' + listQuery({ ...filters, status: 'paid' }, month), { scroll: false })
+    })
 
   const handleCancel = async (claim: ExpenseClaim, e: React.MouseEvent) => {
     e.preventDefault()
@@ -142,19 +158,20 @@ export default function ClaimsListView({
 
   // shown = ชุดข้อมูลของแท็บที่เลือก, filtered = หลังผ่านตัวกรองละเอียด
   const showPaid = filters.status === 'paid'
-  const monthField: MonthField = showPaid ? 'paid_at' : 'expense_date'
   const shown = showPaid
     ? paidClaims
     : filters.status === 'all' ? activeClaims : activeClaims.filter(c => c.status === filters.status)
-  const filtered = filterClaims(shown, filters, monthField)
-  const filtering = hasFilters(filters)
+  // แท็บชำระแล้ว server ตัดตามเดือนที่จ่ายมาแล้ว — เดือนที่ใช้จ่ายใน state ไม่ใช้และไม่นับเป็นการกรอง
+  const applied = showPaid ? { ...filters, month: '' } : filters
+  const filtered = filterClaims(shown, applied, 'expense_date')
+  const filtering = hasFilters(applied)
   const filteredAmount = filtered.reduce((sum, c) => sum + (Number(c.amount) || 0), 0)
   const totalPaidNet = filtered.reduce((sum, c) => sum + netOf(c), 0)
   const totalAllPaidNet = paidClaims.reduce((sum, c) => sum + netOf(c), 0)
 
   const allClaims = [...claims, ...paidClaims]
   const people = submitterOptions(allClaims, shown)
-  const months = monthOptions(shown, monthField, filters.month)
+  const months = monthOptions(shown, 'expense_date', filters.month)
   const categoryOptions = categoryValues(allClaims)
     .map(value => ({ value, label: getCategoryLabel(value, locale, categories) }))
     .sort((a, b) => a.label.localeCompare(b.label, 'th'))
@@ -336,20 +353,34 @@ export default function ClaimsListView({
           </select>
         )}
 
-        {months.length > 0 && (
-          <select
-            value={filters.month}
-            onChange={e => setFilter({ month: e.target.value })}
-            aria-label={showPaid ? (isEn ? 'Month paid' : 'เดือนที่จ่าย') : (isEn ? 'Expense month' : 'เดือนที่ใช้จ่าย')}
-            className={selectCls(!!filters.month)}
-          >
-            <option value="">
-              {showPaid ? (isEn ? 'Any month paid' : 'ทุกเดือนที่จ่าย') : (isEn ? 'Any expense month' : 'ทุกเดือนที่ใช้จ่าย')}
-            </option>
-            {months.map(m => (
-              <option key={m} value={m}>{monthLabel(m)}</option>
-            ))}
-          </select>
+        {/* แท็บชำระแล้ว: เดือนที่จ่าย โหลดทีละเดือนจาก server จึงไม่มี "ทุกเดือน" · แท็บอื่น: เดือนที่ใช้จ่าย กรองใน browser */}
+        {showPaid ? (
+          paidMonths.length > 0 && (
+            <select
+              value={shownPaidMonth}
+              onChange={e => choosePaidMonth(e.target.value)}
+              aria-label={isEn ? 'Month paid' : 'เดือนที่จ่าย'}
+              className={selectCls(false)}
+            >
+              {paidMonths.map(m => (
+                <option key={m.month} value={m.month}>{monthLabel(m.month)} ({m.count})</option>
+              ))}
+            </select>
+          )
+        ) : (
+          months.length > 0 && (
+            <select
+              value={filters.month}
+              onChange={e => setFilter({ month: e.target.value })}
+              aria-label={isEn ? 'Expense month' : 'เดือนที่ใช้จ่าย'}
+              className={selectCls(!!filters.month)}
+            >
+              <option value="">{isEn ? 'Any expense month' : 'ทุกเดือนที่ใช้จ่าย'}</option>
+              {months.map(m => (
+                <option key={m} value={m}>{monthLabel(m)}</option>
+              ))}
+            </select>
+          )
         )}
 
         <button
@@ -494,7 +525,10 @@ export default function ClaimsListView({
 
       {/* ชำระเงินแล้ว — Admin only, shown when paid tab active */}
       {isAdmin && showPaid && (
-        <div className="space-y-4">
+        <div
+          className={`space-y-4 transition-opacity ${loadingMonth ? 'opacity-60' : ''}`}
+          aria-busy={loadingMonth}
+        >
           {/* Section Header */}
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center h-9 w-9 rounded-xl bg-teal-100 dark:bg-teal-900/30 shrink-0">
@@ -505,7 +539,7 @@ export default function ClaimsListView({
                 {isEn ? 'Paid Claims' : 'ชำระเงินแล้ว'}
               </h2>
               <p className="text-xs text-zinc-400">
-                {paidClaims.length} {isEn ? 'claims total' : 'รายการทั้งหมด'}
+                {paidClaims.length} {isEn ? 'claims this month' : 'รายการในเดือนนี้'}
               </p>
             </div>
           </div>
@@ -513,7 +547,7 @@ export default function ClaimsListView({
           {/* Summary Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div className="bg-teal-50 dark:bg-teal-950/20 rounded-xl border border-teal-100 dark:border-teal-900/30 p-3">
-              <p className="text-[10px] text-teal-600 dark:text-teal-400 font-medium mb-0.5">{isEn ? 'Grand Total' : 'ยอดรวมทั้งหมด'}</p>
+              <p className="text-[10px] text-teal-600 dark:text-teal-400 font-medium mb-0.5">{isEn ? 'Month total' : 'ยอดรวมเดือนนี้'}</p>
               <p className="text-lg font-bold text-teal-700 dark:text-teal-300">฿{fmtDec(totalAllPaidNet)}</p>
               <p className="text-[10px] text-zinc-400">{paidClaims.length} {isEn ? 'claims' : 'รายการ'}</p>
             </div>

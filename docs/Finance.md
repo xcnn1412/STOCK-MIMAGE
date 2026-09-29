@@ -82,7 +82,8 @@ draft ──► pending ──► approved ──► waiting_tax_invoice ──�
 
 | Function | Access | Description |
 |----------|--------|-------------|
-| `getClaims(filters?)` | Any authenticated user | Admin เห็นทุกใบ; Staff เห็นเฉพาะของตัวเอง |
+| `getClaims(filters?)` | Any authenticated user | Admin เห็นทุกใบ; Staff เห็นเฉพาะของตัวเอง · อ่านทีละหน้า 1,000 แถวจนครบ (PostgREST ตัดผลที่ 1,000 แถวโดยไม่แจ้ง) · `open: true` = ใบที่ยังไม่จบ · `paidMonth: 'YYYY-MM'` = จ่ายในเดือนนั้นตามเวลาไทย |
+| `getPaidMonths()` | Admin | เดือนที่มีการจ่ายพร้อมจำนวนใบ — ตัวเลือกเดือนของแท็บชำระเงินแล้ว (หน้า `/finance` โหลดใบที่จ่ายแล้วทีละเดือน) |
 | `getClaim(id)` | Any authenticated user | Admin เห็นทุกใบ; Staff เห็นเฉพาะของตัวเอง |
 | `getClaimLogs(claimId)` | Any authenticated user | ดึง audit log ของใบเบิก |
 

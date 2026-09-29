@@ -6,6 +6,7 @@ import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { cookies } from 'next/headers'
 import { requireAuth } from '@/lib/auth'
+import { thaiMonth } from './claims-filter'
 
 // Resolve the acting user with a DB-verified role. NEVER trust the raw
 // `session_role` cookie — it is unsigned and user-editable, so reading role
@@ -59,36 +60,120 @@ export async function getClaims(filters?: {
   status?: string | string[]
   claim_type?: string
   submitted_by?: string
+  /** เฉพาะใบที่ยังไม่จบ (ดูเงื่อนไขด้านล่าง) — เมื่อเป็น true จะไม่สนใจ status */
+  open?: boolean
+  /** 'YYYY-MM' ตามเวลาไทย — กรองตามวันที่จ่าย (paid_at) */
+  paidMonth?: string
 }) {
+  // เดือนมาจาก URL ได้ — ตรวจก่อนแตะฐานข้อมูล
+  const paidMonth = filters?.paidMonth
+  if (paidMonth !== undefined && (typeof paidMonth !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(paidMonth))) {
+    return { data: [], error: 'รูปแบบเดือนไม่ถูกต้อง' }
+  }
+
   const { userId, role } = await getSession()
   if (!userId) return { data: [], error: 'Unauthorized' }
 
   const supabase = createServiceClient()
 
-  let query = supabase
-    .from('expense_claims')
-    .select(`
-      *,
-      submitter:profiles!expense_claims_submitted_by_fkey(id, full_name),
-      approver:profiles!expense_claims_approved_by_fkey(id, full_name),
-      payer:profiles!expense_claims_paid_by_fkey(id, full_name),
-      job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name, source_event_id, linked_lead_id)
-    `)
-    .order('created_at', { ascending: false })
-
-  // 🔒 Non-admins can only see their own claims
-  if (role !== 'admin') query = query.eq('submitted_by', userId)
-
-  if (filters?.status) {
-    query = Array.isArray(filters.status)
-      ? query.in('status', filters.status)
-      : query.eq('status', filters.status)
+  // ขอบเดือนตามเวลาไทย (UTC+7 ไม่มีเวลาออมแสง) แปลงเป็น UTC — วันที่ 1 เที่ยงคืนไทย = 17:00 ของวันก่อนหน้า
+  let paidRange: [string, string] | null = null
+  if (paidMonth) {
+    const [y, m] = paidMonth.split('-').map(Number)
+    const thaiOffset = 7 * 60 * 60 * 1000
+    paidRange = [
+      new Date(Date.UTC(y, m - 1, 1) - thaiOffset).toISOString(),
+      new Date(Date.UTC(y, m, 1) - thaiOffset).toISOString(),
+    ]
   }
-  if (filters?.claim_type) query = query.eq('claim_type', filters.claim_type)
-  if (filters?.submitted_by) query = query.eq('submitted_by', filters.submitted_by)
 
-  const { data, error } = await query
-  return { data: data || [], error: error?.message }
+  const base = () => {
+    let query = supabase
+      .from('expense_claims')
+      .select(`
+        *,
+        submitter:profiles!expense_claims_submitted_by_fkey(id, full_name),
+        approver:profiles!expense_claims_approved_by_fkey(id, full_name),
+        payer:profiles!expense_claims_paid_by_fkey(id, full_name),
+        job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name, source_event_id, linked_lead_id)
+      `)
+      // created_at ซ้ำกันได้ — ต่อด้วย id ให้ลำดับคงที่ข้ามหน้า (ไม่งั้นแถวซ้ำ/หายระหว่างหน้า)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+
+    // 🔒 Non-admins can only see their own claims
+    if (role !== 'admin') query = query.eq('submitted_by', userId)
+    if (filters?.claim_type) query = query.eq('claim_type', filters.claim_type)
+    if (filters?.submitted_by) query = query.eq('submitted_by', filters.submitted_by)
+    if (paidRange) query = query.gte('paid_at', paidRange[0]).lt('paid_at', paidRange[1])
+    return query
+  }
+
+  // PostgREST ตัดผลที่ 1,000 แถวต่อคำขอโดยไม่แจ้ง — อ่านทีละหน้าจนได้หน้าที่ไม่เต็ม · พังหน้าไหนคืน error ทั้งชุด ไม่คืนรายการครึ่งๆ
+  const readAll = async (build: () => ReturnType<typeof base>) => {
+    const rows = []
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await build().range(from, from + 999)
+      if (error) return { rows: [], error: error.message }
+      rows.push(...(data || []))
+      if (!data || data.length < 1000) return { rows, error: undefined }
+    }
+  }
+
+  if (!filters?.open) {
+    const { rows, error } = await readAll(() => {
+      const query = base()
+      if (!filters?.status) return query
+      return Array.isArray(filters.status) ? query.in('status', filters.status) : query.eq('status', filters.status)
+    })
+    return { data: error ? [] : rows, error }
+  }
+
+  // ใบที่ยังไม่จบ = สถานะยังไม่ปิด + เงินทดลองจ่ายที่จ่ายแล้วแต่ยังไม่เคลียร์ + วงเงินสดย่อยที่ยังไม่ปิดเดือน
+  // อ่านแยกสามชุดแทน .or() (สตริง .or() ประกอบผิดง่ายและตรวจยาก) แล้วรวมด้วย id กันซ้ำ
+  const parts = await Promise.all([
+    readAll(() => base().not('status', 'in', '(paid,cancelled,refund_confirmed)')),
+    readAll(() => base().eq('claim_type', 'advance').eq('status', 'paid').is('actual_spent_amount', null)),
+    readAll(() => base().eq('claim_type', 'petty_cash').is('pettycash_fund_id', null).eq('status', 'paid').is('pettycash_closed_at', null)),
+  ])
+  const failed = parts.find(p => p.error)
+  if (failed) return { data: [], error: failed.error }
+  const byId = new Map(parts.flatMap(p => p.rows).map(row => [row.id, row]))
+  const data = [...byId.values()].sort((a, b) =>
+    a.created_at === b.created_at ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.created_at < b.created_at ? 1 : -1
+  )
+  return { data, error: undefined }
+}
+
+/** เดือนที่มีการจ่าย (ตามเวลาไทย) พร้อมจำนวนใบ ใหม่ → เก่า — ตัวเลือกเดือนของแท็บชำระแล้ว (แอดมินเท่านั้น) */
+export async function getPaidMonths(): Promise<{ month: string; count: number }[]> {
+  // ไฟล์ 'use server' — ทุก export เป็น endpoint ที่ใครก็เรียกได้ ต้องตรวจตัวตนเอง
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return []
+
+  const supabase = createServiceClient()
+  const counts = new Map<string, number>()
+  // อ่านเฉพาะ paid_at ทีละหน้า (เพดาน 1,000 แถวของ PostgREST)
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('expense_claims')
+      .select('paid_at')
+      .in('status', ['paid', 'refund_confirmed'])
+      .order('id', { ascending: true })
+      .range(from, from + 999)
+    if (error) {
+      console.error('getPaidMonths:', error.message)
+      return []
+    }
+    for (const row of data || []) {
+      const month = thaiMonth(row.paid_at)
+      if (month) counts.set(month, (counts.get(month) || 0) + 1)
+    }
+    if (!data || data.length < 1000) break
+  }
+  return [...counts]
+    .map(([month, count]) => ({ month, count }))
+    .sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : 0))
 }
 
 export async function getClaim(id: string) {
