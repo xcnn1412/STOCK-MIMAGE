@@ -74,7 +74,7 @@ export default function BankSelect({ value, onChange, name, placeholder = 'เ�
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none text-left transition-colors hover:border-zinc-400"
+        className="w-full flex items-center justify-between px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none text-left transition-colors hover:border-zinc-400"
       >
         <span className={selectedBank ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-400'}>
           {selectedBank ? (
@@ -110,7 +110,7 @@ export default function BankSelect({ value, onChange, name, placeholder = 'เ�
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="ค้นหาธนาคาร..."
-              className="w-full text-sm bg-transparent outline-none placeholder:text-zinc-400"
+              className="w-full text-base sm:text-sm bg-transparent outline-none placeholder:text-zinc-400"
             />
             {search && (
               <button type="button" onClick={() => setSearch('')} className="text-zinc-400 hover:text-zinc-600">

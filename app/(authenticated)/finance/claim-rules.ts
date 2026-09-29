@@ -51,3 +51,51 @@ export function canSeeWorkPanel(input: {
   // วงเงินสดย่อยใช้งานได้เฉพาะตอน "จ่ายแล้ว" (สถานะจบ) — ผู้ถือวงเงินที่ไม่ใช่แอดมินต้องเห็นแผงนี้ด้วย
   return !TERMINAL_STATUSES.includes(input.status) || input.isAdmin || input.canSettleAdvance || input.canManagePettyFund
 }
+
+/** ประเภทที่ยื่นได้โดยยังไม่แนบใบเสร็จ — ทดลองจ่ายและเงินสดย่อยแนบทีหลังตอนเคลียร์ */
+export const RECEIPT_OPTIONAL_TYPES: readonly string[] = ['advance', 'petty_cash']
+
+/** ต้องแนบใบเสร็จอย่างน้อย 1 ไฟล์ก่อนยื่นหรือไม่ */
+export function receiptRequiredForSubmit(claimType: string): boolean {
+  return !RECEIPT_OPTIONAL_TYPES.includes(claimType)
+}
+
+/** ลำดับสถานะตามขั้นตอนงาน — ค่ามากกว่า = ไปข้างหน้า · สถานะขั้นเดียวกันมีค่าเท่ากัน (ย้ายระหว่างกันไม่นับว่าถอย) */
+export const STATUS_RANK: Readonly<Record<string, number>> = {
+  draft: 0,
+  pending: 1,
+  approved: 2,
+  awaiting_payment: 3,
+  waiting_tax_invoice: 3,
+  pending_month_end: 3,
+  paid: 4,
+  refund_confirmed: 5,
+}
+
+/** ใบที่ปิดแล้ว (อยู่นอกลำดับขั้นตอน) */
+const CLOSED_STATUSES: readonly string[] = ['rejected', 'cancelled']
+/** เงินออกไปแล้ว */
+const MONEY_MOVED_STATUSES: readonly string[] = ['paid', 'refund_confirmed']
+
+/**
+ * ถอยสถานะหรือไม่ — เปิดใบที่ปิดแล้วกลับมา = ถอย · ปิดใบ (ปฏิเสธ/ยกเลิก) = ไม่ถอย
+ * สถานะที่ไม่รู้จัก = ถือว่าถอย (ให้ต้องมีเหตุผลไว้ก่อน)
+ */
+export function isBackwardTransition(from: string, to: string): boolean {
+  if (CLOSED_STATUSES.includes(from)) return true
+  if (CLOSED_STATUSES.includes(to)) return false
+  const a = STATUS_RANK[from]
+  const b = STATUS_RANK[to]
+  if (a === undefined || b === undefined) return true
+  return b < a
+}
+
+/** แอดมินเปลี่ยนสถานะเอง ต้องพิมพ์เหตุผลหรือไม่ — ถอยสถานะ หรือปฏิเสธ/ยกเลิกใบที่เงินออกไปแล้ว */
+export function reasonRequiredForTransition(from: string, to: string): boolean {
+  return isBackwardTransition(from, to) || (CLOSED_STATUSES.includes(to) && MONEY_MOVED_STATUSES.includes(from))
+}
+
+/** แก้ข้อมูลใบเบิก ต้องพิมพ์เหตุผลหรือไม่ — เฉพาะใบที่เงินออกไปแล้ว */
+export function reasonRequiredForEdit(status: string): boolean {
+  return MONEY_MOVED_STATUSES.includes(status)
+}

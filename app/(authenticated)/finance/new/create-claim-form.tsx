@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef, useActionState } from 'react'
+import { useState, useEffect, useRef, useActionState, startTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Banknote, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon, Wallet, Info, Building2, User as UserIcon, Coins } from 'lucide-react'
+import { toast } from 'sonner'
+import { Send, Save, Camera, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon, Wallet, Info, Building2, User as UserIcon, Coins } from 'lucide-react'
 import { createClaim, getOpenPettyCashFund } from '../actions'
+import { receiptRequiredForSubmit } from '../claim-rules'
 import { CLAIM_TYPES, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '../settings-actions'
 import { getStaffBankDetails } from '../settings-actions'
@@ -27,6 +29,8 @@ interface Props {
   staffProfiles: StaffProfile[]
   /** แอดมิน = staffProfiles มีบัญชีธนาคารของทุกคนแล้ว · คนอื่น = มีแค่ของตัวเอง ต้องขอของคนอื่นทีละคน */
   isAdmin: boolean
+  /** ผู้ใช้ที่กำลังกรอก — ใช้เติมบัญชีธนาคารของตัวเองจากโปรไฟล์ */
+  viewerId: string
 }
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
@@ -50,7 +54,7 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-export default function CreateClaimForm({ jobEvents, categories, categoryItems, staffProfiles, isAdmin }: Props) {
+export default function CreateClaimForm({ jobEvents, categories, categoryItems, staffProfiles, isAdmin, viewerId }: Props) {
   const router = useRouter()
   const { locale } = useLocale()
   const isEn = locale === 'en'
@@ -80,17 +84,23 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const [receiptFiles, setReceiptFiles] = useState<File[]>([])
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [unitPrice, setUnitPrice] = useState('0')
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const [unitPrice, setUnitPrice] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [vatMode, setVatMode] = useState('none')
   const initialCategory = categories[0]?.value || 'staff'
   const [whtRate, setWhtRate] = useState(
     initialCategory === 'staff' || initialCategory === 'service_fee' ? '3' : '0'
   )
-  const [selectedBank, setSelectedBank] = useState('')
+  // เริ่มด้วยบัญชีธนาคารของผู้กรอกเอง (จากโปรไฟล์) — แก้ได้ หรือเลือกพนักงานคนอื่นแทน
+  const ownProfile = staffProfiles.find(s => s.id === viewerId)
+  const [selectedBank, setSelectedBank] = useState(ownProfile?.bank_name || '')
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
-  const [bankAccountNumber, setBankAccountNumber] = useState('')
-  const [accountHolderName, setAccountHolderName] = useState('')
+  const [bankAccountNumber, setBankAccountNumber] = useState(ownProfile?.bank_account_number || '')
+  const [accountHolderName, setAccountHolderName] = useState(ownProfile?.account_holder_name || '')
+  const [ownBankPrefilled, setOwnBankPrefilled] = useState(
+    !!(ownProfile && (ownProfile.bank_name || ownProfile.bank_account_number || ownProfile.account_holder_name))
+  )
   const [staffAutoFilled, setStaffAutoFilled] = useState(false)
   // บัญชีธนาคารของเพื่อนร่วมงาน (ไม่ใช่แอดมิน) ขอจาก server ตอนเลือกชื่อ
   const [bankLoading, setBankLoading] = useState(false)
@@ -104,21 +114,45 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const whtRateNum = Number(whtRate) || 0
   const tax = calcTax(computedAmount, vatMode, whtRateNum)
 
+  // ปุ่มที่กดล่าสุด — ขึ้น "กำลัง…" เฉพาะปุ่มนั้น
+  const [pressedIntent, setPressedIntent] = useState<'submit' | 'draft'>('submit')
+
   const [state, formAction, isPending] = useActionState(
-    async (_prev: any, formData: FormData) => {
+    async (_prev: { error?: string; success?: boolean } | null, formData: FormData) => {
+      // ยื่นเลย: ประเภทที่ต้องมีใบเสร็จ ต้องแนบก่อน (บันทึกแบบร่างได้โดยไม่แนบ)
+      if (formData.get('intent') === 'submit' && receiptRequiredForSubmit(claimType) && receiptFiles.length === 0) {
+        const error = isEn
+          ? 'Attach at least 1 receipt before submitting — or press “Save Draft”'
+          : 'ต้องแนบใบเสร็จอย่างน้อย 1 ไฟล์ก่อนยื่น — หรือกด “บันทึกแบบร่าง”'
+        toast.error(error)
+        return { error }
+      }
       // Append receipt files to FormData
       for (const file of receiptFiles) {
         formData.append('receipt_files', file)
       }
       const result = await createClaim(formData)
       if (result.success) {
+        toast.success(result.status === 'pending'
+          ? (isEn ? `Claim ${result.claimNumber} submitted — awaiting approval` : `ยื่นใบเบิก ${result.claimNumber} แล้ว — รออนุมัติ`)
+          : (isEn ? `Draft ${result.claimNumber} saved — not submitted yet` : `บันทึกแบบร่าง ${result.claimNumber} แล้ว — ยังไม่ได้ยื่น`))
         router.push('/finance')
         return { success: true }
       }
+      if (result.error) toast.error(result.error)
       return result
     },
     null
   )
+
+  // ส่งฟอร์มเองแทน <form action>: React 19 ล้างช่องที่พิมพ์ไว้ทุกครั้งที่ action ของฟอร์มจบ แม้จบด้วยข้อผิดพลาด
+  // (เช่น กดยื่นโดยยังไม่แนบใบเสร็จ) — ผู้ใช้ต้องไม่เสียสิ่งที่กรอก · submitter = ปุ่มที่กด (ค่า intent)
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null
+    const formData = new FormData(e.currentTarget, submitter)
+    startTransition(() => formAction(formData))
+  }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -154,6 +188,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
     const request = ++bankRequest.current // คำขอที่ค้างอยู่ (ถ้ามี) ถูกทิ้ง
     setBankLoading(false)
     setBankError(null)
+    setOwnBankPrefilled(false)
     if (!staff) {
       setSelectedStaffId(null)
       setSelectedBank('')
@@ -217,13 +252,12 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
         </p>
       </div>
 
-      <form action={formAction} className="space-y-6">
-        {state && 'error' in state && state.error && (
-          <div className="p-4 bg-red-50 dark:bg-red-950/20 rounded-xl text-red-600 text-sm">
-            {state.error}
-          </div>
-        )}
-
+      <form
+        onSubmit={handleSubmit}
+        // Enter ในช่องกรอกไม่ส่งฟอร์ม — ปุ่มแรกคือ "ยื่นใบเบิก" กด Enter/Go ระหว่างกรอกจะยื่นทันทีโดยไม่ตั้งใจ
+        onKeyDown={e => { if (e.key === 'Enter' && e.target instanceof HTMLInputElement) e.preventDefault() }}
+        className="space-y-6"
+      >
         {/* Claim Type Selector */}
         <div>
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
@@ -410,7 +444,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             name="title"
             required
             placeholder={isEn ? 'e.g. Travel expenses' : 'เช่น ค่าเดินทางไปงาน, ค่าอุปกรณ์'}
-            className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+            className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
           />
         </div>
 
@@ -442,7 +476,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 setBankError(null)
               }
             }}
-            className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+            className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
           >
             {categories.map(cat => (
               <option key={cat.value} value={cat.value}>
@@ -456,7 +490,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
         {(() => {
           const activeCat = categories.find(c => c.value === selectedCategory)
           const source = activeCat?.detail_source || 'none'
-          const selectCls = "w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+          const selectCls = "w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
           return (
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
@@ -520,12 +554,13 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             <input
               type="number"
               name="unit_price"
-              min="0"
+              required
+              min="0.01"
               step="0.01"
               value={unitPrice}
               onChange={e => setUnitPrice(e.target.value)}
               placeholder="0"
-              className={`w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono outline-none ${isPettyCash ? 'focus:border-orange-500 focus:ring-1 focus:ring-orange-500' : 'focus:border-amber-500 focus:ring-1 focus:ring-amber-500'}`}
+              className={`w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm font-mono outline-none ${isPettyCash ? 'focus:border-orange-500 focus:ring-1 focus:ring-orange-500' : 'focus:border-amber-500 focus:ring-1 focus:ring-amber-500'}`}
             />
             <input type="hidden" name="unit" value="บาท" />
             <input type="hidden" name="quantity" value="1" />
@@ -544,12 +579,13 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               <input
                 type="number"
                 name="unit_price"
-                min="0"
+                required
+                min="0.01"
                 step="0.01"
                 value={unitPrice}
                 onChange={e => setUnitPrice(e.target.value)}
                 placeholder="0"
-                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
               />
             </div>
             <div>
@@ -561,7 +597,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 name="unit"
                 defaultValue="บาท"
                 placeholder="บาท"
-                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
               />
             </div>
             <div>
@@ -575,7 +611,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 value={quantity}
                 onChange={e => setQuantity(e.target.value)}
                 placeholder="1"
-                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
               />
             </div>
           </div>
@@ -614,7 +650,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               type="date"
               name="expense_date"
               defaultValue={thaiTodayIso()}
-              className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
             />
           </div>
         </div>
@@ -657,7 +693,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                   name="pettycash_month"
                   value={pettyMonth}
                   onChange={e => setPettyMonth(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
+                  className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
                 />
               </div>
             )}
@@ -724,7 +760,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             <select
               value={whtRate}
               onChange={e => setWhtRate(e.target.value)}
-              className="w-28 h-8 px-2 text-sm border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 outline-none"
+              className="w-28 h-8 px-2 text-base sm:text-sm border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 outline-none"
             >
               <option value="0">{isEn ? 'None' : 'ไม่หัก'}</option>
               <option value="1">1%</option>
@@ -805,6 +841,12 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               </span>
             )}
           </div>
+          {ownBankPrefilled && (
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 flex items-center gap-1">
+              <UserCheck className="h-3 w-3 shrink-0" />
+              {isEn ? 'Your account from your profile — you can edit it' : 'บัญชีของคุณจากโปรไฟล์ — แก้ได้'}
+            </p>
+          )}
 
           {/* กำลังดึงบัญชีของพนักงานที่เลือก / ดึงไม่สำเร็จ */}
           {bankLoading && (
@@ -840,7 +882,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               </label>
               <BankSelect
                 value={selectedBank}
-                onChange={v => { setSelectedBank(v); if (staffAutoFilled) setStaffAutoFilled(false) }}
+                onChange={v => { setSelectedBank(v); if (staffAutoFilled) setStaffAutoFilled(false); setOwnBankPrefilled(false) }}
                 name="bank_name"
                 placeholder={bankLoading ? (isEn ? 'Loading…' : 'กำลังโหลด…') : (isEn ? 'Select bank' : 'เลือกธนาคาร')}
                 className={bankLoading ? 'opacity-60 pointer-events-none' : ''}
@@ -855,9 +897,9 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 name="bank_account_number"
                 value={bankAccountNumber}
                 readOnly={bankLoading}
-                onChange={e => { setBankAccountNumber(e.target.value); if (staffAutoFilled) setStaffAutoFilled(false) }}
+                onChange={e => { setBankAccountNumber(e.target.value); if (staffAutoFilled) setStaffAutoFilled(false); setOwnBankPrefilled(false) }}
                 placeholder={bankLoading ? (isEn ? 'Loading…' : 'กำลังโหลด…') : (isEn ? 'e.g. 123-4-56789-0' : 'เช่น 123-4-56789-0')}
-                className={`w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none ${bankLoading ? 'opacity-60 animate-pulse' : ''}`}
+                className={`w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none ${bankLoading ? 'opacity-60 animate-pulse' : ''}`}
               />
             </div>
             <div>
@@ -869,9 +911,9 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 name="account_holder_name"
                 value={accountHolderName}
                 readOnly={bankLoading}
-                onChange={e => { setAccountHolderName(e.target.value); if (staffAutoFilled) setStaffAutoFilled(false) }}
+                onChange={e => { setAccountHolderName(e.target.value); if (staffAutoFilled) setStaffAutoFilled(false); setOwnBankPrefilled(false) }}
                 placeholder={bankLoading ? (isEn ? 'Loading…' : 'กำลังโหลด…') : (isEn ? 'Account holder name' : 'ชื่อ-นามสกุล')}
-                className={`w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none ${bankLoading ? 'opacity-60 animate-pulse' : ''}`}
+                className={`w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none ${bankLoading ? 'opacity-60 animate-pulse' : ''}`}
               />
             </div>
           </div>
@@ -886,7 +928,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             name="additional_details"
             rows={2}
             placeholder={isEn ? 'Additional notes or details (optional)' : 'รายละเอียดเพิ่มเติม (ไม่บังคับ)'}
-            className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none resize-none"
+            className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none resize-none"
           />
         </div>
 
@@ -894,9 +936,13 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
         <div>
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
             <Upload className="inline h-3.5 w-3.5 mr-1" />
-            {isAdvance
-              ? (isEn ? 'Attach Reference Documents (Optional)' : 'แนบเอกสารอ้างอิง (ไม่บังคับ)')
-              : (isEn ? 'Attach Receipts (Optional)' : 'แนบใบเสร็จ (ไม่บังคับ)')}
+            {receiptRequiredForSubmit(claimType)
+              ? (isEn
+                  ? 'Attach Receipts * — required when you press “Submit Claim” (you can save a draft without them)'
+                  : 'แนบใบเสร็จ * — จำเป็นเมื่อกด “ยื่นใบเบิก” (บันทึกแบบร่างได้โดยยังไม่แนบ)')
+              : isAdvance
+                ? (isEn ? 'Attach Reference Documents (Optional)' : 'แนบเอกสารอ้างอิง (ไม่บังคับ)')
+                : (isEn ? 'Attach Documents (Optional)' : 'แนบเอกสาร (ไม่บังคับ)')}
           </label>
           {isAdvance && (
             <p className="text-[11px] text-amber-600 dark:text-amber-400 mb-1.5">
@@ -905,10 +951,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 : 'ใบเสร็จจริงสามารถอัพโหลดย้อนหลังได้ หลังจากใช้จ่ายเสร็จแล้ว'}
             </p>
           )}
-          <div
-            className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-4 text-center hover:border-emerald-400 transition-colors cursor-pointer"
-            onClick={() => fileInputRef.current?.click()}
-          >
+          <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-4 text-center transition-colors">
             <input
               ref={fileInputRef}
               type="file"
@@ -917,11 +960,35 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               onChange={handleFileChange}
               className="hidden"
             />
+            {/* มือถือ: เปิดกล้องหลังถ่ายใบเสร็จได้ทันที */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileChange}
+              className="hidden"
+            />
             <Upload className="h-8 w-8 mx-auto text-zinc-400 mb-2" />
-            <p className="text-sm text-zinc-500">
-              {isEn ? 'Click to upload receipt images' : 'คลิกเพื่ออัปโหลดรูปใบเสร็จ'}
-            </p>
-            <p className="text-xs text-zinc-400 mt-1">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 hover:border-emerald-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-sm font-medium text-zinc-700 dark:text-zinc-300 transition-colors"
+              >
+                <Upload className="h-4 w-4" />
+                {isEn ? 'Choose Files' : 'เลือกไฟล์'}
+              </button>
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 hover:border-emerald-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-sm font-medium text-zinc-700 dark:text-zinc-300 transition-colors"
+              >
+                <Camera className="h-4 w-4" />
+                {isEn ? 'Take Photo' : 'ถ่ายรูป'}
+              </button>
+            </div>
+            <p className="text-xs text-zinc-400 mt-2">
               {isEn ? 'Supports images and PDF' : 'รองรับไฟล์รูปภาพและ PDF'}
             </p>
           </div>
@@ -966,7 +1033,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                     <button
                       type="button"
                       onClick={() => removeFile(i)}
-                      className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label={isEn ? 'Remove file' : 'ลบรูป'}
+                      className="absolute top-1 right-1 h-8 w-8 flex items-center justify-center bg-black/50 hover:bg-red-500 text-white rounded-full transition-colors"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -986,30 +1054,52 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             type="text"
             name="notes"
             placeholder={isEn ? 'Additional notes (optional)' : 'หมายเหตุเพิ่มเติม (ไม่บังคับ)'}
-            className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+            className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
           />
         </div>
 
-        {/* Submit */}
-        <div className="flex items-center gap-3 pt-4 border-t border-zinc-200 dark:border-zinc-800">
-          <button
-            type="submit"
-            disabled={isPending || (isPettyCash && !!openFund)}
-            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            <Banknote className="h-4 w-4" />
-            {isPending
-              ? (isEn ? 'Submitting...' : 'กำลังส่ง...')
-              : (isEn ? 'Submit Claim' : 'ส่งใบเบิก')
-            }
-          </button>
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="px-6 py-3 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 text-sm font-medium"
-          >
-            {isEn ? 'Cancel' : 'ยกเลิก'}
-          </button>
+        {/* Submit — ยื่นเลย หรือบันทึกแบบร่างไว้ก่อน */}
+        <div className="space-y-3 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+          {state && 'error' in state && state.error && (
+            <div role="alert" className="p-4 bg-red-50 dark:bg-red-950/20 rounded-xl text-red-600 text-sm">
+              {state.error}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              name="intent" value="submit"
+              onClick={() => setPressedIntent('submit')}
+              disabled={isPending || (isPettyCash && !!openFund)}
+              className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <Send className="h-4 w-4" />
+              {isPending && pressedIntent === 'submit'
+                ? (isEn ? 'Submitting…' : 'กำลังยื่น…')
+                : (isEn ? 'Submit Claim' : 'ยื่นใบเบิก')
+              }
+            </button>
+            <button
+              type="submit"
+              name="intent" value="draft"
+              onClick={() => setPressedIntent('draft')}
+              disabled={isPending || (isPettyCash && !!openFund)}
+              className="flex items-center justify-center gap-2 px-5 py-3 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 text-zinc-700 dark:text-zinc-300 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Save className="h-4 w-4" />
+              {isPending && pressedIntent === 'draft'
+                ? (isEn ? 'Saving…' : 'กำลังบันทึก…')
+                : (isEn ? 'Save Draft' : 'บันทึกแบบร่าง')
+              }
+            </button>
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="px-5 py-3 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 text-sm font-medium"
+            >
+              {isEn ? 'Cancel' : 'ยกเลิก'}
+            </button>
+          </div>
         </div>
       </form>
     </div>

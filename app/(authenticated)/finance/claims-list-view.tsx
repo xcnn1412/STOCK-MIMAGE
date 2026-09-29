@@ -3,6 +3,7 @@
 import { useEffect, useOptimistic, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins, FileStack, FolderCheck, CheckSquare } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
@@ -176,8 +177,12 @@ export default function ClaimsListView({
     setCancellingId(claim.id)
     const res = await cancelClaim(claim.id)
     setCancellingId(null)
-    if (res.error) alert(res.error)
-    else startTransition(() => router.refresh())
+    if (res.error) {
+      toast.error(res.error)
+      return
+    }
+    toast.success(isEn ? `Claim ${claim.claim_number} cancelled` : `ยกเลิกใบเบิก ${claim.claim_number} แล้ว`)
+    startTransition(() => router.refresh())
   }
 
   // ปุ่มในแถว (แถวเป็น <Link>) — กันไม่ให้คลิกทะลุไปเปิดหน้าใบเบิก

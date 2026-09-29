@@ -2,11 +2,13 @@
 
 import { useState, useTransition, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import {
   Plus, Trash2, Edit3, Save, X, Eye, EyeOff,
   Tag, Users, ChevronDown, ChevronRight, GripVertical
 } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
+import { useConfirm } from '../use-confirm'
 import {
   createCategory, updateCategory, deleteCategory, reorderCategories,
   createCategoryItem, updateCategoryItem, deleteCategoryItem,
@@ -35,6 +37,9 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
   const { locale } = useLocale()
   const [isPending, startTransition] = useTransition()
   const isEn = locale === 'en'
+  const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
+  const savedMsg = isEn ? 'Saved' : 'บันทึกแล้ว'
+  const deletedMsg = isEn ? 'Deleted' : 'ลบแล้ว'
 
   // -- Category state --
   const [showAddCat, setShowAddCat] = useState(false)
@@ -100,11 +105,13 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
 
     // Save to DB
     startTransition(async () => {
-      await reorderCategories(cats.map(c => c.id))
+      const r = await reorderCategories(cats.map(c => c.id))
       setLocalCategories(null)
+      if (r.error) { setError(r.error); toast.error(r.error) }
+      else toast.success(savedMsg)
       router.refresh()
     })
-  }, [localCategories, categories, startTransition, router])
+  }, [localCategories, categories, startTransition, router, savedMsg])
 
   const inputCls = "w-full px-2.5 py-1.5 text-sm border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 outline-none focus:ring-2 focus:ring-emerald-500/30"
 
@@ -118,8 +125,9 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
         label: newLabel, label_th: newLabelTh,
         color: newColor, detail_source: newDetailSource,
       })
-      if (result.error) setError(result.error)
+      if (result.error) { setError(result.error); toast.error(result.error) }
       else {
+        toast.success(savedMsg)
         setShowAddCat(false); setNewValue(''); setNewLabel(''); setNewLabelTh('')
         setNewColor('#6b7280'); setNewDetailSource('none'); router.refresh()
       }
@@ -134,16 +142,31 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
     startTransition(async () => {
       const r = await updateCategory(editCatId, { label: editLabel, label_th: editLabelTh, color: editColor, detail_source: editDetailSource })
       // บันทึกไม่ผ่าน = ค้างโหมดแก้ไขไว้พร้อมข้อความ (เดิมปิดโหมดแก้ไขเงียบๆ เหมือนบันทึกสำเร็จ)
-      if (r.error) { setError(r.error); return }
+      if (r.error) { setError(r.error); toast.error(r.error); return }
+      toast.success(savedMsg)
       setEditCatId(null); router.refresh()
     })
   }
   const handleToggleCat = (cat: FinanceCategory) => {
-    startTransition(async () => { const r = await updateCategory(cat.id, { is_active: !cat.is_active }); if (r.error) setError(r.error); else router.refresh() })
+    startTransition(async () => {
+      const r = await updateCategory(cat.id, { is_active: !cat.is_active })
+      if (r.error) { setError(r.error); toast.error(r.error) }
+      else { toast.success(savedMsg); router.refresh() }
+    })
   }
-  const handleDeleteCat = (cat: FinanceCategory) => {
-    if (!confirm(isEn ? `Delete "${cat.label}"?` : `ลบหมวด "${cat.label_th}"?`)) return
-    startTransition(async () => { const r = await deleteCategory(cat.id); if (r.error) setError(r.error); else router.refresh() })
+  const handleDeleteCat = async (cat: FinanceCategory) => {
+    const ok = await askConfirm({
+      title: isEn ? `Delete "${cat.label}"?` : `ลบหมวด "${cat.label_th}"?`,
+      variant: 'destructive',
+      confirmLabel: isEn ? 'Delete' : 'ลบ',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
+    startTransition(async () => {
+      const r = await deleteCategory(cat.id)
+      if (r.error) { setError(r.error); toast.error(r.error) }
+      else { toast.success(deletedMsg); router.refresh() }
+    })
   }
 
   // ==================== Category Item Handlers ====================
@@ -151,8 +174,8 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
     if (!newItemLabel) return
     startTransition(async () => {
       const r = await createCategoryItem({ category_id: catId, label: newItemLabel })
-      if (r.error) setError(r.error)
-      else { setAddingItemToCat(null); setNewItemLabel(''); router.refresh() }
+      if (r.error) { setError(r.error); toast.error(r.error) }
+      else { toast.success(savedMsg); setAddingItemToCat(null); setNewItemLabel(''); router.refresh() }
     })
   }
   const handleEditItem = (item: CategoryItem) => {
@@ -162,13 +185,24 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
     if (!editItemId) return
     startTransition(async () => {
       const r = await updateCategoryItem(editItemId, { label: editItemLabel })
-      if (r.error) { setError(r.error); return }
+      if (r.error) { setError(r.error); toast.error(r.error); return }
+      toast.success(savedMsg)
       setEditItemId(null); router.refresh()
     })
   }
-  const handleDeleteItem = (item: CategoryItem) => {
-    if (!confirm(isEn ? `Delete "${item.label}"?` : `ลบ "${item.label}"?`)) return
-    startTransition(async () => { const r = await deleteCategoryItem(item.id); if (r.error) setError(r.error); else router.refresh() })
+  const handleDeleteItem = async (item: CategoryItem) => {
+    const ok = await askConfirm({
+      title: isEn ? `Delete "${item.label}"?` : `ลบ "${item.label}"?`,
+      variant: 'destructive',
+      confirmLabel: isEn ? 'Delete' : 'ลบ',
+      cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
+    })
+    if (!ok) return
+    startTransition(async () => {
+      const r = await deleteCategoryItem(item.id)
+      if (r.error) { setError(r.error); toast.error(r.error) }
+      else { toast.success(deletedMsg); router.refresh() }
+    })
   }
 
   // Mode badge
@@ -180,6 +214,7 @@ export default function FinanceSettingsView({ categories, categoryItems, staffPr
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
+      {confirmDialog}
       <div>
         <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
           {isEn ? 'Finance Settings' : 'ตั้งค่าการเงิน'}
