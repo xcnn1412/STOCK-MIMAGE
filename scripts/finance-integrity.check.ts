@@ -438,13 +438,13 @@ const sideEffects = () => ({
  * action อ่านใบเบิกได้สถานะหนึ่ง แล้วคนอื่นเปลี่ยนสถานะก่อนที่ action จะเขียน (race)
  * ต้องได้ STALE · ใบเบิกต้องเป็นค่าที่คนอื่นเปลี่ยนไว้ทุกช่อง · ไม่มี log / activity / แจ้งเตือน / รายการต้นทุน / ไฟล์ / revalidate
  */
-async function expectStale(label: string, claimId: string, concurrent: Row, run: () => Promise<{ error?: string }>) {
+async function expectStale(label: string, claimId: string, concurrent: Row, run: () => Promise<{ error?: string }>, message = STALE) {
   let afterRace: Row | null = null
   race = { id: claimId, mutate: r => { Object.assign(r, concurrent); afterRace = clone(r) } }
   const before = sideEffects()
   const res = await quietly(run)
   assert.equal(race, null, `${label}: action ต้องอ่านใบเบิกก่อนเขียน`)
-  assert.equal(res.error, STALE, `${label}: ต้องได้ "${STALE}" (ได้ ${JSON.stringify(res)})`)
+  assert.equal(res.error, message, `${label}: ต้องได้ "${message}" (ได้ ${JSON.stringify(res)})`)
   assert.deepEqual(claimRow(claimId), afterRace, `${label}: ใบเบิกต้องไม่ถูกเขียนทับ`)
   assert.deepEqual(sideEffects(), before, `${label}: ต้องไม่มีผลข้างเคียงใดๆ`)
 }
@@ -895,6 +895,94 @@ async function main() {
     assert.deepEqual(storageKeys().filter(k => k.includes('-return')), [])
   }
   pass('D4 อัปโหลดไม่ครบ → { error } บอกจำนวน/ชื่อไฟล์ ไม่บันทึก และลบไฟล์ของคำขอนั้น: updateClaim · uploadTaxInvoice · settleAdvanceClaim (ข้ามสองชุดไฟล์) · addPettyCashExpense · closePettyCashMonth')
+
+  // ══ v1.24.3: เคลียร์ใบทดลองจ่าย — กดซ้ำ / ชนกัน / สถานะเปลี่ยนระหว่างทาง ════════════════════════
+  {
+    const SETTLE_STALE = 'ใบเบิกนี้ถูกบันทึกหรือเปลี่ยนสถานะไปแล้ว กรุณาโหลดหน้าใหม่'
+    const advance = (over: Row = {}) => seedClaim({
+      claim_type: 'advance', job_event_id: null, status: 'paid', submitted_by: STAFF, approved_by: ADMIN,
+      amount: 1000, unit_price: 1000, quantity: 1, ...over,
+    })
+    const settleForm = (spent: number, files: { actual?: string[]; refund?: string[] } = {}) => {
+      const fd = new FormData()
+      fd.set('actual_spent_items', JSON.stringify([{ description: 'ค่ารถ', amount: spent }]))
+      for (const n of files.actual ?? []) fd.append('actual_receipt_files', file(n))
+      for (const n of files.refund ?? []) fd.append('refund_slip_files', file(n))
+      return fd
+    }
+    const settleLogs = (id: string) => logsOf(id).filter(l => l.action === 'settle_advance').length
+    loginAs(STAFF)
+
+    // 1) คนเดียว ทีละครั้ง: เคลียร์แล้วแก้ยอดได้ตามเดิม ไฟล์ของทั้งสองครั้งอยู่ครบ
+    const normal = advance()
+    let res = await quietly(() => settleAdvanceClaim(normal, settleForm(800, { actual: ['n1.jpg'] })))
+    assert.equal(res.error, undefined, `เคลียร์ครั้งแรกต้องสำเร็จ (ได้ ${JSON.stringify(res)})`)
+    res = await quietly(() => settleAdvanceClaim(normal, settleForm(700, { actual: ['n2.jpg'] })))
+    assert.equal(res.error, undefined, `แก้ยอดครั้งที่สองต้องสำเร็จ (ได้ ${JSON.stringify(res)})`)
+    assert.equal(claimRow(normal).actual_spent_amount, 700)
+    assert.equal(claimRow(normal).refund_amount, 300)
+    assert.equal((claimRow(normal).actual_receipt_urls as string[]).length, 2, 'ไฟล์ของทั้งสองครั้งอยู่ครบ')
+    assert.equal(settleLogs(normal), 2)
+
+    // 2) อ่านแล้วยังไม่เขียน มีคนบันทึกการเคลียร์ไปก่อน (ยังไม่เคยเคลียร์ / เคยเคลียร์แล้ว) — ไฟล์ของคำขอนี้ต้องถูกลบ
+    const first = advance()
+    await expectStale('settleAdvanceClaim: คนอื่นเคลียร์ครั้งแรกไปก่อน', first,
+      { advance_settled_at: '2026-09-30T01:00:00.000Z', advance_settled_by: ADMIN, actual_spent_amount: 500, refund_amount: 500 },
+      () => settleAdvanceClaim(first, settleForm(900, { actual: ['r1.jpg'], refund: ['r2.jpg'] })), SETTLE_STALE)
+    const again = advance({ advance_settled_at: '2026-09-29T01:00:00.000Z', advance_settled_by: STAFF, actual_spent_amount: 900, refund_amount: 100 })
+    await expectStale('settleAdvanceClaim: เคยเคลียร์แล้ว มีคนแก้ยอดไปก่อน', again,
+      { advance_settled_at: '2026-09-30T02:00:00.000Z', actual_spent_amount: 600, refund_amount: 400 },
+      () => settleAdvanceClaim(again, settleForm(950, { actual: ['r3.jpg'] })), SETTLE_STALE)
+
+    // 3) แอดมินยืนยันเงินคืน / ใบถูกยกเลิก ระหว่างทาง → ยอดเงินคืนที่ยืนยันแล้วต้องไม่ถูกเขียนทับ
+    const confirmed = advance({ advance_settled_at: '2026-09-29T01:00:00.000Z', actual_spent_amount: 800, refund_amount: 200, refund_slip_urls: [fileUrl('seed/slip.jpg')] })
+    await expectStale('settleAdvanceClaim: แอดมินยืนยันเงินคืนไปก่อน', confirmed,
+      { status: 'refund_confirmed', refund_confirmed_by: ADMIN, refund_confirmed_at: '2026-09-30T03:00:00.000Z' },
+      () => settleAdvanceClaim(confirmed, settleForm(100, { refund: ['late.jpg'] })), SETTLE_STALE)
+    const cancelled = advance()
+    await expectStale('settleAdvanceClaim: ใบถูกยกเลิกระหว่างทาง', cancelled,
+      { status: 'cancelled', cancelled_by: ADMIN, cancelled_at: '2026-09-30T04:00:00.000Z' },
+      () => settleAdvanceClaim(cancelled, settleForm(500)), SETTLE_STALE)
+
+    // 4) กดบันทึกสองครั้งพร้อมกันจริง (สองแท็บ) → สำเร็จหนึ่ง ถูกปฏิเสธหนึ่ง ไฟล์ของคำขอที่แพ้ไม่ค้าง
+    const twice = advance()
+    const keys0 = storageKeys()
+    const logs0 = settleLogs(twice), activity0 = activity.length, notifications0 = notifications.length
+    const both = await quietly(() => Promise.all([
+      settleAdvanceClaim(twice, settleForm(800, { actual: ['a.jpg'] })),
+      settleAdvanceClaim(twice, settleForm(600, { refund: ['b.jpg'] })),
+    ]))
+    assert.equal(both.filter(r => !r.error).length, 1, `ต้องสำเร็จหนึ่งคำขอ (ได้ ${JSON.stringify(both)})`)
+    assert.equal(both.filter(r => r.error === SETTLE_STALE).length, 1, `อีกคำขอต้องได้ "${SETTLE_STALE}"`)
+    const row = claimRow(twice)
+    const aWon = row.actual_spent_amount === 800
+    assert.equal(((aWon ? row.actual_receipt_urls : row.refund_slip_urls) as string[]).length, 1, 'ไฟล์ของคำขอที่ชนะผูกกับใบ')
+    assert.equal(aWon ? row.refund_slip_urls : row.actual_receipt_urls, null, 'ไฟล์ของคำขอที่แพ้ไม่ถูกผูกกับใบ')
+    const added = storageKeys().filter(k => !keys0.includes(k))
+    assert.equal(added.length, 1, `ไฟล์ของคำขอที่แพ้ถูกลบ เหลือไฟล์เดียว (ได้ ${JSON.stringify(added)})`)
+    assert.ok(added[0].includes(aWon ? '-actual/' : '-refund/'), 'ไฟล์ที่เหลือเป็นของคำขอที่ชนะ')
+    assert.equal(settleLogs(twice) - logs0, 1, 'ประวัติ 1 แถว')
+    assert.equal(activity.length - activity0, 1, 'บันทึกกิจกรรม 1 ครั้ง')
+    assert.equal(notifications.length - notifications0, 1, 'แจ้งเตือนแอดมิน 1 ครั้ง')
+
+    // 5) ฐานข้อมูลที่ยังไม่มีช่อง actual_spent_items: ทางสำรองใช้เงื่อนไขเดียวกัน และยังบันทึกได้ตามปกติ
+    const cols = COLUMNS.expense_claims
+    const at = cols.indexOf('actual_spent_items')
+    cols.splice(at, 1)
+    try {
+      const old = advance()
+      await expectStale('settleAdvanceClaim (ทางสำรอง): คนอื่นเคลียร์ไปก่อน', old,
+        { advance_settled_at: '2026-09-30T05:00:00.000Z', actual_spent_amount: 500, refund_amount: 500 },
+        () => settleAdvanceClaim(old, settleForm(900, { actual: ['f1.jpg'] })), SETTLE_STALE)
+      const plain = advance()
+      res = await quietly(() => settleAdvanceClaim(plain, settleForm(900)))
+      assert.equal(res.error, undefined, `ทางสำรองต้องบันทึกได้ (ได้ ${JSON.stringify(res)})`)
+      assert.equal(claimRow(plain).actual_spent_amount, 900)
+    } finally {
+      cols.splice(at, 0, 'actual_spent_items')
+    }
+  }
+  pass('v1.24.3 เคลียร์ใบทดลองจ่าย: ทีละครั้งแก้ยอดได้ · มีคนบันทึกไปก่อน / แอดมินยืนยันเงินคืน / ยกเลิก ระหว่างทาง → "ถูกบันทึกหรือเปลี่ยนสถานะไปแล้ว" ไม่เขียนทับ ไม่มีผลข้างเคียง ไฟล์ถูกลบ · กดพร้อมกันสองครั้ง → สำเร็จหนึ่ง ไฟล์ของอีกคำขอไม่ค้าง · ทางสำรองมีเงื่อนไขเดียวกัน')
 
   console.log('\nfinance-integrity: ผ่านทั้งหมด')
 }
