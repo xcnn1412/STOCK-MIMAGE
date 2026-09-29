@@ -147,7 +147,9 @@ export default function FileUploadZone({
     // ── Remove uploaded file ───────────────────────────────────────────
     const removeUploadedUrl = useCallback(async (url: string) => {
         onUrlsChange(uploadedUrls.filter(u => u !== url))
-        await deleteTicketAttachment(url)
+        const result = await deleteTicketAttachment(url)
+        // ลบในสตอเรจไม่สำเร็จ (เช่น ไฟล์เก่าที่ไม่มีเจ้าของใน path) — ฟอร์มเลิกอ้างถึงไฟล์แล้ว ไม่ใส่กลับ แค่จดไว้
+        if (result.error) console.error('[FileUploadZone] ลบไฟล์ไม่สำเร็จ:', result.error)
     }, [uploadedUrls, onUrlsChange])
 
     const removePendingFile = useCallback((file: File) => {

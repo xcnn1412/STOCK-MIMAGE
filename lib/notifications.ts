@@ -1,4 +1,10 @@
-'use server'
+// ─────────────────────────────────────────────────────────────────────────────
+// ตัวช่วยฝั่งเซิร์ฟเวอร์ — ไม่ใช่ endpoint
+// ตั้งใจไม่ประกาศไฟล์นี้เป็น server action: ถ้าประกาศ ทุกฟังก์ชันที่ export จะกลายเป็นปลายทาง
+// ที่ใครก็ยิงผ่านเครือข่ายได้โดยไม่ต้องล็อกอิน (สร้างแจ้งเตือนให้ใครก็ได้ ในนามใครก็ได้)
+// ไฟล์นี้ถือ service-role client (ข้าม RLS) → ห้าม import จาก client component เด็ดขาด
+// ผู้เรียก (server action / server component) ต้องตรวจการล็อกอินและสิทธิ์เองก่อนเรียกทุกครั้ง
+// ─────────────────────────────────────────────────────────────────────────────
 
 import { createServiceClient } from '@/lib/supabase-server'
 
@@ -17,6 +23,9 @@ export type NotificationType =
   | 'job_pool_released'
   | 'job_pool_skipped'
   | 'job_pool_assigned'
+  // จัดซื้อ (reference_type = 'job', reference_id = id เช็กลิสต์) — กระดิ่งพาไป /jobs/purchasing?list=<id>
+  | 'job_purchase_assigned'   // ถูกมอบหมายรายการจัดซื้อ
+  | 'job_purchase_done'       // ทุกรายการในเช็กลิสต์เสร็จครบ → ผู้รับผิดชอบ + คนสร้างเช็กลิสต์
   // รับ/คืนหน้าที่เตรียมงาน (reference_type = 'crm_lead') — กระดิ่งพาไป /jobs/tracking?lead=<id>
   | 'duty_claimed'
   | 'duty_released'

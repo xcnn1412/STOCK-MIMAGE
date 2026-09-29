@@ -16,6 +16,8 @@ import {
 // ============================================================================
 
 function getUrl(item: NotificationItem): string {
+  // จัดซื้อ: reference_type เป็น 'job' แต่ reference_id คือเช็กลิสต์ — ต้องตรวจก่อน switch ข้างล่าง
+  if (item.type.startsWith('job_purchase_')) return `/jobs/purchasing?list=${item.reference_id}`
   switch (item.reference_type) {
     case 'job':           return `/jobs/${item.reference_id}`
     case 'ticket':        return `/jobs/tickets/${item.reference_id}`
@@ -61,6 +63,7 @@ export default function NotificationsPage() {
     setLoading(false)
   }, [])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- โหลดรายการครั้งแรกตอนเปิดหน้า (load ตั้ง loading ก่อน await)
   useEffect(() => { load() }, [load])
 
   const handleClick = async (item: NotificationItem) => {

@@ -36,6 +36,8 @@ function timeAgo(dateStr: string): string {
 // ============================================================================
 
 function getNotificationUrl(item: NotificationItem): string {
+  // จัดซื้อ: reference_type เป็น 'job' แต่ reference_id คือเช็กลิสต์ — ต้องตรวจก่อน switch ข้างล่าง
+  if (item.type.startsWith('job_purchase_')) return `/jobs/purchasing?list=${item.reference_id}`
   // พูลงาน/หน้าที่เตรียมงาน: พาไปหน้าติดตามงานที่มีปุ่มรับ ไม่ใช่หน้าใบงาน/การ์ด CRM
   if (item.type.startsWith('job_pool_')) return `/jobs/tracking?job=${item.reference_id}`
   if (item.type === 'duty_claimed' || item.type === 'duty_released') {
@@ -106,6 +108,7 @@ export default function NotificationBell() {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- โหลดรายการเมื่อเปิด dropdown (loadNotifications ตั้ง loading ก่อน await)
     if (open) loadNotifications()
   }, [open, loadNotifications])
 

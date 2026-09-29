@@ -14,6 +14,9 @@ const TYPE_CONFIG: Record<string, { icon: string; accent: string; glow: string; 
     job_status_changed:   { icon: '🔄', accent: 'from-blue-400 to-cyan-400', glow: 'shadow-blue-400/25', border: '#3b82f6', iconBg: 'bg-blue-100 dark:bg-blue-900/50', progressBar: 'from-blue-400 to-cyan-400' },
     job_mentioned:        { icon: '📣', accent: 'from-purple-400 to-violet-400', glow: 'shadow-purple-400/25', border: '#a855f7', iconBg: 'bg-purple-100 dark:bg-purple-900/50', progressBar: 'from-purple-400 to-violet-400' },
     job_comment:          { icon: '💬', accent: 'from-sky-400 to-blue-500', glow: 'shadow-sky-400/25', border: '#0ea5e9', iconBg: 'bg-sky-100 dark:bg-sky-900/50', progressBar: 'from-sky-400 to-blue-500' },
+    // จัดซื้อ — ไอคอนชุดเดียวกับ TYPE_CONFIG ใน notification-category.ts
+    job_purchase_assigned: { icon: '🛒', accent: 'from-amber-400 to-orange-400', glow: 'shadow-amber-400/25', border: '#f59e0b', iconBg: 'bg-amber-100 dark:bg-amber-900/50', progressBar: 'from-amber-400 to-orange-400' },
+    job_purchase_done:    { icon: '✅', accent: 'from-emerald-400 to-green-400', glow: 'shadow-emerald-400/25', border: '#10b981', iconBg: 'bg-emerald-100 dark:bg-emerald-900/50', progressBar: 'from-emerald-400 to-green-400' },
     ticket_assigned:      { icon: '🎫', accent: 'from-indigo-400 to-blue-500', glow: 'shadow-indigo-400/25', border: '#6366f1', iconBg: 'bg-indigo-100 dark:bg-indigo-900/50', progressBar: 'from-indigo-400 to-blue-500' },
     ticket_reply:         { icon: '📝', accent: 'from-teal-400 to-emerald-400', glow: 'shadow-teal-400/25', border: '#14b8a6', iconBg: 'bg-teal-100 dark:bg-teal-900/50', progressBar: 'from-teal-400 to-emerald-400' },
     ticket_status_changed: { icon: '🔔', accent: 'from-cyan-400 to-teal-400', glow: 'shadow-cyan-400/25', border: '#06b6d4', iconBg: 'bg-cyan-100 dark:bg-cyan-900/50', progressBar: 'from-cyan-400 to-teal-400' },
@@ -35,6 +38,8 @@ const DEFAULT_CONFIG = { icon: '🔔', accent: 'from-violet-400 to-purple-400', 
 // ============================================================================
 
 function getNotificationUrl(item: NotificationItem): string {
+    // จัดซื้อ: reference_type เป็น 'job' แต่ reference_id คือเช็กลิสต์ — ต้องตรวจก่อน switch ข้างล่าง
+    if (item.type.startsWith('job_purchase_')) return `/jobs/purchasing?list=${item.reference_id}`
     // พูลงาน/หน้าที่เตรียมงาน: พาไปหน้าติดตามงานที่มีปุ่มรับ ไม่ใช่หน้าใบงาน/การ์ด CRM
     if (item.type.startsWith('job_pool_')) return `/jobs/tracking?job=${item.reference_id}`
     if (item.type === 'duty_claimed' || item.type === 'duty_released') {
@@ -95,6 +100,11 @@ function ToastCard({ item, onDismiss, onNavigate, index }: ToastCardProps) {
     const config = TYPE_CONFIG[item.type] || DEFAULT_CONFIG
     const timerRef = useRef<ReturnType<typeof setTimeout>>(null)
 
+    const handleDismiss = useCallback(() => {
+        setExiting(true)
+        setTimeout(() => onDismiss(item.id), 300)
+    }, [item.id, onDismiss])
+
     // Auto-dismiss after 8 seconds
     useEffect(() => {
         timerRef.current = setTimeout(() => {
@@ -105,11 +115,6 @@ function ToastCard({ item, onDismiss, onNavigate, index }: ToastCardProps) {
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
-
-    const handleDismiss = useCallback(() => {
-        setExiting(true)
-        setTimeout(() => onDismiss(item.id), 300)
-    }, [item.id, onDismiss])
 
     const handleClick = () => {
         onNavigate(item)

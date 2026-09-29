@@ -1,4 +1,4 @@
-// หน้าแรก — หัวทักทาย+วันที่ · แถวแชมป์ · (admin) งานงวดก่อนค้างจ่าย · 3 คอลัมน์: [ภาพรวมงาน] [งานในมือคุณ] [หน้าที่ยังไม่ครบ]
+// หน้าแรก — หัวทักทาย+วันที่ · แถวแชมป์ · (admin) งานงวดก่อนค้างจ่าย · ของยังไม่ครบ (จัดซื้อ) · 3 คอลัมน์: [ภาพรวมงาน] [งานในมือคุณ] [หน้าที่ยังไม่ครบ]
 // (สเปค: docs/specs/dashboard-alerts.md + docs/specs/team-reports.md · layout ตาม mock ผู้ใช้ 2026-09-01)
 import Link from 'next/link'
 import { CheckCircle2, Trophy } from 'lucide-react'
@@ -12,14 +12,18 @@ import MyJobsPanel from '@/components/dashboard-alerts/my-jobs-panel'
 import DutyWarningPanel from '@/components/dashboard-alerts/duty-warning-panel'
 import { listUnpaidPreviousPeriods } from '@/app/(authenticated)/salary/actions'
 import UnpaidPeriodsNotice from '@/app/(authenticated)/salary/components/unpaid-periods-notice'
+import { getPurchaseAlerts } from '@/app/(authenticated)/jobs/purchasing/data'
+import PurchaseAlertCard from '@/app/(authenticated)/jobs/purchasing/components/purchase-alert-card'
 
 export default async function DashboardPage() {
     // currentUserId มาจาก getSessionLight ใน snapshot — ไม่ต้องเช็ค session ซ้ำ
     // listUnpaidPreviousPeriods ตรวจ admin เอง — คนอื่นได้ [] จึงไม่เห็นการ์ดเงินเดือน
-    const [snapshot, report, unpaid] = await Promise.all([
+    // getPurchaseAlerts คัดเฉพาะเช็กลิสต์ที่ผู้ใช้คนนี้เกี่ยวข้อง · พลาด/ยังไม่รัน migration = [] (ไม่ทำให้หน้าแรกล้ม)
+    const [snapshot, report, unpaid, purchaseAlerts] = await Promise.all([
         getTrackingSnapshot(),
         getReportStats(),
         listUnpaidPreviousPeriods(),
+        getPurchaseAlerts(),
     ])
     const { leadDates, warnings, myJobsCount, heroStats } = buildAlertData(snapshot)
     const hasAlerts = myJobsCount > 0 || warnings.length > 0
@@ -66,6 +70,13 @@ export default async function DashboardPage() {
                 <div className="rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 shadow-sm">
                     <h2 className="mb-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">เงินเดือน</h2>
                     <UnpaidPeriodsNotice rows={unpaid} mode="all" />
+                </div>
+            )}
+
+            {/* ของยังไม่ครบ — ใกล้วันงาน (เช็กลิสต์จัดซื้อที่มีรายการค้างซึ่งด่วน) — มีเมื่อมีแถวเท่านั้น */}
+            {purchaseAlerts.length > 0 && (
+                <div className="rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 shadow-sm">
+                    <PurchaseAlertCard rows={purchaseAlerts} />
                 </div>
             )}
 
