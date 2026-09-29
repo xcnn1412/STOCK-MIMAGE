@@ -2435,60 +2435,124 @@ export async function getTicketReportData(): Promise<TicketReportData> {
 // Ticket Attachments — File Upload/Delete
 // ============================================================================
 
-const ALLOWED_MIME_TYPES = [
+// ประเภทไฟล์ที่รับ → นามสกุลที่ใช้ตั้งชื่อไฟล์ (ไม่เชื่อนามสกุลจากชื่อไฟล์ที่ client ส่งมา)
+// ใช้ Map ไม่ใช้ object — กัน type แปลกๆ อย่าง 'constructor' ไปเจอ key ของ prototype
+const ATTACHMENT_EXT_BY_MIME = new Map<string, string>([
     // Images
-    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    ['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/gif', 'gif'], ['image/webp', 'webp'],
     // Documents
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+    ['application/pdf', 'pdf'],
+    ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'docx'],
+    ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx'],
     // Archives
-    'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
-]
+    ['application/zip', 'zip'], ['application/x-rar-compressed', 'rar'], ['application/x-7z-compressed', '7z'],
+])
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
+const MAX_FILES_PER_UPLOAD = 10 // ตรงกับ maxFiles ของ FileUploadZone
+const ATTACHMENT_BUCKET = 'ticket-attachments'
+// โฟลเดอร์ที่ client ส่งมา: 1–2 ท่อน ท่อนละ A-Z a-z 0-9 _ - ไม่เกิน 64 ตัว
+// (ของจริงที่ส่งมา: 'tickets', uuid ของตั๋ว, 'kpi_evaluations/<uuid>')
+const FOLDER_SEGMENT = /^[A-Za-z0-9_-]{1,64}$/
+
+function isSafeFolderParts(parts: string[]) {
+    return parts.length >= 1 && parts.length <= 2 && parts.every(p => FOLDER_SEGMENT.test(p))
+}
+
+/** โฟลเดอร์ที่ไม่ผ่านกติกา ('..', '/' นำหน้า, backslash, ว่าง, ยาวเกิน, ลึกเกิน) → 'general' */
+function safeAttachmentFolder(raw: unknown): string {
+    if (typeof raw !== 'string') return 'general'
+    const parts = raw.split('/')
+    return isSafeFolderParts(parts) ? parts.join('/') : 'general'
+}
+
+/**
+ * public URL → path ในบัคเก็ต (ถอดรหัส %xx แล้ว) หรือ null ถ้า URL ไม่ใช่ของบัคเก็ตนี้ / path น่าสงสัย
+ * ห้าม: ว่าง, '/' นำหน้า, '..', backslash, '//' — ทั้งแบบตรงๆ และแบบเข้ารหัส %xx
+ */
+function attachmentPathFromUrl(url: unknown): string | null {
+    if (typeof url !== 'string') return null
+    const marker = `/${ATTACHMENT_BUCKET}/`
+    const idx = url.indexOf(marker)
+    if (idx === -1) return null
+    const encoded = url.slice(idx + marker.length).split(/[?#]/)[0]
+    let path: string
+    try {
+        path = decodeURIComponent(encoded)
+    } catch {
+        return null // %xx พัง
+    }
+    if (!path || path.startsWith('/') || path.includes('..') || path.includes('\\') || path.includes('//')) return null
+    return path
+}
+
+/** path ของไฟล์ที่ userId อัปโหลดเอง: <โฟลเดอร์ 1–2 ท่อน>/u-<userId>/<ไฟล์> */
+function isOwnAttachmentPath(path: string, userId: string) {
+    const parts = path.split('/')
+    if (parts.length < 3) return false
+    const file = parts[parts.length - 1]
+    const owner = parts[parts.length - 2]
+    return owner === `u-${userId}` && file.length > 0 && isSafeFolderParts(parts.slice(0, -2))
+}
 
 export async function uploadTicketAttachments(formData: FormData) {
-    const { userId } = await getSession()
-    if (!userId) return { error: 'Unauthorized', urls: [] }
+    // ตัวตนจาก session_token ที่เซ็นแล้ว + ตรวจกับ DB — ไม่เชื่อ cookie รหัสผู้ใช้แบบไม่เซ็น (ปลอมได้)
+    const auth = await requireAuth()
+    if (!auth) return { error: 'ไม่ได้เข้าสู่ระบบ', urls: [] }
+
+    // ตรวจจากรูปร่าง ไม่ใช้ instanceof — FormData/File ที่ runtime ส่งมาอาจเป็นคนละ class กับ global ของโมดูลนี้
+    // (instanceof พลาด = อัปโหลดไม่ได้ทั้งระบบ) ชนิดและขนาดของไฟล์ตรวจซ้ำข้างล่างอยู่แล้ว
+    const isForm = !!formData && typeof (formData as FormData).getAll === 'function'
+    const files = isForm
+        ? formData.getAll('files').filter(
+              (f): f is File => !!f && typeof f !== 'string' && typeof (f as File).arrayBuffer === 'function'
+          )
+        : []
+    const folder = safeAttachmentFolder(isForm ? formData.get('folder') : null)
+
+    if (!files.length) return { error: 'ไม่มีไฟล์ที่จะอัปโหลด', urls: [] }
+    if (files.length > MAX_FILES_PER_UPLOAD) {
+        return { error: `อัปโหลดได้ครั้งละไม่เกิน ${MAX_FILES_PER_UPLOAD} ไฟล์`, urls: [] }
+    }
 
     const supabase = createServiceClient()
-    const files = formData.getAll('files') as File[]
-    const folder = (formData.get('folder') as string) || 'general'
-
-    if (!files.length) return { error: 'No files provided', urls: [] }
-
     const urls: string[] = []
     const errors: string[] = []
 
     for (const file of files) {
-        // Validate type
-        if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+        // Validate type — นามสกุลมาจากประเภทไฟล์เท่านั้น
+        const ext = ATTACHMENT_EXT_BY_MIME.get(file.type)
+        if (!ext) {
             errors.push(`${file.name}: ไม่รองรับประเภทไฟล์นี้`)
             continue
         }
         // Validate size
+        if (file.size === 0) {
+            errors.push(`${file.name}: ไฟล์ว่าง`)
+            continue
+        }
         if (file.size > MAX_FILE_SIZE) {
             errors.push(`${file.name}: ไฟล์เกิน 50MB`)
             continue
         }
 
-        const ext = file.name.split('.').pop() || 'bin'
+        // u-<ผู้อัปโหลด> ใน path = หลักฐานความเป็นเจ้าของ ใช้ตอนลบ (deleteTicketAttachment)
         const uniqueName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
-        const path = `${folder}/${uniqueName}`
+        const path = `${folder}/u-${auth.userId}/${uniqueName}`
 
         const buffer = Buffer.from(await file.arrayBuffer())
         const { error: uploadError } = await supabase.storage
-            .from('ticket-attachments')
+            .from(ATTACHMENT_BUCKET)
             .upload(path, buffer, { contentType: file.type, upsert: false })
 
         if (uploadError) {
-            errors.push(`${file.name}: ${uploadError.message}`)
+            console.error('[uploadTicketAttachments]', path, uploadError.message)
+            errors.push(`${file.name}: อัปโหลดไม่สำเร็จ`)
             continue
         }
 
         const { data: publicUrlData } = supabase.storage
-            .from('ticket-attachments')
+            .from(ATTACHMENT_BUCKET)
             .getPublicUrl(path)
 
         urls.push(publicUrlData.publicUrl)
@@ -2499,22 +2563,28 @@ export async function uploadTicketAttachments(formData: FormData) {
 }
 
 export async function deleteTicketAttachment(url: string) {
-    const { userId } = await getSession()
-    if (!userId) return { error: 'Unauthorized' }
+    const auth = await requireAuth()
+    if (!auth) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+
+    const path = attachmentPathFromUrl(url)
+    if (!path) return { error: 'ลิงก์ไฟล์ไม่ถูกต้อง' }
+
+    // admin ลบได้ทุกไฟล์ในบัคเก็ตนี้ · คนอื่นลบได้เฉพาะ <โฟลเดอร์>/u-<ตัวเอง>/<ไฟล์>
+    // ponytail: ไฟล์ที่อัปโหลดก่อนแก้ครั้งนี้ไม่มีท่อน u-<id> → ลบผ่าน action นี้ได้เฉพาะ admin
+    // และไฟล์ที่บันทึกลงตั๋วไปแล้วเจ้าของยังลบได้ (ไฟล์หายจากตั๋ว) — ถ้าวันไหนสำคัญ ให้เช็กก่อนว่าไม่มีแถวไหนอ้างถึง URL นี้
+    if (auth.role !== 'admin' && !isOwnAttachmentPath(path, auth.userId)) {
+        return { error: 'ลบได้เฉพาะไฟล์ที่คุณอัปโหลดเอง' }
+    }
 
     const supabase = createServiceClient()
-
-    // Extract path from public URL
-    const bucketSegment = '/ticket-attachments/'
-    const idx = url.indexOf(bucketSegment)
-    if (idx === -1) return { error: 'Invalid URL' }
-    const path = url.slice(idx + bucketSegment.length)
-
     const { error } = await supabase.storage
-        .from('ticket-attachments')
+        .from(ATTACHMENT_BUCKET)
         .remove([path])
 
-    if (error) return { error: error.message }
+    if (error) {
+        console.error('[deleteTicketAttachment]', path, error.message)
+        return { error: 'ลบไฟล์ไม่สำเร็จ กรุณาลองใหม่' }
+    }
     return { success: true }
 }
 
