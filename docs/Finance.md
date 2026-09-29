@@ -8,7 +8,7 @@
 
 | Route | Component | Description |
 |-------|-----------|-------------|
-| `/finance` | `ClaimsListView` | รายการใบเบิกทั้งหมด (filtered by role) |
+| `/finance` | `ClaimsListView` | รายการใบเบิกทั้งหมด (filtered by role) — ตัวกรองฝั่ง browser: สถานะ ประเภท ผู้เบิก หมวดหมู่ เดือน เอกสารไม่ครบ ค้นหา (`claims-filter.ts`, เก็บใน query string: `status` `type` `by` `cat` `month` `docs=missing` `q`) |
 | `/finance/new` | New claim form | สร้างใบเบิกใหม่ |
 | `/finance/[id]` | `ClaimDetailView` | รายละเอียดใบเบิก + workflow actions |
 | `/finance/payouts` | Payouts page | ใบเบิกที่รออนุมัติจ่าย (Admin only) |

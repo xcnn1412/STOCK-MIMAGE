@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useMemo, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
@@ -11,6 +11,11 @@ import { ChecklistBadges, FundingBadge } from './doc-badges'
 import { useConfirm } from './use-confirm'
 import type { FinanceCategory } from './settings-actions'
 import { cancelClaim } from './actions'
+import {
+  EMPTY_FILTERS, categoryValues, filterClaims, filtersFromQuery, filtersToQuery, hasFilters,
+  monthOptions, rememberListQuery, sanitizeFilters, submitterOptions,
+} from './claims-filter'
+import type { ClaimFilters, MonthField } from './claims-filter'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -30,6 +35,19 @@ function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
 }
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+const netOf = (c: ExpenseClaim) =>
+  calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0).netPayable
+
+const pillCls = 'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors'
+const pillIdleCls = 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
+/** กล่องเลือกที่กำลังกรองอยู่มีขอบเขียว — มองปราดเดียวรู้ว่ากรองอะไรไว้ */
+const selectCls = (active: boolean) =>
+  `max-w-full px-3 py-1.5 text-xs rounded-lg border bg-white dark:bg-zinc-900 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 ${
+    active
+      ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400 font-medium'
+      : 'border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300'
+  }`
 
 const statusIcons: Record<string, typeof Clock> = {
   draft:             FileEdit,
@@ -61,64 +79,26 @@ export default function ClaimsListView({
   const { locale } = useLocale()
   const isEn = locale === 'en'
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
-  const [isPending, startTransition] = useTransition()
+  const [, startTransition] = useTransition()
   const [cancellingId, setCancellingId] = useState<string | null>(null)
-  const [filterStatus, setFilterStatus] = useState<string>('all')
-  const [typeFilter, setTypeFilter] = useState<'all' | 'event' | 'other' | 'advance' | 'petty_cash'>('all')
-  const [paidSearch, setPaidSearch] = useState('')
-  const [paidTypeFilter, setPaidTypeFilter] = useState<'all' | 'event' | 'other' | 'advance' | 'petty_cash'>('all')
-  const [paidCategoryFilter, setPaidCategoryFilter] = useState('')
-  const [paidMonthFilter, setPaidMonthFilter] = useState('')
+  // ตัวกรองชุดเดียวใช้ร่วมกันทุกแท็บ ค่าเริ่มต้นอ่านจาก URL — ปุ่ม "กลับ" ของหน้าใบเบิกพากลับมาพร้อมตัวกรองเดิม
+  const [filters, setFilters] = useState<ClaimFilters>(() =>
+    sanitizeFilters(filtersFromQuery(searchParams), [...claims, ...paidClaims], isAdmin)
+  )
+  const setFilter = (patch: Partial<ClaimFilters>) => setFilters(f => ({ ...f, ...patch }))
+  const clearFilters = () => setFilters(f => ({ ...EMPTY_FILTERS, status: f.status }))
 
-  const paidMonths = useMemo(() => {
-    const months = new Set<string>()
-    paidClaims.forEach(c => { if (c.paid_at) months.add(c.paid_at.slice(0, 7)) })
-    return Array.from(months).sort().reverse()
-  }, [paidClaims])
-
-  const filteredPaid = useMemo(() => {
-    let list = paidClaims
-    if (paidSearch.trim()) {
-      const q = paidSearch.trim().toLowerCase()
-      list = list.filter(c => {
-        const name = c.submitter?.full_name?.toLowerCase() || ''
-        const title = c.title?.toLowerCase() || ''
-        const num = c.claim_number?.toLowerCase() || ''
-        return name.includes(q) || title.includes(q) || num.includes(q)
-      })
-    }
-    if (paidTypeFilter !== 'all') {
-      list = list.filter(c => c.claim_type === paidTypeFilter)
-    }
-    if (paidCategoryFilter) {
-      list = list.filter(c => c.category === paidCategoryFilter)
-    }
-    if (paidMonthFilter) {
-      list = list.filter(c => c.paid_at && c.paid_at.startsWith(paidMonthFilter))
-    }
-    return list
-  }, [paidClaims, paidSearch, paidTypeFilter, paidCategoryFilter, paidMonthFilter])
-
-  const totalPaidNet = useMemo(() => {
-    let total = 0
-    filteredPaid.forEach(c => {
-      const { netPayable } = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
-      total += netPayable
-    })
-    return total
-  }, [filteredPaid])
-
-  const totalAllPaidNet = useMemo(() => {
-    let total = 0
-    paidClaims.forEach(c => {
-      const { netPayable } = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
-      total += netPayable
-    })
-    return total
-  }, [paidClaims])
-
-  const isFiltering = paidTypeFilter !== 'all' || !!paidCategoryFilter || !!paidMonthFilter || !!paidSearch.trim()
+  // เขียนตัวกรองลง URL โดยไม่โหลดข้อมูลใหม่ (กรองฝั่ง browser ทั้งหมด) และจำไว้ให้ปุ่มกลับ
+  useEffect(() => {
+    const query = filtersToQuery(filters)
+    rememberListQuery(query)
+    if (window.location.search === query) return
+    try {
+      window.history.replaceState(null, '', query || window.location.pathname)
+    } catch { /* เบราว์เซอร์จำกัดความถี่การแก้ URL — ตัวกรองยังทำงานจาก state */ }
+  }, [filters])
 
   const handleCancel = async (claim: ExpenseClaim, e: React.MouseEvent) => {
     e.preventDefault()
@@ -160,10 +140,28 @@ export default function ClaimsListView({
     (c.status !== 'paid' && c.status !== 'cancelled' && c.status !== 'refund_confirmed') || isUnsettledAdvance(c) || isOpenPettyCash(c)
   )
 
-  const filtered = (filterStatus === 'all'
-    ? activeClaims
-    : activeClaims.filter(c => c.status === filterStatus)
-  ).filter(c => typeFilter === 'all' || c.claim_type === typeFilter)
+  // shown = ชุดข้อมูลของแท็บที่เลือก, filtered = หลังผ่านตัวกรองละเอียด
+  const showPaid = filters.status === 'paid'
+  const monthField: MonthField = showPaid ? 'paid_at' : 'expense_date'
+  const shown = showPaid
+    ? paidClaims
+    : filters.status === 'all' ? activeClaims : activeClaims.filter(c => c.status === filters.status)
+  const filtered = filterClaims(shown, filters, monthField)
+  const filtering = hasFilters(filters)
+  const filteredAmount = filtered.reduce((sum, c) => sum + (Number(c.amount) || 0), 0)
+  const totalPaidNet = filtered.reduce((sum, c) => sum + netOf(c), 0)
+  const totalAllPaidNet = paidClaims.reduce((sum, c) => sum + netOf(c), 0)
+
+  const allClaims = [...claims, ...paidClaims]
+  const people = submitterOptions(allClaims, shown)
+  const months = monthOptions(shown, monthField, filters.month)
+  const categoryOptions = categoryValues(allClaims)
+    .map(value => ({ value, label: getCategoryLabel(value, locale, categories) }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'th'))
+  const monthLabel = (m: string) => {
+    const [y, mo] = m.split('-')
+    return new Date(Number(y), Number(mo) - 1).toLocaleDateString(isEn ? 'en-US' : 'th-TH', { month: 'long', year: 'numeric' })
+  }
 
   // Stats
   const totalDraft = claims.filter(c => c.status === 'draft').length
@@ -230,15 +228,14 @@ export default function ClaimsListView({
       </div>
 
       {/* Filter */}
-      <div className="flex items-center gap-2">
-        <Filter className="h-4 w-4 text-zinc-400" />
-        <div className="flex gap-1">
+      <div className="flex items-start gap-2">
+        <Filter className="h-4 w-4 mt-1.5 shrink-0 text-zinc-400" />
+        <div className="flex flex-wrap gap-1">
           <button
-            onClick={() => setFilterStatus('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              filterStatus === 'all'
-                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
+            onClick={() => setFilter({ status: 'all' })}
+            aria-pressed={filters.status === 'all'}
+            className={`${pillCls} ${
+              filters.status === 'all' ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900' : pillIdleCls
             }`}
           >
             {locale === 'th' ? 'ทั้งหมด' : 'All'}
@@ -252,25 +249,19 @@ export default function ClaimsListView({
             .map(s => (
               <button
                 key={s.value}
-                onClick={() => setFilterStatus(s.value)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  filterStatus === s.value
-                    ? 'text-white'
-                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
-                }`}
-                style={filterStatus === s.value ? { backgroundColor: s.color } : {}}
+                onClick={() => setFilter({ status: s.value })}
+                aria-pressed={filters.status === s.value}
+                className={`${pillCls} ${filters.status === s.value ? 'text-white' : pillIdleCls}`}
+                style={filters.status === s.value ? { backgroundColor: s.color } : {}}
               >
                 {isEn ? s.label : s.labelTh}
               </button>
             ))}
           {isAdmin && (
             <button
-              onClick={() => setFilterStatus('paid')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                filterStatus === 'paid'
-                  ? 'bg-teal-600 text-white'
-                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
-              }`}
+              onClick={() => setFilter({ status: 'paid' })}
+              aria-pressed={showPaid}
+              className={`${pillCls} ${showPaid ? 'bg-teal-600 text-white' : pillIdleCls}`}
             >
               {isEn ? 'Paid' : 'ชำระเงินแล้ว'}
             </button>
@@ -279,42 +270,132 @@ export default function ClaimsListView({
       </div>
 
       {/* Claim type filter */}
-      {filterStatus !== 'paid' && (
-        <div className="flex items-center gap-2 -mt-3">
-          <Wallet className="h-4 w-4 text-zinc-400" />
-          <div className="flex gap-1">
-            {([
-              { v: 'all', label: isEn ? 'All types' : 'ทุกประเภท' },
-              { v: 'event', label: isEn ? 'Event' : 'อีเวนต์' },
-              { v: 'advance', label: isEn ? 'Advance' : 'ทดลองจ่าย' },
-              { v: 'petty_cash', label: isEn ? 'Petty Cash' : 'เงินสดย่อย' },
-              { v: 'other', label: isEn ? 'Other' : 'อื่นๆ' },
-            ] as const).map(t => (
-              <button
-                key={t.v}
-                onClick={() => setTypeFilter(t.v)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  typeFilter === t.v
-                    ? 'bg-amber-500 text-white'
-                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+      <div className="flex items-start gap-2 -mt-3">
+        <Wallet className="h-4 w-4 mt-1.5 shrink-0 text-zinc-400" />
+        <div className="flex flex-wrap gap-1">
+          {([
+            { v: 'all', label: isEn ? 'All types' : 'ทุกประเภท' },
+            { v: 'event', label: isEn ? 'Event' : 'อีเวนต์' },
+            { v: 'advance', label: isEn ? 'Advance' : 'ทดลองจ่าย' },
+            { v: 'petty_cash', label: isEn ? 'Petty Cash' : 'เงินสดย่อย' },
+            { v: 'other', label: isEn ? 'Other' : 'อื่นๆ' },
+          ] as const).map(t => (
+            <button
+              key={t.v}
+              onClick={() => setFilter({ type: t.v })}
+              aria-pressed={filters.type === t.v}
+              className={`${pillCls} ${filters.type === t.v ? 'bg-amber-500 text-white' : pillIdleCls}`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
+      </div>
+
+      {/* ค้นหา + ตัวกรองละเอียด — ใช้ร่วมกันทุกแท็บ รวมถึง "ชำระเงินแล้ว" */}
+      <div className="flex flex-wrap items-center gap-2 -mt-3">
+        <div className="relative w-full sm:w-64">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
+          <input
+            type="search"
+            value={filters.q}
+            onChange={e => setFilter({ q: e.target.value })}
+            maxLength={100}
+            aria-label={isEn ? 'Search claims' : 'ค้นหาใบเบิก'}
+            placeholder={isEn ? 'Claim no., title, name, event' : 'เลขที่ หัวข้อ ชื่อผู้เบิก ชื่องาน'}
+            className="pl-8 pr-3 py-1.5 w-full border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+          />
+        </div>
+
+        {/* ผู้เบิก — มีให้เลือกเมื่อเห็นใบเบิกของมากกว่าหนึ่งคน (พนักงานเห็นเฉพาะของตัวเองจึงไม่มีกล่องนี้) */}
+        {people.length > 1 && (
+          <select
+            value={filters.by}
+            onChange={e => setFilter({ by: e.target.value })}
+            aria-label={isEn ? 'Submitter' : 'ผู้เบิก'}
+            className={selectCls(!!filters.by)}
+          >
+            <option value="">{isEn ? 'All submitters' : 'ผู้เบิกทุกคน'}</option>
+            {people.map(p => (
+              <option key={p.id} value={p.id}>{p.name} ({p.count})</option>
+            ))}
+          </select>
+        )}
+
+        {categoryOptions.length > 1 && (
+          <select
+            value={filters.category}
+            onChange={e => setFilter({ category: e.target.value })}
+            aria-label={isEn ? 'Category' : 'หมวดหมู่'}
+            className={selectCls(!!filters.category)}
+          >
+            <option value="">{isEn ? 'All categories' : 'ทุกหมวดหมู่'}</option>
+            {categoryOptions.map(c => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+        )}
+
+        {months.length > 0 && (
+          <select
+            value={filters.month}
+            onChange={e => setFilter({ month: e.target.value })}
+            aria-label={showPaid ? (isEn ? 'Month paid' : 'เดือนที่จ่าย') : (isEn ? 'Expense month' : 'เดือนที่ใช้จ่าย')}
+            className={selectCls(!!filters.month)}
+          >
+            <option value="">
+              {showPaid ? (isEn ? 'Any month paid' : 'ทุกเดือนที่จ่าย') : (isEn ? 'Any expense month' : 'ทุกเดือนที่ใช้จ่าย')}
+            </option>
+            {months.map(m => (
+              <option key={m} value={m}>{monthLabel(m)}</option>
+            ))}
+          </select>
+        )}
+
+        <button
+          onClick={() => setFilter({ incomplete: !filters.incomplete })}
+          aria-pressed={filters.incomplete}
+          className={`inline-flex items-center gap-1 ${pillCls} ${filters.incomplete ? 'bg-amber-500 text-white' : pillIdleCls}`}
+        >
+          <AlertCircle className="h-3 w-3" />
+          {isEn ? 'Missing documents' : 'เอกสารไม่ครบ'}
+        </button>
+
+        {filtering && (
+          <button
+            onClick={clearFilters}
+            className="px-3 py-1.5 text-xs rounded-lg text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition-colors"
+          >
+            {isEn ? 'Clear filters' : 'ล้างตัวกรอง'}
+          </button>
+        )}
+      </div>
+
+      {filtering && (
+        <p className="text-xs text-zinc-500 -mt-3" aria-live="polite">
+          {isEn ? `${filtered.length} of ${shown.length} claims` : `พบ ${filtered.length} จาก ${shown.length} ใบ`}
+          {!showPaid && filtered.length > 0 && (
+            <>
+              {' · '}{isEn ? 'Total' : 'ยอดรวม'}{' '}
+              <span className="font-semibold text-zinc-700 dark:text-zinc-300">฿{filteredAmount.toLocaleString()}</span>
+            </>
+          )}
+        </p>
       )}
 
       {/* Claims List */}
-      {filterStatus !== 'paid' && error && (
+      {!showPaid && error && (
         <div className="p-4 bg-red-50 dark:bg-red-950/20 rounded-xl text-red-600 text-sm">{error}</div>
       )}
 
-      {filterStatus !== 'paid' && (filtered.length === 0 ? (
+      {!showPaid && (filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
           <Banknote className="h-12 w-12 mb-3 opacity-40" />
-          <p className="text-sm">{locale === 'th' ? 'ยังไม่มีใบเบิก' : 'No claims yet'}</p>
+          <p className="text-sm">
+            {filtering
+              ? (isEn ? 'No claims match these filters' : 'ไม่พบใบเบิกที่ตรงกับตัวกรอง')
+              : (locale === 'th' ? 'ยังไม่มีใบเบิก' : 'No claims yet')}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -372,10 +453,10 @@ export default function ClaimsListView({
                       <span>{claim.submitter?.full_name || '—'}</span>
                       <span className="text-zinc-300">•</span>
                       <span>{new Date(claim.expense_date).toLocaleDateString('th-TH')}</span>
-                      {(claim.job_event as any)?.event_name && (
+                      {claim.job_event?.event_name && (
                         <>
                           <span className="text-zinc-300">•</span>
-                          <span className="truncate">{(claim.job_event as any).event_name}</span>
+                          <span className="truncate">{claim.job_event.event_name}</span>
                         </>
                       )}
                     </p>
@@ -412,32 +493,20 @@ export default function ClaimsListView({
       ))}
 
       {/* ชำระเงินแล้ว — Admin only, shown when paid tab active */}
-      {isAdmin && filterStatus === 'paid' && (
+      {isAdmin && showPaid && (
         <div className="space-y-4">
           {/* Section Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center h-9 w-9 rounded-xl bg-teal-100 dark:bg-teal-900/30 shrink-0">
-                <CheckCircle2 className="h-4 w-4 text-teal-600 dark:text-teal-400" />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                  {isEn ? 'Paid Claims' : 'ชำระเงินแล้ว'}
-                </h2>
-                <p className="text-xs text-zinc-400">
-                  {paidClaims.length} {isEn ? 'claims total' : 'รายการทั้งหมด'}
-                </p>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center h-9 w-9 rounded-xl bg-teal-100 dark:bg-teal-900/30 shrink-0">
+              <CheckCircle2 className="h-4 w-4 text-teal-600 dark:text-teal-400" />
             </div>
-            <div className="relative w-full sm:w-60">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
-              <input
-                type="text"
-                value={paidSearch}
-                onChange={e => setPaidSearch(e.target.value)}
-                placeholder={isEn ? 'Search...' : 'ค้นหา...'}
-                className="pl-8 pr-3 py-2 w-full border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-              />
+            <div>
+              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                {isEn ? 'Paid Claims' : 'ชำระเงินแล้ว'}
+              </h2>
+              <p className="text-xs text-zinc-400">
+                {paidClaims.length} {isEn ? 'claims total' : 'รายการทั้งหมด'}
+              </p>
             </div>
           </div>
 
@@ -448,14 +517,14 @@ export default function ClaimsListView({
               <p className="text-lg font-bold text-teal-700 dark:text-teal-300">฿{fmtDec(totalAllPaidNet)}</p>
               <p className="text-[10px] text-zinc-400">{paidClaims.length} {isEn ? 'claims' : 'รายการ'}</p>
             </div>
-            {isFiltering ? (
+            {filtering ? (
               <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-3">
                 <p className="text-[10px] text-zinc-500 font-medium mb-0.5">{isEn ? 'Filtered Total' : 'ยอดรวม (กรองแล้ว)'}</p>
                 <p className="text-lg font-bold text-zinc-800 dark:text-zinc-200">฿{fmtDec(totalPaidNet)}</p>
-                <p className="text-[10px] text-zinc-400">{filteredPaid.length} {isEn ? 'claims' : 'รายการ'}</p>
+                <p className="text-[10px] text-zinc-400">{filtered.length} {isEn ? 'claims' : 'รายการ'}</p>
               </div>
             ) : null}
-            {isFiltering ? (
+            {filtering ? (
               <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-xl border border-zinc-200 dark:border-zinc-700 p-3 flex flex-col justify-center">
                 <p className="text-[10px] text-zinc-400 mb-1">{isEn ? 'Filtered' : 'สัดส่วนที่กรอง'}</p>
                 <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-1.5 overflow-hidden">
@@ -471,74 +540,14 @@ export default function ClaimsListView({
             ) : null}
           </div>
 
-          {/* Paid Filters */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Type */}
-            <div className="flex gap-1">
-              {(['all', 'event', 'other', 'advance', 'petty_cash'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setPaidTypeFilter(t)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    paidTypeFilter === t
-                      ? 'bg-teal-600 text-white'
-                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
-                  }`}
-                >
-                  {t === 'all'     ? (isEn ? 'All Types' : 'ทุกประเภท')
-                   : t === 'event'  ? (isEn ? 'Event' : 'อีเวนต์')
-                   : t === 'advance'? (isEn ? 'Advance' : 'ทดลองจ่าย')
-                   : t === 'petty_cash' ? (isEn ? 'Petty Cash' : 'เงินสดย่อย')
-                   :                  (isEn ? 'Other' : 'ค่าอื่นๆ')}
-                </button>
-              ))}
-            </div>
-
-            {/* Category */}
-            {categories.length > 0 && (
-              <select
-                value={paidCategoryFilter}
-                onChange={e => setPaidCategoryFilter(e.target.value)}
-                className="px-3 py-1.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-              >
-                <option value="">{isEn ? 'All Categories' : 'ทุกหมวดหมู่'}</option>
-                {categories.map(cat => (
-                  <option key={cat.id} value={cat.value}>{isEn ? cat.label || cat.label_th : cat.label_th}</option>
-                ))}
-              </select>
-            )}
-
-            {/* Month */}
-            {paidMonths.length > 0 && (
-              <select
-                value={paidMonthFilter}
-                onChange={e => setPaidMonthFilter(e.target.value)}
-                className="px-3 py-1.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-              >
-                <option value="">{isEn ? 'All Months' : 'ทุกเดือน'}</option>
-                {paidMonths.map(m => {
-                  const [y, mo] = m.split('-')
-                  const label = new Date(Number(y), Number(mo) - 1).toLocaleDateString(isEn ? 'en-US' : 'th-TH', { month: 'long', year: 'numeric' })
-                  return <option key={m} value={m}>{label}</option>
-                })}
-              </select>
-            )}
-
-            {/* Clear filters */}
-            {(paidTypeFilter !== 'all' || paidCategoryFilter || paidMonthFilter || paidSearch) && (
-              <button
-                onClick={() => { setPaidTypeFilter('all'); setPaidCategoryFilter(''); setPaidMonthFilter(''); setPaidSearch('') }}
-                className="px-3 py-1.5 text-xs rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-              >
-                {isEn ? 'Clear' : 'ล้างตัวกรอง'}
-              </button>
-            )}
-          </div>
-
-          {filteredPaid.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-zinc-400">
               <CheckCircle2 className="h-10 w-10 mb-2 opacity-30" />
-              <p className="text-sm">{isEn ? 'No paid claims yet' : 'ยังไม่มีใบเบิกที่ชำระแล้ว'}</p>
+              <p className="text-sm">
+                {filtering
+                  ? (isEn ? 'No claims match these filters' : 'ไม่พบใบเบิกที่ตรงกับตัวกรอง')
+                  : (isEn ? 'No paid claims yet' : 'ยังไม่มีใบเบิกที่ชำระแล้ว')}
+              </p>
             </div>
           ) : (
             <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
@@ -554,7 +563,7 @@ export default function ClaimsListView({
                   <div className="col-span-1"></div>
                 </div>
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {filteredPaid.map(c => {
+                  {filtered.map(c => {
                     const { netPayable } = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
                     return (
                       <div key={c.id} className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
@@ -581,7 +590,7 @@ export default function ClaimsListView({
 
               {/* Mobile Cards */}
               <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
-                {filteredPaid.map(c => {
+                {filtered.map(c => {
                   const { netPayable } = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
                   return (
                     <Link key={c.id} href={`/finance/${c.id}`} className="block p-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
