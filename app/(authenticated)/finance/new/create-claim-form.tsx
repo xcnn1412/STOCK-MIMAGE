@@ -111,6 +111,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const [calendarOpen, setCalendarOpen] = useState(false)
 
   const computedAmount = (Number(unitPrice) || 0) * (Number(quantity) || 1)
+  // จำนวนต้องเป็น 1 ขึ้นไป (ว่าง / 0 / ติดลบ = ยื่นและบันทึกไม่ได้) — ทดลองจ่ายและเงินสดย่อยไม่มีช่องนี้ (ส่ง 1 เสมอ)
+  const quantityInvalid = !isSimpleAmount && (quantity.trim() === '' || !(Number(quantity) >= 1))
   const whtRateNum = Number(whtRate) || 0
   const tax = calcTax(computedAmount, vatMode, whtRateNum)
 
@@ -601,18 +603,30 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+              <label htmlFor="claim-quantity" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
                 {isEn ? 'Quantity' : 'จำนวน'}
               </label>
               <input
+                id="claim-quantity"
                 type="number"
                 name="quantity"
                 min="1"
                 value={quantity}
                 onChange={e => setQuantity(e.target.value)}
                 placeholder="1"
-                className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
+                aria-invalid={quantityInvalid}
+                aria-describedby={quantityInvalid ? 'claim-quantity-error' : undefined}
+                className={`w-full px-3 py-2.5 border rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm font-mono focus:ring-1 outline-none ${
+                  quantityInvalid
+                    ? 'border-red-500 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
+                    : 'border-zinc-300 dark:border-zinc-700 focus:border-emerald-500 focus:ring-emerald-500'
+                }`}
               />
+              {quantityInvalid && (
+                <p id="claim-quantity-error" className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
+                  {isEn ? 'Quantity must be at least 1' : 'จำนวนต้องมีอย่างน้อย 1'}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -1070,7 +1084,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               type="submit"
               name="intent" value="submit"
               onClick={() => setPressedIntent('submit')}
-              disabled={isPending || (isPettyCash && !!openFund)}
+              disabled={isPending || (isPettyCash && !!openFund) || quantityInvalid}
               className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
             >
               <Send className="h-4 w-4" />
@@ -1083,7 +1097,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               type="submit"
               name="intent" value="draft"
               onClick={() => setPressedIntent('draft')}
-              disabled={isPending || (isPettyCash && !!openFund)}
+              disabled={isPending || (isPettyCash && !!openFund) || quantityInvalid}
               className="flex items-center justify-center gap-2 px-5 py-3 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 text-zinc-700 dark:text-zinc-300 rounded-lg text-sm font-medium transition-colors"
             >
               <Save className="h-4 w-4" />

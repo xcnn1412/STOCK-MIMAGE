@@ -1,0 +1,3546 @@
+{
+  "submitClaim/draft-ok": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-101",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 1",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/1.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": "<ts>",
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "submit",
+        "changes": {
+          "status": {
+            "from": "draft",
+            "to": "pending"
+          }
+        },
+        "note": "ยื่นใบเบิกเพื่อขออนุมัติ"
+      }
+    ],
+    "activity": [
+      {
+        "action": "SUBMIT_EXPENSE_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-101",
+          "title": "ใบทดสอบ 1",
+          "amount": 300
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_submitted",
+        "userIds": [
+          "<id4>",
+          "<id5>"
+        ],
+        "title": "ใบเบิก EXP-202609-101 ยื่นขออนุมัติ — ฿300",
+        "body": "ใบทดสอบ 1",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/<id1>"
+    ],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "submitClaim/no-receipt-event": {
+    "returnValue": {
+      "error": "กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์ก่อนยื่นใบเบิก"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-102",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 2",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "draft",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "submitClaim/advance-no-receipt-ok": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-103",
+      "original_claim_number": null,
+      "claim_type": "advance",
+      "job_event_id": null,
+      "title": "ใบทดสอบ 3",
+      "description": null,
+      "category": "travel",
+      "amount": 2000,
+      "unit_price": 2000,
+      "unit": "บาท",
+      "quantity": 1,
+      "total_amount": 2000,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending",
+      "submitted_by": "<id2>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": "<ts>",
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "submit",
+        "changes": {
+          "status": {
+            "from": "draft",
+            "to": "pending"
+          }
+        },
+        "note": "ยื่นใบเบิกเพื่อขออนุมัติ"
+      }
+    ],
+    "activity": [
+      {
+        "action": "SUBMIT_EXPENSE_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-103",
+          "title": "ใบทดสอบ 3",
+          "amount": 2000
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_submitted",
+        "userIds": [
+          "<id3>",
+          "<id4>"
+        ],
+        "title": "ใบเบิก EXP-202609-103 ยื่นขออนุมัติ — ฿2,000",
+        "body": "ใบทดสอบ 3",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/<id1>"
+    ],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "submitClaim/not-owner": {
+    "returnValue": {
+      "error": "คุณไม่มีสิทธิ์ยื่นใบเบิกนี้"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-104",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 4",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/4.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "draft",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "submitClaim/wrong-status": {
+    "returnValue": {
+      "error": "ยื่นได้เฉพาะใบเบิกที่อยู่ในสถานะ \"แบบร่าง\" เท่านั้น"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-105",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 5",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/5.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": "<ts>",
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "submitClaim/stale-race": {
+    "returnValue": {
+      "error": "ใบเบิกนี้ถูกเปลี่ยนสถานะไปแล้ว กรุณาโหลดหน้าใหม่"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-106",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 6",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/6.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "cancelled",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": "<ts>",
+      "cancelled_by": "<id3>",
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "cancelClaim/draft": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-107",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 7",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/7.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "cancelled",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": "<ts>",
+      "cancelled_by": "<id3>",
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "cancel",
+        "changes": {
+          "status": {
+            "from": "draft",
+            "to": "cancelled"
+          }
+        },
+        "note": "ยกเลิกใบเบิกโดยผู้ยื่น"
+      }
+    ],
+    "activity": [
+      {
+        "action": "CANCEL_EXPENSE_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-107",
+          "fromStatus": "draft"
+        }
+      }
+    ],
+    "notifications": [],
+    "revalidated": [
+      "/finance",
+      "/finance/<id1>"
+    ],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "cancelClaim/pending": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-108",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 8",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/8.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "cancelled",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": "<ts>",
+      "cancelled_at": "<ts>",
+      "cancelled_by": "<id3>",
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "cancel",
+        "changes": {
+          "status": {
+            "from": "pending",
+            "to": "cancelled"
+          }
+        },
+        "note": "ยกเลิกใบเบิกโดยผู้ยื่น"
+      }
+    ],
+    "activity": [
+      {
+        "action": "CANCEL_EXPENSE_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-108",
+          "fromStatus": "pending"
+        }
+      }
+    ],
+    "notifications": [],
+    "revalidated": [
+      "/finance",
+      "/finance/<id1>"
+    ],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "cancelClaim/not-owner": {
+    "returnValue": {
+      "error": "เฉพาะผู้ยื่นใบเบิกเท่านั้นที่สามารถยกเลิกได้"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-109",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 9",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/9.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "cancelClaim/wrong-status": {
+    "returnValue": {
+      "error": "ยกเลิกได้เฉพาะใบเบิกที่อยู่ในสถานะ \"แบบร่าง\" หรือ \"รออนุมัติ\" เท่านั้น"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-110",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 10",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/10.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "approved",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "approveClaim/job-linked": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-111",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 11",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/11.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "approved",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": "<ts>",
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "approve",
+        "changes": {
+          "status": {
+            "from": "pending",
+            "to": "approved"
+          }
+        },
+        "note": "อนุมัติใบเบิก"
+      }
+    ],
+    "activity": [
+      {
+        "action": "APPROVE_EXPENSE_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-111",
+          "totalAmount": 300
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_approved",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-111 ได้รับการอนุมัติแล้ว",
+        "body": "ใบทดสอบ 11",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/costs"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "approveClaim/no-job": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-112",
+      "original_claim_number": null,
+      "claim_type": "other",
+      "job_event_id": null,
+      "title": "ใบทดสอบ 12",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/12.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "approved",
+      "submitted_by": "<id2>",
+      "approved_by": "<id3>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "approve",
+        "changes": {
+          "status": {
+            "from": "pending",
+            "to": "approved"
+          }
+        },
+        "note": "อนุมัติใบเบิก"
+      }
+    ],
+    "activity": [
+      {
+        "action": "APPROVE_EXPENSE_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-112",
+          "totalAmount": 300
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_approved",
+        "userIds": [
+          "<id2>"
+        ],
+        "title": "ใบเบิก EXP-202609-112 ได้รับการอนุมัติแล้ว",
+        "body": "ใบทดสอบ 12",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/costs"
+    ],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "approveClaim/non-admin": {
+    "returnValue": {
+      "error": "เฉพาะ Admin เท่านั้นที่สามารถอนุมัติได้"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-113",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 13",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/13.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "approveClaim/wrong-status": {
+    "returnValue": {
+      "error": "อนุมัติได้เฉพาะใบเบิกที่อยู่ในสถานะ \"รออนุมัติ\" เท่านั้น"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-114",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 14",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/14.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "approved",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "approveClaim/stale-race": {
+    "returnValue": {
+      "error": "ใบเบิกนี้ถูกเปลี่ยนสถานะไปแล้ว กรุณาโหลดหน้าใหม่"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-115",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 15",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/15.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "rejected",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": null,
+      "reject_reason": "คนอื่นปฏิเสธก่อน",
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "rejectClaim/with-reason": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-116",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 16",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/16.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "rejected",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": "เอกสารไม่ครบ",
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "reject",
+        "changes": {
+          "status": {
+            "from": "pending",
+            "to": "rejected"
+          }
+        },
+        "note": "เอกสารไม่ครบ"
+      }
+    ],
+    "activity": [
+      {
+        "action": "REJECT_EXPENSE_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-116",
+          "reason": "เอกสารไม่ครบ"
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_rejected",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-116 ถูกปฏิเสธ",
+        "body": "เอกสารไม่ครบ",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance"
+    ],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "rejectClaim/empty-reason": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-117",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 17",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/17.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "rejected",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": "ไม่ระบุเหตุผล",
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "reject",
+        "changes": {
+          "status": {
+            "from": "pending",
+            "to": "rejected"
+          }
+        },
+        "note": "ไม่ระบุเหตุผล"
+      }
+    ],
+    "activity": [
+      {
+        "action": "REJECT_EXPENSE_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-117",
+          "reason": ""
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_rejected",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-117 ถูกปฏิเสธ",
+        "body": "ไม่ระบุเหตุผล",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance"
+    ],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "reopenRejectedClaim/owner-ok": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-118",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 18",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/18.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "draft",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "reopen",
+        "changes": {
+          "status": {
+            "from": "rejected",
+            "to": "draft"
+          }
+        },
+        "note": "เจ้าของใบเปิดกลับมาแก้ไข (เหตุผลที่ถูกปฏิเสธ: ยอดผิด)"
+      }
+    ],
+    "activity": [
+      {
+        "action": "REOPEN_REJECTED_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-118",
+          "rejectReason": "ยอดผิด"
+        }
+      }
+    ],
+    "notifications": [],
+    "revalidated": [
+      "/finance",
+      "/finance/<id1>"
+    ],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "reopenRejectedClaim/not-owner": {
+    "returnValue": {
+      "error": "เฉพาะเจ้าของใบเบิกเท่านั้นที่เปิดใบที่ถูกปฏิเสธกลับมาแก้ไขได้"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-119",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 19",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/19.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "rejected",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": null,
+      "reject_reason": "ยอดผิด",
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "reopenRejectedClaim/closed-petty-month": {
+    "returnValue": {
+      "error": "รอบเดือนของวงเงินนี้ปิดแล้ว ไม่สามารถแก้ไขรายการได้ (admin ต้องเปิดรอบอีกครั้งก่อน)"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-121",
+      "original_claim_number": null,
+      "claim_type": "petty_cash",
+      "job_event_id": null,
+      "title": "ใบทดสอบ 21",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": "<id2>",
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "rejected",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "approveAsPendingMonthEnd/ok": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-122",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 22",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/22.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending_month_end",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "approve_month_end",
+        "changes": {
+          "status": {
+            "from": "pending",
+            "to": "pending_month_end"
+          }
+        },
+        "note": "อนุมัติ — รอจ่ายสิ้นเดือน"
+      }
+    ],
+    "activity": [
+      {
+        "action": "APPROVE_EXPENSE_CLAIM_MONTH_END",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-122",
+          "totalAmount": 300
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_approved",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-122 ได้รับการอนุมัติ (รอจ่ายสิ้นเดือน)",
+        "body": "ใบทดสอบ 22",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/payouts",
+      "/costs"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "approveAsPendingMonthEnd/wrong-status": {
+    "returnValue": {
+      "error": "อนุมัติได้เฉพาะใบเบิกที่อยู่ในสถานะ \"รออนุมัติ\" เท่านั้น"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-123",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 23",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/23.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "approved",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsPendingMonthEnd/from-approved": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-124",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 24",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/24.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending_month_end",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "defer_month_end",
+        "changes": {
+          "status": {
+            "from": "approved",
+            "to": "pending_month_end"
+          }
+        },
+        "note": "เลื่อนจ่ายสิ้นเดือน"
+      }
+    ],
+    "activity": [
+      {
+        "action": "MARK_CLAIM_PENDING_MONTH_END",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-124",
+          "totalAmount": 300
+        }
+      }
+    ],
+    "notifications": [],
+    "revalidated": [
+      "/finance",
+      "/finance/payouts"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsPendingMonthEnd/from-waiting_tax_invoice": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-125",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 25",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/25.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending_month_end",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "defer_month_end",
+        "changes": {
+          "status": {
+            "from": "waiting_tax_invoice",
+            "to": "pending_month_end"
+          }
+        },
+        "note": "เลื่อนจ่ายสิ้นเดือน"
+      }
+    ],
+    "activity": [
+      {
+        "action": "MARK_CLAIM_PENDING_MONTH_END",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-125",
+          "totalAmount": 300
+        }
+      }
+    ],
+    "notifications": [],
+    "revalidated": [
+      "/finance",
+      "/finance/payouts"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsPendingMonthEnd/from-awaiting_payment": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-126",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 26",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/26.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending_month_end",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "defer_month_end",
+        "changes": {
+          "status": {
+            "from": "awaiting_payment",
+            "to": "pending_month_end"
+          }
+        },
+        "note": "เลื่อนจ่ายสิ้นเดือน"
+      }
+    ],
+    "activity": [
+      {
+        "action": "MARK_CLAIM_PENDING_MONTH_END",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-126",
+          "totalAmount": 300
+        }
+      }
+    ],
+    "notifications": [],
+    "revalidated": [
+      "/finance",
+      "/finance/payouts"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsPendingMonthEnd/wrong-status": {
+    "returnValue": {
+      "error": "เลื่อนจ่ายสิ้นเดือนได้เฉพาะใบเบิกที่อนุมัติแล้วเท่านั้น"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-127",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 27",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/27.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "markAsWaitingTaxInvoice/from-approved": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-128",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 28",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/28.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "waiting_tax_invoice",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "waiting_tax_invoice",
+        "changes": {
+          "status": {
+            "from": "approved",
+            "to": "waiting_tax_invoice"
+          }
+        },
+        "note": "รอใบกำกับภาษีจากผู้เบิก"
+      }
+    ],
+    "activity": [
+      {
+        "action": "MARK_CLAIM_WAITING_TAX_INVOICE",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-128"
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_waiting_tax_invoice",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-128 — กรุณาอัพโหลดใบกำกับภาษี",
+        "body": "Admin ขอใบกำกับภาษีสำหรับใบเบิกนี้ กรุณาอัพโหลดเพื่อดำเนินการชำระเงินต่อ",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/<id1>"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsWaitingTaxInvoice/wrong-status": {
+    "returnValue": {
+      "error": "ขอใบกำกับภาษีได้เฉพาะใบเบิกที่อยู่ในสถานะ \"อนุมัติแล้ว\" เท่านั้น"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-129",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 29",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/29.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending_month_end",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsPaid/from-approved": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-130",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 30",
+      "description": null,
+      "category": "travel",
+      "amount": 1250,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 1337.5,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/30.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "paid",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": "<ts>",
+      "paid_by": "<id4>",
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "mark_paid",
+        "changes": {
+          "status": {
+            "from": "approved",
+            "to": "paid"
+          }
+        },
+        "note": "ชำระเงินแล้ว"
+      }
+    ],
+    "activity": [
+      {
+        "action": "MARK_CLAIM_PAID",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-130",
+          "totalAmount": 1337.5
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_paid",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-130 จ่ายเงินแล้ว ฿1,337.5",
+        "body": "ใบทดสอบ 30",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/payouts",
+      "/finance/archive"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsPaid/from-pending_month_end": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-131",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 31",
+      "description": null,
+      "category": "travel",
+      "amount": 1250,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 1337.5,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/31.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "paid",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": "<ts>",
+      "paid_by": "<id4>",
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "mark_paid",
+        "changes": {
+          "status": {
+            "from": "pending_month_end",
+            "to": "paid"
+          }
+        },
+        "note": "ชำระเงินแล้ว"
+      }
+    ],
+    "activity": [
+      {
+        "action": "MARK_CLAIM_PAID",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-131",
+          "totalAmount": 1337.5
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_paid",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-131 จ่ายเงินแล้ว ฿1,337.5",
+        "body": "ใบทดสอบ 31",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/payouts",
+      "/finance/archive"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsPaid/from-waiting_tax_invoice": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-132",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 32",
+      "description": null,
+      "category": "travel",
+      "amount": 1250,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 1337.5,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/32.jpg"
+      ],
+      "tax_invoice_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/iv-1.pdf"
+      ],
+      "tax_invoice_numbers": [
+        "IV-0001"
+      ],
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "paid",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": "<ts>",
+      "paid_by": "<id4>",
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "mark_paid",
+        "changes": {
+          "status": {
+            "from": "waiting_tax_invoice",
+            "to": "paid"
+          }
+        },
+        "note": "ชำระเงินแล้ว"
+      }
+    ],
+    "activity": [
+      {
+        "action": "MARK_CLAIM_PAID",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-132",
+          "totalAmount": 1337.5
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_paid",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-132 จ่ายเงินแล้ว ฿1,337.5",
+        "body": "ใบทดสอบ 32",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/payouts",
+      "/finance/archive"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsPaid/from-awaiting_payment": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-133",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 33",
+      "description": null,
+      "category": "travel",
+      "amount": 1250,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 1337.5,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/33.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "paid",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": "<ts>",
+      "paid_by": "<id4>",
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "mark_paid",
+        "changes": {
+          "status": {
+            "from": "awaiting_payment",
+            "to": "paid"
+          }
+        },
+        "note": "ชำระเงินแล้ว"
+      }
+    ],
+    "activity": [
+      {
+        "action": "MARK_CLAIM_PAID",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-133",
+          "totalAmount": 1337.5
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_paid",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-133 จ่ายเงินแล้ว ฿1,337.5",
+        "body": "ใบทดสอบ 33",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/payouts",
+      "/finance/archive"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "markAsPaid/wrong-status": {
+    "returnValue": {
+      "error": "ชำระเงินได้เฉพาะใบเบิกที่อนุมัติแล้วเท่านั้น"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-134",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 34",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/34.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "pending",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "markAsPaid/petty-topup-closed-month": {
+    "returnValue": {
+      "error": "วงเงินปลายทางปิดเดือนแล้ว — จ่ายรายการเติมเงินนี้ไม่ได้ (ยกเลิกรายการแทน)"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-136",
+      "original_claim_number": null,
+      "claim_type": "petty_cash",
+      "job_event_id": null,
+      "title": "ใบทดสอบ 36",
+      "description": null,
+      "category": "travel",
+      "amount": 1500,
+      "unit_price": 1500,
+      "unit": "บาท",
+      "quantity": 1,
+      "total_amount": 1500,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/36.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": "<id2>",
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "approved",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "deleteClaim/approved-job-linked": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": null,
+    "logsInserted": [],
+    "activity": [
+      {
+        "action": "DELETE_EXPENSE_CLAIM",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-137"
+        }
+      }
+    ],
+    "notifications": [],
+    "revalidated": [
+      "/finance",
+      "/costs"
+    ],
+    "costItemCount": 0,
+    "storageOps": [
+      {
+        "op": "remove",
+        "paths": [
+          "claims/DEL/r1.jpg",
+          "claims/DEL/r2.jpg",
+          "claims/DEL-tax-invoice/t1.pdf",
+          "claims/DEL-actual/a1.jpg",
+          "claims/DEL-refund/s1.jpg"
+        ]
+      }
+    ]
+  },
+  "deleteClaim/petty-fund-with-children": {
+    "returnValue": {
+      "error": "วงเงินนี้มีรายการลูก (ค่าใช้จ่าย/เติมเงิน) อยู่ — ยกเลิก/ลบรายการลูกก่อนจึงจะลบวงเงินได้"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-138",
+      "original_claim_number": null,
+      "claim_type": "petty_cash",
+      "job_event_id": null,
+      "title": "ใบทดสอบ 38",
+      "description": null,
+      "category": "travel",
+      "amount": 3000,
+      "unit_price": 3000,
+      "unit": "บาท",
+      "quantity": 1,
+      "total_amount": 3000,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": "2026-10-01",
+      "pettycash_period_end": "2026-10-31",
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "paid",
+      "submitted_by": "<id2>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "adminOverrideStatus/pending-to-approved-no-reason": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-140",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 40",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/40.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "approved",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": "<ts>",
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": "<ts>",
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "admin_override",
+        "changes": {
+          "status": {
+            "from": "pending",
+            "to": "approved"
+          }
+        },
+        "note": "[Admin Override] ไม่ระบุเหตุผล"
+      }
+    ],
+    "activity": [
+      {
+        "action": "ADMIN_OVERRIDE_CLAIM_STATUS",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-140",
+          "fromStatus": "pending",
+          "toStatus": "approved",
+          "reason": "ไม่ระบุเหตุผล"
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_approved",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-140 สถานะถูกเปลี่ยนเป็น \"approved\" โดย Admin",
+        "body": "ไม่ระบุเหตุผล",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/<id1>",
+      "/finance/payouts",
+      "/costs"
+    ],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "adminOverrideStatus/waiting-tax-invoice-to-draft-with-reason": {
+    "returnValue": {
+      "success": true
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-141",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 41",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/41.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "draft",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [
+      {
+        "action": "admin_override",
+        "changes": {
+          "status": {
+            "from": "waiting_tax_invoice",
+            "to": "draft"
+          }
+        },
+        "note": "[Admin Override] ลูกค้าขอแก้ยอด"
+      }
+    ],
+    "activity": [
+      {
+        "action": "ADMIN_OVERRIDE_CLAIM_STATUS",
+        "details": {
+          "claimId": "<id1>",
+          "claimNumber": "EXP-202609-141",
+          "fromStatus": "waiting_tax_invoice",
+          "toStatus": "draft",
+          "reason": "ลูกค้าขอแก้ยอด"
+        }
+      }
+    ],
+    "notifications": [
+      {
+        "type": "expense_approved",
+        "userIds": [
+          "<id3>"
+        ],
+        "title": "ใบเบิก EXP-202609-141 สถานะถูกเปลี่ยนเป็น \"draft\" โดย Admin",
+        "body": "ลูกค้าขอแก้ยอด",
+        "referenceType": "expense_claim",
+        "referenceId": "<id1>"
+      }
+    ],
+    "revalidated": [
+      "/finance",
+      "/finance/<id1>",
+      "/finance/payouts",
+      "/costs"
+    ],
+    "costItemCount": 0,
+    "storageOps": []
+  },
+  "adminOverrideStatus/paid-to-approved-no-reason": {
+    "returnValue": {
+      "error": "กรุณาระบุเหตุผล — การถอยสถานะ ยกเลิก/ปฏิเสธใบที่จ่ายแล้ว หรือแก้ใบที่จ่ายแล้ว ต้องมีเหตุผล"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-142",
+      "original_claim_number": null,
+      "claim_type": "event",
+      "job_event_id": "<id2>",
+      "title": "ใบทดสอบ 42",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/42.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": null,
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "paid",
+      "submitted_by": "<id3>",
+      "approved_by": "<id4>",
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": "<ts>",
+      "paid_by": "<id4>",
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 1,
+    "storageOps": []
+  },
+  "adminOverrideStatus/closed-petty-child": {
+    "returnValue": {
+      "error": "รอบเดือนของวงเงินปิดแล้ว — เปิดรอบอีกครั้งก่อนจึงจะแก้สถานะรายการลูกได้"
+    },
+    "claimRowAfter": {
+      "id": "<id1>",
+      "claim_number": "EXP-202609-144",
+      "original_claim_number": null,
+      "claim_type": "other",
+      "job_event_id": null,
+      "title": "ใบทดสอบ 44",
+      "description": null,
+      "category": "travel",
+      "amount": 300,
+      "unit_price": 100,
+      "unit": "บาท",
+      "quantity": 3,
+      "total_amount": 300,
+      "vat_mode": "none",
+      "include_vat": false,
+      "withholding_tax_rate": 0,
+      "receipt_urls": [
+        "https://fake.supabase.test/storage/v1/object/public/receipts/seed/44.jpg"
+      ],
+      "tax_invoice_urls": null,
+      "tax_invoice_numbers": null,
+      "funding_source": "company",
+      "actual_spent_amount": null,
+      "actual_spent_items": null,
+      "refund_amount": null,
+      "actual_receipt_urls": null,
+      "refund_slip_urls": null,
+      "advance_settled_at": null,
+      "advance_settled_by": null,
+      "refund_confirmed_at": null,
+      "refund_confirmed_by": null,
+      "pettycash_fund_id": "<id2>",
+      "pettycash_opening_balance": null,
+      "pettycash_opening_from": null,
+      "pettycash_previous_claim_id": null,
+      "pettycash_period_start": null,
+      "pettycash_period_end": null,
+      "pettycash_closed_at": null,
+      "pettycash_closed_by": null,
+      "status": "paid",
+      "submitted_by": "<id3>",
+      "approved_by": null,
+      "approved_at": null,
+      "reject_reason": null,
+      "expense_date": "2026-09-10",
+      "notes": null,
+      "bank_name": null,
+      "bank_account_number": null,
+      "account_holder_name": null,
+      "paid_at": null,
+      "paid_by": null,
+      "submitted_at": null,
+      "cancelled_at": null,
+      "cancelled_by": null,
+      "created_at": "<ts>",
+      "filed_at": null,
+      "filed_by": null,
+      "filed_file_count": null,
+      "deleted_at": null,
+      "deleted_by": null,
+      "status_changed_at": null
+    },
+    "logsInserted": [],
+    "activity": [],
+    "notifications": [],
+    "revalidated": [],
+    "costItemCount": 0,
+    "storageOps": []
+  }
+}

@@ -47,6 +47,7 @@ function claim(n: number, submittedBy: string, wht: number | null, over: Row = {
     status: 'paid', submitted_by: submittedBy, expense_date: '2026-09-01', created_at: `2026-09-${String(n).padStart(2, '0')}T03:00:00+00:00`,
     bank_name: 'ธนาคารทดสอบ', bank_account_number: `000-0-0000${n}-9`, account_holder_name: `ผู้รับทดสอบ ${n}`,
     receipt_urls: [`https://fake.supabase.test/storage/v1/object/public/receipts/${n}.jpg`], notes: `หมายเหตุทดสอบ ${n}`,
+    deleted_at: null, status_changed_at: null,
     // join ของ getClaims (submitter:profiles!…(id, full_name)) — ตัวจำลองคืนทั้งแถวเมื่อเลือก '*'
     submitter: { id: submittedBy, full_name: `ผู้ใช้ทดสอบ ${submittedBy.slice(-1)}` },
     ...over,

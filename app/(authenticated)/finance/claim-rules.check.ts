@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import { COST_ITEM_STATUSES, canSeeWorkPanel, claimIdFromCostNote, costItemNote, shouldHaveCostItem } from './claim-rules'
 import { STATUS_RANK, isBackwardTransition, reasonRequiredForEdit, reasonRequiredForTransition, receiptRequiredForSubmit } from './claim-rules'
+import { isHiddenClaim, paymentLock } from './claim-rules'
 
 const ID = '00000000-0000-4000-8000-000000000101'
 const EVENT = '00000000-0000-4000-8000-000000000901'
@@ -97,5 +98,32 @@ for (const status of ['paid', 'refund_confirmed']) assert.equal(reasonRequiredFo
 for (const status of ['draft', 'pending', 'approved', 'waiting_tax_invoice', 'pending_month_end', 'rejected']) {
   assert.equal(reasonRequiredForEdit(status), false, `แก้ใบ ${status} → ไม่ต้องมีเหตุผล`)
 }
+
+// (h) ใบที่ถูกซ่อน (ขั้น 4) — ไม่มีรายการต้นทุน ไม่ว่าสถานะไหน
+assert.equal(shouldHaveCostItem({ job_event_id: 'x', status: 'approved', deleted_at: '2026-09-30T00:00:00Z' }), false, 'ซ่อนแล้ว → ไม่ต้องมี')
+assert.equal(shouldHaveCostItem({ job_event_id: 'x', status: 'approved', deleted_at: null }), true, 'deleted_at ว่าง → ตามสถานะเดิม')
+assert.equal(shouldHaveCostItem({ job_event_id: 'x', status: 'paid' }), true, 'ไม่มีช่อง deleted_at (ฐานข้อมูลที่ยังไม่รัน SQL) → ตามสถานะเดิม')
+assert.equal(isHiddenClaim({ deleted_at: '2026-09-30T00:00:00Z' }), true)
+for (const deleted_at of [null, undefined, '']) assert.equal(isHiddenClaim({ deleted_at }), false, `deleted_at ${JSON.stringify(deleted_at)} → ไม่ได้ซ่อน`)
+
+// (i) ล็อกการจ่าย — ข้อความเก็บที่เดียวใน claim-rules.ts (ประกอบจากสองท่อนที่นี่ ให้การค้นหาข้อความเต็มเจอไฟล์เดียว)
+const LOCK = ['เอกสารไม่ครบ', 'ยังจ่ายไม่ได้'].join(' — ')
+const lockOf = (over: Partial<Parameters<typeof paymentLock>[0]>) => paymentLock({
+  claim_type: 'event', status: 'approved', receipt_urls: [], actual_receipt_urls: [], tax_invoice_urls: null, tax_invoice_numbers: null, ...over,
+})
+assert.deepEqual(lockOf({}), { locked: true, missing: ['ใบเสร็จ'], message: `${LOCK} (ขาด: ใบเสร็จ)` }, 'งานอีเวนต์ไม่มีใบเสร็จ → ล็อก')
+assert.equal(lockOf({ claim_type: 'other' }).locked, true, 'ค่าอื่นๆ ไม่มีใบเสร็จ → ล็อก')
+assert.deepEqual(lockOf({ claim_type: 'advance' }), { locked: false, missing: [], message: '' }, 'ทดลองจ่ายไม่มีใบเสร็จ → จ่ายได้')
+assert.equal(lockOf({ claim_type: 'petty_cash' }).locked, false, 'เงินสดย่อยไม่มีใบเสร็จ → จ่ายได้')
+assert.equal(lockOf({ receipt_urls: ['r.jpg'] }).locked, false, 'มีใบเสร็จ → จ่ายได้')
+assert.equal(lockOf({ actual_receipt_urls: ['a.jpg'] }).locked, false, 'ใบเสร็จตอนเคลียร์ก็นับ')
+assert.equal(lockOf({ receipt_urls: null as unknown as string[], actual_receipt_urls: null }).locked, true, 'ช่องว่าง (null) = ไม่มีใบเสร็จ')
+assert.deepEqual(lockOf({ status: 'waiting_tax_invoice', receipt_urls: ['r.jpg'] }), { locked: true, missing: ['ใบกำกับภาษี'], message: `${LOCK} (ขาด: ใบกำกับภาษี)` })
+assert.deepEqual(lockOf({ status: 'waiting_tax_invoice' }).missing, ['ใบเสร็จ', 'ใบกำกับภาษี'])
+assert.equal(lockOf({ status: 'waiting_tax_invoice' }).message, `${LOCK} (ขาด: ใบเสร็จ, ใบกำกับภาษี)`)
+assert.equal(lockOf({ status: 'waiting_tax_invoice', receipt_urls: ['r.jpg'], tax_invoice_numbers: ['IV-1'] }).locked, false, 'มีเลขที่ใบกำกับ → จ่ายได้')
+assert.equal(lockOf({ status: 'waiting_tax_invoice', receipt_urls: ['r.jpg'], tax_invoice_urls: ['iv.pdf'] }).locked, false, 'มีไฟล์ใบกำกับ → จ่ายได้')
+assert.deepEqual(lockOf({ receipt_urls: ['r.jpg'], tax_invoice_urls: [''], tax_invoice_numbers: ['  '] }).missing, ['ใบกำกับภาษี'], 'มีรายการใบกำกับแต่ว่างทุกช่อง → ขาดใบกำกับ')
+assert.equal(lockOf({ status: 'pending_month_end', receipt_urls: ['r.jpg'] }).locked, false, 'ไม่เคยขอใบกำกับ → ไม่ต้องมี')
 
 console.log('claim-rules: ผ่านทั้งหมด')

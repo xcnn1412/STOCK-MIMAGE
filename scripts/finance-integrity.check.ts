@@ -42,6 +42,7 @@ const COLUMNS: Record<string, string[]> = {
     'pettycash_closed_at', 'pettycash_closed_by', 'status', 'submitted_by', 'approved_by', 'approved_at', 'reject_reason',
     'expense_date', 'notes', 'bank_name', 'bank_account_number', 'account_holder_name', 'paid_at', 'paid_by',
     'submitted_at', 'cancelled_at', 'cancelled_by', 'created_at', 'filed_at', 'filed_by', 'filed_file_count',
+    'deleted_at', 'deleted_by', 'status_changed_at',
   ],
   expense_claim_logs: ['id', 'claim_id', 'action', 'changed_by', 'changes', 'note', 'created_at'],
   job_cost_items: [
@@ -358,6 +359,8 @@ M._load = function (this: unknown, request: string, ...rest: unknown[]) {
 
 const { createSessionToken } = require('../lib/session') as typeof import('../lib/session')
 const actions = require('../app/(authenticated)/finance/actions') as typeof import('../app/(authenticated)/finance/actions')
+// การเปลี่ยนสถานะย้ายไป lifecycle-actions.ts (ขั้น 4) — รวมเป็นชุดเดียวกับ actions ให้ส่วนที่เหลือของสคริปต์ไม่ต้องแก้
+const lifecycle = require('../app/(authenticated)/finance/lifecycle-actions') as typeof import('../app/(authenticated)/finance/lifecycle-actions')
 /* eslint-enable @typescript-eslint/no-require-imports */
 const {
   createClaim, updateClaim, submitClaim, cancelClaim, approveClaim, rejectClaim, approveAsPendingMonthEnd,
@@ -365,7 +368,7 @@ const {
   getJobEventsForSelect, settleAdvanceClaim, confirmRefundReceived, addPettyCashExpense, createPettyCashTopup,
   closePettyCashMonth,
   reopenRejectedClaim,
-} = actions
+} = { ...actions, ...lifecycle }
 
 // ── ตัวช่วย ──────────────────────────────────────────────────────────────────
 function loginAs(userId: string) {

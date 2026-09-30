@@ -52,6 +52,7 @@ function claim(over: Row): Row {
     vat_mode: 'none', withholding_tax_rate: 0, status: 'pending', submitted_by: STAFF_A,
     expense_date: '2026-09-01', paid_at: null, actual_spent_amount: null,
     pettycash_fund_id: null, pettycash_closed_at: null,
+    deleted_at: null, status_changed_at: null,
     created_at: ts(Date.UTC(2026, 8, 1)),
     ...over,
   }

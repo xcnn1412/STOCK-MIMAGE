@@ -13,8 +13,12 @@ import {
   Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert,
   Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle,
   ChevronDown, ChevronRight, Coins, Lock, FileStack, FolderCheck,
+  Undo2, EyeOff, ArchiveRestore,
 } from 'lucide-react'
-import { approveClaim, rejectClaim, deleteClaim, updateClaim, removeReceiptFile, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash, markClaimsFiled, unmarkClaimFiled, reopenRejectedClaim } from '../actions'
+import { updateClaim, removeReceiptFile, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash, markClaimsFiled, unmarkClaimFiled } from '../actions'
+import { approveClaim, rejectClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, reopenRejectedClaim, sendBackClaim, hideClaim, restoreClaim } from '../lifecycle-actions'
+import { SendBackDialog } from '../send-back-dialog'
+import { findTransition } from '../claim-transitions'
 import { getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getAdminOverrideStatuses, isAdminSensitiveTransition, CLAIM_STATUSES, getClaimChecklist, getFundingSourceLabel, getFundingSourceColor, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
@@ -23,7 +27,7 @@ import BankSelect from '@/components/bank-select'
 import { compressImage } from '@/lib/utils'
 import { thaiTodayIso } from '@/lib/thai-date'
 import EventSelectCombobox from '../new/event-select-combobox'
-import { canSeeWorkPanel, receiptRequiredForSubmit, reasonRequiredForTransition, reasonRequiredForEdit } from '../claim-rules'
+import { canSeeWorkPanel, receiptRequiredForSubmit, reasonRequiredForTransition, reasonRequiredForEdit, paymentLock } from '../claim-rules'
 
 function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
   let baseAmount = amount
@@ -164,6 +168,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [busy, setBusy] = useState<string | null>(null)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [sendBackOpen, setSendBackOpen] = useState(false)
   const [actionError, setActionError] = useState<ActionErrorState>(null)
   const [bundleOpen, setBundleOpen] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -296,8 +301,19 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const canCancel = isOwner && !isAdmin && (isDraft || isPending)
   const statusColor = getClaimStatusColor(claim.status)
   const isEn = locale === 'en'
-  // แอดมินบังคับเปลี่ยนสถานะ: ต้องมีเหตุผลเฉพาะตอนถอยสถานะ / ปิดใบที่จ่ายแล้ว — เดินหน้าตามขั้นตอนไม่ต้อง
-  const needsReason = !!overrideStatus && reasonRequiredForTransition(claim.status, overrideStatus)
+  // ล็อกการจ่าย: เอกสารไม่ครบจ่ายไม่ได้ (server ปฏิเสธด้วยข้อความเดียวกัน) — ทางเดียวที่จ่ายได้คือบังคับเปลี่ยนสถานะพร้อมเหตุผล
+  const payLock = paymentLock(claim)
+  const overridePayLocked = overrideStatus === 'paid' && payLock.locked
+  // ส่งกลับให้แก้: แอดมิน จากสถานะที่ตารางการเปลี่ยนสถานะอนุญาต (รออนุมัติ / อนุมัติแล้ว / รอใบกำกับ / รอจ่ายสิ้นเดือน)
+  const canSendBack = isAdmin && !!findTransition('send_back', claim.status)
+  // ใบที่แอดมินซ่อนไว้ (เปิดได้เฉพาะแอดมิน) — กู้คืนก่อนจึงแก้ไขหรือเปลี่ยนสถานะต่อได้
+  const isHidden = !!claim.deleted_at
+  // รายการเงินสดย่อย (วงเงิน / เติมเงิน / รายการในกล่อง) ซ่อนไม่ได้ — ยอดของกล่องจะเพี้ยน ให้ยกเลิกรายการแทน
+  const canHide = isAdmin && !isHidden && !isPettyCash && !claim.pettycash_fund_id
+  // ส่งกลับให้แก้แล้ว: ใบกลับเป็นแบบร่างพร้อมสิ่งที่ต้องแก้ (เจ้าของใบและแอดมินเห็น)
+  const sentBackReason = isDraft && (isOwner || isAdmin) ? (claim.reject_reason || '').trim() : ''
+  // แอดมินบังคับเปลี่ยนสถานะ: ต้องมีเหตุผลเฉพาะตอนถอยสถานะ / ปิดใบที่จ่ายแล้ว / จ่ายทั้งที่เอกสารไม่ครบ — เดินหน้าตามขั้นตอนไม่ต้อง
+  const needsReason = !!overrideStatus && (reasonRequiredForTransition(claim.status, overrideStatus) || overridePayLocked)
   // แก้ใบที่จ่ายเงินแล้ว ต้องบอกเหตุผล
   const editNeedsReason = reasonRequiredForEdit(claim.status)
 
@@ -381,21 +397,33 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     await run('reject', () => rejectClaim(claim.id, rejectReason), isEn ? 'Rejected' : 'ปฏิเสธแล้ว', () => { setRejectOpen(false) })
   }
 
-  const handleDelete = async () => {
+  // ซ่อนแทนการลบ: ใบหายจากรายการและคิว ไฟล์ยังอยู่ กู้คืนได้ (แอดมิน · เงินสดย่อยซ่อนไม่ได้)
+  const handleHide = async () => {
     const ok = await askConfirm({
-      title: isEn ? 'Delete this claim?' : 'ลบใบเบิกนี้?',
+      title: isEn ? 'Hide this claim?' : 'ซ่อนใบเบิกนี้?',
       description: isEn
-        ? 'This permanently deletes the claim. If approved, its linked cost item will also be removed.'
-        : 'ลบถาวร — ถ้าอนุมัติแล้ว ระบบจะลบ cost item ที่ผูกอยู่ด้วย',
+        ? 'The claim disappears from the lists and the queue — you can restore it later. · Its linked cost item is removed.'
+        : 'ใบเบิกจะหายจากรายการและคิว กู้คืนได้ภายหลัง · รายการต้นทุนที่ผูกอยู่จะถูกเอาออก',
       details: claimContextDetails,
-      variant: 'destructive',
-      confirmLabel: isEn ? 'Delete permanently' : 'ลบถาวร',
+      variant: 'warning',
+      confirmLabel: isEn ? 'Hide claim' : 'ซ่อนใบเบิก',
       cancelLabel: isEn ? 'Cancel' : 'ยกเลิก',
     })
     if (!ok) return
-    await run('delete', () => deleteClaim(claim.id), isEn ? 'Claim deleted' : 'ลบใบเบิกแล้ว', () => {
+    await run('hide', () => hideClaim(claim.id), isEn ? 'Claim hidden' : 'ซ่อนใบเบิกแล้ว', () => {
       router.push(financeListHref())
       return true // ออกจากหน้านี้ — ปุ่มหมุนค้างไว้จนเปลี่ยนหน้า
+    })
+  }
+
+  const handleRestore = async () => {
+    await run('restore', () => restoreClaim(claim.id), isEn ? 'Claim restored' : 'กู้คืนใบเบิกแล้ว')
+  }
+
+  // ส่งกลับให้แก้: ใบกลับเป็นแบบร่าง ผู้เบิกได้รับแจ้งพร้อมสิ่งที่ต้องแก้ · ผิดพลาด = หน้าต่างยังเปิดไว้ให้ลองใหม่
+  const handleSendBack = async (reason: string) => {
+    await run('sendBack', () => sendBackClaim(claim.id, reason), isEn ? 'Sent back — the submitter has been notified' : 'ส่งกลับให้แก้แล้ว — แจ้งผู้เบิกแล้ว', () => {
+      setSendBackOpen(false)
     })
   }
 
@@ -426,6 +454,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   }
 
   const handleMarkPaid = async () => {
+    if (payLock.locked) { fail('markPaid', payLock.message); return }
     const ok = await askConfirm({
       title: isEn ? 'Mark this claim as paid?' : 'ยืนยันชำระเงินใบเบิกนี้?',
       description: isEn
@@ -698,7 +727,12 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
 
   const handleAdminOverride = async () => {
     if (!overrideStatus) return
-    if (needsReason && !overrideReason.trim()) { fail('override', isEn ? 'Please enter a reason — moving back or closing a paid claim needs one.' : 'กรุณาระบุเหตุผล — ถอยสถานะ / ยกเลิกใบที่จ่ายแล้ว ต้องระบุเหตุผล'); return }
+    if (needsReason && !overrideReason.trim()) {
+      fail('override', overridePayLocked
+        ? (isEn ? 'Documents are incomplete — enter a reason to pay anyway.' : 'เอกสารไม่ครบ — ต้องระบุเหตุผลจึงจะจ่ายได้')
+        : (isEn ? 'Please enter a reason — moving back or closing a paid claim needs one.' : 'กรุณาระบุเหตุผล — ถอยสถานะ / ยกเลิกใบที่จ่ายแล้ว ต้องระบุเหตุผล'))
+      return
+    }
     await run('override', () => adminOverrideStatus(claim.id, overrideStatus, overrideReason), isEn ? 'Status changed' : 'เปลี่ยนสถานะแล้ว', () => {
       setOverrideStatus('')
       setOverrideReason('')
@@ -814,6 +848,16 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
           onFiled={() => router.refresh()}
         />
       )}
+      {canSendBack && (
+        <SendBackDialog
+          open={sendBackOpen}
+          claim={{ claim_number: claim.claim_number, title: claim.title }}
+          busy={busy === 'sendBack'}
+          isEn={isEn}
+          onCancel={() => setSendBackOpen(false)}
+          onConfirm={handleSendBack}
+        />
+      )}
       {/* Header */}
       <div className={`flex items-center justify-between gap-2 ${filed !== 'none' || isAdmin ? 'mb-3' : 'mb-6'}`}>
         <button onClick={() => router.push(financeListHref())} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400">
@@ -821,7 +865,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
           {isEn ? 'Back' : 'กลับ'}
         </button>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {canEdit && !editing && (
+          {canEdit && !editing && !isHidden && (
             <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg transition-colors">
               <Edit3 className="h-4 w-4" />
               {isEn ? 'Edit' : 'แก้ไข'}
@@ -841,10 +885,15 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             <FileStack className="h-4 w-4" />
             {isEn ? 'Bundle documents' : 'จับชุดเอกสาร'}
           </button>
-          {isAdmin && (
-            <button onClick={handleDelete} disabled={busy !== null} className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 disabled:opacity-50 rounded-lg transition-colors">
-              <Trash2 className="h-4 w-4" />
-              {busy === 'delete' ? '...' : (isEn ? 'Delete' : 'ลบ')}
+          {canHide && (
+            <button
+              type="button"
+              onClick={handleHide}
+              disabled={busy !== null}
+              className="flex items-center gap-1.5 min-h-10 px-3 py-2 text-sm text-zinc-600 hover:text-red-700 hover:bg-red-50 dark:text-zinc-400 dark:hover:text-red-400 dark:hover:bg-red-950/20 disabled:opacity-50 rounded-lg transition-colors"
+            >
+              <EyeOff className="h-4 w-4" />
+              {busy === 'hide' ? '...' : (isEn ? 'Hide claim' : 'ซ่อนใบเบิก')}
             </button>
           )}
         </div>
@@ -888,12 +937,61 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
               {busy === 'filed' ? '...' : (isEn ? 'Remove mark' : 'ยกเลิกเครื่องหมาย')}
             </button>
           )}
-          {/* ข้อผิดพลาดของปุ่มลบ (หัวหน้า) และปุ่มเข้าแฟ้ม */}
-          {actionError && ['delete', 'filed'].includes(actionError.key) && (
+          {/* ข้อผิดพลาดของปุ่มซ่อนใบเบิก (หัวหน้า) และปุ่มเข้าแฟ้ม */}
+          {actionError && ['hide', 'filed'].includes(actionError.key) && (
             <div className="basis-full">
-              <ActionError k={['delete', 'filed']} error={actionError} />
+              <ActionError k={['hide', 'filed']} error={actionError} />
             </div>
           )}
+        </div>
+      )}
+
+      {/* ใบที่ซ่อนไว้ — แอดมินเท่านั้นที่เปิดหน้านี้ได้ กู้คืนแล้วใบกลับเข้ารายการ/คิวตามสถานะเดิม */}
+      {isHidden && (
+        <div role="status" className="mb-4 rounded-xl border border-zinc-300 bg-zinc-100 p-4 dark:border-zinc-700 dark:bg-zinc-800/60">
+          <div className="flex flex-wrap items-center gap-3">
+            <EyeOff className="h-5 w-5 shrink-0 text-zinc-600 dark:text-zinc-300" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                {isEn ? 'This claim is hidden' : 'ใบเบิกนี้ถูกซ่อนไว้'}
+              </p>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                {isEn
+                  ? `Hidden on ${new Date(claim.deleted_at as string).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'Asia/Bangkok' })} — not shown in any list or queue. Restore it to edit or change its status.`
+                  : `ซ่อนเมื่อ ${new Date(claim.deleted_at as string).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'Asia/Bangkok' })} — ไม่แสดงในรายการและคิว กู้คืนก่อนจึงแก้ไขหรือเปลี่ยนสถานะได้`}
+              </p>
+            </div>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={handleRestore}
+                disabled={busy !== null}
+                className="flex items-center justify-center gap-2 min-h-10 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors"
+              >
+                <ArchiveRestore className="h-4 w-4" />
+                {busy === 'restore' ? '...' : (isEn ? 'Restore' : 'กู้คืน')}
+              </button>
+            )}
+          </div>
+          <ActionError k="restore" error={actionError} className="mt-3" />
+        </div>
+      )}
+
+      {/* ส่งกลับให้แก้ — สิ่งที่แอดมินขอให้แก้ อยู่บนสุดให้ผู้เบิกเห็นก่อน แก้แล้วกด "ยื่นใบเบิก" ด้านล่าง */}
+      {sentBackReason && (
+        <div role="note" className="mb-4 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+          <Undo2 className="h-5 w-5 shrink-0 mt-0.5 text-amber-700 dark:text-amber-300" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="text-sm text-amber-900 dark:text-amber-100 break-words">
+              <span className="font-semibold">{isEn ? 'Sent back for changes:' : 'ส่งกลับให้แก้:'}</span>{' '}
+              {sentBackReason}
+            </p>
+            {isOwner && (
+              <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                {isEn ? 'Fix the claim, then press “Submit Claim” below.' : 'แก้ไขใบเบิกแล้วกด “ยื่นใบเบิก” ด้านล่าง'}
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -1997,7 +2095,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
         {/* ===== Workflow Action Bar ===== */}
         {/* Owners of advance claims can still settle after the advance is paid out;
             ผู้ถือวงเงินสดย่อยใช้แผงวงเงินได้ขณะวงเงิน "จ่ายแล้ว" — ปุ่มของแอดมินข้างในมีเงื่อนไขของตัวเอง */}
-        {canSeeWorkPanel({ editing, status: claim.status, isAdmin, canSettleAdvance, canManagePettyFund }) && (
+        {/* ใบที่ซ่อนไว้ไม่มีแผงทำงาน — กู้คืนจากแถบด้านบนก่อน */}
+        {!isHidden && canSeeWorkPanel({ editing, status: claim.status, isAdmin, canSettleAdvance, canManagePettyFund }) && (
           <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/40 print:hidden space-y-3">
 
             {/* ── Owner: Submit draft ── */}
@@ -2069,6 +2168,17 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       <Clock className="h-4 w-4" />
                       {busy === 'approveMonthEnd' ? '...' : (isEn ? 'Approve — Month End' : 'อนุมัติ — สิ้นเดือน')}
                     </button>
+                    {canSendBack && (
+                      <button
+                        type="button"
+                        onClick={() => setSendBackOpen(true)}
+                        disabled={busy !== null}
+                        className="flex items-center gap-2 min-h-10 px-4 py-2.5 border-2 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        <Undo2 className="h-4 w-4" />
+                        {busy === 'sendBack' ? '...' : (isEn ? 'Send back for changes' : 'ส่งกลับให้แก้')}
+                      </button>
+                    )}
                     <button
                       onClick={() => setRejectOpen(true)}
                       disabled={busy !== null}
@@ -2078,7 +2188,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       {isEn ? 'Reject' : 'ปฏิเสธ'}
                     </button>
                   </div>
-                  <ActionError k={['approve', 'approveMonthEnd', 'reject']} error={actionError} />
+                  <ActionError k={['approve', 'approveMonthEnd', 'reject', 'sendBack']} error={actionError} />
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -2118,12 +2228,15 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   {isEn ? 'Next step' : 'ขั้นตอนถัดไป'}
                 </p>
                 <div className="flex items-center gap-2 flex-wrap">
+                  {/* ล็อกการจ่าย: เอกสารไม่ครบ = ปุ่มปิด พร้อมบอกว่าขาดอะไร (จ่ายจริงได้ทางบังคับเปลี่ยนสถานะ + เหตุผล) */}
                   <button
                     onClick={handleMarkPaid}
-                    disabled={busy !== null}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
+                    disabled={busy !== null || payLock.locked}
+                    title={payLock.locked ? payLock.message : undefined}
+                    aria-describedby={payLock.locked ? 'pay-lock-message' : undefined}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
                   >
-                    <CheckCircle2 className="h-4 w-4" />
+                    {payLock.locked ? <Lock className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
                     {busy === 'markPaid' ? '...' : (isEn ? 'Mark as Paid' : 'ชำระเงินแล้ว')}
                   </button>
                   {(isApproved || isWaitingTaxInvoice) && (
@@ -2146,8 +2259,29 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       {busy === 'waitingTaxInvoice' ? '...' : (isEn ? 'Request Tax Invoice' : 'ขอใบกำกับภาษี')}
                     </button>
                   )}
+                  {canSendBack && (
+                    <button
+                      type="button"
+                      onClick={() => setSendBackOpen(true)}
+                      disabled={busy !== null}
+                      className="flex items-center gap-2 min-h-10 px-4 py-2.5 border-2 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Undo2 className="h-4 w-4" />
+                      {busy === 'sendBack' ? '...' : (isEn ? 'Send back for changes' : 'ส่งกลับให้แก้')}
+                    </button>
+                  )}
                 </div>
-                <ActionError k={['markPaid', 'deferMonthEnd', 'waitingTaxInvoice']} error={actionError} />
+                {payLock.locked && (
+                  <p id="pay-lock-message" className="flex items-start gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
+                    <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>
+                      {payLock.message}
+                      {' · '}
+                      {isEn ? 'Attach the missing documents, or use the admin override with a reason.' : 'แนบเอกสารให้ครบ หรือใช้การบังคับเปลี่ยนสถานะพร้อมเหตุผล'}
+                    </span>
+                  </p>
+                )}
+                <ActionError k={['markPaid', 'deferMonthEnd', 'waitingTaxInvoice', 'sendBack']} error={actionError} />
               </div>
             )}
 
@@ -3154,9 +3288,13 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             {/* ── Admin Override — always visible for admin ── */}
             {isAdmin && (
               <div className="border-t border-zinc-200 dark:border-zinc-700 pt-3 space-y-2.5">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-orange-600 dark:text-orange-400">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs font-medium text-orange-600 dark:text-orange-400">
                   <ShieldAlert className="h-3.5 w-3.5" />
                   {isEn ? 'Admin: Override Status' : 'Admin: บังคับเปลี่ยนสถานะ'}
+                  {/* งานปกติ (อนุมัติ จ่าย ขอใบกำกับ เลื่อนสิ้นเดือน ส่งกลับให้แก้) มีปุ่มของตัวเองด้านบนแล้ว */}
+                  <span className="font-normal text-zinc-500 dark:text-zinc-400">
+                    {isEn ? '— for correcting mistakes; use the buttons above for normal steps' : '— ใช้แก้ข้อผิดพลาด งานปกติใช้ปุ่มด้านบน'}
+                  </span>
                 </div>
 
                 {/* Sensitive transition warning */}
@@ -3219,7 +3357,15 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     </button>
                   )}
                 </div>
-                {overrideStatus && (
+                {overridePayLocked ? (
+                  <p className="flex items-start gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
+                    <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>
+                      {isEn ? 'Documents are incomplete — a reason is required to pay.' : 'เอกสารไม่ครบ — ต้องระบุเหตุผลจึงจะจ่ายได้'}
+                      {' '}({payLock.missing.join(', ')})
+                    </span>
+                  </p>
+                ) : overrideStatus && (
                   <p className="text-[11px] text-zinc-500">
                     {needsReason
                       ? (isEn ? 'Moving back / cancelling a paid claim needs a reason' : 'ถอยสถานะ / ยกเลิกใบที่จ่ายแล้ว ต้องระบุเหตุผล')
@@ -3266,6 +3412,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'settle_advance'       ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
                       : log.action === 'renumber_claim'       ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-400'
                       : log.action === 'reopen'               ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                      : log.action === 'send_back'            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                      : log.action === 'restore'              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
                       :                                    'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}>
                       {log.action === 'update'          ? (isEn ? 'Edit' : 'แก้ไข')
@@ -3285,6 +3433,9 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       : log.action === 'settle_advance'       ? (isEn ? 'Advance Settled' : 'อัพเดทค่าใช้จ่ายจริง')
                       : log.action === 'renumber_claim'       ? (isEn ? 'Renumbered (duplicate fixed)' : 'เปลี่ยนเลขที่ (แก้เลขที่ซ้ำ)')
                       : log.action === 'reopen'               ? (isEn ? 'Reopened' : 'เปิดกลับมาแก้ไข')
+                      : log.action === 'send_back'            ? (isEn ? 'Sent back' : 'ส่งกลับให้แก้')
+                      : log.action === 'hide'                 ? (isEn ? 'Hidden' : 'ซ่อนใบเบิก')
+                      : log.action === 'restore'              ? (isEn ? 'Restored' : 'กู้คืน')
                       : log.action}
                     </span>
                     <span className="text-xs text-zinc-500">

@@ -4,6 +4,8 @@
 // ตรวจด้วย claim-rules.check.ts ข้างไฟล์นี้
 // ============================================================================
 
+import type { ExpenseClaim } from '../costs/types'
+
 /** สถานะที่ใบเบิกซึ่งผูกงานต้องมีรายการต้นทุน (อนุมัติแล้วขึ้นไป) */
 export const COST_ITEM_STATUSES: readonly string[] = [
   'approved',
@@ -14,10 +16,14 @@ export const COST_ITEM_STATUSES: readonly string[] = [
   'refund_confirmed',
 ]
 
-/** ใบเบิกนี้ต้องมีรายการต้นทุนหนึ่งรายการหรือไม่ — ผูกงาน และอนุมัติแล้วขึ้นไป */
-export function shouldHaveCostItem(claim: { job_event_id: string | null; status: string }): boolean {
+/** ใบเบิกนี้ต้องมีรายการต้นทุนหนึ่งรายการหรือไม่ — ผูกงาน และอนุมัติแล้วขึ้นไป · ใบที่ถูกซ่อนไม่มีรายการต้นทุน */
+export function shouldHaveCostItem(claim: { job_event_id: string | null; status: string; deleted_at?: string | null }): boolean {
+  if (claim.deleted_at) return false
   return !!claim.job_event_id && COST_ITEM_STATUSES.includes(claim.status)
 }
+
+/** ใบที่แอดมินซ่อนไว้ (แทนการลบ) — ไม่อยู่ในรายการและคิว กู้คืนได้ */
+export const isHiddenClaim = (c: { deleted_at?: string | null }) => !!c.deleted_at
 
 /** ข้อความในช่อง notes ของ job_cost_items ที่ผูกรายการต้นทุนกับใบเบิก: "<claim_number>::<claim id>" */
 export function costItemNote(claim: { id: string; claim_number: string }): string {
@@ -58,6 +64,28 @@ export const RECEIPT_OPTIONAL_TYPES: readonly string[] = ['advance', 'petty_cash
 /** ต้องแนบใบเสร็จอย่างน้อย 1 ไฟล์ก่อนยื่นหรือไม่ */
 export function receiptRequiredForSubmit(claimType: string): boolean {
   return !RECEIPT_OPTIONAL_TYPES.includes(claimType)
+}
+
+const filled = (list: readonly (string | null)[] | null | undefined) => (list ?? []).some(v => typeof v === 'string' && v.trim() !== '')
+
+/**
+ * ล็อกการจ่าย — เอกสารไม่ครบจ่ายไม่ได้ทุกทาง (ปุ่มจ่าย · จ่ายหลายใบ · หน้าสรุปยอดจ่าย) ยกเว้นแอดมินบังคับเปลี่ยนสถานะพร้อมเหตุผล
+ * ใบเสร็จ: ประเภทที่ต้องแนบก่อนยื่น (receiptRequiredForSubmit) ต้องมีใบเสร็จหรือใบเสร็จตอนเคลียร์อย่างน้อย 1 ไฟล์
+ *   (ทดลองจ่าย/เงินสดย่อยแนบทีหลังตอนเคลียร์ จึงไม่ล็อก)
+ * ใบกำกับภาษี: ใบที่รอใบกำกับ หรือเคยมีรายการใบกำกับ ต้องมีไฟล์หรือเลขที่อย่างน้อย 1 รายการ
+ * ข้อความนี้เป็นที่เดียวของข้อความล็อก — หน้าจอและ server แสดง message ตรงๆ
+ */
+export function paymentLock(
+  claim: Pick<ExpenseClaim, 'claim_type' | 'status' | 'receipt_urls' | 'actual_receipt_urls' | 'tax_invoice_urls' | 'tax_invoice_numbers'>,
+): { locked: boolean; missing: string[]; message: string } {
+  const missing: string[] = []
+  const hasReceipt = (claim.receipt_urls?.length ?? 0) > 0 || (claim.actual_receipt_urls?.length ?? 0) > 0
+  if (receiptRequiredForSubmit(claim.claim_type) && !hasReceipt) missing.push('ใบเสร็จ')
+  const taxRequired = claim.status === 'waiting_tax_invoice'
+    || (claim.tax_invoice_urls?.length ?? 0) > 0 || (claim.tax_invoice_numbers?.length ?? 0) > 0
+  if (taxRequired && !filled(claim.tax_invoice_urls) && !filled(claim.tax_invoice_numbers)) missing.push('ใบกำกับภาษี')
+  const locked = missing.length > 0
+  return { locked, missing, message: locked ? `เอกสารไม่ครบ — ยังจ่ายไม่ได้ (ขาด: ${missing.join(', ')})` : '' }
 }
 
 /** ลำดับสถานะตามขั้นตอนงาน — ค่ามากกว่า = ไปข้างหน้า · สถานะขั้นเดียวกันมีค่าเท่ากัน (ย้ายระหว่างกันไม่นับว่าถอย) */
