@@ -18,23 +18,24 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { calcTax } from '@/lib/finance/money'
 import { cn } from '@/lib/utils'
-import { getClaimChecklist, type ExpenseClaim } from '../costs/types'
 import BundleDialog, { type BundleClaimRef } from './bundle-dialog'
+import { checklistOf, fileCountOf, filedStateOf } from './claim-docs'
 import {
-  EMPTY_FILTERS, FILED_FILTERS, MAX_BUNDLE_SELECTION, claimFileCount, filedState, filterClaims, selectableIds, type FiledFilter,
+  EMPTY_FILTERS, FILED_FILTERS, MAX_BUNDLE_SELECTION, filterClaims, selectableIds, type FiledFilter,
 } from './claims-filter'
 import { PRIMARY_BUTTON } from './queue-row'
 import { QueueSelectionBar } from './queue-selection-bar'
+import type { ListClaim } from './view-data'
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const netOf = (c: ExpenseClaim) => calcTax(Number(c.amount) || 0, c.vat_mode || 'none', Number(c.withholding_tax_rate) || 0).netPayable
+const netOf = (c: ListClaim) => calcTax(Number(c.amount) || 0, c.vat_mode || 'none', Number(c.withholding_tax_rate) || 0).netPayable
 
-const toBundleRef = (c: ExpenseClaim): BundleClaimRef => ({
+const toBundleRef = (c: ListClaim): BundleClaimRef => ({
   id: c.id,
   claim_number: c.claim_number,
   title: c.title,
-  incomplete: !getClaimChecklist(c).isComplete,
-  fileCount: claimFileCount(c),
+  incomplete: !checklistOf(c).isComplete,
+  fileCount: fileCountOf(c),
 })
 
 const FILED_LABEL: Record<FiledFilter, [string, string]> = {
@@ -44,8 +45,8 @@ const FILED_LABEL: Record<FiledFilter, [string, string]> = {
   changed: ['ไฟล์แนบเปลี่ยนหลังเข้าแฟ้ม', 'Attachments changed after filing'],
 }
 
-function FiledBadge({ claim, isEn }: { claim: ExpenseClaim; isEn: boolean }) {
-  const state = filedState(claim)
+function FiledBadge({ claim, isEn }: { claim: ListClaim; isEn: boolean }) {
+  const state = filedStateOf(claim)
   if (state === 'none') return null
   return state === 'filed' ? (
     <Badge variant="outline" className="gap-1 text-zinc-700 dark:text-zinc-300">
@@ -66,8 +67,8 @@ export function QueuePaidSection({
   month,
   isEn,
 }: {
-  /** ใบที่จ่ายแล้วของเดือน month (server โหลดทีละเดือน) */
-  claims: ExpenseClaim[]
+  /** ใบที่จ่ายแล้วของเดือน month (server โหลดทีละเดือน · แถวแบบเบา — ป้ายเอกสาร/แฟ้มคิดจาก docs) */
+  claims: ListClaim[]
   months: { month: string; count: number }[]
   /** 'YYYY-MM' ('' = ยังไม่มีการจ่าย) */
   month: string

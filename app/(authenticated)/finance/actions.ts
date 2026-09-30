@@ -5,12 +5,15 @@ import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { thaiTodayIso, thaiYearMonth } from '@/lib/thai-date'
+import { PAID_STATUSES, TERMINAL_STATUSES } from '@/lib/finance/conditions'
+import { thumbPathFor } from '@/lib/finance/receipt-thumbs'
 import { claimFileCount, thaiMonth } from './claims-filter'
 import { reasonRequiredForEdit, receiptRequiredForSubmit, shouldHaveCostItem } from './claim-rules'
 // ตัวตน ตัวช่วยสถานะ/รายการต้นทุน และข้อความกลาง (ใช้ร่วมกับ lifecycle-actions.ts ซึ่งเป็นที่อยู่ของการเปลี่ยนสถานะทั้งหมด)
 import {
-  CLAIM_ID_RE, COST_SYNC_ERROR, RECEIPT_REQUIRED_ERROR, STALE_SETTLE_ERROR, STALE_STATUS_ERROR, findClaimCostItems, getSession,
-  isMissingColumn, notifyAdminsOfSubmission, syncClaimCostItem, updateClaimFromStatus, withSyncSelect, type CostSyncClaim, type Db,
+  CLAIM_ID_RE, COST_SYNC_ERROR, RECEIPT_REQUIRED_ERROR, STALE_SETTLE_ERROR, STALE_STATUS_ERROR, claimsQuery, findClaimCostItems,
+  getSession, hiddenColumnMissing, isMissingColumn, isMissingHiddenColumn, noteHiddenColumnMissing, notifyAdminsOfSubmission,
+  syncClaimCostItem, updateClaimFromStatus, withSyncSelect, type CostSyncClaim, type Db,
 } from './claim-db'
 
 // ============================================================================
@@ -81,11 +84,8 @@ async function insertNumberedClaim(supabase: Db, claimNumber: string, row: Recor
 // Get Claims
 // ============================================================================
 
-/** ยังไม่มีคอลัมน์ deleted_at (ยังไม่รัน 20260930_claim_hide_status_time.sql) — จำไว้ทั้ง process แล้วอ่านโดยไม่กรองใบที่ซ่อน
- *  (ก่อนรัน SQL ยังซ่อนใบไหนไม่ได้) · รายการใบเบิกของพนักงานจึงยังใช้ได้ระหว่างรอรัน SQL */
-let hiddenColumnMissing = false
-const isMissingHiddenColumn = (error: { code?: string; message?: string } | null | undefined) =>
-  isMissingColumn(error) && /deleted_at/.test(error?.message ?? '')
+// ยังไม่มีคอลัมน์ deleted_at (ยังไม่รัน 20260930_claim_hide_status_time.sql) — ธงอยู่ที่ claim-db.ts (hiddenColumnMissing /
+// noteHiddenColumnMissing) ใช้ร่วมกับไฟล์ข้อมูลของหน้าอื่น · จำไว้ทั้ง process แล้วอ่านโดยไม่กรองใบที่ซ่อน
 
 export async function getClaims(filters?: {
   status?: string | string[]
@@ -107,48 +107,31 @@ export async function getClaims(filters?: {
 
   const supabase = createServiceClient()
 
-  // ขอบเดือนตามเวลาไทย (UTC+7 ไม่มีเวลาออมแสง) แปลงเป็น UTC — วันที่ 1 เที่ยงคืนไทย = 17:00 ของวันก่อนหน้า
-  let paidRange: [string, string] | null = null
-  if (paidMonth) {
-    const [y, m] = paidMonth.split('-').map(Number)
-    const thaiOffset = 7 * 60 * 60 * 1000
-    paidRange = [
-      new Date(Date.UTC(y, m - 1, 1) - thaiOffset).toISOString(),
-      new Date(Date.UTC(y, m, 1) - thaiOffset).toISOString(),
-    ]
-  }
-
-  const base = () => {
-    let query = supabase
-      .from('expense_claims')
-      .select(`
-        *,
-        submitter:profiles!expense_claims_submitted_by_fkey(id, full_name),
-        approver:profiles!expense_claims_approved_by_fkey(id, full_name),
-        payer:profiles!expense_claims_paid_by_fkey(id, full_name),
-        job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name, source_event_id, linked_lead_id)
-      `)
-      // created_at ซ้ำกันได้ — ต่อด้วย id ให้ลำดับคงที่ข้ามหน้า (ไม่งั้นแถวซ้ำ/หายระหว่างหน้า)
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: true })
-
-    // 🔒 Non-admins can only see their own claims
-    if (role !== 'admin') query = query.eq('submitted_by', userId)
-    // ใบที่แอดมินซ่อนไว้ไม่อยู่ในรายการของใครเลย (แอดมินดูได้จาก "ใบที่ซ่อนไว้" ของคิว)
-    if (!hiddenColumnMissing) query = query.is('deleted_at', null)
-    if (filters?.claim_type) query = query.eq('claim_type', filters.claim_type)
-    if (filters?.submitted_by) query = query.eq('submitted_by', filters.submitted_by)
-    if (paidRange) query = query.gte('paid_at', paidRange[0]).lt('paid_at', paidRange[1])
-    return query
-  }
+  // ตัวกรองชุดเดียวกับหน้ารายการ/คลังเก็บ/ค้นหา (claimsQuery — claim-db.ts):
+  // 🔒 คนที่ไม่ใช่แอดมินเห็นเฉพาะใบของตัวเอง · ใบที่ซ่อนไม่อยู่ในรายการของใครเลย (แอดมินดูได้จาก "ใบที่ซ่อนไว้" ของคิว)
+  // · เรียง created_at แล้ว id (ลำดับคงที่ข้ามหน้า) · paidMonth = ขอบเดือนตามเวลาไทย · ทุกช่อง ('*') + ชื่อผู้เบิก/ผู้อนุมัติ/ผู้จ่าย/งาน
+  const base = () => claimsQuery(
+    supabase,
+    { userId, role: role ?? '' },
+    { claim_type: filters?.claim_type, submitted_by: filters?.submitted_by, paidMonth },
+    `
+      *,
+      submitter:profiles!expense_claims_submitted_by_fkey(id, full_name),
+      approver:profiles!expense_claims_approved_by_fkey(id, full_name),
+      payer:profiles!expense_claims_paid_by_fkey(id, full_name),
+      job_event:job_cost_events!expense_claims_job_event_id_fkey(id, event_name, source_event_id, linked_lead_id)
+    `,
+  )
 
   // PostgREST ตัดผลที่ 1,000 แถวต่อคำขอโดยไม่แจ้ง — อ่านทีละหน้าจนได้หน้าที่ไม่เต็ม · พังหน้าไหนคืน error ทั้งชุด ไม่คืนรายการครึ่งๆ
+  // แถว = ทุกช่องของใบเบิก + ชื่อที่ join มา (select เป็น string จึงต้องบอกชนิดเอง)
+  type ClaimRow = Record<string, unknown> & { id: string; created_at: string }
   const readPages = async (build: () => ReturnType<typeof base>) => {
-    const rows = []
+    const rows: ClaimRow[] = []
     for (let from = 0; ; from += 1000) {
       const { data, error } = await build().range(from, from + 999)
       if (error) return { rows: [], error: error.message, missingHidden: isMissingHiddenColumn(error) }
-      rows.push(...(data || []))
+      rows.push(...((data || []) as unknown as ClaimRow[]))
       if (!data || data.length < 1000) return { rows, error: undefined, missingHidden: false }
     }
   }
@@ -156,7 +139,7 @@ export async function getClaims(filters?: {
   const readAll = async (build: () => ReturnType<typeof base>) => {
     const first = await readPages(build)
     if (!first.missingHidden) return first
-    hiddenColumnMissing = true
+    noteHiddenColumnMissing()
     return readPages(build)
   }
 
@@ -172,7 +155,7 @@ export async function getClaims(filters?: {
   // ใบที่ยังไม่จบ = สถานะยังไม่ปิด + เงินทดลองจ่ายที่จ่ายแล้วแต่ยังไม่เคลียร์ + วงเงินสดย่อยที่ยังไม่ปิดเดือน
   // อ่านแยกสามชุดแทน .or() (สตริง .or() ประกอบผิดง่ายและตรวจยาก) แล้วรวมด้วย id กันซ้ำ
   const parts = await Promise.all([
-    readAll(() => base().not('status', 'in', '(paid,cancelled,refund_confirmed)')),
+    readAll(() => base().not('status', 'in', `(${TERMINAL_STATUSES.join(',')})`)),
     readAll(() => base().eq('claim_type', 'advance').eq('status', 'paid').is('actual_spent_amount', null)),
     readAll(() => base().eq('claim_type', 'petty_cash').is('pettycash_fund_id', null).eq('status', 'paid').is('pettycash_closed_at', null)),
   ])
@@ -196,8 +179,8 @@ export async function getPaidMonths(): Promise<{ month: string; count: number }[
   const readMonths = async () => {
     const counts = new Map<string, number>()
     for (let from = 0; ; from += 1000) {
-      let query = supabase.from('expense_claims').select('paid_at').in('status', ['paid', 'refund_confirmed'])
-      if (!hiddenColumnMissing) query = query.is('deleted_at', null)
+      let query = supabase.from('expense_claims').select('paid_at').in('status', PAID_STATUSES)
+      if (!hiddenColumnMissing()) query = query.is('deleted_at', null)
       const { data, error } = await query.order('id', { ascending: true }).range(from, from + 999)
       if (error) return { counts, error }
       for (const row of data || []) {
@@ -210,7 +193,7 @@ export async function getPaidMonths(): Promise<{ month: string; count: number }[
   let result = await readMonths()
   // ยังไม่มีคอลัมน์ deleted_at (ยังไม่รัน SQL ของขั้น 4) → จำไว้ แล้วนับใหม่โดยไม่กรอง
   if (isMissingHiddenColumn(result.error)) {
-    hiddenColumnMissing = true
+    noteHiddenColumnMissing()
     result = await readMonths()
   }
   if (result.error) {
@@ -260,52 +243,79 @@ export async function getClaim(id: string) {
 // Upload receipt files to Supabase Storage
 // ============================================================================
 
+/** ไฟล์ในบัคเก็ตเก็บได้ตลอด (ชื่อไฟล์ไม่ซ้ำ ไม่เคยเขียนทับ) — browser/CDN แคชได้ 1 ปี */
+const RECEIPT_CACHE_CONTROL = '31536000'
+
 /**
- * อัปโหลดทุกไฟล์ของคำขอ — ไฟล์ไหนไม่สำเร็จ ลบไฟล์ที่ขึ้นไปแล้วของรอบนี้ทิ้ง แล้วคืน error บอกจำนวนและชื่อไฟล์
- * (เดิมข้ามไฟล์ที่พังแบบเงียบ ใบเบิกได้ใบเสร็จน้อยกว่าที่เลือกโดยไม่มีใครรู้) · ผู้เรียกต้องไม่บันทึกอะไรเมื่อได้ error
+ * ไฟล์ของช่อง key ในฟอร์ม + รูปย่อที่ส่งคู่มาตามลำดับในช่อง thumbKey (ช่องว่าง = ไม่มีรูปย่อ)
+ * ไฟล์ว่างถูกข้ามพร้อมรูปย่อของมัน · รูปย่อที่ไม่ใช่รูปภาพ = ไม่มีรูปย่อ · ฟอร์มที่ไม่ส่ง thumbKey เลย = ไม่มีรูปย่อทุกไฟล์
  */
-async function uploadReceiptFiles(supabase: Db, files: File[], claimNumber: string): Promise<{ urls: string[]; error?: undefined } | { urls?: undefined; error: string }> {
+function formFiles(formData: FormData, key: string, thumbKey: string): { files: File[]; thumbs: (File | null)[] } {
+  const thumbEntries = formData.getAll(thumbKey)
+  const files: File[] = []
+  const thumbs: (File | null)[] = []
+  formData.getAll(key).forEach((entry, i) => {
+    if (!(entry instanceof File) || entry.size === 0) return
+    files.push(entry)
+    const thumb = thumbEntries[i]
+    thumbs.push(thumb instanceof File && thumb.size > 0 && thumb.type.startsWith('image/') ? thumb : null)
+  })
+  return { files, thumbs }
+}
+
+type Uploaded = { urls: string[]; thumbUrls: string[]; error?: undefined } | { urls?: undefined; thumbUrls?: undefined; error: string }
+
+/**
+ * อัปโหลดทุกไฟล์ของคำขอพร้อมกันในรอบเดียว (ลำดับ URL ตามลำดับไฟล์) — รูปย่อที่ส่งคู่มา (thumbs[i]) ไปที่ path เดียวกับไฟล์เดิม
+ * โดย _thumb.jpg แทนนามสกุล (thumbPathFor) · รูปย่อพังไม่เป็นไร (ไม่มีรูปย่อ — หน้าจอใช้ไฟล์เดิมแทน) · ไฟล์ .pdf ไม่มีรูปย่อ
+ * ไฟล์เดิมไหนไม่สำเร็จ ลบไฟล์ที่ขึ้นไปแล้วของรอบนี้ทิ้ง (รวมรูปย่อ) แล้วคืน error บอกจำนวนและชื่อไฟล์ตามลำดับที่เลือก
+ * (เดิมข้ามไฟล์ที่พังแบบเงียบ ใบเบิกได้ใบเสร็จน้อยกว่าที่เลือกโดยไม่มีใครรู้) · ผู้เรียกต้องไม่บันทึกอะไรเมื่อได้ error
+ * thumbUrls = URL ของรูปย่อที่ขึ้นไปแล้ว — ผู้เรียกลบทิ้งพร้อม urls เมื่อบันทึกไม่สำเร็จ
+ */
+async function uploadReceiptFiles(supabase: Db, files: File[], claimNumber: string, thumbs?: (File | null)[]): Promise<Uploaded> {
+  const safeName = claimNumber.replace(/[^a-zA-Z0-9-]/g, '_')
+  const stamp = Date.now()
+  const bucket = () => supabase.storage.from('receipts')
+  const put = async (path: string, file: File, contentType: string) => {
+    const { data, error } = await bucket().upload(path, file, { contentType, upsert: false, cacheControl: RECEIPT_CACHE_CONTROL })
+    if (error || !data) return { path: null, url: null, error }
+    return { path: data.path, url: bucket().getPublicUrl(data.path).data?.publicUrl || null, error: null }
+  }
+
+  const results = await Promise.all(files.map((file, i) => {
+    const ext = file.name.split('.').pop() || 'jpg'
+    const filePath = `claims/${safeName}/${stamp}_${i}.${ext}`
+    const thumb = thumbs?.[i] ?? null
+    return Promise.all([
+      put(filePath, file, file.type),
+      thumb && ext.toLowerCase() !== 'pdf' ? put(thumbPathFor(filePath), thumb, thumb.type || 'image/jpeg') : null,
+    ])
+  }))
+
   const urls: string[] = []
+  const thumbUrls: string[] = []
   const uploadedPaths: string[] = []
   const failed: string[] = []
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    const ext = file.name.split('.').pop() || 'jpg'
-    const safeName = claimNumber.replace(/[^a-zA-Z0-9-]/g, '_')
-    const filePath = `claims/${safeName}/${Date.now()}_${i}.${ext}`
-
-    const { data, error } = await supabase.storage
-      .from('receipts')
-      .upload(filePath, file, {
-        contentType: file.type,
-        upsert: false,
-      })
-
-    if (error || !data) {
-      console.error('Upload receipt error:', error)
-      failed.push(file.name || `ไฟล์ที่ ${i + 1}`)
-      continue
+  results.forEach(([original, small], i) => {
+    if (original.path) uploadedPaths.push(original.path)
+    if (small?.path) uploadedPaths.push(small.path)
+    if (small?.url) thumbUrls.push(small.url)
+    else if (small) console.warn('Upload receipt thumbnail error:', small.error)
+    if (original.url) {
+      urls.push(original.url)
+      return
     }
-    uploadedPaths.push(data.path)
-
-    const { data: publicUrl } = supabase.storage
-      .from('receipts')
-      .getPublicUrl(data.path)
-
-    if (publicUrl?.publicUrl) {
-      urls.push(publicUrl.publicUrl)
-    } else {
-      failed.push(file.name || `ไฟล์ที่ ${i + 1}`)
-    }
-  }
+    if (original.error) console.error('Upload receipt error:', original.error)
+    failed.push(files[i].name || `ไฟล์ที่ ${i + 1}`)
+  })
   if (failed.length > 0) {
     if (uploadedPaths.length > 0) {
-      const { error } = await supabase.storage.from('receipts').remove(uploadedPaths)
+      const { error } = await bucket().remove(uploadedPaths)
       if (error) console.error('Remove partial upload error:', error)
     }
     return { error: `อัพโหลดไฟล์ไม่สำเร็จ ${failed.length} จาก ${files.length} ไฟล์ (${failed.join(', ')}) — ยังไม่ได้บันทึก กรุณาลองใหม่` }
   }
-  return { urls }
+  return { urls, thumbUrls }
 }
 
 // ============================================================================
@@ -401,14 +411,8 @@ export async function createClaim(formData: FormData) {
     pettycash_previous_claim_id = prevFund?.id || null
   }
 
-  // Collect receipt files from FormData
-  const receiptFiles: File[] = []
-  const allEntries = formData.getAll('receipt_files')
-  for (const entry of allEntries) {
-    if (entry instanceof File && entry.size > 0) {
-      receiptFiles.push(entry)
-    }
-  }
+  // Collect receipt files from FormData (+ รูปย่อที่หน้าจอส่งคู่มาใน receipt_thumbs)
+  const { files: receiptFiles, thumbs: receiptThumbs } = formFiles(formData, 'receipt_files', 'receipt_thumbs')
 
   if (!title) return { error: 'กรุณากรอกหัวข้อการเบิก' }
   if (amount <= 0 && unit_price <= 0) return { error: 'กรุณากรอกจำนวนเงินที่ถูกต้อง (ราคาต่อหน่วยต้องมากกว่า 0)' }
@@ -452,10 +456,12 @@ export async function createClaim(formData: FormData) {
 
   // Upload receipt files first — ไฟล์ไม่ครบ = ไม่สร้างใบเบิก
   let receipt_urls: string[] = []
+  let receiptThumbUrls: string[] = []
   if (receiptFiles.length > 0) {
-    const uploaded = await uploadReceiptFiles(supabase, receiptFiles, numbered.claimNumber)
+    const uploaded = await uploadReceiptFiles(supabase, receiptFiles, numbered.claimNumber, receiptThumbs)
     if (uploaded.error !== undefined) return { error: uploaded.error }
     receipt_urls = uploaded.urls
+    receiptThumbUrls = uploaded.thumbUrls
   }
 
   const status: 'draft' | 'pending' = intent === 'submit' ? 'pending' : 'draft'
@@ -496,8 +502,8 @@ export async function createClaim(formData: FormData) {
 
   const inserted = await insertNumberedClaim(supabase, numbered.claimNumber, insertData)
   if (!inserted.claim) {
-    // ไม่ได้ใบเบิก = ไฟล์ที่อัปโหลดไว้ไม่มีเจ้าของ ลบทิ้ง
-    await removeStorageByUrls(supabase, 'receipts', receipt_urls)
+    // ไม่ได้ใบเบิก = ไฟล์ที่อัปโหลดไว้ไม่มีเจ้าของ ลบทิ้ง (รวมรูปย่อ)
+    await removeStorageByUrls(supabase, 'receipts', [...receipt_urls, ...receiptThumbUrls])
     if (inserted.message) return { error: inserted.message }
     const error = inserted.dbError
     console.error('Create claim error:', error)
@@ -507,7 +513,7 @@ export async function createClaim(formData: FormData) {
   const data = { id: inserted.claim.id }
   const claimNumber = inserted.claim.claimNumber
 
-  await logActivity('CREATE_EXPENSE_CLAIM', {
+  const created = logActivity('CREATE_EXPENSE_CLAIM', {
     claimId: data?.id,
     claimNumber,
     title,
@@ -517,22 +523,26 @@ export async function createClaim(formData: FormData) {
 
   if (intent === 'submit') {
     // ใบที่เพิ่งยื่น (รออนุมัติ) ยังไม่ต้องมีรายการต้นทุน (shouldHaveCostItem = false) — ไม่ต้อง sync
-    await supabase.from('expense_claim_logs').insert({
-      claim_id: data.id,
-      action: 'submit',
-      changed_by: userId,
-      changes: { status: { from: null, to: 'pending' } },
-      note: 'สร้างและยื่นใบเบิกทันที',
-    })
-
-    await logActivity('SUBMIT_EXPENSE_CLAIM', {
-      claimId: data.id,
-      claimNumber,
-      title,
-      amount: insertData.amount,
-    })
-
-    await notifyAdminsOfSubmission(supabase, { id: data.id, claim_number: claimNumber, title, amount: insertData.amount }, userId, createNotifications)
+    // ประวัติ · activity · แจ้งแอดมิน ไม่ขึ้นต่อกัน — ส่งพร้อมกัน (เรียกตามลำดับเดิม)
+    await Promise.all([
+      created,
+      supabase.from('expense_claim_logs').insert({
+        claim_id: data.id,
+        action: 'submit',
+        changed_by: userId,
+        changes: { status: { from: null, to: 'pending' } },
+        note: 'สร้างและยื่นใบเบิกทันที',
+      }),
+      logActivity('SUBMIT_EXPENSE_CLAIM', {
+        claimId: data.id,
+        claimNumber,
+        title,
+        amount: insertData.amount,
+      }),
+      notifyAdminsOfSubmission(supabase, { id: data.id, claim_number: claimNumber, title, amount: insertData.amount }, userId, createNotifications),
+    ])
+  } else {
+    await created
   }
 
   revalidatePath('/finance')
@@ -651,18 +661,16 @@ export async function updateClaim(id: string, updateData: {
     }
   }
 
-  // Handle receipt file uploads
+  // Handle receipt file uploads (+ รูปย่อที่หน้าจอส่งคู่มาใน receipt_thumbs)
   let newReceiptUrls: string[] = []
+  let newThumbUrls: string[] = []
   if (receiptFormData) {
-    const files: File[] = []
-    const entries = receiptFormData.getAll('receipt_files')
-    for (const entry of entries) {
-      if (entry instanceof File && entry.size > 0) files.push(entry)
-    }
+    const { files, thumbs } = formFiles(receiptFormData, 'receipt_files', 'receipt_thumbs')
     if (files.length > 0) {
-      const uploaded = await uploadReceiptFiles(supabase, files, claim.claim_number)
+      const uploaded = await uploadReceiptFiles(supabase, files, claim.claim_number, thumbs)
       if (uploaded.error !== undefined) return { error: uploaded.error }
       newReceiptUrls = uploaded.urls
+      newThumbUrls = uploaded.thumbUrls
     }
   }
 
@@ -698,7 +706,7 @@ export async function updateClaim(id: string, updateData: {
     .eq('id', id)
 
   if (error) {
-    await removeStorageByUrls(supabase, 'receipts', newReceiptUrls)
+    await removeStorageByUrls(supabase, 'receipts', [...newReceiptUrls, ...newThumbUrls])
     return { error: 'เกิดข้อผิดพลาดในการแก้ไข' }
   }
 
@@ -874,17 +882,21 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
   // entries (an empty file or empty string) are still appended to keep alignment.
   const fileEntries = formData.getAll('tax_invoice_files')
   const numberEntries = formData.getAll('tax_invoice_numbers')
+  // รูปย่อของไฟล์ที่ index เดียวกัน (tax_invoice_thumbs — ช่องว่าง/ไม่ส่ง = ไม่มีรูปย่อ)
+  const thumbEntries = formData.getAll('tax_invoice_thumbs')
   const pairedCount = Math.max(fileEntries.length, numberEntries.length)
 
-  type Pair = { file: File | null; number: string }
+  type Pair = { file: File | null; thumb: File | null; number: string }
   const pairs: Pair[] = []
   for (let i = 0; i < pairedCount; i++) {
     const f = fileEntries[i]
     const n = numberEntries[i]
+    const t = thumbEntries[i]
     const file = f instanceof File && f.size > 0 ? f : null
+    const thumb = file && t instanceof File && t.size > 0 && t.type.startsWith('image/') ? t : null
     const number = typeof n === 'string' ? n.trim() : ''
     if (!file && !number) continue
-    pairs.push({ file, number })
+    pairs.push({ file, thumb, number })
   }
 
   if (pairs.length === 0) {
@@ -893,12 +905,15 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
 
   // Upload files; null files map to empty-string URLs so we keep the parallel
   // alignment between `tax_invoice_urls[i]` and `tax_invoice_numbers[i]`.
-  const filesToUpload = pairs.filter(p => p.file).map(p => p.file as File)
+  const withFiles = pairs.filter(p => p.file)
+  const filesToUpload = withFiles.map(p => p.file as File)
   let uploadedUrls: string[] = []
+  let uploadedThumbUrls: string[] = []
   if (filesToUpload.length > 0) {
-    const uploaded = await uploadReceiptFiles(supabase, filesToUpload, `${claim.claim_number}-tax-invoice`)
+    const uploaded = await uploadReceiptFiles(supabase, filesToUpload, `${claim.claim_number}-tax-invoice`, withFiles.map(p => p.thumb))
     if (uploaded.error !== undefined) return { error: uploaded.error }
     uploadedUrls = uploaded.urls
+    uploadedThumbUrls = uploaded.thumbUrls
   }
 
   // Re-map uploaded URLs back into pair order (entries without a file get '')
@@ -924,7 +939,7 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
   const { row, error } = await updateClaimFromStatus(supabase, id, claim.status, updatePayload)
 
   if (error || !row) {
-    await removeStorageByUrls(supabase, 'receipts', uploadedUrls)
+    await removeStorageByUrls(supabase, 'receipts', [...uploadedUrls, ...uploadedThumbUrls])
     return { error: error ? 'เกิดข้อผิดพลาดในการบันทึก' : STALE_STATUS_ERROR }
   }
   const synced = await syncClaimCostItem(supabase, row, userId)
@@ -932,46 +947,53 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
   // Log: how many invoice entries were added (file + number pairs)
   const filesAdded = newUrls.filter(u => u !== '').length
   const numbersAdded = newNumbers.filter(n => n !== '').length
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: 'upload_tax_invoice',
-    changed_by: userId,
-    changes: {
-      tax_invoice_urls: { from: existingUrls.length, to: existingUrls.length + newUrls.length },
-      tax_invoice_numbers: { from: existingNumbers.length, to: existingNumbers.length + newNumbers.length },
-    },
-    note: `เพิ่มใบกำกับภาษี ${pairs.length} รายการ (ไฟล์ ${filesAdded} • เลขที่ ${numbersAdded})`,
-  })
+  // ประวัติสองรายการต้องเรียงเวลาตามเดิม (เพิ่มใบกำกับ → เปลี่ยนสถานะอัตโนมัติ) จึงเขียนต่อกัน — แจ้งเตือนส่งพร้อมกันได้
+  const writeLogs = async () => {
+    await supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'upload_tax_invoice',
+      changed_by: userId,
+      changes: {
+        tax_invoice_urls: { from: existingUrls.length, to: existingUrls.length + newUrls.length },
+        tax_invoice_numbers: { from: existingNumbers.length, to: existingNumbers.length + newNumbers.length },
+      },
+      note: `เพิ่มใบกำกับภาษี ${pairs.length} รายการ (ไฟล์ ${filesAdded} • เลขที่ ${numbersAdded})`,
+    })
 
-  // Log the auto status transition
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: 'auto_transition',
-    changed_by: userId,
-    changes: { status: { from: 'waiting_tax_invoice', to: 'approved' } },
-    note: 'Auto-transition: Tax Invoice Uploaded',
-  })
-
-  // Notify only the approving admin (fallback: all admins if unknown)
-  let recipientIds: string[] = claim.approved_by ? [claim.approved_by] : []
-  if (recipientIds.length === 0) {
-    const { data: adminProfiles } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'admin')
-    recipientIds = (adminProfiles || []).map((p: { id: string }) => p.id)
-  }
-  if (recipientIds.length > 0) {
-    await createNotifications({
-      userIds: recipientIds,
-      type: 'expense_tax_invoice_uploaded',
-      title: `ใบเบิก ${claim.claim_number} — อัพโหลดใบกำกับภาษีแล้ว`,
-      body: 'ผู้เบิกอัพโหลดใบกำกับภาษีแล้ว สถานะกลับเป็น "อนุมัติแล้ว" พร้อมดำเนินการชำระเงิน',
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
+    // Log the auto status transition
+    await supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'auto_transition',
+      changed_by: userId,
+      changes: { status: { from: 'waiting_tax_invoice', to: 'approved' } },
+      note: 'Auto-transition: Tax Invoice Uploaded',
     })
   }
+
+  // Notify only the approving admin (fallback: all admins if unknown)
+  const notifyApprover = async () => {
+    let recipientIds: string[] = claim.approved_by ? [claim.approved_by] : []
+    if (recipientIds.length === 0) {
+      const { data: adminProfiles } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin')
+      recipientIds = (adminProfiles || []).map((p: { id: string }) => p.id)
+    }
+    if (recipientIds.length > 0) {
+      await createNotifications({
+        userIds: recipientIds,
+        type: 'expense_tax_invoice_uploaded',
+        title: `ใบเบิก ${claim.claim_number} — อัพโหลดใบกำกับภาษีแล้ว`,
+        body: 'ผู้เบิกอัพโหลดใบกำกับภาษีแล้ว สถานะกลับเป็น "อนุมัติแล้ว" พร้อมดำเนินการชำระเงิน',
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+    }
+  }
+
+  await Promise.all([writeLogs(), notifyApprover()])
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -1056,26 +1078,27 @@ export async function getJobEventsForSelect() {
 
   const supabase = createServiceClient()
 
-  // 1. ดึงจาก job_cost_events (อีเวนต์ที่ import เข้าระบบ costs แล้ว)
-  const { data: jobEvents } = await supabase
-    .from('job_cost_events')
-    .select('id, event_name, event_date, event_location, status, source_event_id')
-    .order('event_date', { ascending: false })
-    .limit(200)
-
-  // 2. ดึงจาก event_closures (ประวัติปิดงาน)
-  const { data: closures } = await supabase
-    .from('event_closures')
-    .select('id, event_name, event_date, event_location')
-    .order('event_date', { ascending: false })
-    .limit(200)
-
-  // 3. ดึงจาก events (อีเวนต์ที่สร้างจากหน้า /events — ยังเปิดอยู่)
-  const { data: stockEvents } = await supabase
-    .from('events')
-    .select('id, name, event_date, location, status')
-    .order('event_date', { ascending: false })
-    .limit(200)
+  // สามแหล่งไม่ขึ้นต่อกัน — อ่านพร้อมกันรอบเดียว
+  const [{ data: jobEvents }, { data: closures }, { data: stockEvents }] = await Promise.all([
+    // 1. ดึงจาก job_cost_events (อีเวนต์ที่ import เข้าระบบ costs แล้ว)
+    supabase
+      .from('job_cost_events')
+      .select('id, event_name, event_date, event_location, status, source_event_id')
+      .order('event_date', { ascending: false })
+      .limit(200),
+    // 2. ดึงจาก event_closures (ประวัติปิดงาน)
+    supabase
+      .from('event_closures')
+      .select('id, event_name, event_date, event_location')
+      .order('event_date', { ascending: false })
+      .limit(200),
+    // 3. ดึงจาก events (อีเวนต์ที่สร้างจากหน้า /events — ยังเปิดอยู่)
+    supabase
+      .from('events')
+      .select('id, name, event_date, location, status')
+      .order('event_date', { ascending: false })
+      .limit(200),
+  ])
 
   // Map job_cost_events (active + completed)
   const events = (jobEvents || []).map(e => ({
@@ -1225,31 +1248,29 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
   const advanceAmount = Number(claim.amount) || 0
   const refundAmount = Math.max(0, advanceAmount - actualSpent)
 
-  // Collect file uploads
-  const actualReceiptFiles: File[] = []
-  for (const entry of formData.getAll('actual_receipt_files')) {
-    if (entry instanceof File && entry.size > 0) actualReceiptFiles.push(entry)
-  }
-  const refundSlipFiles: File[] = []
-  for (const entry of formData.getAll('refund_slip_files')) {
-    if (entry instanceof File && entry.size > 0) refundSlipFiles.push(entry)
-  }
+  // Collect file uploads (+ รูปย่อที่หน้าจอส่งคู่มาใน *_thumbs)
+  const { files: actualReceiptFiles, thumbs: actualReceiptThumbs } = formFiles(formData, 'actual_receipt_files', 'actual_receipt_thumbs')
+  const { files: refundSlipFiles, thumbs: refundSlipThumbs } = formFiles(formData, 'refund_slip_files', 'refund_slip_thumbs')
 
   let newActualReceiptUrls: string[] = []
+  // รูปย่อของคำขอนี้ — บันทึกไม่สำเร็จต้องลบทิ้งพร้อมไฟล์เดิม
+  const newThumbUrls: string[] = []
   if (actualReceiptFiles.length > 0) {
-    const uploaded = await uploadReceiptFiles(supabase, actualReceiptFiles, `${claim.claim_number}-actual`)
+    const uploaded = await uploadReceiptFiles(supabase, actualReceiptFiles, `${claim.claim_number}-actual`, actualReceiptThumbs)
     if (uploaded.error !== undefined) return { error: uploaded.error }
     newActualReceiptUrls = uploaded.urls
+    newThumbUrls.push(...uploaded.thumbUrls)
   }
   let newRefundSlipUrls: string[] = []
   if (refundSlipFiles.length > 0) {
-    const uploaded = await uploadReceiptFiles(supabase, refundSlipFiles, `${claim.claim_number}-refund`)
+    const uploaded = await uploadReceiptFiles(supabase, refundSlipFiles, `${claim.claim_number}-refund`, refundSlipThumbs)
     if (uploaded.error !== undefined) {
       // สลิปไม่ครบ = ไม่บันทึกทั้งคำขอ — ใบเสร็จที่ขึ้นไปก่อนหน้าในคำขอนี้ลบทิ้งด้วย
-      await removeStorageByUrls(supabase, 'receipts', newActualReceiptUrls)
+      await removeStorageByUrls(supabase, 'receipts', [...newActualReceiptUrls, ...newThumbUrls])
       return { error: uploaded.error }
     }
     newRefundSlipUrls = uploaded.urls
+    newThumbUrls.push(...uploaded.thumbUrls)
   }
 
   const existingActual: string[] = claim.actual_receipt_urls || []
@@ -1292,41 +1313,17 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
 
   if (error) {
     console.error('Settle advance error:', error)
-    await removeStorageByUrls(supabase, 'receipts', [...newActualReceiptUrls, ...newRefundSlipUrls])
+    await removeStorageByUrls(supabase, 'receipts', [...newActualReceiptUrls, ...newRefundSlipUrls, ...newThumbUrls])
     return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
   }
   if (!written || written.length === 0) {
-    await removeStorageByUrls(supabase, 'receipts', [...newActualReceiptUrls, ...newRefundSlipUrls])
+    await removeStorageByUrls(supabase, 'receipts', [...newActualReceiptUrls, ...newRefundSlipUrls, ...newThumbUrls])
     return { error: STALE_SETTLE_ERROR }
   }
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: 'settle_advance',
-    changed_by: userId,
-    changes: {
-      actual_spent_amount: { from: claim.actual_spent_amount ?? null, to: actualSpent },
-      refund_amount: { from: claim.refund_amount ?? null, to: refundAmount },
-      ...(newActualReceiptUrls.length > 0
-        ? { actual_receipt_urls: { from: existingActual.length, to: existingActual.length + newActualReceiptUrls.length } }
-        : {}),
-      ...(newRefundSlipUrls.length > 0
-        ? { refund_slip_urls: { from: existingRefund.length, to: existingRefund.length + newRefundSlipUrls.length } }
-        : {}),
-    },
-    note: `อัพเดทค่าใช้จ่ายจริง ฿${actualSpent.toLocaleString()} (เงินคืน ฿${refundAmount.toLocaleString()})`,
-  })
-
-  await logActivity('SETTLE_ADVANCE_CLAIM', {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    advanceAmount,
-    actualSpent,
-    refundAmount,
-  })
-
   // Notify only the approving admin when a user settles their advance (fallback: all admins)
-  if (!isAdmin) {
+  const notifyApprover = async () => {
+    if (isAdmin) return
     let recipientIds: string[] = claim.approved_by ? [claim.approved_by] : []
     if (recipientIds.length === 0) {
       const { data: adminProfiles } = await supabase
@@ -1347,6 +1344,34 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
       })
     }
   }
+
+  // ประวัติ · activity · แจ้งเตือน ไม่ขึ้นต่อกัน — ส่งพร้อมกัน (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'settle_advance',
+      changed_by: userId,
+      changes: {
+        actual_spent_amount: { from: claim.actual_spent_amount ?? null, to: actualSpent },
+        refund_amount: { from: claim.refund_amount ?? null, to: refundAmount },
+        ...(newActualReceiptUrls.length > 0
+          ? { actual_receipt_urls: { from: existingActual.length, to: existingActual.length + newActualReceiptUrls.length } }
+          : {}),
+        ...(newRefundSlipUrls.length > 0
+          ? { refund_slip_urls: { from: existingRefund.length, to: existingRefund.length + newRefundSlipUrls.length } }
+          : {}),
+      },
+      note: `อัพเดทค่าใช้จ่ายจริง ฿${actualSpent.toLocaleString()} (เงินคืน ฿${refundAmount.toLocaleString()})`,
+    }),
+    logActivity('SETTLE_ADVANCE_CLAIM', {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      advanceAmount,
+      actualSpent,
+      refundAmount,
+    }),
+    notifyApprover(),
+  ])
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -1416,34 +1441,35 @@ export async function confirmRefundReceived(id: string) {
   if (!row) return { error: STALE_STATUS_ERROR }
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: 'confirm_refund',
-    changed_by: userId,
-    changes: {
-      status: { from: claim.status, to: 'refund_confirmed' },
-      refund_amount: { from: null, to: refundAmount },
-    },
-    note: `ยืนยันรับเงินคืนบริษัท ฿${refundAmount.toLocaleString()}`,
-  })
-
-  await logActivity('CONFIRM_REFUND_RECEIVED', {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    refundAmount,
-  })
-
-  if (claim.submitted_by && claim.submitted_by !== userId) {
-    await createNotifications({
-      userIds: [claim.submitted_by],
-      type: 'expense_refund_confirmed',
-      title: `ใบเบิก ${claim.claim_number} — ยืนยันรับเงินคืนแล้ว`,
-      body: `admin ยืนยันรับเงินคืน ฿${refundAmount.toLocaleString()} เรียบร้อย`,
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
-    })
-  }
+  // ประวัติ · activity · แจ้งผู้เบิก ไม่ขึ้นต่อกัน — ส่งพร้อมกัน (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'confirm_refund',
+      changed_by: userId,
+      changes: {
+        status: { from: claim.status, to: 'refund_confirmed' },
+        refund_amount: { from: null, to: refundAmount },
+      },
+      note: `ยืนยันรับเงินคืนบริษัท ฿${refundAmount.toLocaleString()}`,
+    }),
+    logActivity('CONFIRM_REFUND_RECEIVED', {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      refundAmount,
+    }),
+    claim.submitted_by && claim.submitted_by !== userId
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_refund_confirmed',
+        title: `ใบเบิก ${claim.claim_number} — ยืนยันรับเงินคืนแล้ว`,
+        body: `admin ยืนยันรับเงินคืน ฿${refundAmount.toLocaleString()} เรียบร้อย`,
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -1610,18 +1636,17 @@ export async function addPettyCashExpense(fundId: string, formData: FormData) {
     return { error: `วันที่รายจ่ายต้องอยู่ในเดือนของวงเงิน (${fund.pettycash_period_start} ถึง ${fund.pettycash_period_end})` }
   }
 
-  const receiptFiles: File[] = []
-  for (const entry of formData.getAll('receipt_files')) {
-    if (entry instanceof File && entry.size > 0) receiptFiles.push(entry)
-  }
+  const { files: receiptFiles, thumbs: receiptThumbs } = formFiles(formData, 'receipt_files', 'receipt_thumbs')
 
   const numbered = await generateClaimNumber(supabase)
   if ('error' in numbered) return { error: numbered.error }
   let receipt_urls: string[] = []
+  let receiptThumbUrls: string[] = []
   if (receiptFiles.length > 0) {
-    const uploaded = await uploadReceiptFiles(supabase, receiptFiles, numbered.claimNumber)
+    const uploaded = await uploadReceiptFiles(supabase, receiptFiles, numbered.claimNumber, receiptThumbs)
     if (uploaded.error !== undefined) return { error: uploaded.error }
     receipt_urls = uploaded.urls
+    receiptThumbUrls = uploaded.thumbUrls
   }
 
   const now = new Date().toISOString()
@@ -1649,7 +1674,7 @@ export async function addPettyCashExpense(fundId: string, formData: FormData) {
   })
 
   if (!inserted.claim) {
-    await removeStorageByUrls(supabase, 'receipts', receipt_urls)
+    await removeStorageByUrls(supabase, 'receipts', [...receipt_urls, ...receiptThumbUrls])
     return { error: inserted.message ?? `บันทึกรายจ่ายไม่สำเร็จ: ${inserted.dbError?.message}` }
   }
   const data = { id: inserted.claim.id }
@@ -1666,29 +1691,29 @@ export async function addPettyCashExpense(fundId: string, formData: FormData) {
     .single()
   if (fundAfterInsert?.pettycash_closed_at) {
     await supabase.from('expense_claims').delete().eq('id', data.id)
-    await removeStorageByUrls(supabase, 'receipts', receipt_urls)
+    await removeStorageByUrls(supabase, 'receipts', [...receipt_urls, ...receiptThumbUrls])
     return { error: 'วงเงินถูกปิดเดือนระหว่างบันทึก — รายการถูกยกเลิก กรุณาติดต่อ admin' }
   }
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: data.id,
-    action: 'petty_cash_expense',
-    changed_by: userId,
-    changes: { status: { from: null, to: 'paid' } },
-    note: `จ่ายจากเงินสดย่อย ${fund.claim_number} ฿${amount.toLocaleString()}`,
-  })
-
-  await logActivity('CREATE_EXPENSE_CLAIM', {
-    claimId: data.id,
-    claimNumber,
-    title,
-    amount,
-    claim_type: 'other',
-    pettyCashFund: fund.claim_number,
-  })
-
-  // Fresh balance so the UI can warn on overspend immediately.
-  const kids = await getPettyChildren(supabase, fundId)
+  // ประวัติ · activity · ยอดคงเหลือใหม่ (fresh balance so the UI can warn on overspend immediately) ไม่ขึ้นต่อกัน — พร้อมกัน
+  const [, , kids] = await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: data.id,
+      action: 'petty_cash_expense',
+      changed_by: userId,
+      changes: { status: { from: null, to: 'paid' } },
+      note: `จ่ายจากเงินสดย่อย ${fund.claim_number} ฿${amount.toLocaleString()}`,
+    }),
+    logActivity('CREATE_EXPENSE_CLAIM', {
+      claimId: data.id,
+      claimNumber,
+      title,
+      amount,
+      claim_type: 'other',
+      pettyCashFund: fund.claim_number,
+    }),
+    getPettyChildren(supabase, fundId),
+  ])
   const balance = roundBaht(roundBaht(Number(fund.amount) || 0) + kids.topupPaid - kids.spent)
 
   revalidatePath('/finance')
@@ -1892,19 +1917,22 @@ export async function linkClaimToPettyCash(fundId: string, claimId: string) {
   }
   const synced = await syncClaimCostItem(supabase, linked, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: claimId,
-    action: 'link_petty_cash',
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: 'paid' }, pettycash_fund_id: { from: null, to: fundId } },
-    note: `จ่ายจากเงินสดย่อย ${fund.claim_number} ฿${amount.toLocaleString()}`,
-  })
-  await logActivity('LINK_CLAIM_TO_PETTY_CASH', {
-    claimId,
-    claimNumber: claim.claim_number,
-    amount,
-    pettyCashFund: fund.claim_number,
-  })
+  // ประวัติ + activity ไม่ขึ้นต่อกัน — ส่งพร้อมกัน
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: claimId,
+      action: 'link_petty_cash',
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: 'paid' }, pettycash_fund_id: { from: null, to: fundId } },
+      note: `จ่ายจากเงินสดย่อย ${fund.claim_number} ฿${amount.toLocaleString()}`,
+    }),
+    logActivity('LINK_CLAIM_TO_PETTY_CASH', {
+      claimId,
+      claimNumber: claim.claim_number,
+      amount,
+      pettyCashFund: fund.claim_number,
+    }),
+  ])
 
   // Date outside the fund month is allowed — flagged so admin sees it (นโยบาย: เตือนอย่างเดียว)
   let warning: string | undefined
@@ -1963,18 +1991,21 @@ export async function unlinkClaimFromPettyCash(claimId: string) {
   if (!unlinked) return { error: STALE_STATUS_ERROR }
   const synced = await syncClaimCostItem(supabase, unlinked, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: claimId,
-    action: 'unlink_petty_cash',
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: 'approved' }, pettycash_fund_id: { from: claim.pettycash_fund_id, to: null } },
-    note: `ยกเลิกการจ่ายจากเงินสดย่อย ${fund?.claim_number || ''} — กลับเข้าคิวจ่ายเงิน`,
-  })
-  await logActivity('UNLINK_CLAIM_FROM_PETTY_CASH', {
-    claimId,
-    claimNumber: claim.claim_number,
-    pettyCashFund: fund?.claim_number,
-  })
+  // ประวัติ + activity ไม่ขึ้นต่อกัน — ส่งพร้อมกัน
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: claimId,
+      action: 'unlink_petty_cash',
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: 'approved' }, pettycash_fund_id: { from: claim.pettycash_fund_id, to: null } },
+      note: `ยกเลิกการจ่ายจากเงินสดย่อย ${fund?.claim_number || ''} — กลับเข้าคิวจ่ายเงิน`,
+    }),
+    logActivity('UNLINK_CLAIM_FROM_PETTY_CASH', {
+      claimId,
+      claimNumber: claim.claim_number,
+      pettyCashFund: fund?.claim_number,
+    }),
+  ])
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${claim.pettycash_fund_id}`)
@@ -2040,22 +2071,21 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
     pettycash_closed_by: userId,
   }
   let note = 'ปิดวงเงินสดย่อยประจำเดือน — ไม่มีเงินคงเหลือ'
-  // สลิปที่อัปโหลดในคำขอนี้ — ปิดเดือนไม่สำเร็จต้องลบทิ้ง
+  // สลิปที่อัปโหลดในคำขอนี้ (+ รูปย่อ) — ปิดเดือนไม่สำเร็จต้องลบทิ้ง
   let slipUrls: string[] = []
+  let slipThumbUrls: string[] = []
 
   if (leftover > 0) {
-    const slipFiles: File[] = []
-    if (formData) {
-      for (const entry of formData.getAll('refund_slip_files')) {
-        if (entry instanceof File && entry.size > 0) slipFiles.push(entry)
-      }
-    }
+    // สลิป + รูปย่อที่หน้าจอส่งคู่มาใน refund_slip_thumbs
+    const { files: slipFiles, thumbs: slipThumbs } = formData
+      ? formFiles(formData, 'refund_slip_files', 'refund_slip_thumbs')
+      : { files: [] as File[], thumbs: [] as (File | null)[] }
     const existingSlips: string[] = fund.refund_slip_urls || []
     if (slipFiles.length === 0 && existingSlips.length === 0) {
       return { error: `ต้องแนบสลิปโอนเงินคืนบริษัท ฿${leftover.toLocaleString()} ก่อนปิดเดือน` }
     }
     if (slipFiles.length > 0) {
-      const uploaded = await uploadReceiptFiles(supabase, slipFiles, `${fund.claim_number}-return`)
+      const uploaded = await uploadReceiptFiles(supabase, slipFiles, `${fund.claim_number}-return`, slipThumbs)
       // Abort BEFORE committing the close if any slip failed to upload —
       // otherwise the month closes with a refund but no proof, and can never
       // be confirmed.
@@ -2063,6 +2093,7 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
         return { error: `${uploaded.error} (ยังไม่ปิดเดือน)` }
       }
       slipUrls = uploaded.urls
+      slipThumbUrls = uploaded.thumbUrls
     }
     updatePayload.refund_amount = leftover
     if (slipUrls.length > 0) updatePayload.refund_slip_urls = [...existingSlips, ...slipUrls]
@@ -2081,36 +2112,17 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
 
   if (error) {
     console.error('Close petty cash month error:', error)
-    await removeStorageByUrls(supabase, 'receipts', slipUrls)
+    await removeStorageByUrls(supabase, 'receipts', [...slipUrls, ...slipThumbUrls])
     return { error: `เกิดข้อผิดพลาดในการบันทึก: ${error.message}` }
   }
   if ((closedRows?.length ?? 0) === 0) {
-    await removeStorageByUrls(supabase, 'receipts', slipUrls)
+    await removeStorageByUrls(supabase, 'receipts', [...slipUrls, ...slipThumbUrls])
     return { error: STALE_STATUS_ERROR }
   }
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: 'close_petty_cash',
-    changed_by: userId,
-    changes: {
-      pettycash_closed_at: { from: null, to: 'closed' },
-      ...(leftover > 0 ? { refund_amount: { from: fund.refund_amount ?? null, to: leftover } } : {}),
-    },
-    note,
-  })
-
-  await logActivity('CLOSE_PETTY_CASH_PERIOD', {
-    claimId: id,
-    claimNumber: fund.claim_number,
-    initial,
-    topupPaid: kids.topupPaid,
-    spent: kids.spent,
-    leftover,
-  })
-
   // Ask only the fund's approving admin to verify the returned cash (fallback: all admins)
-  if (leftover > 0) {
+  const notifyApprover = async () => {
+    if (leftover <= 0) return
     let recipientIds: string[] = fund.approved_by && fund.approved_by !== userId ? [fund.approved_by] : []
     if (recipientIds.length === 0 && !fund.approved_by) {
       const { data: adminProfiles } = await supabase
@@ -2131,6 +2143,29 @@ export async function closePettyCashMonth(id: string, formData?: FormData) {
       })
     }
   }
+
+  // ประวัติ · activity · แจ้งเตือน ไม่ขึ้นต่อกัน — ส่งพร้อมกัน (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'close_petty_cash',
+      changed_by: userId,
+      changes: {
+        pettycash_closed_at: { from: null, to: 'closed' },
+        ...(leftover > 0 ? { refund_amount: { from: fund.refund_amount ?? null, to: leftover } } : {}),
+      },
+      note,
+    }),
+    logActivity('CLOSE_PETTY_CASH_PERIOD', {
+      claimId: id,
+      claimNumber: fund.claim_number,
+      initial,
+      topupPaid: kids.topupPaid,
+      spent: kids.spent,
+      leftover,
+    }),
+    notifyApprover(),
+  ])
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -2244,13 +2279,13 @@ export async function markClaimsFiled(ids: string[]): Promise<{ success?: true; 
       byCount.set(n, [...(byCount.get(n) ?? []), row.id])
     }
     const filedAt = new Date().toISOString()
-    for (const [count, group] of byCount) {
-      const { error } = await supabase
-        .from('expense_claims')
-        .update({ filed_at: filedAt, filed_by: userId, filed_file_count: count })
-        .in('id', group)
-      if (error) return { error: isMissingColumn(error) ? FILED_MIGRATION_MISSING : `เกิดข้อผิดพลาด: ${error.message}` }
-    }
+    // กลุ่มไม่ทับกัน (ใบหนึ่งอยู่กลุ่มเดียว) — อัปเดตทุกกลุ่มพร้อมกันรอบเดียว
+    const updates = await Promise.all([...byCount].map(([count, group]) => supabase
+      .from('expense_claims')
+      .update({ filed_at: filedAt, filed_by: userId, filed_file_count: count })
+      .in('id', group)))
+    const error = updates.find(u => u.error)?.error
+    if (error) return { error: isMissingColumn(error) ? FILED_MIGRATION_MISSING : `เกิดข้อผิดพลาด: ${error.message}` }
 
     await logActivity('MARK_CLAIM_FILED', {
       claims: rows.map(r => r.claim_number).sort(),

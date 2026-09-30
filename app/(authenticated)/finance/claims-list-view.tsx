@@ -4,42 +4,28 @@ import { useEffect, useOptimistic, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins, FileStack, FolderCheck, CheckSquare, Undo2 } from 'lucide-react'
+import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins, FileStack, FolderCheck, CheckSquare, Undo2 } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
-import type { ExpenseClaim } from '../costs/types'
-import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getClaimChecklist } from '../costs/types'
+import { calcTax } from '@/lib/finance/money'
+import { isOpenClaim, isUnsettledAdvance } from '@/lib/finance/conditions'
+import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel } from '../costs/types'
 import { ChecklistBadges, FundingBadge } from './doc-badges'
 import { useConfirm } from './use-confirm'
 import type { FinanceCategory } from './settings-actions'
 import { cancelClaim } from './lifecycle-actions'
+import { checklistOf, fileCountOf, filedStateOf } from './claim-docs'
 import {
-  EMPTY_FILTERS, MAX_BUNDLE_SELECTION, categoryValues, claimFileCount, filedState, filterClaims, hasFilters,
+  EMPTY_FILTERS, MAX_BUNDLE_SELECTION, categoryValues, filterClaims, hasFilters,
   initialFilters, listQuery, monthOptions, rememberListQuery, selectableIds, submitterOptions,
 } from './claims-filter'
 import type { ClaimFilters, FiledFilter } from './claims-filter'
 import BundleDialog from './bundle-dialog'
 import type { BundleClaimRef } from './bundle-dialog'
-
-function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-  let totalWithVat = amount
-  if (vatMode === 'included') {
-    baseAmount = amount / 1.07
-    vatAmount = amount - baseAmount
-    totalWithVat = amount
-  } else if (vatMode === 'excluded') {
-    vatAmount = amount * 0.07
-    totalWithVat = amount + vatAmount
-  }
-  const whtAmount = baseAmount * (whtRatePercent / 100)
-  const netPayable = totalWithVat - whtAmount
-  return { netPayable }
-}
+import type { ListClaim } from './view-data'
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-const netOf = (c: ExpenseClaim) =>
+const netOf = (c: ListClaim) =>
   calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0).netPayable
 
 const pillCls = 'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors'
@@ -53,8 +39,8 @@ const selectCls = (active: boolean) =>
   }`
 
 /** ป้ายสถานะแฟ้มในแถว — ไม่แสดงอะไรเมื่อยังไม่เข้าแฟ้ม (รวมฐานข้อมูลที่ยังไม่มีคอลัมน์) */
-function FiledBadge({ claim, isEn }: { claim: ExpenseClaim; isEn: boolean }) {
-  const state = filedState(claim)
+function FiledBadge({ claim, isEn }: { claim: ListClaim; isEn: boolean }) {
+  const state = filedStateOf(claim)
   if (state === 'none') return null
   if (state === 'filed') {
     return (
@@ -72,12 +58,12 @@ function FiledBadge({ claim, isEn }: { claim: ExpenseClaim; isEn: boolean }) {
   )
 }
 
-const toBundleRef = (c: ExpenseClaim): BundleClaimRef => ({
+const toBundleRef = (c: ListClaim): BundleClaimRef => ({
   id: c.id,
   claim_number: c.claim_number,
   title: c.title,
-  incomplete: !getClaimChecklist(c).isComplete,
-  fileCount: claimFileCount(c),
+  incomplete: !checklistOf(c).isComplete,
+  fileCount: fileCountOf(c),
 })
 
 const rowCheckboxCls = 'h-4 w-4 shrink-0 accent-emerald-600 cursor-pointer'
@@ -105,13 +91,14 @@ export default function ClaimsListView({
   paidMonths = [],
   paidMonth = '',
 }: {
-  claims: ExpenseClaim[]
+  /** แถวแบบเบา (list-data.ts) — ไม่มีรายการ URL ของไฟล์แนบ ป้ายเอกสารคิดจาก docs */
+  claims: ListClaim[]
   error: string | null
   categories?: FinanceCategory[]
   isAdmin?: boolean
   userId?: string
   /** ใบที่จ่ายแล้วของเดือน paidMonth เท่านั้น (server โหลดทีละเดือน) */
-  paidClaims?: ExpenseClaim[]
+  paidClaims?: ListClaim[]
   paidMonths?: { month: string; count: number }[]
   /** เดือนที่จ่ายที่ server โหลดมา 'YYYY-MM' ('' = ยังไม่มีการจ่าย) */
   paidMonth?: string
@@ -131,8 +118,9 @@ export default function ClaimsListView({
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
   const selectMode = isAdmin && selecting
   // ตัวกรองชุดเดียวใช้ร่วมกันทุกแท็บ ค่าเริ่มต้นอ่านจาก URL — ปุ่ม "กลับ" ของหน้าใบเบิกพากลับมาพร้อมตัวกรองเดิม
+  // ค้นหาข้อความย้ายไปช่องค้นหาบนหัวเมนู (/finance/search — ทุกสถานะทุกเดือน) — q จากลิงก์เก่าไม่กรองรายการนี้แบบมองไม่เห็น
   const [filters, setFilters] = useState<ClaimFilters>(() =>
-    initialFilters(searchParams, [...claims, ...paidClaims], isAdmin)
+    ({ ...initialFilters(searchParams, [...claims, ...paidClaims], isAdmin), q: '' })
   )
   const setFilter = (patch: Partial<ClaimFilters>) => setFilters(f => ({ ...f, ...patch }))
   const clearFilters = () => setFilters(f => ({ ...EMPTY_FILTERS, status: f.status }))
@@ -156,7 +144,7 @@ export default function ClaimsListView({
       router.replace('/finance' + listQuery({ ...filters, status: 'paid' }, month), { scroll: false })
     })
 
-  const handleCancel = async (claim: ExpenseClaim, e: React.MouseEvent) => {
+  const handleCancel = async (claim: ListClaim, e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     const ok = await askConfirm({
@@ -186,7 +174,7 @@ export default function ClaimsListView({
   }
 
   // ปุ่มในแถว (แถวเป็น <Link>) — กันไม่ให้คลิกทะลุไปเปิดหน้าใบเบิก
-  const bundleOne = (claim: ExpenseClaim, e: React.MouseEvent) => {
+  const bundleOne = (claim: ListClaim, e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setBundleFor([toBundleRef(claim)])
@@ -199,18 +187,9 @@ export default function ClaimsListView({
 
   // Active = everything except paid (archive) and cancelled —
   // EXCEPT advance claims that are paid but not yet settled (user still
-  // needs to report actual spend), which we keep visible so the claimant
-  // can find them to settle.
-  const isUnsettledAdvance = (c: ExpenseClaim) =>
-    c.claim_type === 'advance' && c.status === 'paid' && c.actual_spent_amount == null
-  // A petty-cash FUND stays visible while its month is open (paid but not
-  // closed) so the office can keep logging expenses. Top-ups (fund_id set) are
-  // normal claims — once paid they drop to the archive like everything else.
-  const isOpenPettyCash = (c: ExpenseClaim) =>
-    c.claim_type === 'petty_cash' && !c.pettycash_fund_id && c.status === 'paid' && c.pettycash_closed_at == null
-  const activeClaims = claims.filter(c =>
-    (c.status !== 'paid' && c.status !== 'cancelled' && c.status !== 'refund_confirmed') || isUnsettledAdvance(c) || isOpenPettyCash(c)
-  )
+  // needs to report actual spend) and a petty-cash FUND whose month is still
+  // open (top-ups drop to the archive once paid) — lib/finance/conditions.ts
+  const activeClaims = claims.filter(isOpenClaim)
 
   // shown = ชุดข้อมูลของแท็บที่เลือก, filtered = หลังผ่านตัวกรองละเอียด
   const showPaid = filters.status === 'paid'
@@ -389,21 +368,8 @@ export default function ClaimsListView({
         </div>
       </div>
 
-      {/* ค้นหา + ตัวกรองละเอียด — ใช้ร่วมกันทุกแท็บ รวมถึง "ชำระเงินแล้ว" */}
+      {/* ตัวกรองละเอียด — ใช้ร่วมกันทุกแท็บ รวมถึง "ชำระเงินแล้ว" · ค้นหาข้อความใช้ช่องค้นหาบนหัวเมนู (ทุกสถานะทุกเดือน) */}
       <div className="flex flex-wrap items-center gap-2 -mt-3">
-        <div className="relative w-full sm:w-64">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
-          <input
-            type="search"
-            value={filters.q}
-            onChange={e => setFilter({ q: e.target.value })}
-            maxLength={100}
-            aria-label={isEn ? 'Search claims' : 'ค้นหาใบเบิก'}
-            placeholder={isEn ? 'Claim no., title, name, event' : 'เลขที่ หัวข้อ ชื่อผู้เบิก ชื่องาน'}
-            className="pl-8 pr-3 py-1.5 w-full border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
-
         {/* ผู้เบิก — มีให้เลือกเมื่อเห็นใบเบิกของมากกว่าหนึ่งคน (พนักงานเห็นเฉพาะของตัวเองจึงไม่มีกล่องนี้) */}
         {people.length > 1 && (
           <select
@@ -769,7 +735,7 @@ export default function ClaimsListView({
                             )}
                             <span className="text-xs font-mono text-zinc-500 truncate">{c.claim_number}</span>
                           </div>
-                          {filedState(c) !== 'none' && (
+                          {filedStateOf(c) !== 'none' && (
                             <div className="mt-1"><FiledBadge claim={c} isEn={isEn} /></div>
                           )}
                         </div>

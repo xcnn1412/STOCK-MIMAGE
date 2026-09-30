@@ -7,6 +7,7 @@ import type { createServiceClient } from '@/lib/supabase-server'
 import { formatThaiDate } from '@/lib/thai-date'
 import { fetchClaimFile, isPdfUrl } from '@/lib/claim-files'
 import { sniffFileType } from '@/lib/claim-bundle'
+import { calcTax } from '@/lib/finance/money'
 
 // ============================================================================
 // ข้อมูล + PDF หน้าใบเบิก (ใบสำคัญจ่าย / เงินทดลองจ่าย / สรุปเงินสดย่อยประจำเดือน)
@@ -67,28 +68,6 @@ export function canViewClaimDocs(
   return session.role === 'admin' || claim.submitted_by === session.userId || isPettyRelated
 }
 
-// ============================================================================
-// Tax Calculation (same logic as claim form)
-// ============================================================================
-function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-  let totalWithVat = amount
-
-  if (vatMode === 'included') {
-    baseAmount = amount / 1.07
-    vatAmount = amount - baseAmount
-    totalWithVat = amount
-  } else if (vatMode === 'excluded') {
-    vatAmount = amount * 0.07
-    totalWithVat = amount + vatAmount
-  }
-
-  const whtAmount = baseAmount * (whtRatePercent / 100)
-  const netPayable = totalWithVat - whtAmount
-  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
-}
-
 /**
  * สลิปคืนเงินแบบรูปเป็น data URL (ฝังในหน้าหลักฐานการคืนเงิน) — ข้าม PDF (ฝังในหน้าไม่ได้ ชุดเอกสารเติมให้แทน)
  * ดึงผ่าน fetchClaimFile: เฉพาะสตอเรจของระบบเอง — เดิม fetch ทุก URL ที่อยู่ในช่องนี้
@@ -110,7 +89,7 @@ async function slipImages(urls: unknown): Promise<string[]> {
 
 /** ข้อมูลหน้าใบเบิกทั้งหมด (รวม QR) — supabase ใช้อ่านรายการลูกของวงเงินสดย่อย */
 export async function buildVoucherData(supabase: ServiceClient, claim: VoucherClaim): Promise<PaymentVoucherData> {
-  // Calculate tax — amount คือยอดรวมก่อนภาษีแล้ว (createClaim เก็บ unit_price × quantity)
+  // Calculate tax (lib/finance/money.ts ตัวเดียวกับหน้าจอ) — amount คือยอดรวมก่อนภาษีแล้ว (createClaim เก็บ unit_price × quantity)
   // ห้ามคูณ quantity ซ้ำ: เคยทำให้ใบที่จำนวนมากกว่า 1 พิมพ์ยอดเกินหน้าจอ
   const totalBeforeTax = Number(claim.amount) || 0
   const vatMode = claim.vat_mode || 'none'

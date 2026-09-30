@@ -4,8 +4,9 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { Banknote, Users, Calendar, Filter, ChevronDown, ExternalLink, CheckCircle2, Search, AlertCircle } from 'lucide-react'
+import { Banknote, Users, Calendar, Filter, ChevronDown, ExternalLink, CheckCircle2, AlertCircle } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
+import { calcTax } from '@/lib/finance/money'
 import { getCategoryLabel, getClaimChecklist } from '../../costs/types'
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
@@ -14,23 +15,6 @@ import { paymentLock } from '../claim-rules'
 import { FundingBadge, ChecklistBadges } from '../doc-badges'
 import { useConfirm } from '../use-confirm'
 import { DateRangeFilter } from '@/components/date-range-filter'
-
-function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-  let totalWithVat = amount
-  if (vatMode === 'included') {
-    baseAmount = amount / 1.07
-    vatAmount = amount - baseAmount
-    totalWithVat = amount
-  } else if (vatMode === 'excluded') {
-    vatAmount = amount * 0.07
-    totalWithVat = amount + vatAmount
-  }
-  const whtAmount = baseAmount * (whtRatePercent / 100)
-  const netPayable = totalWithVat - whtAmount
-  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
-}
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -54,7 +38,6 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
   const [claimTypeFilter, setClaimTypeFilter] = useState<string>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [amountRange, setAmountRange] = useState<string>('all')
-  const [searchQuery, setSearchQuery] = useState('')
   const [payingId, setPayingId] = useState<string | null>(null)
   const [deferringId, setDeferringId] = useState<string | null>(null)
 
@@ -158,17 +141,9 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
         if (amountRange === '5001-10000' && (amt < 5001 || amt > 10000)) return false
         if (amountRange === '10001+' && amt < 10001) return false
       }
-      // Search
-      if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase()
-        const name = c.submitter?.full_name?.toLowerCase() || ''
-        const title = c.title?.toLowerCase() || ''
-        const num = c.claim_number?.toLowerCase() || ''
-        if (!name.includes(q) && !title.includes(q) && !num.includes(q)) return false
-      }
       return true
     })
-  }, [claims, dateFrom, dateTo, personFilter, eventFilter, claimTypeFilter, categoryFilter, amountRange, searchQuery])
+  }, [claims, dateFrom, dateTo, personFilter, eventFilter, claimTypeFilter, categoryFilter, amountRange])
 
   // Group by person for payout view
   const groupedByPerson = useMemo(() => {
@@ -232,17 +207,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
         <Filter className="h-4 w-4 text-zinc-400 hidden sm:block" />
 
-        {/* Search */}
-        <div className="relative w-full sm:flex-1 sm:min-w-[180px]">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder={isEn ? 'Search name, title...' : 'ค้นหาชื่อ, หัวข้อ...'}
-            className={`${selectCls} pl-8 w-full`}
-          />
-        </div>
+        {/* ค้นหาข้อความใช้ช่องค้นหาบนหัวเมนู (ทุกสถานะทุกเดือน) */}
 
         {/* Date Range */}
         <DateRangeFilter

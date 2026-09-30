@@ -2,10 +2,15 @@
 // กรองฝั่ง browser บนข้อมูลที่ server ส่งมาแล้วเท่านั้น (พนักงานได้เฉพาะใบของตัวเองอยู่แล้ว) จึงไม่มีผลต่อสิทธิ์การมองเห็น
 // ตรวจด้วย:  npx tsx "app/(authenticated)/finance/claims-filter.check.ts"
 
-import { CLAIM_STATUSES, getClaimChecklist } from '../costs/types'
+import { CLAIM_STATUSES } from '../costs/types'
 import type { ExpenseClaim } from '../costs/types'
 import { BUNDLE_MAX_CLAIMS_PER_FILE } from '@/lib/claim-bundle-labels'
 import type { BundleLayout } from '@/lib/claim-bundle-labels'
+import { checklistOf, filedStateOf } from './claim-docs'
+import type { ListClaim } from './view-data'
+
+/** แถวที่ตัวกรองอ่านได้ — แถวเต็ม (ExpenseClaim) หรือแถวแบบเบาของหน้ารายการ (ListClaim — ไฟล์แนบเป็น docs) */
+export type ClaimLike = ExpenseClaim | ListClaim
 
 export const CLAIM_TYPE_FILTERS = ['all', 'event', 'advance', 'petty_cash', 'other'] as const
 export type ClaimTypeFilter = typeof CLAIM_TYPE_FILTERS[number]
@@ -59,7 +64,7 @@ export function filtersFromQuery(params: { get(name: string): string | null }): 
  * ตัดค่าที่ใช้กับข้อมูลชุดนี้ไม่ได้ออก — ลิงก์เก่าหรือ URL ที่พิมพ์เองต้องไม่ทำให้รายการว่าง
  * ทั้งที่กล่องเลือกแสดงว่า "ทุกคน": ผู้เบิก/หมวดที่ไม่มีในข้อมูล และแท็บชำระแล้วของคนที่ไม่ใช่แอดมิน
  */
-export function sanitizeFilters(f: ClaimFilters, known: ExpenseClaim[], isAdmin: boolean): ClaimFilters {
+export function sanitizeFilters(f: ClaimFilters, known: ClaimLike[], isAdmin: boolean): ClaimFilters {
   return {
     ...f,
     status: f.status === 'paid' && !isAdmin ? 'all' : f.status,
@@ -91,7 +96,7 @@ export function listQuery(f: ClaimFilters, paidMonth: string): string {
 /** ค่าเริ่มต้นจาก URL — เดือนใน URL ของแท็บชำระแล้วเป็นเดือนที่จ่าย ไม่ใช่ตัวกรองเดือนที่ใช้จ่าย */
 export function initialFilters(
   params: { get(name: string): string | null },
-  known: ExpenseClaim[],
+  known: ClaimLike[],
   isAdmin: boolean,
 ): ClaimFilters {
   const fromUrl = filtersFromQuery(params)
@@ -116,17 +121,20 @@ export function thaiMonth(value: string | null | undefined): string {
   return Number.isNaN(t) ? '' : new Date(t + THAI_OFFSET_MS).toISOString().slice(0, 7)
 }
 
-/** กรองทุกอย่างยกเว้นแท็บสถานะ (หน้าจอเลือกชุดข้อมูลตามแท็บเองก่อนเรียก) */
-export function filterClaims(claims: ExpenseClaim[], f: ClaimFilters, monthField: MonthField): ExpenseClaim[] {
+/**
+ * กรองทุกอย่างยกเว้นแท็บสถานะ (หน้าจอเลือกชุดข้อมูลตามแท็บเองก่อนเรียก)
+ * ป้ายเอกสาร/สถานะแฟ้มคิดด้วย claim-docs.ts — ได้ผลเดียวกันทั้งแถวเต็มและแถวแบบเบา
+ */
+export function filterClaims<T extends ClaimLike>(claims: T[], f: ClaimFilters, monthField: MonthField): T[] {
   const q = f.q.trim().toLowerCase()
   return claims.filter(c => {
     if (f.type !== 'all' && c.claim_type !== f.type) return false
     if (f.by && c.submitted_by !== f.by) return false
     if (f.category && c.category !== f.category) return false
     if (f.month && thaiMonth(c[monthField]) !== f.month) return false
-    if (f.incomplete && getClaimChecklist(c).isComplete) return false
+    if (f.incomplete && checklistOf(c).isComplete) return false
     if (f.filed !== 'all') {
-      const state = filedState(c)
+      const state = filedStateOf(c)
       if (f.filed === 'no' && state !== 'none') return false
       if (f.filed === 'yes' && state === 'none') return false
       if (f.filed === 'changed' && state !== 'changed') return false
@@ -140,7 +148,7 @@ export function filterClaims(claims: ExpenseClaim[], f: ClaimFilters, monthField
 export interface SubmitterOption { id: string; name: string; count: number }
 
 /** รายชื่อผู้เบิกจากข้อมูลทั้งหมด (รายชื่อคงที่ทุกแท็บ) — count นับเฉพาะใบในชุดที่กำลังแสดง */
-export function submitterOptions(all: ExpenseClaim[], shown: ExpenseClaim[]): SubmitterOption[] {
+export function submitterOptions(all: ClaimLike[], shown: ClaimLike[]): SubmitterOption[] {
   const names = new Map<string, string>()
   for (const c of all) {
     if (c.submitted_by && !names.get(c.submitted_by)) names.set(c.submitted_by, c.submitter?.full_name || '')
@@ -155,7 +163,7 @@ export function submitterOptions(all: ExpenseClaim[], shown: ExpenseClaim[]): Su
 }
 
 /** เดือนที่มีในชุดที่กำลังแสดง ใหม่ → เก่า (รวมเดือนที่เลือกอยู่เสมอ กล่องเลือกจะได้ไม่แสดงค่าผิด) */
-export function monthOptions(shown: ExpenseClaim[], monthField: MonthField, selected: string): string[] {
+export function monthOptions(shown: ClaimLike[], monthField: MonthField, selected: string): string[] {
   const months = new Set<string>()
   for (const c of shown) {
     const m = thaiMonth(c[monthField])
@@ -166,7 +174,7 @@ export function monthOptions(shown: ExpenseClaim[], monthField: MonthField, sele
 }
 
 /** หมวดหมู่ที่มีใช้จริงในข้อมูล (รวมหมวดเก่าที่ไม่อยู่ในตั้งค่าแล้ว) */
-export function categoryValues(all: ExpenseClaim[]): string[] {
+export function categoryValues(all: ClaimLike[]): string[] {
   return [...new Set(all.map(c => c.category).filter(Boolean))]
 }
 

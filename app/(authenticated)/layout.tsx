@@ -5,33 +5,55 @@ import ProfileCompletionChecker from '@/components/profile-completion-checker'
 import NotificationBell from '@/components/notification-bell'
 import NotificationToastContainer from '@/components/notification-toast'
 import LicenseBanner from '@/components/license-banner'
-// WORLDCUP 2026 (temporary) — remove after the tournament
-import WorldCupPopup from '@/components/worldcup/worldcup-popup'
 import { getLicenseStatus } from '@/lib/license'
 import { getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
+
+type ServiceClient = ReturnType<typeof createServiceClient>
+
+/**
+ * ตัวเลขบนเมนู "รออนุมัติ" ของเอกสาร — เฉพาะ admin
+ * ponytail: นับสดด้วย head-count ตรงนี้ (ไม่เรียก server action ที่ต้อง requireAuth +
+ * query profiles ซ้ำ) และ try/catch ไว้เผื่อ instance ที่ยังไม่ได้รัน migration (ไม่มีตาราง = ไม่มี badge)
+ */
+async function pendingDocumentCount(supabase: ServiceClient): Promise<number> {
+  try {
+    const { count } = await supabase
+      .from('documents')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending_approval')
+    return count ?? 0
+  } catch {
+    return 0
+  }
+}
 
 export default async function AuthenticatedLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const { userId } = await getSessionLight()
+  // รอบที่ 1: ตรวจ session (บทบาทมาจากฐานข้อมูล)
+  const { userId, role: sessionRole } = await getSessionLight()
 
   // Fetch role, modules, and profile completeness from DB (single query)
   let role: string | undefined
   let allowedModules = ['stock']
   let missingFields: string[] = []
-  // WORLDCUP 2026 (temporary) — the user's locked-in champion pick
-  let worldcupTeam: string | null = null
+  let pendingDocuments = 0
 
   if (userId) {
     const supabase = createServiceClient()
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, allowed_modules, full_name, nickname, national_id, address, bank_name, bank_account_number, account_holder_name')
-      .eq('id', userId)
-      .single()
+    // รอบที่ 2: โปรไฟล์ + ตัวเลข "รออนุมัติ" ของ admin พร้อมกัน (scripts/layout-requests.check.ts ตรวจว่า ≤ 2 รอบ)
+    const [{ data: profile }, docCount] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('role, allowed_modules, full_name, nickname, national_id, address, bank_name, bank_account_number, account_holder_name')
+        .eq('id', userId)
+        .single(),
+      sessionRole === 'admin' ? pendingDocumentCount(supabase) : Promise.resolve(0),
+    ])
+    pendingDocuments = docCount
 
     const p = profile as Record<string, unknown> | null
     role = p?.role as string | undefined
@@ -53,14 +75,6 @@ export default async function AuthenticatedLayout({
       ]
       missingFields = checks.filter(([, ok]) => !ok).map(([k]) => k)
     }
-
-    // WORLDCUP 2026 (temporary) — errors (e.g. table not migrated yet) just mean no pick
-    const { data: wcPick } = await supabase
-      .from('worldcup_predictions')
-      .select('team')
-      .eq('user_id', userId)
-      .maybeSingle()
-    worldcupTeam = (wcPick?.team as string) ?? null
   }
 
   // Admin always gets admin + overview + content module access
@@ -85,33 +99,19 @@ export default async function AuthenticatedLayout({
   }
 
   // ตัวเลขบนเมนู "รออนุมัติ" — เฉพาะ admin
-  // ponytail: นับสดด้วย head-count ตรงนี้ (ไม่เรียก server action ที่ต้อง requireAuth +
-  // query profiles ซ้ำ) และ try/catch ไว้เผื่อ instance ที่ยังไม่ได้รัน migration
   const badges: Record<string, number> = {}
-  if (role === 'admin') {
-    try {
-      const supabase = createServiceClient()
-      const { count } = await supabase
-        .from('documents')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending_approval')
-      if (count && count > 0) badges['/documents/approvals'] = count
-    } catch {
-      // ตารางยังไม่มี — ไม่ต้องมี badge
-    }
-  }
+  if (role === 'admin' && pendingDocuments > 0) badges['/documents/approvals'] = pendingDocuments
 
   const license = getLicenseStatus()
   const licenseExpiresAt = license.expiresAt ? license.expiresAt.toISOString() : null
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 w-full flex" suppressHydrationWarning>
-      <Sidebar role={role} allowedModules={allowedModules} licenseExpiresAt={licenseExpiresAt} worldcupTeam={worldcupTeam} badges={badges} />
+      <Sidebar role={role} allowedModules={allowedModules} licenseExpiresAt={licenseExpiresAt} badges={badges} />
       <SessionTimeout />
-      {/* WORLDCUP 2026 (temporary) — champion prediction popup */}
-      {userId && <WorldCupPopup hasPicked={!!worldcupTeam} />}
-      {/* Notification Bell — fixed top-right */}
-      <div className="fixed top-3 right-4 z-50 hidden md:block">
+      {/* Notification Bell — ตัวเดียวของทั้งหน้า: จอใหญ่มุมขวาบน · มือถือวางทับช่องว่าง w-9 ที่ sidebar เว้นไว้ในแถบบน
+          (ข้างปุ่มภาษา: ขอบขวา px-4 + ปุ่มเมนู w-10 + gap + ปุ่มภาษา w-12 + gap = 7rem) · ลิ้นชักเมนูมือถือ (z-60/70) ทับกระดิ่ง */}
+      <div className="fixed z-55 top-2.5 right-28 md:top-3 md:right-4">
         <NotificationBell />
       </div>
       {/* Toast Pop-up — desktop only */}

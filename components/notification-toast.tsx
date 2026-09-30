@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, ArrowRight } from 'lucide-react'
 import { getNotifications, markAsRead, type NotificationItem } from '@/app/(authenticated)/notifications/actions'
+import { subscribeNotificationCount } from '@/components/notification-poll'
 
 // ============================================================================
 // Notification Type → Config
@@ -234,54 +235,47 @@ export default function NotificationToastContainer() {
     const shownIdsRef = useRef<Set<string>>(new Set())
     const router = useRouter()
 
-    // Poll for new notifications
+    // New notifications — ตัวเลข "ยังไม่อ่านทั้งหมด" (total) มาจาก notification-poll.ts
+    // (ถามครั้งเดียวต่อแท็บทุก 30 วินาที ใช้ร่วมกับกระดิ่ง) · เพิ่มขึ้นเมื่อไร = ดึงรายการใหม่มาแสดง
     useEffect(() => {
-        const checkForNew = async () => {
+        const checkForNew = async (total: number) => {
+            const last = lastCountRef.current
+            // จดตัวเลขก่อน await — ตัวเลขรอบถัดไปที่มาระหว่างรอ ไม่ดึงรายการเดิมซ้ำ
+            lastCountRef.current = total
+
+            // Skip initial load — only trigger on increase
+            if (last === null || total <= last) return
+
             try {
-                const res = await fetch('/api/notifications/count')
-                if (!res.ok) return
-                const { count } = await res.json()
+                // Fetch the newest notifications
+                const items = await getNotifications(Math.min(total - last, 3))
 
-                // Skip initial load — only trigger on increase
-                if (lastCountRef.current === null) {
-                    lastCountRef.current = count
-                    return
+                // Filter out already-shown toasts
+                const freshItems = items.filter(
+                    item => !item.is_read && !shownIdsRef.current.has(item.id)
+                )
+
+                if (freshItems.length > 0) {
+                    // Mark as shown
+                    freshItems.forEach(item => shownIdsRef.current.add(item.id))
+
+                    // Play notification sound
+                    try {
+                        const audio = new Audio('/sounds/notification.wav')
+                        audio.volume = 0.4
+                        audio.play().catch(() => { /* ignore autoplay block */ })
+                    } catch { /* ignore audio errors */ }
+
+                    // Add to toast queue (max 3 at a time)
+                    setToasts(prev => [...freshItems.slice(0, 3), ...prev].slice(0, 3))
                 }
-
-                if (count > lastCountRef.current) {
-                    // Fetch the newest notifications
-                    const newCount = count - lastCountRef.current
-                    const items = await getNotifications(Math.min(newCount, 3))
-
-                    // Filter out already-shown toasts
-                    const freshItems = items.filter(
-                        item => !item.is_read && !shownIdsRef.current.has(item.id)
-                    )
-
-                    if (freshItems.length > 0) {
-                        // Mark as shown
-                        freshItems.forEach(item => shownIdsRef.current.add(item.id))
-
-                        // Play notification sound
-                        try {
-                            const audio = new Audio('/sounds/notification.wav')
-                            audio.volume = 0.4
-                            audio.play().catch(() => { /* ignore autoplay block */ })
-                        } catch { /* ignore audio errors */ }
-
-                        // Add to toast queue (max 3 at a time)
-                        setToasts(prev => [...freshItems.slice(0, 3), ...prev].slice(0, 3))
-                    }
-                }
-
-                lastCountRef.current = count
-            } catch { /* ignore network errors */ }
+            } catch {
+                // ดึงรายการไม่ได้ — คืนตัวเลขเดิมให้รอบหน้าลองใหม่ (เหมือนเดิม)
+                if (lastCountRef.current === total) lastCountRef.current = last
+            }
         }
 
-        // Check every 15 seconds for faster detection
-        checkForNew()
-        const interval = setInterval(checkForNew, 15000)
-        return () => clearInterval(interval)
+        return subscribeNotificationCount(({ total }) => { void checkForNew(total) })
     }, [])
 
     const handleDismiss = useCallback((id: string) => {

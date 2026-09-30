@@ -47,8 +47,15 @@ async function referencedKeys(bucket) {
   const keys = new Set()
   const push = url => { const k = keyOf(url, bucket); if (k) keys.add(k) }
   if (bucket === 'receipts') {
-    for (const r of await all('public', 'expense_claims', 'receipt_urls, tax_invoice_urls, actual_receipt_urls'))
-      for (const arr of [r.receipt_urls, r.tax_invoice_urls, r.actual_receipt_urls]) (arr || []).forEach(push)
+    // ทุกช่องไฟล์ของใบเบิก — เดิมขาด refund_slip_urls ทำให้สลิปคืนเงินถูกนับเป็น orphan และถูกลบ (พบ 2026-10-01: 7 ไฟล์ 4 ใบ)
+    for (const r of await all('public', 'expense_claims', 'receipt_urls, tax_invoice_urls, actual_receipt_urls, refund_slip_urls'))
+      for (const arr of [r.receipt_urls, r.tax_invoice_urls, r.actual_receipt_urls, r.refund_slip_urls]) (arr || []).forEach(push)
+    // รูปย่อ <ชื่อ>_thumb.jpg ของไฟล์ที่ยังถูกอ้างถึง ไม่ใช่ orphan (กติกาเดียวกับ thumbPathFor ใน lib/finance/receipt-thumbs.ts)
+    for (const k of [...keys]) {
+      if (k.endsWith('_thumb.jpg')) continue
+      const slash = k.lastIndexOf('/'), name = k.slice(slash + 1), dot = name.lastIndexOf('.')
+      keys.add(k.slice(0, slash + 1) + (dot > 0 ? name.slice(0, dot) : name) + '_thumb.jpg')
+    }
   } else if (bucket === 'item-images') {
     for (const r of await all('public', 'items', 'image_url')) {
       if (!r.image_url) continue

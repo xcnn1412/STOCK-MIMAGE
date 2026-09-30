@@ -6,6 +6,8 @@
 // รายจ่าย = expense_claims ทั้งหมด (ตัด rejected/cancelled). สูตรภาษีตรงกับ finance/overview.
 // ============================================================================
 
+import { calcTax } from '@/lib/finance/money'
+
 export interface PLLead {
   id: string; status: string | null; customer_name: string | null
   confirmed_price: number | null; quoted_price: number | null
@@ -36,15 +38,8 @@ export const num = (v: unknown) => Number(v || 0)
 export const fmt = (n: number) => Math.round(n).toLocaleString('th-TH')
 export const fmtSign = (n: number) => `${n < 0 ? '−' : ''}฿${fmt(Math.abs(n))}`
 
-export function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-  let totalWithVat = amount
-  if (vatMode === 'included') { baseAmount = amount / 1.07; vatAmount = amount - baseAmount }
-  else if (vatMode === 'excluded') { vatAmount = amount * 0.07; totalWithVat = amount + vatAmount }
-  const whtAmount = baseAmount * (whtRatePercent / 100)
-  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable: totalWithVat - whtAmount }
-}
+// สูตรภาษีตัวเดียวของทั้งระบบ — ส่งต่อให้หน้าที่ import calcTax จากไฟล์นี้อยู่แล้ว
+export { calcTax } from '@/lib/finance/money'
 export type Tax = ReturnType<typeof calcTax>
 
 export const newLadder = (): Ladder => ({ base: 0, vat: 0, wht: 0, net: 0, gross: 0, count: 0 })

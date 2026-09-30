@@ -25,6 +25,8 @@ import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authent
 import CostSummaryDashboard from '../../components/cost-summary-dashboard'
 import type { BarSegment } from '../../components/cost-summary-dashboard'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
+// คำนวณ VAT + หัก ณ ที่จ่าย (คิดจากยอดก่อน VAT) — สูตรเดียวของทั้งระบบ
+import { calcTax } from '@/lib/finance/money'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
 
@@ -70,28 +72,6 @@ function formatDate(dateStr: string | null) {
 const categoryIcons: Record<string, React.ElementType> = {
   staff: Users, travel: Car, equipment: Package, food: UtensilsCrossed,
   venue: Building2, marketing: Megaphone, other: MoreHorizontal,
-}
-
-/** คำนวณ VAT + WHT จากยอดก่อน VAT */
-function calcTax(amount: number, vatMode: string, whtRate: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-
-  if (vatMode === 'included') {
-    // ราคารวม VAT แล้ว → ถอด VAT ออก
-    baseAmount = amount / 1.07
-    vatAmount = amount - baseAmount
-  } else if (vatMode === 'excluded') {
-    // ราคายังไม่รวม VAT → เพิ่ม VAT เข้าไป
-    baseAmount = amount
-    vatAmount = amount * 0.07
-  }
-  // 'none' → ไม่มี VAT
-
-  const totalWithVat = baseAmount + vatAmount
-  const whtAmount = baseAmount * (whtRate / 100) // หัก ณ ที่จ่าย คิดจากยอดก่อน VAT
-  const netPayable = totalWithVat - whtAmount
-  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
 }
 
 export default function EventCostDetailView({ jobEvent, expenseClaims = [], categories = [], categoryItems = [], staffProfiles = [] }: { jobEvent: JobEventWithItems; expenseClaims?: ExpenseClaimRow[]; categories?: FinanceCategory[]; categoryItems?: CategoryItem[]; staffProfiles?: StaffProfile[] }) {

@@ -16,7 +16,6 @@ import { useLocale } from '@/lib/i18n/context'
 import { Button } from '@/components/ui/button'
 import { calcTax } from '@/lib/finance/money'
 import { cn } from '@/lib/utils'
-import type { ExpenseClaim } from '../costs/types'
 import { confirmRefundReceived } from './actions'
 import BundleDialog, { type BundleClaimRef } from './bundle-dialog'
 import { paymentLock } from './claim-rules'
@@ -40,6 +39,7 @@ import { QueueSelectionBar, type BulkButton } from './queue-selection-bar'
 import { SendBackDialog } from './send-back-dialog'
 import type { FinanceCategory } from './settings-actions'
 import { useConfirm } from './use-confirm'
+import type { ListClaim } from './view-data'
 
 type Result = { success?: boolean; error?: string }
 
@@ -89,8 +89,8 @@ export interface QueueViewProps {
   hiddenCount: number
   error: string | null
   categories: FinanceCategory[]
-  /** ใบที่จ่ายแล้วของเดือน paidMonth (โหลดเฉพาะเมื่อเปิดส่วนชำระเงินแล้ว) */
-  paidClaims: ExpenseClaim[]
+  /** ใบที่จ่ายแล้วของเดือน paidMonth (โหลดเฉพาะเมื่อเปิดส่วนชำระเงินแล้ว · แถวแบบเบาจาก list-data.ts) */
+  paidClaims: ListClaim[]
   paidMonths: { month: string; count: number }[]
   paidMonth: string
   showPaid: boolean

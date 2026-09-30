@@ -360,10 +360,14 @@ const renderPanel = (over: Partial<PanelProps> & { claim: QueueClaim }) => rende
   const admin = src.slice(adminStart, staffStart)
   const staff = src.slice(staffStart)
   assert.ok(admin.includes('getQueueClaims()') && admin.includes('<QueueView') && !admin.includes('getClaims({ open: true })'))
-  assert.ok(/const paid = showPaid && paidMonth\s*\?\s*await getClaims\(\{ status: \['paid', 'refund_confirmed'\], paidMonth \}\)/.test(admin), 'โหลดเดือนที่จ่ายเฉพาะ status=paid')
+  // ขั้น 3: ใบที่จ่ายแล้วของเดือนโหลดด้วย getPaidClaimsLean (list-data.ts — แถวแบบเบา) เฉพาะเมื่อ status=paid · ที่อื่นในทางแอดมินไม่โหลด
+  assert.ok(/const paid = showPaid && paidMonth\s*\?\s*await getPaidClaimsLean\(viewer, paidMonth\)\s*:\s*null/.test(admin), 'โหลดเดือนที่จ่ายเฉพาะ status=paid')
+  assert.equal(admin.split('getPaidClaimsLean(').length - 1, 1, 'ทางแอดมินโหลดใบที่จ่ายแล้วที่เดียว (หลังเช็ก status=paid)')
+  assert.ok(!admin.includes('getStaffOpenClaims'), 'ทางแอดมินไม่เรียกตัวโหลดรายการของพนักงาน')
   assert.ok(admin.includes("const showPaid = params.status === 'paid'"))
-  assert.ok(staff.includes('getClaims({ open: true })') && staff.includes('<ClaimsListView') && !staff.includes('getQueueClaims'))
-  pass('page.tsx: แอดมิน = getQueueClaims → <QueueView> (ไม่มี getClaims({ open: true })) · ใบที่จ่ายแล้วโหลดเมื่อ status=paid · พนักงาน = <ClaimsListView> เดิม')
+  // ขั้น 3: พนักงานโหลดเฉพาะใบที่ยังไม่จบของตัวเองด้วย getStaffOpenClaims(viewer) (list-data.ts — claimsQuery บังคับเป็นของตัวเอง)
+  assert.ok(staff.includes('getStaffOpenClaims(viewer)') && staff.includes('<ClaimsListView') && !staff.includes('getQueueClaims') && !staff.includes('getPaidClaimsLean'))
+  pass('page.tsx: แอดมิน = getQueueClaims → <QueueView> (ไม่มีตัวโหลดของพนักงาน) · ใบที่จ่ายแล้วโหลดด้วย getPaidClaimsLean เมื่อ status=paid เท่านั้น · พนักงาน = getStaffOpenClaims(viewer) → <ClaimsListView>')
 }
 
 console.log('\nfinance-queue-view: ผ่านทั้งหมด')

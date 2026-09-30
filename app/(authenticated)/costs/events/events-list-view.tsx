@@ -20,26 +20,11 @@ import { attributeRevenue } from '../lib/revenue-attribution'
 import { buildCrmCostGroups, type LeadLite, type ClaimLite, type EventLite, type CrmCostGroup } from '../lib/crm-cost-grouping'
 import { getPhaseLabel } from '@/app/(authenticated)/crm/event-phases'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
+import { calcTax } from '@/lib/finance/money'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: Pick<JobCostItem, 'id' | 'category' | 'amount' | 'include_vat' | 'vat_mode' | 'withholding_tax_rate'>[] }
 
 const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-
-function calcTax(amount: number, vatMode: string, whtRate: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-  if (vatMode === 'included') {
-    baseAmount = amount / 1.07
-    vatAmount = amount - baseAmount
-  } else if (vatMode === 'excluded') {
-    baseAmount = amount
-    vatAmount = amount * 0.07
-  }
-  const totalWithVat = baseAmount + vatAmount
-  const whtAmount = baseAmount * (whtRate / 100)
-  const netPayable = totalWithVat - whtAmount
-  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
-}
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '-'

@@ -2,11 +2,14 @@
 
 import { FileText, Hash, RefreshCw, Building2, User as UserIcon, AlertCircle, Clock } from 'lucide-react'
 import {
-  getClaimChecklist,
   getFundingSourceColor,
   getFundingSourceLabel,
 } from '../costs/types'
 import type { ExpenseClaim } from '../costs/types'
+import { checklistOf, type ChecklistFields, type DocSource } from './claim-docs'
+
+/** แถวที่ป้ายเอกสารอ่านได้ — แถวเต็ม (รายการ URL) หรือแถวแบบเบา (docs) */
+type ChecklistClaim = DocSource & ChecklistFields
 
 // ============================================================================
 // DocBadge — single document status pill (✓ / ✗ / ⏳)
@@ -62,11 +65,11 @@ export function ChecklistBadges({
   isEn,
   alwaysShow = false,
 }: {
-  claim: ExpenseClaim
+  claim: ChecklistClaim
   isEn: boolean
   alwaysShow?: boolean
 }) {
-  const ck = getClaimChecklist(claim)
+  const ck = checklistOf(claim)
   if (!alwaysShow && ck.isComplete) return null
 
   return (
@@ -110,7 +113,7 @@ export function FundingBadge({
   isEn,
   size = 'sm',
 }: {
-  claim: ExpenseClaim
+  claim: Pick<ExpenseClaim, 'funding_source'>
   isEn: boolean
   size?: 'xs' | 'sm'
 }) {
@@ -142,10 +145,10 @@ export function IncompleteWarning({
   claim,
   isEn,
 }: {
-  claim: ExpenseClaim
+  claim: ChecklistClaim
   isEn: boolean
 }) {
-  const ck = getClaimChecklist(claim)
+  const ck = checklistOf(claim)
   if (ck.isComplete) return null
 
   const missing: string[] = []

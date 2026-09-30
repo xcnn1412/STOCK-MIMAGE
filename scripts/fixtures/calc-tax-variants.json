@@ -1,0 +1,54 @@
+{
+  "lib/claim-voucher.ts": {
+    "class": "A",
+    "source": "function calcTax(amount: number, vatMode: string, whtRatePercent: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n  let totalWithVat = amount\n\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n    totalWithVat = amount\n  } else if (vatMode === 'excluded') {\n    vatAmount = amount * 0.07\n    totalWithVat = amount + vatAmount\n  }\n\n  const whtAmount = baseAmount * (whtRatePercent / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/finance/[id]/claim-detail-view.tsx": {
+    "class": "A",
+    "source": "function calcTax(amount: number, vatMode: string, whtRatePercent: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n  let totalWithVat = amount\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n    totalWithVat = amount\n  } else if (vatMode === 'excluded') {\n    vatAmount = amount * 0.07\n    totalWithVat = amount + vatAmount\n  }\n  const whtAmount = baseAmount * (whtRatePercent / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/finance/archive/archive-list.tsx": {
+    "class": "A",
+    "source": "function calcTax(amount: number, vatMode: string, whtRatePercent: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n  let totalWithVat = amount\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n    totalWithVat = amount\n  } else if (vatMode === 'excluded') {\n    vatAmount = amount * 0.07\n    totalWithVat = amount + vatAmount\n  }\n  const whtAmount = baseAmount * (whtRatePercent / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/finance/overview/overview-dashboard.tsx": {
+    "class": "A",
+    "source": "function calcTax(amount: number, vatMode: string, whtRatePercent: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n  let totalWithVat = amount\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n    totalWithVat = amount\n  } else if (vatMode === 'excluded') {\n    vatAmount = amount * 0.07\n    totalWithVat = amount + vatAmount\n  }\n  const whtAmount = baseAmount * (whtRatePercent / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/finance/payouts/payout-dashboard.tsx": {
+    "class": "A",
+    "source": "function calcTax(amount: number, vatMode: string, whtRatePercent: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n  let totalWithVat = amount\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n    totalWithVat = amount\n  } else if (vatMode === 'excluded') {\n    vatAmount = amount * 0.07\n    totalWithVat = amount + vatAmount\n  }\n  const whtAmount = baseAmount * (whtRatePercent / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/finance/new/create-claim-form.tsx": {
+    "class": "A",
+    "source": "function calcTax(amount: number, vatMode: string, whtRatePercent: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n  let totalWithVat = amount\n\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n    totalWithVat = amount\n  } else if (vatMode === 'excluded') {\n    vatAmount = amount * 0.07\n    totalWithVat = amount + vatAmount\n  }\n\n  const whtAmount = baseAmount * (whtRatePercent / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/finance/download/finance-download-view.tsx": {
+    "class": "B",
+    "source": "function calcTax(amount: number, vatMode: string, whtRatePercent: number) {\n  let baseAmount = amount\n  let totalWithVat = amount\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    totalWithVat = amount\n  } else if (vatMode === 'excluded') {\n    totalWithVat = amount + amount * 0.07\n  }\n  const whtAmount = baseAmount * (whtRatePercent / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/finance/claims-list-view.tsx": {
+    "class": "C",
+    "source": "function calcTax(amount: number, vatMode: string, whtRatePercent: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n  let totalWithVat = amount\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n    totalWithVat = amount\n  } else if (vatMode === 'excluded') {\n    vatAmount = amount * 0.07\n    totalWithVat = amount + vatAmount\n  }\n  const whtAmount = baseAmount * (whtRatePercent / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { netPayable }\n}"
+  },
+  "app/(authenticated)/costs/reports/reports-view.tsx": {
+    "class": "D",
+    "source": "function calcTax(amount: number, vatMode: string, whtRate: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n  } else if (vatMode === 'excluded') {\n    baseAmount = amount\n    vatAmount = amount * 0.07\n  }\n\n  const totalWithVat = baseAmount + vatAmount\n  const whtAmount = baseAmount * (whtRate / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/costs/events/events-list-view.tsx": {
+    "class": "D",
+    "source": "function calcTax(amount: number, vatMode: string, whtRate: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n  if (vatMode === 'included') {\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n  } else if (vatMode === 'excluded') {\n    baseAmount = amount\n    vatAmount = amount * 0.07\n  }\n  const totalWithVat = baseAmount + vatAmount\n  const whtAmount = baseAmount * (whtRate / 100)\n  const netPayable = totalWithVat - whtAmount\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/costs/events/[id]/event-cost-detail-view.tsx": {
+    "class": "D",
+    "source": "function calcTax(amount: number, vatMode: string, whtRate: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n\n  if (vatMode === 'included') {\n    // ราคารวม VAT แล้ว → ถอด VAT ออก\n    baseAmount = amount / 1.07\n    vatAmount = amount - baseAmount\n  } else if (vatMode === 'excluded') {\n    // ราคายังไม่รวม VAT → เพิ่ม VAT เข้าไป\n    baseAmount = amount\n    vatAmount = amount * 0.07\n  }\n  // 'none' → ไม่มี VAT\n\n  const totalWithVat = baseAmount + vatAmount\n  const whtAmount = baseAmount * (whtRate / 100) // หัก ณ ที่จ่าย คิดจากยอดก่อน VAT\n  const netPayable = totalWithVat - whtAmount\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }\n}"
+  },
+  "app/(authenticated)/overview/analytics-panel.tsx": {
+    "class": "E",
+    "source": "function calcTax(amount: number, vatMode: string | null | undefined, whtRate: number | null | undefined) {\n  const rate = Number(whtRate || 0)\n  let base = amount\n  let vat = 0\n  if (vatMode === 'included') {\n    base = amount / 1.07\n    vat = amount - base\n  } else if (vatMode === 'excluded') {\n    base = amount\n    vat = amount * 0.07\n  }\n  const wht = base * (rate / 100)\n  return { base, vat, wht, totalWithVat: base + vat, net: base + vat - wht }\n}"
+  },
+  "app/(authenticated)/overview/pl/pl-lib.ts": {
+    "class": "F",
+    "source": "function calcTax(amount: number, vatMode: string, whtRatePercent: number) {\n  let baseAmount = amount\n  let vatAmount = 0\n  let totalWithVat = amount\n  if (vatMode === 'included') { baseAmount = amount / 1.07; vatAmount = amount - baseAmount }\n  else if (vatMode === 'excluded') { vatAmount = amount * 0.07; totalWithVat = amount + vatAmount }\n  const whtAmount = baseAmount * (whtRatePercent / 100)\n  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable: totalWithVat - whtAmount }\n}"
+  }
+}

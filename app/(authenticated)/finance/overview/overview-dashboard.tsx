@@ -1,25 +1,27 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useOptimistic, useState, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
-  ListChecks, Filter, Search, FileSpreadsheet, FileDown, ExternalLink,
+  ListChecks, Filter, FileSpreadsheet, FileDown, ExternalLink,
   CheckCircle2, AlertCircle, Building2, User as UserIcon, Wallet, Coins, Receipt,
   Hash, RefreshCw, FileText, ChevronDown, ChevronUp, Calendar
 } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
+import { calcTax } from '@/lib/finance/money'
 import {
   CLAIM_STATUSES,
   FUNDING_SOURCES,
   getCategoryLabel,
   getClaimStatusLabel,
   getClaimStatusColor,
-  getClaimChecklist,
   getFundingSourceLabel,
   getFundingSourceColor,
 } from '../../costs/types'
-import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
+import { checklistOf } from '../claim-docs'
+import type { OverviewRange, OverviewRow } from '../view-data'
 import { escapeHtml } from '@/lib/escape-html'
 import { thaiTodayIso } from '@/lib/thai-date'
 
@@ -27,27 +29,23 @@ import { thaiTodayIso } from '@/lib/thai-date'
 // Helpers
 // ============================================================================
 
-function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-  let totalWithVat = amount
-  if (vatMode === 'included') {
-    baseAmount = amount / 1.07
-    vatAmount = amount - baseAmount
-    totalWithVat = amount
-  } else if (vatMode === 'excluded') {
-    vatAmount = amount * 0.07
-    totalWithVat = amount + vatAmount
-  }
-  const whtAmount = baseAmount * (whtRatePercent / 100)
-  const netPayable = totalWithVat - whtAmount
-  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
-}
-
 const fmtDec = (n: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-type RangePreset = 'day' | 'week' | 'month' | 'year' | 'custom' | 'all'
+type RangePreset = OverviewRange['preset']
+
+/** ค่าที่ server ใช้แทนฝั่งที่เว้นว่างของช่วงกำหนดเอง — ช่องวันที่แสดงเป็นช่องว่าง */
+const OPEN_FROM = '0000-01-01'
+const OPEN_TO = '9999-12-31'
+const dateInputValue = (v: string) => (v === OPEN_FROM || v === OPEN_TO ? '' : v)
+
+/** ลิงก์ของรายงานตามช่วงวันที่ — server โหลดเฉพาะใบในช่วงนี้ (report-data.ts) */
+function overviewHref(r: OverviewRange): string {
+  if (r.preset === 'all') return '/finance/overview?preset=all'
+  const from = dateInputValue(r.from)
+  const to = dateInputValue(r.to)
+  return `/finance/overview?preset=${r.preset}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`
+}
 
 /** Returns [from, to] (inclusive) date strings YYYY-MM-DD for the chosen preset. */
 function rangeFromPreset(preset: RangePreset): { from: string; to: string } | null {
@@ -80,44 +78,56 @@ function rangeFromPreset(preset: RangePreset): { from: string; to: string } | nu
 // ============================================================================
 
 export default function OverviewDashboard({
-  claims,
+  rows,
+  range,
   categories,
 }: {
-  claims: ExpenseClaim[]
+  /** ใบเบิกในช่วงวันที่ของ range เท่านั้น (แถวแบบเบา + ช่องที่ไฟล์ XLSX/PDF ใช้) */
+  rows: OverviewRow[]
+  /** ช่วงวันที่ที่ server โหลดมา (?preset&from&to) */
+  range: OverviewRange
   categories: FinanceCategory[]
 }) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
+  const router = useRouter()
 
-  // Filter state
-  const [rangePreset, setRangePreset] = useState<RangePreset>('month')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
+  // ช่วงวันที่อยู่ใน URL — เปลี่ยนช่วง = ขอหน้าใหม่ · ระหว่างรอ ปุ่ม/ช่องวันที่แสดงช่วงที่เพิ่งเลือก
+  const [rangeLoading, startRangeLoad] = useTransition()
+  const [shownRange, showRange] = useOptimistic(range)
+  const chooseRange = (next: OverviewRange) =>
+    startRangeLoad(() => {
+      showRange(next)
+      router.replace(overviewHref(next), { scroll: false })
+    })
+  const choosePreset = (preset: RangePreset) => {
+    if (preset === 'all') return chooseRange({ preset, from: '', to: '' })
+    // กำหนดเอง: เริ่มจากช่วงที่เปิดอยู่ แล้วแก้วันที่ต่อ (ไม่โหลดทุกใบก่อนเลือกวัน)
+    if (preset === 'custom') return chooseRange({ preset, from: dateInputValue(range.from), to: dateInputValue(range.to) })
+    const r = rangeFromPreset(preset)
+    if (r) chooseRange({ preset, ...r })
+  }
+  const setCustom = (patch: { from?: string; to?: string }) =>
+    chooseRange({ preset: 'custom', from: dateInputValue(shownRange.from), to: dateInputValue(shownRange.to), ...patch })
+
+  // Filter state (กรองในเบราว์เซอร์บนใบของช่วงวันที่ที่โหลดมา)
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set())
   const [typeFilter, setTypeFilter] = useState<'all' | 'event' | 'other' | 'advance' | 'petty_cash'>('all')
   const [fundingFilter, setFundingFilter] = useState<'all' | 'company' | 'personal'>('all')
   const [categoryFilter, setCategoryFilter] = useState('')
-  const [search, setSearch] = useState('')
   const [completionFilter, setCompletionFilter] = useState<'all' | 'complete' | 'incomplete'>('all')
   const [showFilters, setShowFilters] = useState(true)
 
-  // Compute date window
+  // ช่วงวันที่ของข้อมูลที่โหลดมา (ไม่ใช่ค่าที่กำลังรอ) — กรองซ้ำในเบราว์เซอร์ด้วยกติกาเดิม
   const dateWindow = useMemo(() => {
-    if (rangePreset === 'custom') {
-      if (customFrom || customTo) {
-        return {
-          from: customFrom || '0000-01-01',
-          to: customTo || '9999-12-31',
-        }
-      }
-      return null
-    }
-    return rangeFromPreset(rangePreset)
-  }, [rangePreset, customFrom, customTo])
+    if (range.preset === 'all') return null
+    if (range.from || range.to) return { from: range.from || OPEN_FROM, to: range.to || OPEN_TO }
+    return rangeFromPreset(range.preset)
+  }, [range])
 
   // Filter claims
   const filtered = useMemo(() => {
-    let list = claims
+    let list = rows
 
     // Date filter — using expense_date (falls back to created_at if missing)
     if (dateWindow) {
@@ -136,31 +146,15 @@ export default function OverviewDashboard({
     }
     if (categoryFilter) list = list.filter(c => c.category === categoryFilter)
 
-    if (search.trim()) {
-      const q = search.trim().toLowerCase()
-      list = list.filter(c => {
-        const name = c.submitter?.full_name?.toLowerCase() || ''
-        const title = c.title?.toLowerCase() || ''
-        const num = c.claim_number?.toLowerCase() || ''
-        const taxNums = (c.tax_invoice_numbers || []).join(' ').toLowerCase()
-        return (
-          name.includes(q) ||
-          title.includes(q) ||
-          num.includes(q) ||
-          taxNums.includes(q)
-        )
-      })
-    }
-
     if (completionFilter !== 'all') {
       list = list.filter(c => {
-        const ck = getClaimChecklist(c)
+        const ck = checklistOf(c)
         return completionFilter === 'complete' ? ck.isComplete : !ck.isComplete
       })
     }
 
     return list
-  }, [claims, dateWindow, statusFilter, typeFilter, fundingFilter, categoryFilter, search, completionFilter])
+  }, [rows, dateWindow, statusFilter, typeFilter, fundingFilter, categoryFilter, completionFilter])
 
   // Summary cards
   const summary = useMemo(() => {
@@ -179,7 +173,7 @@ export default function OverviewDashboard({
       totalGross += amt
       totalNet += tax.netPayable
       totalWht += tax.whtAmount
-      const ck = getClaimChecklist(c)
+      const ck = checklistOf(c)
       if (ck.isComplete) completeCount += 1
       else incompleteCount += 1
       if (ck.taxInvoiceRequired && !ck.hasTaxInvoice) pendingTaxInvoice += 1
@@ -214,7 +208,6 @@ export default function OverviewDashboard({
     setTypeFilter('all')
     setFundingFilter('all')
     setCategoryFilter('')
-    setSearch('')
     setCompletionFilter('all')
   }
 
@@ -223,7 +216,6 @@ export default function OverviewDashboard({
     typeFilter !== 'all' ||
     fundingFilter !== 'all' ||
     !!categoryFilter ||
-    !!search.trim() ||
     completionFilter !== 'all'
 
   // ========== Excel Export ==========
@@ -234,7 +226,7 @@ export default function OverviewDashboard({
     const rows = filtered.map(c => {
       const amt = c.amount || 0
       const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
-      const ck = getClaimChecklist(c)
+      const ck = checklistOf(c)
       return {
         'เลขที่ใบเบิก': c.claim_number,
         'วันที่': c.expense_date || c.created_at?.slice(0, 10) || '',
@@ -251,7 +243,7 @@ export default function OverviewDashboard({
                 ? 'เงินสดย่อย'
                 : 'ค่าอื่นๆ',
         'แหล่งเงิน': getFundingSourceLabel(c.funding_source, 'th'),
-        'อีเวนต์': (c.job_event as any)?.event_name || '',
+        'อีเวนต์': c.job_event?.event_name || '',
         'ยอดเงิน': amt,
         'ก่อนหัก ณ ที่จ่าย': Math.round(tax.totalWithVat * 100) / 100,
         'หัก ณ ที่จ่าย': Math.round(tax.whtAmount * 100) / 100,
@@ -340,7 +332,7 @@ export default function OverviewDashboard({
       </tr>`
 
     filtered.forEach((c, i) => {
-      const ck = getClaimChecklist(c)
+      const ck = checklistOf(c)
       const tax = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
       const taxNumStr = (c.tax_invoice_numbers || []).join(' / ')
       // ช่องนี้เป็น markup ที่ประกอบจากข้อความคงที่ + เลขที่ใบกำกับที่ escape แล้ว
@@ -387,7 +379,7 @@ export default function OverviewDashboard({
   }
 
   return (
-    <div className="space-y-5">
+    <div className={`space-y-5 transition-opacity ${rangeLoading ? 'opacity-70' : ''}`} aria-busy={rangeLoading}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -427,7 +419,7 @@ export default function OverviewDashboard({
         </div>
       </div>
 
-      {/* Range presets */}
+      {/* Range presets — ช่วงวันที่อยู่ใน URL (?preset&from&to) server โหลดเฉพาะใบในช่วง */}
       <div className="flex items-center gap-1 flex-wrap">
         {(
           [
@@ -441,9 +433,11 @@ export default function OverviewDashboard({
         ).map(p => (
           <button
             key={p.v}
-            onClick={() => setRangePreset(p.v as RangePreset)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              rangePreset === p.v
+            type="button"
+            onClick={() => choosePreset(p.v)}
+            aria-pressed={shownRange.preset === p.v}
+            className={`min-h-10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              shownRange.preset === p.v
                 ? 'bg-emerald-600 text-white'
                 : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
             }`}
@@ -451,21 +445,23 @@ export default function OverviewDashboard({
             {isEn ? p.en : p.th}
           </button>
         ))}
-        {rangePreset === 'custom' && (
+        {shownRange.preset === 'custom' && (
           <div className="flex items-center gap-1 ml-2">
-            <Calendar className="h-3.5 w-3.5 text-zinc-400" />
+            <Calendar className="h-3.5 w-3.5 text-zinc-400" aria-hidden="true" />
             <input
               type="date"
-              value={customFrom}
-              onChange={e => setCustomFrom(e.target.value)}
-              className="px-2 py-1 text-xs border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 outline-none focus:border-emerald-500"
+              value={dateInputValue(shownRange.from)}
+              onChange={e => setCustom({ from: e.target.value })}
+              aria-label={isEn ? 'From date' : 'ตั้งแต่วันที่'}
+              className="min-h-10 px-2 py-1 text-xs border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 outline-none focus:border-emerald-500"
             />
-            <span className="text-xs text-zinc-400">→</span>
+            <span className="text-xs text-zinc-400" aria-hidden="true">→</span>
             <input
               type="date"
-              value={customTo}
-              onChange={e => setCustomTo(e.target.value)}
-              className="px-2 py-1 text-xs border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 outline-none focus:border-emerald-500"
+              value={dateInputValue(shownRange.to)}
+              onChange={e => setCustom({ to: e.target.value })}
+              aria-label={isEn ? 'To date' : 'ถึงวันที่'}
+              className="min-h-10 px-2 py-1 text-xs border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 outline-none focus:border-emerald-500"
             />
           </div>
         )}
@@ -579,18 +575,8 @@ export default function OverviewDashboard({
           {showFilters ? <ChevronUp className="h-4 w-4 text-zinc-400" /> : <ChevronDown className="h-4 w-4 text-zinc-400" />}
         </button>
         {showFilters && (
-          <div className="px-4 pb-4 space-y-3 border-t border-zinc-100 dark:border-zinc-800">
-            {/* Search */}
-            <div className="relative pt-3">
-              <Search className="absolute left-2.5 top-1/2 mt-1 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder={isEn ? 'Search claim no., title, name, tax invoice number...' : 'ค้นหา เลขที่/หัวข้อ/ผู้เบิก/เลขใบกำกับภาษี...'}
-                className="w-full pl-8 pr-3 py-2 text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 outline-none focus:border-emerald-500"
-              />
-            </div>
+          <div className="px-4 pb-4 pt-3 space-y-3 border-t border-zinc-100 dark:border-zinc-800">
+            {/* ค้นหาข้อความใช้ช่องค้นหาบนหัวเมนู (ทุกสถานะทุกเดือน) */}
 
             {/* Status multi-select */}
             <div>
@@ -767,7 +753,7 @@ export default function OverviewDashboard({
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                   {filtered.map((c, i) => {
-                    const ck = getClaimChecklist(c)
+                    const ck = checklistOf(c)
                     const tax = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
                     const fundingColor = getFundingSourceColor(c.funding_source)
                     const isPersonal = c.funding_source === 'personal'
@@ -910,7 +896,7 @@ export default function OverviewDashboard({
             {/* Mobile cards */}
             <div className="lg:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
               {filtered.map(c => {
-                const ck = getClaimChecklist(c)
+                const ck = checklistOf(c)
                 const fundingColor = getFundingSourceColor(c.funding_source)
                 return (
                   <Link

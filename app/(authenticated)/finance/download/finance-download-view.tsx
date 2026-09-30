@@ -3,16 +3,11 @@
 import { useMemo, useState } from 'react'
 import { Download, FileSpreadsheet, FileText, Filter, Percent } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
-import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
+import type { WhtCell, WhtPerson } from '../view-data'
 import { parseAddress, formatAddress } from '@/lib/thai-address'
 import { escapeHtml } from '@/lib/escape-html'
 import { thaiTodayIso } from '@/lib/thai-date'
-
-/** ช่องของใบเบิกที่หน้านี้ใช้ — page.tsx ส่งมาเฉพาะเท่านี้ (ไม่ส่งทั้งแถว) */
-export type WhtClaim = Pick<ExpenseClaim,
-  'id' | 'status' | 'expense_date' | 'created_at' | 'submitted_by' | 'submitter' | 'amount' | 'vat_mode' |
-  'withholding_tax_rate' | 'bank_name' | 'bank_account_number' | 'account_holder_name'>
 
 export interface WhtProfile {
   nickname: string | null
@@ -20,102 +15,94 @@ export interface WhtProfile {
   address: string | null
 }
 
-function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
-  let baseAmount = amount
-  let totalWithVat = amount
-  if (vatMode === 'included') {
-    baseAmount = amount / 1.07
-    totalWithVat = amount
-  } else if (vatMode === 'excluded') {
-    totalWithVat = amount + amount * 0.07
-  }
-  const whtAmount = baseAmount * (whtRatePercent / 100)
-  const netPayable = totalWithVat - whtAmount
-  return { whtAmount, netPayable }
-}
-
 const fmtDec = (n: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 interface Props {
-  claims: WhtClaim[]
-  categories: FinanceCategory[]
+  /** ยอดรวมต่อ (ผู้เบิก, สถานะ, เดือน) ของใบที่มีหัก ณ ที่จ่าย — คิดด้วย money.calcTax ฝั่ง server/ฐานข้อมูล (report-data.ts) */
+  cells: WhtCell[]
+  /** ชื่อผู้เบิกของทุกคนใน cells */
+  people: WhtPerson[]
+  categories?: FinanceCategory[]
   profileMap?: Record<string, WhtProfile>
 }
 
-export default function FinanceDownloadView({ claims, profileMap = {} }: Props) {
+type BankField = 'bank_name' | 'bank_account_number' | 'account_holder_name'
+
+/** เวลาไหนใหม่กว่า (ISO) — เทียบเป็นเวลา แล้วค่อยเทียบข้อความเมื่อเวลาเท่ากัน */
+const newer = (a: string, b: string) => {
+  const ta = Date.parse(a)
+  const tb = Date.parse(b)
+  return ta !== tb && !Number.isNaN(ta) && !Number.isNaN(tb) ? ta > tb : a > b
+}
+
+/**
+ * บัญชีธนาคารของคนหนึ่งจากกลุ่มที่เลือก: แต่ละช่องใช้ค่าที่ไม่ว่างของใบที่สร้างล่าสุด (*_at ใหม่สุด)
+ * = กติกาเดิม "ค่าแรกที่ไม่ว่างเมื่อเรียงใบใหม่ → เก่า"
+ */
+function latestBankValue(cells: WhtCell[], field: BankField): string {
+  const atKey = `${field}_at` as const
+  let value = ''
+  let at = ''
+  for (const c of cells) {
+    const v = c[field]
+    const vAt = c[atKey] || ''
+    if (!v) continue
+    if (!value || newer(vAt, at)) {
+      value = v
+      at = vAt
+    }
+  }
+  return value
+}
+
+export default function FinanceDownloadView({ cells, people, profileMap = {} }: Props) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
   const [statusFilter, setStatusFilter] = useState<string>('paid')
   const [monthFilter, setMonthFilter] = useState<string>('all')
 
-  const months = useMemo(() => {
-    const set = new Set<string>()
-    claims.forEach(c => {
-      const d = new Date(c.expense_date || c.created_at)
-      set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-    })
-    return Array.from(set).sort().reverse()
-  }, [claims])
+  // เดือนที่มีใบหัก ณ ที่จ่าย (ทุกสถานะ) ใหม่ → เก่า
+  const months = useMemo(
+    () => Array.from(new Set(cells.map(c => c.month).filter(Boolean))).sort().reverse(),
+    [cells],
+  )
 
-  // Filter claims by status + month, then keep only those with a WHT rate
-  const filtered = useMemo(() => {
-    let result = claims.filter(c => (c.withholding_tax_rate || 0) > 0)
-    if (statusFilter !== 'all') result = result.filter(c => c.status === statusFilter)
-    if (monthFilter !== 'all') {
-      result = result.filter(c => {
-        const d = new Date(c.expense_date || c.created_at)
-        const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-        return m === monthFilter
-      })
-    }
-    return result
-  }, [claims, statusFilter, monthFilter])
+  // กลุ่มที่ตรงกับสถานะ + เดือนที่เลือก (cells มีเฉพาะใบที่มีอัตราหัก ณ ที่จ่ายอยู่แล้ว)
+  const filtered = useMemo(
+    () => cells.filter(c =>
+      (statusFilter === 'all' || c.status === statusFilter) &&
+      (monthFilter === 'all' || c.month === monthFilter)),
+    [cells, statusFilter, monthFilter],
+  )
 
   // Group by submitter for WHT summary (one row per person)
   const whtSummary = useMemo(() => {
-    const map = new Map<string, {
-      name: string
-      nickname: string
-      nationalId: string
-      address: string
-      bankName: string
-      bankAccount: string
-      accountHolder: string
-      totalGross: number
-      totalWht: number
-      totalNet: number
-      count: number
-    }>()
-    filtered.forEach(c => {
+    const names = new Map(people.map(p => [p.id, p.name]))
+    const byPerson = new Map<string, WhtCell[]>()
+    for (const c of filtered) {
       const key = c.submitted_by || 'unknown'
-      const name = c.submitter?.full_name || 'ไม่ระบุ'
-      const amt = c.amount || 0
-      const tax = calcTax(amt, c.vat_mode || 'none', c.withholding_tax_rate || 0)
-      if (!map.has(key)) {
-        const profile = profileMap[key]
-        map.set(key, {
-          name,
-          nickname: profile?.nickname || '',
-          nationalId: profile?.national_id || '',
-          address: formatAddress(parseAddress(profile?.address || null)),
-          bankName: c.bank_name || '',
-          bankAccount: c.bank_account_number || '',
-          accountHolder: c.account_holder_name || '',
-          totalGross: 0, totalWht: 0, totalNet: 0, count: 0,
-        })
+      const list = byPerson.get(key)
+      if (list) list.push(c)
+      else byPerson.set(key, [c])
+    }
+    return Array.from(byPerson, ([key, list]) => {
+      const profile = profileMap[key]
+      return {
+        name: names.get(key) || 'ไม่ระบุ',
+        nickname: profile?.nickname || '',
+        nationalId: profile?.national_id || '',
+        address: formatAddress(parseAddress(profile?.address || null)),
+        bankName: latestBankValue(list, 'bank_name'),
+        bankAccount: latestBankValue(list, 'bank_account_number'),
+        accountHolder: latestBankValue(list, 'account_holder_name'),
+        totalGross: list.reduce((s, c) => s + (Number(c.gross) || 0), 0),
+        totalWht: list.reduce((s, c) => s + (Number(c.wht) || 0), 0),
+        totalNet: list.reduce((s, c) => s + (Number(c.net) || 0), 0),
+        count: list.reduce((s, c) => s + (Number(c.n) || 0), 0),
       }
-      const p = map.get(key)!
-      p.totalGross += amt
-      p.totalWht += tax.whtAmount
-      p.totalNet += tax.netPayable
-      p.count += 1
-      if (!p.bankName && c.bank_name) p.bankName = c.bank_name
-      if (!p.bankAccount && c.bank_account_number) p.bankAccount = c.bank_account_number
-      if (!p.accountHolder && c.account_holder_name) p.accountHolder = c.account_holder_name
-    })
-    return Array.from(map.values()).sort((a, b) => b.totalWht - a.totalWht)
-  }, [filtered, profileMap])
+    }).sort((a, b) => b.totalWht - a.totalWht)
+  }, [filtered, people, profileMap])
 
   const totalWhtAll = whtSummary.reduce((s, p) => s + p.totalWht, 0)
   const totalGrossAll = whtSummary.reduce((s, p) => s + p.totalGross, 0)
@@ -225,14 +212,14 @@ export default function FinanceDownloadView({ claims, profileMap = {} }: Props) 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
         <Filter className="h-4 w-4 text-zinc-400 hidden sm:block" />
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label={isEn ? 'Status' : 'สถานะ'} className={`${selectCls} flex-1 sm:flex-none`}>
           <option value="all">{isEn ? 'All Status' : 'ทุกสถานะ'}</option>
           <option value="paid">{isEn ? 'Paid' : 'ชำระแล้ว'}</option>
           <option value="approved">{isEn ? 'Approved' : 'อนุมัติแล้ว'}</option>
           <option value="pending_month_end">{isEn ? 'Pending Month-end' : 'รอจ่ายสิ้นเดือน'}</option>
           <option value="awaiting_payment">{isEn ? 'Awaiting Payment (legacy)' : 'รอชำระเงิน (เก่า)'}</option>
         </select>
-        <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)} className={`${selectCls} flex-1 sm:flex-none`}>
+        <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)} aria-label={isEn ? 'Month' : 'เดือน'} className={`${selectCls} flex-1 sm:flex-none`}>
           <option value="all">{isEn ? 'All Months' : 'ทุกเดือน'}</option>
           {months.map(m => (
             <option key={m} value={m}>{m}</option>
