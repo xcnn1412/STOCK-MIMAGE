@@ -36,6 +36,7 @@ function claimRows(withFiledColumns: boolean): Row[] {
     category: 'travel', amount: 100 * n, status: 'paid', submitted_by: STAFF, expense_date: '2026-09-01',
     paid_at: '2026-09-02T03:00:00+00:00', created_at: `2026-09-0${n}T03:00:00+00:00`,
     receipt_urls: [], actual_receipt_urls: null, tax_invoice_urls: null, tax_invoice_numbers: null, refund_slip_urls: null,
+    deleted_at: null, status_changed_at: null,
     ...(withFiledColumns ? { filed_at: null, filed_by: null, filed_file_count: null } : {}),
     ...over,
   })
@@ -119,6 +120,10 @@ class Query implements PromiseLike<Result> {
   in(c: string, vs: unknown[]) {
     assert.ok(Array.isArray(vs), 'in() ต้องได้ array')
     return this.where(c, r => vs.includes(r[c]))
+  }
+  is(c: string, v: null) {
+    assert.equal(v, null, 'ตัวจำลองรองรับเฉพาะ is(col, null)')
+    return this.where(c, r => r[c] == null)
   }
   gte(c: string, v: string) { return this.where(c, r => r[c] != null && Date.parse(String(r[c])) >= Date.parse(v)) }
   lt(c: string, v: string) { return this.where(c, r => r[c] != null && Date.parse(String(r[c])) < Date.parse(v)) }

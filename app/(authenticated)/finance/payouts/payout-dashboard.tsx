@@ -9,7 +9,8 @@ import { useLocale } from '@/lib/i18n/context'
 import { getCategoryLabel, getClaimChecklist } from '../../costs/types'
 import type { ExpenseClaim } from '../../costs/types'
 import type { FinanceCategory } from '../settings-actions'
-import { markAsPaid, markAsPendingMonthEnd } from '../actions'
+import { markAsPaid, markAsPendingMonthEnd } from '../lifecycle-actions'
+import { paymentLock } from '../claim-rules'
 import { FundingBadge, ChecklistBadges } from '../doc-badges'
 import { useConfirm } from '../use-confirm'
 import { DateRangeFilter } from '@/components/date-range-filter'
@@ -58,6 +59,9 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
   const [deferringId, setDeferringId] = useState<string | null>(null)
 
   const handleMarkPaid = async (c: ExpenseClaim) => {
+    // ล็อกการจ่าย — ปุ่มปิดอยู่แล้ว กันไว้อีกชั้น (server ปฏิเสธด้วยข้อความเดียวกัน)
+    const lock = paymentLock(c)
+    if (lock.locked) { toast.error(lock.message); return }
     const tax = calcTax(c.amount || 0, c.vat_mode || 'none', c.withholding_tax_rate || 0)
     const ok = await askConfirm({
       title: isEn ? 'Mark this claim as paid?' : 'ยืนยันชำระเงินใบเบิกนี้?',
@@ -427,6 +431,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                     const tax = getNetPayable(c)
                     const amt = c.amount || 0
                     const ck = getClaimChecklist(c)
+                    const lock = paymentLock(c)
                     return (
                       <div key={c.id} className={`grid grid-cols-17 gap-2 px-4 py-2.5 items-center text-sm transition-colors ${
                         ck.isComplete
@@ -480,17 +485,15 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                           )}
                           <button
                             onClick={() => handleMarkPaid(c)}
-                            disabled={payingId === c.id || !ck.isComplete}
-                            title={!ck.isComplete
-                              ? (isEn ? 'Documents incomplete — cannot pay' : 'เอกสารไม่ครบ — ยังจ่ายไม่ได้')
-                              : undefined}
+                            disabled={payingId === c.id || lock.locked}
+                            title={lock.locked ? lock.message : undefined}
                             className={`px-2 py-1 text-[10px] font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                              ck.isComplete
+                              !lock.locked
                                 ? 'bg-teal-50 text-teal-600 hover:bg-teal-100 dark:bg-teal-950/30 dark:text-teal-400 dark:hover:bg-teal-900/40'
                                 : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500'
                             }`}
                           >
-                            {payingId === c.id ? '...' : !ck.isComplete
+                            {payingId === c.id ? '...' : lock.locked
                               ? <span className="inline-flex items-center gap-0.5"><AlertCircle className="h-2.5 w-2.5" />{isEn ? 'Locked' : 'ล็อก'}</span>
                               : (isEn ? 'Paid' : 'ชำระแล้ว')}
                           </button>
@@ -498,6 +501,10 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                             <ExternalLink className="h-3.5 w-3.5 inline" />
                           </Link>
                         </div>
+                        {/* ล็อกการจ่าย — บอกว่าขาดเอกสารอะไร (ข้อความเดียวกับที่ server ตอบ) */}
+                        {lock.locked && (
+                          <p className="col-span-17 text-right text-xs font-medium text-red-700 dark:text-red-400">{lock.message}</p>
+                        )}
                       </div>
                     )
                   })}
@@ -520,6 +527,7 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                   {group.claims.map(c => {
                     const tax = getNetPayable(c)
                     const ck = getClaimChecklist(c)
+                    const lock = paymentLock(c)
                     return (
                       <div key={c.id} className={`p-3 space-y-2 ${ck.isComplete ? '' : 'bg-amber-50/40 dark:bg-amber-950/10'}`}>
                         {/* Row 1: claim number + title */}
@@ -567,17 +575,15 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                           )}
                           <button
                             onClick={() => handleMarkPaid(c)}
-                            disabled={payingId === c.id || !ck.isComplete}
-                            title={!ck.isComplete
-                              ? (isEn ? 'Documents incomplete — cannot pay' : 'เอกสารไม่ครบ — ยังจ่ายไม่ได้')
-                              : undefined}
+                            disabled={payingId === c.id || lock.locked}
+                            title={lock.locked ? lock.message : undefined}
                             className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                              ck.isComplete
+                              !lock.locked
                                 ? 'bg-teal-50 text-teal-600 hover:bg-teal-100 dark:bg-teal-950/30 dark:text-teal-400'
                                 : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500'
                             }`}
                           >
-                            {payingId === c.id ? '...' : !ck.isComplete
+                            {payingId === c.id ? '...' : lock.locked
                               ? <span className="inline-flex items-center gap-1"><AlertCircle className="h-3 w-3" />{isEn ? 'Locked' : 'ล็อก'}</span>
                               : (isEn ? 'Mark Paid' : 'ชำระแล้ว')}
                           </button>
@@ -585,6 +591,9 @@ export default function PayoutDashboard({ claims, categories }: { claims: Expens
                             <ExternalLink className="h-4 w-4" />
                           </Link>
                         </div>
+                        {lock.locked && (
+                          <p className="text-right text-xs font-medium text-red-700 dark:text-red-400">{lock.message}</p>
+                        )}
                       </div>
                     )
                   })}

@@ -85,13 +85,13 @@ export function useConfirm() {
         <DialogFooter>
           <button
             onClick={() => handleResolve(false)}
-            className="px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+            className="min-h-10 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 rounded-lg transition-colors"
           >
             {state.cancelLabel || 'ยกเลิก'}
           </button>
           <button
             onClick={() => handleResolve(true)}
-            className={`px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors ${accent.btn}`}
+            className={`min-h-10 px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors ${accent.btn}`}
           >
             {state.confirmLabel || 'ยืนยัน'}
           </button>

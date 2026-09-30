@@ -62,49 +62,7 @@ export const CLAIM_STATUSES = [
 
 export type ClaimStatus = typeof CLAIM_STATUSES[number]['value']
 
-/**
- * Valid transitions per actor role.
- * Key = current status. Value = set of statuses the actor may move to.
- */
-export const CLAIM_TRANSITIONS: Record<string, {
-  admin: ClaimStatus[]
-  owner: ClaimStatus[]   // claim submitter (non-admin)
-}> = {
-  draft:             { admin: ['pending', 'cancelled'], owner: ['pending', 'cancelled'] },
-  pending:           { admin: ['approved', 'rejected'], owner: ['cancelled'] },
-  approved:          { admin: ['waiting_tax_invoice', 'pending_month_end', 'paid', 'refund_confirmed'], owner: [] },
-  waiting_tax_invoice: { admin: ['pending_month_end', 'paid', 'refund_confirmed'], owner: [] },
-  pending_month_end: { admin: ['paid', 'refund_confirmed'], owner: [] },
-  paid:              { admin: ['refund_confirmed'], owner: [] },
-  // terminal states — no further transitions
-  refund_confirmed:  { admin: [], owner: [] },
-  rejected:          { admin: [], owner: [] },
-  cancelled:         { admin: [], owner: [] },
-  // legacy
-  awaiting_payment:  { admin: ['pending_month_end', 'paid', 'refund_confirmed'], owner: [] },
-}
-
-/** Returns allowed next statuses for the given actor */
-export function getAllowedTransitions(
-  status: string,
-  role: 'admin' | 'staff',
-  isOwner: boolean,
-): ClaimStatus[] {
-  const t = CLAIM_TRANSITIONS[status]
-  if (!t) return []
-  if (role === 'admin') return t.admin
-  return isOwner ? t.owner : []
-}
-
-/** Whether a given transition is allowed */
-export function canTransitionTo(
-  from: string,
-  to: ClaimStatus,
-  role: 'admin' | 'staff',
-  isOwner: boolean,
-): boolean {
-  return getAllowedTransitions(from, role, isOwner).includes(to)
-}
+// ตารางการเปลี่ยนสถานะ (ใครทำอะไรจากสถานะไหน) อยู่ที่ app/(authenticated)/finance/claim-transitions.ts
 
 /** ประเภทใบเบิก */
 export const CLAIM_TYPES = [
@@ -186,6 +144,11 @@ export interface ExpenseClaim {
   filed_file_count?: number | null
   /** เลขที่เดิมของใบที่ถูกเปลี่ยนเลขเพราะซ้ำ (คอลัมน์มาจาก 20260930_claim_numbers.sql — ว่าง = ไม่เคยเปลี่ยน) */
   original_claim_number?: string | null
+  /** ซ่อนใบเบิก (แทนการลบ) — เวลาที่แอดมินซ่อน · ว่าง = ไม่ได้ซ่อน (คอลัมน์มาจาก 20260930_claim_hide_status_time.sql — ฐานข้อมูลที่ยังไม่รันจะไม่มี) */
+  deleted_at?: string | null
+  deleted_by?: string | null
+  /** เวลาที่สถานะเปลี่ยนครั้งล่าสุด (trigger ในฐานข้อมูลตั้งให้) — ใช้คิดอายุงานในคิวใบเบิก */
+  status_changed_at?: string | null
   // Joined
   submitter?: { id: string; full_name: string } | null
   approver?: { id: string; full_name: string } | null

@@ -40,6 +40,8 @@ export type NotificationType =
   | 'expense_waiting_tax_invoice'
   | 'expense_tax_invoice_uploaded'
   | 'expense_refund_confirmed'
+  | 'expense_sent_back'     // แอดมินส่งใบกลับให้แก้ (พร้อมเหตุผล) → ผู้เบิก
+  | 'expense_hidden'        // แอดมินซ่อนใบเบิก → ผู้เบิก
   | 'kpi_evaluated'
   | 'kpi_self_evaluated'
   | 'kpi_evaluation_reply'

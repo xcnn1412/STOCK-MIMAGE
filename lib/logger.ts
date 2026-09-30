@@ -87,6 +87,10 @@ export type ActionType =
     | 'CLOSE_PETTY_CASH_PERIOD'
     | 'LINK_CLAIM_TO_PETTY_CASH'
     | 'UNLINK_CLAIM_FROM_PETTY_CASH'
+    // คิวใบเบิก (ขั้น 4) — ส่งกลับให้แก้ (กลับเป็นแบบร่างพร้อมเหตุผล) · ซ่อนแทนการลบ / กู้คืน
+    | 'SEND_BACK_EXPENSE_CLAIM'
+    | 'HIDE_EXPENSE_CLAIM'
+    | 'RESTORE_EXPENSE_CLAIM'
     // WORLDCUP 2026 (temporary) — remove after the tournament
     | 'WORLDCUP_PICK'
     | 'ADMIN_OVERRIDE_CLAIM_STATUS'

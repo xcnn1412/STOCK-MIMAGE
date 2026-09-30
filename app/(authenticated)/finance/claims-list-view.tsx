@@ -4,14 +4,14 @@ import { useEffect, useOptimistic, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins, FileStack, FolderCheck, CheckSquare } from 'lucide-react'
+import { PlusCircle, Clock, CheckCircle2, XCircle, Filter, Banknote, Search, ExternalLink, FileEdit, Ban, Wallet, AlertCircle, RefreshCw, Coins, FileStack, FolderCheck, CheckSquare, Undo2 } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../costs/types'
 import { CLAIM_STATUSES, getClaimStatusLabel, getClaimStatusColor, getCategoryLabel, getClaimChecklist } from '../costs/types'
 import { ChecklistBadges, FundingBadge } from './doc-badges'
 import { useConfirm } from './use-confirm'
 import type { FinanceCategory } from './settings-actions'
-import { cancelClaim } from './actions'
+import { cancelClaim } from './lifecycle-actions'
 import {
   EMPTY_FILTERS, MAX_BUNDLE_SELECTION, categoryValues, claimFileCount, filedState, filterClaims, hasFilters,
   initialFilters, listQuery, monthOptions, rememberListQuery, selectableIds, submitterOptions,
@@ -580,6 +580,16 @@ export default function ClaimsListView({
                         {getClaimStatusLabel(claim.status, locale)}
                       </span>
                       <FiledBadge claim={claim} isEn={isEn} />
+                      {/* แอดมินส่งกลับให้แก้ — ใบกลับเป็นแบบร่างพร้อมสิ่งที่ต้องแก้ (เปิดใบเพื่ออ่านแล้วยื่นใหม่) */}
+                      {claim.status === 'draft' && claim.reject_reason && (
+                        <span
+                          title={claim.reject_reason}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                        >
+                          <Undo2 className="h-3 w-3 shrink-0" aria-hidden="true" />
+                          {isEn ? 'Sent back for changes' : 'ส่งกลับให้แก้'}
+                        </span>
+                      )}
                       {isUnsettledAdvance(claim) && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500 text-white inline-flex items-center gap-1 animate-pulse">
                           <AlertCircle className="h-2.5 w-2.5" />
