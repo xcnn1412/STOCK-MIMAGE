@@ -4,6 +4,7 @@
 //
 // สูตรคัดลอกจาก calcTax ใน app/(authenticated)/finance/claims-list-view.tsx (ตัวเดียวกับ archive-list.tsx)
 // ponytail: ตอนนี้มีสำเนาอีกหลายที่ (claims-list-view, archive-list, costs/events, costs/reports) — ย้ายมาใช้ไฟล์นี้ในขั้น 3
+// ผลเท่ากันทุกบิตกับสำเนาทั้ง 13 ที่ตรวจด้วย scripts/finance-calc-tax.check.ts (ต่างเฉพาะ overview/analytics-panel.tsx เมื่ออัตราเป็น undefined)
 // ============================================================================
 
 /**
@@ -25,4 +26,20 @@ export function calcTax(amount: number, vatMode: string, whtRatePercent: number)
   const whtAmount = baseAmount * (whtRatePercent / 100)
   const netPayable = totalWithVat - whtAmount
   return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
+}
+
+/** ช่องเงินของแถวใบเบิกที่ moneyOf / netOf อ่าน — ค่าจากฐานข้อมูลเป็น null ได้ */
+export type MoneyFields = { amount: number | null; vat_mode: string | null; withholding_tax_rate: number | null }
+
+/**
+ * ยอดทั้งชุดของแถวใบเบิกหนึ่งใบ — แปลงค่าว่างแบบเดียวกับทุกหน้า (ยอด/อัตราว่าง = 0 · VAT ว่าง = 'none')
+ * แล้วคิดด้วย calcTax ตัวเดียวกัน
+ */
+export function moneyOf(c: MoneyFields) {
+  return calcTax(Number(c.amount) || 0, c.vat_mode || 'none', Number(c.withholding_tax_rate) || 0)
+}
+
+/** ยอดจ่ายจริง (หลัง VAT และหัก ณ ที่จ่าย) ของแถวใบเบิกหนึ่งใบ */
+export function netOf(c: MoneyFields): number {
+  return moneyOf(c).netPayable
 }

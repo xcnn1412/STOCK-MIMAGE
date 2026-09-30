@@ -160,6 +160,8 @@ class Query implements PromiseLike<Result> {
   }
   gte(c: string, v: string) { return this.where(c, `gte:${c}`, r => r[c] != null && Date.parse(String(r[c])) >= Date.parse(v)) }
   lt(c: string, v: string) { return this.where(c, `lt:${c}`, r => r[c] != null && Date.parse(String(r[c])) < Date.parse(v)) }
+  /** ตัวเลข (withholding_tax_rate > 0 ของหน้าหัก ณ ที่จ่าย) — null ไม่ผ่านแบบ Postgres */
+  gt(c: string, v: number) { return this.where(c, `gt:${c}=${v}`, r => r[c] != null && Number(r[c]) > v) }
   order(col: string, opts: { ascending?: boolean } = {}) {
     this.known(col)
     this.sorts.push({ col, asc: opts.ascending !== false })
@@ -229,7 +231,32 @@ class Query implements PromiseLike<Result> {
     return Promise.resolve().then(() => this.run()).then(onfulfilled, onrejected)
   }
 }
-const fakeClient = strict({ from: (table: string) => strict(new Query(table)) })
+/** rpc ของหน้าหัก ณ ที่จ่าย: null = ฐานข้อมูลยังไม่มีฟังก์ชัน (PGRST202 → โค้ดใช้ทางสำรอง) · array = แถวที่ฟังก์ชันคืน */
+let whtRpcRows: Row[] | null = null
+const rpcCalls: string[] = []
+/** ผลของ rpc แบบ PostgREST: .order() / .range() แล้ว await (แถวเรียงตามที่ตั้งไว้แล้ว — ตัวจำลองไม่เรียงใหม่) */
+class RpcQuery implements PromiseLike<Result> {
+  private start = 0
+  private end = Number.POSITIVE_INFINITY
+  constructor(private fn: string) {}
+  order(col: string) { assert.ok(['submitted_by', 'status', 'month'].includes(col), `rpc order ${col}`); return this }
+  range(from: number, to: number) { this.start = from; this.end = to; return this }
+  then<A = Result, B = never>(
+    onfulfilled?: ((value: Result) => A | PromiseLike<A>) | null,
+    onrejected?: ((reason: unknown) => B | PromiseLike<B>) | null
+  ): PromiseLike<A | B> {
+    return Promise.resolve().then((): Result => {
+      rpcCalls.push(this.fn)
+      assert.equal(this.fn, 'finance_wht_cells', `ตัวจำลองไม่รองรับ rpc ${this.fn}`)
+      if (!whtRpcRows) return { data: null, error: { code: 'PGRST202', message: `Could not find the function public.${this.fn} without parameters in the schema cache` } }
+      return { data: clone(whtRpcRows.slice(this.start, this.end + 1)), error: null }
+    }).then(onfulfilled, onrejected)
+  }
+}
+const fakeClient = strict({
+  from: (table: string) => strict(new Query(table)),
+  rpc: (fn: string) => strict(new RpcQuery(fn)),
+})
 
 // ── แทนโมดูลที่ต้องมี Next/ฐานข้อมูลจริง ─────────────────────────────────────
 const cookieJar = new Map<string, string>()
@@ -266,6 +293,7 @@ M._load = function (this: unknown, request: string, ...rest: unknown[]) {
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { createSessionToken } = require('../lib/session') as typeof import('../lib/session')
 const { escapeHtml } = require('../lib/escape-html') as typeof import('../lib/escape-html')
+const { calcTax } = require('../lib/finance/money') as typeof import('../lib/finance/money')
 const settings = require('../app/(authenticated)/finance/settings-actions') as typeof import('../app/(authenticated)/finance/settings-actions')
 const DownloadPage = (require('../app/(authenticated)/finance/download/page') as typeof import('../app/(authenticated)/finance/download/page')).default
 const OverviewPage = (require('../app/(authenticated)/finance/overview/page') as typeof import('../app/(authenticated)/finance/overview/page')).default
@@ -634,28 +662,78 @@ async function main() {
   assert.equal(ops.filter(o => o.table !== 'profiles').length, 0, 'อ่านได้แค่ profiles เพื่อตรวจตัวตน')
   pass('P0-A8 download / overview / payouts: พนักงาน (แม้แก้ cookie เป็นแอดมิน) → NEXT_REDIRECT ไป /finance · ไม่ล็อกอิน → /login · อ่าน expense_claims 0 ครั้ง อ่าน national_id 0 ครั้ง')
 
-  // ══ P0-A9: หน้าดาวน์โหลดของแอดมินส่งเฉพาะใบที่มีหัก ณ ที่จ่ายและโปรไฟล์ของคนในใบเหล่านั้น ═══════
+  // ══ P0-A9: หน้าดาวน์โหลดของแอดมินส่งเฉพาะยอดหัก ณ ที่จ่าย และโปรไฟล์ของคนที่มียอดเท่านั้น ═══════════════
+  // (ขั้น 3: หน้าได้ยอดรวมต่อ (ผู้เบิก, สถานะ, เดือน) = cells แทนแถวใบเบิก — ทั้งทางฟังก์ชันในฐานข้อมูลและทางสำรอง)
   reset()
-  loginAs(ADMIN)
-  const el = await DownloadPage() as ReactElement<import('react').ComponentProps<typeof FinanceDownloadView>>
-  assert.ok(isValidElement(el) && el.type === FinanceDownloadView, 'ต้องคืน <FinanceDownloadView>')
-  const { claims: sent, profileMap } = el.props
   const wantClaims = db.expense_claims.filter(c => Number(c.withholding_tax_rate) > 0)
-  assert.deepEqual(sent.map(c => c.id).sort(), wantClaims.map(c => String(c.id)).sort(), 'เฉพาะใบที่ withholding_tax_rate > 0')
-  assert.ok(sent.every(c => (c.withholding_tax_rate || 0) > 0))
-  assert.ok(sent.every(c => !('receipt_urls' in c) && !('notes' in c) && !('title' in c)), 'ส่งเฉพาะช่องที่หน้าใช้')
   const wantPeople = [...new Set(wantClaims.map(c => String(c.submitted_by)))].sort()
-  assert.deepEqual(Object.keys(profileMap ?? {}).sort(), wantPeople, 'profileMap เฉพาะผู้เบิกของใบเหล่านั้น')
-  assert.ok(!(STAFF3 in (profileMap ?? {})) && !(NO_BANK in (profileMap ?? {})), 'คนที่ไม่มีใบหัก ณ ที่จ่ายต้องไม่อยู่')
-  for (const id of wantPeople) {
-    const p = profileRow(id)
-    assert.deepEqual(profileMap?.[id], { nickname: p.nickname, national_id: p.national_id, address: p.address })
+  // ยอดที่คาดต่อกลุ่ม คิดจากแถวใบเบิกในไฟล์นี้ด้วยสูตรกลาง (lib/finance/money.ts) · บัญชี = ใบใหม่สุดที่กรอกไว้
+  const expectedCells = new Map<string, Row>()
+  for (const c of [...wantClaims].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))) {
+    const key = `${String(c.submitted_by)}|${String(c.status)}|${String(c.expense_date).slice(0, 7)}`
+    const cell = expectedCells.get(key) ?? { submitted_by: c.submitted_by, status: c.status, month: String(c.expense_date).slice(0, 7), n: 0, gross: 0, wht: 0, net: 0 }
+    const tax = calcTax(Number(c.amount) || 0, String(c.vat_mode || 'none'), Number(c.withholding_tax_rate) || 0)
+    cell.n = Number(cell.n) + 1
+    cell.gross = Number(cell.gross) + Number(c.amount)
+    cell.wht = Number(cell.wht) + tax.whtAmount
+    cell.net = Number(cell.net) + tax.netPayable
+    for (const col of BANK_COLS) if (!cell[col] && c[col]) { cell[col] = c[col]; cell[`${col}_at`] = c.created_at }
+    expectedCells.set(key, cell)
   }
-  assert.equal(nationalIdReads().length, 1, 'อ่าน national_id ครั้งเดียว')
-  assert.equal(nationalIdReads()[0].filters.length, 1)
-  assert.match(nationalIdReads()[0].filters[0], /^in:id=/, 'อ่านโปรไฟล์แบบกรอง id ของผู้เบิก')
-  assert.deepEqual(nationalIdReads()[0].filters[0].slice('in:id='.length).split('|').sort(), wantPeople)
-  pass(`P0-A9 แอดมิน: ส่ง ${sent.length}/${db.expense_claims.length} ใบ (เฉพาะหัก ณ ที่จ่าย, เฉพาะช่องที่ใช้) · profileMap ${Object.keys(profileMap ?? {}).length} คนจาก ${db.profiles.length} (เฉพาะผู้เบิกของใบเหล่านั้น · อ่านด้วย in(id))`)
+  const cellKey = (c: Row) => `${String(c.submitted_by)}|${String(c.status)}|${String(c.month)}`
+  const checkDownload = async (label: string) => {
+    ops.length = 0
+    loginAs(ADMIN)
+    const el = await DownloadPage() as ReactElement<import('react').ComponentProps<typeof FinanceDownloadView>>
+    assert.ok(isValidElement(el) && el.type === FinanceDownloadView, `${label}: ต้องคืน <FinanceDownloadView>`)
+    assert.ok(!('claims' in el.props), `${label}: ต้องไม่ส่งแถวใบเบิก (claims)`)
+    const { cells, people, profileMap } = el.props
+    // เฉพาะยอดของใบที่มีหัก ณ ที่จ่าย — ครบทุกใบ ไม่มีใบอื่น ไม่มีช่องอื่นของใบเบิก (หัวข้อ/ไฟล์/หมายเหตุ/เลขบัตร/ที่อยู่)
+    assert.deepEqual(cells.map(cellKey).sort(), [...expectedCells.keys()].sort(), `${label}: กลุ่มยอดตรงกับใบที่ withholding_tax_rate > 0`)
+    assert.equal(cells.reduce((s, c) => s + c.n, 0), wantClaims.length, `${label}: นับใบครบเฉพาะใบหัก ณ ที่จ่าย`)
+    for (const c of cells) {
+      const want = expectedCells.get(cellKey(c as unknown as Row)) as Row
+      for (const k of ['n', 'gross', 'wht', 'net'] as const) assert.ok(Math.abs(Number(c[k]) - Number(want[k])) < 0.005, `${label}: ${cellKey(c as unknown as Row)}.${k} ได้ ${c[k]} คาด ${String(want[k])}`)
+      for (const col of BANK_COLS) assert.equal(c[col] ?? null, want[col] ?? null, `${label}: ${cellKey(c as unknown as Row)}.${col}`)
+      const keys = Object.keys(c)
+      assert.ok(!keys.some(k => ['receipt_urls', 'notes', 'title', 'national_id', 'address', 'id'].includes(k)), `${label}: ส่งเฉพาะช่องที่หน้าใช้ (ได้ ${keys.join(', ')})`)
+    }
+    assert.deepEqual(people.map(p => p.id).sort(), wantPeople, `${label}: รายชื่อเฉพาะผู้เบิกที่มียอด`)
+    for (const p of people) assert.equal(p.name, profileRow(p.id).full_name)
+    assert.deepEqual(Object.keys(profileMap ?? {}).sort(), wantPeople, `${label}: profileMap เฉพาะผู้เบิกที่มียอด`)
+    assert.ok(!(STAFF3 in (profileMap ?? {})) && !(NO_BANK in (profileMap ?? {})), `${label}: คนที่ไม่มีใบหัก ณ ที่จ่ายต้องไม่อยู่`)
+    for (const id of wantPeople) {
+      const p = profileRow(id)
+      assert.deepEqual(profileMap?.[id], { nickname: p.nickname, national_id: p.national_id, address: p.address })
+    }
+    assert.equal(nationalIdReads().length, 1, `${label}: อ่าน national_id ครั้งเดียว`)
+    assert.equal(nationalIdReads()[0].filters.length, 1)
+    assert.match(nationalIdReads()[0].filters[0], /^in:id=/, `${label}: อ่านโปรไฟล์แบบกรอง id ของผู้เบิก`)
+    assert.deepEqual(nationalIdReads()[0].filters[0].slice('in:id='.length).split('|').sort(), wantPeople)
+    return cells.length
+  }
+  // ก) ฐานข้อมูลยังไม่มี finance_wht_cells (PGRST202) → รวมยอดในระบบจากใบหัก ณ ที่จ่ายเท่านั้น + เตือนชื่อไฟล์ SQL ครั้งเดียว
+  const warned: string[] = []
+  const realWarn = console.warn
+  console.warn = (...args: unknown[]) => { warned.push(args.map(String).join(' ')) }
+  let fallbackCells: number
+  try {
+    whtRpcRows = null
+    fallbackCells = await checkDownload('ทางสำรอง')
+    assert.ok(claimReads().length > 0 && claimReads().every(o => o.filters.includes('gt:withholding_tax_rate=0')), 'ทางสำรองอ่านเฉพาะใบที่ withholding_tax_rate > 0')
+    await checkDownload('ทางสำรอง (ครั้งที่สอง)')
+  } finally {
+    console.warn = realWarn
+  }
+  assert.equal(warned.filter(w => w.includes('20261001_finance_speed.sql')).length, 1, 'เตือนให้รัน 20261001_finance_speed.sql ครั้งเดียว')
+  // ข) มีฟังก์ชันแล้ว → ใช้ยอดจากฐานข้อมูล ไม่อ่านแถวใบเบิกเลย
+  whtRpcRows = [...expectedCells.values()].sort((a, b) => cellKey(a).localeCompare(cellKey(b)))
+  rpcCalls.length = 0
+  const rpcCells = await checkDownload('ฟังก์ชันในฐานข้อมูล')
+  assert.deepEqual(rpcCalls, ['finance_wht_cells'])
+  assert.equal(claimReads().length, 0, 'ทางฟังก์ชันต้องไม่อ่านแถว expense_claims')
+  whtRpcRows = null
+  pass(`P0-A9 แอดมิน: ส่งยอดหัก ณ ที่จ่าย ${fallbackCells} กลุ่ม (${wantClaims.length}/${db.expense_claims.length} ใบ — เฉพาะหัก ณ ที่จ่าย ไม่มีแถวใบเบิก) ทั้งทางสำรองและทางฟังก์ชัน (${rpcCells} กลุ่ม ไม่อ่านแถวใบเบิก) · profileMap ${wantPeople.length} คนจาก ${db.profiles.length} (เฉพาะผู้เบิกที่มียอด · อ่าน national_id ครั้งเดียวด้วย in(id)) · ทางสำรองเตือนครั้งเดียว`)
 
   // ══ P0-A10: ไม่มีไฟล์ใต้ finance อ่าน cookie บทบาท/ผู้ใช้แบบเก่า (ไม่มีข้อยกเว้นตั้งแต่ v1.24.2) ═════
   const allowed = new Set<string>()

@@ -90,23 +90,24 @@ async function submitCore(ctx: Ctx, id: string): Promise<Outcome> {
   if (!row) return fail(STALE_STATUS_ERROR, claim.claim_number)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: 'ยื่นใบเบิกเพื่อขออนุมัติ',
-  })
-
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    title: claim.title,
-    amount: claim.amount,
-  })
-
-  // หลัง update แบบมีเงื่อนไขเท่านั้น — ทางที่สถานะถูกเปลี่ยนไปก่อน (STALE) ไม่แจ้งใคร
-  await notifyAdminsOfSubmission(supabase, { id, claim_number: claim.claim_number, title: claim.title, amount: claim.amount }, userId, createNotifications)
+  // ประวัติ · activity · แจ้งเตือน ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: 'ยื่นใบเบิกเพื่อขออนุมัติ',
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      title: claim.title,
+      amount: claim.amount,
+    }),
+    // หลัง update แบบมีเงื่อนไขเท่านั้น — ทางที่สถานะถูกเปลี่ยนไปก่อน (STALE) ไม่แจ้งใคร
+    notifyAdminsOfSubmission(supabase, { id, claim_number: claim.claim_number, title: claim.title, amount: claim.amount }, userId, createNotifications),
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -150,19 +151,21 @@ async function cancelCore(ctx: Ctx, id: string): Promise<Outcome> {
   if (!row) return fail(STALE_STATUS_ERROR, claim.claim_number)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: 'ยกเลิกใบเบิกโดยผู้ยื่น',
-  })
-
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    fromStatus: claim.status,
-  })
+  // ประวัติ + activity ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: 'ยกเลิกใบเบิกโดยผู้ยื่น',
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      fromStatus: claim.status,
+    }),
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -208,36 +211,36 @@ async function approveCore(ctx: Ctx, id: string): Promise<Outcome> {
   if (error) return fail('เกิดข้อผิดพลาด', claim.claim_number)
   if (!row) return fail(STALE_STATUS_ERROR, claim.claim_number)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: 'อนุมัติใบเบิก',
-  })
-
   // ผูกงาน → รายการต้นทุนหนึ่งรายการ (ผ่าน helper: มีอยู่แล้วไม่สร้างซ้ำ)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    totalAmount: claim.total_amount,
-    ...batchOf(ctx),
-  })
-
-  // Notify the claim submitter
-  if (claim.submitted_by) {
-    await createNotifications({
-      userIds: [claim.submitted_by],
-      type: 'expense_approved',
-      title: `ใบเบิก ${claim.claim_number} ได้รับการอนุมัติแล้ว`,
-      body: claim.title,
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
-    })
-  }
+  // ประวัติ · activity · แจ้งผู้เบิก ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: 'อนุมัติใบเบิก',
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      totalAmount: claim.total_amount,
+      ...batchOf(ctx),
+    }),
+    claim.submitted_by
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_approved',
+        title: `ใบเบิก ${claim.claim_number} ได้รับการอนุมัติแล้ว`,
+        body: claim.title,
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -277,32 +280,32 @@ async function rejectCore(ctx: Ctx, id: string, reason: string): Promise<Outcome
   if (!row) return fail(STALE_STATUS_ERROR, claim.claim_number)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: reason || 'ไม่ระบุเหตุผล',
-  })
-
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    reason,
-  })
-
-  // Notify the claim submitter
-  if (claim.submitted_by) {
-    await createNotifications({
-      userIds: [claim.submitted_by],
-      type: 'expense_rejected',
-      title: `ใบเบิก ${claim.claim_number} ถูกปฏิเสธ`,
-      body: reason || 'ไม่ระบุเหตุผล',
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
-    })
-  }
+  // ประวัติ · activity · แจ้งผู้เบิก ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: reason || 'ไม่ระบุเหตุผล',
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      reason,
+    }),
+    claim.submitted_by
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_rejected',
+        title: `ใบเบิก ${claim.claim_number} ถูกปฏิเสธ`,
+        body: reason || 'ไม่ระบุเหตุผล',
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -345,32 +348,33 @@ async function sendBackCore(ctx: Ctx, id: string, reason: string): Promise<Outco
   if (!row) return fail(STALE_STATUS_ERROR, claim.claim_number)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: reason,
-  })
-
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    fromStatus: claim.status,
-    reason,
-  })
-
-  if (claim.submitted_by) {
-    await createNotifications({
-      userIds: [claim.submitted_by],
-      type: 'expense_sent_back',
-      title: `ใบเบิก ${claim.claim_number} ถูกส่งกลับให้แก้ไข`,
-      body: reason,
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
-    })
-  }
+  // ประวัติ · activity · แจ้งผู้เบิก ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: reason,
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      fromStatus: claim.status,
+      reason,
+    }),
+    claim.submitted_by
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_sent_back',
+        title: `ใบเบิก ${claim.claim_number} ถูกส่งกลับให้แก้ไข`,
+        body: reason,
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -431,19 +435,21 @@ async function reopenCore(ctx: Ctx, id: string): Promise<Outcome> {
   if (!row) return fail(STALE_STATUS_ERROR, claim.claim_number)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: `เจ้าของใบเปิดกลับมาแก้ไข (เหตุผลที่ถูกปฏิเสธ: ${claim.reject_reason || 'ไม่ระบุ'})`,
-  })
-
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    rejectReason: claim.reject_reason,
-  })
+  // ประวัติ + activity ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: `เจ้าของใบเปิดกลับมาแก้ไข (เหตุผลที่ถูกปฏิเสธ: ${claim.reject_reason || 'ไม่ระบุ'})`,
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      rejectReason: claim.reject_reason,
+    }),
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -490,32 +496,33 @@ async function approveMonthEndCore(ctx: Ctx, id: string): Promise<Outcome> {
   // Create cost item if linked to event (same as approveClaim — helper ไม่สร้างซ้ำ)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: 'อนุมัติ — รอจ่ายสิ้นเดือน',
-  })
-
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    totalAmount: claim.total_amount,
-    ...batchOf(ctx),
-  })
-
-  if (claim.submitted_by) {
-    await createNotifications({
-      userIds: [claim.submitted_by],
-      type: 'expense_approved',
-      title: `ใบเบิก ${claim.claim_number} ได้รับการอนุมัติ (รอจ่ายสิ้นเดือน)`,
-      body: claim.title,
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
-    })
-  }
+  // ประวัติ · activity · แจ้งผู้เบิก ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: 'อนุมัติ — รอจ่ายสิ้นเดือน',
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      totalAmount: claim.total_amount,
+      ...batchOf(ctx),
+    }),
+    claim.submitted_by
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_approved',
+        title: `ใบเบิก ${claim.claim_number} ได้รับการอนุมัติ (รอจ่ายสิ้นเดือน)`,
+        body: claim.title,
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -556,20 +563,22 @@ async function deferMonthEndCore(ctx: Ctx, id: string): Promise<Outcome> {
   if (!row) return fail(STALE_STATUS_ERROR, claim.claim_number)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: 'เลื่อนจ่ายสิ้นเดือน',
-  })
-
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    totalAmount: claim.total_amount,
-    ...batchOf(ctx),
-  })
+  // ประวัติ + activity ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: 'เลื่อนจ่ายสิ้นเดือน',
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      totalAmount: claim.total_amount,
+      ...batchOf(ctx),
+    }),
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -608,31 +617,32 @@ async function requestTaxInvoiceCore(ctx: Ctx, id: string): Promise<Outcome> {
   if (!row) return fail(STALE_STATUS_ERROR, claim.claim_number)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: 'รอใบกำกับภาษีจากผู้เบิก',
-  })
-
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    ...batchOf(ctx),
-  })
-
-  if (claim.submitted_by) {
-    await createNotifications({
-      userIds: [claim.submitted_by],
-      type: 'expense_waiting_tax_invoice',
-      title: `ใบเบิก ${claim.claim_number} — กรุณาอัพโหลดใบกำกับภาษี`,
-      body: 'Admin ขอใบกำกับภาษีสำหรับใบเบิกนี้ กรุณาอัพโหลดเพื่อดำเนินการชำระเงินต่อ',
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
-    })
-  }
+  // ประวัติ · activity · แจ้งผู้เบิก ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: 'รอใบกำกับภาษีจากผู้เบิก',
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      ...batchOf(ctx),
+    }),
+    claim.submitted_by
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_waiting_tax_invoice',
+        title: `ใบเบิก ${claim.claim_number} — กรุณาอัพโหลดใบกำกับภาษี`,
+        body: 'Admin ขอใบกำกับภาษีสำหรับใบเบิกนี้ กรุณาอัพโหลดเพื่อดำเนินการชำระเงินต่อ',
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -694,33 +704,34 @@ async function payCore(ctx: Ctx, id: string): Promise<Outcome> {
   if (!row) return fail(STALE_STATUS_ERROR, claim.claim_number)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: t.logAction,
-    changed_by: userId,
-    changes: { status: { from: claim.status, to: t.to } },
-    note: 'ชำระเงินแล้ว',
-  })
-
-  await logActivity(t.activity, {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    totalAmount: claim.total_amount,
-    ...batchOf(ctx),
-  })
-
-  // แจ้งผู้เบิกว่าจ่ายเงินแล้ว (createNotifications ไม่แจ้งตัวเอง — แอดมินจ่ายใบของตัวเองไม่มีแจ้งเตือน)
-  if (claim.submitted_by) {
-    await createNotifications({
-      userIds: [claim.submitted_by],
-      type: 'expense_paid',
-      title: `ใบเบิก ${claim.claim_number} จ่ายเงินแล้ว ฿${Number(claim.total_amount ?? claim.amount).toLocaleString()}`,
-      body: claim.title,
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
-    })
-  }
+  // ประวัติ · activity · แจ้งผู้เบิก ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: t.logAction,
+      changed_by: userId,
+      changes: { status: { from: claim.status, to: t.to } },
+      note: 'ชำระเงินแล้ว',
+    }),
+    logActivity(t.activity, {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      totalAmount: claim.total_amount,
+      ...batchOf(ctx),
+    }),
+    // แจ้งผู้เบิกว่าจ่ายเงินแล้ว (createNotifications ไม่แจ้งตัวเอง — แอดมินจ่ายใบของตัวเองไม่มีแจ้งเตือน)
+    claim.submitted_by
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_paid',
+        title: `ใบเบิก ${claim.claim_number} จ่ายเงินแล้ว ฿${Number(claim.total_amount ?? claim.amount).toLocaleString()}`,
+        body: claim.title,
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
 
   return done(synced, claim.claim_number)
 }
@@ -849,32 +860,33 @@ export async function hideClaim(id: string, reason?: string): Promise<{ success?
   // ใบที่ซ่อนไม่มีรายการต้นทุน (shouldHaveCostItem ดู deleted_at) — ไฟล์ในสตอเรจเก็บไว้ให้กู้คืนได้
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: 'hide',
-    changed_by: userId,
-    changes: { deleted_at: { from: null, to: now } },
-    note,
-  })
-
-  await logActivity('HIDE_EXPENSE_CLAIM', {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    status: claim.status,
-    reason: note,
-  })
-
-  if (claim.submitted_by) {
-    await createNotifications({
-      userIds: [claim.submitted_by],
-      type: 'expense_hidden',
-      title: `ใบเบิก ${claim.claim_number} ถูกซ่อนโดยแอดมิน`,
-      body: note,
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
-    })
-  }
+  // ประวัติ · activity · แจ้งผู้เบิก ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'hide',
+      changed_by: userId,
+      changes: { deleted_at: { from: null, to: now } },
+      note,
+    }),
+    logActivity('HIDE_EXPENSE_CLAIM', {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      status: claim.status,
+      reason: note,
+    }),
+    claim.submitted_by
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_hidden',
+        title: `ใบเบิก ${claim.claim_number} ถูกซ่อนโดยแอดมิน`,
+        body: note,
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -912,19 +924,21 @@ export async function restoreClaim(id: string): Promise<{ success?: true; error?
   // กลับมามีรายการต้นทุนตามสถานะ (อนุมัติแล้วขึ้นไป + ผูกงาน)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: 'restore',
-    changed_by: userId,
-    changes: { deleted_at: { from: claim.deleted_at, to: null } },
-    note: 'กู้คืนใบเบิกที่ซ่อนไว้',
-  })
-
-  await logActivity('RESTORE_EXPENSE_CLAIM', {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    status: claim.status,
-  })
+  // ประวัติ + activity ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'restore',
+      changed_by: userId,
+      changes: { deleted_at: { from: claim.deleted_at, to: null } },
+      note: 'กู้คืนใบเบิกที่ซ่อนไว้',
+    }),
+    logActivity('RESTORE_EXPENSE_CLAIM', {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      status: claim.status,
+    }),
+  ])
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -1088,34 +1102,35 @@ export async function adminOverrideStatus(id: string, newStatus: string, reason:
   // ข้ามขั้นเข้า/ออกจากช่วง "อนุมัติแล้วขึ้นไป" ต้องสร้าง/ลบรายการต้นทุนด้วย (เดิมไม่ทำ — ต้นทุนเพี้ยน)
   const synced = await syncClaimCostItem(supabase, row, userId)
 
-  await supabase.from('expense_claim_logs').insert({
-    claim_id: id,
-    action: 'admin_override',
-    changed_by: userId,
-    changes: { status: { from: fromStatus, to: newStatus } },
-    note: `[Admin Override] ${reasonText}`,
-  })
-
-  await logActivity('ADMIN_OVERRIDE_CLAIM_STATUS', {
-    claimId: id,
-    claimNumber: claim.claim_number,
-    fromStatus,
-    toStatus: newStatus,
-    reason: reasonText,
-  })
-
-  // Notify submitter of the override
-  if (claim.submitted_by && claim.submitted_by !== userId) {
-    await createNotifications({
-      userIds: [claim.submitted_by],
-      type: 'expense_approved',
-      title: `ใบเบิก ${claim.claim_number} สถานะถูกเปลี่ยนเป็น "${newStatus}" โดย Admin`,
-      body: reasonText,
-      referenceType: 'expense_claim',
-      referenceId: id,
-      actorId: userId,
-    })
-  }
+  // ประวัติ · activity · แจ้งผู้เบิก ไม่ขึ้นต่อกัน — ส่งพร้อมกันรอบเดียว (เรียกตามลำดับเดิม)
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'admin_override',
+      changed_by: userId,
+      changes: { status: { from: fromStatus, to: newStatus } },
+      note: `[Admin Override] ${reasonText}`,
+    }),
+    logActivity('ADMIN_OVERRIDE_CLAIM_STATUS', {
+      claimId: id,
+      claimNumber: claim.claim_number,
+      fromStatus,
+      toStatus: newStatus,
+      reason: reasonText,
+    }),
+    // Notify submitter of the override
+    claim.submitted_by && claim.submitted_by !== userId
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_approved',
+        title: `ใบเบิก ${claim.claim_number} สถานะถูกเปลี่ยนเป็น "${newStatus}" โดย Admin`,
+        body: reasonText,
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)

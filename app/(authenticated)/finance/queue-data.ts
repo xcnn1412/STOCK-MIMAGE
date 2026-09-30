@@ -7,6 +7,8 @@
 // ============================================================================
 
 import { createServiceClient } from '@/lib/supabase-server'
+// สถานะที่ยังมีงานรอแอดมิน (แบบร่างอยู่ในคิวเพื่อหาใบที่ค้างนาน) — ชุดกลางของ lib/finance/conditions.ts
+import { OPEN_STATUSES } from '@/lib/finance/conditions'
 import type { ExpenseClaim } from '../costs/types'
 import { getSession, isMissingColumn } from './claim-db'
 
@@ -29,9 +31,6 @@ export type QueueClaim = Pick<ExpenseClaim,
   | 'pettycash_fund_id' | 'reject_reason' | 'bank_name' | 'bank_account_number' | 'account_holder_name'
   | 'submitter' | 'job_event'
 > & { status_changed_at: string | null; deleted_at: string | null }
-
-/** สถานะที่ยังมีงานรอแอดมิน (แบบร่างอยู่ในคิวเพื่อหาใบที่ค้างนาน) */
-const OPEN_STATUSES = ['draft', 'pending', 'approved', 'waiting_tax_invoice', 'pending_month_end', 'awaiting_payment']
 
 export const QUEUE_MIGRATION_MISSING = 'ต้องรันไฟล์ SQL 20260930_claim_hide_status_time.sql บนฐานข้อมูลก่อนจึงจะใช้คิวใบเบิกได้'
 

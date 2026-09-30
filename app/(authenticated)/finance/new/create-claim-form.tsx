@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useActionState, startTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Send, Save, Camera, Upload, X, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, FileText, ImageIcon, Wallet, Info, Building2, User as UserIcon, Coins } from 'lucide-react'
+import { Send, Save, Camera, Upload, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, ImageIcon, Wallet, Info, Building2, User as UserIcon, Coins } from 'lucide-react'
 import { createClaim, getOpenPettyCashFund } from '../actions'
 import { receiptRequiredForSubmit } from '../claim-rules'
 import { CLAIM_TYPES, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
@@ -13,6 +13,10 @@ import { useLocale } from '@/lib/i18n/context'
 import { thaiTodayIso } from '@/lib/thai-date'
 import BankSelect from '@/components/bank-select'
 import { compressImage } from '@/lib/utils'
+import { calcTax } from '@/lib/finance/money'
+import { THUMB_MAX_DIMENSION, THUMB_MAX_MB } from '@/lib/finance/receipt-thumbs'
+import { appendFilePairs, settleThumb } from '../[id]/receipt-thumb'
+import FileStatusList, { markUploadResult, type FileStatusItem } from './file-status-list'
 import EventSelectCombobox from './event-select-combobox'
 import EventCalendar, { type CalendarEvent } from '@/components/event-calendar'
 import {
@@ -33,24 +37,8 @@ interface Props {
   viewerId: string
 }
 
-function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-  let totalWithVat = amount
-
-  if (vatMode === 'included') {
-    baseAmount = amount / 1.07
-    vatAmount = amount - baseAmount
-    totalWithVat = amount
-  } else if (vatMode === 'excluded') {
-    vatAmount = amount * 0.07
-    totalWithVat = amount + vatAmount
-  }
-
-  const whtAmount = baseAmount * (whtRatePercent / 100)
-  const netPayable = totalWithVat - whtAmount
-  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
-}
+/** ไฟล์แนบหนึ่งไฟล์: สถานะ/ตัวอย่างสำหรับ FileStatusList + ไฟล์ที่จะส่ง (บีบแล้ว) + รูปย่อ (ไม่มี = null) */
+type ReceiptItem = FileStatusItem & { file: File; thumb: File | null }
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -81,8 +69,14 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const [fundingSource, setFundingSource] = useState<FundingSource>('company')
   const isPersonalFunded = fundingSource === 'personal'
   const [selectedCategory, setSelectedCategory] = useState(categories[0]?.value || 'staff')
-  const [receiptFiles, setReceiptFiles] = useState<File[]>([])
-  const [previewUrls, setPreviewUrls] = useState<string[]>([])
+  // ไฟล์แนบ: ย่อรูป + ทำรูปย่อทันทีที่เลือก (ระหว่างผู้ใช้กรอกฟอร์มต่อ) · กดส่ง = อัปโหลดทุกไฟล์รอบเดียว
+  const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([])
+  const nextReceiptId = useRef(0)
+  // ไฟล์ที่ลบออกระหว่างกำลังย่อ — ผลที่ย่อเสร็จทีหลังไม่ต้องใส่กลับ
+  const removedReceiptIds = useRef(new Set<number>())
+  // URL ตัวอย่างที่ยังเปิดอยู่ — คืนหน่วยความจำตอนลบไฟล์/ออกจากหน้า
+  const previewUrls = useRef(new Set<string>())
+  const receiptsCompressing = receiptItems.some(it => it.status === 'compressing')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const [unitPrice, setUnitPrice] = useState('')
@@ -122,25 +116,26 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const [state, formAction, isPending] = useActionState(
     async (_prev: { error?: string; success?: boolean } | null, formData: FormData) => {
       // ยื่นเลย: ประเภทที่ต้องมีใบเสร็จ ต้องแนบก่อน (บันทึกแบบร่างได้โดยไม่แนบ)
-      if (formData.get('intent') === 'submit' && receiptRequiredForSubmit(claimType) && receiptFiles.length === 0) {
+      if (formData.get('intent') === 'submit' && receiptRequiredForSubmit(claimType) && receiptItems.length === 0) {
         const error = isEn
           ? 'Attach at least 1 receipt before submitting — or press “Save Draft”'
           : 'ต้องแนบใบเสร็จอย่างน้อย 1 ไฟล์ก่อนยื่น — หรือกด “บันทึกแบบร่าง”'
         toast.error(error)
         return { error }
       }
-      // Append receipt files to FormData
-      for (const file of receiptFiles) {
-        formData.append('receipt_files', file)
-      }
+      // ไฟล์ที่บีบแล้ว + รูปย่อตำแหน่งตรงกัน (receipt_files / receipt_thumbs) — server อัปโหลดทั้งหมดในรอบเดียว
+      appendFilePairs(formData, 'receipt_files', 'receipt_thumbs', receiptItems.map(it => ({ file: it.file, thumb: it.thumb })))
       const result = await createClaim(formData)
       if (result.success) {
+        setReceiptItems(prev => markUploadResult(prev))
         toast.success(result.status === 'pending'
           ? (isEn ? `Claim ${result.claimNumber} submitted — awaiting approval` : `ยื่นใบเบิก ${result.claimNumber} แล้ว — รออนุมัติ`)
           : (isEn ? `Draft ${result.claimNumber} saved — not submitted yet` : `บันทึกแบบร่าง ${result.claimNumber} แล้ว — ยังไม่ได้ยื่น`))
         router.push('/finance')
         return { success: true }
       }
+      // ไฟล์ที่ server บอกชื่อว่าอัปโหลดไม่สำเร็จ = "ไม่สำเร็จ" · ที่เหลือกลับเป็น "พร้อมส่ง" (ยังไม่ได้บันทึกอะไร)
+      setReceiptItems(prev => markUploadResult(prev, result.error || (isEn ? 'Not saved' : 'ยังไม่ได้บันทึก')))
       if (result.error) toast.error(result.error)
       return result
     },
@@ -156,33 +151,53 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
     startTransition(() => formAction(formData))
   }
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const rawFiles = Array.from(e.target.files)
-      // Compress images before storing to avoid body size limit on mobile
-      const newFiles = await Promise.all(
-        rawFiles.map(file =>
-          file.type.startsWith('image/') ? compressImage(file) : file
-        )
-      )
-      setReceiptFiles(prev => [...prev, ...newFiles])
-      // Generate preview URLs for image files
-      const newUrls = newFiles.map(file =>
-        file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
-      )
-      setPreviewUrls(prev => [...prev, ...newUrls])
+  /**
+   * รูป: บีบขนาดปกติ (compressImage — กันเกินขนาดที่ส่งได้บนมือถือ) แล้วทำรูปย่อจากไฟล์ที่บีบแล้ว
+   * (compressImage(file, THUMB_MAX_MB, THUMB_MAX_DIMENSION)) · ทำรูปย่อไม่ได้/นานเกิน = ส่งเฉพาะไฟล์ ไม่มีรูปย่อ
+   */
+  const prepareReceipt = async (item: ReceiptItem) => {
+    let file = item.file
+    try {
+      file = await compressImage(item.file)
+    } catch {
+      // browser อ่านรูปนี้ไม่ได้ — ส่งไฟล์เดิม (ไม่ค้างที่ "กำลังย่อรูป")
     }
-    // Reset the input value so the same file can be re-selected after removal
-    e.target.value = ''
+    const thumb = await settleThumb(file, compressImage(file, THUMB_MAX_MB, THUMB_MAX_DIMENSION))
+    if (removedReceiptIds.current.has(item.id)) return
+    const preview = URL.createObjectURL(file)
+    previewUrls.current.add(preview)
+    setReceiptItems(prev => prev.map(it => it.id === item.id ? { ...it, file, thumb, preview, size: file.size, status: 'ready' } : it))
   }
 
-  const removeFile = (index: number) => {
-    // Revoke the object URL to free memory
-    if (previewUrls[index]) {
-      URL.revokeObjectURL(previewUrls[index])
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFiles = e.target.files ? Array.from(e.target.files) : []
+    // Reset the input value so the same file can be re-selected after removal
+    e.target.value = ''
+    if (rawFiles.length === 0) return
+    const added: ReceiptItem[] = rawFiles.map(file => ({
+      id: nextReceiptId.current++,
+      name: file.name,
+      size: file.size,
+      preview: '',
+      status: file.type.startsWith('image/') ? 'compressing' : 'ready',
+      file,
+      thumb: null,
+    }))
+    setReceiptItems(prev => [...prev, ...added])
+    for (const item of added) {
+      if (item.status === 'compressing') void prepareReceipt(item)
     }
-    setReceiptFiles(prev => prev.filter((_, i) => i !== index))
-    setPreviewUrls(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const removeFile = (id: number) => {
+    removedReceiptIds.current.add(id)
+    const preview = receiptItems.find(it => it.id === id)?.preview
+    // Revoke the object URL to free memory
+    if (preview) {
+      URL.revokeObjectURL(preview)
+      previewUrls.current.delete(preview)
+    }
+    setReceiptItems(prev => prev.filter(it => it.id !== id))
   }
 
   // เลือกผู้รับเงินจากรายชื่อพนักงาน → เติมบัญชีธนาคาร (ช่องยังแก้ต่อได้)
@@ -237,10 +252,11 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
 
   // Cleanup all object URLs on unmount
   useEffect(() => {
+    const urls = previewUrls.current
     return () => {
-      previewUrls.forEach(url => { if (url) URL.revokeObjectURL(url) })
+      urls.forEach(url => URL.revokeObjectURL(url))
+      urls.clear()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
@@ -988,7 +1004,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 hover:border-emerald-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-sm font-medium text-zinc-700 dark:text-zinc-300 transition-colors"
+                disabled={isPending}
+                className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 hover:border-emerald-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-sm font-medium text-zinc-700 dark:text-zinc-300 transition-colors disabled:opacity-50"
               >
                 <Upload className="h-4 w-4" />
                 {isEn ? 'Choose Files' : 'เลือกไฟล์'}
@@ -996,7 +1013,8 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               <button
                 type="button"
                 onClick={() => cameraInputRef.current?.click()}
-                className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 hover:border-emerald-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-sm font-medium text-zinc-700 dark:text-zinc-300 transition-colors"
+                disabled={isPending}
+                className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 hover:border-emerald-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-sm font-medium text-zinc-700 dark:text-zinc-300 transition-colors disabled:opacity-50"
               >
                 <Camera className="h-4 w-4" />
                 {isEn ? 'Take Photo' : 'ถ่ายรูป'}
@@ -1006,57 +1024,13 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               {isEn ? 'Supports images and PDF' : 'รองรับไฟล์รูปภาพและ PDF'}
             </p>
           </div>
-          {receiptFiles.length > 0 && (
-            <div className="mt-3 space-y-2">
-              <p className="text-xs text-zinc-500">
-                {receiptFiles.length} {isEn ? 'file(s) selected' : 'ไฟล์ที่เลือก'}
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {receiptFiles.map((file, i) => (
-                  <div
-                    key={`${file.name}-${file.size}-${i}`}
-                    className="relative group border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden bg-zinc-50 dark:bg-zinc-800"
-                  >
-                    {/* Preview */}
-                    {file.type.startsWith('image/') && previewUrls[i] ? (
-                      <div className="aspect-square">
-                        <img
-                          src={previewUrls[i]}
-                          alt={file.name}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <div className="aspect-square flex flex-col items-center justify-center bg-zinc-100 dark:bg-zinc-800">
-                        <FileText className="h-10 w-10 text-red-400" />
-                        <span className="text-[10px] text-zinc-400 mt-1 uppercase font-medium">
-                          {file.name.split('.').pop()}
-                        </span>
-                      </div>
-                    )}
-                    {/* File info overlay */}
-                    <div className="px-2 py-1.5 border-t border-zinc-200 dark:border-zinc-700">
-                      <p className="text-[11px] text-zinc-600 dark:text-zinc-400 truncate" title={file.name}>
-                        {file.name}
-                      </p>
-                      <p className="text-[10px] text-zinc-400">
-                        {(file.size / 1024).toFixed(0)} KB
-                      </p>
-                    </div>
-                    {/* Remove button */}
-                    <button
-                      type="button"
-                      onClick={() => removeFile(i)}
-                      aria-label={isEn ? 'Remove file' : 'ลบรูป'}
-                      className="absolute top-1 right-1 h-8 w-8 flex items-center justify-center bg-black/50 hover:bg-red-500 text-white rounded-full transition-colors"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* หนึ่งแถวต่อไฟล์: กำลังย่อรูป → พร้อมส่ง → กำลังอัปโหลด → สำเร็จ / ไม่สำเร็จ */}
+          <FileStatusList
+            items={receiptItems}
+            isEn={isEn}
+            submitting={isPending}
+            onRemove={removeFile}
+          />
         </div>
 
         {/* Notes */}
@@ -1084,7 +1058,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               type="submit"
               name="intent" value="submit"
               onClick={() => setPressedIntent('submit')}
-              disabled={isPending || (isPettyCash && !!openFund) || quantityInvalid}
+              disabled={isPending || receiptsCompressing || (isPettyCash && !!openFund) || quantityInvalid}
               className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
             >
               <Send className="h-4 w-4" />
@@ -1097,7 +1071,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               type="submit"
               name="intent" value="draft"
               onClick={() => setPressedIntent('draft')}
-              disabled={isPending || (isPettyCash && !!openFund) || quantityInvalid}
+              disabled={isPending || receiptsCompressing || (isPettyCash && !!openFund) || quantityInvalid}
               className="flex items-center justify-center gap-2 px-5 py-3 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 text-zinc-700 dark:text-zinc-300 rounded-lg text-sm font-medium transition-colors"
             >
               <Save className="h-4 w-4" />
@@ -1114,6 +1088,11 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
               {isEn ? 'Cancel' : 'ยกเลิก'}
             </button>
           </div>
+          {receiptsCompressing && (
+            <p className="text-xs text-zinc-600 dark:text-zinc-400" aria-live="polite">
+              {isEn ? 'Resizing photos — you can send once they are ready' : 'กำลังย่อรูป — ส่งได้เมื่อทุกไฟล์พร้อมส่ง'}
+            </p>
+          )}
         </div>
       </form>
     </div>

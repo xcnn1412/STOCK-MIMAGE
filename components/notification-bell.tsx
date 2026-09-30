@@ -8,6 +8,7 @@ import {
   categoryOf, CATEGORY_LABELS, CATEGORY_ORDER, type NotificationCategory,
   TYPE_CONFIG, DEFAULT_TYPE_CONFIG, DAY_ORDER, DAY_LABELS, dayGroupOf,
 } from '@/components/notification-category'
+import { subscribeNotificationCount, refreshNotificationCount, LAST_SEEN_KEY } from '@/components/notification-poll'
 
 // ============================================================================
 // Relative time helper
@@ -67,8 +68,6 @@ function getNotificationUrl(item: NotificationItem): string {
 // NotificationBell Component
 // ============================================================================
 
-const LAST_SEEN_KEY = 'notif_last_seen'
-
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [count, setCount] = useState(0)
@@ -78,23 +77,9 @@ export default function NotificationBell() {
   const ref = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
-  // Poll unread count — นับเฉพาะที่มาใหม่หลังเปิดกระดิ่งครั้งล่าสุด (เห็นแล้วเลขหาย)
-  useEffect(() => {
-    const fetchCount = async () => {
-      try {
-        const since = localStorage.getItem(LAST_SEEN_KEY)
-        const res = await fetch(`/api/notifications/count${since ? `?since=${encodeURIComponent(since)}` : ''}`)
-        if (res.ok) {
-          const data = await res.json()
-          setCount(data.count || 0)
-        }
-      } catch { /* ignore */ }
-    }
-
-    fetchCount()
-    const interval = setInterval(fetchCount, 30000)
-    return () => clearInterval(interval)
-  }, [])
+  // Unread count — นับเฉพาะที่มาใหม่หลังเปิดกระดิ่งครั้งล่าสุด (เห็นแล้วเลขหาย)
+  // ตัวเลขมาจาก notification-poll.ts (ถามครั้งเดียวต่อแท็บ ใช้ร่วมกับป๊อปอัป)
+  useEffect(() => subscribeNotificationCount(c => setCount(c.count)), [])
 
   // Load notifications when dropdown opens
   const loadNotifications = useCallback(async () => {
@@ -170,6 +155,8 @@ export default function NotificationBell() {
             // เปิดดู = รับรู้แล้ว → เลขบน badge หาย (สถานะยังไม่อ่านในลิสต์คงเดิม)
             localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString())
             setCount(0)
+            // ถามใหม่ด้วยเวลาเปิดล่าสุด — คำตอบของรอบที่ค้างอยู่ (since เดิม) จะไม่ทับเลข 0
+            void refreshNotificationCount()
           }
           setOpen(!open)
         }}

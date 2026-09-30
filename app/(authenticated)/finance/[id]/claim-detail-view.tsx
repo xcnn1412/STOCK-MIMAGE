@@ -15,7 +15,7 @@ import {
   ChevronDown, ChevronRight, Coins, Lock, FileStack, FolderCheck,
   Undo2, EyeOff, ArchiveRestore,
 } from 'lucide-react'
-import { updateClaim, removeReceiptFile, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash, markClaimsFiled, unmarkClaimFiled } from '../actions'
+import { updateClaim, removeReceiptFile, uploadTaxInvoice, settleAdvanceClaim, confirmRefundReceived, setTaxInvoiceEntries, addPettyCashExpense, createPettyCashTopup, closePettyCashMonth, reopenPettyCashMonth, linkClaimToPettyCash, unlinkClaimFromPettyCash, markClaimsFiled, unmarkClaimFiled, getJobEventsForSelect } from '../actions'
 import { approveClaim, rejectClaim, submitClaim, cancelClaim, markAsPaid, markAsPendingMonthEnd, approveAsPendingMonthEnd, adminOverrideStatus, markAsWaitingTaxInvoice, reopenRejectedClaim, sendBackClaim, hideClaim, restoreClaim } from '../lifecycle-actions'
 import { SendBackDialog } from '../send-back-dialog'
 import { findTransition } from '../claim-transitions'
@@ -24,29 +24,33 @@ import type { FinanceCategory } from '../settings-actions'
 import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../../costs/types'
 import BankSelect from '@/components/bank-select'
+import { Button } from '@/components/ui/button'
 import { compressImage } from '@/lib/utils'
+import { calcTax } from '@/lib/finance/money'
+import { THUMB_MAX_DIMENSION, THUMB_MAX_MB } from '@/lib/finance/receipt-thumbs'
 import { thaiTodayIso } from '@/lib/thai-date'
 import EventSelectCombobox from '../new/event-select-combobox'
 import { canSeeWorkPanel, receiptRequiredForSubmit, reasonRequiredForTransition, reasonRequiredForEdit, paymentLock } from '../claim-rules'
-
-function calcTax(amount: number, vatMode: string, whtRatePercent: number) {
-  let baseAmount = amount
-  let vatAmount = 0
-  let totalWithVat = amount
-  if (vatMode === 'included') {
-    baseAmount = amount / 1.07
-    vatAmount = amount - baseAmount
-    totalWithVat = amount
-  } else if (vatMode === 'excluded') {
-    vatAmount = amount * 0.07
-    totalWithVat = amount + vatAmount
-  }
-  const whtAmount = baseAmount * (whtRatePercent / 100)
-  const netPayable = totalWithVat - whtAmount
-  return { baseAmount, vatAmount, totalWithVat, whtAmount, netPayable }
-}
+import { ReceiptThumb, appendFilePairs, settleThumb, type FilePair } from './receipt-thumb'
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/**
+ * ไฟล์ที่ส่ง + รูปย่อ: รูปบีบขนาดปกติก่อน แล้วทำรูปย่อจากไฟล์ที่บีบแล้ว (เล็กกว่า ถอดรหัสเร็วกว่า) · PDF ไม่มีรูปย่อ
+ * ทีละไฟล์ — มือถือไม่ต้องถอดรหัสรูปใหญ่หลายรูปพร้อมกัน
+ */
+async function withThumbs(originals: File[]): Promise<FilePair[]> {
+  const pairs: FilePair[] = []
+  for (const original of originals) {
+    if (!original.type.startsWith('image/')) {
+      pairs.push({ file: original, thumb: null })
+      continue
+    }
+    const file = await compressImage(original)
+    pairs.push({ file, thumb: await settleThumb(file, compressImage(file, THUMB_MAX_MB, THUMB_MAX_DIMENSION)) })
+  }
+  return pairs
+}
 
 /** ข้อผิดพลาดของปุ่มที่เพิ่งกด — แสดงใต้กลุ่มปุ่มนั้น (k = busy key ของปุ่มในกลุ่ม) */
 type ActionErrorState = { key: string; message: string } | null
@@ -160,7 +164,7 @@ type LinkableClaim = {
   submitter?: { id: string; full_name: string } | null
 }
 
-export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', jobEvents = [], pettyChildren = null, linkableClaims = null }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; jobEvents?: JobEventOption[]; pettyChildren?: PettyChildren | null; linkableClaims?: LinkableClaim[] | null }) {
+export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', pettyChildren = null, linkableClaims = null }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; pettyChildren?: PettyChildren | null; linkableClaims?: LinkableClaim[] | null }) {
   const router = useRouter()
   const { locale } = useLocale()
   const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
@@ -172,6 +176,19 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [actionError, setActionError] = useState<ActionErrorState>(null)
   const [bundleOpen, setBundleOpen] = useState(false)
   const [editing, setEditing] = useState(false)
+  // รายชื่องานของกล่องเลือกงาน — โหลดครั้งแรกที่กด "แก้ไข" (หน้าเปิดเร็วขึ้น ไม่ต้องอ่านตารางงานทุกครั้ง) แล้วเก็บไว้
+  const [jobEvents, setJobEvents] = useState<JobEventOption[] | null>(null)
+  const [jobEventsState, setJobEventsState] = useState<'idle' | 'loading' | 'error'>('idle')
+  /** กด "แก้ไข" (และปุ่มลองใหม่ของรายชื่องาน) — โหลดรายชื่องานครั้งเดียว ได้แล้วไม่โหลดซ้ำ */
+  const startEditing = () => {
+    setEditing(true)
+    if (jobEvents || jobEventsState === 'loading') return
+    setJobEventsState('loading')
+    getJobEventsForSelect().then(
+      list => { setJobEvents(list); setJobEventsState('idle') },
+      () => setJobEventsState('error'),
+    )
+  }
   const [overrideStatus, setOverrideStatus] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
   const [editReason, setEditReason] = useState('')
@@ -505,16 +522,15 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     }
     await run('uploadTaxInvoice', async () => {
       const formData = new FormData()
-      // Append files and numbers in matching order — server pairs them by index.
+      // Append files, thumbnails and numbers in matching order — server pairs them by index.
       for (const row of validRows) {
         if (row.file) {
-          const compressed = row.file.type.startsWith('image/')
-            ? await compressImage(row.file)
-            : row.file
-          formData.append('tax_invoice_files', compressed)
+          const [pair] = await withThumbs([row.file])
+          appendFilePairs(formData, 'tax_invoice_files', 'tax_invoice_thumbs', [pair])
         } else {
-          // Empty Blob preserves index alignment when there's only a number.
+          // Empty Blob preserves index alignment when there's only a number (no file = no thumbnail).
           formData.append('tax_invoice_files', new Blob([]), '')
+          formData.append('tax_invoice_thumbs', new Blob([]), '')
         }
         formData.append('tax_invoice_numbers', row.number.trim())
       }
@@ -542,14 +558,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     await run('settleAdvance', async () => {
       const formData = new FormData()
       formData.append('actual_spent_items', JSON.stringify(cleanItems))
-      for (const f of actualReceiptFiles) {
-        const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-        formData.append('actual_receipt_files', compressed)
-      }
-      for (const f of refundSlipFiles) {
-        const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-        formData.append('refund_slip_files', compressed)
-      }
+      appendFilePairs(formData, 'actual_receipt_files', 'actual_receipt_thumbs', await withThumbs(actualReceiptFiles))
+      appendFilePairs(formData, 'refund_slip_files', 'refund_slip_thumbs', await withThumbs(refundSlipFiles))
       return settleAdvanceClaim(claim.id, formData)
     }, isEn ? 'Actual spending saved' : 'บันทึกค่าใช้จ่ายจริงแล้ว', () => {
       setActualReceiptFiles([])
@@ -683,10 +693,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
     if (!ok) return
     await run('closeMonth', async () => {
       const fd = new FormData()
-      for (const f of refundSlipFiles) {
-        const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-        fd.append('refund_slip_files', compressed)
-      }
+      appendFilePairs(fd, 'refund_slip_files', 'refund_slip_thumbs', await withThumbs(refundSlipFiles))
       return closePettyCashMonth(claim.id, fd)
     }, isEn ? 'Month closed' : 'ปิดเดือนแล้ว', () => { setRefundSlipFiles([]) })
   }
@@ -745,11 +752,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
       let receiptFormData: FormData | undefined
       if (editReceiptFiles.length > 0) {
         receiptFormData = new FormData()
-        // Compress images before uploading to avoid body size limit on mobile
-        for (const f of editReceiptFiles) {
-          const compressed = f.type.startsWith('image/') ? await compressImage(f) : f
-          receiptFormData.append('receipt_files', compressed)
-        }
+        // Compress images before uploading to avoid body size limit on mobile · + รูปย่อตำแหน่งตรงกัน (receipt_thumbs)
+        appendFilePairs(receiptFormData, 'receipt_files', 'receipt_thumbs', await withThumbs(editReceiptFiles))
       }
       return updateClaim(claim.id, {
         title: editTitle,
@@ -866,7 +870,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
         </button>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {canEdit && !editing && !isHidden && (
-            <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg transition-colors">
+            <button onClick={startEditing} className="flex items-center gap-1.5 px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg transition-colors">
               <Edit3 className="h-4 w-4" />
               {isEn ? 'Edit' : 'แก้ไข'}
             </button>
@@ -1204,7 +1208,22 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     </label>
                   ))}
                 </div>
-                {editClaimType === 'event' && jobEvents.length > 0 && (
+                {/* รายชื่องานโหลดตอนกดแก้ไข — ระหว่างรอ/โหลดไม่สำเร็จ งานเดิมของใบยังอยู่ (ไม่ถูกล้าง) */}
+                {editClaimType === 'event' && jobEvents === null && (
+                  jobEventsState === 'error' ? (
+                    <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-red-700 dark:text-red-400">
+                      <span>{isEn ? 'Could not load the event list' : 'โหลดรายชื่องานไม่สำเร็จ'}</span>
+                      <Button type="button" variant="outline" size="lg" onClick={startEditing}>
+                        {isEn ? 'Try again' : 'ลองใหม่'}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p aria-live="polite" className="text-xs text-zinc-600 dark:text-zinc-400">
+                      {isEn ? 'Loading events…' : 'กำลังโหลดรายชื่องาน…'}
+                    </p>
+                  )
+                )}
+                {editClaimType === 'event' && jobEvents && jobEvents.length > 0 && (
                   <div>
                     <label className="text-[10px] text-zinc-400 mb-0.5 block">{isEn ? 'Select Event' : 'เลือกอีเวนต์'}</label>
                     <EventSelectCombobox
@@ -1751,8 +1770,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                               <span className="text-xs">PDF</span>
                             </div>
                           ) : (
-                            <img
-                              src={url}
+                            <ReceiptThumb
+                              url={url}
                               alt={`${isEn ? 'Receipt' : 'ใบเสร็จ'} ${i + 1}`}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                             />
@@ -1884,7 +1903,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                               <span className="text-xs">PDF</span>
                             </div>
                           ) : (
-                            <img src={url} alt={`${isEn ? 'Actual receipt' : 'หลักฐานการจ่ายจริง'} ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                            <ReceiptThumb url={url} alt={`${isEn ? 'Actual receipt' : 'หลักฐานการจ่ายจริง'} ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
                           )}
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                         </a>
@@ -1915,7 +1934,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                               <span className="text-xs">PDF</span>
                             </div>
                           ) : (
-                            <img src={url} alt={`${isEn ? 'Refund slip' : 'สลิปเงินคืน'} ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                            <ReceiptThumb url={url} alt={`${isEn ? 'Refund slip' : 'สลิปเงินคืน'} ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
                           )}
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                         </a>
@@ -1997,8 +2016,8 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                                       <span className="text-[10px]">PDF</span>
                                     </div>
                                   ) : (
-                                    <img
-                                      src={url}
+                                    <ReceiptThumb
+                                      url={url}
                                       alt={`${isEn ? 'Tax Invoice' : 'ใบกำกับภาษี'} ${i + 1}`}
                                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                                     />
@@ -3275,7 +3294,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                           <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg border border-orange-200 dark:border-orange-800 overflow-hidden aspect-[4/3] bg-orange-50 dark:bg-orange-950/20">
                             {isPdf
                               ? <div className="flex flex-col items-center justify-center h-full gap-1 text-orange-400"><FileText className="h-6 w-6" /><span className="text-[10px]">PDF</span></div>
-                              : <img src={url} alt={`${isEn ? 'return slip' : 'สลิปคืน'} ${i + 1}`} className="w-full h-full object-cover" />}
+                              : <ReceiptThumb url={url} alt={`${isEn ? 'return slip' : 'สลิปคืน'} ${i + 1}`} className="w-full h-full object-cover" />}
                           </a>
                         )
                       })}

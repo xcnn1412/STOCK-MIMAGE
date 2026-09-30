@@ -1,11 +1,11 @@
 import { redirect } from 'next/navigation'
-import { getClaims, getPaidMonths } from './actions'
+import { getPaidMonths } from './actions'
 import { getFinanceCategories } from './settings-actions'
 import { getFinanceViewer } from './viewer'
 import { getQueueClaims } from './queue-data'
+import { getPaidClaimsLean, getStaffOpenClaims } from './list-data'
 import ClaimsListView from './claims-list-view'
 import QueueView from './queue-view'
-import type { ExpenseClaim } from '../costs/types'
 
 export const revalidate = 0
 
@@ -41,9 +41,8 @@ export default async function FinancePage({
     const showPaid = params.status === 'paid'
     const wanted = showPaid && typeof params.month === 'string' ? params.month : ''
     const paidMonth = paidMonths.some(m => m.month === wanted) ? wanted : (paidMonths[0]?.month ?? '')
-    const paid = showPaid && paidMonth
-      ? await getClaims({ status: ['paid', 'refund_confirmed'], paidMonth })
-      : null
+    // แถวแบบเบา (list-data.ts) — ไม่มีรายการ URL / รายละเอียด / บัญชีธนาคาร
+    const paid = showPaid && paidMonth ? await getPaidClaimsLean(viewer, paidMonth) : null
 
     return (
       <QueueView
@@ -51,7 +50,7 @@ export default async function FinancePage({
         hiddenCount={queue.hiddenCount}
         error={queue.error || null}
         categories={categories}
-        paidClaims={(paid?.data || []) as unknown as ExpenseClaim[]}
+        paidClaims={paid?.data ?? []}
         paidMonths={paidMonths}
         paidMonth={paidMonth}
         showPaid={showPaid}
@@ -61,15 +60,15 @@ export default async function FinancePage({
     )
   }
 
-  // พนักงาน: รายการใบเบิกของตัวเองแบบเดิม (เฉพาะใบที่ยังไม่จบ)
+  // พนักงาน: รายการใบเบิกของตัวเอง (เฉพาะใบที่ยังไม่จบ) เป็นแถวแบบเบา
   const [{ data, error }, categories] = await Promise.all([
-    getClaims({ open: true }),
+    getStaffOpenClaims(viewer),
     getFinanceCategories(),
   ])
 
   return (
     <ClaimsListView
-      claims={(data || []) as unknown as ExpenseClaim[]}
+      claims={data}
       error={error || null}
       categories={categories}
       isAdmin={false}

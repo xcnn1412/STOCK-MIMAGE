@@ -10,6 +10,7 @@ import {
   Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
 import { attributeRevenue } from '@/app/(authenticated)/costs/lib/revenue-attribution'
+import { calcTax } from '@/lib/finance/money'
 
 // ─── Types (mirror overview-view.tsx) ────────────────────────
 
@@ -52,19 +53,13 @@ const pct = (a: number, b: number) => (b > 0 ? (a / b) * 100 : 0)
 
 const MONTH_LABELS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 
-function calcTax(amount: number, vatMode: string | null | undefined, whtRate: number | null | undefined) {
-  const rate = Number(whtRate || 0)
-  let base = amount
-  let vat = 0
-  if (vatMode === 'included') {
-    base = amount / 1.07
-    vat = amount - base
-  } else if (vatMode === 'excluded') {
-    base = amount
-    vat = amount * 0.07
-  }
-  const wht = base * (rate / 100)
-  return { base, vat, wht, totalWithVat: base + vat, net: base + vat - wht }
+/**
+ * ภาษีของหนึ่งรายการในชื่อคีย์ที่กราฟหน้านี้ใช้ (base/vat/wht/net) — คิดด้วย calcTax ตัวเดียวของระบบ
+ * ค่าว่างแปลงแบบเดิม: VAT ว่าง = ไม่มี VAT · อัตราว่าง/undefined = 0 (ผลเท่ากันทุกบิต — scripts/finance-calc-tax.check.ts)
+ */
+function taxParts(amount: number, vatMode: string | null | undefined, whtRate: number | null | undefined) {
+  const t = calcTax(amount, vatMode ?? 'none', Number(whtRate || 0))
+  return { base: t.baseAmount, vat: t.vatAmount, wht: t.whtAmount, totalWithVat: t.totalWithVat, net: t.netPayable }
 }
 
 function trendBand(deltaPct: number) {
@@ -137,7 +132,7 @@ function buildYearRollup(data: OverviewData, year: number): YearRollup {
     const bucket = months[m]
     const revenue = attributedRevenueById.get(je.id) ?? Number(je.revenue || 0)
     if (revenue > 0) {
-      const t = calcTax(revenue, je.revenue_vat_mode, je.revenue_wht_rate)
+      const t = taxParts(revenue, je.revenue_vat_mode, je.revenue_wht_rate)
       bucket.revenueGross += revenue
       bucket.revenueBase += t.base
       bucket.revenueVat += t.vat
@@ -163,7 +158,7 @@ function buildYearRollup(data: OverviewData, year: number): YearRollup {
     const bucket = months[m]
     const amt = Number(ci.amount || 0)
     if (amt === 0) return
-    const t = calcTax(amt, ci.vat_mode, ci.withholding_tax_rate)
+    const t = taxParts(amt, ci.vat_mode, ci.withholding_tax_rate)
     bucket.costGross += amt
     bucket.costBase += t.base
     bucket.costVat += t.vat
