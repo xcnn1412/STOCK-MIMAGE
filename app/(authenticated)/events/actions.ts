@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
-import { getEventManager, EVENT_MANAGERS_KEY } from '@/lib/event-permissions'
+import { getEventManager, EVENT_PERMISSION_KEYS } from '@/lib/event-permissions'
 import type { ActionState, KitContent, Item, Database } from '@/types'
 import { isClosedEvent } from '../jobs/tracking/tracking-logic'
 
@@ -66,8 +66,8 @@ function isMissingTimeColumnError(error: { code?: string | null; message?: strin
 }
 
 export async function createEvent(prevState: ActionState, formData: FormData) {
-  const manager = await getEventManager()
-  if (!manager) return { error: 'ไม่มีสิทธิ์จัดการอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
+  const manager = await getEventManager('edit')
+  if (!manager) return { error: 'ไม่มีสิทธิ์สร้าง/แก้ไขอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
   const userId = manager.userId
 
   const name = formData.get('name') as string
@@ -241,7 +241,7 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
 // ============================================================================
 
 export async function linkEventToCrm(eventId: string, leadId: string) {
-  if (!(await getEventManager())) return { error: 'ไม่มีสิทธิ์จัดการอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
+  if (!(await getEventManager('edit'))) return { error: 'ไม่มีสิทธิ์สร้าง/แก้ไขอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
 
   const supabase = createServiceClient()
 
@@ -264,7 +264,7 @@ export async function linkEventToCrm(eventId: string, leadId: string) {
 }
 
 export async function unlinkEventFromCrm(eventId: string) {
-  if (!(await getEventManager())) return { error: 'ไม่มีสิทธิ์จัดการอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
+  if (!(await getEventManager('edit'))) return { error: 'ไม่มีสิทธิ์สร้าง/แก้ไขอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
 
   const supabase = createServiceClient()
 
@@ -288,8 +288,8 @@ export async function unlinkEventFromCrm(eventId: string) {
 }
 
 export async function updateEvent(id: string, prevState: ActionState, formData: FormData) {
-  const manager = await getEventManager()
-  if (!manager) return { error: 'ไม่มีสิทธิ์จัดการอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
+  const manager = await getEventManager('edit')
+  if (!manager) return { error: 'ไม่มีสิทธิ์สร้าง/แก้ไขอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
   const userId = manager.userId
 
   const name = formData.get('name') as string
@@ -615,8 +615,8 @@ export async function processEventReturn(
     itemStatuses: { itemId: string, status: string }[],
     imageUrls: string[] = []
 ): Promise<{ error: string } | { success: true }> {
-     const manager = await getEventManager()
-     if (!manager) return { error: 'ไม่มีสิทธิ์จัดการอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
+     const manager = await getEventManager('close')
+     if (!manager) return { error: 'ไม่มีสิทธิ์ปิดงานอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
      const userId = manager.userId
 
      const supabase = createServiceClient()
@@ -738,7 +738,7 @@ export async function processEventReturn(
 // cookie session, not Supabase Auth), and the `event_closures` bucket only allows
 // INSERT for `authenticated` — so uploads must go through the service-role client here.
 export async function uploadClosureImage(formData: FormData): Promise<{ url?: string; error?: string }> {
-    if (!(await getEventManager())) return { error: 'ไม่มีสิทธิ์จัดการอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
+    if (!(await getEventManager('close'))) return { error: 'ไม่มีสิทธิ์ปิดงานอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
 
     const file = formData.get('file') as File | null
     const eventId = formData.get('eventId') as string | null
@@ -766,18 +766,22 @@ export async function uploadClosureImage(formData: FormData): Promise<{ url?: st
 }
 
 
-// ตั้งค่าผู้มีสิทธิ์จัดการอีเวนต์ (หน้า /settings) — admin เท่านั้น; admin มีสิทธิ์อยู่แล้วจึงไม่ต้องอยู่ในรายชื่อ
-export async function saveEventManagers(userIds: string[]): Promise<{ error?: string; success?: boolean }> {
+// ตั้งค่าผู้มีสิทธิ์อีเวนต์ 2 ชุด (หน้า /settings) — admin เท่านั้น; admin มีสิทธิ์อยู่แล้วจึงไม่ต้องอยู่ในรายชื่อ
+export async function saveEventManagers(input: { edit: string[]; close: string[] }): Promise<{ error?: string; success?: boolean }> {
     const session = await requireAuth()
     if (session?.role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
-    const ids = [...new Set(userIds.filter(id => typeof id === 'string' && id))]
-    const { error } = await createServiceClient().from('app_settings').upsert({
-        key: EVENT_MANAGERS_KEY, value: JSON.stringify(ids), updated_at: new Date().toISOString(),
-    })
+    const clean = (ids: unknown) => Array.isArray(ids) ? [...new Set(ids.filter((id): id is string => typeof id === 'string' && !!id))] : []
+    const edit = clean(input?.edit)
+    const close = clean(input?.close)
+    const updated_at = new Date().toISOString()
+    const { error } = await createServiceClient().from('app_settings').upsert([
+        { key: EVENT_PERMISSION_KEYS.edit, value: JSON.stringify(edit), updated_at },
+        { key: EVENT_PERMISSION_KEYS.close, value: JSON.stringify(close), updated_at },
+    ])
     if (error) return { error: `บันทึกไม่สำเร็จ: ${error.message}` }
 
-    await logActivity('UPDATE_EVENT_MANAGERS', { userIds: ids })
+    await logActivity('UPDATE_EVENT_MANAGERS', { edit, close })
     revalidatePath('/events')
     revalidatePath('/settings')
     return { success: true }

@@ -10,7 +10,7 @@ import type { Kit } from '@/types'
 export const revalidate = 0
 
 export default async function EditEventPage(props: { params: Promise<{ id: string }> }) {
-  if (!(await getEventManager())) redirect('/events')
+  if (!(await getEventManager('edit'))) redirect('/events')
 
   const params = await props.params;
   const { data: event } = await supabase.from('events').select('*').eq('id', params.id).single()
