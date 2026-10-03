@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
 import { getEventManager, EVENT_PERMISSION_KEYS } from '@/lib/event-permissions'
+import { loadBookingsForEvent, recomputeKitPointers } from '@/lib/kit-bookings'
 import type { ActionState, KitContent, Item, Database } from '@/types'
 import { isClosedEvent } from '../jobs/tracking/tracking-logic'
 
@@ -138,16 +139,17 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
     }
   }
 
+  // กระเป๋า = การจอง (event_kits, ADR-0003) — กระเป๋าชนเวลาแค่เตือนในฟอร์ม ไม่บล็อก
   if (kitIds.length > 0) {
       const { error: kitsError } = await supabase
-          .from('kits')
-          .update({ event_id: event.id })
-          .in('id', kitIds)
-      
+          .from('event_kits')
+          .upsert(kitIds.map(kit_id => ({ event_id: event.id, kit_id })), { onConflict: 'event_id,kit_id' })
+
       if (kitsError) {
           console.error('Assign kits error:', kitsError)
           return { error: 'Event created but failed to assign kits' }
       }
+      await recomputeKitPointers(supabase, kitIds)
   }
 
   await logActivity('CREATE_EVENT', { 
@@ -325,11 +327,13 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   const oldEventTime = hhmm((oldEvent as { event_time?: unknown } | null)?.event_time)
   const oldEventEndTime = hhmm((oldEvent as { event_end_time?: unknown } | null)?.event_end_time)
 
+  // กระเป๋าเดิมของอีเวนต์นี้ = การจอง (event_kits)
   const { data: oldKitsRaw } = await supabase
-      .from('kits')
-      .select('id, name')
+      .from('event_kits')
+      .select('kit_id, kits(name)')
       .eq('event_id', id)
-  const oldKits = (oldKitsRaw || []) as { id: string; name: string }[]
+  const oldKits = ((oldKitsRaw || []) as unknown as { kit_id: string; kits: { name: string } | null }[])
+      .map(r => ({ id: r.kit_id, name: r.kits?.name || r.kit_id }))
 
   // Staff now lives per-event in event_staff for every event (CRM-linked or not).
   let oldStaff: { user_id: string; full_name: string; role: string }[] = []
@@ -363,53 +367,34 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
       return { error: 'Failed to update event details' }
   }
 
-  // 2. Sync Kits
-  // Strategy:
-  // a. Clear ALL kits currently assigned to this event (set event_id = null)
-  // b. Set event_id = id for the selectedKitIds
-  // (Alternatively: diff them, but full reset is safer and simpler for small scale)
+  // 2. Sync Kits — เทียบการจองเดิมกับที่เลือกใหม่ แตะเฉพาะกระเป๋าที่เปลี่ยน
+  {
+      const selected = new Set(selectedKitIds)
+      const before = new Set(oldKits.map(k => k.id))
+      const removed = oldKits.map(k => k.id).filter(kid => !selected.has(kid))
+      const added = selectedKitIds.filter(kid => !before.has(kid))
 
-  // However, we must be careful not to unset kits that belong to OTHER events if the UI was somehow manipulated, 
-  // but here we act on kits currently assigned to THIS event or being set TO this event.
-  
-  // BEFORE releasing kits, reset item statuses to prevent orphaned items
-  const { data: kitsToRelease } = await supabase
-      .from('kits')
-      .select(`
-          id,
-          kit_contents(item_id)
-      `)
-      .eq('event_id', id)
-
-  if (kitsToRelease && kitsToRelease.length > 0) {
-      // Collect all item IDs from kits being released
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const itemIds = kitsToRelease
-          .flatMap(kit => (kit.kit_contents as any)?.map((kc: any) => kc.item_id) || [])
-          .filter(Boolean)
-      
-      // Reset items to 'available' if they were 'in_use'
-      if (itemIds.length > 0) {
-          await supabase
-              .from('items')
-              .update({ status: 'available' })
-              .in('id', itemIds)
-              .eq('status', 'in_use')  // Only reset if currently in_use
+      if (removed.length > 0) {
+          // กระเป๋าที่ถูกเอาออกและกำลังอยู่กับอีเวนต์นี้ → อุปกรณ์ที่นำออกไปแล้วกลับเป็น "ว่าง"
+          const { data: outKits } = await supabase
+              .from('kits')
+              .select('id, kit_contents(item_id)')
+              .in('id', removed)
+              .eq('event_id', id)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const itemIds = (outKits || []).flatMap(k => ((k.kit_contents as any[]) || []).map(kc => kc.item_id)).filter(Boolean)
+          if (itemIds.length > 0) {
+              await supabase.from('items').update({ status: 'available' }).in('id', itemIds).eq('status', 'in_use')
+          }
+          await supabase.from('event_kits').delete().eq('event_id', id).in('kit_id', removed)
       }
-  }
-  
-  // Then, release all kits currently assigned to this event
-  await supabase
-      .from('kits')
-      .update({ event_id: null })
-      .eq('event_id', id)
-
-  // Then, assign the new selection
-  if (selectedKitIds.length > 0) {
-      await supabase
-          .from('kits')
-          .update({ event_id: id })
-          .in('id', selectedKitIds)
+      if (added.length > 0) {
+          await supabase
+              .from('event_kits')
+              .upsert(added.map(kit_id => ({ event_id: id, kit_id })), { onConflict: 'event_id,kit_id' })
+      }
+      // เวลาเปลี่ยนก็อาจเปลี่ยนลำดับว่ากระเป๋าอยู่กับงานไหนก่อน — คำนวณใหม่ทุกใบที่เกี่ยว
+      await recomputeKitPointers(supabase, [...before, ...added])
   }
 
   // 3. Sync staff — event_staff (keyed by event_id) is the single source of truth for
@@ -535,6 +520,9 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 }
 
 
+/** สถานะที่เลือกได้ตอนรับคืนอุปกรณ์ (ใช้ร่วมกับแท็บรับคืนในหน้าเช็คของ) */
+const RETURN_STATUSES = ['available', 'damaged', 'maintenance', 'lost']
+
 /** สถานะใบงานที่ถือว่าจบแล้ว — ตรงกับ POOL_DONE_STATUSES ใน jobs/tracking/tracking-logic.ts */
 const POOL_FINISHED_STATUSES = ['done', 'skipped']
 
@@ -632,8 +620,9 @@ export async function processEventReturn(
          return { error: 'อีเวนต์นี้ปิดงานไปแล้ว' }
      }
 
-     // Fetch kits and their items for snapshot
-     const { data: kits } = await supabase
+     // กระเป๋าของอีเวนต์นี้ = การจอง (event_kits)
+     const bookedKitIds = (await loadBookingsForEvent(supabase, eventId)).map(b => b.kitId)
+     const { data: kits } = bookedKitIds.length === 0 ? { data: [] } : await supabase
          .from('kits')
          .select(`
              id,
@@ -643,7 +632,16 @@ export async function processEventReturn(
                  items(id, name, serial_number, status, image_url)
              )
          `)
-         .eq('event_id', eventId)
+         .in('id', bookedKitIds)
+
+     // รับคืนได้แค่ ใช้ได้ / เสียหาย / ซ่อมบำรุง / หาย และเฉพาะอุปกรณ์ในกระเป๋าของงานนี้
+     const allowedItemIds = new Set(
+         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         (kits || []).flatMap(k => ((k.kit_contents as any[]) || []).map(kc => kc.items?.id)).filter(Boolean)
+     )
+     if (itemStatuses.some(s => !RETURN_STATUSES.includes(s.status) || !allowedItemIds.has(s.itemId))) {
+         return { error: 'สถานะอุปกรณ์ไม่ถูกต้อง — เลือกได้แค่ ใช้ได้ / เสียหาย / ซ่อมบำรุง / หาย' }
+     }
 
      // Build kits snapshot
      const kitsSnapshot = kits?.map(kit => ({
@@ -691,12 +689,6 @@ export async function processEventReturn(
          )
      )
 
-     // 3. Release kits (set event_id to null)
-     await supabase
-        .from('kits')
-        .update({ event_id: null })
-        .eq('event_id', eventId)
-
      // 4. Soft-close the event — keep the row so event_staff / staff_checkins /
      //    job_cost_events links survive. Status flips to 'completed'.
      const { error } = await supabase
@@ -708,6 +700,9 @@ export async function processEventReturn(
          console.error("Close event failed", error)
          return { error: 'ปิดงานไม่สำเร็จ' }
      }
+
+     // 3. ปล่อยกระเป๋า — ชี้ไปงานถัดไปที่จองไว้ (ไม่มี = ว่าง) การจองของงานนี้เก็บไว้เป็นประวัติ
+     await recomputeKitPointers(supabase, bookedKitIds)
 
      await logActivity('CLOSE_EVENT', {
          eventId,

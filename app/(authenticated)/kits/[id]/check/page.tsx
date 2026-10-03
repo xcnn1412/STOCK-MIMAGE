@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
+import { loadBookingsForKits } from '@/lib/kit-bookings'
 
 export default async function CheckPage(props: { params: Promise<{ id: string }>, searchParams: Promise<{ eventId?: string }> }) {
   const params = await props.params;
@@ -13,42 +14,29 @@ export default async function CheckPage(props: { params: Promise<{ id: string }>
   if (!kit) notFound()
 
   const { data: contents } = await supabase.from('kit_contents').select('*, items(*)').eq('kit_id', params.id)
-  
-  // Fetch active/upcoming events
-  // Assuming 'status' is relevant or just sorting by date descending
-  const { data: events } = await supabase
-    .from('events')
-    .select('*')
-    .order('event_date', { ascending: false })
-    .limit(20)
 
-  // Back link: if came from an event, go back to that event's check-kits page
-  const backUrl = searchParams.eventId
-    ? `/events/${searchParams.eventId}/check-kits`
-    : '/events'
-
-  // จัดครบไว้แล้วหรือยัง (event_kits) — มีความหมายเฉพาะเมื่อเข้ามาจากอีเวนต์ที่จองกระเป๋าใบนี้ไว้
-  let initialPacked = false
-  if (searchParams.eventId) {
-    const { data: booking } = await supabase
-      .from('event_kits')
-      .select('packed_at')
-      .eq('event_id', searchParams.eventId)
-      .eq('kit_id', params.id)
-      .maybeSingle()
-    initialPacked = !!booking?.packed_at
-  }
+  // อีเวนต์ให้เลือก = งานที่ยังไม่ปิดและจองกระเป๋าใบนี้ไว้ (event_kits) เรียงตามวันงาน
+  const bookings = (await loadBookingsForKits(supabase, [params.id])).filter(b => !b.closed)
+  const events = bookings
+    .map(b => ({ id: b.eventId, name: b.eventName, event_date: b.eventDate, packed: b.packed }))
+    .sort((a, b) => (a.event_date ?? '').localeCompare(b.event_date ?? ''))
+  const initialEventId = events.some(e => e.id === searchParams.eventId) ? searchParams.eventId : events[0]?.id
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-4">
         <div className="max-w-md mx-auto mb-4 flex items-center gap-4">
-            <Link href={backUrl}>
+            <Link href={`/kits/${kit.id}`}>
                 <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4"/></Button>
             </Link>
             <h1 className="text-xl font-bold">{kit.name} Check</h1>
         </div>
-      <CheckFlow kit={kit} contents={contents || []} events={events || []} initialEventId={searchParams.eventId} initialPacked={initialPacked} />
+      <CheckFlow
+        kit={kit}
+        contents={contents || []}
+        events={events}
+        initialEventId={initialEventId}
+        initialPacked={events.find(e => e.id === initialEventId)?.packed ?? false}
+      />
     </div>
   )
 }
-

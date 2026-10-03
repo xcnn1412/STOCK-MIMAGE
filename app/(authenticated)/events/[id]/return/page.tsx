@@ -16,10 +16,11 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
   if (event.status === 'completed') redirect('/events')
 
   // 1. Get kits assigned to event
-  const { data: kits } = await supabase
-    .from('kits')
-    .select('id, name')
-    .eq('event_id', event.id)
+  // กระเป๋าของอีเวนต์นี้ = การจอง (event_kits)
+  const { data: booked } = await supabase.from('event_kits').select('kits(id, name)').eq('event_id', event.id)
+  const kits = ((booked || []) as unknown as { kits: { id: string; name: string } | null }[])
+    .map(b => b.kits)
+    .filter((k): k is { id: string; name: string } => !!k)
 
   if (!kits) {
       // Should handle no kits gracefully

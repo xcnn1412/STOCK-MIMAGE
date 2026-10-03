@@ -1,11 +1,12 @@
 'use client'
 
 import { useActionState, useState } from 'react'
+import KitPicker from '../kit-picker'
+import type { KitBookingDetail } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 import { createEvent } from '../actions'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -49,11 +50,13 @@ interface Prefill {
 
 export default function CreateEventForm({
   availableKits,
+  kitBookings,
   profiles,
   prefill,
   staffRoles = [],
 }: {
-  availableKits: any[]
+  availableKits: { id: string; name: string }[]
+  kitBookings: KitBookingDetail[]
   profiles: Profile[]
   prefill?: Prefill
   staffRoles?: StaffRole[]
@@ -61,6 +64,10 @@ export default function CreateEventForm({
   const { t, lang } = useLanguage()
   const locale = lang || 'th'
   const [state, formAction, isPending] = useActionState(createEvent, { error: '' })
+  // วัน/เวลาที่กรอกอยู่ — ใช้เตือนกระเป๋าชนในตัวเลือกกระเป๋า (ค่าเดียวกับที่ส่งไปบันทึก)
+  const [eventDate, setEventDate] = useState<string | null>(null)
+  const [eventTime, setEventTime] = useState((prefill?.eventTime ?? '').slice(0, 5))
+  const [eventEndTime, setEventEndTime] = useState((prefill?.eventEndTime ?? '').slice(0, 5))
 
   // Staff assignments — structured (user_id + role)
   const [assignments, setAssignments] = useState<StaffAssignment[]>(
@@ -156,18 +163,18 @@ export default function CreateEventForm({
             {/* วันที่ */}
             <div className="space-y-2">
               <Label htmlFor="event_date">{t.events.fields.date}</Label>
-              <ThaiDatePicker name="event_date" defaultValue={prefill?.eventDate ? new Date(prefill.eventDate) : undefined} />
+              <ThaiDatePicker name="event_date" defaultValue={prefill?.eventDate ? new Date(prefill.eventDate) : undefined} onChange={setEventDate} />
             </div>
 
             {/* เวลาเปิด / เวลาปิด — ไม่บังคับ */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <label htmlFor="event_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาเปิด' : 'Start time'}</label>
-                <Input id="event_time" name="event_time" type="time" defaultValue={(prefill?.eventTime ?? '').slice(0, 5)} />
+                <Input id="event_time" name="event_time" type="time" defaultValue={(prefill?.eventTime ?? '').slice(0, 5)} onChange={e => setEventTime(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <label htmlFor="event_end_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาปิด' : 'End time'}</label>
-                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(prefill?.eventEndTime ?? '').slice(0, 5)} />
+                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(prefill?.eventEndTime ?? '').slice(0, 5)} onChange={e => setEventEndTime(e.target.value)} />
               </div>
             </div>
 
@@ -299,20 +306,14 @@ export default function CreateEventForm({
             {/* จัดการ กระเป๋า */}
             <div className="space-y-4">
                <Label>{t.common.actions} {t.kits.title}</Label>
-               {availableKits.length === 0 ? (
-                   <p className="text-sm text-zinc-500 italic">{t.common.noData}</p>
-               ) : (
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded-lg p-4 max-h-[200px] overflow-y-auto">
-                       {availableKits.map((kit) => (
-                           <div key={kit.id} className="flex items-center space-x-2">
-                               <Checkbox id={`kit-${kit.id}`} name="kits" value={kit.id} />
-                               <Label htmlFor={`kit-${kit.id}`} className="font-normal cursor-pointer">
-                                   {kit.name}
-                               </Label>
-                           </div>
-                       ))}
-                   </div>
-               )}
+               <KitPicker
+                 kits={availableKits}
+                 bookings={kitBookings}
+                 eventId=""
+                 eventDate={eventDate}
+                 eventTime={eventTime}
+                 eventEndTime={eventEndTime}
+               />
             </div>
 
             {state?.error && (

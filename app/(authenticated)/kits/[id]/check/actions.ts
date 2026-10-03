@@ -2,16 +2,75 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { requireAuth } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
+import { isClosedEvent } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
+import { logActivity } from '@/lib/logger'
 
+/** สถานะที่เลือกได้ตอนรับคืน — ชุดเดียวกับหน้าปิดงาน */
+export type ReturnStatus = 'available' | 'damaged' | 'maintenance' | 'lost'
+const RETURN_STATUSES: ReturnStatus[] = ['available', 'damaged', 'maintenance', 'lost']
 
+type Db = ReturnType<typeof createServiceClient>
+
+/** อีเวนต์ต้องจองกระเป๋าใบนี้ไว้ (event_kits) และยังไม่ปิด */
+async function checkBooking(db: Db, eventId: string, kitId: string): Promise<string | null> {
+  const { data } = await db
+    .from('event_kits')
+    .select('events!inner(status)')
+    .eq('event_id', eventId)
+    .eq('kit_id', kitId)
+    .maybeSingle()
+  if (!data) return 'กระเป๋าใบนี้ไม่ได้ถูกจองให้อีเวนต์นี้'
+  if (isClosedEvent((data as unknown as { events: { status: string | null } }).events?.status)) return 'อีเวนต์นี้ปิดงานไปแล้ว'
+  return null
+}
+
+async function kitItems(db: Db, kitId: string) {
+  const { data } = await db.from('kit_contents').select('items(id, name, status)').eq('kit_id', kitId)
+  return ((data || []) as unknown as { items: { id: string; name: string; status: string } | null }[])
+    .map(c => c.items)
+    .filter((i): i is { id: string; name: string; status: string } => !!i)
+}
+
+/** "จัดครบ" ของการจอง = อุปกรณ์ทุกชิ้นในกระเป๋าถูกนำออก (in_use) — คิดใหม่ทุกครั้งที่นำออก/รับคืน */
+async function syncPacked(db: Db, eventId: string, kitId: string, userId: string) {
+  const items = await kitItems(db, kitId)
+  const packed = items.length > 0 && items.every(i => i.status === 'in_use')
+  const { data: row } = await db.from('event_kits').select('packed_at').eq('event_id', eventId).eq('kit_id', kitId).maybeSingle()
+  if (!!row?.packed_at === packed) return packed
+  await logActivity('PACK_EVENT_KIT', { event_id: eventId, kit_id: kitId, packed })
+  await db
+    .from('event_kits')
+    .update(packed ? { packed_at: new Date().toISOString(), packed_by: userId } : { packed_at: null, packed_by: null })
+    .eq('event_id', eventId)
+    .eq('kit_id', kitId)
+  return packed
+}
+
+function refresh(eventId: string, kitId: string) {
+  revalidatePath(`/kits/${kitId}/check`)
+  revalidatePath(`/events/${eventId}/check-kits`)
+  revalidatePath(`/events/${eventId}/check-kits/${kitId}`)
+  revalidatePath('/jobs/tracking')
+}
 
 export async function checkoutItems(eventId: string, kitId: string, itemIds: string[]) {
   const session = await requireAuth()
   const userId = session?.userId
-
   if (!userId) return { error: "Unauthorized" }
 
   const supabase = createServiceClient()
+
+  const bookingError = await checkBooking(supabase, eventId, kitId)
+  if (bookingError) return { error: bookingError }
+
+  // นำออกได้เฉพาะอุปกรณ์ในกระเป๋าใบนี้ที่สถานะ "ว่าง"
+  const items = await kitItems(supabase, kitId)
+  const byId = new Map(items.map(i => [i.id, i]))
+  const bad = itemIds.filter(id => byId.get(id)?.status !== 'available')
+  if (bad.length > 0) {
+    const names = bad.map(id => byId.get(id)?.name || 'อุปกรณ์ที่ไม่อยู่ในกระเป๋านี้')
+    return { error: `นำออกไม่ได้ (ไม่ได้อยู่ในสถานะว่าง): ${names.join(', ')}` }
+  }
 
   // 1. Update items status to 'in_use'
   const { error: updateError } = await supabase
@@ -32,45 +91,50 @@ export async function checkoutItems(eventId: string, kitId: string, itemIds: str
   }))
 
   const { error: logError } = await supabase.from('event_logs').insert(logs)
-  
+
   if (logError) return { error: logError.message }
 
-  revalidatePath(`/kits/${kitId}/check`)
+  const packed = await syncPacked(supabase, eventId, kitId, userId)
+  refresh(eventId, kitId)
+  return { success: true, packed }
 }
 
-export async function checkinItem(eventId: string, kitId: string, itemId: string, condition: 'good' | 'damaged' | 'lost', note?: string) {
+export async function checkinItem(eventId: string, kitId: string, itemId: string, status: ReturnStatus, note?: string) {
     const session = await requireAuth()
     const userId = session?.userId
 
     if (!userId) return { error: "Unauthorized" }
+    if (!RETURN_STATUSES.includes(status)) return { error: 'สถานะไม่ถูกต้อง' }
 
     const supabase = createServiceClient()
 
-    // Determine new status
-    let newStatus = 'available'
-    if (condition === 'damaged') newStatus = 'maintenance'
-    if (condition === 'lost') newStatus = 'lost'
+    const bookingError = await checkBooking(supabase, eventId, kitId)
+    if (bookingError) return { error: bookingError }
+    if (!(await kitItems(supabase, kitId)).some(i => i.id === itemId)) {
+        return { error: 'อุปกรณ์นี้ไม่ได้อยู่ในกระเป๋าใบนี้' }
+    }
 
     // Update item
     const { error: updateError } = await supabase
         .from('items')
-        .update({ status: newStatus })
+        .update({ status })
         .eq('id', itemId)
-    
+
     if (updateError) return { error: updateError.message }
 
-    // Log
+    // Log — condition เดิมเก็บ good/damaged/lost; ซ่อมบำรุงนับเป็น damaged
     const { error: logError } = await supabase.from('event_logs').insert({
         event_id: eventId,
         item_id: itemId,
         kit_id: kitId,
         user_id: userId,
         action: 'checkin',
-        condition,
-        note
+        condition: status === 'available' ? 'good' : status === 'lost' ? 'lost' : 'damaged',
+        note: note ?? (status === 'maintenance' ? 'ส่งซ่อมบำรุง' : undefined),
     })
 
     if (logError) return { error: logError.message }
 
-    revalidatePath(`/kits/${kitId}/check`)
+    await syncPacked(supabase, eventId, kitId, userId)
+    refresh(eventId, kitId)
 }

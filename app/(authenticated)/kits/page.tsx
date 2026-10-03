@@ -1,5 +1,6 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import KitsView from './kits-view'
+import { getKitManager } from '@/lib/kit-bookings'
 
 import type { Kit } from '@/types'
 
@@ -12,6 +13,6 @@ export default async function KitsPage() {
     .order('name')
 
   return (
-    <KitsView kits={(kits || []) as Kit[]} />
+    <KitsView kits={(kits || []) as Kit[]} canManage={!!(await getKitManager())} />
   )
 }

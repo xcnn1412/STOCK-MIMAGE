@@ -7,7 +7,7 @@ import { createNotifications, type NotificationType } from '@/lib/notifications'
 import { requireAuth } from '@/lib/auth'
 // โมดูลตรรกะล้วน (ไม่มี React / ไม่มี 'use client') — import เข้ามาใน server action ได้
 import {
-    READY_DESIGN_STATUSES, kitBookingConflict, shouldFinishGraphicJob,
+    READY_DESIGN_STATUSES, kitBookingClashes, shouldFinishGraphicJob,
     canActOnPool, POOL_TEAM_CATEGORIES, POOL_TEAM_DEFAULTS, isClosedEvent,
     PREP_DUTY_CATEGORY, DUTY_LABELS_TH, isPrepDuty,
     CLAIM_CATEGORY, WAIVER_CLAIM_KIND, WAIVER_KEYS, WAIVER_LABELS, canWaive, isWaivableItem, isWaiverKey,
@@ -15,6 +15,7 @@ import {
 import type { PoolTeamCategory, PrepDuty } from './tracking/tracking-logic'
 import { DESIGN_STATUS_VALUES } from './tracking/design-options'
 import { DEPARTMENTS } from '@/lib/departments'
+import { loadBookingsForKits, recomputeKitPointers } from '@/lib/kit-bookings'
 
 
 async function getSession() {
@@ -3174,56 +3175,6 @@ async function requireKitManager(): Promise<{ actor: PoolActor } | { error: stri
     return { actor }
 }
 
-/** การจองของกระเป๋าใบหนึ่งพร้อมวัน/ชื่อ/สถานะ/งานของอีเวนต์ (join events) */
-type KitBookingRow = {
-    event_id: string
-    events?: {
-        id: string
-        name: string | null
-        event_date: string | null
-        status: string | null
-        crm_lead_id: string | null
-    } | null
-}
-
-const KIT_BOOKING_SELECT = 'event_id, events!inner(id, name, event_date, status, crm_lead_id)'
-
-async function loadKitBookings(
-    supabase: ReturnType<typeof createServiceClient>,
-    kitId: string
-): Promise<KitBookingRow[]> {
-    const { data } = await supabase.from('event_kits').select(KIT_BOOKING_SELECT).eq('kit_id', kitId)
-    return (data || []) as unknown as KitBookingRow[]
-}
-
-/**
- * kits.event_id เดิม = ตัวชี้ใบเดียวที่ flow เช็ค/คืนกระเป๋าเก่ายังใช้อยู่ — event_kits คือ source of truth (ADR-0003)
- * จองใหม่: ชี้ให้เฉพาะตอนที่กระเป๋ายังไม่มีการจองอื่นของอีเวนต์ที่ยังไม่ปิด (ไม่งั้นสองงานจะแย่งตัวชี้กัน)
- * ยกเลิกจอง: ตัวชี้ที่ค้างอยู่กับอีเวนต์ที่ไม่มีการจองแล้ว → ล้างเป็น null
- */
-async function syncLegacyKitEvent(
-    supabase: ReturnType<typeof createServiceClient>,
-    kitId: string,
-    justBookedEventId: string | null
-) {
-    const { data: kit } = await supabase.from('kits').select('id, event_id').eq('id', kitId).single()
-    if (!kit) return
-
-    const active = (await loadKitBookings(supabase, kitId))
-        .filter(r => !isClosedEvent(r.events?.status))
-        .map(r => r.event_id)
-
-    if (justBookedEventId) {
-        if (active.length === 1 && active[0] === justBookedEventId && kit.event_id !== justBookedEventId) {
-            await supabase.from('kits').update({ event_id: justBookedEventId }).eq('id', kitId)
-        }
-        return
-    }
-    if (kit.event_id && !active.includes(kit.event_id as string)) {
-        await supabase.from('kits').update({ event_id: null }).eq('id', kitId)
-    }
-}
-
 /**
  * จองกระเป๋าให้อีเวนต์ของงาน (จากใบงานหน้างานในพูล) — งานที่ยังไม่มีอีเวนต์ ระบบสร้างให้เหมือนตอนจัดคน
  * ชน = กระเป๋าใบเดียวกันถูกจองอีเวนต์อื่นวันเดียวกัน (ไม่ดูเวลา ไม่มีต่อคิว)
@@ -3249,18 +3200,21 @@ export async function bookKitForLead(leadId: string, kitId: string, eventId?: st
     if ('error' in resolved) return { error: resolved.error }
     const targetEventId = resolved.eventId
 
-    const { data: target } = await supabase.from('events').select('id, event_date').eq('id', targetEventId).single()
-    const eventDate = (target?.event_date as string) ?? null
+    const { data: target } = await supabase
+        .from('events').select('id, event_date, event_time, event_end_time').eq('id', targetEventId).single()
 
-    const bookings = await loadKitBookings(supabase, kitId)
-    const clash = kitBookingConflict(
-        bookings.map(r => ({ kitId, eventId: r.event_id, eventDate: r.events?.event_date ?? null })),
-        { kitId, eventId: targetEventId, eventDate }
-    )
-    if (clash.length > 0) {
-        const names = clash.map(id => bookings.find(r => r.event_id === id)?.events?.name || 'อีเวนต์อื่น')
-        return { error: `กระเป๋าใบนี้ถูกจองงานวันเดียวกันแล้ว: ${names.join(', ')}` }
-    }
+    // ชน = แค่เตือน ไม่บล็อก (วันเดียวกันคนละเวลาใช้ต่อคิวได้)
+    const bookings = await loadBookingsForKits(supabase, [kitId])
+    const clash = kitBookingClashes(bookings.filter(b => !b.closed), {
+        kitId,
+        eventId: targetEventId,
+        eventDate: (target?.event_date as string) ?? null,
+        eventTime: target?.event_time ? String(target.event_time).slice(0, 5) : null,
+        eventEndTime: target?.event_end_time ? String(target.event_end_time).slice(0, 5) : null,
+    }).filter(c => c.status !== 'queued')
+    const warning = clash.length > 0
+        ? `กระเป๋าใบนี้${clash.some(c => c.status === 'conflict') ? 'เวลาชน' : 'อยู่วันเดียวกัน (เช็คเวลาไม่ได้)'}กับ: ${clash.map(c => bookings.find(b => b.eventId === c.eventId)?.eventName || 'อีเวนต์อื่น').join(', ')}`
+        : undefined
 
     // จองซ้ำคู่เดิม = ไม่เปลี่ยนอะไร (unique (event_id, kit_id)) — สถานะจัดของเดิมจึงไม่หาย
     const { error: insErr } = await supabase
@@ -3268,13 +3222,13 @@ export async function bookKitForLead(leadId: string, kitId: string, eventId?: st
         .upsert({ event_id: targetEventId, kit_id: kitId }, { onConflict: 'event_id,kit_id' })
     if (insErr) return { error: insErr.message }
 
-    await syncLegacyKitEvent(supabase, kitId, targetEventId)
-    await logActivity('BOOK_EVENT_KIT', { lead_id: leadId, event_id: targetEventId, kit_id: kitId, kit_name: kit.name })
+    await recomputeKitPointers(supabase, [kitId])
+    await logActivity('BOOK_EVENT_KIT', { lead_id: leadId, event_id: targetEventId, kit_id: kitId, kit_name: kit.name, warning })
 
     revalidatePath('/jobs/tracking')
     revalidatePath('/events')
     revalidatePath('/kits')
-    return { success: true, eventId: targetEventId }
+    return { success: true, eventId: targetEventId, warning }
 }
 
 /**
@@ -3291,23 +3245,23 @@ export async function unbookKitForLead(leadId: string, kitId: string, eventId?: 
     const supabase = createServiceClient()
     // การจอง + สิทธิ์หน้าที่ "จัดกระเป๋า" ของงานนี้ (D3) อ่านพร้อมกัน
     const [bookings, dutyDenied] = await Promise.all([
-        loadKitBookings(supabase, kitId),
+        loadBookingsForKits(supabase, [kitId]),
         requireDutyHolder(supabase, perm.actor, leadId, 'kits'),
     ])
     if (dutyDenied) return { error: dutyDenied.error }
 
     const rows = bookings
-        .filter(r => r.events?.crm_lead_id === leadId)
-        .filter(r => !eventId || r.event_id === eventId)
+        .filter(r => r.leadId === leadId)
+        .filter(r => !eventId || r.eventId === eventId)
     if (rows.length === 0) {
         return { error: eventId ? 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้อีเวนต์นี้' : 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้งานนี้' }
     }
 
-    const eventIds = rows.map(r => r.event_id)
+    const eventIds = rows.map(r => r.eventId)
     const { error } = await supabase.from('event_kits').delete().eq('kit_id', kitId).in('event_id', eventIds)
     if (error) return { error: error.message }
 
-    await syncLegacyKitEvent(supabase, kitId, null)
+    await recomputeKitPointers(supabase, [kitId])
     await logActivity('UNBOOK_EVENT_KIT', { lead_id: leadId, event_ids: eventIds, kit_id: kitId })
 
     revalidatePath('/jobs/tracking')
@@ -3316,32 +3270,3 @@ export async function unbookKitForLead(leadId: string, kitId: string, eventId?: 
     return { success: true, eventIds }
 }
 
-/**
- * บันทึก "จัดกระเป๋าครบ" ของการจองหนึ่งครั้ง — เรียกจากหน้าเช็คกระเป๋าเมื่อติ๊กครบทุกชิ้น
- * เก็บบนแถว event_kits จึงเป็นของอีเวนต์นั้นโดยเฉพาะ (ย้ายการจอง = ลบแถว → สถานะจัดรีเซ็ตเอง)
- */
-export async function setKitPacked(eventId: string, kitId: string, packed: boolean) {
-    const perm = await requireKitManager()
-    if ('error' in perm) return { error: perm.error }
-
-    const supabase = createServiceClient()
-    const { data: updated, error } = await supabase
-        .from('event_kits')
-        .update(
-            packed
-                ? { packed_at: new Date().toISOString(), packed_by: perm.actor.userId }
-                : { packed_at: null, packed_by: null }
-        )
-        .eq('event_id', eventId)
-        .eq('kit_id', kitId)
-        .select('id')
-
-    if (error) return { error: error.message }
-    if (!updated || updated.length === 0) return { error: 'กระเป๋าใบนี้ยังไม่ได้ถูกจองให้อีเวนต์นี้' }
-
-    await logActivity('PACK_EVENT_KIT', { event_id: eventId, kit_id: kitId, packed })
-
-    revalidatePath('/jobs/tracking')
-    revalidatePath(`/events/${eventId}/check-kits`)
-    return { success: true }
-}

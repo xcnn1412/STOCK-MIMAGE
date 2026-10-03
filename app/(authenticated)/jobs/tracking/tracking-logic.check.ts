@@ -46,6 +46,8 @@ import {
   isReady,
   isUrgent,
   kitBookingConflict,
+  kitBookingClashes,
+  pickKitPointer,
   kitReadinessByLead,
   lacksTime,
   layoutDay,
@@ -1042,6 +1044,31 @@ assert.deepEqual(
 assert.deepEqual(kitBookingConflict(kbBookings, kb('k1', 'e9', null)), [])
 assert.deepEqual(kitBookingConflict([kb('k1', 'eA', null)], kb('k1', 'e9', '2026-08-30')), [])
 assert.deepEqual(kitBookingConflict([], kb('k1', 'e9', '2026-08-30')), [])
+
+// --- kitBookingClashes: วันเดียวกันดูเวลา (ชน / ต่อคิว / เช็คเวลาไม่ได้) -----------
+const kt = (eventId: string, eventTime: string | null, eventEndTime: string | null, eventDate = '2026-08-30') =>
+  ({ kitId: 'k1', eventId, eventDate, eventTime, eventEndTime })
+// เวลาทับ → ชน
+assert.deepEqual(kitBookingClashes([kt('eA', '09:00', '13:00')], kt('e9', '12:00', '16:00')), [{ eventId: 'eA', status: 'conflict' }])
+// เวลาไม่ทับ / จบตรงเริ่มพอดี → ต่อคิว และไม่ถูกเตือนบนไทม์ไลน์
+assert.deepEqual(kitBookingClashes([kt('eA', '09:00', '12:00')], kt('e9', '13:00', '17:00')), [{ eventId: 'eA', status: 'queued' }])
+assert.deepEqual(kitBookingClashes([kt('eA', '09:00:00', '13:00:00')], kt('e9', '13:00', '17:00')), [{ eventId: 'eA', status: 'queued' }])
+assert.deepEqual(kitBookingConflict([kt('eA', '09:00', '12:00')], kt('e9', '13:00', '17:00')), [])
+// ขาดเวลาฝั่งใดฝั่งหนึ่ง → เช็คเวลาไม่ได้ (ยังเตือน)
+assert.deepEqual(kitBookingClashes([kt('eA', '09:00', null)], kt('e9', '13:00', '17:00')), [{ eventId: 'eA', status: 'unknown' }])
+assert.deepEqual(kitBookingConflict([kt('eA', '09:00', '12:00')], kt('e9', null, null)), ['eA'])
+// งานข้ามเที่ยงคืน (จบก่อนเริ่ม) ยืดถึง 24:00 → งานค่ำวันเดียวกันชน
+assert.deepEqual(kitBookingClashes([kt('eA', '20:00', '02:00')], kt('e9', '22:00', '23:00')), [{ eventId: 'eA', status: 'conflict' }])
+// วันที่แบบ timestamp เทียบเฉพาะส่วนวัน
+assert.deepEqual(kitBookingConflict([kt('eA', null, null, '2026-08-30T00:00:00')], kt('e9', null, null)), ['eA'])
+
+// --- pickKitPointer: กระเป๋าอยู่กับอีเวนต์ที่ยังไม่ปิดที่เร็วที่สุด -----------------
+const kp = (eventId: string, eventDate: string | null, eventTime: string | null, closed = false) => ({ eventId, eventDate, eventTime, closed })
+assert.equal(pickKitPointer([kp('B', '2026-09-02', null), kp('A', '2026-09-01', null)]), 'A')
+assert.equal(pickKitPointer([kp('A', '2026-09-01', null, true), kp('B', '2026-09-02', null)]), 'B')
+assert.equal(pickKitPointer([kp('L', '2026-09-01', '13:00'), kp('E', '2026-09-01', '09:00')]), 'E')
+assert.equal(pickKitPointer([kp('A', '2026-09-01', null, true)]), null)
+assert.equal(pickKitPointer([]), null)
 
 // --- lacksTime: งานที่ยังใส่เวลาไม่ครบ ----------------------------------------
 assert.equal(lacksTime(mk()), false)

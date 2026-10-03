@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import AddItemToKitForm from './add-item-form'
 import EditKitDialog from './edit-kit-dialog'
 import { removeItemFromKit } from './actions'
+import { toast } from 'sonner'
 import { ItemImagePreview } from './item-image-preview'
 import { useLanguage } from '@/contexts/language-context'
 import type { Kit, Item, KitContent } from '@/types'
@@ -17,13 +18,20 @@ type KitContentWithItem = KitContent & { items: Item }
 export default function KitDetailsView({ 
     kit, 
     contents, 
-    availableItems 
+    availableItems,
+    canManage = false,
 }: { 
     kit: Kit & { events: { name: string } | null }, 
     contents: KitContentWithItem[], 
-    availableItems: Item[] 
+    availableItems: Item[],
+    /** admin หรือแผนกที่ดูแลกระเป๋า — คนอื่นดูได้อย่างเดียว */
+    canManage?: boolean
 }) {
   const { t } = useLanguage()
+  const remove = async (contentId: string) => {
+    const res = await removeItemFromKit(contentId, kit.id)
+    if (res?.error) toast.error(res.error)
+  }
 
   return (
     <div className="space-y-6">
@@ -37,7 +45,7 @@ export default function KitDetailsView({
             <div>
                 <div className="flex items-center gap-3">
                     <h2 className="text-3xl font-bold tracking-tight">{kit.name}</h2>
-                    <EditKitDialog kit={kit} />
+                    {canManage && <EditKitDialog kit={kit} />}
                     {kit.events && (
                         <div className="bg-blue-100 text-blue-700 text-sm px-2 py-0.5 rounded-full font-medium">
                             in use @ {kit.events.name}
@@ -95,11 +103,11 @@ export default function KitDetailsView({
                                                     <Pencil className="h-3.5 w-3.5 text-zinc-500" />
                                                 </Button>
                                              </Link>
-                                             <form action={async () => { await removeItemFromKit(content.id, kit.id) }}>
-                                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50" title={t.common.delete}>
+                                             {canManage && (
+                                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50" title={t.common.delete} onClick={() => remove(content.id)}>
                                                      <Trash className="h-3.5 w-3.5" />
                                                  </Button>
-                                             </form>
+                                             )}
                                         </div>
                                     </div>
                                 )
@@ -149,11 +157,11 @@ export default function KitDetailsView({
                                                 <Pencil className="h-4 w-4 text-zinc-500" />
                                             </Button>
                                          </Link>
-                                         <form action={async () => { await removeItemFromKit(content.id, kit.id) }}>
-                                             <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600 hover:bg-red-50" title={t.common.delete}>
+                                         {canManage && (
+                                             <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600 hover:bg-red-50" title={t.common.delete} onClick={() => remove(content.id)}>
                                                  <Trash className="h-4 w-4" />
                                              </Button>
-                                         </form>
+                                         )}
                                     </TableCell>
                                 </TableRow>
                             )})}
@@ -171,6 +179,7 @@ export default function KitDetailsView({
             </Card>
         </div>
         
+        {canManage && (
         <div className="md:col-span-1">
              <Card>
                 <CardHeader>
@@ -182,6 +191,7 @@ export default function KitDetailsView({
                 </CardContent>
             </Card>
         </div>
+        )}
       </div>
     </div>
   )
