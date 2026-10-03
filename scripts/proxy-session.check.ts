@@ -5,6 +5,7 @@
 //          (2) ประตูของหน้าแอดมินใช้บทบาทจากฐานข้อมูล ไม่ใช่ cookie session_role ที่ผู้ใช้แก้เองได้
 //          (3) session ที่ใช้ไม่ได้ถูกส่งไปหน้าล็อกอิน (รวม cookie แบบเก่าที่ไม่ได้เซ็น, active_session_id เป็น null,
 //              ไม่มี session_id) และ cookie ของ session ถูกลบทุกครั้ง
+//          (5) QR กระเป๋า /kits/<id>/check เข้าได้ด้วยสิทธิ์ stock หรือ events (ส่วนอื่นของ /kits ต้องมี stock)
 // ไม่แตะฐานข้อมูลหรือเครือข่ายจริง · ผู้ใช้สังเคราะห์
 // บรรทัดสุดท้ายของผลลัพธ์ต้องเป็น "proxy-session: ผ่านทั้งหมด"
 
@@ -19,6 +20,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'SERVER-KEY'
 type Row = Record<string, unknown>
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 const ADMIN = uid(1), STAFF = uid(2), BLOCKED = uid(3), PENDING = uid(4), LOGGED_OUT = uid(5)
+const EVENTS_ONLY = uid(6), STOCK_ONLY = uid(7), NEITHER = uid(8)
 const profiles: Row[] = [
   { id: ADMIN, role: 'admin', is_approved: true, is_blocked: false, active_session_id: 'sess-admin', allowed_modules: ['stock'] },
   { id: STAFF, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-staff', allowed_modules: ['stock', 'finance', 'admin'] },
@@ -26,6 +28,10 @@ const profiles: Row[] = [
   { id: PENDING, role: 'staff', is_approved: false, is_blocked: false, active_session_id: 'sess-pending', allowed_modules: ['stock'] },
   // แอดมินที่ออกจากระบบแล้ว (หรือถูกเตะออก) — active_session_id เป็น null
   { id: LOGGED_OUT, role: 'admin', is_approved: true, is_blocked: false, active_session_id: null, allowed_modules: ['stock'] },
+  // สิทธิ์ QR กระเป๋า
+  { id: EVENTS_ONLY, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-ev', allowed_modules: ['events'] },
+  { id: STOCK_ONLY, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-st', allowed_modules: ['stock'] },
+  { id: NEITHER, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-no', allowed_modules: ['finance'] },
 ]
 
 const keysUsed: string[] = []
@@ -149,6 +155,18 @@ async function main() {
   assert.equal(await outcome('/salary', signed(ADMIN, 'sess-admin')), 'next', 'แอดมินได้โมดูลเงินเดือนเสมอ')
   assert.equal(await outcome('/login', signed(STAFF, 'sess-staff')), '/dashboard', 'ล็อกอินแล้วเปิดหน้าล็อกอิน = ไปหน้าแรก')
   pass('สิทธิ์ตามโมดูลทำงานตามเดิม')
+
+  // (5) QR กระเป๋า: /kits/<id>/check เข้าได้ด้วยสิทธิ์ stock หรือ events · ส่วนอื่นของ /kits ยังต้องมี stock
+  const KIT = 'b3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d'
+  const ev = signed(EVENTS_ONLY, 'sess-ev'), st = signed(STOCK_ONLY, 'sess-st'), no = signed(NEITHER, 'sess-no')
+  assert.equal(await outcome(`/kits/${KIT}/check`, ev), 'next', 'มีแต่สิทธิ์อีเวนต์ สแกน QR กระเป๋าได้')
+  for (const path of ['/kits', `/kits/${KIT}`, `/kits/${KIT}/print`, '/kits/print', `/kits/${KIT}/check/x`]) {
+    assert.equal(await outcome(path, ev), '/dashboard', `มีแต่สิทธิ์อีเวนต์ต้องเข้า ${path} ไม่ได้`)
+  }
+  assert.equal(await outcome(`/kits/${KIT}/check`, no), '/dashboard', 'ไม่มีทั้ง stock และ events → เข้า QR กระเป๋าไม่ได้')
+  assert.equal(await outcome(`/kits/${KIT}/check`, st), 'next', 'มีแต่สิทธิ์สต็อก สแกน QR กระเป๋าได้')
+  assert.equal(await outcome('/kits', st), 'next')
+  pass('QR กระเป๋า: events/stock เข้า /kits/<id>/check ได้ · events อย่างเดียวเข้า /kits ส่วนอื่นไม่ได้ · ไม่มีทั้งสองเข้าไม่ได้')
 
   console.log('\nproxy-session: ผ่านทั้งหมด')
 }

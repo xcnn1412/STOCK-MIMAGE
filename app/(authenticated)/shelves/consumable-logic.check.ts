@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   isPacked,
   onShelf,
+  packState,
   parseConsumableFields,
   parseCount,
   parseQty,
@@ -79,7 +80,39 @@ assert.equal(isPacked([{ status: 'available', is_consumable: true }]), false)
 assert.equal(isPacked([{ status: 'in_use', is_consumable: true }]), false)
 // วัสดุสิ้นเปลืองไม่ถูกนับ
 assert.equal(isPacked([{ status: 'in_use' }, { status: 'available', is_consumable: true }]), true)
+// (b) ยังมีชิ้นที่ใช้ได้ค้างในคลัง → ยังไม่จัดครบ
 assert.equal(isPacked([{ status: 'in_use', is_consumable: false }, { status: 'available', is_consumable: false }]), false)
+// (a) ชิ้นที่ใช้ได้ออกครบ + เสียหาย 1 ชิ้น → จัดครบ และระบุชิ้นที่ขาด
+{
+  const s = packState([
+    { id: 'a', name: 'กล้อง', status: 'in_use' },
+    { id: 'b', name: 'ขาตั้ง', status: 'in_use' },
+    { id: 'c', name: 'ไฟ', status: 'damaged' },
+  ])
+  assert.equal(s.packed, true)
+  assert.equal(s.total, 2)
+  assert.equal(s.out, 2)
+  assert.deepEqual(s.blocked, [{ id: 'c', name: 'ไฟ', status: 'damaged' }])
+  assert.equal(isPacked([{ status: 'in_use' }, { status: 'damaged' }]), true)
+}
+// (c) มีแต่ชิ้นที่นำออกไม่ได้ → ไม่จัดครบ
+assert.equal(isPacked([{ status: 'damaged' }, { status: 'lost' }, { status: 'maintenance' }]), false)
+assert.equal(packState([{ status: 'lost' }]).blocked.length, 1)
+// (d) มีแต่วัสดุสิ้นเปลือง → ไม่จัดครบ
+assert.deepEqual(packState([{ status: 'available', is_consumable: true }]), { total: 0, out: 0, packed: false, blocked: [] })
+// (e) วัสดุสิ้นเปลืองไม่ถูกนับใน total / out / blocked
+{
+  const s = packState([
+    { status: 'available' },
+    { status: 'in_use' },
+    { status: 'available', is_consumable: true },
+    { status: 'damaged', is_consumable: true },
+  ])
+  assert.equal(s.total, 2)
+  assert.equal(s.out, 1)
+  assert.equal(s.packed, false)
+  assert.equal(s.blocked.length, 0)
+}
 
 // --- ใช้ไปตอนปิดงาน ---
 const contents = [

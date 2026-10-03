@@ -57,13 +57,30 @@ export function parseConsumableFields(
 /** ปรับยอดจากการนับบนชั้น: ยอดใหม่ = ที่นับได้บนชั้น + ที่อยู่ในกระเป๋า */
 export const totalFromShelfCount = (counted: number, inKits: number) => counted + inKits
 
+export type PackItem = { id?: string; name?: string; status: string; is_consumable?: boolean | null }
+export type BlockedItem = { id: string; name: string; status: string }
+export type PackState = { total: number; out: number; packed: boolean; blocked: BlockedItem[] }
+
 /**
- * กระเป๋า "จัดครบ" = อุปกรณ์ปกติทุกชิ้นถูกนำออก (in_use) — ไม่นับวัสดุสิ้นเปลือง
- * ไม่มีอุปกรณ์ปกติเลย (ว่าง หรือมีแต่วัสดุสิ้นเปลือง) = false
+ * สถานะการจัดกระเป๋า — ดูเฉพาะอุปกรณ์ปกติ (ไม่นับวัสดุสิ้นเปลือง)
+ * blocked = ชิ้นที่นำออกไม่ได้ (สถานะไม่ใช่ available / in_use เช่น เสีย ซ่อม หาย)
+ * total = ชิ้นที่นำออกได้ (available + in_use) · out = ชิ้นที่ in_use
+ * packed ("จัดครบ") = total > 0 และนำออกครบทุกชิ้นที่นำออกได้
  */
-export function isPacked(items: { status: string; is_consumable?: boolean | null }[]): boolean {
+export function packState(items: PackItem[]): PackState {
   const regular = items.filter(i => !i.is_consumable)
-  return regular.length > 0 && regular.every(i => i.status === 'in_use')
+  const usable = regular.filter(i => i.status === 'available' || i.status === 'in_use')
+  const blocked = regular
+    .filter(i => i.status !== 'available' && i.status !== 'in_use')
+    .map(i => ({ id: i.id ?? '', name: i.name ?? '', status: i.status }))
+  const total = usable.length
+  const out = usable.filter(i => i.status === 'in_use').length
+  return { total, out, packed: total > 0 && out === total, blocked }
+}
+
+/** กระเป๋า "จัดครบ" — ดู packState */
+export function isPacked(items: PackItem[]): boolean {
+  return packState(items).packed
 }
 
 export interface UsePair {
