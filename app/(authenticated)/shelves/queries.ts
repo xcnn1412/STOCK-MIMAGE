@@ -63,3 +63,101 @@ export async function loadShelfHealth(db: Db, now = new Date()): Promise<ShelfHe
     looseItemsWithoutShelf: (looseItems || []).filter(i => !inKit.has(i.id as string)).length,
   }
 }
+
+// --- ห้อง 3D ---------------------------------------------------------------------
+
+export interface RoomLevel {
+  id: string
+  code: string
+  level: number
+  /** ของบนระดับนี้ — kind ใช้ระบายสีกล่องใน 3D */
+  things: { id: string; name: string; kind: 'kit' | 'item'; tone: 'home' | 'out' | 'problem' }[]
+  lastAudit: LastAudit | null
+}
+export interface RoomRack {
+  id: string
+  code: string
+  x: number
+  y: number
+  rotation: 0 | 90 | 180 | 270
+  width: number
+  levels: RoomLevel[]
+}
+export interface RoomData {
+  id: string
+  name: string
+  width: number
+  depth: number
+  racks: RoomRack[]
+}
+
+const PROBLEM = ['damaged', 'maintenance', 'lost']
+
+/** ห้องหนึ่งพร้อมชั้นวาง ระดับชั้น และของบนแต่ละระดับ — null = ไม่พบห้อง */
+export async function loadRoom(db: Db, roomId: string): Promise<RoomData | null> {
+  const [{ data: room }, { data: racks }] = await Promise.all([
+    db.from('shelf_rooms').select('id, name, width, depth').eq('id', roomId).maybeSingle(),
+    db.from('shelf_racks').select('id, code, x, y, rotation, width').eq('room_id', roomId).order('code'),
+  ])
+  if (!room) return null
+
+  const rackIds = (racks || []).map(r => r.id as string)
+  const { data: levels } = rackIds.length
+    ? await db.from('shelves').select('id, code, level, rack_id').in('rack_id', rackIds)
+    : { data: [] as { id: string; code: string; level: number; rack_id: string }[] }
+  const levelIds = (levels || []).map(l => l.id as string)
+
+  const [{ data: kits }, { data: items }, audits] = await Promise.all([
+    levelIds.length
+      ? db.from('kits').select('id, name, shelf_id, kit_contents(items(status))').in('shelf_id', levelIds)
+      : Promise.resolve({ data: [] }),
+    levelIds.length
+      ? db.from('items').select('id, name, status, shelf_id').in('shelf_id', levelIds)
+      : Promise.resolve({ data: [] }),
+    latestAuditByShelf(db),
+  ])
+
+  type RawKit = { id: string; name: string; shelf_id: string; kit_contents: { items: { status: string } | null }[] | null }
+  const thingsOf = (levelId: string): RoomLevel['things'] => [
+    ...((kits || []) as unknown as RawKit[])
+      .filter(k => k.shelf_id === levelId)
+      .map(k => {
+        const st = (k.kit_contents || []).map(c => c.items?.status ?? '')
+        const tone: RoomLevel['things'][number]['tone'] = st.includes('in_use') ? 'out' : st.some(s => PROBLEM.includes(s)) ? 'problem' : 'home'
+        return { id: k.id, name: k.name, kind: 'kit' as const, tone }
+      }),
+    ...((items || []) as { id: string; name: string; status: string; shelf_id: string }[])
+      .filter(i => i.shelf_id === levelId)
+      .map(i => ({
+        id: i.id,
+        name: i.name,
+        kind: 'item' as const,
+        tone: (i.status === 'in_use' ? 'out' : PROBLEM.includes(i.status) ? 'problem' : 'home') as RoomLevel['things'][number]['tone'],
+      })),
+  ]
+
+  return {
+    id: room.id as string,
+    name: room.name as string,
+    width: room.width as number,
+    depth: room.depth as number,
+    racks: (racks || []).map(r => ({
+      id: r.id as string,
+      code: r.code as string,
+      x: r.x as number,
+      y: r.y as number,
+      rotation: r.rotation as RoomRack['rotation'],
+      width: r.width as number,
+      levels: (levels || [])
+        .filter(l => l.rack_id === r.id)
+        .sort((a, b) => (a.level as number) - (b.level as number))
+        .map(l => ({
+          id: l.id as string,
+          code: l.code as string,
+          level: l.level as number,
+          things: thingsOf(l.id as string),
+          lastAudit: audits.get(l.id as string) ?? null,
+        })),
+    })),
+  }
+}

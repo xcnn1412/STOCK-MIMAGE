@@ -10,7 +10,7 @@ type TabKey = 'board' | 'tracking' | 'purchasing' | 'myJob' | 'adminJob' | 'arch
 interface TabMeta {
   href: string
   key: TabKey
-  icon: React.ElementType
+  icon: React.ElementType<{ className?: string }>
   exact: boolean
   adminOnly?: boolean
 }
