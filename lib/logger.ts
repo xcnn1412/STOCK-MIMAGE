@@ -209,6 +209,7 @@ export type ActionType =
     | 'UPDATE_SHELF'
     | 'DELETE_SHELF'
     | 'MOVE_TO_SHELF'
+    | 'AUDIT_SHELF'
     // Salary (เงินเดือน)
     | 'UPDATE_SALARY_SETTINGS'
     | 'UPDATE_SALARY_DUTY'

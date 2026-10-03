@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase-server'
 import { getKitManager } from '@/lib/kit-bookings'
-import ShelfView, { type ShelfKit, type ShelfItem, type Candidate } from './shelf-view'
+import ShelfView, { type ShelfKit, type ShelfItem, type Candidate, type AuditRow } from './shelf-view'
 
 export const revalidate = 0
 
@@ -10,7 +10,7 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
   const { id } = await props.params
   const supabase = createServiceClient()
 
-  const [{ data: shelf }, { data: kits }, { data: items }, manager] = await Promise.all([
+  const [{ data: shelf }, { data: kits }, { data: items }, manager, { data: audits }] = await Promise.all([
     supabase.from('shelves').select('id, zone, code, name, note').eq('id', id).maybeSingle(),
     supabase
       .from('kits')
@@ -19,8 +19,33 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
       .order('name'),
     supabase.from('items').select('id, name, serial_number, status, quantity').eq('shelf_id', id).order('name'),
     getKitManager(),
+    supabase
+      .from('shelf_audits')
+      .select('id, created_at, expected_count, found_count, missing, note, profiles:audited_by(full_name, nickname)')
+      .eq('shelf_id', id)
+      .order('created_at', { ascending: false })
+      .limit(5),
   ])
   if (!shelf) notFound()
+
+  type RawAudit = {
+    id: string
+    created_at: string
+    expected_count: number
+    found_count: number
+    missing: { kind: 'kit' | 'item'; id: string; name: string }[] | null
+    note: string | null
+    profiles: { full_name: string | null; nickname: string | null } | null
+  }
+  const auditRows: AuditRow[] = ((audits || []) as unknown as RawAudit[]).map(a => ({
+    id: a.id,
+    createdAt: a.created_at,
+    expected: a.expected_count,
+    found: a.found_count,
+    missing: a.missing || [],
+    note: a.note,
+    by: a.profiles?.nickname || a.profiles?.full_name || 'ไม่ทราบชื่อ',
+  }))
 
   type RawKit = {
     id: string
@@ -75,6 +100,7 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
       canManage={!!manager}
       kitCandidates={kitCandidates}
       itemCandidates={itemCandidates}
+      audits={auditRows}
     />
   )
 }

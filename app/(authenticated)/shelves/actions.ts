@@ -7,6 +7,8 @@ import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { getKitManager } from '@/lib/kit-bookings'
+import { requireAuth } from '@/lib/auth'
+import { auditMissing, auditTargets } from './shelf-logic'
 
 type Result = { error?: string; success?: boolean; id?: string }
 
@@ -117,4 +119,53 @@ export async function moveToShelf(kind: 'kit' | 'item', targetId: string, shelfI
   refresh(shelfId ?? undefined)
   if (target.shelf_id) revalidatePath(`/shelves/${target.shelf_id}`)
   return { success: true }
+}
+
+/**
+ * บันทึกผลตรวจนับชั้น — ใครก็ตามที่เข้าหน้าชั้นได้ (สิทธิ์ stock) ตรวจได้
+ * รายการ "ควรเจอ" คิดใหม่จากฐานข้อมูลตอนบันทึก ไม่เชื่อรายการจากหน้าจอ — foundKeys = `kit:<id>` / `item:<id>` ที่ติ๊กว่าเจอ
+ * ตรวจแค่บันทึก ไม่เปลี่ยนสถานะอุปกรณ์
+ */
+export async function submitShelfAudit(shelfId: string, foundKeys: string[], note?: string): Promise<Result & { missing?: number }> {
+  const auth = await requireAuth()
+  if (!auth?.userId) return { error: 'ไม่ได้เข้าสู่ระบบ' }
+
+  const supabase = createServiceClient()
+  const [{ data: shelf }, { data: kits }, { data: items }] = await Promise.all([
+    supabase.from('shelves').select('id, code').eq('id', shelfId).maybeSingle(),
+    supabase.from('kits').select('id, name, kit_contents(items(status))').eq('shelf_id', shelfId),
+    supabase.from('items').select('id, name, status').eq('shelf_id', shelfId),
+  ])
+  if (!shelf) return { error: 'ไม่พบชั้นนี้' }
+
+  type RawKit = { id: string; name: string; kit_contents: { items: { status: string } | null }[] | null }
+  const { expected } = auditTargets(
+    ((kits || []) as unknown as RawKit[]).map(k => ({
+      id: k.id,
+      name: k.name,
+      itemStatuses: (k.kit_contents || []).map(c => c.items?.status).filter((v): v is string => !!v),
+    })),
+    (items || []) as { id: string; name: string; status: string }[]
+  )
+  const missing = auditMissing(expected, Array.isArray(foundKeys) ? foundKeys : [])
+
+  const { error } = await supabase.from('shelf_audits').insert({
+    shelf_id: shelfId,
+    audited_by: auth.userId,
+    expected_count: expected.length,
+    found_count: expected.length - missing.length,
+    missing,
+    note: note?.trim() || null,
+  })
+  if (error) return { error: `บันทึกไม่สำเร็จ: ${error.message}` }
+
+  await logActivity('AUDIT_SHELF', {
+    shelfId,
+    code: shelf.code,
+    expected: expected.length,
+    missing: missing.map(m => m.name),
+  })
+  refresh(shelfId)
+  revalidatePath('/stock/dashboard')
+  return { success: true, missing: missing.length }
 }
