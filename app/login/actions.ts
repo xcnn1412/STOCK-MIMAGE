@@ -2,6 +2,7 @@
 
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { safeNext } from '@/lib/safe-next'
 import { createServiceClient } from '@/lib/supabase-server'
 import bcrypt from 'bcryptjs'
 import { logActivity } from '@/lib/logger'
@@ -29,6 +30,7 @@ function cleanPhone(phone: string): string {
 export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: FormData) {
     const phone = formData.get('phone') as string
     const pin = formData.get('pin') as string
+    const next = safeNext(formData.get('next'))
 
     if (!phone || !pin) {
         return { error: 'Phone number and PIN are required' }
@@ -167,7 +169,7 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
         return { error: 'System busy, please try again.' }
     }
 
-    redirect('/dashboard')
+    redirect(next)
 }
 
 export async function registerUser(prevState: ActionState, formData: FormData) {

@@ -5,6 +5,7 @@ export const dictionary = {
     nav: {
       inventory: 'Inventory',
       kits: 'Kits',
+      shelves: 'Shelves',
       events: 'Events',
       examples: 'Example Kits',
       logs: 'System Logs',
@@ -286,6 +287,7 @@ export const dictionary = {
     nav: {
       inventory: 'คลังอุปกรณ์',
       kits: 'กระเป๋า',
+      shelves: 'ชั้นเก็บของ',
       events: 'อีเวนต์',
       examples: 'เช็คลิสต์',
       logs: 'บันทึกการใช้งาน',

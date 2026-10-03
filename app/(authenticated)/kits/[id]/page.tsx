@@ -7,7 +7,7 @@ export const revalidate = 0
 
 export default async function KitDetailsPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { data: kit } = await supabase.from('kits').select('*, events(name)').eq('id', params.id).single()
+  const { data: kit } = await supabase.from('kits').select('*, events(name), shelves(id, code)').eq('id', params.id).single()
   
   if (!kit) notFound()
 

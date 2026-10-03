@@ -68,6 +68,9 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
       setSortConfig({ key, direction })
   }
 
+  // ชั้นเก็บของ: อุปกรณ์ในกระเป๋าอยู่ชั้นของกระเป๋า, ไม่อยู่ในกระเป๋า = ชั้นของตัวเอง
+  const shelfOf = (item: Item) => item.kit_contents?.[0]?.kits?.shelves?.code || item.shelves?.code || ''
+
   const getNestedValue = (item: Item, key: string) => {
       if (key === 'kit') {
           return item.kit_contents?.[0]?.kits?.name || ''
@@ -89,7 +92,8 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
       (item.category || '').toLowerCase().includes(searchText) ||
       (item.serial_number || '').toLowerCase().includes(searchText) ||
       kitName.toLowerCase().includes(searchText) ||
-      eventName.toLowerCase().includes(searchText)
+      eventName.toLowerCase().includes(searchText) ||
+      shelfOf(item).toLowerCase().includes(searchText)
 
     // Status Filter - use actual item.status, not displayStatus
     let matchesStatus = true
@@ -217,6 +221,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                      {(kit || event) && (
                          <div className="bg-muted/30 px-4 py-2 text-sm border-t border-b flex items-center gap-4">
                              {kit && <div className="flex items-center gap-1.5 truncate min-w-0"><span className="text-base shrink-0">📦</span> <span className="truncate" title={kit.name}>{kit.name}</span></div>}
+                             {shelfOf(item) && <div className="flex items-center gap-1.5 truncate min-w-0 text-zinc-500"><span className="text-base shrink-0">🗄</span> <span className="truncate">{shelfOf(item)}</span></div>}
                              {event && <div className="flex items-center gap-1.5 truncate text-blue-600 font-medium min-w-0"><span className="text-base shrink-0">📍</span> <span className="truncate" title={event.name}>{event.name}</span></div>}
                          </div>
                      )}
@@ -361,9 +366,10 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                 <TableCell className="truncate">
                     {kit ? (
                         <span className="text-sm truncate block" title={kit.name}>📦 {kit.name}</span>
-                    ) : (
+                    ) : !shelfOf(item) && (
                         <span className="text-zinc-400 text-sm">-</span>
                     )}
+                    {shelfOf(item) && <span className="text-xs text-zinc-500 truncate block" title="ชั้นเก็บของ">🗄 {shelfOf(item)}</span>}
                 </TableCell>
                 <TableCell className="truncate">
                     {event ? (
