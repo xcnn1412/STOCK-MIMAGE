@@ -7,7 +7,7 @@ import type { TrackingSnapshot } from '@/app/(authenticated)/jobs/tracking/data'
 import { POOL_DONE_STATUSES } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 import MyJobsPanel from './my-jobs-panel'
 import DutyWarningPanel from './duty-warning-panel'
-import type { HeroStats } from './dashboard-hero'
+import type { DashboardStats } from './dashboard-stats'
 import { buildDutyWarnings, type DutyWarningRow } from './duty-warnings'
 
 /** ป้ายไทยของสิ่งที่ขาดแต่ละหน้าที่ — ใช้ในกราฟแท่งบน dashboard */
@@ -20,7 +20,7 @@ const MISSING_BAR_LABELS: Record<string, string> = {
 }
 
 /** จำนวนสิ่งที่ยังขาดแยกตามหน้าที่ จากคำเตือนที่ user คนนี้เห็น — เรียงมาก→น้อย */
-function missingByDuty(warnings: DutyWarningRow[]): HeroStats['missingByDuty'] {
+function missingByDuty(warnings: DutyWarningRow[]): DashboardStats['missingByDuty'] {
     const counts = new Map<string, number>()
     for (const row of warnings)
         for (const chip of row.chips) counts.set(chip.key, (counts.get(chip.key) ?? 0) + 1)
@@ -63,7 +63,7 @@ export function buildAlertData(snapshot: TrackingSnapshot) {
               j => !POOL_DONE_STATUSES.includes(j.status) && (j.claimed_by === currentUserId || j.assigned_to.includes(currentUserId))
           ).length
 
-    const heroStats: HeroStats = {
+    const stats: DashboardStats = {
         myJobs: myJobsCount,
         warningJobs: warnings.length,
         overdue: warnings.filter(w => w.severity === 'overdue').length,
@@ -71,7 +71,7 @@ export function buildAlertData(snapshot: TrackingSnapshot) {
         missingByDuty: missingByDuty(warnings),
     }
 
-    return { leadDates, warnings, myJobsCount, heroStats }
+    return { leadDates, warnings, myJobsCount, stats }
 }
 
 export default function AlertPanels({
@@ -82,6 +82,7 @@ export default function AlertPanels({
     showMyJobs = true,
 }: {
     snapshot: TrackingSnapshot
+    /** ระยะขอบรอบแต่ละแผง — แผงไม่กำหนดระยะขอบของหน้าเอง หน้าที่เรียกเป็นคนกำหนด */
     className?: string
     /** แสดงแทนเมื่อไม่มีเรื่องแจ้งเตือนเลย (เช่นหน้า dashboard ที่เหลือแต่แผงนี้) */
     emptyFallback?: ReactNode

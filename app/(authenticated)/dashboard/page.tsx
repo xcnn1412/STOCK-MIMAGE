@@ -11,16 +11,14 @@ import { getReportStats } from '@/app/(authenticated)/reports/data'
 import { aggregateStats } from '@/app/(authenticated)/reports/report-stats'
 import ChampionsStrip from '@/app/(authenticated)/reports/champions-strip'
 import { buildAlertData } from '@/components/dashboard-alerts/alert-panels'
-import { DASHBOARD_ANCHORS, MissingByDutyCard, StatTiles } from '@/components/dashboard-alerts/dashboard-hero'
+import { DashCard } from '@/components/dashboard-alerts/dash-card'
+import { DASHBOARD_ANCHORS, MissingByDutyCard, StatTiles } from '@/components/dashboard-alerts/dashboard-stats'
 import MyJobsPanel from '@/components/dashboard-alerts/my-jobs-panel'
 import DutyWarningPanel from '@/components/dashboard-alerts/duty-warning-panel'
 import { listUnpaidPreviousPeriods } from '@/app/(authenticated)/salary/actions'
 import UnpaidPeriodsNotice from '@/app/(authenticated)/salary/components/unpaid-periods-notice'
 import { getPurchaseAlerts } from '@/app/(authenticated)/jobs/purchasing/data'
 import PurchaseAlertCard from '@/app/(authenticated)/jobs/purchasing/components/purchase-alert-card'
-
-/** กรอบการ์ดของหน้าแรก — ชุดเดียวกับแผงงานในมือ/หน้าที่ยังไม่ครบ */
-const CARD = 'rounded-2xl border border-zinc-200/60 bg-white p-4 shadow-sm dark:border-zinc-800/60 dark:bg-zinc-900/80'
 
 export default async function DashboardPage() {
     // currentUserId มาจาก getSessionLight ใน snapshot — ไม่ต้องเช็ค session ซ้ำ
@@ -32,9 +30,9 @@ export default async function DashboardPage() {
         listUnpaidPreviousPeriods(),
         getPurchaseAlerts(),
     ])
-    const { leadDates, warnings, myJobsCount, heroStats } = buildAlertData(snapshot)
+    const { leadDates, warnings, myJobsCount, stats } = buildAlertData(snapshot)
     const hasAlerts = myJobsCount > 0 || warnings.length > 0
-    const hasBars = heroStats.missingByDuty.some(b => b.count > 0)
+    const hasBars = stats.missingByDuty.some(b => b.count > 0)
     // คอลัมน์การ์ดเสริม: จัดซื้อ / เงินเดือน / กราฟ — หรือการ์ด "ไม่มีเรื่องต้องตาม" เมื่อเคลียร์หมด · ไม่มีสักใบ = ไม่มีคอลัมน์นี้
     const hasSide = purchaseAlerts.length > 0 || unpaid.length > 0 || hasBars || !hasAlerts
 
@@ -60,7 +58,7 @@ export default async function DashboardPage() {
                     <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">สวัสดี 👋</h1>
                     <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{todayLabel}</p>
                 </div>
-                <StatTiles stats={heroStats} />
+                <StatTiles stats={stats} />
             </header>
 
             {/* แผงหลัก — grid-cols-1 จำเป็น: ไม่ใส่ = คอลัมน์ auto ที่ขยายตามชื่องานยาว (truncate) จนล้นจอมือถือ
@@ -74,12 +72,11 @@ export default async function DashboardPage() {
                         currentUserId={snapshot.currentUserId}
                         statusLabels={snapshot.jobStatusLabels}
                         showEmpty
-                        className="px-0 pt-0 md:pt-0"
                     />
                 </div>
 
                 <div id={DASHBOARD_ANCHORS.warnings} className="w-full scroll-mt-20">
-                    <DutyWarningPanel rows={warnings} showEmpty className="px-0 pt-0" />
+                    <DutyWarningPanel rows={warnings} showEmpty />
                 </div>
 
                 {/* การ์ดเสริม — มือถือ/xl เรียงลงล่าง · lg วาง 2 คอลัมน์เต็มแถว */}
@@ -87,34 +84,34 @@ export default async function DashboardPage() {
                     <div className="grid grid-cols-1 content-start gap-4 lg:col-span-2 lg:grid-cols-2 xl:col-span-1 xl:grid-cols-1">
                         {/* ของยังไม่ครบ — ใกล้วันงาน (เช็กลิสต์จัดซื้อที่มีรายการค้างซึ่งด่วน) */}
                         {purchaseAlerts.length > 0 && (
-                            <div className={CARD}>
+                            <DashCard as="div">
                                 <PurchaseAlertCard rows={purchaseAlerts} />
-                            </div>
+                            </DashCard>
                         )}
 
                         {/* งานงวดก่อนที่ยังไม่ถูกจ่าย (admin) */}
                         {unpaid.length > 0 && (
-                            <div className={CARD}>
+                            <DashCard as="div">
                                 <h2 className="mb-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">เงินเดือน</h2>
                                 <UnpaidPeriodsNotice rows={unpaid} mode="all" />
-                            </div>
+                            </DashCard>
                         )}
 
-                        <MissingByDutyCard bars={heroStats.missingByDuty} />
+                        <MissingByDutyCard bars={stats.missingByDuty} />
 
                         {!hasAlerts && (
-                            <div className={cn(CARD, 'flex flex-col items-center justify-center gap-2 py-10 text-center')}>
+                            <DashCard as="div" className="flex flex-col items-center justify-center gap-2 py-10 text-center">
                                 <CheckCircle2 className="h-8 w-8 text-emerald-500" />
                                 <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">ไม่มีเรื่องต้องตามตอนนี้</p>
                                 <p className="text-xs text-zinc-500">งานในมือเสร็จหมด และไม่มีหน้าที่ค้างใกล้วันงาน</p>
-                            </div>
+                            </DashCard>
                         )}
                     </div>
                 )}
             </div>
 
             {/* ทำเนียบแชมป์ (ยอดสะสมทั้งหมด) — ท้าย DOM = ล่างสุดบนมือถือ · md ขึ้นไปอยู่ใต้หัวหน้า */}
-            <div className={cn(CARD, 'md:order-first')}>
+            <DashCard as="div" className="md:order-first">
                 <div className="mb-2 flex items-center justify-between gap-2">
                     <h2 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                         <Trophy className="h-4 w-4 text-amber-500" />
@@ -128,7 +125,7 @@ export default async function DashboardPage() {
                     </Link>
                 </div>
                 <ChampionsStrip stats={allTimeStats} currentUserId={report.currentUserId} />
-            </div>
+            </DashCard>
         </div>
     )
 }

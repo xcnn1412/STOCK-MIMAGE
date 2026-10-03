@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { AlertTriangle, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DashCard } from './dash-card'
 import { parseDate } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 import { closeLeadPrepWarning } from '@/app/(authenticated)/jobs/actions'
 import type { DutyWarningRow, DutyWarningSeverity } from './duty-warnings'
@@ -94,8 +95,8 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
     if (rows.length === 0) {
         if (!showEmpty) return null
         return (
-            <div className={cn('h-full px-4 pt-3', className)}>
-                <section className="h-full w-full rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3">
+            <div className={cn('h-full', className)}>
+                <DashCard className="h-full w-full p-3">
                     <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                         <AlertTriangle className="h-4 w-4 text-zinc-400" />
                         หน้าที่ยังไม่ครบ (0)
@@ -103,7 +104,7 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
                     <p className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-500">
                         ทุกงานใกล้วันงานมีหน้าที่ครบแล้ว
                     </p>
-                </section>
+                </DashCard>
             </div>
         )
     }
@@ -119,27 +120,9 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
         soon: rows.filter(r => r.severity === 'soon').length,
     }
 
-    return (
-        // div นอกคุมระยะขอบของหน้า (override ได้ด้วย className)
-        // โหมดพับ (tracking) = แถบย้อมสีตามความแรงเหมือนเดิม · แผงเต็ม (dashboard) = การ์ดพื้นกลาง ความกว้าง/สูงตาม grid
-        <div className={cn(!collapsible && 'h-full', 'px-4 pt-3', className)}>
-            <section
-                className={
-                    collapsible
-                        ? cn(
-                              'mx-auto w-full rounded-2xl border shadow-sm',
-                              'max-w-none',
-                              red
-                                  ? 'border-red-300 dark:border-red-500/40 bg-red-50/60 dark:bg-red-500/5'
-                                  : 'border-amber-300 dark:border-amber-500/40 bg-amber-50/60 dark:bg-amber-500/5'
-                          )
-                        : 'relative h-full w-full overflow-hidden rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3 pt-4 space-y-2'
-                }
-            >
-                {/* แผงเต็ม: ความด่วนบอกด้วยแถบสีบนขอบ (แดง = เลยวัน/≤3 วัน · เหลือง = ใกล้ถึง) + สีไอคอนหัวข้อ */}
-                {!collapsible && (
-                    <div aria-hidden className={cn('absolute inset-x-0 top-0 h-1', red ? 'bg-red-500' : 'bg-amber-400 dark:bg-amber-500')} />
-                )}
+    // เนื้อในของแผง — ใช้ร่วมกันทั้งสองกรอบ (แถบพับได้ / การ์ดเต็ม)
+    const body = (
+            <>
                 {collapsible ? (
                     // แถบสรุปบรรทัดเดียว — ตัวเลขแยกตามความแรง กดทั้งแถบเพื่อขยาย/หุบ
                     <button
@@ -254,7 +237,30 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
                         ดูทั้งหมด ({rows.length} งาน)
                     </Link>
                 )}
-            </section>
+            </>
+    )
+
+    return (
+        // div นอก: แผงเต็มสูงเต็มช่อง grid · ระยะขอบของหน้าให้หน้าที่เรียกกำหนดผ่าน className (แผงไม่กำหนดเอง)
+        <div className={cn(!collapsible && 'h-full', className)}>
+            {collapsible ? (
+                // โหมดพับ (tracking) = แถบย้อมสีตามความแรง
+                <section
+                    className={cn(
+                        'mx-auto w-full max-w-none rounded-2xl border shadow-sm',
+                        red
+                            ? 'border-red-300 dark:border-red-500/40 bg-red-50/60 dark:bg-red-500/5'
+                            : 'border-amber-300 dark:border-amber-500/40 bg-amber-50/60 dark:bg-amber-500/5'
+                    )}
+                >
+                    {body}
+                </section>
+            ) : (
+                // แผงเต็ม (dashboard) = การ์ดพื้นกลาง ความด่วนบอกด้วยแถบสีบนขอบ (แดง = เลยวัน/≤3 วัน · เหลือง = ใกล้ถึง)
+                <DashCard accent={red ? 'red' : 'amber'} className="h-full w-full space-y-2 p-3 pt-4">
+                    {body}
+                </DashCard>
+            )}
         </div>
     )
 }

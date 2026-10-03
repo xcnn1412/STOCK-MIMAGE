@@ -5,8 +5,9 @@
 
 import { AlertTriangle, BarChart3, Briefcase, CalendarClock, Flame } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DASH_SURFACE, DashCard } from './dash-card'
 
-export interface HeroStats {
+export interface DashboardStats {
     /** ใบงานค้างในมือของ user */
     myJobs: number
     /** จำนวนงานที่หน้าที่ยังไม่ครบ (เฉพาะที่ user คนนี้เห็น) */
@@ -37,7 +38,7 @@ const TILES: {
 ]
 
 /** แถวตัวเลข 4 ช่อง — จอเล็ก 4 ช่องเต็มความกว้าง · จอใหญ่เรียงชิดขวาของหัวหน้า */
-export function StatTiles({ stats, className }: { stats: HeroStats; className?: string }) {
+export function StatTiles({ stats, className }: { stats: DashboardStats; className?: string }) {
     return (
         <nav aria-label="สรุปงานของคุณ" className={cn('grid grid-cols-4 gap-2 lg:gap-3', className)}>
             {TILES.map(({ key, label, icon: Icon, anchor, tone }) => {
@@ -47,7 +48,7 @@ export function StatTiles({ stats, className }: { stats: HeroStats; className?: 
                         key={key}
                         href={`#${anchor}`}
                         aria-label={`${label} ${value}`}
-                        className="rounded-xl border border-zinc-200/60 bg-white px-2.5 py-2 shadow-sm transition-colors hover:border-zinc-300 lg:min-w-32 lg:px-4 lg:py-2.5 dark:border-zinc-800/60 dark:bg-zinc-900/80 dark:hover:border-zinc-700"
+                        className={cn(DASH_SURFACE, 'rounded-xl px-2.5 py-2 transition-colors hover:border-zinc-300 lg:min-w-32 lg:px-4 lg:py-2.5 dark:hover:border-zinc-700')}
                     >
                         <span className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 lg:text-xs dark:text-zinc-400">
                             <Icon className="hidden h-3.5 w-3.5 shrink-0 sm:block" aria-hidden />
@@ -72,19 +73,13 @@ export function StatTiles({ stats, className }: { stats: HeroStats; className?: 
  * กราฟแท่งนอน: จำนวนสิ่งที่ยังขาดแยกตามหน้าที่ — metric เดียว แท่งสีเดียว ป้ายชื่อบอกว่าแท่งไหนคืออะไร
  * ไม่มีแท่งที่มากกว่า 0 = ไม่ render อะไร
  */
-export function MissingByDutyCard({ bars, className }: { bars: HeroStats['missingByDuty']; className?: string }) {
+export function MissingByDutyCard({ bars, className }: { bars: DashboardStats['missingByDuty']; className?: string }) {
     const shown = bars.filter(b => b.count > 0)
     if (shown.length === 0) return null
     const max = Math.max(1, ...shown.map(b => b.count))
 
     return (
-        <section
-            aria-labelledby="missing-by-duty-heading"
-            className={cn(
-                'rounded-2xl border border-zinc-200/60 bg-white p-4 shadow-sm dark:border-zinc-800/60 dark:bg-zinc-900/80',
-                className
-            )}
-        >
+        <DashCard aria-labelledby="missing-by-duty-heading" className={className}>
             <h2 id="missing-by-duty-heading" className="flex items-center gap-1.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                 <BarChart3 className="h-4 w-4 text-violet-500" aria-hidden />
                 สิ่งที่ยังขาด แยกตามหน้าที่
@@ -100,6 +95,6 @@ export function MissingByDutyCard({ bars, className }: { bars: HeroStats['missin
                     </div>
                 ))}
             </div>
-        </section>
+        </DashCard>
     )
 }
