@@ -9,6 +9,8 @@ import { getEventManager, EVENT_PERMISSION_KEYS } from '@/lib/event-permissions'
 import { loadBookingsForEvent, recomputeKitPointers } from '@/lib/kit-bookings'
 import type { ActionState, KitContent, Item, Database } from '@/types'
 import { isClosedEvent } from '../jobs/tracking/tracking-logic'
+import { planReturnUse } from '../shelves/consumable-logic'
+import { moveStock } from '@/lib/stock'
 
 
 // Recompute crm_leads.assigned_* roll-up arrays as the UNION of every linked event's
@@ -601,7 +603,8 @@ async function autoFinishOnsiteJobs(leadId: string | null, actorId: string) {
 export async function processEventReturn(
     eventId: string,
     itemStatuses: { itemId: string, status: string }[],
-    imageUrls: string[] = []
+    imageUrls: string[] = [],
+    consumableUse: { kitId: string; itemId: string; used: number }[] = []
 ): Promise<{ error: string } | { success: true }> {
      const manager = await getEventManager('close')
      if (!manager) return { error: 'ไม่มีสิทธิ์ปิดงานอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
@@ -629,19 +632,69 @@ export async function processEventReturn(
              name,
              kit_contents(
                  quantity,
-                 items(id, name, serial_number, status, image_url)
+                 items(id, name, serial_number, status, image_url, is_consumable, unit)
              )
          `)
          .in('id', bookedKitIds)
 
-     // รับคืนได้แค่ ใช้ได้ / เสียหาย / ซ่อมบำรุง / หาย และเฉพาะอุปกรณ์ในกระเป๋าของงานนี้
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     const contentsOf = (k: { kit_contents: unknown }) => ((k.kit_contents as any[]) || []).filter(kc => kc.items?.id)
+     // วัสดุสิ้นเปลืองไม่มีสถานะรับคืน — ใช้ไปเท่าไรตัดยอดผ่าน consumableUse
+     const consumableIds = new Set(
+         (kits || []).flatMap(k => contentsOf(k).filter(kc => kc.items.is_consumable).map(kc => kc.items.id as string))
+     )
+     if (itemStatuses.some(s => consumableIds.has(s.itemId))) {
+         return { error: 'วัสดุสิ้นเปลืองไม่ต้องเลือกสถานะ — กรอกจำนวนที่ใช้ไปแทน' }
+     }
+
+     // รับคืนได้แค่ ใช้ได้ / เสียหาย / ซ่อมบำรุง / หาย และเฉพาะอุปกรณ์ปกติในกระเป๋าของงานนี้
      const allowedItemIds = new Set(
-         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-         (kits || []).flatMap(k => ((k.kit_contents as any[]) || []).map(kc => kc.items?.id)).filter(Boolean)
+         (kits || []).flatMap(k => contentsOf(k).filter(kc => !kc.items.is_consumable).map(kc => kc.items.id as string))
      )
      if (itemStatuses.some(s => !RETURN_STATUSES.includes(s.status) || !allowedItemIds.has(s.itemId))) {
          return { error: 'สถานะอุปกรณ์ไม่ถูกต้อง — เลือกได้แค่ ใช้ได้ / เสียหาย / ซ่อมบำรุง / หาย' }
      }
+
+     // วัสดุสิ้นเปลือง: ตัดยอดที่ใช้ไป "ก่อน" บันทึกปิดงาน — ล้มกลางทาง = ยังไม่ปิดงาน กดยืนยันซ้ำได้
+     // คู่ (กระเป๋า, ของ) ที่งานนี้ตัดไปแล้วถูกข้าม จึงไม่ตัดซ้ำ
+     const { data: usedRows } = await supabase
+         .from('stock_movements')
+         .select('kit_id, item_id, delta')
+         .eq('event_id', eventId)
+         .eq('reason', 'use')
+     const alreadyCut = (usedRows || [])
+         .filter(r => r.kit_id)
+         .map(r => ({ kitId: r.kit_id as string, itemId: r.item_id, used: -r.delta }))
+     const kitConsumables = (kits || []).flatMap(k =>
+         contentsOf(k).filter(kc => kc.items.is_consumable).map(kc => ({ kitId: k.id, itemId: kc.items.id as string, name: kc.items.name as string }))
+     )
+     const plan = planReturnUse(kitConsumables, consumableUse, alreadyCut)
+     if ('error' in plan) return { error: plan.error }
+
+     for (const cut of plan.cuts) {
+         const name = kitConsumables.find(c => c.kitId === cut.kitId && c.itemId === cut.itemId)?.name || 'วัสดุสิ้นเปลือง'
+         const res = await moveStock(supabase, {
+             itemId: cut.itemId,
+             delta: -cut.used,
+             reason: 'use',
+             eventId,
+             kitId: cut.kitId,
+             userId,
+             note: `ปิดงาน ${event?.name || ''}`.trim(),
+         })
+         if ('error' in res) return { error: `ตัดยอด ${name} ไม่สำเร็จ: ${res.error} — ยังไม่ได้ปิดงาน` }
+         await logActivity('DRAW_STOCK', { itemId: cut.itemId, name, delta: -cut.used, balance: res.balance, eventId, kitId: cut.kitId })
+     }
+     if (plan.cuts.length > 0) {
+         revalidatePath('/items')
+         revalidatePath('/shelves')
+         revalidatePath('/stock/dashboard')
+     }
+     // จำนวนใช้ไปจริงของงานนี้ต่อคู่: ที่ตัดไว้ก่อนหน้า > ที่ส่งมา > 0
+     const usedFor = (kitId: string, itemId: string) =>
+         alreadyCut.find(c => c.kitId === kitId && c.itemId === itemId)?.used
+         ?? consumableUse.find(c => c.kitId === kitId && c.itemId === itemId)?.used
+         ?? 0
 
      // Build kits snapshot
      const kitsSnapshot = kits?.map(kit => ({
@@ -654,7 +707,8 @@ export async function processEventReturn(
              serialNumber: kc.items?.serial_number,
              status: itemStatuses.find(s => s.itemId === kc.items?.id)?.status || kc.items?.status,
              quantity: kc.quantity,
-             imageUrl: kc.items?.image_url
+             imageUrl: kc.items?.image_url,
+             ...(kc.items?.is_consumable ? { isConsumable: true, used: usedFor(kit.id, kc.items.id) } : {})
          })) || []
      })) || []
 

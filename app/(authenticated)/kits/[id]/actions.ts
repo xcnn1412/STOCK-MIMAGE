@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { getKitManager, itemsOutInKit } from '@/lib/kit-bookings'
+import { MAX_QTY, onShelf, parseQty } from '@/app/(authenticated)/shelves/consumable-logic'
 
 
 
@@ -16,16 +17,33 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
   if (out.length > 0) return { error: `กระเป๋านี้ยังออกงานอยู่ (${out.join(', ')}) — รับคืนหรือปิดงานก่อนจึงแก้ของในกระเป๋าได้` }
   
   // Fetch details for logging
-  const [ { data: kit }, { data: item }, { data: existingAssignment } ] = await Promise.all([
+  const [ { data: kit }, { data: item }, { data: assignments } ] = await Promise.all([
       supabase.from('kits').select('name').eq('id', kitId).single(),
-      supabase.from('items').select('name').eq('id', itemId).single(),
-      supabase.from('kit_contents').select('kit_id, kits(name)').eq('item_id', itemId).maybeSingle()
+      supabase.from('items').select('name, is_consumable, unit, quantity').eq('id', itemId).single(),
+      supabase.from('kit_contents').select('kit_id, quantity, kits(name)').eq('item_id', itemId)
   ])
 
-  // Check if item is already in a kit
-  if (existingAssignment) {
-      const assignedKitName = (existingAssignment.kits as any)?.name || 'another kit'
-      return { error: `Item is already in ${assignedKitName}` }
+  let warning: string | undefined
+  if (item?.is_consumable) {
+      // วัสดุสิ้นเปลือง: อยู่ได้หลายกระเป๋า แต่ใบเดียวกันซ้ำไม่ได้ · ไม่ล้างชั้น (ชั้น = ที่เก็บของที่เหลือ)
+      if ((assignments || []).some(a => a.kit_id === kitId)) {
+          return { error: `${item.name} อยู่ในกระเป๋านี้แล้ว — แก้จำนวนในรายการแทน` }
+      }
+      const qty = parseQty(quantity)
+      if (qty == null) return { error: `จำนวนต้องเป็นจำนวนเต็ม 1–${MAX_QTY.toLocaleString()}` }
+      quantity = qty
+      const inKits = (assignments || []).reduce((sum, a) => sum + (a.quantity || 0), 0)
+      const left = onShelf(item.quantity ?? 0, inKits)
+      if (quantity > left) {
+          warning = `เพิ่มแล้ว แต่บนชั้นเหลือ ${left} ${item.unit || ''} ไม่พอ ${quantity} — กระเป๋าจะขาดจนกว่าจะเติมของ`.replace(/\s+/g, ' ')
+      }
+  } else {
+      const existingAssignment = assignments?.[0]
+      // Check if item is already in a kit
+      if (existingAssignment) {
+          const assignedKitName = (existingAssignment.kits as any)?.name || 'another kit'
+          return { error: `Item is already in ${assignedKitName}` }
+      }
   }
 
   const { error } = await supabase.from('kit_contents').insert({
@@ -39,8 +57,8 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
     return { error: 'Failed to add item' }
   }
 
-  // อุปกรณ์ในกระเป๋าอยู่ตามกระเป๋า — ไม่มีชั้นของตัวเอง
-  await supabase.from('items').update({ shelf_id: null }).eq('id', itemId)
+  // อุปกรณ์ในกระเป๋าอยู่ตามกระเป๋า — ไม่มีชั้นของตัวเอง (ยกเว้นวัสดุสิ้นเปลือง)
+  if (!item?.is_consumable) await supabase.from('items').update({ shelf_id: null }).eq('id', itemId)
 
   await logActivity('ADD_KIT_ITEM', { 
       kitName: kit?.name || 'Unknown Kit', 
@@ -51,6 +69,7 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
   }, undefined)
 
   revalidatePath(`/kits/${kitId}`)
+  if (warning) return { warning }
 }
 
 export async function removeItemFromKit(contentId: string, kitId: string) {

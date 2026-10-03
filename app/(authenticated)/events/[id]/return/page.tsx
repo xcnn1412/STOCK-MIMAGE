@@ -2,6 +2,7 @@ import { supabaseServer as supabase } from '@/lib/supabase-server'
 import { getEventManager } from '@/lib/event-permissions'
 import { notFound, redirect } from 'next/navigation'
 import CheckListForm from './return-checklist'
+import type { Item } from '@/types'
 
 export const revalidate = 0
 
@@ -35,7 +36,8 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
   const kitIds = kits.map(k => k.id)
   
   // Note: if kitIds is empty Supabase in() might fail or return nothing, strictly handled above but check just in case
-  let itemsByKit: Record<string, { kitName: string, items: any[] }> = {}
+  // items = อุปกรณ์ปกติ (เลือกสถานะ) · consumables = วัสดุสิ้นเปลือง + จำนวนประจำกระเป๋า (กรอกใช้ไป)
+  const itemsByKit: Record<string, { kitName: string, items: any[], consumables: Array<Item & { kitQuantity: number }> }> = {}
   
   if (kitIds.length > 0) {
       // We want to group by Kit.
@@ -44,6 +46,7 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
         .from('kit_contents')
         .select(`
             kit_id, 
+            quantity,
             items (*)
         `)
         .in('kit_id', kitIds)
@@ -52,9 +55,11 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
       contents?.forEach((c: any) => {
           const kitName = kits.find(k => k.id === c.kit_id)?.name || 'Unknown Kit'
           if (!itemsByKit[c.kit_id]) {
-              itemsByKit[c.kit_id] = { kitName, items: [] }
+              itemsByKit[c.kit_id] = { kitName, items: [], consumables: [] }
           }
-          if (c.items) {
+          if (c.items?.is_consumable) {
+              itemsByKit[c.kit_id].consumables.push({ ...c.items, kitQuantity: c.quantity || 1 })
+          } else if (c.items) {
               itemsByKit[c.kit_id].items.push(c.items)
           }
       })

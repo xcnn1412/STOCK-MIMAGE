@@ -141,7 +141,11 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
                                                             </p>
                                                         </div>
                                                     </div>
-                                                    <StatusBadge status={item.status} />
+                                                    {item.isConsumable ? (
+                                                        <Badge variant="outline" className="text-[10px]">ใช้ไป {item.used ?? 0}</Badge>
+                                                    ) : (
+                                                        <StatusBadge status={item.status} />
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>
