@@ -1,10 +1,12 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server'
+import { getEventManager } from '@/lib/event-permissions'
 import { notFound, redirect } from 'next/navigation'
 import CheckListForm from './return-checklist'
 
 export const revalidate = 0
 
 export default async function EventReturnPage(props: { params: Promise<{ id: string }> }) {
+  if (!(await getEventManager())) redirect('/events')
   const params = await props.params;
   const { data: event } = await supabase.from('events').select('*').eq('id', params.id).single()
   

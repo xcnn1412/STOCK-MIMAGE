@@ -3,16 +3,13 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { requireAuth } from '@/lib/auth'
+import { getEventManager } from '@/lib/event-permissions'
 import { Database } from '@/types/database.types'
 
 
 export async function cleanupOldClosures() {
-    const session = await requireAuth()
-    const userId = session?.userId
-    if (!userId) {
-        return { error: 'Unauthorized' }
-    }
+    const manager = await getEventManager()
+    if (!manager) return { error: 'ไม่มีสิทธิ์จัดการอีเวนต์' }
 
     const supabase = createServiceClient()
     

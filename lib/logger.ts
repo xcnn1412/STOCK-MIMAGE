@@ -203,6 +203,7 @@ export type ActionType =
     | 'UPDATE_DOC_COUNTER'
     | 'UPDATE_DOC_TEMPLATE'
     | 'UPDATE_SIGNATURE'
+    | 'UPDATE_EVENT_MANAGERS'
     // Salary (เงินเดือน)
     | 'UPDATE_SALARY_SETTINGS'
     | 'UPDATE_SALARY_DUTY'

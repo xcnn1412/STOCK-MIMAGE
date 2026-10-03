@@ -1,4 +1,4 @@
-import { requireAuth } from '@/lib/auth'
+import { getEventManager } from '@/lib/event-permissions'
 import { redirect } from 'next/navigation'
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import CreateEventForm from './create-event-form'
@@ -11,9 +11,7 @@ interface PageProps {
 }
 
 export default async function NewEventPage({ searchParams }: PageProps) {
-  const session = await requireAuth()
-  const role = session?.role ?? 'staff'
-  if (role !== 'admin') redirect('/events')
+  if (!(await getEventManager())) redirect('/events')
 
   const params = await searchParams
 
