@@ -41,7 +41,7 @@ export default async function DashboardPage() {
     })
 
     return (
-        <div className="mx-auto w-full max-w-[1700px] space-y-5 p-4 md:p-6">
+        <div className="mx-auto w-full max-w-[1700px] space-y-5">
             {/* หัวหน้า — คำทักทาย + วันที่วันนี้ */}
             <header>
                 <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">สวัสดี 👋</h1>
@@ -57,7 +57,7 @@ export default async function DashboardPage() {
                     </h2>
                     <Link
                         href="/reports"
-                        className="text-xs font-medium text-zinc-500 hover:text-zinc-900 hover:underline dark:hover:text-zinc-100"
+                        className="inline-flex min-h-10 items-center text-xs font-medium text-zinc-500 hover:text-zinc-900 hover:underline md:min-h-0 dark:hover:text-zinc-100"
                     >
                         ดูสถิติเต็ม →
                     </Link>

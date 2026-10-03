@@ -129,7 +129,7 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
                         type="button"
                         onClick={() => setOpen(o => !o)}
                         aria-expanded={open}
-                        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-left text-sm"
+                        className="flex min-h-10 w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-left text-sm"
                     >
                         <span
                             className={cn(
@@ -197,14 +197,14 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
                                             type="button"
                                             disabled={closing === row.leadId}
                                             onClick={() => closeWarning(row)}
-                                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70"
+                                            className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-0.5 text-xs font-medium md:min-h-0 md:px-2 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70"
                                         >
                                             <Check className="h-3 w-3" /> เสร็จสิ้น
                                         </button>
                                     )}
                                     <Link
                                         href={`/jobs/tracking?lead=${row.leadId}`}
-                                        className="shrink-0 text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400 transition-colors"
+                                        className="-my-1.5 -mr-1.5 flex h-10 w-10 shrink-0 items-center justify-center text-zinc-300 hover:text-zinc-500 md:m-0 md:block md:h-auto md:w-auto dark:text-zinc-600 dark:hover:text-zinc-400 transition-colors"
                                         aria-label={`เปิดงาน ${row.title}`}
                                     >
                                         <ChevronRight className="h-4 w-4" />
@@ -212,12 +212,12 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
                                 </div>
 
                                 {/* ป้ายสิ่งที่ยังขาด — กดแล้วไปแท็บของหน้าที่นั้นพร้อมไฮไลต์งาน */}
-                                <div className="mt-1.5 flex flex-wrap gap-1 pl-4">
+                                <div className="mt-1.5 flex flex-wrap gap-1.5 pl-4 md:gap-1">
                                     {row.chips.map(chip => (
                                         <Link
                                             key={chip.key}
                                             href={chip.href}
-                                            className="inline-flex items-center rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-2 py-0.5 text-xs text-zinc-700 dark:text-zinc-300 hover:border-red-400 hover:text-red-700 dark:hover:border-red-500/60 dark:hover:text-red-300 transition-colors"
+                                            className="inline-flex min-h-10 items-center rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-3 py-0.5 text-xs text-zinc-700 md:min-h-0 md:px-2 dark:text-zinc-300 hover:border-red-400 hover:text-red-700 dark:hover:border-red-500/60 dark:hover:text-red-300 transition-colors"
                                         >
                                             {chip.label}
                                         </Link>
@@ -232,7 +232,7 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
                     <Link
                         href="/jobs/tracking"
                         className={cn(
-                            'inline-block text-xs font-medium hover:underline',
+                            'inline-flex min-h-10 items-center text-xs font-medium hover:underline md:min-h-0',
                             red ? 'text-red-800 dark:text-red-300' : 'text-amber-800 dark:text-amber-300'
                         )}
                     >

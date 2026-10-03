@@ -143,7 +143,7 @@ export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabe
                 {pending.length > MAX_ROWS && (
                     <Link
                         href="/jobs/tracking"
-                        className="inline-block text-xs font-medium text-amber-800 dark:text-amber-300 hover:underline"
+                        className="inline-flex min-h-10 items-center text-xs font-medium text-amber-800 hover:underline md:min-h-0 dark:text-amber-300"
                     >
                         ดูทั้งหมด ({pending.length} ใบ)
                     </Link>

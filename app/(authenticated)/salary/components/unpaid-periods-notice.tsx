@@ -54,14 +54,14 @@ export default function UnpaidPeriodsNotice({ rows, mode }: Props) {
                 </span>
                 <Link
                   href={link.href}
-                  className="text-xs font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200"
+                  className="inline-flex min-h-10 basis-full items-center text-xs font-medium underline underline-offset-2 hover:text-amber-900 md:min-h-0 md:basis-auto dark:hover:text-amber-200"
                 >
                   {link.text}
                 </Link>
               </div>
               {mode === 'all' && (
                 <details className="mt-1 text-xs text-amber-700 dark:text-amber-500">
-                  <summary className="cursor-pointer select-none">รายชื่อ</summary>
+                  <summary className="cursor-pointer select-none py-3 md:py-0">รายชื่อ</summary>
                   <ul className="mt-1 space-y-0.5 pl-4">
                     {row.people.map(p => (
                       <li key={p.user_id} className="break-words">
