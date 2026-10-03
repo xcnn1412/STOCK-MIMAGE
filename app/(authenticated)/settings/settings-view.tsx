@@ -1,15 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { Settings, ContactRound, Banknote, ChevronRight, Megaphone } from 'lucide-react'
+import { Settings, ContactRound, Banknote, ChevronRight, Megaphone, CalendarDays } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import FinanceSettingsView from '@/app/(authenticated)/finance/settings/finance-settings-view'
 import CrmSettingsView from '@/app/(authenticated)/crm/settings/settings-view'
 import MetaTokenSettings from '@/app/(authenticated)/content-planner/meta-token-settings'
+import EventManagersSettings from '@/app/(authenticated)/events/event-managers-settings'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
 import type { CrmSetting } from '@/app/(authenticated)/crm/crm-dashboard'
 
-type SettingsSection = 'finance' | 'crm' | 'content'
+type SettingsSection = 'finance' | 'crm' | 'content' | 'events'
 
 const sections: {
   key: SettingsSection
@@ -43,6 +44,14 @@ const sections: {
     activeText: 'text-fuchsia-700 dark:text-fuchsia-300',
     activeBg: 'bg-fuchsia-50/80 dark:bg-fuchsia-950/40 border-fuchsia-200 dark:border-fuchsia-800',
   },
+  {
+    key: 'events',
+    icon: CalendarDays,
+    gradient: 'from-amber-500 to-orange-600',
+    shadow: 'shadow-amber-500/25',
+    activeText: 'text-amber-700 dark:text-amber-300',
+    activeBg: 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800',
+  },
 ]
 
 const labels = {
@@ -55,6 +64,8 @@ const labels = {
     crmDesc: 'Packages, customer types, and lead sources',
     content: 'Content (Meta API)',
     contentDesc: 'Token for auto-fetching FB/IG post metrics',
+    events: 'Events',
+    eventsDesc: 'Who can create, edit and close events',
   },
   th: {
     title: 'ตั้งค่าระบบ',
@@ -65,6 +76,8 @@ const labels = {
     crmDesc: 'แพ็กเกจ, ประเภทลูกค้า, แหล่งที่มา',
     content: 'คอนเทนต์ (Meta API)',
     contentDesc: 'Token สำหรับดึงผลโพสต์ FB/IG อัตโนมัติ',
+    events: 'อีเวนต์',
+    eventsDesc: 'ใครสร้าง แก้ไข และปิดงานอีเวนต์ได้',
   },
 }
 
@@ -74,9 +87,10 @@ interface Props {
   staffProfiles: StaffProfile[]
   crmSettings: CrmSetting[]
   metaToken: { connected: boolean; hint: string | null }
+  eventManagerIds: string[]
 }
 
-export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken }: Props) {
+export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken, eventManagerIds }: Props) {
   const { locale } = useLocale()
   const t = labels[locale] || labels.th
   const [activeSection, setActiveSection] = useState<SettingsSection>('finance')
@@ -95,7 +109,7 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
       </div>
 
       {/* Section Selector Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {sections.map(section => {
           const Icon = section.icon
           const isActive = activeSection === section.key
@@ -165,6 +179,11 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
         {activeSection === 'content' && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
             <MetaTokenSettings connected={metaToken.connected} hint={metaToken.hint} />
+          </div>
+        )}
+        {activeSection === 'events' && (
+          <div className="animate-in fade-in slide-in-from-right-2 duration-300">
+            <EventManagersSettings people={staffProfiles} managerIds={eventManagerIds} />
           </div>
         )}
       </div>
