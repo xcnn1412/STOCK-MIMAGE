@@ -11,7 +11,7 @@ interface PageProps {
 }
 
 export default async function NewEventPage({ searchParams }: PageProps) {
-  if (!(await getEventManager())) redirect('/events')
+  if (!(await getEventManager('edit'))) redirect('/events')
 
   const params = await searchParams
 

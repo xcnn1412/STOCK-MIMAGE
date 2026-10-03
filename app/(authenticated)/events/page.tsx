@@ -1,4 +1,4 @@
-import { getEventManager } from '@/lib/event-permissions'
+import { getEventAccess } from '@/lib/event-permissions'
 import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-server'
 import EventsView from './events-view'
 import type { EventLog } from './events-log-sheet'
@@ -6,8 +6,8 @@ import type { EventLog } from './events-log-sheet'
 export const revalidate = 0
 
 export default async function EventsPage() {
-  // isAdmin ใน view = "จัดการอีเวนต์ได้" (admin หรือคนที่เปิดสิทธิ์ไว้ในหน้าตั้งค่า)
-  const isAdmin = !!(await getEventManager())
+  // admin หรือคนที่เปิดสิทธิ์ไว้ในหน้าตั้งค่า (แยกสร้าง-แก้ไข กับ ปิดงาน)
+  const access = await getEventAccess()
 
   const { data: events } = await supabase.from('events').select('*').order('event_date', { ascending: false })
 
@@ -44,7 +44,8 @@ export default async function EventsPage() {
   return (
     <EventsView
       events={events || []}
-      isAdmin={isAdmin}
+      canEdit={access.edit}
+      canClose={access.close}
       logs={(logs || []) as unknown as EventLog[]}
       leadByEvent={leadByEvent}
     />

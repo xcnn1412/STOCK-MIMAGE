@@ -1,7 +1,7 @@
 import { getFinanceCategories, getAllCategoryItems, getStaffProfiles } from '@/app/(authenticated)/finance/settings-actions'
 import { getCrmSettings } from '@/app/(authenticated)/crm/actions'
 import { getMetaTokenStatus } from '@/app/(authenticated)/content-planner/actions'
-import { getEventManagerIds } from '@/lib/event-permissions'
+import { getEventPermissionIds } from '@/lib/event-permissions'
 import SettingsView from './settings-view'
 
 export const revalidate = 0
@@ -12,13 +12,13 @@ export const metadata = {
 }
 
 export default async function SettingsPage() {
-  const [categories, categoryItems, staffProfiles, { data: crmSettings }, metaToken, eventManagerIds] = await Promise.all([
+  const [categories, categoryItems, staffProfiles, { data: crmSettings }, metaToken, eventPermissionIds] = await Promise.all([
     getFinanceCategories(false), // include inactive
     getAllCategoryItems(),
     getStaffProfiles(),
     getCrmSettings(),
     getMetaTokenStatus(),
-    getEventManagerIds(),
+    getEventPermissionIds(),
   ])
 
   return (
@@ -28,7 +28,7 @@ export default async function SettingsPage() {
       staffProfiles={staffProfiles}
       crmSettings={(crmSettings as any[]) || []}
       metaToken={metaToken}
-      eventManagerIds={eventManagerIds}
+      eventPermissionIds={eventPermissionIds}
     />
   )
 }

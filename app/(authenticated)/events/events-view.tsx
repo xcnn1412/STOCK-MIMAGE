@@ -12,12 +12,16 @@ import type { Event } from '@/types'
 
 export default function EventsView({
   events,
-  isAdmin = false,
+  canEdit = false,
+  canClose = false,
   logs = [],
   leadByEvent = {},
 }: {
   events: Event[]
-  isAdmin?: boolean
+  /** สร้าง / แก้ไขอีเวนต์ได้ */
+  canEdit?: boolean
+  /** ปิดงาน / คืนกระเป๋าได้ */
+  canClose?: boolean
   logs?: EventLog[]
   /** งานต้นทาง (CRM) ของอีเวนต์ — ไม่มี key = อีเวนต์ที่สร้างตรงไม่ได้มาจากงาน */
   leadByEvent?: Record<string, { leadId: string; customerName: string | null }>
@@ -61,7 +65,7 @@ export default function EventsView({
               </Button>
             </Link>
             <EventsLogSheet logs={logs} />
-            {isAdmin && (
+            {canEdit && (
               <Link href="/events/new">
                 <Button size="sm" className="bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900">
                   <Plus className="mr-2 h-4 w-4" />
@@ -214,7 +218,7 @@ export default function EventsView({
                   Kits
                 </Button>
               </Link>
-              {isAdmin && (
+              {canEdit && (
                 <Link href={`/events/${event.id}/edit`} className="flex-1">
                   <Button
                     variant="outline"
@@ -226,7 +230,7 @@ export default function EventsView({
                   </Button>
                 </Link>
               )}
-              {isAdmin && event.status !== 'completed' && (
+              {canClose && event.status !== 'completed' && (
                 <Link href={`/events/${event.id}/return`}>
                   <Button
                     size="sm"
@@ -251,10 +255,10 @@ export default function EventsView({
               </h3>
               <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6 max-w-sm mx-auto">
                 {lang === 'th'
-                  ? (isAdmin ? 'เริ่มสร้างอีเว้นท์แรกของคุณ' : 'ยังไม่มีอีเว้นท์ที่เปิดอยู่')
-                  : (isAdmin ? 'Create your first event to get started' : 'No events have been created yet')}
+                  ? (canEdit ? 'เริ่มสร้างอีเว้นท์แรกของคุณ' : 'ยังไม่มีอีเว้นท์ที่เปิดอยู่')
+                  : (canEdit ? 'Create your first event to get started' : 'No events have been created yet')}
               </p>
-              {isAdmin && (
+              {canEdit && (
                 <Link href="/events/new">
                   <Button className="bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900">
                     <Plus className="mr-2 h-4 w-4" />
@@ -268,7 +272,7 @@ export default function EventsView({
       </div>
 
       {/* Mobile FAB - Create Event (admin only) */}
-      {isAdmin && (
+      {canEdit && (
         <Link
           href="/events/new"
           className="md:hidden fixed bottom-6 right-6 z-50"

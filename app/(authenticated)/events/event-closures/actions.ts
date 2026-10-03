@@ -8,8 +8,8 @@ import { Database } from '@/types/database.types'
 
 
 export async function cleanupOldClosures() {
-    const manager = await getEventManager()
-    if (!manager) return { error: 'ไม่มีสิทธิ์จัดการอีเวนต์' }
+    const manager = await getEventManager('close')
+    if (!manager) return { error: 'ไม่มีสิทธิ์ปิดงานอีเวนต์' }
 
     const supabase = createServiceClient()
     

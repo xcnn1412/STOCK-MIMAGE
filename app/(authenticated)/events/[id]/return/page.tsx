@@ -6,7 +6,7 @@ import CheckListForm from './return-checklist'
 export const revalidate = 0
 
 export default async function EventReturnPage(props: { params: Promise<{ id: string }> }) {
-  if (!(await getEventManager())) redirect('/events')
+  if (!(await getEventManager('close'))) redirect('/events')
   const params = await props.params;
   const { data: event } = await supabase.from('events').select('*').eq('id', params.id).single()
   

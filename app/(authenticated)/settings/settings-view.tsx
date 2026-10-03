@@ -65,7 +65,7 @@ const labels = {
     content: 'Content (Meta API)',
     contentDesc: 'Token for auto-fetching FB/IG post metrics',
     events: 'Events',
-    eventsDesc: 'Who can create, edit and close events',
+    eventsDesc: 'Who can create/edit events and who can close them',
   },
   th: {
     title: 'ตั้งค่าระบบ',
@@ -77,7 +77,7 @@ const labels = {
     content: 'คอนเทนต์ (Meta API)',
     contentDesc: 'Token สำหรับดึงผลโพสต์ FB/IG อัตโนมัติ',
     events: 'อีเวนต์',
-    eventsDesc: 'ใครสร้าง แก้ไข และปิดงานอีเวนต์ได้',
+    eventsDesc: 'ใครสร้าง/แก้ไข และใครปิดงานอีเวนต์ได้',
   },
 }
 
@@ -87,10 +87,10 @@ interface Props {
   staffProfiles: StaffProfile[]
   crmSettings: CrmSetting[]
   metaToken: { connected: boolean; hint: string | null }
-  eventManagerIds: string[]
+  eventPermissionIds: { edit: string[]; close: string[] }
 }
 
-export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken, eventManagerIds }: Props) {
+export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken, eventPermissionIds }: Props) {
   const { locale } = useLocale()
   const t = labels[locale] || labels.th
   const [activeSection, setActiveSection] = useState<SettingsSection>('finance')
@@ -183,7 +183,7 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
         )}
         {activeSection === 'events' && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
-            <EventManagersSettings people={staffProfiles} managerIds={eventManagerIds} />
+            <EventManagersSettings people={staffProfiles} ids={eventPermissionIds} />
           </div>
         )}
       </div>
