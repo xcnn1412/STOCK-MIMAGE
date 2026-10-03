@@ -178,7 +178,8 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
                                     {/* จุดสีบอกความแรง — การ์ดพื้นขาว ความด่วนอยู่ที่จุด+ตัวนับถอยหลัง */}
                                     <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', SEVERITY_DOT[row.severity])} />
                                     <div className="min-w-0 flex-1">
-                                        <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                        {/* มือถือ: ปุ่ม "เสร็จสิ้น" กินที่ด้านขวา — ชื่องานขึ้นได้ 2 บรรทัด · md ขึ้นไปบรรทัดเดียวเหมือนเดิม */}
+                                        <div className="text-sm font-medium text-zinc-900 max-md:line-clamp-2 md:truncate dark:text-zinc-100">
                                             {row.title}
                                             {row.subtitle && (
                                                 <span className="ml-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">
