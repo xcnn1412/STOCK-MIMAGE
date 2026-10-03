@@ -52,6 +52,23 @@ function worstSeverity(rows: DutyWarningRow[]): DutyWarningSeverity {
     return 'soon'
 }
 
+/** ปุ่มปิดคำเตือนของงานที่เลยวันแล้ว — วาด 2 ตำแหน่งตามขนาดจอ (ดูที่เรียกใช้) */
+function DoneButton({ busy, onClick, className }: { busy: boolean; onClick: () => void; className?: string }) {
+    return (
+        <button
+            type="button"
+            disabled={busy}
+            onClick={onClick}
+            className={cn(
+                'inline-flex min-h-10 shrink-0 items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 md:min-h-0 md:px-2 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70',
+                className
+            )}
+        >
+            <Check className="h-3 w-3" /> เสร็จสิ้น
+        </button>
+    )
+}
+
 export default function DutyWarningPanel({ rows, collapsible = false, showEmpty = false, className }: DutyWarningPanelProps) {
     const router = useRouter()
     const [closing, setClosing] = useState<string | null>(null)
@@ -192,16 +209,10 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
                                             <span className={SEVERITY_TEXT[row.severity]}>{row.countdown}</span>
                                         </div>
                                     </div>
-                                    {/* งานเลยวันแล้วปิดคำเตือนได้ — งานที่ยังไม่ถึงวันต้องตามหน้าที่ให้ครบจริง */}
+                                    {/* งานเลยวันแล้วปิดคำเตือนได้ — งานที่ยังไม่ถึงวันต้องตามหน้าที่ให้ครบจริง
+                                        md ขึ้นไปอยู่ท้ายบรรทัดชื่องาน · มือถืออยู่ท้ายแถวป้ายด้านล่าง (ชื่องานได้ความกว้างเต็ม) */}
                                     {row.severity === 'overdue' && (
-                                        <button
-                                            type="button"
-                                            disabled={closing === row.leadId}
-                                            onClick={() => closeWarning(row)}
-                                            className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-0.5 text-xs font-medium md:min-h-0 md:px-2 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70"
-                                        >
-                                            <Check className="h-3 w-3" /> เสร็จสิ้น
-                                        </button>
+                                        <DoneButton busy={closing === row.leadId} onClick={() => closeWarning(row)} className="hidden md:inline-flex" />
                                     )}
                                     <Link
                                         href={`/jobs/tracking?lead=${row.leadId}`}
@@ -223,6 +234,9 @@ export default function DutyWarningPanel({ rows, collapsible = false, showEmpty 
                                             {chip.label}
                                         </Link>
                                     ))}
+                                    {row.severity === 'overdue' && (
+                                        <DoneButton busy={closing === row.leadId} onClick={() => closeWarning(row)} className="ml-auto md:hidden" />
+                                    )}
                                 </div>
                             </li>
                         ))}
