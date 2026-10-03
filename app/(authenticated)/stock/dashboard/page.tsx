@@ -1,6 +1,9 @@
 import { requireAuth } from '@/lib/auth'
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import DashboardView from './dashboard-view'
+import ShelfAlerts from './shelf-alerts'
+import { loadShelfHealth } from '@/app/(authenticated)/shelves/queries'
+import { createServiceClient } from '@/lib/supabase-server'
 
 export const revalidate = 0
 
@@ -17,7 +20,8 @@ export default async function StockDashboardPage() {
     { count: kitsCount },
     { data: activeKitsWithDetails }, // Kits assigned to events
     { count: usersCount },
-    { data: templates }
+    { data: templates },
+    shelfHealth,
   ] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', userId).single(),
     supabase.from('login_logs').select('*').eq('user_id', userId).order('login_at', { ascending: false }).limit(1).single(),
@@ -26,10 +30,13 @@ export default async function StockDashboardPage() {
     supabase.from('kits').select('*', { count: 'exact', head: true }),
     supabase.from('kits').select('*, events(id, name, event_date, location)').not('event_id', 'is', null).order('created_at', { ascending: false }),
     supabase.from('profiles').select('*', { count: 'exact', head: true }),
-    supabase.from('kit_templates').select('*, kit_template_contents(count)').order('created_at', { ascending: false }).limit(10)
+    supabase.from('kit_templates').select('*, kit_template_contents(count)').order('created_at', { ascending: false }).limit(10),
+    loadShelfHealth(createServiceClient()),
   ])
 
   return (
+    <div className="space-y-6">
+    <ShelfAlerts health={shelfHealth} />
     <DashboardView
       profile={profile}
       latestLog={latestLog as any}
@@ -40,5 +47,6 @@ export default async function StockDashboardPage() {
       usersCount={usersCount}
       templates={(templates || []) as any}
     />
+    </div>
   )
 }

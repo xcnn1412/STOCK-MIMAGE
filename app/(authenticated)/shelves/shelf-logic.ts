@@ -33,3 +33,57 @@ export function groupByZone<T extends { zone: string; code: string }>(shelves: T
   const zones = [...new Set(shelves.map(s => s.zone))].sort(cmp)
   return zones.map(zone => ({ zone, shelves: shelves.filter(s => s.zone === zone).sort((a, b) => cmp(a.code, b.code)) }))
 }
+
+// --- ตรวจนับชั้น (เฟส 2) -------------------------------------------------------
+
+/** ชั้นที่ไม่ได้ตรวจนับเกินกี่วัน = เลยกำหนด */
+// ponytail: ค่าคงที่ระบบเดียว — ย้ายไป app_settings เมื่อเจ้าของอยากตั้งเอง
+export const AUDIT_DUE_DAYS = 30
+
+export interface AuditTarget {
+  kind: 'kit' | 'item'
+  id: string
+  name: string
+}
+export type AuditSkip = AuditTarget & { reason: string }
+
+export const auditKey = (t: { kind: string; id: string }) => `${t.kind}:${t.id}`
+
+/**
+ * ของที่ "ควรเจอ" บนชั้นตอนตรวจนับ — กระเป๋าที่ไม่ได้ออกงาน + อุปกรณ์แยกชิ้นที่ไม่ได้ออกงาน/ไม่ได้แจ้งหายไว้
+ * ที่เหลือ (skipped) แสดงให้เห็นแต่ไม่นับเป็นของขาด
+ */
+export function auditTargets(
+  kits: { id: string; name: string; itemStatuses: string[] }[],
+  items: { id: string; name: string; status: string }[]
+): { expected: AuditTarget[]; skipped: AuditSkip[] } {
+  const expected: AuditTarget[] = []
+  const skipped: AuditSkip[] = []
+  for (const k of kits) {
+    const t: AuditTarget = { kind: 'kit', id: k.id, name: k.name }
+    if (k.itemStatuses.includes('in_use')) skipped.push({ ...t, reason: 'ออกงานอยู่' })
+    else expected.push(t)
+  }
+  for (const i of items) {
+    const t: AuditTarget = { kind: 'item', id: i.id, name: i.name }
+    if (i.status === 'in_use') skipped.push({ ...t, reason: 'ออกงานอยู่' })
+    else if (i.status === 'lost') skipped.push({ ...t, reason: 'แจ้งหายไว้แล้ว' })
+    else expected.push(t)
+  }
+  return { expected, skipped }
+}
+
+/** ของที่ควรเจอแต่ไม่ได้ติ๊กว่าเจอ — foundKeys ที่ไม่อยู่ใน expected ถูกทิ้ง */
+export function auditMissing(expected: AuditTarget[], foundKeys: string[]): AuditTarget[] {
+  const found = new Set(foundKeys)
+  return expected.filter(t => !found.has(auditKey(t)))
+}
+
+export type AuditDue = { kind: 'never' } | { kind: 'ok' | 'overdue'; days: number }
+
+/** ตรวจครั้งล่าสุดกี่วันก่อน และเลยกำหนดหรือยัง */
+export function auditDue(lastAuditAt: string | null, now: Date, dueDays = AUDIT_DUE_DAYS): AuditDue {
+  if (!lastAuditAt) return { kind: 'never' }
+  const days = Math.floor((now.getTime() - new Date(lastAuditAt).getTime()) / 86_400_000)
+  return { kind: days > dueDays ? 'overdue' : 'ok', days }
+}

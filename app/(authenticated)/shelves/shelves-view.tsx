@@ -7,7 +7,7 @@ import { Layers, Plus, Briefcase, Package } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { groupByZone } from './shelf-logic'
+import { auditDue, groupByZone } from './shelf-logic'
 import ShelfFormDialog from './shelf-form-dialog'
 import { createShelf } from './actions'
 
@@ -19,11 +19,14 @@ export interface ShelfRow {
   note: string | null
   kitCount: number
   itemCount: number
+  lastAuditAt: string | null
+  lastMissing: number
 }
 
 export default function ShelvesView({ shelves, canManage }: { shelves: ShelfRow[]; canManage: boolean }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  const [now] = useState(() => new Date())
   const zones = groupByZone(shelves)
 
   return (
@@ -56,6 +59,7 @@ export default function ShelvesView({ shelves, canManage }: { shelves: ShelfRow[
                 <Card className="p-4 h-full hover:shadow-md hover:border-zinc-300 transition-all">
                   <div className="text-lg font-bold tracking-tight">{s.code}</div>
                   {s.name && <div className="text-sm text-muted-foreground truncate">{s.name}</div>}
+                  <AuditBadge due={auditDue(s.lastAuditAt, now)} missing={s.lastMissing} />
                   <div className="mt-3 flex gap-3 text-xs text-zinc-600 dark:text-zinc-300">
                     <span className="inline-flex items-center gap-1" title="กระเป๋า"><Briefcase className="h-3.5 w-3.5" /> {s.kitCount}</span>
                     <span className="inline-flex items-center gap-1" title="อุปกรณ์"><Package className="h-3.5 w-3.5" /> {s.itemCount}</span>
@@ -87,4 +91,11 @@ export default function ShelvesView({ shelves, canManage }: { shelves: ShelfRow[
       )}
     </div>
   )
+}
+
+function AuditBadge({ due, missing }: { due: ReturnType<typeof auditDue>; missing: number }) {
+  if (due.kind === 'never') return <div className="mt-1 text-xs text-amber-600 dark:text-amber-400">ยังไม่เคยตรวจนับ</div>
+  if (missing > 0) return <div className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-400">ตรวจล่าสุด: ไม่เจอ {missing}</div>
+  if (due.kind === 'overdue') return <div className="mt-1 text-xs text-amber-600 dark:text-amber-400">ไม่ได้ตรวจ {due.days} วัน</div>
+  return <div className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">ตรวจแล้ว {due.days === 0 ? 'วันนี้' : `${due.days} วันก่อน`}</div>
 }

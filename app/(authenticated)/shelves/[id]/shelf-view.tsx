@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Briefcase, Package, Pencil, Trash2, QrCode, Plus, X, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Briefcase, Package, Pencil, Trash2, QrCode, Plus, X, AlertTriangle, ClipboardCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -11,7 +11,8 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useLanguage } from '@/contexts/language-context'
 import { cn } from '@/lib/utils'
-import { countProblems, kitShelfState, PROBLEM_STATUSES } from '../shelf-logic'
+import { auditDue, auditTargets, countProblems, kitShelfState, PROBLEM_STATUSES, AUDIT_DUE_DAYS } from '../shelf-logic'
+import AuditPanel from './audit-panel'
 import ShelfFormDialog from '../shelf-form-dialog'
 import { deleteShelf, moveToShelf, updateShelf } from '../actions'
 
@@ -27,6 +28,15 @@ export interface ShelfItem {
   serial_number: string | null
   status: string
   quantity: number | null
+}
+export interface AuditRow {
+  id: string
+  createdAt: string
+  expected: number
+  found: number
+  missing: { kind: 'kit' | 'item'; id: string; name: string }[]
+  note: string | null
+  by: string
 }
 export interface Candidate {
   id: string
@@ -54,6 +64,7 @@ export default function ShelfView({
   canManage,
   kitCandidates,
   itemCandidates,
+  audits,
 }: {
   shelf: { id: string; zone: string; code: string; name: string | null; note: string | null }
   kits: ShelfKit[]
@@ -61,12 +72,16 @@ export default function ShelfView({
   canManage: boolean
   kitCandidates: Candidate[]
   itemCandidates: Candidate[]
+  audits: AuditRow[]
 }) {
   const { t } = useLanguage()
   const router = useRouter()
   const [editOpen, setEditOpen] = useState(false)
   const [adding, setAdding] = useState<'kit' | 'item' | null>(null)
   const [onlyAway, setOnlyAway] = useState(false)
+  const [auditing, setAuditing] = useState(false)
+  // ponytail: วันนี้อ่านตอน render (หน้าเปิดสั้นๆ) — ไม่ต้อง tick ตามเวลา
+  const [now] = useState(() => new Date())
 
   const statusLabel = (s: string) => t.items.status[s as keyof typeof t.items.status] || s
 
@@ -79,6 +94,13 @@ export default function ShelfView({
     ? kitRows.filter(k => k.state.kind === 'out' || countProblems(k.items.map(i => i.status)) > 0)
     : kitRows
   const shownItems = onlyAway ? items.filter(i => i.status !== 'available') : items
+
+  const plan = auditTargets(
+    kits.map(k => ({ id: k.id, name: k.name, itemStatuses: k.items.map(i => i.status) })),
+    items
+  )
+  const last = audits[0] ?? null
+  const due = auditDue(last?.createdAt ?? null, now)
 
   const run = async (fn: () => Promise<{ error?: string }>, ok: string) => {
     const res = await fn()
@@ -147,6 +169,41 @@ export default function ShelfView({
           <div className="text-xs text-muted-foreground">เสีย / ซ่อม / หาย</div>
         </Card>
       </div>
+
+      {/* ตรวจนับ */}
+      {auditing ? (
+        <AuditPanel
+          shelfId={shelf.id}
+          expected={plan.expected}
+          skipped={plan.skipped}
+          onClose={() => setAuditing(false)}
+          onSaved={() => {
+            setAuditing(false)
+            router.refresh()
+          }}
+        />
+      ) : (
+        <Card className={cn('p-3 flex items-center gap-3', due.kind !== 'ok' && 'border-amber-300 dark:border-amber-700')}>
+          <ClipboardCheck className="h-5 w-5 text-muted-foreground shrink-0" />
+          <div className="flex-1 min-w-0 text-sm">
+            {due.kind === 'never' ? (
+              <span className="text-amber-700 dark:text-amber-400 font-medium">ยังไม่เคยตรวจนับชั้นนี้</span>
+            ) : (
+              <>
+                <span className={cn(due.kind === 'overdue' && 'text-amber-700 dark:text-amber-400 font-medium')}>
+                  ตรวจล่าสุด {due.days === 0 ? 'วันนี้' : `${due.days} วันก่อน`}
+                  {due.kind === 'overdue' ? ` (เกิน ${AUDIT_DUE_DAYS} วัน)` : ''}
+                </span>
+                <span className="text-muted-foreground"> · {last!.by} · </span>
+                {last!.missing.length > 0
+                  ? <span className="text-rose-600 dark:text-rose-400 font-medium">ไม่เจอ {last!.missing.length}</span>
+                  : <span className="text-emerald-600 dark:text-emerald-400">ครบ</span>}
+              </>
+            )}
+          </div>
+          <Button size="sm" onClick={() => setAuditing(true)}>ตรวจนับ</Button>
+        </Card>
+      )}
 
       <div className="flex items-center gap-2">
         <Button variant={onlyAway ? 'default' : 'outline'} size="sm" onClick={() => setOnlyAway(v => !v)}>
@@ -254,6 +311,32 @@ export default function ShelfView({
           </Card>
         )}
       </section>
+
+      {/* ประวัติตรวจนับ */}
+      {audits.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="font-semibold flex items-center gap-2"><ClipboardCheck className="h-4 w-4" /> ประวัติตรวจนับ</h2>
+          <Card className="p-0 divide-y divide-zinc-100 dark:divide-zinc-800">
+            {audits.map(a => (
+              <div key={a.id} className="px-3 py-2.5 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span>
+                    {new Date(a.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                    <span className="text-muted-foreground"> · {a.by}</span>
+                  </span>
+                  <span className={cn(PILL, a.missing.length > 0 ? STATUS_TONE.lost : STATUS_TONE.available)}>
+                    {a.missing.length > 0 ? `ไม่เจอ ${a.missing.length}/${a.expected}` : `ครบ ${a.found}/${a.expected}`}
+                  </span>
+                </div>
+                {a.missing.length > 0 && (
+                  <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">ไม่เจอ: {a.missing.map(m => m.name).join(', ')}</div>
+                )}
+                {a.note && <div className="mt-1 text-xs text-muted-foreground whitespace-pre-line">{a.note}</div>}
+              </div>
+            ))}
+          </Card>
+        </section>
+      )}
 
       {canManage && (
         <>
