@@ -116,6 +116,9 @@ export default function RoomView({
           {canManage && (
             <>
               <Button size="sm" className="ml-auto sm:ml-0" onClick={() => setDialog('rack')}><Plus className="mr-1 h-4 w-4" /> ชั้นวาง</Button>
+              <Link href={`/shelves/rooms/${room.id}/print`}>
+                <Button variant="outline" size="icon" className="h-8 w-8" title="พิมพ์ QR ทั้งห้อง (A4)" aria-label="พิมพ์ QR ทั้งห้อง"><QrCode className="h-4 w-4" /></Button>
+              </Link>
               <Button variant="outline" size="icon" className="h-8 w-8" title="แก้ไขห้อง" onClick={() => setDialog('room')}><Pencil className="h-4 w-4" /></Button>
               <Button
                 variant="outline"
