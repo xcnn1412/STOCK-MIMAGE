@@ -26,8 +26,14 @@ export default function LayoutEditor({
   const gridRef = useRef<HTMLDivElement>(null)
   // ตำแหน่งระหว่างลาก (ยังไม่บันทึก) — ปล่อยแล้วค่อยบันทึก
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number; x: number; y: number } | null>(null)
+  // ตำแหน่งที่เพิ่งวาง รอ props จาก server — ใช้ได้ตราบที่ props ยังเป็นค่าก่อนย้าย (ไม่เด้งกลับที่เดิมแวบหนึ่ง)
+  const [pending, setPending] = useState<{ id: string; x: number; y: number; fromX: number; fromY: number } | null>(null)
 
-  const racks: RackPlacement[] = room.racks.map(r => (drag?.id === r.id ? { ...r, x: drag.x, y: drag.y } : r))
+  const racks: RackPlacement[] = room.racks.map(r => {
+    if (drag?.id === r.id) return { ...r, x: drag.x, y: drag.y }
+    if (pending?.id === r.id && pending.fromX === r.x && pending.fromY === r.y) return { ...r, x: pending.x, y: pending.y }
+    return r
+  })
   const clash = overlapping(racks)
 
   const cellAt = (e: React.PointerEvent) => {
@@ -63,10 +69,13 @@ export default function LayoutEditor({
             setDrag(null)
             return
           }
-          const res = await updateRack(drag.id, target)
+          setPending({ id: drag.id, ...target, fromX: r.x, fromY: r.y })
           setDrag(null)
-          if (res.error) toast.error(res.error)
-          else onSaved()
+          const res = await updateRack(drag.id, target)
+          if (res.error) {
+            toast.error(res.error)
+            setPending(null)
+          } else onSaved()
         }}
         onPointerDown={e => {
           if (e.target === gridRef.current) onSelect(null)
@@ -81,6 +90,7 @@ export default function LayoutEditor({
               key={r.id}
               className={cn(
                 'absolute flex items-center justify-center rounded border-2 text-xs font-bold cursor-grab active:cursor-grabbing',
+                'transition-[left,top] duration-150 ease-out',
                 r.id === selectedId ? 'bg-violet-500 text-white border-violet-700' : 'bg-white dark:bg-zinc-800 border-zinc-400',
                 clash.has(r.id) && 'border-rose-500 ring-2 ring-rose-300'
               )}

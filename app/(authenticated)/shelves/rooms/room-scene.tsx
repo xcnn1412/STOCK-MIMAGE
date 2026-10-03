@@ -3,10 +3,10 @@
 // ฉาก 3D ของห้องเก็บของ (three.js ผ่าน @react-three/fiber) — โหลดผ่าน next/dynamic ssr:false เท่านั้น
 // หน่วย: 1 = 1 ช่องบนผัง · แกน X = ซ้าย→ขวา (x บนผัง), แกน Z = หน้า→หลัง (y บนผัง), แกน Y = ความสูง
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Canvas, type ThreeEvent } from '@react-three/fiber'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Canvas, useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Grid, OrbitControls } from '@react-three/drei'
-import { CanvasTexture, Plane, SRGBColorSpace, Vector3 } from 'three'
+import { CanvasTexture, Plane, SRGBColorSpace, Vector3, type Group } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { clampToRoom, footprint } from '../room-logic'
 import type { RoomData, RoomRack, RoomLevel } from '../queries'
@@ -122,11 +122,12 @@ export function RackModel({
         if (!onSelect) return
         e.stopPropagation()
         setHover(true)
-        document.body.style.cursor = onDrag ? 'grab' : 'pointer'
+        // ระหว่างกดลาก (buttons ≠ 0) ไม่แตะเคอร์เซอร์ — RoomScene ตั้ง 'grabbing' เอง
+        if (!e.buttons) document.body.style.cursor = onDrag ? 'grab' : 'pointer'
       }}
-      onPointerOut={() => {
+      onPointerOut={e => {
         setHover(false)
-        document.body.style.cursor = ''
+        if (!e.buttons) document.body.style.cursor = ''
       }}
     >
       {/* กล่องโปร่งใสครอบทั้งตู้ — ให้กด/ลากโดนตรงไหนของตู้ก็ได้ (โครงจริงมีแค่เสาบางๆ กับแผ่นชั้น) */}
@@ -173,11 +174,80 @@ export function RackModel({
   )
 }
 
-type Drag = { id: string; x: number; y: number; ox: number; oz: number; moved: boolean }
+type Drag = {
+  id: string
+  /** จุดที่กดบนพื้น − กลางตู้ (ตู้ไม่กระโดดตอนเริ่มลาก) */
+  ox: number
+  oz: number
+  /** กลางตู้ตามเมาส์ — ต่อเนื่อง ไม่ลงช่อง */
+  cx: number
+  cz: number
+  /** ช่องที่จะวางเมื่อปล่อย */
+  x: number
+  y: number
+  startX: number
+  startY: number
+}
+/** ตำแหน่งที่เพิ่งวาง รอ props จาก server — ใช้ได้ตราบที่ props ยังเป็นค่าก่อนย้าย (fromX, fromY) */
+type Pending = { x: number; y: number; fromX: number; fromY: number }
+
+const LIFT = 0.08
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi))
+const cellOf = (r: { x: number; y: number }, pend: Pending | undefined) =>
+  pend && pend.fromX === r.x && pend.fromY === r.y ? pend : r
 
 const FLOOR = new Plane(new Vector3(0, 1, 0), 0)
 /** จุดบนพื้น (y = 0) ใต้เมาส์ — จากแนวสายตา ไม่ใช่จุดที่โดนวัตถุ */
 const floorPoint = (e: ThreeEvent<PointerEvent>) => e.ray.intersectPlane(FLOOR, new Vector3())
+
+/**
+ * ตำแหน่งของตู้ในห้อง — เลื่อนเข้าหาเป้าหมายทุกเฟรม (ไม่ผ่าน React state จึงไม่กระตุก)
+ * เป้าหมาย: ลากอยู่ = ตามเมาส์ · เพิ่งวาง = ช่องที่วาง (รอ server) · ปกติ = ช่องจาก props
+ */
+function RackSlot({
+  rack,
+  dragRef,
+  pendingRef,
+  children,
+}: {
+  rack: RoomRack
+  dragRef: RefObject<Drag | null>
+  pendingRef: RefObject<Map<string, Pending>>
+  children: ReactNode
+}) {
+  const group = useRef<Group>(null)
+  const placed = useRef(false)
+  const { w, d } = footprint(rack)
+
+  useFrame((_, dt) => {
+    const g = group.current
+    if (!g) return
+    const drag = dragRef.current?.id === rack.id ? dragRef.current : null
+    const pend = pendingRef.current.get(rack.id)
+    // props เปลี่ยนแล้ว (server ยืนยัน หรือถูกย้ายทางอื่น) → ตำแหน่งรอยืนยันหมดหน้าที่
+    if (pend && (pend.fromX !== rack.x || pend.fromY !== rack.y)) pendingRef.current.delete(rack.id)
+    const cell = cellOf(rack, pend)
+    const tx = drag ? drag.cx : cell.x + w / 2
+    const tz = drag ? drag.cz : cell.y + d / 2
+    const ty = drag ? LIFT : 0
+    if (!placed.current) {
+      g.position.set(tx, ty, tz)
+      placed.current = true
+      return
+    }
+    // ตามเมาส์เร็ว (แค่เกลี่ยจังหวะ event) · เข้าช่องตอนปล่อยช้ากว่าให้เห็นว่าเลื่อนไปไหน
+    const k = 1 - Math.exp(-dt * (drag ? 45 : 14))
+    g.position.x += (tx - g.position.x) * k
+    g.position.y += (ty - g.position.y) * k
+    g.position.z += (tz - g.position.z) * k
+  })
+
+  return (
+    <group ref={group} rotation={[0, (-rack.rotation * Math.PI) / 180, 0]}>
+      {children}
+    </group>
+  )
+}
 
 /** ห้องทั้งห้อง — หมุน/ซูมได้ กดชั้นวางเพื่อเลือก กดพื้นว่างเพื่อยกเลิก · มี onMove = ลากชั้นวางย้ายตำแหน่งได้ */
 export default function RoomScene({
@@ -189,57 +259,81 @@ export default function RoomScene({
   room: RoomData
   selectedId: string | null
   onSelect: (id: string | null) => void
-  /** ผู้จัดการเท่านั้น — คืน Promise ให้ค้างตำแหน่งใหม่ไว้จนบันทึกเสร็จ (ไม่กระโดดกลับก่อน refresh) */
-  onMove?: (id: string, x: number, y: number) => Promise<unknown>
+  /** ผู้จัดการเท่านั้น — คืน true เมื่อบันทึกสำเร็จ (false = ตู้เลื่อนกลับที่เดิม) */
+  onMove?: (id: string, x: number, y: number) => Promise<boolean>
 }) {
   const span = Math.max(room.width, room.depth)
-  // ลากอยู่: ช่องใหม่ + ระยะจากจุดที่กดถึงกลางตู้ (ตู้ไม่กระโดดตอนเริ่มลาก)
-  // ref = ค่าล่าสุดเสมอ (event มาถี่กว่ารอบ render) · state = ให้ฉากวาดใหม่
+  // ตำแหน่งระหว่างลากอยู่ใน ref — RackSlot อ่านทุกเฟรม ไม่ render ใหม่ทุก pointermove
   const dragRef = useRef<Drag | null>(null)
-  const [drag, setDragState] = useState<Drag | null>(null)
+  const pendingRef = useRef(new Map<string, Pending>())
   const controls = useRef<OrbitControlsImpl>(null)
-  const setDrag = (d: Drag | null) => {
-    dragRef.current = d
-    setDragState(d)
-    // ปิดการหมุนกล้องทันทีที่จับตู้ (prop enabled อัปเดตช้ากว่า 1 render — กล้องจะหมุนตามตอนเริ่มลาก)
-    if (controls.current) controls.current.enabled = !d
-  }
+  // ช่องที่จะวาง (เงาบนพื้น) — เป็น state แต่เปลี่ยนเฉพาะตอนข้ามช่อง
+  const [ghost, setGhost] = useState<{ id: string; x: number; y: number } | null>(null)
 
   const onDrag = async (phase: 'down' | 'move' | 'up', id: string, e: ThreeEvent<PointerEvent>) => {
     const r = room.racks.find(r => r.id === id)
     const p = floorPoint(e)
     if (!r || !p) return
     const { w, d } = footprint(r)
-    const cur = dragRef.current
 
     if (phase === 'down') {
+      const cell = cellOf(r, pendingRef.current.get(id))
+      const cx = cell.x + w / 2
+      const cz = cell.y + d / 2
+      dragRef.current = { id, ox: p.x - cx, oz: p.z - cz, cx, cz, x: cell.x, y: cell.y, startX: cell.x, startY: cell.y }
+      // ปิดการหมุนกล้องทันทีที่จับตู้ (prop enabled อัปเดตช้ากว่า 1 render — กล้องจะหมุนตามตอนเริ่มลาก)
+      if (controls.current) controls.current.enabled = false
+      document.body.style.cursor = 'grabbing'
+      setGhost({ id, x: cell.x, y: cell.y })
       onSelect(id)
-      setDrag({ id, x: r.x, y: r.y, ox: p.x - (r.x + w / 2), oz: p.z - (r.y + d / 2), moved: false })
       return
     }
+
+    const cur = dragRef.current
     if (!cur || cur.id !== id) return
-    // ตำแหน่งช่องใต้เมาส์ตอนนี้ — คิดทั้งตอนขยับและตอนปล่อย (บางเครื่องส่ง move มาน้อย/ไม่ส่งเลยก่อนปล่อย)
-    const placed = clampToRoom({ ...r, x: Math.round(p.x - cur.ox - w / 2), y: Math.round(p.z - cur.oz - d / 2) }, room)
-    const next = placed.x !== cur.x || placed.y !== cur.y ? { ...cur, x: placed.x, y: placed.y, moved: true } : cur
-    if (phase === 'move') {
-      if (next !== cur) setDrag(next)
-      return
+    // คิดตำแหน่งทั้งตอนขยับและตอนปล่อย (บางเครื่องส่ง move มาน้อย/ไม่ส่งเลยก่อนปล่อย)
+    cur.cx = clamp(p.x - cur.ox, w / 2, room.width - w / 2)
+    cur.cz = clamp(p.z - cur.oz, d / 2, room.depth - d / 2)
+    const cell = clampToRoom({ ...r, x: Math.round(cur.cx - w / 2), y: Math.round(cur.cz - d / 2) }, room)
+    if (cell.x !== cur.x || cell.y !== cur.y) {
+      cur.x = cell.x
+      cur.y = cell.y
+      if (phase === 'move') setGhost({ id, x: cell.x, y: cell.y })
     }
-    // ปล่อย — ย้ายจริงค่อยบันทึก; ค้างตำแหน่งใหม่ไว้จนบันทึกเสร็จ
-    if (next !== cur) setDrag(next)
-    if (next.moved && onMove) await onMove(id, next.x, next.y)
-    setDrag(null)
+    if (phase === 'move') return
+
+    // ปล่อย — ตู้เลื่อนเข้าช่องทันที แล้วค่อยบันทึก; ค้างช่องใหม่ไว้จน props จาก server ตามมา (ไม่เด้งกลับที่เดิม)
+    dragRef.current = null
+    if (controls.current) controls.current.enabled = true
+    document.body.style.cursor = 'grab'
+    setGhost(null)
+    if ((cur.x === cur.startX && cur.y === cur.startY) || !onMove) return
+    pendingRef.current.set(id, { x: cur.x, y: cur.y, fromX: r.x, fromY: r.y })
+    const ok = await onMove(id, cur.x, cur.y)
+    if (!ok) pendingRef.current.delete(id)
   }
 
-  // ปล่อยเมาส์นอกจอ (pointer capture หลุด) = ยกเลิกการลากที่ยังไม่ได้ขยับ
+  // pointer capture หลุด (ปล่อยนอกจอ / ระบบยกเลิก) โดยตู้ไม่ได้รับ pointerup → ยกเลิกการลาก ตู้กลับที่เดิม
+  // (ปกติ handler ของตู้ทำงานก่อนและล้าง dragRef ไปแล้ว ตัวนี้จึงไม่ทำอะไร)
   useEffect(() => {
-    if (!drag || drag.moved) return
+    if (!ghost) return
     const cancel = () => {
-      if (dragRef.current && !dragRef.current.moved) setDrag(null)
+      if (!dragRef.current) return
+      dragRef.current = null
+      if (controls.current) controls.current.enabled = true
+      document.body.style.cursor = ''
+      setGhost(null)
     }
     window.addEventListener('pointerup', cancel)
-    return () => window.removeEventListener('pointerup', cancel)
-  }, [drag])
+    window.addEventListener('pointercancel', cancel)
+    return () => {
+      window.removeEventListener('pointerup', cancel)
+      window.removeEventListener('pointercancel', cancel)
+    }
+  }, [ghost])
+
+  const ghostRack = ghost ? room.racks.find(r => r.id === ghost.id) : undefined
+  const ghostSize = ghostRack ? footprint(ghostRack) : null
 
   return (
     <Canvas
@@ -266,20 +360,24 @@ export default function RoomScene({
         fadeDistance={span * 4}
       />
 
-      {room.racks.map(r => {
-        const at = drag?.id === r.id ? { ...r, x: drag.x, y: drag.y } : r
-        const { w, d } = footprint(at)
-        return (
-          <group key={r.id} position={[at.x + w / 2, 0, at.y + d / 2]} rotation={[0, (-r.rotation * Math.PI) / 180, 0]}>
-            <RackModel rack={r} selected={r.id === selectedId} onSelect={onSelect} onDrag={onMove ? onDrag : undefined} />
-          </group>
-        )
-      })}
+      {/* เงาบอกช่องที่ตู้จะลงเมื่อปล่อย */}
+      {ghost && ghostSize && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[ghost.x + ghostSize.w / 2, 0.012, ghost.y + ghostSize.d / 2]}>
+          <planeGeometry args={[ghostSize.w - 0.08, ghostSize.d - 0.08]} />
+          <meshBasicMaterial color="#8b5cf6" transparent opacity={0.3} depthWrite={false} />
+        </mesh>
+      )}
+
+      {room.racks.map(r => (
+        <RackSlot key={r.id} rack={r} dragRef={dragRef} pendingRef={pendingRef}>
+          <RackModel rack={r} selected={r.id === selectedId} onSelect={onSelect} onDrag={onMove ? onDrag : undefined} />
+        </RackSlot>
+      ))}
 
       <OrbitControls
         ref={controls}
         makeDefault
-        enabled={!drag}
+        enabled={!ghost}
         target={[room.width / 2, 0.5, room.depth / 2]}
         maxPolarAngle={Math.PI / 2.1}
         minDistance={2}
