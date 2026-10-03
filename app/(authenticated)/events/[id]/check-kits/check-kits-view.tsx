@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card"
 import { useLanguage } from '@/contexts/language-context'
 import type { Event, Kit } from '@/types'
 
-export default function CheckKitsView({ event, kits }: { event: Event, kits: Kit[] }) {
+export default function CheckKitsView({ event, kits }: { event: Event, kits: (Kit & { packed: boolean })[] }) {
   const { t } = useLanguage()
 
   return (
@@ -25,7 +25,7 @@ export default function CheckKitsView({ event, kits }: { event: Event, kits: Kit
         <div className="grid gap-4">
             {kits?.map(kit => (
                 <Card key={kit.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors">
-                    <Link href={`/kits/${kit.id}/check?eventId=${event.id}`}>
+                    <Link href={`/events/${event.id}/check-kits/${kit.id}`}>
                         <div className="flex items-center justify-between p-6">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
@@ -34,6 +34,9 @@ export default function CheckKitsView({ event, kits }: { event: Event, kits: Kit
                                 <div>
                                     <h3 className="font-semibold text-lg">{kit.name}</h3>
                                     <p className="text-sm text-muted-foreground">{kit.description || t.common.noData}</p>
+                                    <p className={`text-xs font-medium ${kit.packed ? 'text-green-700 dark:text-green-400' : 'text-zinc-400'}`}>
+                                        {kit.packed ? 'จัดครบแล้ว ✓' : 'ยังไม่จัด'}
+                                    </p>
                                 </div>
                             </div>
                             <ArrowRight className="h-5 w-5 text-zinc-400" />

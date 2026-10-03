@@ -244,22 +244,26 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     // กระเป๋า + การจอง (event_kits) — การ์ดใบงานหน้างานแสดงสถานะจัดกระเป๋าและเปิดกล่องจองจากตรงนี้
     const kits: PoolKit[] = (kitRows || []).map(k => ({ id: k.id as string, name: (k.name as string) || 'ไม่ระบุชื่อ' }))
 
-    const KIT_BOOKING_SELECT = 'kit_id, event_id, packed_at, events!inner(id, name, event_date, crm_lead_id)'
+    const KIT_BOOKING_SELECT = 'kit_id, event_id, packed_at, events!inner(id, name, event_date, event_time, event_end_time, status, crm_lead_id)'
     type RawBooking = {
         kit_id: string
         event_id: string
         packed_at: string | null
-        events?: { id: string; name: string | null; event_date: string | null; crm_lead_id: string | null } | null
+        events?: { id: string; name: string | null; event_date: string | null; event_time: string | null; event_end_time: string | null; status: string | null; crm_lead_id: string | null } | null
     }
     const bookingByPair = new Map<string, KitBookingRow>()
     const collectBookings = (rows: RawBooking[] | null) => {
         for (const r of rows || []) {
             const key = `${r.kit_id}:${r.event_id}`
             if (bookingByPair.has(key)) continue
+            // อีเวนต์ที่ปิดแล้วคืนกระเป๋าไปแล้ว — ไม่นับเป็นการจองที่ยังอยู่
+            if (isClosedEvent(r.events?.status)) continue
             bookingByPair.set(key, {
                 kitId: r.kit_id,
                 eventId: r.event_id,
                 eventDate: r.events?.event_date ?? null,
+                eventTime: r.events?.event_time ? r.events.event_time.slice(0, 5) : null,
+                eventEndTime: r.events?.event_end_time ? r.events.event_end_time.slice(0, 5) : null,
                 eventName: r.events?.name || 'ไม่ระบุชื่ออีเวนต์',
                 leadId: r.events?.crm_lead_id ?? null,
                 packed: !!r.packed_at,

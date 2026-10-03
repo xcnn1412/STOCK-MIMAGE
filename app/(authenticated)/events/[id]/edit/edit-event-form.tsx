@@ -1,11 +1,12 @@
 'use client'
 
 import { useActionState, useState, useTransition } from 'react'
+import KitPicker from '../../kit-picker'
+import type { KitBookingDetail } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 import { updateEvent, linkEventToCrm, unlinkEventFromCrm } from '../../actions'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -50,6 +51,7 @@ export default function EditEventForm({
   event,
   availableKits,
   assignedKitIds,
+  kitBookings,
   profiles,
   staffAssignments: initialStaffAssignments = [],
   staffRoles = [],
@@ -59,6 +61,7 @@ export default function EditEventForm({
   event: Event
   availableKits: Kit[]
   assignedKitIds: string[]
+  kitBookings: KitBookingDetail[]
   profiles: Profile[]
   staffAssignments?: StaffAssignment[]
   staffRoles?: StaffRole[]
@@ -101,19 +104,9 @@ export default function EditEventForm({
   // Event phase (sub-event classification)
   const [phase, setPhase] = useState<string>((event as { phase?: string | null }).phase || 'main')
 
-  // Clean valid assigned kit IDs
-  const initialChecked = new Set(assignedKitIds)
-  const [checkedKits, setCheckedKits] = useState<Set<string>>(initialChecked)
-
-  const handleCheckChange = (kitId: string, checked: boolean) => {
-    const next = new Set(checkedKits)
-    if (checked) {
-      next.add(kitId)
-    } else {
-      next.delete(kitId)
-    }
-    setCheckedKits(next)
-  }
+  // เวลาที่กรอกอยู่ — ใช้เตือนกระเป๋าชนในตัวเลือกกระเป๋า
+  const [eventTime, setEventTime] = useState((event.event_time ?? '').slice(0, 5))
+  const [eventEndTime, setEventEndTime] = useState((event.event_end_time ?? '').slice(0, 5))
 
   const addAssignment = () => {
     if (!selectUser || !selectRole) return
@@ -293,11 +286,11 @@ export default function EditEventForm({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <label htmlFor="event_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาเปิด' : 'Start time'}</label>
-                <Input id="event_time" name="event_time" type="time" defaultValue={(event.event_time ?? '').slice(0, 5)} />
+                <Input id="event_time" name="event_time" type="time" defaultValue={(event.event_time ?? '').slice(0, 5)} onChange={e => setEventTime(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <label htmlFor="event_end_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาปิด' : 'End time'}</label>
-                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(event.event_end_time ?? '').slice(0, 5)} />
+                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(event.event_end_time ?? '').slice(0, 5)} onChange={e => setEventEndTime(e.target.value)} />
               </div>
             </div>
 
@@ -430,27 +423,15 @@ export default function EditEventForm({
             {/* จัดการ กระเป๋า */}
             <div className="space-y-4">
                <Label>{t.kits.title}</Label>
-               {(availableKits.length === 0 && assignedKitIds.length === 0) ? (
-                   <p className="text-sm text-zinc-500 italic">{t.common.noData}</p>
-               ) : (
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded-lg p-4 max-h-[300px] overflow-y-auto">
-                       {availableKits.map((kit) => (
-                           <div key={kit.id} className="flex items-center space-x-2">
-                               <Checkbox 
-                                id={`kit-${kit.id}`} 
-                                name="kits" 
-                                value={kit.id} 
-                                defaultChecked={checkedKits.has(kit.id)}
-                                onCheckedChange={(checked) => handleCheckChange(kit.id, checked as boolean)}
-                               />
-                               <Label htmlFor={`kit-${kit.id}`} className="font-normal cursor-pointer">
-                                   {kit.name} {checkedKits.has(kit.id) && !assignedKitIds.includes(kit.id) && <span className="text-xs text-green-600 font-bold ml-1">({t.common.new})</span>}
-                                   {initialChecked.has(kit.id) && !checkedKits.has(kit.id) && <span className="text-xs text-red-500 font-bold ml-1">({t.common.removing})</span>}
-                               </Label>
-                           </div>
-                       ))}
-                   </div>
-               )}
+               <KitPicker
+                 kits={availableKits}
+                 bookings={kitBookings}
+                 eventId={event.id}
+                 eventDate={event.event_date}
+                 eventTime={eventTime}
+                 eventEndTime={eventEndTime}
+                 initialIds={assignedKitIds}
+               />
             </div>
 
             {state?.error && (

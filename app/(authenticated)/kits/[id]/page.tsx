@@ -1,6 +1,7 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import { notFound } from 'next/navigation'
 import KitDetailsView from './kit-details-view'
+import { getKitManager } from '@/lib/kit-bookings'
 
 export const revalidate = 0
 
@@ -25,5 +26,5 @@ export default async function KitDetailsPage(props: { params: Promise<{ id: stri
   // Filter out items that are already in ANY kit
   const availableItems = allItems?.filter(item => !assignedItemIds.has(item.id)) || []
   
-  return <KitDetailsView kit={kit as any} contents={(contents || []) as any} availableItems={availableItems} />
+  return <KitDetailsView kit={kit as any} contents={(contents || []) as any} availableItems={availableItems} canManage={!!(await getKitManager())} />
 }

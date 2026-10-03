@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, Plus } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
+import { toast } from 'sonner'
 import type { Item } from '@/types'
 
 export default function AddItemToKitForm({ kitId, availableItems }: { kitId: string, availableItems: Item[] }) {
@@ -16,8 +17,12 @@ export default function AddItemToKitForm({ kitId, availableItems }: { kitId: str
   const handleSubmit = async () => {
     if (!selectedItem) return
     setIsPending(true)
-    await addItemToKit(kitId, selectedItem)
+    const res = await addItemToKit(kitId, selectedItem)
     setIsPending(false)
+    if (res?.error) {
+      toast.error(res.error)
+      return
+    }
     setSelectedItem("")
   }
 
@@ -42,13 +47,7 @@ export default function AddItemToKitForm({ kitId, availableItems }: { kitId: str
           </Select>
       </div>
 
-      <Button onClick={async () => {
-          if (!selectedItem) return
-          setIsPending(true)
-          await addItemToKit(kitId, selectedItem)
-          setIsPending(false)
-          setSelectedItem("")
-      }} disabled={!selectedItem || isPending} className="w-full">
+      <Button onClick={handleSubmit} disabled={!selectedItem || isPending} className="w-full">
          {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
          {t.kits.addToKit}
       </Button>

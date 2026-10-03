@@ -31,7 +31,7 @@ import {
     emphasizedClaims,
     getMissing,
     isClaimWaived,
-    kitBookingConflict,
+    kitBookingClashes,
     lacksTime,
     missingLabel,
     missingRoles,
@@ -758,12 +758,13 @@ export function KitSummary({
     const run = async (kitId: string, action: () => Promise<unknown>, ok: string) => {
         setBusy(kitId)
         try {
-            const res = (await action()) as { error?: string } | undefined
+            const res = (await action()) as { error?: string; warning?: string } | undefined
             if (res?.error) {
                 toast.error(res.error)
                 return
             }
-            toast.success(ok)
+            if (res?.warning) toast.warning(`${ok} — ${res.warning}`)
+            else toast.success(ok)
             router.refresh()
         } finally {
             setBusy(null)
@@ -799,14 +800,17 @@ export function KitSummary({
                         {kits.length === 0 && <p className="text-sm text-zinc-500 py-4">ยังไม่มีกระเป๋าในระบบ</p>}
                         {kits.map(kit => {
                             const booked = mine.find(b => b.kitId === kit.id) ?? null
-                            const clashes = kitBookingConflict(bookings, {
+                            // วันเดียวกันดูเวลา: ชน / เช็คเวลาไม่ได้ = เตือนสีแดง, ต่อคิว = แจ้งเฉยๆ — กดจองได้ทุกกรณี
+                            const clashes = kitBookingClashes(bookings, {
                                 kitId: kit.id,
                                 eventId: targetEventId,
                                 eventDate: targetDate,
+                                eventTime: target?.event_time ?? lead.event_time,
+                                eventEndTime: target?.event_end_time ?? lead.event_end_time,
                             })
-                            const clashNames = clashes.map(
-                                id => bookings.find(b => b.eventId === id)?.eventName || 'อีเวนต์อื่น'
-                            )
+                            const nameOfEvent = (id: string) => bookings.find(b => b.eventId === id)?.eventName || 'อีเวนต์อื่น'
+                            const warn = clashes.filter(c => c.status !== 'queued')
+                            const queued = clashes.filter(c => c.status === 'queued')
                             return (
                                 <div key={kit.id} className="py-2 flex items-center justify-between gap-2">
                                     <div className="min-w-0">
@@ -815,9 +819,13 @@ export function KitSummary({
                                             <span className="text-xs text-emerald-600 dark:text-emerald-400">
                                                 จองแล้ว (งานนี้){booked.packed ? ' · จัดครบ' : ' · ยังไม่จัด'}
                                             </span>
-                                        ) : clashNames.length > 0 ? (
+                                        ) : warn.length > 0 ? (
                                             <span className="text-xs text-rose-600 dark:text-rose-400 truncate">
-                                                ชน: {clashNames.join(', ')}
+                                                {warn.some(c => c.status === 'conflict') ? 'เวลาชน' : 'วันเดียวกัน (เช็คเวลาไม่ได้)'}: {warn.map(c => nameOfEvent(c.eventId)).join(', ')}
+                                            </span>
+                                        ) : queued.length > 0 ? (
+                                            <span className="text-xs text-amber-600 dark:text-amber-400 truncate">
+                                                ต่อคิวกับ: {queued.map(c => nameOfEvent(c.eventId)).join(', ')} — ต้องคืนกระเป๋าก่อน
                                             </span>
                                         ) : (
                                             <span className="text-xs text-zinc-400">ว่าง</span>
@@ -826,7 +834,7 @@ export function KitSummary({
                                     <div className="flex items-center gap-1.5 shrink-0">
                                         {booked && (
                                             <Link
-                                                href={`/kits/${kit.id}/check?eventId=${booked.eventId}`}
+                                                href={`/events/${booked.eventId}/check-kits/${kit.id}`}
                                                 className="text-xs text-violet-600 dark:text-violet-400 hover:underline"
                                             >
                                                 จัดกระเป๋า
@@ -847,7 +855,7 @@ export function KitSummary({
                                             ) : (
                                                 <Button
                                                     size="sm"
-                                                    disabled={busy === kit.id || clashNames.length > 0}
+                                                    disabled={busy === kit.id}
                                                     onClick={() =>
                                                         run(kit.id, () => bookKitForLead(lead.id, kit.id, eventId), 'จองกระเป๋าแล้ว')
                                                     }

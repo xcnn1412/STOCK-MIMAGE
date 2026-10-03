@@ -1,49 +1,31 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { checkoutItems, checkinItem } from './actions'
-import { setKitPacked } from '@/app/(authenticated)/jobs/actions'
+import { checkoutItems, checkinItem, type ReturnStatus } from './actions'
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
-import { CheckCircle2, AlertTriangle, XCircle, Loader2 } from "lucide-react"
+import { CheckCircle2, AlertTriangle, XCircle, Loader2, Wrench } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
 
 type Kit = any
 type Content = any
 type Event = any
 
-export default function CheckFlow({ kit, contents, events, initialEventId, initialPacked = false }: { kit: Kit, contents: Content[], events: Event[], initialEventId?: string, initialPacked?: boolean }) {
+export default function CheckFlow({ kit, contents, events, initialEventId, initialPacked = false, lockEvent = false }: { kit: Kit, contents: Content[], events: Event[], initialEventId?: string, initialPacked?: boolean, lockEvent?: boolean }) {
   const { t } = useLanguage()
   const [selectedEventId, setSelectedEventId] = useState<string>(initialEventId || "")
-  // จัดครบไว้แล้ว → ติ๊กมาให้เลย ผู้ใช้จะได้เห็นสถานะเดิมและเอาออกได้ถ้าของไม่ครบจริง
-  const [selectedItems, setSelectedItems] = useState<Set<string>>(
-    () => (initialPacked ? new Set<string>(contents.map(c => c.items.id)) : new Set<string>())
-  )
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(() => new Set<string>())
   const [isProcessing, setIsProcessing] = useState(false)
+  // "จัดครบ" = นำอุปกรณ์ออกครบทุกชิ้นแล้ว — server คิดให้ตอนนำออก/รับคืน (event_kits.packed_at)
   const [packedSaved, setPackedSaved] = useState(initialPacked)
+  useEffect(() => setPackedSaved(initialPacked), [initialPacked])
 
-  // "จัดกระเป๋า" = เช็คของครบทุกชิ้น — บันทึกลงการจอง (event_kits) ว่าใครจัด เมื่อไหร่
-  // เข้าหน้านี้ตรงๆ โดยไม่มี ?eventId (ใช้งานแบบเดิม) = ไม่บันทึกอะไรเลย
-  const allChecked = contents.length > 0 && selectedItems.size === contents.length
-  useEffect(() => {
-    if (!initialEventId || contents.length === 0 || allChecked === packedSaved) return
-    let cancelled = false
-    void (async () => {
-      const res = await setKitPacked(initialEventId, kit.id, allChecked)
-      if (cancelled) return
-      if (res?.error) {
-        toast.error(res.error)
-        return
-      }
-      setPackedSaved(allChecked)
-      if (allChecked) toast.success('บันทึกจัดครบแล้ว')
-    })()
-    return () => { cancelled = true }
-  }, [allChecked, packedSaved, initialEventId, kit.id, contents.length])
+  // นำออกได้เฉพาะชิ้นที่ "ว่าง"
+  const selectable = contents.filter(c => c.items.status === 'available')
 
   const handleCheckout = async () => {
     if (!selectedEventId) {
@@ -62,30 +44,31 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
     if (result?.error) {
         toast.error(result.error)
     } else {
-        toast.success(t.checkin.successCheckout)
+        toast.success(result?.packed ? `${t.checkin.successCheckout} — จัดครบแล้ว ✓` : t.checkin.successCheckout)
+        if (result?.packed) setPackedSaved(true)
         setSelectedItems(new Set())
     }
   }
 
-  const handleCheckin = async (itemId: string, condition: 'good' | 'damaged' | 'lost') => {
+  const handleCheckin = async (itemId: string, status: ReturnStatus) => {
     if (!selectedEventId) {
         toast.error(t.checkin.selectEventFirst)
         return
     }
-    
+
     toast.info(t.checkin.updating)
-    const result = await checkinItem(selectedEventId, kit.id, itemId, condition)
-    
+    const result = await checkinItem(selectedEventId, kit.id, itemId, status)
+
     if (result?.error) {
         toast.error(result.error)
     } else {
-        // Map condition to translated string
-        const conditionText = t.checkin[condition as keyof typeof t.checkin]
-        toast.success(`${t.checkin.successCheckin} ${conditionText}`)
+        setPackedSaved(false)
+        toast.success(`${t.checkin.successCheckin} ${t.items.status[status as keyof typeof t.items.status] || status}`)
     }
   }
 
   const toggleItem = (id: string) => {
+    if (!selectable.some(c => c.items.id === id)) return
     const next = new Set(selectedItems)
     if (next.has(id)) next.delete(id)
     else next.add(id)
@@ -98,7 +81,7 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
     <div className="max-w-md mx-auto space-y-4 pb-20">
         <div className="bg-zinc-100 p-4 rounded-lg dark:bg-zinc-800">
             <label className="text-sm font-medium mb-2 block">{t.checkin.selectEvent}</label>
-            <Select value={selectedEventId} onValueChange={setSelectedEventId}>
+            <Select value={selectedEventId} onValueChange={setSelectedEventId} disabled={lockEvent}>
                 <SelectTrigger className="bg-white dark:bg-zinc-900">
                     <SelectValue placeholder={t.checkin.selectEventPlaceholder} />
                 </SelectTrigger>
@@ -116,7 +99,7 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                 <TabsTrigger value="checkout">{t.checkin.checkout}</TabsTrigger>
                 <TabsTrigger value="checkin">{t.checkin.checkin}</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="checkout" className="space-y-4">
                  <div className="bg-white dark:bg-zinc-900 rounded-lg border divide-y">
                     <div className="p-3 flex items-center justify-between bg-zinc-50 dark:bg-zinc-800">
@@ -124,14 +107,15 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                             {t.checkin.selectAll}
                             {packedSaved && (
                                 <span className="ml-2 text-xs font-medium text-green-700 dark:text-green-400">
-                                    บันทึกจัดครบแล้ว ✓
+                                    จัดครบแล้ว ✓
                                 </span>
                             )}
                         </span>
-                        <Checkbox 
-                            checked={selectedItems.size === contents.length && contents.length > 0}
+                        <Checkbox
+                            checked={selectable.length > 0 && selectedItems.size === selectable.length}
+                            disabled={selectable.length === 0}
                             onCheckedChange={(c) => {
-                                if (c) setSelectedItems(new Set(contents.map(c => c.items.id)))
+                                if (c) setSelectedItems(new Set(selectable.map(c => c.items.id)))
                                 else setSelectedItems(new Set())
                             }}
                         />
@@ -140,12 +124,13 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                         <div key={c.id} className="p-3 flex items-center justify-between hover:bg-zinc-50 transition-colors cursor-pointer" onClick={() => toggleItem(c.items.id)}>
                             <div className="flex flex-col">
                                 <span className="font-medium">{c.items.name}</span>
-                                <span className={`text-xs px-2 py-0.5 rounded w-fit ${c.items.status === 'in_use' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                                <span className={`text-xs px-2 py-0.5 rounded w-fit ${c.items.status === 'in_use' ? 'bg-blue-100 text-blue-800' : c.items.status === 'available' ? 'bg-green-100 text-green-800' : 'bg-zinc-200 text-zinc-700'}`}>
                                     {t.items.status[c.items.status as keyof typeof t.items.status] || c.items.status}
                                 </span>
                             </div>
-                            <Checkbox 
+                            <Checkbox
                                 checked={selectedItems.has(c.items.id)}
+                                disabled={c.items.status !== 'available'}
                                 onCheckedChange={() => toggleItem(c.items.id)}
                             />
                         </div>
@@ -155,7 +140,7 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                     {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : t.checkin.checkoutSelected}
                  </Button>
             </TabsContent>
-            
+
             <TabsContent value="checkin" className="space-y-4">
                 <div className="space-y-3">
                     {sortedContents.map(c => (
@@ -167,15 +152,18 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                                         {t.items.status[c.items.status as keyof typeof t.items.status] || c.items.status}
                                     </span>
                                 </div>
-                                <div className="grid grid-cols-3 gap-2">
-                                    <Button size="sm" variant="outline" className="border-green-200 hover:bg-green-50 text-green-700" onClick={() => handleCheckin(c.items.id, 'good')}>
-                                        <CheckCircle2 className="h-4 w-4 mr-1" /> {t.checkin.good}
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Button size="sm" variant="outline" className="border-green-200 hover:bg-green-50 text-green-700" onClick={() => handleCheckin(c.items.id, 'available')}>
+                                        <CheckCircle2 className="h-4 w-4 mr-1" /> {t.items.status.available}
                                     </Button>
                                     <Button size="sm" variant="outline" className="border-yellow-200 hover:bg-yellow-50 text-yellow-700" onClick={() => handleCheckin(c.items.id, 'damaged')}>
-                                        <AlertTriangle className="h-4 w-4 mr-1" /> {t.checkin.damaged}
+                                        <AlertTriangle className="h-4 w-4 mr-1" /> {t.items.status.damaged}
+                                    </Button>
+                                    <Button size="sm" variant="outline" className="border-orange-200 hover:bg-orange-50 text-orange-700" onClick={() => handleCheckin(c.items.id, 'maintenance')}>
+                                        <Wrench className="h-4 w-4 mr-1" /> {t.items.status.maintenance}
                                     </Button>
                                     <Button size="sm" variant="outline" className="border-red-200 hover:bg-red-50 text-red-700" onClick={() => handleCheckin(c.items.id, 'lost')}>
-                                        <XCircle className="h-4 w-4 mr-1" /> {t.checkin.lost}
+                                        <XCircle className="h-4 w-4 mr-1" /> {t.items.status.lost}
                                     </Button>
                                 </div>
                             </CardContent>

@@ -3,18 +3,17 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { requireAuth } from '@/lib/auth'
+import { getKitManager, itemsOutInKit } from '@/lib/kit-bookings'
 
 
 
 export async function addItemToKit(kitId: string, itemId: string, quantity: number = 1) {
-  const session = await requireAuth()
-  const userId = session?.userId
-  if (!userId) {
-      return { error: 'Unauthorized: No active session' }
-  }
+  if (!(await getKitManager())) return { error: 'เฉพาะ admin และแผนกที่ดูแลกระเป๋าเท่านั้น' }
 
   const supabase = createServiceClient()
+
+  const out = await itemsOutInKit(supabase, kitId)
+  if (out.length > 0) return { error: `กระเป๋านี้ยังออกงานอยู่ (${out.join(', ')}) — รับคืนหรือปิดงานก่อนจึงแก้ของในกระเป๋าได้` }
   
   // Fetch details for logging
   const [ { data: kit }, { data: item }, { data: existingAssignment } ] = await Promise.all([
@@ -52,13 +51,12 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
 }
 
 export async function removeItemFromKit(contentId: string, kitId: string) {
-  const session = await requireAuth()
-  const userId = session?.userId
-  if (!userId) {
-      return { error: 'Unauthorized: No active session' }
-  }
+  if (!(await getKitManager())) return { error: 'เฉพาะ admin และแผนกที่ดูแลกระเป๋าเท่านั้น' }
 
   const supabase = createServiceClient()
+
+  const out = await itemsOutInKit(supabase, kitId)
+  if (out.length > 0) return { error: `กระเป๋านี้ยังออกงานอยู่ (${out.join(', ')}) — รับคืนหรือปิดงานก่อนจึงแก้ของในกระเป๋าได้` }
   
   // Fetch details before delete
   const { data: content } = await supabase.from('kit_contents')
@@ -88,11 +86,7 @@ export async function removeItemFromKit(contentId: string, kitId: string) {
 }
 
 export async function updateKitItemQuantity(contentId: string, quantity: number) {
-    const session = await requireAuth()
-    const userId = session?.userId
-    if (!userId) {
-        throw new Error('Unauthorized: No active session')
-    }
+    if (!(await getKitManager())) throw new Error('เฉพาะ admin และแผนกที่ดูแลกระเป๋าเท่านั้น')
 
     const supabase = createServiceClient()
 
@@ -125,11 +119,7 @@ export async function updateKitItemQuantity(contentId: string, quantity: number)
 }
 
 export async function updateKitDetails(kitId: string, name: string, description: string) {
-  const session = await requireAuth()
-  const userId = session?.userId
-  if (!userId) {
-      return { error: 'Unauthorized: No active session' }
-  }
+  if (!(await getKitManager())) return { error: 'เฉพาะ admin และแผนกที่ดูแลกระเป๋าเท่านั้น' }
 
   const supabase = createServiceClient()
   

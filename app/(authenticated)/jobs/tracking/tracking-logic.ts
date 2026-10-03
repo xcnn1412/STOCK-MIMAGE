@@ -1385,6 +1385,9 @@ export interface KitBooking {
   kitId: string
   eventId: string
   eventDate: string | null
+  /** เวลาเปิด–ปิดของอีเวนต์ (HH:mm) — ไม่มี = เทียบเวลาไม่ได้ */
+  eventTime?: string | null
+  eventEndTime?: string | null
 }
 
 /** การจองหนึ่งครั้งพร้อมข้อมูลอีเวนต์ที่ join มาแล้ว — ที่การ์ดใบงานและเลนกระเป๋าใช้ */
@@ -1438,22 +1441,70 @@ export function kitReadinessByLead(
   return out
 }
 
+/** สถานะของการจองกระเป๋าใบเดียวกันวันเดียวกัน: ชน (เวลาทับ) / ต่อคิว (เวลาไม่ทับ) / เช็คเวลาไม่ได้ (ขาดเวลา) */
+export type KitClashStatus = 'conflict' | 'queued' | 'unknown'
+export interface KitClash {
+  eventId: string
+  status: KitClashStatus
+}
+
+const minutesOf = (t: string): number => {
+  const [h, m] = t.slice(0, 5).split(':').map(Number)
+  return h * 60 + m
+}
+
 /**
- * อีเวนต์ที่ "ชน" กับการจองที่กำลังจะเกิด — กระเป๋าใบเดียวกัน วันเดียวกัน แต่คนละอีเวนต์
- * เข้มกว่าคน/รถ: ไม่ดูเวลาและไม่มีต่อคิว (กระเป๋าใบเดียวอยู่สองงานวันเดียวกันไม่ได้)
- * จองซ้ำอีเวนต์เดิม = ไม่ชน · ไม่รู้วันงาน (null) = เทียบไม่ได้ → ไม่ชน
+ * ช่วงเวลาของอีเวนต์เป็นนาที [เริ่ม, จบ) — ขาดเวลาใดเวลาหนึ่ง = null
+ * ponytail: จบก่อน/เท่าเริ่ม (งานข้ามเที่ยงคืน) ยืดถึง 24:00 ของวันงาน ไม่คิดส่วนที่ล้นไปวันถัดไป
+ */
+function kitWindow(b: KitBooking): [number, number] | null {
+  if (!b.eventTime || !b.eventEndTime) return null
+  const start = minutesOf(b.eventTime)
+  const end = minutesOf(b.eventEndTime)
+  return [start, end <= start ? 24 * 60 : end]
+}
+
+/**
+ * การจองอื่นของกระเป๋าใบเดียวกันในวันเดียวกัน พร้อมสถานะเวลา (กติกาเดียวกับคน/รถ: เวลาทับ = ชน, จบตรงเริ่มพอดี = ต่อคิว)
+ * ใช้ "เตือน" เท่านั้น ไม่บล็อกการจอง · จองซ้ำอีเวนต์เดิม = ไม่นับ · ไม่รู้วันงาน = เทียบไม่ได้ → ไม่นับ
  * คืน eventId ไม่ซ้ำ ตามลำดับที่เจอใน bookings
  */
-export function kitBookingConflict(bookings: KitBooking[], candidate: KitBooking): string[] {
+export function kitBookingClashes(bookings: KitBooking[], candidate: KitBooking): KitClash[] {
   if (!candidate.eventDate) return []
-  const out: string[] = []
+  const day = candidate.eventDate.slice(0, 10)
+  const mine = kitWindow(candidate)
+  const out: KitClash[] = []
   for (const b of bookings) {
     if (b.kitId !== candidate.kitId) continue
     if (b.eventId === candidate.eventId) continue
-    if (b.eventDate !== candidate.eventDate) continue
-    if (!out.includes(b.eventId)) out.push(b.eventId)
+    if (!b.eventDate || b.eventDate.slice(0, 10) !== day) continue
+    if (out.some((c) => c.eventId === b.eventId)) continue
+    const other = kitWindow(b)
+    const status: KitClashStatus =
+      !mine || !other ? 'unknown' : mine[0] < other[1] && other[0] < mine[1] ? 'conflict' : 'queued'
+    out.push({ eventId: b.eventId, status })
   }
   return out
+}
+
+/** eventId ที่ต้องเตือนบนไทม์ไลน์ — ชน หรือเช็คเวลาไม่ได้ (ต่อคิวไม่นับ) */
+export function kitBookingConflict(bookings: KitBooking[], candidate: KitBooking): string[] {
+  return kitBookingClashes(bookings, candidate)
+    .filter((c) => c.status !== 'queued')
+    .map((c) => c.eventId)
+}
+
+/**
+ * kits.event_id = "ตอนนี้กระเป๋าอยู่กับงานไหน" — อีเวนต์ที่ยังไม่ปิดซึ่งวัน/เวลาเร็วที่สุดในการจองของกระเป๋าใบนั้น
+ * ไม่มีการจองที่ยังไม่ปิด = null (กระเป๋าว่าง)
+ */
+export function pickKitPointer(
+  bookings: { eventId: string; eventDate: string | null; eventTime?: string | null; closed: boolean }[]
+): string | null {
+  const key = (b: { eventDate: string | null; eventTime?: string | null }) =>
+    `${b.eventDate?.slice(0, 10) ?? '9999-99-99'} ${b.eventTime?.slice(0, 5) ?? '99:99'}`
+  const open = bookings.filter((b) => !b.closed).sort((a, b) => key(a).localeCompare(key(b)))
+  return open[0]?.eventId ?? null
 }
 
 /** วันจัดงานที่ใกล้ที่สุดหลัง fromDate (ไม่รวมวันนั้น) — null เมื่อไม่มีงานข้างหน้า */

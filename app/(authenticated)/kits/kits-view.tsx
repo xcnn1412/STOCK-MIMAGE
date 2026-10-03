@@ -8,18 +8,20 @@ import { DeleteKitButton } from './delete-kit-button'
 import { useLanguage } from '@/contexts/language-context'
 import type { Kit } from '@/types'
 
-export default function KitsView({ kits }: { kits: Kit[] }) {
+export default function KitsView({ kits, canManage = false }: { kits: Kit[]; canManage?: boolean }) {
   const { t } = useLanguage()
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold tracking-tight">{t.kits.title}</h2>
-        <Link href="/kits/new">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" /> {t.kits.createKit}
-          </Button>
-        </Link>
+        {canManage && (
+          <Link href="/kits/new">
+            <Button>
+              <Plus className="mr-2 h-4 w-4" /> {t.kits.createKit}
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -46,7 +48,7 @@ export default function KitsView({ kits }: { kits: Kit[] }) {
                     <QrCode className="h-4 w-4" />
                  </Button>
                </Link>
-               <DeleteKitButton id={kit.id} />
+               {canManage && <DeleteKitButton id={kit.id} />}
             </CardFooter>
           </Card>
         ))}

@@ -2,6 +2,7 @@ import { getEventManager } from '@/lib/event-permissions'
 import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-server'
 import { notFound, redirect } from 'next/navigation'
 import EditEventForm from './edit-event-form'
+import { loadBookingsForEvent, loadOpenBookings } from '@/lib/kit-bookings'
 import { getCrmSettings } from '../../../crm/actions'
 import type { EventLog } from '../../events-log-sheet'
 
@@ -17,19 +18,12 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
   
   if (!event) notFound()
 
-  // 1. Get kits ALREADY assigned to this event
-  const { data: assignedKits } = await supabase
-    .from('kits')
-    .select('id, name')
-    .eq('event_id', event.id)
-    .order('name')
-
-  // 2. Get available kits (not assigned to any event)
-  const { data: availableKits } = await supabase
-    .from('kits')
-    .select('id, name')
-    .is('event_id', null)
-    .order('name')
+  // 1–2. กระเป๋าทุกใบ + การจองของงานที่ยังไม่ปิด (event_kits) — ใบที่จองให้อีเวนต์นี้ติ๊กไว้ก่อน
+  const [{ data: allKits }, kitBookings, ownBookings] = await Promise.all([
+    supabase.from('kits').select('id, name').order('name'),
+    loadOpenBookings(createServiceClient()),
+    loadBookingsForEvent(createServiceClient(), event.id),
+  ])
 
   // 3. Fetch all user profiles for staff/seller selection
   const { data: profiles } = await supabase
@@ -52,12 +46,8 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
   const { data: allSettings } = await getCrmSettings()
   const staffRoles = (allSettings || []).filter((s: any) => s.category === 'staff_role' && s.is_active)
 
-  // Combine them for the UI list
-  const assignedList = (assignedKits || []) as Kit[]
-  const availableList = (availableKits || []) as Kit[]
-  
-  const allDisplayKits = [...assignedList, ...availableList].sort((a, b) => a.name.localeCompare(b.name))
-  const assignedKitIds = assignedList.map(k => k.id)
+  const allDisplayKits = (allKits || []) as Kit[]
+  const assignedKitIds = ownBookings.map(b => b.kitId)
 
   // Map event staff to assignments
   let staffAssignments = (eventStaff || []).map((s: any) => ({
@@ -124,6 +114,7 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
       event={event}
       availableKits={allDisplayKits}
       assignedKitIds={assignedKitIds}
+      kitBookings={kitBookings}
       profiles={profiles || []}
       staffAssignments={staffAssignments}
       staffRoles={staffRoles as any[]}

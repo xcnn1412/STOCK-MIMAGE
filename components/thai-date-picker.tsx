@@ -13,9 +13,11 @@ interface ThaiDatePickerProps {
   name?: string
   defaultValue?: Date
   className?: string
+  /** ค่าที่จะส่งไปกับฟอร์ม (ISO) ทุกครั้งที่เปลี่ยน */
+  onChange?: (iso: string) => void
 }
 
-export function ThaiDatePicker({ name = "date", defaultValue, className }: ThaiDatePickerProps) {
+export function ThaiDatePicker({ name = "date", defaultValue, className, onChange }: ThaiDatePickerProps) {
   const [date, setDate] = React.useState<Date>(defaultValue || new Date())
   
   // Generate arrays
@@ -59,6 +61,7 @@ export function ThaiDatePicker({ name = "date", defaultValue, className }: ThaiD
   }, [date.getMonth(), date.getFullYear()])
 
   const formattedDate = date.toISOString() // or format as YYYY-MM-DD
+  React.useEffect(() => { onChange?.(formattedDate) }, [formattedDate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={`flex gap-2 ${className}`}>
