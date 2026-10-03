@@ -2,12 +2,19 @@
 // component แสดงผลล้วน ไม่มี hook — import ได้จาก server component
 import { cn } from '@/lib/utils'
 import { STAT_KINDS, type PersonStats, type StatKind } from './report-stats'
-import { FRAMES, FramedAvatar, frameWidthForCircle, type FrameKey } from './top3-grid'
+import { FRAMES, FramedAvatar, type FrameKey } from './top3-grid'
 
-/** เส้นผ่านศูนย์กลางวง (px) — ทุกเฟรมถูกย่อ/ขยายให้วงเท่ากันค่านี้ */
-const CIRCLE_PX = 104
-/** ความสูงกล่องเฟรม — เท่ากับเฟรมที่สูงสุดหลัง normalize (graphic) เฟรมอื่นชิดล่างให้ป้ายเรียงแนวเดียวกัน */
-const FRAME_BOX_PX = 136
+// ขนาดทั้งแถวคิดจากเส้นผ่านศูนย์กลางวง --c (ทุกเฟรมถูกย่อ/ขยายให้วงเท่ากัน):
+//   การ์ดกว้าง ≥ 700px → --c = ใหญ่ที่สุดที่ทั้ง 7 ช่องยังพอดีความกว้างการ์ด (ไม่เกิน 104px) เห็นครบไม่ต้องเลื่อน
+//   การ์ดแคบกว่านั้น (มือถือ) → วง 64px แล้วเลื่อนซ้ายขวา
+/** ช่องหนึ่งกว้างกี่เท่าของวง (เผื่อชื่อใต้เฟรม) */
+const TILE_PER_CIRCLE = 1.54
+/** กล่องเฟรมสูงกี่เท่าของวง — เท่ากับเฟรมที่สูงสุดหลัง normalize (graphic) เฟรมอื่นชิดล่างให้ป้ายเรียงแนวเดียวกัน */
+const BOX_PER_CIRCLE = 1.31
+/** ช่องว่างรวมในแถว: 6 ช่องไฟ × 16px + ขอบขวา 32px (pr-8) */
+const ROW_SPACING_PX = 6 * 16 + 32
+/** วงที่ทำให้ 7 ช่องพอดีความกว้างการ์ด (cqw = ความกว้างของ @container ชั้นนอก) */
+const CIRCLE_FIT = `calc((100cqw - ${ROW_SPACING_PX}px) / ${STAT_KINDS.length} / ${TILE_PER_CIRCLE})`
 
 /** ลำดับเฟรมบนแถว — ครบทุกสายสถิติ (รวมยอดนักขาย/สร้างใบงาน) */
 const STRIP_ORDER: FrameKey[] = [...STAT_KINDS]
@@ -36,7 +43,7 @@ export default function ChampionsStrip({
         // ชั้นนอก scroll ได้เมื่อจอแคบ · ชั้นใน w-max + mx-auto = อยู่กึ่งกลางเมื่อจอกว้างพอ
         // ขอบขวาจางลง (mask) = บอกใบ้ว่าเลื่อนต่อได้ · pr-8 ในชั้นใน ให้แชมป์คนสุดท้ายพ้นช่วงจางเมื่อเลื่อนสุด
         <div
-            className={cn('overflow-x-auto pb-2', className)}
+            className={cn('@container overflow-x-auto pb-2', className)}
             style={{
                 scrollbarWidth: 'none',
                 msOverflowStyle: 'none',
@@ -44,21 +51,29 @@ export default function ChampionsStrip({
                 WebkitMaskImage: 'linear-gradient(to right, black calc(100% - 32px), transparent)',
             }}
         >
-            <div className="mx-auto flex w-max gap-4 snap-x pr-8">
+            <div
+                className="mx-auto flex w-max gap-4 snap-x pr-8 [--c:64px] @[700px]:[--c:min(104px,var(--c-fit))]"
+                style={{ ['--c-fit' as string]: CIRCLE_FIT }}
+            >
             {STRIP_ORDER.map(key => {
                 const frame = FRAMES[key]
                 if (!frame) return null
                 const champ = championOf(stats, key)
                 const isMe = !!champ && !!currentUserId && champ.userId === currentUserId
                 return (
-                    <div key={key} className="flex w-40 shrink-0 snap-start flex-col items-center">
-                        {/* กล่องสูงคงที่ ชิดล่าง — วงทุกเฟรมเท่ากัน (CIRCLE_PX) และป้ายล่างเรียงแนวเดียวกัน */}
-                        <div className="flex items-end justify-center" style={{ height: FRAME_BOX_PX }}>
+                    <div
+                        key={key}
+                        className="flex shrink-0 snap-start flex-col items-center"
+                        style={{ width: `calc(var(--c) * ${TILE_PER_CIRCLE})` }}
+                    >
+                        {/* กล่องสูงตามวง ชิดล่าง — วงทุกเฟรมเท่ากัน (--c) และป้ายล่างเรียงแนวเดียวกัน */}
+                        <div className="flex items-end justify-center" style={{ height: `calc(var(--c) * ${BOX_PER_CIRCLE})` }}>
                             <FramedAvatar
                                 frame={frame}
                                 avatarUrl={champ?.avatarUrl ?? null}
                                 name={champ?.name ?? '?'}
-                                style={{ width: frameWidthForCircle(frame, CIRCLE_PX) }}
+                                // ความกว้างเฟรมที่ทำให้วงของเฟรมนี้ = --c (สูตรเดียวกับ frameWidthForCircle)
+                                style={{ width: `calc(var(--c) * ${(100 / frame.d).toFixed(4)})` }}
                             />
                         </div>
                         {champ ? (

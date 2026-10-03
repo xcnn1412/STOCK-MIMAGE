@@ -29,7 +29,7 @@ export default function PurchaseAlertCard({ rows }: PurchaseAlertCardProps) {
                 <ShoppingCart className={cn('h-4 w-4', red ? 'text-red-500' : 'text-amber-500')} aria-hidden />
                 ของยังไม่ครบ — ใกล้วันงาน ({rows.length})
             </h2>
-            <ul className="grid gap-1.5 lg:grid-cols-2">
+            <ul className="grid grid-cols-1 gap-1.5">
                 {shown.map(row => {
                     const tone = urgencyTone(row.severity)
                     return (

@@ -7,10 +7,10 @@ import type { TrackingSnapshot } from '@/app/(authenticated)/jobs/tracking/data'
 import { POOL_DONE_STATUSES } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 import MyJobsPanel from './my-jobs-panel'
 import DutyWarningPanel from './duty-warning-panel'
-import DashboardHero, { type HeroStats } from './dashboard-hero'
+import type { HeroStats } from './dashboard-hero'
 import { buildDutyWarnings, type DutyWarningRow } from './duty-warnings'
 
-/** ป้ายไทยของสิ่งที่ขาดแต่ละหน้าที่ — ใช้ในกราฟแท่งของ hero */
+/** ป้ายไทยของสิ่งที่ขาดแต่ละหน้าที่ — ใช้ในกราฟแท่งบน dashboard */
 const MISSING_BAR_LABELS: Record<string, string> = {
     design: 'ออกแบบ',
     staff: 'จัดคน',
@@ -79,7 +79,6 @@ export default function AlertPanels({
     className,
     emptyFallback = null,
     compactWarnings = false,
-    hero = false,
     showMyJobs = true,
 }: {
     snapshot: TrackingSnapshot
@@ -88,19 +87,16 @@ export default function AlertPanels({
     emptyFallback?: ReactNode
     /** แผงเตือนแบบแถบสรุปพับได้ — ใช้บนหน้าที่แผงไม่ใช่เนื้อหาหลัก (/jobs/tracking) */
     compactWarnings?: boolean
-    /** hero การ์ด gradient บนสุด: ตัวเลขรวม + กราฟแท่งสิ่งที่ยังขาด (ใช้บน /dashboard) */
-    hero?: boolean
     /** false = ไม่แสดงแผง "งานในมือคุณ" — หน้าติดตามงานมีแถบ "ของฉัน" ที่ครอบคลุมอยู่แล้ว */
     showMyJobs?: boolean
 }) {
     const { poolJobs, jobStatusLabels, currentUserId } = snapshot
-    const { leadDates, warnings, myJobsCount, heroStats } = buildAlertData(snapshot)
+    const { leadDates, warnings, myJobsCount } = buildAlertData(snapshot)
     if ((!showMyJobs || myJobsCount === 0) && warnings.length === 0) return <>{emptyFallback}</>
 
     // ทั้งสองแผงคืน null เองเมื่อว่าง — หน้าที่ไม่มีเรื่องเตือนจึงเหมือนเดิมทุกประการ
     return (
         <>
-            {hero && <DashboardHero stats={heroStats} className={className} />}
             {showMyJobs && (
                 <MyJobsPanel
                     jobs={poolJobs}
