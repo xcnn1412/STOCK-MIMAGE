@@ -1,0 +1,2 @@
+# สคริปต์ bash ต้องเป็น LF เสมอ (autocrlf บน Windows ทำให้รันไม่ได้)
+*.sh text eol=lf
