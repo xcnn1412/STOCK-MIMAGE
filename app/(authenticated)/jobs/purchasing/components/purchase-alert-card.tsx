@@ -64,7 +64,7 @@ export default function PurchaseAlertCard({ rows }: PurchaseAlertCardProps) {
                 <Link
                     href="/jobs/purchasing"
                     className={cn(
-                        'inline-block text-xs font-medium hover:underline',
+                        'inline-flex min-h-10 items-center text-xs font-medium hover:underline md:min-h-0',
                         red ? 'text-red-800 dark:text-red-300' : 'text-amber-800 dark:text-amber-300'
                     )}
                 >
