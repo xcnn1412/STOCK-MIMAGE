@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase-server'
 import { getKitManager } from '@/lib/kit-bookings'
-import ShelfView, { type ShelfKit, type ShelfItem, type Candidate, type AuditRow } from './shelf-view'
+import ShelfView, { type ShelfKit, type ShelfItem, type Candidate, type AuditRow, type RackInfo } from './shelf-view'
 
 export const revalidate = 0
 
@@ -11,7 +11,7 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
   const supabase = createServiceClient()
 
   const [{ data: shelf }, { data: kits }, { data: items }, manager, { data: audits }] = await Promise.all([
-    supabase.from('shelves').select('id, zone, code, name, note').eq('id', id).maybeSingle(),
+    supabase.from('shelves').select('id, zone, code, name, note, rack_id, level').eq('id', id).maybeSingle(),
     supabase
       .from('kits')
       .select('id, name, events(name, event_date), kit_contents(items(id, name, status))')
@@ -61,6 +61,26 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
       .sort((a, b) => a.name.localeCompare(b.name)),
   }))
 
+  // ชั้นวางที่ระดับนี้อยู่ — รูป 3D เล็กๆ + เส้นทาง ห้อง › ชั้นวาง › ระดับ
+  let rack: RackInfo | null = null
+  if (shelf.rack_id) {
+    const [{ data: r }, { data: lvls }] = await Promise.all([
+      supabase.from('shelf_racks').select('id, code, width, room_id, shelf_rooms(name)').eq('id', shelf.rack_id).maybeSingle(),
+      supabase.from('shelves').select('id, code, level').eq('rack_id', shelf.rack_id).order('level'),
+    ])
+    if (r) {
+      rack = {
+        id: r.id as string,
+        code: r.code as string,
+        width: r.width as number,
+        roomId: r.room_id as string,
+        roomName: (r as unknown as { shelf_rooms: { name: string } | null }).shelf_rooms?.name ?? '',
+        level: (shelf.level as number) ?? 0,
+        levels: (lvls || []).map(l => ({ id: l.id as string, code: l.code as string, level: l.level as number, things: [], lastAudit: null })),
+      }
+    }
+  }
+
   // ตัวเลือก "เพิ่มเข้าชั้น" — โหลดเฉพาะคนที่จัดการได้
   let kitCandidates: Candidate[] = []
   let itemCandidates: Candidate[] = []
@@ -101,6 +121,7 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
       kitCandidates={kitCandidates}
       itemCandidates={itemCandidates}
       audits={auditRows}
+      rack={rack}
     />
   )
 }

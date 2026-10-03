@@ -312,7 +312,7 @@ function CompositionCard({ title, total, parts }: {
 }
 
 function SummaryCard({ icon: Icon, label, value, sub, tone, emphatic }: {
-  icon: React.ElementType; label: string; value: number; sub: string; tone: 'emerald' | 'rose'; emphatic?: boolean
+  icon: React.ElementType<{ className?: string }>; label: string; value: number; sub: string; tone: 'emerald' | 'rose'; emphatic?: boolean
 }) {
   const c = tone === 'emerald' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
   return (

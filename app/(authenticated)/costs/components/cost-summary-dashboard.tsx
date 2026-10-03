@@ -18,7 +18,7 @@ export interface BarSegment {
   label: string
   amount: number
   color: string
-  icon?: React.ElementType
+  icon?: React.ElementType<{ className?: string }>
 }
 
 // ──────────── Props ────────────

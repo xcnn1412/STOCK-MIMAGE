@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Briefcase, Package, Pencil, Trash2, QrCode, Plus, X, AlertTriangle, ClipboardCheck } from 'lucide-react'
@@ -13,6 +14,20 @@ import { useLanguage } from '@/contexts/language-context'
 import { cn } from '@/lib/utils'
 import { auditDue, auditTargets, countProblems, kitShelfState, PROBLEM_STATUSES, AUDIT_DUE_DAYS } from '../shelf-logic'
 import AuditPanel from './audit-panel'
+import type { RoomLevel } from '../queries'
+
+// รูปชั้นวาง 3D เล็กๆ (three.js ใช้ได้เฉพาะในเบราว์เซอร์)
+const RackMini = dynamic(() => import('../rooms/room-scene').then(m => m.RackMini), { ssr: false })
+
+export interface RackInfo {
+  id: string
+  code: string
+  width: number
+  roomId: string
+  roomName: string
+  level: number
+  levels: RoomLevel[]
+}
 import ShelfFormDialog from '../shelf-form-dialog'
 import { deleteShelf, moveToShelf, updateShelf } from '../actions'
 
@@ -65,6 +80,7 @@ export default function ShelfView({
   kitCandidates,
   itemCandidates,
   audits,
+  rack,
 }: {
   shelf: { id: string; zone: string; code: string; name: string | null; note: string | null }
   kits: ShelfKit[]
@@ -73,6 +89,7 @@ export default function ShelfView({
   kitCandidates: Candidate[]
   itemCandidates: Candidate[]
   audits: AuditRow[]
+  rack: RackInfo | null
 }) {
   const { t } = useLanguage()
   const router = useRouter()
@@ -120,7 +137,14 @@ export default function ShelfView({
           <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
         </Link>
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-medium text-muted-foreground">โซน {shelf.zone}</div>
+          {rack ? (
+            <div className="text-xs font-medium text-muted-foreground">
+              <Link href={`/shelves/rooms/${rack.roomId}`} className="hover:underline">{rack.roomName}</Link>
+              {' › '}ชั้นวาง {rack.code}{' › '}ระดับ {rack.level} จาก {rack.levels.length}
+            </div>
+          ) : (
+            <div className="text-xs font-medium text-muted-foreground">โซน {shelf.zone}</div>
+          )}
           <h1 className="text-3xl font-bold tracking-tight">{shelf.code}</h1>
           {shelf.name && <p className="text-sm text-muted-foreground">{shelf.name}</p>}
           {shelf.note && <p className="mt-1 text-xs text-zinc-500 whitespace-pre-line">{shelf.note}</p>}
@@ -153,6 +177,12 @@ export default function ShelfView({
           </div>
         )}
       </div>
+
+      {rack && (
+        <Card className="h-44 overflow-hidden p-0 bg-gradient-to-b from-zinc-100 to-white dark:from-zinc-900 dark:to-zinc-950">
+          <RackMini rack={rack} highlightLevelId={shelf.id} />
+        </Card>
+      )}
 
       {/* สรุป */}
       <div className="grid grid-cols-3 gap-2">

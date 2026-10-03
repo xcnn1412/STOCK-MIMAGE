@@ -44,7 +44,7 @@ export function InfoTip({ text, side = 'bottom' }: { text: string; side?: 'top' 
 // ── การ์ดตัวเลขมาตรฐาน (hero = size md, แถบ metric ย่อ = size sm) ──
 export function StatCard({ tone = 'zinc', icon: Icon, label, value, sub, info, footer, size = 'md' }: {
   tone?: Tone
-  icon?: React.ElementType
+  icon?: React.ElementType<{ className?: string }>
   label: string
   value: React.ReactNode
   sub?: React.ReactNode

@@ -219,7 +219,7 @@ export default function DashboardView({ leads, claims, installments, events, cos
 }
 
 // ─── sub-components ───
-function Card({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
+function Card({ title, icon: Icon, children }: { title: string; icon: React.ElementType<{ className?: string }>; children: React.ReactNode }) {
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 p-5 space-y-3">
       <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2"><Icon className="h-4 w-4 text-zinc-400" /> {title}</h3>

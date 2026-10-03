@@ -210,6 +210,12 @@ export type ActionType =
     | 'DELETE_SHELF'
     | 'MOVE_TO_SHELF'
     | 'AUDIT_SHELF'
+    | 'CREATE_SHELF_ROOM'
+    | 'UPDATE_SHELF_ROOM'
+    | 'DELETE_SHELF_ROOM'
+    | 'CREATE_SHELF_RACK'
+    | 'UPDATE_SHELF_RACK'
+    | 'DELETE_SHELF_RACK'
     // Salary (เงินเดือน)
     | 'UPDATE_SALARY_SETTINGS'
     | 'UPDATE_SALARY_DUTY'
