@@ -1,7 +1,7 @@
 // Runnable self-check (no test runner in this repo).
 // Run: npx tsx "app/(authenticated)/shelves/room-logic.check.ts"
 import assert from 'node:assert/strict'
-import { cameraView, cellsOf, clampToRoom, firstFreeSpot, footprint, levelCode, nextRotation, overlapping, LEVEL_H, type RackPlacement } from './room-logic'
+import { A4, cameraView, paginate, qrSheetLayout, cellsOf, clampToRoom, firstFreeSpot, footprint, levelCode, nextRotation, overlapping, LEVEL_H, type RackPlacement } from './room-logic'
 
 const rack = (id: string, x: number, y: number, width = 2, rotation: RackPlacement['rotation'] = 0): RackPlacement => ({ id, x, y, width, rotation })
 const room = { width: 6, depth: 4 }
@@ -64,5 +64,28 @@ const whole = cameraView(R, { x: 4, y: 0, rotation: 0, width: 2, levels: 4 }, nu
 assert.equal(+lv3.target[1].toFixed(3), +(2 * LEVEL_H + LEVEL_H / 2).toFixed(3))
 assert.ok(dist(lv3) <= dist(whole))
 assert.ok(lv3.pos[1] > lv3.target[1], 'level is viewed from slightly above')
+
+// --- แผ่นพิมพ์ QR (A4) ---
+// 40 มม.: ป้าย 46 × 55 → 3 คอลัมน์ × 4 แถว = 12 ป้าย/หน้า
+assert.deepEqual(
+  (({ qr, cols, rows, perPage, labelW, labelH }) => ({ qr, cols, rows, perPage, labelW, labelH }))(qrSheetLayout(40)),
+  { qr: 40, cols: 3, rows: 4, perPage: 12, labelW: 46, labelH: 55 }
+)
+// เล็ก = ได้หลายป้าย · ใหญ่สุด = หน้าละป้าย
+assert.equal(qrSheetLayout(20).perPage, 6 * 7)
+assert.equal(qrSheetLayout(150).perPage, 1)
+// ค่านอกช่วง / ไม่ใช่ตัวเลข → บีบเข้าช่วง
+assert.equal(qrSheetLayout(5).qr, 15)
+assert.equal(qrSheetLayout(999).qr, 150)
+assert.equal(qrSheetLayout(NaN).qr, 40)
+// ทุกขนาดที่ตั้งได้: ป้ายทั้งตารางต้องอยู่ในกระดาษ (รวมขอบ)
+for (let q = 15; q <= 150; q++) {
+  const l = qrSheetLayout(q)
+  assert.ok(l.cols * l.labelW + (l.cols - 1) * l.gap + l.margin * 2 <= A4.w, `width fits at ${q}mm`)
+  assert.ok(l.rows * l.labelH + (l.rows - 1) * l.gap + l.margin * 2 <= A4.h, `height fits at ${q}mm`)
+}
+assert.deepEqual(paginate([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]])
+assert.deepEqual(paginate([], 12), [])
+assert.deepEqual(paginate([1], 0), [[1]])
 
 console.log('room-logic.check: all passed')

@@ -144,3 +144,47 @@ export function cameraView(
   const dist = fitDistance(halfW, LEVEL_H * 1.6, aspect) + RACK_DEPTH / 2
   return { pos: along(target, [fx + sx * 0.15, 0.4, fz + sz * 0.15], dist), target }
 }
+
+// --- แผ่นพิมพ์ QR ของทั้งห้อง (A4 แนวตั้ง) — หน่วย mm ---------------------------------
+
+export const A4 = { w: 210, h: 297 }
+/** ขนาด QR ที่ตั้งได้ (mm) — ใหญ่สุดคือเท่าที่ยังลงกระดาษได้หนึ่งป้ายพร้อมขอบ */
+export const QR_SIZE = { min: 15, max: 150, default: 40 }
+/** ขอบกระดาษ / ช่องไฟระหว่างป้าย / ขอบในป้าย */
+const SHEET_MARGIN = 10
+const LABEL_GAP = 3
+const LABEL_PAD = 3
+
+export interface QrSheetLayout {
+  /** ขนาด QR ที่ใช้จริง (ปัดและบีบให้อยู่ในช่วงที่ตั้งได้) */
+  qr: number
+  cols: number
+  rows: number
+  perPage: number
+  labelW: number
+  labelH: number
+  /** ความสูงของข้อความใต้ QR (รหัสชั้น + ชื่อห้อง) — โตตามขนาด QR */
+  textH: number
+  margin: number
+  gap: number
+  pad: number
+}
+
+/** จัดป้าย QR ขนาด qr มม. ลง A4 แนวตั้ง: ได้กี่คอลัมน์ × กี่แถวต่อหน้า (อย่างน้อย 1 ป้าย) */
+export function qrSheetLayout(qrMm: number): QrSheetLayout {
+  const qr = Math.min(QR_SIZE.max, Math.max(QR_SIZE.min, Math.round(Number.isFinite(qrMm) ? qrMm : QR_SIZE.default)))
+  const textH = Math.max(7, Math.round(qr * 0.22))
+  const labelW = qr + LABEL_PAD * 2
+  const labelH = qr + LABEL_PAD * 2 + textH
+  const cols = Math.max(1, Math.floor((A4.w - SHEET_MARGIN * 2 + LABEL_GAP) / (labelW + LABEL_GAP)))
+  const rows = Math.max(1, Math.floor((A4.h - SHEET_MARGIN * 2 + LABEL_GAP) / (labelH + LABEL_GAP)))
+  return { qr, cols, rows, perPage: cols * rows, labelW, labelH, textH, margin: SHEET_MARGIN, gap: LABEL_GAP, pad: LABEL_PAD }
+}
+
+/** แบ่งรายการเป็นหน้า หน้าละ perPage */
+export function paginate<T>(items: T[], perPage: number): T[][] {
+  const size = Math.max(1, perPage)
+  const pages: T[][] = []
+  for (let i = 0; i < items.length; i += size) pages.push(items.slice(i, i + size))
+  return pages
+}
