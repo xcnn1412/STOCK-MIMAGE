@@ -204,6 +204,11 @@ export type ActionType =
     | 'UPDATE_DOC_TEMPLATE'
     | 'UPDATE_SIGNATURE'
     | 'UPDATE_EVENT_MANAGERS'
+    // ชั้นเก็บของ
+    | 'CREATE_SHELF'
+    | 'UPDATE_SHELF'
+    | 'DELETE_SHELF'
+    | 'MOVE_TO_SHELF'
     // Salary (เงินเดือน)
     | 'UPDATE_SALARY_SETTINGS'
     | 'UPDATE_SALARY_DUTY'

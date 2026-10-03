@@ -874,10 +874,16 @@ export type Kit = Tables['kits']['Row'] & {
   event?: Event | null
   events?: Event | null
   kit_contents?: KitContent[]
+  /** ชั้นเก็บของ (migration 20261004_shelves) */
+  shelf_id?: string | null
+  shelves?: { code: string } | null
 }
 
 export type Item = Tables['items']['Row'] & {
   kit_contents?: KitContent[]
+  /** ชั้นเก็บของ — เฉพาะอุปกรณ์ที่ไม่อยู่ในกระเป๋า (ในกระเป๋า = ชั้นของกระเป๋า) */
+  shelf_id?: string | null
+  shelves?: { code: string } | null
 }
 
 export type KitContent = Tables['kit_contents']['Row'] & {

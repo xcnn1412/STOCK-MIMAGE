@@ -21,7 +21,7 @@ export default function KitDetailsView({
     availableItems,
     canManage = false,
 }: { 
-    kit: Kit & { events: { name: string } | null }, 
+    kit: Kit & { events: { name: string } | null; shelves?: { id: string; code: string } | null }, 
     contents: KitContentWithItem[], 
     availableItems: Item[],
     /** admin หรือแผนกที่ดูแลกระเป๋า — คนอื่นดูได้อย่างเดียว */
@@ -46,6 +46,11 @@ export default function KitDetailsView({
                 <div className="flex items-center gap-3">
                     <h2 className="text-3xl font-bold tracking-tight">{kit.name}</h2>
                     {canManage && <EditKitDialog kit={kit} />}
+                    {kit.shelves && (
+                        <Link href={`/shelves/${kit.shelves.id}`} className="bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 text-sm px-2 py-0.5 rounded-full font-medium hover:underline">
+                            ชั้น {kit.shelves.code}
+                        </Link>
+                    )}
                     {kit.events && (
                         <div className="bg-blue-100 text-blue-700 text-sm px-2 py-0.5 rounded-full font-medium">
                             in use @ {kit.events.name}

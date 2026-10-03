@@ -1,6 +1,7 @@
 'use client'
 
-import { useActionState, useState, useEffect, useRef } from 'react'
+import { useActionState, useState, useEffect, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { loginWithPhoneAndSelfie, registerUser } from './actions'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,6 +17,12 @@ const initialState: ActionState = {
 }
 
 type LoginStep = 'phone' | 'pin'
+
+/** ?next= จากการเปิดลิงก์ตรงตอนยังไม่ login (เช่นสแกน QR) — server ตรวจว่าเป็น path ภายในอีกที */
+function NextField() {
+    const next = useSearchParams().get('next') ?? ''
+    return <input type="hidden" name="next" value={next} />
+}
 
 export default function LoginPage() {
     const [loginState, loginAction, isLoginPending] = useActionState(loginWithPhoneAndSelfie, initialState)
@@ -100,6 +107,7 @@ export default function LoginPage() {
                                 {/* Hidden inputs */}
                                 <input type="hidden" name="phone" value={phone} />
                                 <input type="hidden" name="pin" value={pin} />
+                                <Suspense fallback={null}><NextField /></Suspense>
 
                                 {/* Step: Phone */}
                                 {loginStep === 'phone' && (

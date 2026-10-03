@@ -39,6 +39,9 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
     return { error: 'Failed to add item' }
   }
 
+  // อุปกรณ์ในกระเป๋าอยู่ตามกระเป๋า — ไม่มีชั้นของตัวเอง
+  await supabase.from('items').update({ shelf_id: null }).eq('id', itemId)
+
   await logActivity('ADD_KIT_ITEM', { 
       kitName: kit?.name || 'Unknown Kit', 
       itemName: item?.name || 'Unknown Item',

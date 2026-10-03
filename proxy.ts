@@ -5,7 +5,7 @@ import { getLicenseStatus, getExpiredRedirectUrl } from '@/lib/license'
 
 // Module-route mapping (inlined to avoid importing components in edge runtime)
 const MODULE_ROUTES: Record<string, string[]> = {
-  stock: ['/stock/dashboard', '/items', '/kits', '/example-kits'],
+  stock: ['/stock/dashboard', '/items', '/kits', '/shelves', '/example-kits'],
   events: ['/events'],
   kpi: ['/kpi'],
   costs: ['/costs'],
@@ -191,7 +191,10 @@ export async function proxy(request: NextRequest) {
   // 1. If not valid session AND protected route -> redirect to login
   // Always clear the session cookies (incl. leftover legacy ones) so a dead session can't linger
   if (!isValidSession && !isPublicPath) {
-    const response = redirectTo(request, '/login')
+    // เปิดลิงก์ตรง (เช่นสแกน QR ชั้น/กระเป๋า) → login เสร็จแล้วกลับมาหน้านั้น
+    const wanted = pathname + request.nextUrl.search
+    const target = request.method === 'GET' && pathname !== '/' ? `/login?next=${encodeURIComponent(wanted)}` : '/login'
+    const response = redirectTo(request, target)
 
     response.cookies.delete('session_token')
     response.cookies.delete('session_user_id')

@@ -10,10 +10,12 @@ export default async function ItemsPage() {
     .from('items')
     .select(`
         *,
+        shelves ( code ),
         kit_contents (
             kits (
                 id,
                 name,
+                shelves ( code ),
                 events (
                     id,
                     name

@@ -1,0 +1,120 @@
+'use server'
+
+// ชั้นเก็บของ — สร้าง/แก้/ลบชั้น และวางกระเป๋า/อุปกรณ์บนชั้น
+// ทุก action: admin + แผนกที่ดูแลกระเป๋า (getKitManager) — ดู/สแกนได้ทุกคนที่มีสิทธิ์ stock (proxy)
+
+import { revalidatePath } from 'next/cache'
+import { createServiceClient } from '@/lib/supabase-server'
+import { logActivity } from '@/lib/logger'
+import { getKitManager } from '@/lib/kit-bookings'
+
+type Result = { error?: string; success?: boolean; id?: string }
+
+const NO_PERMISSION = 'เฉพาะ admin และแผนกที่ดูแลกระเป๋าเท่านั้น'
+
+export interface ShelfInput {
+  zone: string
+  code: string
+  name?: string | null
+  note?: string | null
+}
+
+function clean(input: ShelfInput): { error: string } | Required<ShelfInput> {
+  const zone = (input?.zone || '').trim()
+  const code = (input?.code || '').trim()
+  if (!zone) return { error: 'กรุณาใส่โซน' }
+  if (!code) return { error: 'กรุณาใส่รหัสชั้น' }
+  return { zone, code, name: input.name?.trim() || null, note: input.note?.trim() || null }
+}
+
+/** รหัสชั้นซ้ำ (unique violation) → ข้อความที่ผู้ใช้เข้าใจ */
+const dbError = (e: { code?: string; message: string }) =>
+  e.code === '23505' ? 'รหัสชั้นนี้มีอยู่แล้ว' : `บันทึกไม่สำเร็จ: ${e.message}`
+
+function refresh(shelfId?: string) {
+  revalidatePath('/shelves')
+  if (shelfId) revalidatePath(`/shelves/${shelfId}`)
+  revalidatePath('/items')
+  revalidatePath('/kits')
+}
+
+export async function createShelf(input: ShelfInput): Promise<Result> {
+  if (!(await getKitManager())) return { error: NO_PERMISSION }
+  const row = clean(input)
+  if ('error' in row) return row
+
+  const { data, error } = await createServiceClient().from('shelves').insert(row).select('id').single()
+  if (error) return { error: dbError(error) }
+
+  await logActivity('CREATE_SHELF', { shelfId: data.id, ...row })
+  refresh()
+  return { success: true, id: data.id as string }
+}
+
+export async function updateShelf(id: string, input: ShelfInput): Promise<Result> {
+  if (!(await getKitManager())) return { error: NO_PERMISSION }
+  const row = clean(input)
+  if ('error' in row) return row
+
+  const { error } = await createServiceClient().from('shelves').update(row).eq('id', id)
+  if (error) return { error: dbError(error) }
+
+  await logActivity('UPDATE_SHELF', { shelfId: id, ...row })
+  refresh(id)
+  return { success: true }
+}
+
+export async function deleteShelf(id: string): Promise<Result> {
+  if (!(await getKitManager())) return { error: NO_PERMISSION }
+
+  const supabase = createServiceClient()
+  const { data: shelf } = await supabase.from('shelves').select('code').eq('id', id).maybeSingle()
+  // ของบนชั้นไม่ถูกลบ — FK ON DELETE SET NULL ทำให้กลายเป็น "ยังไม่มีชั้น"
+  const { error } = await supabase.from('shelves').delete().eq('id', id)
+  if (error) return { error: `ลบไม่สำเร็จ: ${error.message}` }
+
+  await logActivity('DELETE_SHELF', { shelfId: id, code: shelf?.code ?? null })
+  refresh()
+  return { success: true }
+}
+
+/**
+ * วางกระเป๋า/อุปกรณ์บนชั้น (shelfId = null = เอาออกจากชั้น) — อยู่ชั้นอื่นอยู่แล้วก็ย้ายมา (หน้าจอถามก่อน)
+ * อุปกรณ์ที่อยู่ในกระเป๋าวางเองไม่ได้ — อยู่ตามกระเป๋า
+ */
+export async function moveToShelf(kind: 'kit' | 'item', targetId: string, shelfId: string | null): Promise<Result> {
+  if (!(await getKitManager())) return { error: NO_PERMISSION }
+  if (kind !== 'kit' && kind !== 'item') return { error: 'ประเภทไม่ถูกต้อง' }
+
+  const supabase = createServiceClient()
+  const table = kind === 'kit' ? 'kits' : 'items'
+
+  const { data: target } = await supabase.from(table).select('id, name, shelf_id').eq('id', targetId).maybeSingle()
+  if (!target) return { error: kind === 'kit' ? 'ไม่พบกระเป๋า' : 'ไม่พบอุปกรณ์' }
+
+  if (kind === 'item' && shelfId) {
+    const { data: inKit } = await supabase.from('kit_contents').select('kits(name)').eq('item_id', targetId).limit(1)
+    if (inKit && inKit.length > 0) {
+      const kitName = (inKit[0] as unknown as { kits: { name: string } | null }).kits?.name || 'กระเป๋า'
+      return { error: `อุปกรณ์นี้อยู่ใน${kitName} — ย้ายกระเป๋าทั้งใบแทน` }
+    }
+  }
+  if (shelfId) {
+    const { data: shelf } = await supabase.from('shelves').select('id').eq('id', shelfId).maybeSingle()
+    if (!shelf) return { error: 'ไม่พบชั้นนี้' }
+  }
+
+  const { error } = await supabase.from(table).update({ shelf_id: shelfId }).eq('id', targetId)
+  if (error) return { error: error.message }
+
+  await logActivity('MOVE_TO_SHELF', {
+    kind,
+    targetId,
+    name: target.name,
+    fromShelfId: target.shelf_id ?? null,
+    toShelfId: shelfId,
+  })
+  refresh(shelfId ?? undefined)
+  if (target.shelf_id) revalidatePath(`/shelves/${target.shelf_id}`)
+  return { success: true }
+}
