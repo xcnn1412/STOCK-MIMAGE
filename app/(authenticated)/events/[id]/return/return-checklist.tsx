@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Loader2, CheckCircle2, ImagePlus, X, UploadCloud } from "lucide-react"
 import { compressImage } from '@/lib/utils'
+import { Input } from "@/components/ui/input"
+import { parseCount } from '@/app/(authenticated)/shelves/consumable-logic'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/contexts/language-context'
@@ -16,7 +18,7 @@ import type { Event, Item } from '@/types'
 
 type ReturnProps = {
     event: Event
-    itemsByKit: Record<string, { kitName: string, items: Item[] }>
+    itemsByKit: Record<string, { kitName: string, items: Item[], consumables?: (Item & { kitQuantity: number })[] }>
 }
 
 export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
@@ -37,10 +39,15 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
     // Flatten items to count total
     const allItems = Object.values(itemsByKit).flatMap(k => k.items)
     const totalItems = allItems.length
+    // วัสดุสิ้นเปลือง: กรอก "ใช้ไป" ต่อกระเป๋า (key = kitId:itemId) — ไม่นับใน isComplete
+    const consumableRows = Object.entries(itemsByKit).flatMap(([kitId, k]) => (k.consumables || []).map(item => ({ kitId, item })))
+    const [usedInput, setUsedInput] = useState<Record<string, string>>({})
+    const usedValue = (kitId: string, itemId: string) => usedInput[`${kitId}:${itemId}`] ?? '0'
+    const usageValid = consumableRows.every(r => parseCount(usedValue(r.kitId, r.item.id)) != null)
 
     // Check if all items have a status selected
     const completedCount = Object.keys(statuses).length
-    const isComplete = completedCount === totalItems
+    const isComplete = completedCount === totalItems && usageValid
 
     const handleStatusChange = (itemId: string, status: string) => {
         setStatuses(prev => ({ ...prev, [itemId]: status }))
@@ -109,7 +116,8 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
              }
 
              const payload = Object.entries(statuses).map(([itemId, status]) => ({ itemId, status }))
-             const result = await processEventReturn(event.id, payload, uploadedUrls)
+             const consumableUse = consumableRows.map(r => ({ kitId: r.kitId, itemId: r.item.id, used: parseCount(usedValue(r.kitId, r.item.id)) ?? 0 }))
+             const result = await processEventReturn(event.id, payload, uploadedUrls, consumableUse)
              if (result && 'error' in result) {
                  setUploadProgress('')
                  alert(result.error)
@@ -120,7 +128,7 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
     }
 
     // No kits/items to check in — the event can simply be closed.
-    if (totalItems === 0) {
+    if (totalItems === 0 && consumableRows.length === 0) {
         return (
              <div className="max-w-2xl mx-auto space-y-6 text-center pt-10">
                  <h2 className="text-xl font-bold">{t.events.noItemsAssigned}</h2>
@@ -161,7 +169,7 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
             </div>
 
             <div className="grid gap-6">
-                {Object.entries(itemsByKit).map(([kitId, { kitName, items }]) => (
+                {Object.entries(itemsByKit).map(([kitId, { kitName, items, consumables = [] }]) => (
                     <Card key={kitId}>
                         <CardHeader className="pb-3">
                             <CardTitle className="text-lg font-medium flex items-center gap-2">
@@ -202,6 +210,33 @@ export default function CheckListForm({ event, itemsByKit }: ReturnProps) {
                                         </div>
                                     </div>
                                 ))}
+                                {consumables.map((item) => {
+                                    const key = `${kitId}:${item.id}`
+                                    const invalid = parseCount(usedValue(kitId, item.id)) == null
+                                    return (
+                                    <div key={key} className="flex items-center justify-between gap-3 p-3 bg-amber-50/60 dark:bg-amber-950/20 rounded-lg border">
+                                        <div className="min-w-0">
+                                            <div className="font-medium">{item.name}</div>
+                                            <div className="text-xs text-zinc-500">วัสดุสิ้นเปลือง · ประจำกระเป๋า {item.kitQuantity} {item.unit || ''}</div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <label htmlFor={`used-${key}`} className="text-sm">ใช้ไป</label>
+                                            <Input
+                                                id={`used-${key}`}
+                                                type="number"
+                                                inputMode="numeric"
+                                                min={0}
+                                                step={1}
+                                                className={`w-20 ${invalid ? 'border-red-500' : ''}`}
+                                                value={usedValue(kitId, item.id)}
+                                                onChange={(e) => setUsedInput(prev => ({ ...prev, [key]: e.target.value }))}
+                                            />
+                                            <Button type="button" size="sm" variant="outline" onClick={() => setUsedInput(prev => ({ ...prev, [key]: String(item.kitQuantity) }))}>
+                                                ใช้หมด
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )})}
                             </div>
                         </CardContent>
                     </Card>

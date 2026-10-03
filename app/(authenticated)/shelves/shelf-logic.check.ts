@@ -47,6 +47,14 @@ assert.deepEqual(plan.skipped.map(t => [t.id, t.reason]), [['k2', 'ออกง�
 // ไม่ได้ติ๊ก = ขาด · key แปลกปลอมถูกทิ้ง
 assert.deepEqual(auditMissing(plan.expected, ['kit:k1', 'item:i2', 'item:zzz']).map(t => t.id), ['i1'])
 assert.deepEqual(auditMissing(plan.expected, ['kit:k1', 'item:i1', 'item:i2']), [])
+// วัสดุสิ้นเปลือง: เหลือบนชั้น 0 → skipped · เหลือ > 0 นับปกติ · ไม่ส่ง onShelf = อุปกรณ์ปกติ
+const cplan = auditTargets([], [
+  { id: 'c1', name: 'เทป', status: 'available', onShelf: 0 },
+  { id: 'c2', name: 'ถ่าน', status: 'available', onShelf: 5 },
+  { id: 'i5', name: 'ขาตั้ง', status: 'available' },
+])
+assert.deepEqual(cplan.expected.map(t => t.id), ['c2', 'i5'])
+assert.deepEqual(cplan.skipped.map(t => [t.id, t.reason]), [['c1', 'ของหมดบนชั้น']])
 // กำหนดตรวจ 30 วัน
 const now = new Date('2026-10-31T12:00:00Z')
 assert.deepEqual(auditDue(null, now), { kind: 'never' })

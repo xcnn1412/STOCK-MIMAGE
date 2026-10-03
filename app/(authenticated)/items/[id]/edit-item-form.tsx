@@ -16,6 +16,8 @@ import type { Item } from '@/types'
 export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?: string }) {
   const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(updateItem.bind(null, item.id), { error: '' })
+  // ติ๊กออกบนวัสดุสิ้นเปลือง = แปลงกลับเป็นอุปกรณ์ปกติ → ช่องสถานะ/serial/จำนวนกลับมาด้วยค่าปัจจุบัน
+  const [isConsumable, setIsConsumable] = useState(!!item.is_consumable)
   
   // Parse existing images
   let initialImages: string[] = []
@@ -196,16 +198,58 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                   <label htmlFor="quantity" className="text-sm font-medium leading-none">{t.items.fields.quantity}</label>
-                   <Input id="quantity" name="quantity" type="number" min="1" defaultValue={item.quantity || 1} required />
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="serial_number" className="text-sm font-medium leading-none">{t.items.fields.serial}</label>
-                  <Input id="serial_number" name="serial_number" defaultValue={item.serial_number || ''} />
-                </div>
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  name="is_consumable"
+                  className="h-4 w-4"
+                  checked={isConsumable}
+                  onChange={e => setIsConsumable(e.target.checked)}
+                />
+                {t.items.fields.isConsumable}
+              </label>
+              <p className="text-xs text-muted-foreground">{t.items.fields.consumableHint}</p>
             </div>
+
+            {isConsumable ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label htmlFor="unit" className="text-sm font-medium leading-none">{t.items.fields.unit}</label>
+                  <Input id="unit" name="unit" defaultValue={item.unit || ''} placeholder={t.items.fields.unitPlaceholder} />
+                </div>
+                <div className="space-y-2">
+                  {/* ยอดเปลี่ยนผ่านหน้าชั้นเท่านั้น — ไม่มีช่อง quantity ในฟอร์มนี้ */}
+                  <div className="text-sm font-medium leading-none">{t.items.fields.quantity}</div>
+                  <div className="h-9 flex items-center text-sm font-semibold">
+                    {item.quantity ?? 0} {item.unit || ''}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t.items.fields.quantityReadOnlyHint}</p>
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="min_quantity" className="text-sm font-medium leading-none">{t.items.fields.minQuantity}</label>
+                  <Input id="min_quantity" name="min_quantity" type="number" inputMode="numeric" min="0" step="1" defaultValue={item.min_quantity ?? ''} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                     <label htmlFor="quantity" className="text-sm font-medium leading-none">{t.items.fields.quantity}</label>
+                     <Input
+                       id="quantity"
+                       name="quantity"
+                       type="number"
+                       min={item.is_consumable ? 0 : 1}
+                       defaultValue={item.is_consumable ? item.quantity ?? 0 : item.quantity || 1}
+                       required
+                     />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="serial_number" className="text-sm font-medium leading-none">{t.items.fields.serial}</label>
+                    <Input id="serial_number" name="serial_number" defaultValue={item.serial_number || ''} />
+                  </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <label htmlFor="description" className="text-sm font-medium leading-none">
@@ -221,7 +265,7 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
               />
             </div>
 
-            <div className="space-y-2">
+            {!isConsumable && <div className="space-y-2">
               <label htmlFor="status" className="text-sm font-medium leading-none">{t.items.fields.status}</label>
               <Select name="status" defaultValue={item.status}>
                 <SelectTrigger>
@@ -237,7 +281,7 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
                   <SelectItem value="out_of_stock">{t.items.status.out_of_stock}</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </div>}
 
             {state?.error && (
               <p className="text-sm text-red-500">{state.error}</p>

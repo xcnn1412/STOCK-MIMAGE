@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase-server'
 import { getKitManager } from '@/lib/kit-bookings'
 import ShelfView, { type ShelfKit, type ShelfItem, type Candidate, type AuditRow, type RackInfo } from './shelf-view'
+import type { ConsumableRow } from './consumables-section'
 
 export const revalidate = 0
 
@@ -17,7 +18,11 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
       .select('id, name, events(name, event_date), kit_contents(items(id, name, status))')
       .eq('shelf_id', id)
       .order('name'),
-    supabase.from('items').select('id, name, serial_number, status, quantity').eq('shelf_id', id).order('name'),
+    supabase
+      .from('items')
+      .select('id, name, serial_number, status, quantity, is_consumable, unit, min_quantity')
+      .eq('shelf_id', id)
+      .order('name'),
     getKitManager(),
     supabase
       .from('shelf_audits')
@@ -27,6 +32,27 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
       .limit(5),
   ])
   if (!shelf) notFound()
+
+  // อุปกรณ์แยกชิ้นปกติ vs วัสดุสิ้นเปลือง (กองกลางบนชั้น + จำนวนที่แบ่งใส่กระเป๋า)
+  type RawItem = ShelfItem & { is_consumable: boolean | null; unit: string | null; min_quantity: number | null }
+  const rawItems = (items || []) as RawItem[]
+  const looseItems: ShelfItem[] = rawItems
+    .filter(i => !i.is_consumable)
+    .map(i => ({ id: i.id, name: i.name, serial_number: i.serial_number, status: i.status, quantity: i.quantity }))
+  const consumableItems = rawItems.filter(i => i.is_consumable)
+  const { data: packed } = consumableItems.length
+    ? await supabase.from('kit_contents').select('item_id, quantity').in('item_id', consumableItems.map(i => i.id))
+    : { data: [] as { item_id: string; quantity: number }[] }
+  const inKitsOf = new Map<string, number>()
+  for (const r of packed || []) inKitsOf.set(r.item_id as string, (inKitsOf.get(r.item_id as string) ?? 0) + ((r.quantity as number) || 0))
+  const consumables: ConsumableRow[] = consumableItems.map(i => ({
+    id: i.id,
+    name: i.name,
+    unit: i.unit,
+    total: i.quantity ?? 0,
+    inKits: inKitsOf.get(i.id) ?? 0,
+    min: i.min_quantity,
+  }))
 
   type RawAudit = {
     id: string
@@ -87,7 +113,7 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
   if (manager) {
     const [{ data: allKits }, { data: allItems }, { data: inKits }, { data: shelves }] = await Promise.all([
       supabase.from('kits').select('id, name, shelf_id').order('name'),
-      supabase.from('items').select('id, name, serial_number, shelf_id').order('name'),
+      supabase.from('items').select('id, name, serial_number, shelf_id, is_consumable').order('name'),
       supabase.from('kit_contents').select('item_id'),
       supabase.from('shelves').select('id, code'),
     ])
@@ -96,9 +122,9 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
     kitCandidates = (allKits || [])
       .filter(k => k.shelf_id !== id)
       .map(k => ({ id: k.id as string, label: k.name as string, currentShelf: k.shelf_id ? codeOf.get(k.shelf_id as string) ?? null : null }))
-    // อุปกรณ์ในกระเป๋าอยู่ตามกระเป๋า — วางเองไม่ได้
+    // อุปกรณ์ในกระเป๋าอยู่ตามกระเป๋า — วางเองไม่ได้ · วัสดุสิ้นเปลือง (กองกลาง) วางได้แม้แบ่งใส่กระเป๋า
     itemCandidates = (allItems || [])
-      .filter(i => i.shelf_id !== id && !inKit.has(i.id as string))
+      .filter(i => i.shelf_id !== id && (i.is_consumable || !inKit.has(i.id as string)))
       .map(i => ({
         id: i.id as string,
         label: i.serial_number ? `${i.name} (${i.serial_number})` : (i.name as string),
@@ -116,7 +142,8 @@ export default async function ShelfPage(props: { params: Promise<{ id: string }>
         note: (shelf.note as string | null) ?? null,
       }}
       kits={shelfKits}
-      items={(items || []) as ShelfItem[]}
+      items={looseItems}
+      consumables={consumables}
       canManage={!!manager}
       kitCandidates={kitCandidates}
       itemCandidates={itemCandidates}

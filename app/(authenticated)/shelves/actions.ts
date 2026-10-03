@@ -9,6 +9,7 @@ import { logActivity } from '@/lib/logger'
 import { getKitManager } from '@/lib/kit-bookings'
 import { requireAuth } from '@/lib/auth'
 import { auditMissing, auditTargets } from './shelf-logic'
+import { onShelf } from './consumable-logic'
 
 type Result = { error?: string; success?: boolean; id?: string }
 
@@ -82,7 +83,7 @@ export async function deleteShelf(id: string): Promise<Result> {
 
 /**
  * วางกระเป๋า/อุปกรณ์บนชั้น (shelfId = null = เอาออกจากชั้น) — อยู่ชั้นอื่นอยู่แล้วก็ย้ายมา (หน้าจอถามก่อน)
- * อุปกรณ์ที่อยู่ในกระเป๋าวางเองไม่ได้ — อยู่ตามกระเป๋า
+ * อุปกรณ์ที่อยู่ในกระเป๋าวางเองไม่ได้ — อยู่ตามกระเป๋า (ยกเว้นวัสดุสิ้นเปลือง)
  */
 export async function moveToShelf(kind: 'kit' | 'item', targetId: string, shelfId: string | null): Promise<Result> {
   if (!(await getKitManager())) return { error: NO_PERMISSION }
@@ -91,10 +92,16 @@ export async function moveToShelf(kind: 'kit' | 'item', targetId: string, shelfI
   const supabase = createServiceClient()
   const table = kind === 'kit' ? 'kits' : 'items'
 
-  const { data: target } = await supabase.from(table).select('id, name, shelf_id').eq('id', targetId).maybeSingle()
+  const { data: target } = await supabase
+    .from(table)
+    .select(kind === 'item' ? 'id, name, shelf_id, is_consumable' : 'id, name, shelf_id')
+    .eq('id', targetId)
+    .maybeSingle()
   if (!target) return { error: kind === 'kit' ? 'ไม่พบกระเป๋า' : 'ไม่พบอุปกรณ์' }
+  const t = target as unknown as { id: string; name: string; shelf_id: string | null; is_consumable?: boolean }
 
-  if (kind === 'item' && shelfId) {
+  // วัสดุสิ้นเปลือง: กองกลางอยู่บนชั้นแม้แบ่งใส่กระเป๋า — วางได้เสมอ
+  if (kind === 'item' && shelfId && !t.is_consumable) {
     const { data: inKit } = await supabase.from('kit_contents').select('kits(name)').eq('item_id', targetId).limit(1)
     if (inKit && inKit.length > 0) {
       const kitName = (inKit[0] as unknown as { kits: { name: string } | null }).kits?.name || 'กระเป๋า'
@@ -112,12 +119,12 @@ export async function moveToShelf(kind: 'kit' | 'item', targetId: string, shelfI
   await logActivity('MOVE_TO_SHELF', {
     kind,
     targetId,
-    name: target.name,
-    fromShelfId: target.shelf_id ?? null,
+    name: t.name,
+    fromShelfId: t.shelf_id ?? null,
     toShelfId: shelfId,
   })
   refresh(shelfId ?? undefined)
-  if (target.shelf_id) revalidatePath(`/shelves/${target.shelf_id}`)
+  if (t.shelf_id) revalidatePath(`/shelves/${t.shelf_id}`)
   return { success: true }
 }
 
@@ -134,9 +141,19 @@ export async function submitShelfAudit(shelfId: string, foundKeys: string[], not
   const [{ data: shelf }, { data: kits }, { data: items }] = await Promise.all([
     supabase.from('shelves').select('id, code').eq('id', shelfId).maybeSingle(),
     supabase.from('kits').select('id, name, kit_contents(items(status))').eq('shelf_id', shelfId),
-    supabase.from('items').select('id, name, status').eq('shelf_id', shelfId),
+    supabase.from('items').select('id, name, status, quantity, is_consumable').eq('shelf_id', shelfId),
   ])
   if (!shelf) return { error: 'ไม่พบชั้นนี้' }
+
+  // วัสดุสิ้นเปลือง: เหลือบนชั้น = ยอดรวม − จำนวนประจำกระเป๋า (คิดจากฐานข้อมูล ไม่เชื่อหน้าจอ)
+  type RawItem = { id: string; name: string; status: string; quantity: number | null; is_consumable: boolean | null }
+  const rawItems = (items || []) as RawItem[]
+  const consumableIds = rawItems.filter(i => i.is_consumable).map(i => i.id)
+  const { data: packed } = consumableIds.length
+    ? await supabase.from('kit_contents').select('item_id, quantity').in('item_id', consumableIds)
+    : { data: [] as { item_id: string; quantity: number }[] }
+  const inKits = new Map<string, number>()
+  for (const r of packed || []) inKits.set(r.item_id as string, (inKits.get(r.item_id as string) ?? 0) + ((r.quantity as number) || 0))
 
   type RawKit = { id: string; name: string; kit_contents: { items: { status: string } | null }[] | null }
   const { expected } = auditTargets(
@@ -145,7 +162,12 @@ export async function submitShelfAudit(shelfId: string, foundKeys: string[], not
       name: k.name,
       itemStatuses: (k.kit_contents || []).map(c => c.items?.status).filter((v): v is string => !!v),
     })),
-    (items || []) as { id: string; name: string; status: string }[]
+    rawItems.map(i => ({
+      id: i.id,
+      name: i.name,
+      status: i.status,
+      ...(i.is_consumable ? { onShelf: onShelf(i.quantity ?? 0, inKits.get(i.id) ?? 0) } : {}),
+    }))
   )
   const missing = auditMissing(expected, Array.isArray(foundKeys) ? foundKeys : [])
 

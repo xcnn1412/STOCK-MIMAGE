@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { isClosedEvent } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 import { logActivity } from '@/lib/logger'
+import { isPacked } from '@/app/(authenticated)/shelves/consumable-logic'
 
 /** สถานะที่เลือกได้ตอนรับคืน — ชุดเดียวกับหน้าปิดงาน */
 export type ReturnStatus = 'available' | 'damaged' | 'maintenance' | 'lost'
@@ -24,17 +25,22 @@ async function checkBooking(db: Db, eventId: string, kitId: string): Promise<str
   return null
 }
 
+type KitItem = { id: string; name: string; status: string; is_consumable: boolean | null }
+
 async function kitItems(db: Db, kitId: string) {
-  const { data } = await db.from('kit_contents').select('items(id, name, status)').eq('kit_id', kitId)
-  return ((data || []) as unknown as { items: { id: string; name: string; status: string } | null }[])
+  const { data } = await db.from('kit_contents').select('items(id, name, status, is_consumable)').eq('kit_id', kitId)
+  return ((data || []) as unknown as { items: KitItem | null }[])
     .map(c => c.items)
-    .filter((i): i is { id: string; name: string; status: string } => !!i)
+    .filter((i): i is KitItem => !!i)
 }
 
-/** "จัดครบ" ของการจอง = อุปกรณ์ทุกชิ้นในกระเป๋าถูกนำออก (in_use) — คิดใหม่ทุกครั้งที่นำออก/รับคืน */
+/** วัสดุสิ้นเปลืองไม่มีสถานะนำออก/รับคืน — ใช้ไปเท่าไรกรอกตอนปิดงาน */
+const CONSUMABLE_ERROR = 'วัสดุสิ้นเปลืองไม่ต้องนำออกหรือรับคืน — กรอกจำนวนที่ใช้ไปตอนปิดงาน'
+
+/** "จัดครบ" ของการจอง = อุปกรณ์ปกติทุกชิ้นในกระเป๋าถูกนำออก (in_use, ไม่นับวัสดุสิ้นเปลือง) — คิดใหม่ทุกครั้งที่นำออก/รับคืน */
 async function syncPacked(db: Db, eventId: string, kitId: string, userId: string) {
   const items = await kitItems(db, kitId)
-  const packed = items.length > 0 && items.every(i => i.status === 'in_use')
+  const packed = isPacked(items)
   const { data: row } = await db.from('event_kits').select('packed_at').eq('event_id', eventId).eq('kit_id', kitId).maybeSingle()
   if (!!row?.packed_at === packed) return packed
   await logActivity('PACK_EVENT_KIT', { event_id: eventId, kit_id: kitId, packed })
@@ -66,6 +72,7 @@ export async function checkoutItems(eventId: string, kitId: string, itemIds: str
   // นำออกได้เฉพาะอุปกรณ์ในกระเป๋าใบนี้ที่สถานะ "ว่าง"
   const items = await kitItems(supabase, kitId)
   const byId = new Map(items.map(i => [i.id, i]))
+  if (itemIds.some(id => byId.get(id)?.is_consumable)) return { error: CONSUMABLE_ERROR }
   const bad = itemIds.filter(id => byId.get(id)?.status !== 'available')
   if (bad.length > 0) {
     const names = bad.map(id => byId.get(id)?.name || 'อุปกรณ์ที่ไม่อยู่ในกระเป๋านี้')
@@ -110,9 +117,11 @@ export async function checkinItem(eventId: string, kitId: string, itemId: string
 
     const bookingError = await checkBooking(supabase, eventId, kitId)
     if (bookingError) return { error: bookingError }
-    if (!(await kitItems(supabase, kitId)).some(i => i.id === itemId)) {
+    const target = (await kitItems(supabase, kitId)).find(i => i.id === itemId)
+    if (!target) {
         return { error: 'อุปกรณ์นี้ไม่ได้อยู่ในกระเป๋าใบนี้' }
     }
+    if (target.is_consumable) return { error: CONSUMABLE_ERROR }
 
     // Update item
     const { error: updateError } = await supabase

@@ -14,6 +14,8 @@ import { useLanguage } from '@/contexts/language-context'
 import { cn } from '@/lib/utils'
 import { auditDue, auditTargets, countProblems, kitShelfState, PROBLEM_STATUSES, AUDIT_DUE_DAYS } from '../shelf-logic'
 import AuditPanel from './audit-panel'
+import ConsumablesSection, { type ConsumableRow } from './consumables-section'
+import { onShelf, stockLevel } from '../consumable-logic'
 import type { RoomLevel } from '../queries'
 
 // รูปชั้นวาง 3D เล็กๆ (three.js ใช้ได้เฉพาะในเบราว์เซอร์)
@@ -76,6 +78,7 @@ export default function ShelfView({
   shelf,
   kits,
   items,
+  consumables,
   canManage,
   kitCandidates,
   itemCandidates,
@@ -85,6 +88,7 @@ export default function ShelfView({
   shelf: { id: string; zone: string; code: string; name: string | null; note: string | null }
   kits: ShelfKit[]
   items: ShelfItem[]
+  consumables: ConsumableRow[]
   canManage: boolean
   kitCandidates: Candidate[]
   itemCandidates: Candidate[]
@@ -111,10 +115,16 @@ export default function ShelfView({
     ? kitRows.filter(k => k.state.kind === 'out' || countProblems(k.items.map(i => i.status)) > 0)
     : kitRows
   const shownItems = onlyAway ? items.filter(i => i.status !== 'available') : items
+  const lowCount = consumables.filter(c => stockLevel(c.total, c.inKits, c.min) !== 'ok').length
+  const shownConsumables = onlyAway ? consumables.filter(c => stockLevel(c.total, c.inKits, c.min) !== 'ok') : consumables
 
   const plan = auditTargets(
     kits.map(k => ({ id: k.id, name: k.name, itemStatuses: k.items.map(i => i.status) })),
-    items
+    [
+      ...items,
+      // วัสดุสิ้นเปลืองที่เหลือบนชั้น 0 ไม่มีอะไรให้นับ → skipped
+      ...consumables.map(c => ({ id: c.id, name: c.name, status: 'available', onShelf: onShelf(c.total, c.inKits) })),
+    ]
   )
   const last = audits[0] ?? null
   const due = auditDue(last?.createdAt ?? null, now)
@@ -185,7 +195,7 @@ export default function ShelfView({
       )}
 
       {/* สรุป */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Card className="p-3">
           <div className="text-2xl font-bold">{kits.length}</div>
           <div className="text-xs text-muted-foreground">กระเป๋า{outCount > 0 ? ` · ออกงาน ${outCount}` : ''}</div>
@@ -193,6 +203,10 @@ export default function ShelfView({
         <Card className="p-3">
           <div className="text-2xl font-bold">{items.length}</div>
           <div className="text-xs text-muted-foreground">อุปกรณ์แยกชิ้น</div>
+        </Card>
+        <Card className={cn('p-3', lowCount > 0 && 'border-amber-300 dark:border-amber-700')}>
+          <div className="text-2xl font-bold">{consumables.length}</div>
+          <div className="text-xs text-muted-foreground">วัสดุสิ้นเปลือง{lowCount > 0 ? ` · ใกล้หมด ${lowCount}` : ''}</div>
         </Card>
         <Card className={cn('p-3', problemCount > 0 && 'border-amber-300 dark:border-amber-700')}>
           <div className="text-2xl font-bold">{problemCount}</div>
@@ -342,6 +356,10 @@ export default function ShelfView({
         )}
       </section>
 
+      {consumables.length > 0 && (
+        <ConsumablesSection rows={shownConsumables} canManage={canManage} onChanged={() => router.refresh()} />
+      )}
+
       {/* ประวัติตรวจนับ */}
       {audits.length > 0 && (
         <section className="space-y-2">
@@ -381,7 +399,7 @@ export default function ShelfView({
             open={adding !== null}
             onOpenChange={o => !o && setAdding(null)}
             title={adding === 'kit' ? `เพิ่มกระเป๋าเข้าชั้น ${shelf.code}` : `เพิ่มอุปกรณ์เข้าชั้น ${shelf.code}`}
-            hint={adding === 'item' ? 'แสดงเฉพาะอุปกรณ์ที่ไม่ได้อยู่ในกระเป๋า — ของในกระเป๋าอยู่ตามกระเป๋า' : undefined}
+            hint={adding === 'item' ? 'แสดงเฉพาะอุปกรณ์ที่ไม่ได้อยู่ในกระเป๋า — ของในกระเป๋าอยู่ตามกระเป๋า (วัสดุสิ้นเปลืองวางได้เสมอ)' : undefined}
             candidates={adding === 'kit' ? kitCandidates : itemCandidates}
             onPick={async c => {
               if (c.currentShelf && !confirm(`${c.label} อยู่ชั้น ${c.currentShelf} — ย้ายมาชั้น ${shelf.code}?`)) return

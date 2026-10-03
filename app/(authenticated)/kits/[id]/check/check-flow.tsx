@@ -24,8 +24,11 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
   const [packedSaved, setPackedSaved] = useState(initialPacked)
   useEffect(() => setPackedSaved(initialPacked), [initialPacked])
 
+  // วัสดุสิ้นเปลืองแยกกลุ่ม — ไม่มีนำออก/รับคืน (กรอกจำนวนใช้ไปตอนปิดงาน)
+  const regular = contents.filter(c => !c.items.is_consumable)
+  const consumables = contents.filter(c => c.items.is_consumable).sort((a, b) => a.items.name.localeCompare(b.items.name))
   // นำออกได้เฉพาะชิ้นที่ "ว่าง"
-  const selectable = contents.filter(c => c.items.status === 'available')
+  const selectable = regular.filter(c => c.items.status === 'available')
 
   const handleCheckout = async () => {
     if (!selectedEventId) {
@@ -75,7 +78,20 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
     setSelectedItems(next)
   }
 
-    const sortedContents = [...contents].sort((a,b) => a.items.name.localeCompare(b.items.name))
+    const sortedContents = [...regular].sort((a,b) => a.items.name.localeCompare(b.items.name))
+
+  const consumableGroup = (note?: string) => consumables.length > 0 && (
+    <div className="bg-white dark:bg-zinc-900 rounded-lg border divide-y">
+      <div className="p-3 text-sm font-medium bg-zinc-50 dark:bg-zinc-800">วัสดุสิ้นเปลืองประจำกระเป๋า</div>
+      {note && <p className="px-3 py-2 text-xs text-zinc-500">{note}</p>}
+      {consumables.map(c => (
+        <div key={c.id} className="p-3 flex items-center justify-between">
+          <span className="font-medium">{c.items.name}</span>
+          <span className="text-sm text-zinc-600 dark:text-zinc-400">× {c.quantity || 1} {c.items.unit || ''}</span>
+        </div>
+      ))}
+    </div>
+  )
 
   return (
     <div className="max-w-md mx-auto space-y-4 pb-20">
@@ -136,6 +152,7 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                         </div>
                     ))}
                  </div>
+                 {consumableGroup()}
                  <Button onClick={handleCheckout} disabled={isProcessing} className="w-full" size="lg">
                     {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : t.checkin.checkoutSelected}
                  </Button>
@@ -170,6 +187,7 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                          </Card>
                     ))}
                 </div>
+                {consumableGroup('จำนวนที่ใช้ไปกรอกตอนปิดงาน')}
             </TabsContent>
         </Tabs>
     </div>

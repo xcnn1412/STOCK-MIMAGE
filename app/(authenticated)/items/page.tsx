@@ -12,6 +12,7 @@ export default async function ItemsPage() {
         *,
         shelves ( code ),
         kit_contents (
+            quantity,
             kits (
                 id,
                 name,

@@ -171,6 +171,10 @@ export interface Database {
           quantity: number
           price: number | null
           created_at: string
+          /** วัสดุสิ้นเปลือง (migration 20261007) — quantity = ยอดคงเหลือ เปลี่ยนผ่าน adjust_item_stock เท่านั้น */
+          is_consumable: boolean
+          unit: string | null
+          min_quantity: number | null
         }
         Insert: {
           id?: string
@@ -183,6 +187,9 @@ export interface Database {
           quantity?: number
           price?: number | null
           created_at?: string
+          is_consumable?: boolean
+          unit?: string | null
+          min_quantity?: number | null
         }
         Update: {
           id?: string
@@ -195,8 +202,79 @@ export interface Database {
           quantity?: number
           price?: number | null
           created_at?: string
+          is_consumable?: boolean
+          unit?: string | null
+          min_quantity?: number | null
         }
         Relationships: []
+      }
+      stock_movements: {
+        Row: {
+          id: string
+          item_id: string
+          delta: number
+          balance_after: number
+          reason: 'restock' | 'use' | 'discard' | 'adjust'
+          note: string | null
+          event_id: string | null
+          kit_id: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          item_id: string
+          delta: number
+          balance_after: number
+          reason: 'restock' | 'use' | 'discard' | 'adjust'
+          note?: string | null
+          event_id?: string | null
+          kit_id?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          item_id?: string
+          delta?: number
+          balance_after?: number
+          reason?: 'restock' | 'use' | 'discard' | 'adjust'
+          note?: string | null
+          event_id?: string | null
+          kit_id?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_movements_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_kit_id_fkey"
+            columns: ["kit_id"]
+            isOneToOne: false
+            referencedRelation: "kits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       kits: {
         Row: {
@@ -850,7 +928,18 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      adjust_item_stock: {
+        Args: {
+          p_item: string
+          p_delta: number
+          p_reason: string
+          p_note: string | null
+          p_event: string | null
+          p_kit: string | null
+          p_user: string | null
+        }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

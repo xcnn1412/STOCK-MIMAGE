@@ -5,6 +5,9 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
+import { getKitManager } from '@/lib/kit-bookings'
+import { moveStock } from '@/lib/stock'
+import { parseConsumableFields } from '@/app/(authenticated)/shelves/consumable-logic'
 import type { ActionState, Database } from '@/types'
 
 
@@ -21,14 +24,24 @@ export async function createItem(prevState: ActionState, formData: FormData) {
   const status = formData.get('status') as string
   const price = formData.get('price') as string
   const quantity = formData.get('quantity') as string
-  
+
+  // วัสดุสิ้นเปลือง: เฉพาะผู้ดูแลกระเป๋า · ยอดตั้งต้นเข้าผ่าน moveStock (แทรก quantity 0 ก่อน)
+  const isConsumable = formData.get('is_consumable') === 'on'
+  let consumable: { unit: string | null; min_quantity: number | null; initial: number } | null = null
+  if (isConsumable) {
+    if (!(await getKitManager())) return { error: 'วัสดุสิ้นเปลืองสร้างได้เฉพาะ admin และแผนกที่ดูแลกระเป๋า' }
+    const parsed = parseConsumableFields(formData, true)
+    if ('error' in parsed) return parsed
+    consumable = parsed
+  }
+
   // Handle multiple images
   const images = formData.getAll('images') as File[]
   const validImages = images.filter(img => img.size > 0).slice(0, 4) // Limit to 4
 
   const supabase = createServiceClient()
   const imageUrls: string[] = []
-  let uploadErrors: string[] = []
+  const uploadErrors: string[] = []
 
   for (const image of validImages) {
       const filename = `${Date.now()}-${Math.random().toString(36).substring(7)}-${image.name.replace(/[^a-zA-Z0-9.]/g, '_')}`
@@ -62,7 +75,19 @@ export async function createItem(prevState: ActionState, formData: FormData) {
 
 // ... existing code ...
 
-  const { data: newItem, error } = await supabase.from('items').insert({
+  const { data: newItem, error } = await supabase.from('items').insert(consumable ? {
+    name,
+    category,
+    serial_number: serial_number || null,
+    description: (formData.get('description') as string) || null,
+    status: 'available',
+    price: price ? parseFloat(price) : null,
+    quantity: 0,
+    image_url,
+    is_consumable: true,
+    unit: consumable.unit,
+    min_quantity: consumable.min_quantity,
+  } : {
     name,
     category,
     serial_number,
@@ -78,12 +103,27 @@ export async function createItem(prevState: ActionState, formData: FormData) {
      return { error: error.message }
   }
 
-  await logActivity('CREATE_ITEM', { 
-      name, 
-      category, 
-      serial_number, 
+  if (consumable && consumable.initial > 0) {
+    const moved = await moveStock(supabase, {
+      itemId: newItem.id,
+      delta: consumable.initial,
+      reason: 'restock',
+      note: 'ยอดตั้งต้น',
+      userId,
+    })
+    if ('error' in moved) {
+      revalidatePath('/items')
+      return { error: `สร้างรายการแล้ว แต่บันทึกยอดตั้งต้นไม่สำเร็จ (${moved.error}) — เติมยอดที่หน้าชั้นอีกครั้ง` }
+    }
+  }
+
+  await logActivity('CREATE_ITEM', {
+      name,
+      category,
+      serial_number,
       quantity,
-      image_url 
+      image_url,
+      ...(consumable ? { is_consumable: true, unit: consumable.unit, min_quantity: consumable.min_quantity } : {})
   }, undefined)
 
   revalidatePath('/items')

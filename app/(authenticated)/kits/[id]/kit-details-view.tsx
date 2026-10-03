@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card"
 import { ArrowLeft, Trash, QrCode, Pencil } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import AddItemToKitForm from './add-item-form'
+import AddItemToKitForm, { type AvailableItem } from './add-item-form'
 import EditKitDialog from './edit-kit-dialog'
 import { removeItemFromKit } from './actions'
 import { toast } from 'sonner'
@@ -15,6 +15,10 @@ import type { Kit, Item, KitContent } from '@/types'
 
 type KitContentWithItem = KitContent & { items: Item }
 
+const ConsumableBadge = () => (
+  <span className="ml-2 align-middle rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">สิ้นเปลือง</span>
+)
+
 export default function KitDetailsView({ 
     kit, 
     contents, 
@@ -23,7 +27,7 @@ export default function KitDetailsView({
 }: { 
     kit: Kit & { events: { name: string } | null; shelves?: { id: string; code: string } | null }, 
     contents: KitContentWithItem[], 
-    availableItems: Item[],
+    availableItems: AvailableItem[],
     /** admin หรือแผนกที่ดูแลกระเป๋า — คนอื่นดูได้อย่างเดียว */
     canManage?: boolean
 }) {
@@ -96,10 +100,13 @@ export default function KitDetailsView({
                                             <ItemImagePreview images={images} alt={content.items.name} />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="font-semibold text-sm truncate">{content.items.name}</p>
+                                            <p className="font-semibold text-sm truncate">
+                                                {content.items.name}
+                                                {content.items.is_consumable && <ConsumableBadge />}
+                                            </p>
                                             <p className="text-xs text-zinc-500 mb-1">{content.items.category}</p>
                                             <div className="flex items-center gap-2 text-xs font-medium bg-white border px-2 py-1 rounded w-fit">
-                                                <span>{t.items.columns.qty}: {content.quantity || 1}</span>
+                                                <span>{t.items.columns.qty}: {content.items.is_consumable ? `× ${content.quantity || 1} ${content.items.unit || ''}` : content.quantity || 1}</span>
                                             </div>
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -153,9 +160,12 @@ export default function KitDetailsView({
                                     <TableCell>
                                         <ItemImagePreview images={images} alt={content.items.name} />
                                     </TableCell>
-                                    <TableCell className="font-medium">{content.items.name}</TableCell>
+                                    <TableCell className="font-medium">
+                                        {content.items.name}
+                                        {content.items.is_consumable && <ConsumableBadge />}
+                                    </TableCell>
                                     <TableCell>{content.items.category}</TableCell>
-                                    <TableCell>{content.quantity || 1}</TableCell>
+                                    <TableCell>{content.items.is_consumable ? `× ${content.quantity || 1} ${content.items.unit || ''}` : content.quantity || 1}</TableCell>
                                     <TableCell className="flex justify-end gap-2">
                                          <Link href={`/items/${content.items.id}?returnTo=/kits/${kit.id}`}>
                                             <Button variant="ghost" size="icon" title={t.items.editTitle}>
