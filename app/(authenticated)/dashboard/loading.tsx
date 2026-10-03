@@ -1,11 +1,10 @@
 // โครงระหว่างโหลดของหน้าแรก — ลำดับและคอลัมน์ตรงกับ page.tsx (หน้าไม่กระโดดตอนข้อมูลมา)
 import { Skeleton } from '@/components/ui/skeleton'
-
-const CARD = 'rounded-2xl border border-zinc-200/60 bg-white p-4 shadow-sm dark:border-zinc-800/60 dark:bg-zinc-900/80'
+import { DASH_CARD } from '@/components/dashboard-alerts/dash-card'
 
 function PanelSkeleton({ rows }: { rows: number }) {
     return (
-        <div className={`${CARD} space-y-2`}>
+        <div className={`${DASH_CARD} space-y-2`}>
             <Skeleton className="h-5 w-40" />
             {Array.from({ length: rows }).map((_, i) => (
                 <Skeleton key={i} className="h-14 w-full rounded-lg" />
@@ -40,7 +39,7 @@ export default function DashboardLoading() {
             </div>
 
             {/* ทำเนียบแชมป์ — ล่างสุดบนมือถือ · md ขึ้นไปอยู่ใต้หัวหน้า */}
-            <div className={`${CARD} md:order-first`}>
+            <div className={`${DASH_CARD} md:order-first`}>
                 <Skeleton className="h-5 w-32" />
                 <Skeleton className="mt-3 h-36 w-full rounded-xl md:h-44" />
             </div>

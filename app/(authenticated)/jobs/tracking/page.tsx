@@ -42,7 +42,7 @@ export default async function TrackingPage({
             {/* แผงแจ้งเตือนชุดเดียวกับ dashboard — เหนือพูลงาน (แผงว่างคืน null ไม่กินพื้นที่)
                 คำเตือนเป็นแถบสรุปพับได้ เพราะหน้านี้พูลคือเนื้อหาหลัก และตารางมีป้าย "สิ่งที่ยังขาด" อยู่แล้ว */}
             {/* แผง "งานในมือคุณ" ไม่ต้อง — แถบ "ของฉัน" ในภาพรวมครอบคลุมแล้ว เหลือแค่แถบเตือนหน้าที่ยังไม่ครบ */}
-            <AlertPanels snapshot={snapshot} compactWarnings showMyJobs={false} />
+            <AlertPanels snapshot={snapshot} compactWarnings showMyJobs={false} className="px-4 pt-3" />
             <TrackingView
                 leads={rows}
                 roleLabels={roleLabels}

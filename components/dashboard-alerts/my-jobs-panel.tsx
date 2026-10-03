@@ -7,6 +7,7 @@
 import Link from 'next/link'
 import { Briefcase, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DashCard } from './dash-card'
 import { POOL_DONE_STATUSES, parseDate, type PoolJob } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 
 /** `${job_type}:${status}` → ป้าย + สี (รูปแบบเดียวกับ jobStatusLabels ใน snapshot) */
@@ -79,8 +80,8 @@ export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabe
     if (pending.length === 0) {
         if (!showEmpty) return null
         return (
-            <div className={cn('h-full px-4 pt-4 md:pt-6', className)}>
-                <section className="h-full w-full rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3">
+            <div className={cn('h-full', className)}>
+                <DashCard className="h-full w-full p-3">
                     <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                         <Briefcase className="h-4 w-4 text-zinc-400" />
                         งานในมือคุณ (0)
@@ -88,7 +89,7 @@ export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabe
                     <p className="py-8 text-center text-xs text-zinc-400 dark:text-zinc-500">
                         ไม่มีใบงานค้างในมือ 🎉
                     </p>
-                </section>
+                </DashCard>
             </div>
         )
     }
@@ -96,11 +97,10 @@ export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabe
     const shown = pending.slice(0, MAX_ROWS)
 
     return (
-        // div นอกคุมระยะขอบของหน้า (override ได้ด้วย className) — ความกว้างให้ grid ของหน้าคุม
+        // div นอก: สูงเต็มช่อง grid · ระยะขอบของหน้าให้หน้าที่เรียกกำหนดผ่าน className (แผงไม่กำหนดเอง)
         // การ์ดพื้นกลางชุดเดียวกับการ์ดอื่นบน dashboard — ความด่วนบอกด้วยแถบสีบนขอบ + สีไอคอน
-        <div className={cn('h-full px-4 pt-4 md:pt-6', className)}>
-            <section className="relative h-full w-full overflow-hidden rounded-2xl border shadow-sm border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-3 pt-4 space-y-2">
-                <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-amber-400 dark:bg-amber-500" />
+        <div className={cn('h-full', className)}>
+            <DashCard accent="amber" className="h-full w-full space-y-2 p-3 pt-4">
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                     <Briefcase className="h-4 w-4 text-amber-500" />
                     งานในมือคุณ ({pending.length})
@@ -148,7 +148,7 @@ export default function MyJobsPanel({ jobs, leadDates, currentUserId, statusLabe
                         ดูทั้งหมด ({pending.length} ใบ)
                     </Link>
                 )}
-            </section>
+            </DashCard>
         </div>
     )
 }
