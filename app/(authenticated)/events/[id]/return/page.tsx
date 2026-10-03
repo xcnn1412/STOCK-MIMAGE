@@ -53,7 +53,7 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
       
       // Group them manually
       contents?.forEach((c: any) => {
-          const kitName = kits.find(k => k.id === c.kit_id)?.name || 'Unknown Kit'
+          const kitName = kits.find(k => k.id === c.kit_id)?.name || 'กระเป๋า'
           if (!itemsByKit[c.kit_id]) {
               itemsByKit[c.kit_id] = { kitName, items: [], consumables: [] }
           }

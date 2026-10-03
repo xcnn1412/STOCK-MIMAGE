@@ -6,8 +6,9 @@ import { ArrowLeft, ArrowRight, Package } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { useLanguage } from '@/contexts/language-context'
 import type { Event, Kit } from '@/types'
+import { packState, type PackItem } from '@/app/(authenticated)/shelves/consumable-logic'
 
-export default function CheckKitsView({ event, kits }: { event: Event, kits: (Kit & { packed: boolean })[] }) {
+export default function CheckKitsView({ event, kits }: { event: Event, kits: (Omit<Kit, 'kit_contents'> & { items: PackItem[] })[] }) {
   const { t } = useLanguage()
 
   return (
@@ -23,7 +24,9 @@ export default function CheckKitsView({ event, kits }: { event: Event, kits: (Ki
         </div>
 
         <div className="grid gap-4">
-            {kits?.map(kit => (
+            {kits?.map(kit => {
+                const pack = packState(kit.items)
+                return (
                 <Card key={kit.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors">
                     <Link href={`/events/${event.id}/check-kits/${kit.id}`}>
                         <div className="flex items-center justify-between p-6">
@@ -34,16 +37,24 @@ export default function CheckKitsView({ event, kits }: { event: Event, kits: (Ki
                                 <div>
                                     <h3 className="font-semibold text-lg">{kit.name}</h3>
                                     <p className="text-sm text-muted-foreground">{kit.description || t.common.noData}</p>
-                                    <p className={`text-xs font-medium ${kit.packed ? 'text-green-700 dark:text-green-400' : 'text-zinc-400'}`}>
-                                        {kit.packed ? 'จัดครบแล้ว ✓' : 'ยังไม่จัด'}
-                                    </p>
+                                    {pack.packed ? (
+                                        <p className="text-xs font-medium text-green-700 dark:text-green-400">จัดครบแล้ว ✓</p>
+                                    ) : pack.out > 0 ? (
+                                        <p className="text-xs font-medium text-blue-700 dark:text-blue-400">นำออกแล้ว {pack.out}/{pack.total}</p>
+                                    ) : (
+                                        <p className="text-xs font-medium text-zinc-400">ยังไม่จัด</p>
+                                    )}
+                                    {pack.blocked.length > 0 && (
+                                        <p className="text-xs font-medium text-amber-700 dark:text-amber-400">ขาด {pack.blocked.length} ชิ้น</p>
+                                    )}
                                 </div>
                             </div>
                             <ArrowRight className="h-5 w-5 text-zinc-400" />
                         </div>
                     </Link>
                 </Card>
-            ))}
+                )
+            })}
 
             {(!kits || kits.length === 0) && (
                 <div className="text-center py-12 bg-muted/20 border-2 border-dashed rounded-lg">

@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { checkoutItems, checkinItem, type ReturnStatus } from './actions'
+import { useEffect, useRef, useState } from 'react'
+import { checkoutItems, checkinItem, syncKitPacked, type ReturnStatus } from './actions'
+import { packState } from '@/app/(authenticated)/shelves/consumable-logic'
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent } from "@/components/ui/card"
@@ -29,6 +30,24 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
   const consumables = contents.filter(c => c.items.is_consumable).sort((a, b) => a.items.name.localeCompare(b.items.name))
   // นำออกได้เฉพาะชิ้นที่ "ว่าง"
   const selectable = regular.filter(c => c.items.status === 'available')
+  // นำออกแล้ว x/y + ชิ้นที่นำออกไม่ได้ (เสีย/ซ่อม/หาย) — จัดครบได้โดยไม่ต้องมีชิ้นเหล่านี้
+  const pack = packState(contents.map(c => c.items))
+  const statusLabel = (s: string) => t.items.status[s as keyof typeof t.items.status] || s
+  // แถวรับคืนที่ผู้ใช้กด "เปลี่ยนสถานะ" (ชิ้นที่ไม่ได้ออกงานอยู่)
+  const [changing, setChanging] = useState<Set<string>>(() => new Set<string>())
+
+  // ป้าย "จัดครบ" ที่บันทึกไว้อาจคิดด้วยกติกาเก่า — เปิดหน้าแล้วไม่ตรงกติกาใหม่ ให้ server คิดใหม่ครั้งเดียว
+  const syncedRef = useRef(false)
+  useEffect(() => {
+    if (syncedRef.current || !selectedEventId) return
+    syncedRef.current = true
+    if (pack.packed === initialPacked) return
+    syncKitPacked(selectedEventId, kit.id).then(r => {
+      if ('packed' in r) setPackedSaved(r.packed)
+    })
+  // ponytail: ตั้งใจรันครั้งเดียวตอนเปิดหน้า (ref กันซ้ำ)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleCheckout = async () => {
     if (!selectedEventId) {
@@ -53,11 +72,13 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
     }
   }
 
-  const handleCheckin = async (itemId: string, status: ReturnStatus) => {
+  const handleCheckin = async (itemId: string, itemName: string, status: ReturnStatus) => {
     if (!selectedEventId) {
         toast.error(t.checkin.selectEventFirst)
         return
     }
+    // เสียหาย / ซ่อมบำรุง / หาย ถามยืนยันก่อน (กดพลาดแล้วข้อมูลผิด) · ใช้ได้ไม่ต้องถาม
+    if (status !== 'available' && !confirm(`ยืนยันรับคืน "${itemName}" เป็น "${statusLabel(status)}" ?`)) return
 
     toast.info(t.checkin.updating)
     const result = await checkinItem(selectedEventId, kit.id, itemId, status)
@@ -65,7 +86,9 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
     if (result?.error) {
         toast.error(result.error)
     } else {
-        setPackedSaved(false)
+        // รับคืนเป็น "ใช้ได้" = ไม่ครบแล้ว · เสีย/ซ่อม/หาย ไม่นับในจัดครบ จึงไม่เปลี่ยนป้าย (server คิดให้แล้ว)
+        if (status === 'available') setPackedSaved(false)
+        setChanging(prev => { const next = new Set(prev); next.delete(itemId); return next })
         toast.success(`${t.checkin.successCheckin} ${t.items.status[status as keyof typeof t.items.status] || status}`)
     }
   }
@@ -110,6 +133,20 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
             </Select>
         </div>
 
+        {pack.blocked.length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                <div className="flex items-center gap-2 font-medium">
+                    <AlertTriangle className="h-4 w-4 shrink-0" /> ขาด {pack.blocked.length} ชิ้น
+                </div>
+                <ul className="mt-1 space-y-0.5">
+                    {pack.blocked.map(b => (
+                        <li key={b.id} className="wrap-break-word">{b.name} — {statusLabel(b.status)}</li>
+                    ))}
+                </ul>
+                <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">จัดครบได้โดยไม่ต้องมีชิ้นเหล่านี้</p>
+            </div>
+        )}
+
         <Tabs defaultValue="checkout" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="checkout">{t.checkin.checkout}</TabsTrigger>
@@ -121,6 +158,9 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                     <div className="p-3 flex items-center justify-between bg-zinc-50 dark:bg-zinc-800">
                         <span className="text-sm font-medium">
                             {t.checkin.selectAll}
+                            <span className="ml-2 text-xs font-normal text-zinc-500">
+                                นำออกแล้ว {pack.out}/{pack.total}
+                            </span>
                             {packedSaved && (
                                 <span className="ml-2 text-xs font-medium text-green-700 dark:text-green-400">
                                     จัดครบแล้ว ✓
@@ -163,26 +203,33 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                     {sortedContents.map(c => (
                          <Card key={c.id}>
                             <CardContent className="p-4 flex flex-col gap-3">
-                                <div className="flex justify-between items-start">
-                                    <div className="font-medium">{c.items.name}</div>
-                                    <span className={`text-xs px-2 py-0.5 rounded ${c.items.status === 'in_use' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
-                                        {t.items.status[c.items.status as keyof typeof t.items.status] || c.items.status}
+                                <div className="flex justify-between items-start gap-2">
+                                    <div className="font-medium min-w-0 wrap-break-word">{c.items.name}</div>
+                                    <span className={`shrink-0 text-xs px-2 py-0.5 rounded ${c.items.status === 'in_use' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                                        {statusLabel(c.items.status)}
                                     </span>
                                 </div>
+                                {/* 4 ปุ่มเฉพาะชิ้นที่ออกงานอยู่ — ชิ้นอื่นต้องกด "เปลี่ยนสถานะ" ก่อน */}
+                                {c.items.status === 'in_use' || changing.has(c.items.id) ? (
                                 <div className="grid grid-cols-2 gap-2">
-                                    <Button size="sm" variant="outline" className="border-green-200 hover:bg-green-50 text-green-700" onClick={() => handleCheckin(c.items.id, 'available')}>
+                                    <Button size="sm" variant="outline" className="min-h-10 border-green-200 hover:bg-green-50 text-green-700" onClick={() => handleCheckin(c.items.id, c.items.name, 'available')}>
                                         <CheckCircle2 className="h-4 w-4 mr-1" /> {t.items.status.available}
                                     </Button>
-                                    <Button size="sm" variant="outline" className="border-yellow-200 hover:bg-yellow-50 text-yellow-700" onClick={() => handleCheckin(c.items.id, 'damaged')}>
+                                    <Button size="sm" variant="outline" className="min-h-10 border-yellow-200 hover:bg-yellow-50 text-yellow-700" onClick={() => handleCheckin(c.items.id, c.items.name, 'damaged')}>
                                         <AlertTriangle className="h-4 w-4 mr-1" /> {t.items.status.damaged}
                                     </Button>
-                                    <Button size="sm" variant="outline" className="border-orange-200 hover:bg-orange-50 text-orange-700" onClick={() => handleCheckin(c.items.id, 'maintenance')}>
+                                    <Button size="sm" variant="outline" className="min-h-10 border-orange-200 hover:bg-orange-50 text-orange-700" onClick={() => handleCheckin(c.items.id, c.items.name, 'maintenance')}>
                                         <Wrench className="h-4 w-4 mr-1" /> {t.items.status.maintenance}
                                     </Button>
-                                    <Button size="sm" variant="outline" className="border-red-200 hover:bg-red-50 text-red-700" onClick={() => handleCheckin(c.items.id, 'lost')}>
+                                    <Button size="sm" variant="outline" className="min-h-10 border-red-200 hover:bg-red-50 text-red-700" onClick={() => handleCheckin(c.items.id, c.items.name, 'lost')}>
                                         <XCircle className="h-4 w-4 mr-1" /> {t.items.status.lost}
                                     </Button>
                                 </div>
+                                ) : (
+                                <Button size="sm" variant="ghost" className="min-h-10 w-full text-zinc-600" onClick={() => setChanging(prev => new Set(prev).add(c.items.id))}>
+                                    เปลี่ยนสถานะ
+                                </Button>
+                                )}
                             </CardContent>
                          </Card>
                     ))}
