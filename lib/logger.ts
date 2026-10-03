@@ -216,6 +216,11 @@ export type ActionType =
     | 'CREATE_SHELF_RACK'
     | 'UPDATE_SHELF_RACK'
     | 'DELETE_SHELF_RACK'
+    // วัสดุสิ้นเปลือง
+    | 'RESTOCK_ITEM'
+    | 'DRAW_STOCK'
+    | 'DISCARD_STOCK'
+    | 'ADJUST_STOCK'
     // Salary (เงินเดือน)
     | 'UPDATE_SALARY_SETTINGS'
     | 'UPDATE_SALARY_DUTY'
