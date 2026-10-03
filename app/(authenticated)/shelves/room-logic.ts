@@ -71,3 +71,76 @@ export function firstFreeSpot(
 export const levelCode = (rackCode: string, level: number) => `${rackCode}-${level}`
 
 export const nextRotation = (r: Rotation): Rotation => ((r + 90) % 360) as Rotation
+
+// --- มุมกล้อง 3D (ภาพรวมห้อง / focus ชั้นวาง / focus ระดับชั้น) -----------------------
+// หน่วยโลก 3D: 1 = 1 ช่องบนผัง · X = ซ้าย→ขวา, Z = หน้า→หลัง (y บนผัง), Y = ความสูง
+
+/** ความสูงของหนึ่งระดับชั้น และความลึกของตู้ ในหน่วยโลก 3D (ฉาก 3D ใช้ค่าเดียวกัน) */
+export const LEVEL_H = 0.45
+export const RACK_DEPTH = 0.6
+/** มุมมองแนวตั้งของกล้อง (องศา) */
+export const CAMERA_FOV = 45
+
+export type Vec3 = [number, number, number]
+export interface CameraView {
+  pos: Vec3
+  target: Vec3
+}
+
+/** ระยะกล้องที่เห็นกรอบครึ่งกว้าง × ครึ่งสูง พอดีจอ — จอแคบ (aspect < 1) ต้องถอยไกลขึ้น */
+function fitDistance(halfW: number, halfH: number, aspect: number): number {
+  const t = Math.tan((CAMERA_FOV * Math.PI) / 360)
+  return Math.max(halfH / t, halfW / (t * Math.max(aspect, 0.1)))
+}
+
+function along(from: Vec3, dir: Vec3, dist: number): Vec3 {
+  const len = Math.hypot(dir[0], dir[1], dir[2]) || 1
+  return [from[0] + (dir[0] / len) * dist, from[1] + (dir[1] / len) * dist, from[2] + (dir[2] / len) * dist]
+}
+
+/**
+ * ตำแหน่งกล้อง + จุดที่มอง
+ * - ไม่มี rack = ภาพรวมทั้งห้อง (มองเฉียงลงจากด้านหน้า)
+ * - มี rack = focus ตู้นั้นทั้งตู้ จากด้านที่หันเข้าหากลางห้อง (กล้องไม่ไปอยู่นอกผนัง)
+ * - มี level (1 = ล่างสุด) = ซูมเข้าระดับนั้น
+ */
+export function cameraView(
+  room: { width: number; depth: number },
+  rack: { x: number; y: number; rotation: Rotation; width: number; levels: number } | null,
+  level: number | null,
+  aspect: number
+): CameraView {
+  if (!rack) {
+    const target: Vec3 = [room.width / 2, 0.5, room.depth / 2]
+    const dist = fitDistance(room.width / 2 + 0.8, room.depth * 0.3 + 1.5, aspect) + room.depth * 0.45
+    return { pos: along(target, [0.2, 0.75, 1], dist), target }
+  }
+
+  const { w, d } = footprint(rack)
+  const cx = rack.x + w / 2
+  const cz = rack.y + d / 2
+  // หน้าตู้ = แกน Z ของตู้หลังหมุน — เลือกด้านที่หันเข้าหากลางห้อง
+  const th = (-rack.rotation * Math.PI) / 180
+  let fx = Math.sin(th)
+  let fz = Math.cos(th)
+  if (fx * (room.width / 2 - cx) + fz * (room.depth / 2 - cz) < 0) {
+    fx = -fx
+    fz = -fz
+  }
+  // เยื้องด้านข้างเล็กน้อยให้เห็นความลึก
+  const sx = fz
+  const sz = -fx
+  const halfW = rack.width / 2 + 0.5
+
+  if (level == null) {
+    const h = Math.max(rack.levels, 1) * LEVEL_H
+    const target: Vec3 = [cx, h / 2, cz]
+    // เผื่อที่ด้านบนให้ป้ายรหัสตู้ไม่ชนแถบเลือกมุมมอง
+    const dist = fitDistance(halfW, h / 2 + 0.6, aspect) + RACK_DEPTH / 2
+    return { pos: along(target, [fx + sx * 0.25, 0.3, fz + sz * 0.25], dist), target }
+  }
+  const target: Vec3 = [cx, (level - 1) * LEVEL_H + LEVEL_H / 2, cz]
+  // เห็นระดับที่ focus เต็มๆ กับระดับบน-ล่างบางส่วน
+  const dist = fitDistance(halfW, LEVEL_H * 1.6, aspect) + RACK_DEPTH / 2
+  return { pos: along(target, [fx + sx * 0.15, 0.4, fz + sz * 0.15], dist), target }
+}

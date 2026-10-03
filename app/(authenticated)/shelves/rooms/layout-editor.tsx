@@ -1,7 +1,7 @@
 'use client'
 
-// จัดผังห้อง (มองจากด้านบน) — ลากชั้นวางไปวางตามช่อง ปล่อยแล้วบันทึกทันที
-// ทับกันได้แต่ขึ้นกรอบแดงเตือน (ไม่บล็อก)
+// จัดผังห้อง (มองจากด้านบน) — ลากชั้นวางไปวางตามช่อง ปล่อยแล้วบันทึกทันที (ใช้นิ้วลากบนมือถือได้)
+// ผังย่อตามความกว้างจอ: ตำแหน่ง/ขนาดคิดเป็น % ของห้อง · ทับกันได้แต่ขึ้นกรอบแดงเตือน (ไม่บล็อก)
 
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -10,7 +10,8 @@ import { clampToRoom, footprint, overlapping, type RackPlacement } from '../room
 import { updateRack } from '../room-actions'
 import type { RoomData } from '../queries'
 
-const CELL = 44
+/** ขนาดช่องสูงสุด (px) — จอแคบกว่านี้ผังย่อลงให้พอดี */
+const MAX_CELL = 44
 
 export default function LayoutEditor({
   room,
@@ -38,20 +39,25 @@ export default function LayoutEditor({
 
   const cellAt = (e: React.PointerEvent) => {
     const rect = gridRef.current!.getBoundingClientRect()
-    return { cx: Math.floor((e.clientX - rect.left) / CELL), cy: Math.floor((e.clientY - rect.top) / CELL) }
+    return {
+      cx: Math.floor(((e.clientX - rect.left) / rect.width) * room.width),
+      cy: Math.floor(((e.clientY - rect.top) / rect.height) * room.depth),
+    }
   }
+  const pct = (n: number, of: number) => `${(n / of) * 100}%`
 
   return (
-    <div className="overflow-auto rounded-lg border bg-zinc-50 dark:bg-zinc-900 p-3">
+    <div className="rounded-lg border bg-zinc-50 dark:bg-zinc-900 p-3 pb-7">
       <div
         ref={gridRef}
-        className="relative touch-none select-none"
+        className="relative mx-auto touch-none select-none border-b border-r border-zinc-300 dark:border-zinc-700"
         style={{
-          width: room.width * CELL,
-          height: room.depth * CELL,
+          width: '100%',
+          maxWidth: room.width * MAX_CELL,
+          aspectRatio: `${room.width} / ${room.depth}`,
           backgroundImage:
             'linear-gradient(to right, rgb(212 212 216) 1px, transparent 1px), linear-gradient(to bottom, rgb(212 212 216) 1px, transparent 1px)',
-          backgroundSize: `${CELL}px ${CELL}px`,
+          backgroundSize: `${100 / room.width}% ${100 / room.depth}%`,
         }}
         onPointerMove={e => {
           if (!drag) return
@@ -77,6 +83,7 @@ export default function LayoutEditor({
             setPending(null)
           } else onSaved()
         }}
+        onPointerCancel={() => setDrag(null)}
         onPointerDown={e => {
           if (e.target === gridRef.current) onSelect(null)
         }}
@@ -85,16 +92,12 @@ export default function LayoutEditor({
         <div className="absolute -bottom-5 left-0 right-0 text-center text-[10px] text-muted-foreground">ด้านหน้า / ประตู</div>
         {racks.map(r => {
           const { w, d } = footprint(r)
+          const code = room.racks.find(x => x.id === r.id)?.code
           return (
             <div
               key={r.id}
-              className={cn(
-                'absolute flex items-center justify-center rounded border-2 text-xs font-bold cursor-grab active:cursor-grabbing',
-                'transition-[left,top] duration-150 ease-out',
-                r.id === selectedId ? 'bg-violet-500 text-white border-violet-700' : 'bg-white dark:bg-zinc-800 border-zinc-400',
-                clash.has(r.id) && 'border-rose-500 ring-2 ring-rose-300'
-              )}
-              style={{ left: r.x * CELL + 2, top: r.y * CELL + 2, width: w * CELL - 4, height: d * CELL - 4 }}
+              className="absolute cursor-grab p-0.5 transition-[left,top] duration-150 ease-out active:cursor-grabbing"
+              style={{ left: pct(r.x, room.width), top: pct(r.y, room.depth), width: pct(w, room.width), height: pct(d, room.depth) }}
               onPointerDown={e => {
                 e.stopPropagation()
                 ;(e.currentTarget.parentElement as HTMLElement).setPointerCapture(e.pointerId)
@@ -102,9 +105,17 @@ export default function LayoutEditor({
                 const { cx, cy } = cellAt(e)
                 setDrag({ id: r.id, dx: cx - r.x, dy: cy - r.y, x: r.x, y: r.y })
               }}
-              title={`ชั้นวาง ${room.racks.find(x => x.id === r.id)?.code}`}
+              title={`ชั้นวาง ${code}`}
             >
-              {room.racks.find(x => x.id === r.id)?.code}
+              <div
+                className={cn(
+                  'flex h-full w-full items-center justify-center overflow-hidden rounded border-2 text-xs font-bold',
+                  r.id === selectedId ? 'bg-violet-500 text-white border-violet-700' : 'bg-white dark:bg-zinc-800 border-zinc-400',
+                  clash.has(r.id) && 'border-rose-500 ring-2 ring-rose-300'
+                )}
+              >
+                {code}
+              </div>
             </div>
           )
         })}
