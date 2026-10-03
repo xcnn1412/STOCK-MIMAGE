@@ -125,7 +125,14 @@ export const dictionary = {
         serial: 'Serial Number',
         status: 'Status',
         images: 'Images (Max 4)',
-        description: 'Description'
+        description: 'Description',
+        isConsumable: 'Consumable (used up, e.g. tape, batteries)',
+        consumableHint: 'Only admins and the kit department can save a consumable',
+        unit: 'Unit',
+        unitPlaceholder: 'e.g. roll, piece, bag',
+        initialQuantity: 'Starting quantity',
+        minQuantity: 'Minimum quantity (warn when shelf stock is at or below)',
+        quantityReadOnlyHint: 'Change it with Restock / Discard on the shelf page'
       },
       status: {
         all: 'All',
@@ -407,7 +414,14 @@ export const dictionary = {
         serial: 'Serial Number',
         status: 'สถานะ',
         images: 'รูปภาพ (สูงสุด 4 รูป)',
-        description: 'รายละเอียด'
+        description: 'รายละเอียด',
+        isConsumable: 'วัสดุสิ้นเปลือง (ใช้แล้วหมดไป เช่น เทป ถ่าน)',
+        consumableHint: 'บันทึกวัสดุสิ้นเปลืองได้เฉพาะ admin และแผนกที่ดูแลกระเป๋า',
+        unit: 'หน่วยนับ',
+        unitPlaceholder: 'เช่น ม้วน ชิ้น ถุง',
+        initialQuantity: 'จำนวนตั้งต้น',
+        minQuantity: 'จำนวนขั้นต่ำ (เตือนเมื่อเหลือบนชั้นเท่านี้หรือน้อยกว่า)',
+        quantityReadOnlyHint: 'เปลี่ยนยอดได้ที่หน้าชั้น ด้วยปุ่ม เติม / ตัดทิ้ง'
       },
       status: {
         all: 'ทั้งหมด',

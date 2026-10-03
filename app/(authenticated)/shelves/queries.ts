@@ -1,6 +1,7 @@
 // คิวรีฝั่ง server ของชั้นเก็บของที่หลายหน้าใช้ร่วมกัน (ไม่ตรวจสิทธิ์ — ผู้เรียกตรวจเอง)
 import { createServiceClient } from '@/lib/supabase-server'
 import { auditDue } from './shelf-logic'
+import { onShelf, stockLevel } from './consumable-logic'
 
 type Db = ReturnType<typeof createServiceClient>
 
@@ -31,20 +32,43 @@ export interface ShelfHealth {
   /** ตรวจครั้งล่าสุดแล้วเจอของขาด */
   missingShelves: { id: string; code: string; missing: number }[]
   kitsWithoutShelf: number
-  /** อุปกรณ์ที่ไม่อยู่ในกระเป๋าและยังไม่มีชั้น */
+  /** อุปกรณ์ที่ไม่อยู่ในกระเป๋าและยังไม่มีชั้น (วัสดุสิ้นเปลืองนับแม้อยู่ในกระเป๋า — กองกลางต้องมีชั้น) */
   looseItemsWithoutShelf: number
+  /** วัสดุสิ้นเปลืองระดับ ของหมด / ใกล้หมด */
+  lowStock: { id: string; name: string; onShelf: number; unit: string | null; shelfId: string | null; shelfCode: string | null }[]
 }
 
 /** สรุปสุขภาพชั้นเก็บของ — การ์ดแจ้งเตือนบนแดชบอร์ดสต็อก */
 export async function loadShelfHealth(db: Db, now = new Date()): Promise<ShelfHealth> {
-  const [{ data: shelves }, last, { count: kitsWithoutShelf }, { data: looseItems }, { data: inKits }] = await Promise.all([
+  // ponytail: อุปกรณ์ ~343 ชิ้น / kit_contents ไม่ถึงเพดาน 1,000 แถวของ PostgREST — แบ่งหน้าเมื่อโตเกิน
+  const [{ data: shelves }, last, { count: kitsWithoutShelf }, { data: looseItems }, { data: inKits }, { data: consumables }] = await Promise.all([
     db.from('shelves').select('id, code').order('code'),
     latestAuditByShelf(db),
     db.from('kits').select('id', { count: 'exact', head: true }).is('shelf_id', null),
-    db.from('items').select('id').is('shelf_id', null),
-    db.from('kit_contents').select('item_id'),
+    db.from('items').select('id, is_consumable').is('shelf_id', null),
+    db.from('kit_contents').select('item_id, quantity'),
+    db.from('items').select('id, name, quantity, unit, min_quantity, shelf_id').eq('is_consumable', true).order('name'),
   ])
   const inKit = new Set((inKits || []).map(r => r.item_id as string))
+  const packed = new Map<string, number>()
+  for (const r of inKits || []) packed.set(r.item_id as string, (packed.get(r.item_id as string) ?? 0) + ((r.quantity as number) || 0))
+  const codeOf = new Map((shelves || []).map(s => [s.id as string, s.code as string]))
+
+  const lowStock: ShelfHealth['lowStock'] = []
+  for (const c of consumables || []) {
+    const total = (c.quantity as number) ?? 0
+    const kits = packed.get(c.id as string) ?? 0
+    if (stockLevel(total, kits, (c.min_quantity as number | null) ?? null) === 'ok') continue
+    const shelfId = (c.shelf_id as string | null) ?? null
+    lowStock.push({
+      id: c.id as string,
+      name: c.name as string,
+      onShelf: onShelf(total, kits),
+      unit: (c.unit as string | null) ?? null,
+      shelfId,
+      shelfCode: shelfId ? codeOf.get(shelfId) ?? null : null,
+    })
+  }
 
   const dueShelves: ShelfHealth['dueShelves'] = []
   const missingShelves: ShelfHealth['missingShelves'] = []
@@ -60,7 +84,8 @@ export async function loadShelfHealth(db: Db, now = new Date()): Promise<ShelfHe
     dueShelves,
     missingShelves,
     kitsWithoutShelf: kitsWithoutShelf ?? 0,
-    looseItemsWithoutShelf: (looseItems || []).filter(i => !inKit.has(i.id as string)).length,
+    looseItemsWithoutShelf: (looseItems || []).filter(i => i.is_consumable || !inKit.has(i.id as string)).length,
+    lowStock,
   }
 }
 

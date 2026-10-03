@@ -16,7 +16,7 @@ const initialState = {
   error: '',
 }
 
-function CategorySelector({ t }: { t: any }) {
+function CategorySelector({ t }: { t: ReturnType<typeof useLanguage>['t'] }) {
     const [value, setValue] = useState("")
     const [isCustom, setIsCustom] = useState(false)
   
@@ -87,6 +87,7 @@ function CategorySelector({ t }: { t: any }) {
 export default function NewItemPage() {
   const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(createItem, initialState)
+  const [isConsumable, setIsConsumable] = useState(false)
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -122,16 +123,47 @@ export default function NewItemPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-               <div className="space-y-2">
-                <label htmlFor="quantity" className="text-sm font-medium leading-none">{t.items.fields.quantity}</label>
-                <Input id="quantity" name="quantity" type="number" min="1" defaultValue="1" required />
-              </div>
-               <div className="space-y-2">
-                 <label htmlFor="serial_number" className="text-sm font-medium leading-none">{t.items.fields.serial}</label>
-                 <Input id="serial_number" name="serial_number" placeholder="Optional" />
-               </div>
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  name="is_consumable"
+                  className="h-4 w-4"
+                  checked={isConsumable}
+                  onChange={e => setIsConsumable(e.target.checked)}
+                />
+                {t.items.fields.isConsumable}
+              </label>
+              <p className="text-xs text-muted-foreground">{t.items.fields.consumableHint}</p>
             </div>
+
+            {isConsumable ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label htmlFor="unit" className="text-sm font-medium leading-none">{t.items.fields.unit}</label>
+                  <Input id="unit" name="unit" placeholder={t.items.fields.unitPlaceholder} />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="quantity" className="text-sm font-medium leading-none">{t.items.fields.initialQuantity}</label>
+                  <Input id="quantity" name="quantity" type="number" inputMode="numeric" min="0" step="1" defaultValue="0" />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="min_quantity" className="text-sm font-medium leading-none">{t.items.fields.minQuantity}</label>
+                  <Input id="min_quantity" name="min_quantity" type="number" inputMode="numeric" min="0" step="1" />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                 <div className="space-y-2">
+                  <label htmlFor="quantity" className="text-sm font-medium leading-none">{t.items.fields.quantity}</label>
+                  <Input id="quantity" name="quantity" type="number" min="1" defaultValue="1" required />
+                </div>
+                 <div className="space-y-2">
+                   <label htmlFor="serial_number" className="text-sm font-medium leading-none">{t.items.fields.serial}</label>
+                   <Input id="serial_number" name="serial_number" placeholder="Optional" />
+                 </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <label htmlFor="description" className="text-sm font-medium leading-none">
@@ -146,7 +178,7 @@ export default function NewItemPage() {
               />
             </div>
 
-            <div className="space-y-2">
+            {!isConsumable && <div className="space-y-2">
               <label htmlFor="status" className="text-sm font-medium leading-none">{t.items.fields.status}</label>
               <Select name="status" defaultValue="available">
                 <SelectTrigger>
@@ -162,7 +194,7 @@ export default function NewItemPage() {
                   <SelectItem value="out_of_stock">{t.items.status.out_of_stock}</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </div>}
 
             <div className="space-y-2">
               <label htmlFor="images" className="text-sm font-medium leading-none">{t.items.fields.images}</label>

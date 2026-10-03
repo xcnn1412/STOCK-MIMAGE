@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Eye, Trash, ArrowUpDown, Search, Filter, RefreshCw } from "lucide-react"
+import { Eye, Trash, ArrowUpDown, Search, Filter, RefreshCw, Droplet } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { deleteItemAction } from './[id]/delete-action'
 import { cleanupOrphanedItems } from './cleanup-items'
@@ -29,20 +29,23 @@ import {
   } from "@/components/ui/alert-dialog"
 import { useLanguage } from '@/contexts/language-context'
 import type { Item } from '@/types'
+import { stockLevel } from '../shelves/consumable-logic'
+
+/** จำนวนพร้อมหน่วย — วัสดุสิ้นเปลืองแสดงยอดจริง (0 ได้) */
+const qtyText = (item: Item) => (item.is_consumable ? `${item.quantity ?? 0} ${item.unit || ''}`.trim() : String(item.quantity || 1))
+const inKitsOf = (item: Item) => (item.kit_contents || []).reduce((n, c) => n + (c.quantity || 0), 0)
 
 export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   const { t } = useLanguage()
-  const [items, setItems] = useState<Item[]>(initialItems)
+  const items = initialItems
   const [isPending, startTransition] = useTransition()
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null)
 
-  useEffect(() => {
-    setItems(initialItems)
-  }, [initialItems])
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null)
   const [filterText, setFilterText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  
+  const [onlyConsumable, setOnlyConsumable] = useState(false)
+
   const handleCleanup = async () => {
     startTransition(async () => {
       const result = await cleanupOrphanedItems()
@@ -69,7 +72,9 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   }
 
   // ชั้นเก็บของ: อุปกรณ์ในกระเป๋าอยู่ชั้นของกระเป๋า, ไม่อยู่ในกระเป๋า = ชั้นของตัวเอง
-  const shelfOf = (item: Item) => item.kit_contents?.[0]?.kits?.shelves?.code || item.shelves?.code || ''
+  // วัสดุสิ้นเปลือง: กองกลางอยู่บนชั้นของตัวเองเสมอ (แม้แบ่งใส่กระเป๋า)
+  const shelfOf = (item: Item) =>
+    item.is_consumable ? item.shelves?.code || '' : item.kit_contents?.[0]?.kits?.shelves?.code || item.shelves?.code || ''
 
   const getNestedValue = (item: Item, key: string) => {
       if (key === 'kit') {
@@ -78,7 +83,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
       if (key === 'event') {
           return item.kit_contents?.[0]?.kits?.events?.name || ''
       }
-      return (item as any)[key]
+      return (item as unknown as Record<string, string | number | null>)[key]
   }
 
   const filteredItems = items.filter(item => {
@@ -101,7 +106,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
         matchesStatus = item.status === statusFilter
     }
 
-    return matchesText && matchesStatus
+    return matchesText && matchesStatus && (!onlyConsumable || item.is_consumable)
   })
 
   const sortedItems = [...filteredItems].sort((a, b) => {
@@ -170,6 +175,14 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                   </DropdownMenuCheckboxItem>
               </DropdownMenuContent>
           </DropdownMenu>
+          <Button
+            variant={onlyConsumable ? 'default' : 'outline'}
+            className="gap-2 w-full sm:w-auto"
+            onClick={() => setOnlyConsumable(v => !v)}
+          >
+            <Droplet className="h-4 w-4" />
+            เฉพาะวัสดุสิ้นเปลือง
+          </Button>
       </div>
 
       {/* Mobile View (Cards) */}
@@ -206,13 +219,14 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                              <div className="flex justify-between items-start gap-2">
                                  <div className="min-w-0">
                                     <h3 className="font-semibold text-base truncate">{item.name}</h3>
+                                    {item.is_consumable && <ConsumableBadge />}
                                     <p className="text-sm text-foreground/60">{item.category}</p>
                                  </div>
-                                 <StatusBadge status={displayStatus} t={t} />
+                                 {item.is_consumable ? <StockBadge item={item} /> : <StatusBadge status={displayStatus} t={t} />}
                              </div>
                              
                              <div className="mt-2 text-sm grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-                                 <div>{t.items.columns.qty}: <span className="text-foreground">{item.quantity || 1}</span></div>
+                                 <div>{t.items.columns.qty}: <span className="text-foreground">{qtyText(item)}</span></div>
                                  <div className="truncate">SN: <span className="text-foreground">{item.serial_number || '-'}</span></div>
                              </div>
                          </div>
@@ -359,9 +373,12 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                     <div className="h-10 w-10 bg-zinc-100 rounded-md flex items-center justify-center text-xs text-zinc-400">No Img</div>
                   )}
                 </TableCell>
-                <TableCell className="font-medium truncate" title={item.name}>{item.name}</TableCell>
+                <TableCell className="font-medium truncate" title={item.name}>
+                  {item.name}
+                  {item.is_consumable && <div><ConsumableBadge /></div>}
+                </TableCell>
                 <TableCell className="truncate" title={item.category || ''}>{item.category || '-'}</TableCell>
-                <TableCell className="text-center">{item.quantity || 1}</TableCell>
+                <TableCell className="text-center">{qtyText(item)}</TableCell>
                 <TableCell className="font-mono text-xs truncate" title={displaySerial}>{displaySerial}</TableCell>
                 <TableCell className="truncate">
                     {kit ? (
@@ -381,7 +398,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                     )}
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={displayStatus} t={t} />
+                  {item.is_consumable ? <StockBadge item={item} /> : <StatusBadge status={displayStatus} t={t} />}
                 </TableCell>
                 <TableCell className="text-right">
                   {item.price ? `$${item.price}` : '-'}
@@ -451,7 +468,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   )
 }
 
-function StatusBadge({ status, t }: { status: string, t: any }) {
+function StatusBadge({ status, t }: { status: string, t: ReturnType<typeof useLanguage>['t'] }) {
   const styles: Record<string, string> = {
     available: "bg-green-100 text-green-800 hover:bg-green-100 border-transparent",
     in_use: "bg-blue-100 text-blue-800 hover:bg-blue-100 border-transparent",
@@ -465,4 +482,16 @@ function StatusBadge({ status, t }: { status: string, t: any }) {
   const statusLabel = status === 'in_use' ? t.items.status.in_use : (t.items.status[status as keyof typeof t.items.status] || status)
 
   return <Badge variant="outline" className={styles[status] || ""}>{statusLabel}</Badge>
+}
+
+function ConsumableBadge() {
+  return <Badge variant="outline" className="bg-sky-100 text-sky-800 hover:bg-sky-100 border-transparent">สิ้นเปลือง</Badge>
+}
+
+/** ระดับสต็อกของวัสดุสิ้นเปลือง — เทียบกับ "เหลือบนชั้น" (ยอดรวม − จำนวนประจำกระเป๋า) */
+function StockBadge({ item }: { item: Item }) {
+  const level = stockLevel(item.quantity ?? 0, inKitsOf(item), item.min_quantity)
+  if (level === 'out') return <Badge variant="outline" className="bg-rose-100 text-rose-800 hover:bg-rose-100 border-transparent">ของหมด</Badge>
+  if (level === 'low') return <Badge variant="outline" className="bg-amber-100 text-amber-900 hover:bg-amber-100 border-transparent">ใกล้หมด</Badge>
+  return <Badge variant="outline" className="bg-green-100 text-green-800 hover:bg-green-100 border-transparent">มีของ</Badge>
 }

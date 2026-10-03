@@ -52,10 +52,11 @@ export const auditKey = (t: { kind: string; id: string }) => `${t.kind}:${t.id}`
 /**
  * ของที่ "ควรเจอ" บนชั้นตอนตรวจนับ — กระเป๋าที่ไม่ได้ออกงาน + อุปกรณ์แยกชิ้นที่ไม่ได้ออกงาน/ไม่ได้แจ้งหายไว้
  * ที่เหลือ (skipped) แสดงให้เห็นแต่ไม่นับเป็นของขาด
+ * วัสดุสิ้นเปลือง: ส่ง onShelf (เหลือบนชั้น) มาด้วย — เหลือ 0 = ไม่มีอะไรให้นับ ไป skipped
  */
 export function auditTargets(
   kits: { id: string; name: string; itemStatuses: string[] }[],
-  items: { id: string; name: string; status: string }[]
+  items: { id: string; name: string; status: string; onShelf?: number }[]
 ): { expected: AuditTarget[]; skipped: AuditSkip[] } {
   const expected: AuditTarget[] = []
   const skipped: AuditSkip[] = []
@@ -66,7 +67,8 @@ export function auditTargets(
   }
   for (const i of items) {
     const t: AuditTarget = { kind: 'item', id: i.id, name: i.name }
-    if (i.status === 'in_use') skipped.push({ ...t, reason: 'ออกงานอยู่' })
+    if (i.onShelf === 0) skipped.push({ ...t, reason: 'ของหมดบนชั้น' })
+    else if (i.status === 'in_use') skipped.push({ ...t, reason: 'ออกงานอยู่' })
     else if (i.status === 'lost') skipped.push({ ...t, reason: 'แจ้งหายไว้แล้ว' })
     else expected.push(t)
   }

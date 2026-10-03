@@ -1,6 +1,6 @@
 // การ์ดแจ้งเตือนชั้นเก็บของบนแดชบอร์ดสต็อก (server component) — ไม่มีอะไรต้องตาม = ไม่แสดง
 import Link from 'next/link'
-import { AlertTriangle, ClipboardCheck, Briefcase, Package } from 'lucide-react'
+import { AlertTriangle, ClipboardCheck, Briefcase, Package, Droplet } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { AUDIT_DUE_DAYS } from '@/app/(authenticated)/shelves/shelf-logic'
 import type { ShelfHealth } from '@/app/(authenticated)/shelves/queries'
@@ -8,10 +8,17 @@ import type { ShelfHealth } from '@/app/(authenticated)/shelves/queries'
 const MAX_LISTED = 6
 
 export default function ShelfAlerts({ health }: { health: ShelfHealth }) {
-  const { shelfCount, dueShelves, missingShelves, kitsWithoutShelf, looseItemsWithoutShelf } = health
+  const { shelfCount, dueShelves, missingShelves, kitsWithoutShelf, looseItemsWithoutShelf, lowStock } = health
   // ยังไม่ได้เริ่มใช้ชั้นเก็บของ → ไม่เตือนเรื่องของที่ยังไม่มีชั้น
   if (shelfCount === 0) return null
-  if (dueShelves.length === 0 && missingShelves.length === 0 && kitsWithoutShelf === 0 && looseItemsWithoutShelf === 0) return null
+  if (
+    dueShelves.length === 0 &&
+    missingShelves.length === 0 &&
+    kitsWithoutShelf === 0 &&
+    looseItemsWithoutShelf === 0 &&
+    lowStock.length === 0
+  )
+    return null
 
   const chip = 'inline-flex items-center rounded px-2 py-0.5 text-xs font-medium hover:underline'
 
@@ -33,6 +40,26 @@ export default function ShelfAlerts({ health }: { health: ShelfHealth }) {
               </Link>
             ))}
             {missingShelves.length > MAX_LISTED && <span className="text-xs text-muted-foreground">+{missingShelves.length - MAX_LISTED}</span>}
+          </div>
+        </div>
+      )}
+
+      {lowStock.length > 0 && (
+        <div className="text-sm space-y-1">
+          <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 font-medium">
+            <Droplet className="h-3.5 w-3.5" /> วัสดุสิ้นเปลืองใกล้หมด / ของหมด {lowStock.length} รายการ
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {lowStock.slice(0, MAX_LISTED).map(c => (
+              <Link
+                key={c.id}
+                href={c.shelfId ? `/shelves/${c.shelfId}` : `/items/${c.id}`}
+                className={`${chip} ${c.onShelf === 0 ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100'}`}
+              >
+                {c.name} · เหลือ {c.onShelf}{c.unit ? ` ${c.unit}` : ''}{c.shelfCode ? ` · ${c.shelfCode}` : ''}
+              </Link>
+            ))}
+            {lowStock.length > MAX_LISTED && <span className="text-xs text-muted-foreground">+{lowStock.length - MAX_LISTED}</span>}
           </div>
         </div>
       )}
