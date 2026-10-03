@@ -81,8 +81,9 @@ export default async function DashboardPage() {
             )}
 
             {/* 3 คอลัมน์: ภาพรวมงาน · งานในมือคุณ · หน้าที่ยังไม่ครบ
-                จอเล็กเรียงลงล่าง · md = hero เต็มแถว + 2 แผงคู่กัน · xl = 3 คอลัมน์สูงเท่ากัน (items-stretch + h-full) */}
-            <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
+                จอเล็กเรียงลงล่าง · md = hero เต็มแถว + 2 แผงคู่กัน · xl = 3 คอลัมน์สูงเท่ากัน (items-stretch + h-full)
+                grid-cols-1 จำเป็น: ไม่ใส่ = คอลัมน์ auto ที่ขยายตามชื่องานยาว (truncate) จนล้นจอมือถือ */}
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="w-full md:col-span-2 xl:col-span-1">
                     {hasAlerts ? (
                         <DashboardHero stats={heroStats} className="px-0 pt-0 md:pt-0" />
