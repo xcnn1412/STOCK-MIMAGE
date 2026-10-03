@@ -105,13 +105,18 @@ export default function RoomView({
         {/* ภาพห้อง */}
         <div>
           {mode === '3d' ? (
-            <Card className="h-[55vh] min-h-[360px] overflow-hidden p-0 bg-gradient-to-b from-zinc-100 to-white dark:from-zinc-900 dark:to-zinc-950">
+            <Card className="h-[55vh] min-h-90 overflow-hidden p-0 bg-linear-to-b from-zinc-100 to-white dark:from-zinc-900 dark:to-zinc-950">
               {room.racks.length === 0 ? (
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   ยังไม่มีชั้นวาง{canManage ? ' — กด "+ ชั้นวาง" เพื่อเริ่ม' : ''}
                 </div>
               ) : (
-                <RoomScene room={room} selectedId={selectedId} onSelect={setSelectedId} />
+                <RoomScene
+                  room={room}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  onMove={canManage ? (id, x, y) => run(() => updateRack(id, { x, y }), 'ย้ายชั้นวางแล้ว') : undefined}
+                />
               )}
             </Card>
           ) : (
@@ -119,7 +124,7 @@ export default function RoomView({
           )}
           <p className="mt-2 text-xs text-muted-foreground">
             {mode === '3d'
-              ? 'ลากเพื่อหมุน · scroll/บีบนิ้วเพื่อซูม · กดชั้นวางเพื่อดูแต่ละระดับ · 🟪 อยู่บนชั้น 🟦 ออกงาน 🟧 มีปัญหา'
+              ? `ลากพื้นเพื่อหมุน · scroll/บีบนิ้วเพื่อซูม · กดชั้นวางเพื่อดูแต่ละระดับ${canManage ? ' · ลากชั้นวางเพื่อย้ายตำแหน่ง' : ''} · 🟪 อยู่บนชั้น 🟦 ออกงาน 🟧 มีปัญหา`
               : 'ลากชั้นวางไปวางตามตำแหน่งจริง ปล่อยแล้วบันทึกทันที · เลือกชั้นวางแล้วกดหมุนในแผงด้านขวา'}
           </p>
         </div>

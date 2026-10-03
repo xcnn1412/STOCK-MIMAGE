@@ -179,7 +179,7 @@ export default function ShelfView({
       </div>
 
       {rack && (
-        <Card className="h-44 overflow-hidden p-0 bg-gradient-to-b from-zinc-100 to-white dark:from-zinc-900 dark:to-zinc-950">
+        <Card className="h-44 overflow-hidden p-0 bg-linear-to-b from-zinc-100 to-white dark:from-zinc-900 dark:to-zinc-950">
           <RackMini rack={rack} highlightLevelId={shelf.id} />
         </Card>
       )}
