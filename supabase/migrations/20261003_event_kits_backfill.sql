@@ -11,7 +11,7 @@ SELECT k.event_id, k.id
 FROM kits k
 JOIN events e ON e.id = k.event_id
 WHERE k.event_id IS NOT NULL
-  AND COALESCE(e.status, '') NOT IN ('completed', 'closed')
+  AND COALESCE(e.status::text, '') NOT IN ('completed', 'closed')
   AND NOT EXISTS (
     SELECT 1 FROM event_kits ek
     WHERE ek.event_id = k.event_id AND ek.kit_id = k.id
@@ -22,7 +22,7 @@ UPDATE kits k
 SET event_id = NULL
 FROM events e
 WHERE e.id = k.event_id
-  AND e.status IN ('completed', 'closed');
+  AND e.status::text IN ('completed', 'closed');
 
 -- ----------------------------------------------------------------------------
 -- (ไม่บังคับ) ดูกระเป๋าที่ถูกจองสองงานวันเดียวกันของงานที่ยังไม่ปิด — ระบบแค่เตือน ไม่ได้แก้ให้
@@ -34,5 +34,5 @@ WHERE e.id = k.event_id
 -- JOIN events b ON b.id = y.event_id
 -- JOIN kits kt ON kt.id = x.kit_id
 -- WHERE a.event_date = b.event_date
---   AND COALESCE(a.status, '') NOT IN ('completed', 'closed') AND COALESCE(b.status, '') NOT IN ('completed', 'closed')
+--   AND COALESCE(a.status::text, '') NOT IN ('completed', 'closed') AND COALESCE(b.status::text, '') NOT IN ('completed', 'closed')
 -- ORDER BY a.event_date;
