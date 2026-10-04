@@ -15,7 +15,15 @@ export const revalidate = 0
 type Search = Record<string, string | string[] | undefined>
 const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : '')
 
-const MODULE_LABEL: Record<string, string> = { stock: 'สต็อก', events: 'อีเวนต์', jobs: 'ติดตามงาน' }
+const MODULE_LABEL: Record<string, string> = {
+  stock: 'สต็อก',
+  events: 'อีเวนต์',
+  jobs: 'ติดตามงาน',
+  finance: 'ใบเบิก (ของตัวเอง — แอดมินเห็นทุกใบ)',
+  checkin: 'เช็คอิน (ของตัวเอง — แอดมินเห็นทุกคน)',
+  salesboard: 'ยอดขายและค่าคอม',
+  crm: 'CRM (ลูกค้าและงาน — ไม่รวม LINE และเบอร์เต็ม)',
+}
 
 export default async function AuthorizePage(props: { searchParams: Promise<Search> }) {
   const sp = await props.searchParams
