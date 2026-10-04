@@ -1,6 +1,6 @@
 // Supabase จำลองในหน่วยความจำ สำหรับ lib/mcp-tools.check.ts และ scripts/mcp-e2e.check.ts
 // รองรับเฉพาะส่วนของ query builder ที่ tool ของ MCP / getTrackingSnapshot / lib/oauth / logger ใช้:
-// select (คอลัมน์ + ตารางซ้อน alias:rel!hint(...)), eq neq is in gt gte lt lte ilike or order limit,
+// select (คอลัมน์ + ตารางซ้อน alias:rel!hint(...)), eq neq is in gt gte lt lte ilike or order limit range,
 // maybeSingle single, count/head, insert update (+ select คืนแถว)
 // ทุกการเขียนถูกบันทึกใน writes — สคริปต์ตรวจว่า tool ไม่เขียนอะไรเลย
 
@@ -38,6 +38,15 @@ export const RELS: Record<string, Record<string, Rel>> = {
     audited_by: { table: 'profiles', kind: 'one', local: 'audited_by', foreign: 'id' },
   },
   activity_logs: {
+    user_id: { table: 'profiles', kind: 'one', local: 'user_id', foreign: 'id' },
+  },
+  // submitter:profiles!expense_claims_submitted_by_fkey(...) · job_event:job_cost_events!expense_claims_job_event_id_fkey(...)
+  expense_claims: {
+    profiles: { table: 'profiles', kind: 'one', local: 'submitted_by', foreign: 'id' },
+    job_cost_events: { table: 'job_cost_events', kind: 'one', local: 'job_event_id', foreign: 'id' },
+  },
+  staff_checkins: {
+    event_id: { table: 'events', kind: 'one', local: 'event_id', foreign: 'id' },
     user_id: { table: 'profiles', kind: 'one', local: 'user_id', foreign: 'id' },
   },
 }
@@ -138,6 +147,7 @@ class Query implements PromiseLike<Result> {
   private returning = false
   private orders: { col: string; asc: boolean; nullsFirst: boolean }[] = []
   private max: number | null = null
+  private offset = 0
   private countMode = false
   private head = false
   constructor(private fake: FakeDb, private table: string) {}
@@ -167,6 +177,7 @@ class Query implements PromiseLike<Result> {
     return this
   }
   limit(n: number) { this.max = n; return this }
+  range(from: number, to: number) { this.offset = from; this.max = to - from + 1; return this }
 
   private rowsOf(table: string): Row[] {
     const rows = this.fake.tables[table]
@@ -233,7 +244,7 @@ class Query implements PromiseLike<Result> {
       })
     }
     const count = out.length
-    if (this.max !== null) out = out.slice(0, this.max)
+    if (this.max !== null || this.offset) out = out.slice(this.offset, this.max === null ? undefined : this.offset + this.max)
     return { data: this.head ? null : out, error: null, count: this.countMode ? count : null }
   }
 

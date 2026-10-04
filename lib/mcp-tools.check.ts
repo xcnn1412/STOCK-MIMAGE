@@ -21,6 +21,27 @@ const item = (id: string, name: string, extra: Row = {}): Row => ({
   is_consumable: false, min_quantity: null, shelf_id: null, price: 9999, image_url: 'https://x/img.jpg', description: null, ...extra,
 })
 
+function claim(id: string, user: string, status: string, extra: Row = {}): Row {
+  return {
+    id, claim_number: `EXP-${id.toUpperCase()}`, claim_type: 'other', title: `ใบ ${id}`, amount: 100, vat_mode: 'none', withholding_tax_rate: 0,
+    status, category: 'food', submitted_by: user, submitted_at: '2026-09-10T02:00:00Z', approved_at: null, paid_at: null,
+    created_at: `2026-09-${String(10 + Number(id.replace(/\D/g, ''))).padStart(2, '0')}T00:00:00Z`, expense_date: '2026-09-09',
+    funding_source: null, job_event_id: null, reject_reason: null, refund_amount: null, refund_confirmed_at: null, actual_spent_amount: null,
+    advance_settled_at: null, pettycash_fund_id: null, pettycash_closed_at: null, filed_at: null, filed_file_count: null, deleted_at: null,
+    receipt_urls: ['https://x/r.jpg'], actual_receipt_urls: ['https://x/a.jpg'], tax_invoice_urls: ['https://x/t.pdf'], tax_invoice_numbers: ['INV-1'],
+    refund_slip_urls: ['https://x/s.jpg'], bank_name: 'กสิกร', bank_account: '1234', bank_account_number: '123-4-56789-0', account_holder_name: 'สมหญิง',
+    ...extra,
+  }
+}
+
+function checkin(id: string, user: string, type: string, inAt: string, outAt: string | null, extra: Row = {}): Row {
+  return {
+    id, user_id: user, check_type: type, checked_in_at: inAt, checked_out_at: outAt, note: null, event_id: null, duties: [],
+    province: null, district: null, out_of_province: false, paid_slip_id: null,
+    latitude: 13.75, longitude: 100.5, photo_url: 'https://x/in.webp', checkout_photo_url: 'https://x/out.webp', ...extra,
+  }
+}
+
 const consumables: Row[] = Array.from({ length: 120 }, (_, i) =>
   item(`paper-${i}`, `กระดาษ ${String(i).padStart(3, '0')}`, { is_consumable: true, quantity: 0, unit: 'ม้วน', min_quantity: 2, category: 'วัสดุ', shelf_id: 'sh-b' }))
 
@@ -62,8 +83,9 @@ const tables: Record<string, Row[]> = {
     { kit_id: 'kit-2', event_id: 'ev-2', packed_at: null },
   ],
   profiles: [
-    { id: 'u1', full_name: 'สมหญิง', nickname: 'หญิง', department: 'ฝ่ายประสานงาน', is_approved: true, pin: '1234' },
+    { id: 'u1', full_name: 'สมหญิง', nickname: 'หญิง', department: 'ฝ่ายประสานงาน', is_approved: true, pin: '1234', bank_name: 'กสิกร', bank_account_number: '123-4-56789-0' },
     { id: 'u2', full_name: 'แอดมิน', nickname: null, department: null, is_approved: true, pin: '9999' },
+    { id: 'u3', full_name: 'สมปอง', nickname: 'ปอง', department: null, is_approved: true, pin: '5555' },
   ],
   event_staff: [
     { event_id: 'ev-1', user_id: 'u1', role: 'photographer', created_at: '2026-01-01' },
@@ -98,6 +120,40 @@ const tables: Record<string, Row[]> = {
   lead_duty_claims: [],
   event_vehicles: [],
   activity_logs: [],
+  // ── ใบเบิก: u1 = ผู้ใช้เอง · u3 = คนอื่น · ทุกแถวมีลิงก์ไฟล์ + บัญชีธนาคาร เพื่อพิสูจน์ว่าไม่หลุดออกไป
+  expense_claims: [
+    claim('c1', 'u1', 'pending', { amount: 1000, category: 'travel', job_event_id: 'jce-1', expense_date: '2026-09-10' }),
+    claim('c2', 'u1', 'rejected', { amount: 300, reject_reason: 'ใบเสร็จไม่ชัด' }),
+    claim('c3', 'u1', 'paid', { amount: 400 }),
+    claim('c4', 'u1', 'paid', { claim_type: 'advance', amount: 5000, actual_spent_amount: null }),
+    claim('c5', 'u1', 'paid', { claim_type: 'advance', amount: 2000, actual_spent_amount: 1900, refund_amount: 100 }),
+    claim('c6', 'u1', 'paid', { claim_type: 'petty_cash', amount: 3000, pettycash_fund_id: null, pettycash_closed_at: null }),
+    claim('c7', 'u1', 'paid', { claim_type: 'petty_cash', amount: 3000, pettycash_closed_at: '2026-09-30T10:00:00Z' }),
+    claim('c8', 'u1', 'cancelled', { amount: 50 }),
+    claim('c9', 'u1', 'pending', { amount: 777, deleted_at: '2026-09-20T10:00:00Z' }),
+    claim('c10', 'u1', 'draft', { amount: 120, expense_date: '2026-08-05', filed_at: '2026-09-01T03:00:00Z' }),
+    claim('o1', 'u3', 'pending', { amount: 2000 }),
+    claim('o2', 'u3', 'paid', { amount: 600 }),
+    claim('o3', 'u3', 'approved', { amount: 999, deleted_at: '2026-09-21T10:00:00Z' }),
+  ],
+  job_cost_events: [{ id: 'jce-1', event_name: 'งานแต่ง สมชาย', linked_lead_id: null }],
+  finance_categories: [{ value: 'travel', label_th: 'ค่าเดินทาง (หมวดในระบบ)' }],
+  // ── เช็คอิน: ทุกแถวมีพิกัด + รูป เพื่อพิสูจน์ว่าไม่หลุดออกไป
+  salary_duties: [
+    { code: 'photo', name_th: 'ช่างภาพ', is_active: true },
+    { code: 'mc', name_th: 'พิธีกร', is_active: false },
+  ],
+  staff_checkins: [
+    checkin('k1', 'u1', 'office', '2026-09-10T01:30:00.000Z', '2026-09-10T10:00:00.000Z'),
+    // 2026-09-11 17:30 UTC = 2026-09-12 00:30 เวลาไทย
+    checkin('k2', 'u1', 'onsite', '2026-09-11T17:30:00.000Z', null, {
+      event_id: 'ev-1', duties: ['photo', 'mc'], province: 'ชลบุรี', district: 'บางละมุง', out_of_province: true,
+      note: 'ไปงาน [ref:jce:00000000-0000-4000-8000-000000000001]',
+    }),
+    checkin('k3', 'u3', 'remote', '2026-09-10T02:00:00.000Z', '2026-09-10T04:15:00.000Z', { note: 'ทำงานที่บ้าน' }),
+    checkin('k4', 'u1', 'office', new Date(Date.now() - 1000).toISOString(), null),
+    checkin('k5', 'u3', 'onsite', new Date(Date.now() - 2000).toISOString(), null, { event_id: 'ev-2', duties: ['photo'] }),
+  ],
 }
 const fake = createFakeDb(tables)
 
@@ -122,6 +178,9 @@ const snapshotMod = load('../app/(authenticated)/jobs/tracking/data') as typeof 
 type ToolResult = import('./mcp-tools').ToolResult
 
 const db = fake.client as unknown as Parameters<import('./mcp-tools').McpTool['run']>[0]
+type Ctx = import('./mcp-tools').ToolContext
+const STAFF: Ctx = { userId: 'u1', role: 'staff', modules: ['stock', 'events', 'jobs', 'finance', 'checkin'] }
+const ADMIN: Ctx = { userId: 'u2', role: 'admin', modules: ['stock', 'events', 'jobs', 'finance', 'checkin'] }
 const THAI = /[฀-๿]/
 const pass = (label: string) => console.log(`PASS  ${label}`)
 const byName = (name: string) => {
@@ -129,8 +188,8 @@ const byName = (name: string) => {
   assert.ok(t, `ไม่มี tool ${name}`)
   return t
 }
-async function call(name: string, args: Record<string, unknown> = {}): Promise<Omit<ToolResult, 'rows'> & { rows: Record<string, unknown>[] }> {
-  const r = await byName(name).run(db, args)
+async function call(name: string, args: Record<string, unknown> = {}, ctx: Ctx = STAFF): Promise<Omit<ToolResult, 'rows'> & { rows: Record<string, unknown>[] }> {
+  const r = await byName(name).run(db, args, ctx)
   assert.ok(typeof r.summary === 'string' && THAI.test(r.summary) && !r.summary.includes('\n'), `${name}: summary ต้องเป็นไทยบรรทัดเดียว`)
   assert.ok(Array.isArray(r.rows), `${name}: rows ต้องเป็นอาร์เรย์`)
   assert.ok(r.rows.length <= tools.MAX_ROWS, `${name}: rows ต้องไม่เกิน 100`)
@@ -143,14 +202,30 @@ function keysDeep(v: unknown, out = new Set<string>()): Set<string> {
   return out
 }
 const FORBIDDEN = ['pin', 'price', 'image_url', 'imageUrl', 'image_urls', 'pin_hash']
+/** คีย์ต้องห้ามของใบเบิก / เช็คอิน (สเปค mcp-tools-2) + รูปแบบ *_urls / bank_* */
+const FORBIDDEN_2 = [
+  'latitude', 'longitude', 'photo_url', 'checkout_photo_url', 'receipt_urls', 'actual_receipt_urls', 'tax_invoice_urls',
+  'tax_invoice_numbers', 'refund_slip_urls', 'bank_name', 'bank_account', 'bank_account_number', 'account_holder_name', 'pin',
+]
+function assertClean(label: string, v: unknown) {
+  const keys = keysDeep(v)
+  for (const k of FORBIDDEN_2) assert.ok(!keys.has(k), `${label} ต้องไม่มีคีย์ ${k}`)
+  for (const k of keys) assert.ok(!/_urls$/.test(k) && !/^bank_/.test(k), `${label} ต้องไม่มีคีย์ ${k}`)
+  const text = JSON.stringify(v)
+  for (const leak of ['https://x/', '123-4-56789-0', '13.75', '100.5']) assert.ok(!text.includes(leak), `${label} ต้องไม่มีค่า ${leak}`)
+}
 
 async function main() {
   // ═══ registry ═══════════════════════════════════════════════════════════════
   assert.deepEqual(tools.MCP_TOOLS.map(t => t.name), [
     'stock_summary', 'search_items', 'low_stock', 'kit_status', 'shelf_contents',
     'upcoming_events', 'event_detail', 'event_closures', 'job_readiness',
+    'my_claims', 'all_claims', 'my_checkins', 'team_checkins',
   ])
-  assert.deepEqual(tools.MCP_TOOLS.map(t => t.module), ['stock', 'stock', 'stock', 'stock', 'stock', 'events', 'events', 'events', 'jobs'])
+  assert.deepEqual(tools.MCP_TOOLS.map(t => t.module), [
+    'stock', 'stock', 'stock', 'stock', 'stock', 'events', 'events', 'events', 'jobs', 'finance', 'finance', 'checkin', 'checkin',
+  ])
+  assert.deepEqual(tools.MCP_TOOLS.filter(t => t.adminOnly).map(t => t.name), ['all_claims', 'team_checkins'])
   for (const t of tools.MCP_TOOLS) {
     assert.ok(THAI.test(t.description), `${t.name}: description ต้องเป็นไทย`)
     assert.ok(typeof t.schema.safeParse === 'function' && t.schema.def.type === 'object', `${t.name}: ต้องมี zod object schema`)
@@ -158,10 +233,18 @@ async function main() {
       assert.ok(THAI.test((s as { description?: string }).description ?? ''), `${t.name}.${field}: ต้องมี .describe() ภาษาไทย`)
     }
   }
-  assert.deepEqual(tools.toolsFor(['stock']).map(t => t.module), ['stock', 'stock', 'stock', 'stock', 'stock'])
-  assert.equal(tools.toolsFor(['stock', 'events', 'jobs']).length, 9)
-  assert.equal(tools.toolsFor(['finance', 'crm']).length, 0)
-  pass('9 tools ตามตาราง · module · zod schema · คำอธิบายไทย · toolsFor')
+  assert.deepEqual(tools.toolsFor(['stock'], 'staff').map(t => t.module), ['stock', 'stock', 'stock', 'stock', 'stock'])
+  assert.equal(tools.toolsFor(['stock', 'events', 'jobs'], 'staff').length, 9)
+  assert.equal(tools.toolsFor(['crm', 'kpi'], 'staff').length, 0)
+  // T1: adminOnly ไม่ออกให้ non-admin แม้มีโมดูล
+  assert.deepEqual(tools.toolsFor(['finance'], 'staff').map(t => t.name), ['my_claims'])
+  assert.deepEqual(tools.toolsFor(['checkin'], 'staff').map(t => t.name), ['my_checkins'])
+  assert.deepEqual(tools.toolsFor(['finance', 'checkin'], 'staff').map(t => t.name), ['my_claims', 'my_checkins'])
+  assert.deepEqual(tools.toolsFor(['finance', 'checkin'], 'admin').map(t => t.name), ['my_claims', 'all_claims', 'my_checkins', 'team_checkins'])
+  assert.deepEqual(tools.toolsFor(['checkin'], 'admin').map(t => t.name), ['my_checkins', 'team_checkins'])
+  assert.equal(tools.toolsFor(['stock', 'events', 'jobs', 'finance', 'checkin'], 'admin').length, 13)
+  assert.equal(tools.toolsFor(['stock', 'events', 'jobs', 'finance', 'checkin'], 'staff').length, 11)
+  pass('13 tools ตามตาราง · module · adminOnly · zod schema · คำอธิบายไทย · toolsFor(modules, role)')
 
   // ═══ stock_summary ══════════════════════════════════════════════════════════
   {
@@ -206,7 +289,7 @@ async function main() {
     const full = await call('search_items', { consumable_only: true, limit: 100 })
     assert.equal(full.rows.length, 100)
     assert.equal(full.total, 121)
-    await assert.rejects(() => byName('search_items').run(db, { limit: 500 }))
+    await assert.rejects(() => byName('search_items').run(db, { limit: 500 }, STAFF))
     // คำค้นที่มีอักขระไวยากรณ์ของ PostgREST ไม่ทำให้ or() แตก
     await call('search_items', { q: 'a,b(c)%' })
     pass('search_items — ค้นชื่อ/serial/สถานะ · ชั้นตามกติกา shelfOf · ไม่มี pin/price/image_url · ตัดที่ limit พร้อม total')
@@ -248,8 +331,8 @@ async function main() {
     assert.equal(ink.onShelf, 6) // 10 − 4 ในกระเป๋า
     assert.match(r.summary, /ชั้น A-1/)
     assert.match(r.summary, new RegExp(`ตรวจนับล่าสุด ${plus(-3)} ของขาด 1`))
-    await assert.rejects(() => byName('shelf_contents').run(db, { code: 'Z-9' }), (e: Error) => e instanceof tools.ToolError && e.message === 'ไม่พบชั้นรหัส Z-9')
-    await assert.rejects(() => byName('shelf_contents').run(db, { code: 'A_1' }), tools.ToolError) // _ ไม่ใช่ wildcard
+    await assert.rejects(() => byName('shelf_contents').run(db, { code: 'Z-9' }, STAFF), (e: Error) => e instanceof tools.ToolError && e.message === 'ไม่พบชั้นรหัส Z-9')
+    await assert.rejects(() => byName('shelf_contents').run(db, { code: 'A_1' }, STAFF), tools.ToolError) // _ ไม่ใช่ wildcard
     pass('shelf_contents — รหัสไม่สนตัวพิมพ์ · กระเป๋า/อุปกรณ์/วัสดุ (เหลือบนชั้น) · ตรวจนับล่าสุด · ไม่พบ = ToolError')
   }
 
@@ -290,8 +373,8 @@ async function main() {
 
     const many = await call('event_detail', { name: 'งาน' })
     assert.ok(many.rows.length > 1 && many.summary.includes('ระบุ id'))
-    await assert.rejects(() => byName('event_detail').run(db, {}), tools.ToolError)
-    await assert.rejects(() => byName('event_detail').run(db, { id: 'nope' }), tools.ToolError)
+    await assert.rejects(() => byName('event_detail').run(db, {}, STAFF), tools.ToolError)
+    await assert.rejects(() => byName('event_detail').run(db, { id: 'nope' }, STAFF), tools.ToolError)
     pass('event_detail — ตาม id/ชื่อ · ของในกระเป๋า · ทีมงาน+ตำแหน่ง · สรุปปิดงาน · หลายงาน/ไม่พบ')
   }
 
@@ -307,7 +390,7 @@ async function main() {
     const wide = await call('event_closures', { from: plus(-100), to: TODAY })
     assert.equal(wide.rows.length, 2)
     assert.equal((await call('event_closures', { from: plus(-100), to: TODAY, limit: 1 })).total, 2)
-    await assert.rejects(() => byName('event_closures').run(db, { from: '01/02/2026' }))
+    await assert.rejects(() => byName('event_closures').run(db, { from: '01/02/2026' }, STAFF))
     pass('event_closures — ช่วงวันที่ (ค่าเริ่มต้น 30 วัน) · ผู้ปิด · ของเสีย/หาย · วัสดุที่ใช้')
   }
 
@@ -329,6 +412,134 @@ async function main() {
     assert.deepEqual(r.rows[0].kits, [{ name: 'กระเป๋า 2', event: 'งานบริษัท B', packed: false }])
     assert.match(r.summary, /ยังไม่พร้อม 1 จาก 2 งาน/)
     pass('job_readiness — ตรงกับ getMissing/missingLabel ของหน้าติดตามงาน (ไม่รวมงานผ่านไปแล้ว)')
+  }
+
+  // ═══ my_claims (T2) ══════════════════════════════════════════════════════════
+  {
+    const nums = (r: { rows: Record<string, unknown>[] }) => r.rows.map(x => x.claim_number).sort()
+    const open = await call('my_claims')
+    // ยังไม่จบ = สถานะไม่จบ (c1 รออนุมัติ, c2 ปฏิเสธ, c10 แบบร่าง) + ทดลองจ่ายยังไม่เคลียร์ (c4) + วงเงินสดย่อยยังเปิด (c6) · ไม่รวม c9 ที่ซ่อน
+    assert.deepEqual(nums(open), ['EXP-C1', 'EXP-C10', 'EXP-C2', 'EXP-C4', 'EXP-C6'])
+    assert.match(open.summary, /ใบเบิกของคุณที่ยังไม่จบ 5 ใบ รวม ฿9,420/)
+    const c1 = open.rows.find(x => x.claim_number === 'EXP-C1')!
+    assert.deepEqual(c1, {
+      claim_number: 'EXP-C1', title: 'ใบ c1', claim_type: 'เบิกค่าอื่นๆ', category: 'ค่าเดินทาง (หมวดในระบบ)', amount: 1000, status: 'รออนุมัติ',
+      expense_date: '2026-09-10', submitted_at: '2026-09-10 09:00', approved_at: null, paid_at: null, job_event: 'งานแต่ง สมชาย',
+      reject_reason: null, actual_spent_amount: null, refund_amount: null, docs_filed: false,
+    })
+    assert.equal(open.rows.find(x => x.claim_number === 'EXP-C2')!.reject_reason, 'ใบเสร็จไม่ชัด')
+    assert.equal(open.rows.find(x => x.claim_number === 'EXP-C2')!.status, 'ปฏิเสธ')
+    assert.equal(open.rows.find(x => x.claim_number === 'EXP-C4')!.claim_type, 'เบิกทดลองจ่าย')
+    assert.equal(open.rows.find(x => x.claim_number === 'EXP-C6')!.claim_type, 'เบิกเงินสดย่อย')
+    assert.equal(open.rows.find(x => x.claim_number === 'EXP-C10')!.docs_filed, true)
+    assert.equal(open.rows.find(x => x.claim_number === 'EXP-C10')!.category, 'อาหารและเครื่องดื่ม') // ค่าสำรองของ getCategoryLabel
+
+    const all = await call('my_claims', { include_closed: true })
+    assert.deepEqual(nums(all), ['EXP-C1', 'EXP-C10', 'EXP-C2', 'EXP-C3', 'EXP-C4', 'EXP-C5', 'EXP-C6', 'EXP-C7', 'EXP-C8'])
+    const c5 = all.rows.find(x => x.claim_number === 'EXP-C5')!
+    assert.equal(c5.actual_spent_amount, 1900)
+    assert.equal(c5.refund_amount, 100)
+    assert.equal(c5.status, 'ชำระเงินแล้ว')
+    assert.equal(all.rows.find(x => x.claim_number === 'EXP-C8')!.status, 'ยกเลิกแล้ว')
+    assert.deepEqual(nums(await call('my_claims', { status: 'paid' })), ['EXP-C3', 'EXP-C4', 'EXP-C5', 'EXP-C6', 'EXP-C7'])
+    assert.deepEqual(nums(await call('my_claims', { month: '2026-08', include_closed: true })), ['EXP-C10'])
+    assert.equal((await call('my_claims', { include_closed: true, limit: 2 })).total, 9)
+
+    // args แปลก (ชื่อคนอื่น / user_id / submitted_by) ไม่เปลี่ยนเจ้าของ — schema ตัดทิ้ง และ query ผูก ctx.userId
+    const weird = await call('my_claims', { include_closed: true, submitter: 'สมปอง', user_id: 'u3', submitted_by: 'u3', userId: 'u3' })
+    assert.deepEqual(nums(weird), nums(all))
+    // แอดมินเรียก my_claims ก็ได้แค่ของตัวเอง (u2 ไม่มีใบ)
+    assert.deepEqual((await call('my_claims', { include_closed: true }, ADMIN)).rows, [])
+    // ผู้ใช้ u3 เห็นเฉพาะของตัวเอง (ไม่รวม o3 ที่ซ่อน)
+    assert.deepEqual(nums(await call('my_claims', { include_closed: true }, { ...STAFF, userId: 'u3' })), ['EXP-O1', 'EXP-O2'])
+    await assert.rejects(() => byName('my_claims').run(db, { status: 'whatever' }, STAFF))
+    await assert.rejects(() => byName('my_claims').run(db, { month: '2026-13' }, STAFF))
+    for (const r of [open, all, weird]) assertClean('my_claims', r)
+    pass(`my_claims — ของตัวเองเท่านั้น (args แปลกไม่มีผล) · ค่าเริ่มต้น = ใบที่ยังไม่จบ · ไม่รวมใบที่ซ่อน · สถานะ/ประเภทไทย · ไม่มี *_urls/bank · ${open.summary}`)
+  }
+
+  // ═══ all_claims (T2) ═════════════════════════════════════════════════════════
+  {
+    const r = await call('all_claims', {}, ADMIN)
+    const nums = r.rows.map(x => x.claim_number)
+    assert.equal(r.rows.length, 11)
+    assert.ok(!nums.includes('EXP-C9') && !nums.includes('EXP-O3'), 'ต้องไม่รวมใบที่ซ่อน')
+    assert.equal(r.rows.find(x => x.claim_number === 'EXP-O1')!.submitter, 'สมปอง')
+    assert.equal(r.rows.find(x => x.claim_number === 'EXP-C1')!.submitter, 'สมหญิง')
+    // ยอดรวมตามสถานะของทุกใบที่ตรงเงื่อนไข (ไม่รวมใบที่ซ่อน)
+    assert.match(r.summary, /^ใบเบิกทั้งหมด 11 ใบ รวม ฿17,470 · /)
+    for (const part of ['แบบร่าง 1 ใบ ฿120', 'รออนุมัติ 2 ใบ ฿3,000', 'ชำระเงินแล้ว 6 ใบ ฿14,000', 'ปฏิเสธ 1 ใบ ฿300', 'ยกเลิกแล้ว 1 ใบ ฿50']) {
+      assert.ok(r.summary.includes(part), `summary ต้องมี "${part}": ${r.summary}`)
+    }
+    // summary นับก่อนตัดแถว
+    const cut = await call('all_claims', { limit: 3 }, ADMIN)
+    assert.equal(cut.rows.length, 3)
+    assert.equal(cut.total, 11)
+    assert.ok(cut.summary.includes('ชำระเงินแล้ว 6 ใบ ฿14,000'))
+
+    const byWho = await call('all_claims', { submitter: 'ปอง' }, ADMIN)
+    assert.deepEqual(byWho.rows.map(x => x.claim_number).sort(), ['EXP-O1', 'EXP-O2'])
+    assert.equal((await call('all_claims', { submitter: 'ไม่มีคนนี้' }, ADMIN)).rows.length, 0)
+    assert.deepEqual((await call('all_claims', { status: 'pending' }, ADMIN)).rows.map(x => x.claim_number).sort(), ['EXP-C1', 'EXP-O1'])
+    assert.deepEqual((await call('all_claims', { category: 'travel' }, ADMIN)).rows.map(x => x.claim_number), ['EXP-C1'])
+    assert.deepEqual((await call('all_claims', { month: '2026-08' }, ADMIN)).rows.map(x => x.claim_number), ['EXP-C10'])
+    // เรียกตรงๆ โดย non-admin (ข้ามการลงทะเบียน) ก็ไม่ได้ข้อมูล
+    await assert.rejects(() => byName('all_claims').run(db, {}, STAFF), (e: Error) => e instanceof tools.ToolError && /เฉพาะแอดมิน/.test(e.message))
+    assertClean('all_claims', r)
+    assertClean('all_claims', byWho)
+    pass(`all_claims — แอดมินเท่านั้น · ไม่รวมใบที่ซ่อน · กรองสถานะ/เดือน/ผู้ส่ง/หมวด · summary ยอดตามสถานะก่อนตัดแถว · ${r.summary}`)
+  }
+
+  // ═══ my_checkins (T3) ════════════════════════════════════════════════════════
+  {
+    const r = await call('my_checkins', { from: '2026-09-01', to: '2026-09-30' })
+    assert.equal(r.rows.length, 2) // k3 เป็นของ u3 ไม่ติดมา
+    assert.deepEqual(r.rows[0], {
+      date: '2026-09-10', checked_in: '08:30', checked_out: '17:00', hours: 8.5, type: 'เข้าออฟฟิศ', event: null, duties: [],
+      province: null, district: null, out_of_province: false, note: null,
+    })
+    assert.deepEqual(r.rows[1], {
+      date: '2026-09-12', checked_in: '00:30', checked_out: null, hours: null, type: 'ไปหน้างาน', event: 'งานแต่ง สมชาย',
+      duties: ['ช่างภาพ', 'พิธีกร'], province: 'ชลบุรี', district: 'บางละมุง', out_of_province: true, note: 'ไปงาน',
+    })
+    assert.match(r.summary, /เช็คอินของคุณ 2026-09-01 ถึง 2026-09-30 2 ครั้ง รวม 8\.5 ชั่วโมง · ยังไม่เช็คเอาท์ 1 ครั้ง/)
+    // ขอบวันตามเวลาไทย: k2 (UTC 09-11) อยู่ในวันที่ 12 ของไทย
+    assert.deepEqual((await call('my_checkins', { from: '2026-09-12', to: '2026-09-12' })).rows.map(x => x.date), ['2026-09-12'])
+    assert.equal((await call('my_checkins', { from: '2026-09-11', to: '2026-09-11' })).rows.length, 0)
+    // ค่าเริ่มต้น = เดือนนี้ (k4)
+    const now = await call('my_checkins')
+    assert.equal(now.rows.length, 1)
+    assert.equal(now.rows[0].hours, null)
+    // args แปลกไม่เปลี่ยนเจ้าของ
+    const weird = await call('my_checkins', { from: '2026-09-01', to: '2026-09-30', user_id: 'u3', user: 'ปอง' })
+    assert.deepEqual(weird.rows, r.rows)
+    assert.deepEqual((await call('my_checkins', { from: '2026-09-01', to: '2026-09-30' }, { ...STAFF, userId: 'u3' })).rows.map(x => x.hours), [2.3])
+    await assert.rejects(() => byName('my_checkins').run(db, { from: '2026-09-30', to: '2026-09-01' }, STAFF), tools.ToolError)
+    await assert.rejects(() => byName('my_checkins').run(db, { from: '2025-01-01', to: '2026-09-01' }, STAFF), tools.ToolError)
+    await assert.rejects(() => byName('my_checkins').run(db, { from: '10/09/2026' }, STAFF))
+    for (const x of [r, now, weird]) assertClean('my_checkins', x)
+    pass(`my_checkins — ของตัวเองเท่านั้น · เวลาไทย · ชั่วโมงจากเข้า-ออก (ยังไม่ออก = null) · ประเภท/หน้าที่ไทย · ไม่มีพิกัด/รูป · ${r.summary}`)
+  }
+
+  // ═══ team_checkins (T3) ══════════════════════════════════════════════════════
+  {
+    const r = await call('team_checkins', { from: '2026-09-10', to: '2026-09-12' }, ADMIN)
+    assert.deepEqual(r.rows.map(x => [x.name, x.date, x.type, x.hours]), [
+      ['หญิง', '2026-09-10', 'เข้าออฟฟิศ', 8.5],
+      ['ปอง', '2026-09-10', 'WFH / นอกสถานที่', 2.3],
+      ['หญิง', '2026-09-12', 'ไปหน้างาน', null],
+    ])
+    assert.equal(r.summary, 'เช็คอิน 2026-09-10 ถึง 2026-09-12 3 รายการ จาก 2 คน · ยังไม่เช็คเอาท์ 1 รายการ')
+    assert.deepEqual((await call('team_checkins', { from: '2026-09-10', to: '2026-09-12', user: 'ปอง' }, ADMIN)).rows.map(x => x.note), ['ทำงานที่บ้าน'])
+    assert.deepEqual((await call('team_checkins', { from: '2026-09-10', to: '2026-09-12', event: 'งานแต่ง' }, ADMIN)).rows.map(x => x.date), ['2026-09-12'])
+    assert.equal((await call('team_checkins', { user: 'ไม่มีคนนี้' }, ADMIN)).rows.length, 0)
+    const today = await call('team_checkins', {}, ADMIN)
+    assert.equal(today.rows.length, 2)
+    assert.match(today.summary, /2 รายการ จาก 2 คน · ยังไม่เช็คเอาท์ 2 รายการ$/)
+    await assert.rejects(() => byName('team_checkins').run(db, {}, STAFF), (e: Error) => e instanceof tools.ToolError && /เฉพาะแอดมิน/.test(e.message))
+    assertClean('team_checkins', r)
+    assertClean('team_checkins', today)
+    pass(`team_checkins — แอดมินเท่านั้น · ชื่อเล่น/ชื่อ · กรองคน/งาน · ค่าเริ่มต้นวันนี้ · ไม่มีพิกัด/รูป · ${r.summary}`)
   }
 
   // ═══ อ่านอย่างเดียว ═════════════════════════════════════════════════════════

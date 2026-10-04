@@ -26,7 +26,7 @@ const CORS = {
 
 const INSTRUCTIONS =
   'ข้อมูลจากระบบสต็อกของ M Image (อ่านอย่างเดียว แก้ไขอะไรไม่ได้) — เห็นเฉพาะโมดูลที่ผู้ใช้คนนี้มีสิทธิ์ในแอป ' +
-  '(สต็อก / อีเวนต์ / ติดตามงาน) · ทุก tool คืนบรรทัดสรุปภาษาไทย ตามด้วย JSON { rows, total } ไม่เกิน 100 แถว ' +
+  '(สต็อก / อีเวนต์ / ติดตามงาน / ใบเบิก / เช็คอิน) · ทุก tool คืนบรรทัดสรุปภาษาไทย ตามด้วย JSON { rows, total } ไม่เกิน 100 แถว ' +
   'ถ้า total มากกว่าจำนวนแถว ให้บอกผู้ใช้ว่ามีอีกและแนะนำให้ค้นให้แคบลง'
 
 function withCors(res: Response): Response {
@@ -72,7 +72,7 @@ async function callTool(db: Db, identity: McpIdentity, tool: McpTool, args: unkn
   let rows: number
   let total: number
   try {
-    const result = capBytes(await tool.run(db, args))
+    const result = capBytes(await tool.run(db, args, { userId: identity.userId, role: identity.role, modules: identity.modules }))
     text = formatResult(result)
     rows = result.rows.length
     total = result.total ?? result.rows.length
@@ -91,9 +91,9 @@ async function callTool(db: Db, identity: McpIdentity, tool: McpTool, args: unkn
   return { content: [{ type: 'text', text }] }
 }
 
-function buildServer(db: Db, identity: McpIdentity): McpServer {
+function buildServer(db: Db, identity: McpIdentity, allowed: McpTool[]): McpServer {
   const server = new McpServer({ name: 'stock-mimage', version: pkg.version }, { instructions: INSTRUCTIONS })
-  for (const tool of toolsFor(identity.modules)) {
+  for (const tool of allowed) {
     server.registerTool(
       tool.name,
       { description: tool.description, inputSchema: tool.schema, annotations: { readOnlyHint: true, openWorldHint: false } },
@@ -111,9 +111,11 @@ function forbiddenCall(body: unknown, allowed: McpTool[]): Response | null {
   const name = typeof msg.params?.name === 'string' ? msg.params.name : ''
   if (allowed.some(t => t.name === name)) return null
   const known = MCP_TOOLS.find(t => t.name === name)
-  const text = known
-    ? `ไม่มีสิทธิ์ใช้ ${name} — บัญชีนี้ไม่ได้เปิดโมดูล ${known.module} ในแอป ติดต่อแอดมินถ้าต้องการสิทธิ์`
-    : `ไม่พบ tool ชื่อ ${name || '(ว่าง)'}`
+  const text = !known
+    ? `ไม่พบ tool ชื่อ ${name || '(ว่าง)'}`
+    : known.adminOnly
+      ? `ไม่มีสิทธิ์ใช้ ${name} — เฉพาะแอดมินเท่านั้น`
+      : `ไม่มีสิทธิ์ใช้ ${name} — บัญชีนี้ไม่ได้เปิดโมดูล ${known.module} ในแอป ติดต่อแอดมินถ้าต้องการสิทธิ์`
   return json({ jsonrpc: '2.0', id: msg.id, result: textError(text) }, 200)
 }
 
@@ -122,11 +124,13 @@ export async function POST(request: Request): Promise<Response> {
   if (auth instanceof Response) return auth
   const { db, identity } = auth
 
+  // ชุดเดียวกันทั้งตอนกันเรียก (forbiddenCall) และตอนลงทะเบียน — adminOnly ตาม role จากฐานข้อมูลผ่าน token
+  const allowed = toolsFor(identity.modules, identity.role)
   const body: unknown = await request.clone().json().catch(() => undefined)
-  const blocked = forbiddenCall(body, toolsFor(identity.modules))
+  const blocked = forbiddenCall(body, allowed)
   if (blocked) return blocked
 
-  const server = buildServer(db, identity)
+  const server = buildServer(db, identity, allowed)
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

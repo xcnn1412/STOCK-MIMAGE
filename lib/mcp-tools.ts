@@ -14,9 +14,13 @@ import {
   kitReadinessByLead,
   missingLabel,
 } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
+import { CLAIM_STATUSES, CLAIM_TYPES, getCategoryLabel, getClaimStatusLabel } from '@/app/(authenticated)/costs/types'
+import { isOpenClaim } from './finance/conditions'
+import { claimsQuery, readAllRows, selectColumns, type ClaimsQueryFilters } from '@/app/(authenticated)/finance/claim-db'
+import { JOB_EVENT_EMBED, LIST_COLUMNS, SUBMITTER_EMBED } from '@/app/(authenticated)/finance/list-data'
 
 // tool ของ MCP (อ่านอย่างเดียว) — ประกาศเป็นข้อมูล ไม่ผูกไลบรารี MCP (สเปค docs/specs/mcp-server.md)
-// app/api/mcp/route.ts ลงทะเบียนเฉพาะ tool ที่โมดูลของ token อนุญาต (toolsFor)
+// app/api/mcp/route.ts ลงทะเบียนเฉพาะ tool ที่โมดูลของ token อนุญาต (toolsFor) · tool ที่ adminOnly ลงทะเบียนให้แอดมินเท่านั้น
 // ห้ามเขียนข้อมูลในไฟล์นี้ — lib/mcp-tools.check.ts สแกนหา insert/update/delete/upsert/rpc
 // แถวผลลัพธ์เก็บแค่ id + ชื่อ + ช่องที่คนถามถึง · ไม่คืน pin / ราคา / รูป
 
@@ -26,7 +30,14 @@ export const MAX_ROWS = 100
 /** เพดานขนาดข้อความผลลัพธ์ต่อ tool (M7) */
 export const MAX_RESULT_BYTES = 64 * 1024
 
-export type McpModule = 'stock' | 'events' | 'jobs'
+export type McpModule = 'stock' | 'events' | 'jobs' | 'finance' | 'checkin'
+
+/** ผู้เรียก tool (มาจาก access token ที่ตรวจแล้ว — ไม่ใช่จาก args) · tool ที่ต้องกรองตามเจ้าของข้อมูลใช้ userId นี้เสมอ */
+export interface ToolContext {
+  userId: string
+  role: string
+  modules: string[]
+}
 
 export interface ToolResult {
   /** สรุปภาษาไทย 1 บรรทัด */
@@ -39,11 +50,13 @@ export interface ToolResult {
 export interface McpTool {
   name: string
   module: McpModule
+  /** true = ลงทะเบียนให้แอดมินเท่านั้น (แม้ผู้ใช้อื่นมีโมดูลนี้) */
+  adminOnly?: boolean
   /** ภาษาไทย บอกว่าคืนอะไร */
   description: string
   schema: z.ZodObject
   /** ตรวจ args ด้วย schema ก่อนรันเสมอ */
-  run(db: Db, args: unknown): Promise<ToolResult>
+  run(db: Db, args: unknown, ctx: ToolContext): Promise<ToolResult>
 }
 
 /** ข้อผิดพลาดที่ตั้งใจบอกผู้ใช้ (เช่น ไม่พบชั้น) — route ส่งข้อความนี้กลับเป็น isError ตรงๆ */
@@ -52,16 +65,18 @@ export class ToolError extends Error {}
 function defineTool<S extends z.ZodObject>(t: {
   name: string
   module: McpModule
+  adminOnly?: boolean
   description: string
   schema: S
-  run(db: Db, args: z.output<S>): Promise<ToolResult>
+  run(db: Db, args: z.output<S>, ctx: ToolContext): Promise<ToolResult>
 }): McpTool {
   return {
     name: t.name,
     module: t.module,
+    ...(t.adminOnly ? { adminOnly: true } : {}),
     description: t.description,
     schema: t.schema,
-    run: async (db, args) => t.run(db, t.schema.parse(args ?? {})),
+    run: async (db, args, ctx) => t.run(db, t.schema.parse(args ?? {}), ctx),
   }
 }
 
@@ -566,6 +581,332 @@ const jobReadiness = defineTool({
   },
 })
 
+// ── ใบเบิก (finance) ──────────────────────────────────────────────────────────
+// กติกาการมองเห็นใช้ claimsQuery ตัวเดียวกับหน้ารายการ /finance: ไม่ใช่แอดมิน = .eq('submitted_by', userId) · ไม่รวมใบที่ซ่อน (deleted_at)
+// ขอคอลัมน์จาก LIST_COLUMNS เท่านั้น — ไม่ขอ DOC_COLUMNS (ลิงก์ใบเสร็จ/ใบกำกับ/สลิป) และไม่ขอข้อมูลบัญชีธนาคาร
+
+const CLAIM_STATUS_VALUES = CLAIM_STATUSES.map(s => s.value)
+const CLAIM_TYPE_TH: Record<string, string> = Object.fromEntries(CLAIM_TYPES.map(t => [t.value, t.labelTh]))
+const MONTH = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+const CLAIM_STATUS_DESC = 'กรองตามสถานะ: draft = แบบร่าง, pending = รออนุมัติ, approved = อนุมัติแล้ว, pending_month_end = รอจ่ายสิ้นเดือน, '
+  + 'waiting_tax_invoice = รอใบกำกับภาษี, paid = ชำระเงินแล้ว, refund_confirmed = คืนเงินบริษัทแล้ว, rejected = ปฏิเสธ, cancelled = ยกเลิกแล้ว'
+
+type RawClaim = {
+  claim_number: string
+  title: string
+  claim_type: string
+  category: string
+  amount: number | string | null
+  status: string
+  submitted_by: string
+  expense_date: string | null
+  submitted_at: string | null
+  approved_at: string | null
+  paid_at: string | null
+  reject_reason: string | null
+  actual_spent_amount: number | null
+  refund_amount: number | null
+  pettycash_fund_id: string | null
+  pettycash_closed_at: string | null
+  filed_at?: string | null
+  job_event: { event_name: string | null } | null
+  submitter?: { full_name: string | null } | null
+}
+type ClaimsQ = ReturnType<typeof claimsQuery>
+
+/** เดือน 'YYYY-MM' → ช่วงวันที่ใช้จ่าย (expense_date) ทั้งเดือน */
+function expenseMonth(month: string): { expenseFrom: string; expenseTo: string } {
+  const [y, m] = month.split('-').map(Number)
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  return { expenseFrom: `${month}-01`, expenseTo: `${month}-${String(last).padStart(2, '0')}` }
+}
+
+/** อ่านใบเบิกทุกหน้า (เพดาน 1,000 แถวต่อคำขอของ PostgREST) ด้วย claimsQuery — viewer เป็นตัวกำหนดว่าเห็นของใคร */
+async function readClaims(
+  db: Db,
+  viewer: { userId: string; role: string },
+  filters: ClaimsQueryFilters,
+  withSubmitter: boolean,
+  refine: (q: ClaimsQ) => ClaimsQ = q => q,
+): Promise<RawClaim[]> {
+  const select = selectColumns([...LIST_COLUMNS, JOB_EVENT_EMBED, ...(withSubmitter ? [SUBMITTER_EMBED] : [])])
+  const { rows, error } = await readAllRows<RawClaim>((from, to) => refine(claimsQuery(db, viewer, filters, select)).range(from, to))
+  if (error) throw new Error(error.message)
+  return rows
+}
+
+/** ป้ายหมวดภาษาไทย: finance_categories ก่อน แล้วค่อยใช้ค่าสำรองของ getCategoryLabel (กติกาเดียวกับหน้าใบเบิก) */
+async function categoryLabeler(db: Db): Promise<(c: string) => string> {
+  const { data } = await db.from('finance_categories').select('value, label_th')
+  const map = new Map(((data || []) as { value: string; label_th: string | null }[]).map(c => [c.value, c.label_th]))
+  return c => map.get(c) || getCategoryLabel(c)
+}
+
+const baht = (n: number) => `฿${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+const claimAmount = (c: RawClaim) => Number(c.amount) || 0
+
+function claimRow(c: RawClaim, category: (c: string) => string) {
+  return {
+    claim_number: c.claim_number,
+    title: c.title,
+    claim_type: CLAIM_TYPE_TH[c.claim_type] ?? c.claim_type,
+    category: category(c.category),
+    amount: claimAmount(c),
+    status: getClaimStatusLabel(c.status),
+    expense_date: day(c.expense_date),
+    submitted_at: bkkDateTime(c.submitted_at),
+    approved_at: bkkDateTime(c.approved_at),
+    paid_at: bkkDateTime(c.paid_at),
+    job_event: c.job_event?.event_name ?? null,
+    reject_reason: c.reject_reason,
+    actual_spent_amount: c.actual_spent_amount,
+    refund_amount: c.refund_amount,
+    docs_filed: !!c.filed_at,
+  }
+}
+
+const myClaims = defineTool({
+  name: 'my_claims',
+  module: 'finance',
+  description: 'ใบเบิกของผู้ใช้เอง (ค่าเริ่มต้น = ใบที่ยังไม่จบ รวมเงินทดลองจ่ายที่ยังไม่เคลียร์และวงเงินสดย่อยที่ยังไม่ปิด) — คืนเลขใบ ชื่อ ประเภท หมวด ยอด สถานะ '
+    + 'วันที่ใช้จ่าย วันส่ง/อนุมัติ/จ่าย งานที่ผูก เหตุผลที่ส่งกลับ ยอดใช้จริง/ยอดคืน (ทดลองจ่าย) และเข้าแฟ้มเอกสารแล้วหรือยัง',
+  schema: z.object({
+    status: z.enum(CLAIM_STATUS_VALUES).optional().describe(CLAIM_STATUS_DESC),
+    month: MONTH.optional().describe('เดือนที่ใช้จ่าย รูปแบบ YYYY-MM ค.ศ. เช่น 2026-10'),
+    include_closed: z.boolean().optional().describe('true = รวมใบที่จบแล้ว (จ่ายแล้ว/ยกเลิก/คืนเงินแล้ว) — ค่าเริ่มต้นแสดงเฉพาะใบที่ยังไม่จบ'),
+    limit: z.number().int().min(1).max(MAX_ROWS).optional().describe('จำนวนแถวสูงสุด 1–100 (ค่าเริ่มต้น 100)'),
+  }),
+  async run(db, args, ctx) {
+    if (!ctx.userId) throw new ToolError('ไม่พบผู้ใช้ของการเชื่อมต่อนี้')
+    const filters: ClaimsQueryFilters = { ...(args.status ? { status: args.status } : {}), ...(args.month ? expenseMonth(args.month) : {}) }
+    // "ของฉัน" เสมอ แม้ผู้เรียกเป็นแอดมิน: viewer role staff → claimsQuery กรอง submitted_by และกรองซ้ำตรงนี้อีกชั้น
+    const [rows, category] = await Promise.all([
+      readClaims(db, { userId: ctx.userId, role: 'staff' }, filters, false, q => q.eq('submitted_by', ctx.userId)),
+      categoryLabeler(db),
+    ])
+    const openOnly = !args.status && !args.include_closed
+    const list = (openOnly ? rows.filter(isOpenClaim) : rows).filter(c => c.submitted_by === ctx.userId)
+    const total = list.reduce((s, c) => s + claimAmount(c), 0)
+    const what = [
+      openOnly ? 'ที่ยังไม่จบ' : args.status ? `สถานะ${getClaimStatusLabel(args.status)}` : 'ทั้งหมด',
+      args.month && `เดือน ${args.month}`,
+    ].filter(Boolean).join(' ')
+    return capped(list.map(c => claimRow(c, category)), `ใบเบิกของคุณ${what} ${list.length} ใบ รวม ${baht(total)}`, args.limit ?? MAX_ROWS)
+  },
+})
+
+const allClaims = defineTool({
+  name: 'all_claims',
+  module: 'finance',
+  adminOnly: true,
+  description: 'ใบเบิกของทุกคน (แอดมินเท่านั้น · ไม่รวมใบที่ซ่อน) กรองตามสถานะ / เดือน / ชื่อผู้ส่ง / หมวด — คืนคอลัมน์เดียวกับ my_claims พร้อมชื่อผู้ส่ง '
+    + 'และบรรทัดสรุปยอดรวมแยกตามสถานะ (จำนวนใบ + ยอดเงิน)',
+  schema: z.object({
+    status: z.enum(CLAIM_STATUS_VALUES).optional().describe(CLAIM_STATUS_DESC),
+    month: MONTH.optional().describe('เดือนที่ใช้จ่าย รูปแบบ YYYY-MM ค.ศ. เช่น 2026-10'),
+    submitter: z.string().max(100).optional().describe('ชื่อหรือชื่อเล่นของผู้ส่ง (ค้นแบบบางส่วน)'),
+    category: z.string().max(50).optional().describe('รหัสหมวดค่าใช้จ่าย เช่น travel = ค่าเดินทาง, food = อาหารและเครื่องดื่ม, staff = ค่าสตาฟ'),
+    limit: z.number().int().min(1).max(MAX_ROWS).optional().describe('จำนวนแถวสูงสุด 1–100 (ค่าเริ่มต้น 100)'),
+  }),
+  async run(db, args, ctx) {
+    if (ctx.role !== 'admin') throw new ToolError('ไม่มีสิทธิ์ใช้ all_claims — เฉพาะแอดมินเท่านั้น')
+    let ids: string[] | null = null
+    const who = args.submitter ? orSafe(args.submitter) : ''
+    if (who) {
+      const { data } = await db.from('profiles').select('id').or(`full_name.ilike.%${who}%,nickname.ilike.%${who}%`)
+      ids = ((data || []) as { id: string }[]).map(p => p.id)
+      if (ids.length === 0) return { summary: `ไม่พบผู้ส่งชื่อ "${who}"`, rows: [] }
+    }
+    const submitterIds = ids
+    const filters: ClaimsQueryFilters = {
+      ...(args.status ? { status: args.status } : {}),
+      ...(args.month ? expenseMonth(args.month) : {}),
+      ...(args.category?.trim() ? { category: args.category.trim() } : {}),
+    }
+    const [rows, category] = await Promise.all([
+      readClaims(db, { userId: ctx.userId, role: 'admin' }, filters, true, submitterIds ? q => q.in('submitted_by', submitterIds) : undefined),
+      categoryLabeler(db),
+    ])
+    // ยอดรวมตามสถานะของทุกใบที่ตรงเงื่อนไข (ก่อนตัดแถว) เรียงตามลำดับสถานะของใบเบิก
+    const byStatus = new Map<string, { count: number; amount: number }>()
+    for (const c of rows) {
+      const t = byStatus.get(c.status) ?? { count: 0, amount: 0 }
+      byStatus.set(c.status, { count: t.count + 1, amount: t.amount + claimAmount(c) })
+    }
+    const order = (s: string) => {
+      const i = CLAIM_STATUS_VALUES.findIndex(v => v === s)
+      return i < 0 ? CLAIM_STATUS_VALUES.length : i
+    }
+    const parts = [...byStatus]
+      .sort((a, b) => order(a[0]) - order(b[0]))
+      .map(([s, t]) => `${getClaimStatusLabel(s)} ${t.count} ใบ ${baht(t.amount)}`)
+    const total = rows.reduce((s, c) => s + claimAmount(c), 0)
+    const cat = args.category?.trim()
+    const what = [args.month && `เดือน ${args.month}`, who && `ผู้ส่ง "${who}"`, cat && `หมวด ${category(cat)}`].filter(Boolean).join(' ')
+    const summary = [`ใบเบิก${what ? ` ${what}` : 'ทั้งหมด'} ${rows.length} ใบ รวม ${baht(total)}`, ...parts].join(' · ')
+    return capped(
+      rows.map(c => ({ submitter: c.submitter?.full_name ?? 'ไม่ทราบชื่อ', ...claimRow(c, category) })),
+      summary,
+      args.limit ?? MAX_ROWS,
+    )
+  },
+})
+
+// ── เช็คอิน (checkin) ─────────────────────────────────────────────────────────
+// ขอเฉพาะคอลัมน์ที่ใช้ — ไม่ขอพิกัด (latitude/longitude) และรูปถ่าย (photo_url/checkout_photo_url)
+// วันที่/เวลาเป็นเวลาไทย (UTC+7) ขอบวันเหมือน getCheckinReportData (00:00:00 – 23:59:59 ของวันไทย)
+
+/** ป้ายประเภทเช็คอิน — ชุดเดียวกับ TYPE_LABELS ของหน้าประวัติเช็คอิน (check-in/history/history-view.tsx) */
+const CHECK_TYPE_TH: Record<string, string> = { office: 'เข้าออฟฟิศ', onsite: 'ไปหน้างาน', remote: 'WFH / นอกสถานที่' }
+const CHECKIN_SELECT = 'id, check_type, checked_in_at, checked_out_at, note, event_id, duties, province, district, out_of_province, events:event_id(name)'
+/** แท็กอ้างอิงภายในที่ระบบเติมในหมายเหตุ (ไม่ใช่ข้อความของผู้ใช้) */
+const REF_TAG = /\[ref:(closure|jce):[0-9a-fA-F-]{36}\]/g
+const MAX_RANGE_DAYS = 366
+
+type RawCheckin = {
+  id: string
+  check_type: string
+  checked_in_at: string
+  checked_out_at: string | null
+  note: string | null
+  duties: string[] | null
+  province: string | null
+  district: string | null
+  out_of_province: boolean | null
+  events: { name: string | null } | null
+}
+
+const BKK_MS = 7 * 60 * 60 * 1000
+/** ISO → 'YYYY-MM-DDTHH:mm…' ตามเวลาไทย */
+const bkk = (iso: string) => new Date(Date.parse(iso) + BKK_MS).toISOString()
+/** ISO → 'YYYY-MM-DD HH:mm' เวลาไทย (ว่าง/ไม่ถูกต้อง = null) */
+function bkkDateTime(iso: string | null | undefined): string | null {
+  if (!iso || Number.isNaN(Date.parse(iso))) return null
+  const t = bkk(iso)
+  return `${t.slice(0, 10)} ${t.slice(11, 16)}`
+}
+const bkkToday = () => bkk(new Date().toISOString()).slice(0, 10)
+
+/** ตรวจช่วงวันที่ (YYYY-MM-DD วันไทย) แล้วคืนขอบเวลา UTC ของ checked_in_at */
+function bkkRange(from: string, to: string): { startIso: string; endIso: string } {
+  const start = new Date(`${from}T00:00:00+07:00`)
+  const end = new Date(`${to}T23:59:59+07:00`)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) throw new ToolError('วันที่ไม่ถูกต้อง ใช้รูปแบบ YYYY-MM-DD ค.ศ.')
+  if (from > to) throw new ToolError('วันที่เริ่มต้องไม่หลังวันที่สิ้นสุด')
+  if (end.getTime() - start.getTime() > MAX_RANGE_DAYS * 24 * 60 * 60 * 1000) throw new ToolError(`ช่วงวันที่ยาวเกิน ${MAX_RANGE_DAYS} วัน`)
+  return { startIso: start.toISOString(), endIso: end.toISOString() }
+}
+
+/** รหัสหน้าที่หน้างาน → ชื่อไทย (salary_duties ทั้งที่เปิดและปิดใช้แล้ว — เช็คอินเก่าอาจใช้หน้าที่ที่ปิดไปแล้ว) */
+async function dutyLabels(db: Db): Promise<Map<string, string>> {
+  const { data } = await db.from('salary_duties').select('code, name_th')
+  return new Map(((data || []) as { code: string; name_th: string | null }[]).map(d => [d.code, d.name_th || d.code]))
+}
+
+function checkinRow(r: RawCheckin, duties: Map<string, string>) {
+  const inAt = bkk(r.checked_in_at)
+  const ms = r.checked_out_at ? Date.parse(r.checked_out_at) - Date.parse(r.checked_in_at) : NaN
+  return {
+    date: inAt.slice(0, 10),
+    checked_in: inAt.slice(11, 16),
+    checked_out: r.checked_out_at ? bkk(r.checked_out_at).slice(11, 16) : null,
+    hours: Number.isFinite(ms) ? Math.round(ms / 360_000) / 10 : null,
+    type: CHECK_TYPE_TH[r.check_type] ?? r.check_type,
+    event: r.events?.name ?? null,
+    duties: (r.duties || []).map(c => duties.get(c) ?? c),
+    province: r.province,
+    district: r.district,
+    out_of_province: !!r.out_of_province,
+    note: r.note?.replace(REF_TAG, '').trim() || null,
+  }
+}
+
+const myCheckins = defineTool({
+  name: 'my_checkins',
+  module: 'checkin',
+  description: 'เช็คอินของผู้ใช้เองในช่วงวันที่ (ค่าเริ่มต้น = เดือนนี้) — คืนวันที่ เวลาเข้า-ออก จำนวนชั่วโมง ประเภท (เข้าออฟฟิศ / WFH นอกสถานที่ / ไปหน้างาน) '
+    + 'งานที่ไป หน้าที่หน้างาน จังหวัด/อำเภอ ต่างจังหวัดหรือไม่ และหมายเหตุ',
+  schema: z.object({
+    from: DATE.optional().describe('วันที่เริ่ม รูปแบบ YYYY-MM-DD ค.ศ. (ค่าเริ่มต้น วันที่ 1 ของเดือนนี้)'),
+    to: DATE.optional().describe('วันที่สิ้นสุด รูปแบบ YYYY-MM-DD ค.ศ. (ค่าเริ่มต้น วันสุดท้ายของเดือนนี้)'),
+  }),
+  async run(db, args, ctx) {
+    if (!ctx.userId) throw new ToolError('ไม่พบผู้ใช้ของการเชื่อมต่อนี้')
+    const month = expenseMonth(bkkToday().slice(0, 7))
+    const from = args.from ?? month.expenseFrom
+    const to = args.to ?? month.expenseTo
+    const { startIso, endIso } = bkkRange(from, to)
+    const [{ data, error }, duties] = await Promise.all([
+      db
+        .from('staff_checkins')
+        .select(CHECKIN_SELECT)
+        .eq('user_id', ctx.userId)
+        .gte('checked_in_at', startIso)
+        .lte('checked_in_at', endIso)
+        .order('checked_in_at', { ascending: true }),
+      dutyLabels(db),
+    ])
+    if (error) throw new Error(error.message)
+    const rows = ((data || []) as unknown as RawCheckin[]).map(r => checkinRow(r, duties))
+    const hours = Math.round(rows.reduce((s, r) => s + (r.hours ?? 0), 0) * 10) / 10
+    const open = rows.filter(r => r.checked_out === null).length
+    return capped(rows, `เช็คอินของคุณ ${from} ถึง ${to} ${rows.length} ครั้ง รวม ${hours} ชั่วโมง${open ? ` · ยังไม่เช็คเอาท์ ${open} ครั้ง` : ''}`)
+  },
+})
+
+const teamCheckins = defineTool({
+  name: 'team_checkins',
+  module: 'checkin',
+  adminOnly: true,
+  description: 'เช็คอินของทุกคนในช่วงวันที่ (แอดมินเท่านั้น · ค่าเริ่มต้น = วันนี้) กรองตามชื่อคนหรือชื่องาน — คืนชื่อ วันที่ เวลาเข้า-ออก ชั่วโมง ประเภท '
+    + 'งาน หน้าที่หน้างาน จังหวัด/อำเภอ หมายเหตุ และบรรทัดสรุปจำนวนคนที่เช็คอินกับจำนวนที่ยังไม่เช็คเอาท์',
+  schema: z.object({
+    from: DATE.optional().describe('วันที่เริ่ม รูปแบบ YYYY-MM-DD ค.ศ. (ค่าเริ่มต้น วันนี้)'),
+    to: DATE.optional().describe('วันที่สิ้นสุด รูปแบบ YYYY-MM-DD ค.ศ. (ค่าเริ่มต้น เท่ากับวันที่เริ่ม)'),
+    user: z.string().max(100).optional().describe('ชื่อหรือชื่อเล่นของพนักงาน (ค้นแบบบางส่วน)'),
+    event: z.string().max(200).optional().describe('ชื่องานอีเวนต์ (ค้นแบบบางส่วน)'),
+  }),
+  async run(db, args, ctx) {
+    if (ctx.role !== 'admin') throw new ToolError('ไม่มีสิทธิ์ใช้ team_checkins — เฉพาะแอดมินเท่านั้น')
+    const from = args.from ?? bkkToday()
+    const to = args.to ?? from
+    const { startIso, endIso } = bkkRange(from, to)
+
+    const who = args.user ? orSafe(args.user) : ''
+    let userIds: string[] | null = null
+    if (who) {
+      const { data } = await db.from('profiles').select('id').or(`full_name.ilike.%${who}%,nickname.ilike.%${who}%`)
+      userIds = ((data || []) as { id: string }[]).map(p => p.id)
+      if (userIds.length === 0) return { summary: `ไม่พบพนักงานชื่อ "${who}"`, rows: [] }
+    }
+    const eventName = args.event?.trim() ?? ''
+    let eventIds: string[] | null = null
+    if (eventName) {
+      const { data } = await db.from('events').select('id').ilike('name', `%${likeEscape(eventName)}%`)
+      eventIds = ((data || []) as { id: string }[]).map(e => e.id)
+      if (eventIds.length === 0) return { summary: `ไม่พบอีเวนต์ชื่อ "${eventName}"`, rows: [] }
+    }
+
+    let query = db
+      .from('staff_checkins')
+      .select(`user_id, ${CHECKIN_SELECT}, profiles:user_id(full_name, nickname)`)
+      .gte('checked_in_at', startIso)
+      .lte('checked_in_at', endIso)
+    if (userIds) query = query.in('user_id', userIds)
+    if (eventIds) query = query.in('event_id', eventIds)
+    const [{ data, error }, duties] = await Promise.all([query.order('checked_in_at', { ascending: true }), dutyLabels(db)])
+    if (error) throw new Error(error.message)
+
+    type RawTeam = RawCheckin & { user_id: string; profiles: { full_name: string | null; nickname: string | null } | null }
+    const raw = (data || []) as unknown as RawTeam[]
+    const rows = raw.map(r => ({ name: r.profiles?.nickname || r.profiles?.full_name || 'ไม่ทราบชื่อ', ...checkinRow(r, duties) }))
+    const people = new Set(raw.map(r => r.user_id)).size
+    const open = raw.filter(r => !r.checked_out_at).length
+    const range = from === to ? from : `${from} ถึง ${to}`
+    return capped(rows, `เช็คอิน ${range} ${rows.length} รายการ จาก ${people} คน · ยังไม่เช็คเอาท์ ${open} รายการ`)
+  },
+})
+
 /** tool ทั้งหมด เรียงตามตารางในสเปค */
 export const MCP_TOOLS: McpTool[] = [
   stockSummary,
@@ -577,10 +918,15 @@ export const MCP_TOOLS: McpTool[] = [
   eventDetail,
   eventClosures,
   jobReadiness,
+  myClaims,
+  allClaims,
+  myCheckins,
+  teamCheckins,
 ]
 
-/** tool ที่ผู้ใช้เรียกได้ตามโมดูล */
-export const toolsFor = (modules: string[]) => MCP_TOOLS.filter(t => modules.includes(t.module))
+/** tool ที่ผู้ใช้เรียกได้ตามโมดูล — tool ที่ adminOnly เฉพาะ role = admin (role จากฐานข้อมูลผ่าน token) */
+export const toolsFor = (modules: string[], role: string) =>
+  MCP_TOOLS.filter(t => modules.includes(t.module) && (!t.adminOnly || role === 'admin'))
 
 /** ข้อความที่ส่งกลับ Claude: บรรทัดสรุป + JSON แบบกระชับ */
 export function formatResult(r: ToolResult): string {
