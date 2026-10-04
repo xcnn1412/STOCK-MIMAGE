@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   }
   const redirectUris = uris as string[]
   if (!redirectUris.every(u => validRedirect(u, [u]))) {
-    return bad('invalid_redirect_uri', 'redirect_uri ต้องเป็น https (http ได้เฉพาะ localhost ตอนพัฒนา)')
+    return bad('invalid_redirect_uri', 'redirect_uri ต้องเป็น https (http ได้เฉพาะ localhost / 127.0.0.1)')
   }
 
   const rawName = meta.client_name

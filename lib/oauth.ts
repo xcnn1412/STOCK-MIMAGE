@@ -35,7 +35,11 @@ export function pkceMatches(verifier: string, challenge: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-/** redirect_uri ต้องตรงทั้งสตริงกับที่ลงทะเบียน · https เท่านั้น (http ได้เฉพาะ localhost ตอนไม่ใช่ production) */
+/**
+ * redirect_uri ต้องตรงทั้งสตริงกับที่ลงทะเบียน · https เท่านั้น
+ * ยกเว้น loopback (http://localhost, 127.0.0.1, [::1] ทุก port) ซึ่งแอปบนเครื่องผู้ใช้ใช้รับ callback
+ * (Claude Code, Gemini CLI, MCP Inspector — RFC 8252 §7.3) จึงต้องผ่านแม้ตอน production
+ */
 export function validRedirect(uri: string, registered: string[]): boolean {
   if (!registered.includes(uri)) return false
   let url: URL
@@ -46,8 +50,7 @@ export function validRedirect(uri: string, registered: string[]): boolean {
   }
   if (url.protocol === 'https:') return true
   return url.protocol === 'http:'
-    && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
-    && process.env.NODE_ENV !== 'production'
+    && (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]')
 }
 
 /** โมดูลที่ Claude เห็นได้ — กติกาเดียวกับ hasModule: admin ได้ทุกโมดูล · allowed_modules null = ['stock'] */
