@@ -7,7 +7,7 @@ import type { createServiceClient } from './supabase-server'
 
 type Db = ReturnType<typeof createServiceClient>
 
-export const MCP_MODULES = ['stock', 'events', 'jobs'] as const
+export const MCP_MODULES = ['stock', 'events', 'jobs', 'finance', 'checkin', 'salesboard', 'crm'] as const
 export const MCP_SCOPE = 'mcp:read'
 
 const CODE_TTL_MS = 10 * 60 * 1000

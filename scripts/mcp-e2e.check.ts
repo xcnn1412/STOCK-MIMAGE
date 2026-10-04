@@ -19,7 +19,7 @@ process.env.LICENSE_EXPIRES_AT = LICENSE_OK
 
 // ── ฐานข้อมูลจำลอง ─────────────────────────────────────────────────────────────
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
-const ADMIN = uid(1), STOCK_ONLY = uid(2), NO_MODULES = uid(3)
+const ADMIN = uid(1), STOCK_ONLY = uid(2), NO_MODULES = uid(3), FINANCE_ONLY = uid(4), CHECKIN_ONLY = uid(5), CRM_ONLY = uid(6), SALES_ONLY = uid(7)
 const sha = (s: string) => createHash('sha256').update(s).digest('hex')
 const inHour = () => new Date(Date.now() + 3600_000).toISOString()
 
@@ -30,6 +30,10 @@ const TOK = {
   rate: 'tok-rate-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD',
   touch: 'tok-touch-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE',
   expired: 'tok-expired-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
+  finance: 'tok-finance-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG',
+  checkin: 'tok-checkin-HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH',
+  crm: 'tok-crm-IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII',
+  sales: 'tok-sales-JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ',
 }
 const tokenRow = (id: string, user: string, token: string, extra: Row = {}): Row => ({
   id, user_id: user, client_id: 'client-1', client_name: 'Claude', access_hash: sha(token), refresh_hash: sha(`r-${token}`),
@@ -45,8 +49,12 @@ const item = (id: string, name: string, extra: Row = {}): Row => ({
 const fake = createFakeDb({
   profiles: [
     { id: ADMIN, role: 'admin', full_name: 'แอดมิน', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['finance'], pin: '1111' },
-    { id: STOCK_ONLY, role: 'staff', full_name: 'คลังสินค้า', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['stock', 'finance'], pin: '2222' },
-    { id: NO_MODULES, role: 'staff', full_name: 'บัญชี', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['finance'], pin: '3333' },
+    { id: STOCK_ONLY, role: 'staff', full_name: 'คลังสินค้า', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['stock', 'costs'], pin: '2222' },
+    { id: NO_MODULES, role: 'staff', full_name: 'บัญชี', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['costs', 'kpi'], pin: '3333' },
+    { id: FINANCE_ONLY, role: 'staff', full_name: 'ผู้เบิก', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['finance'], pin: '4444' },
+    { id: CHECKIN_ONLY, role: 'staff', full_name: 'คนเช็คอิน', nickname: 'เช็ค', is_approved: true, is_blocked: false, allowed_modules: ['checkin'], pin: '5555' },
+    { id: CRM_ONLY, role: 'staff', full_name: 'ฝ่ายขาย CRM', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['crm', 'kpi'], pin: '6666' },
+    { id: SALES_ONLY, role: 'staff', full_name: 'ดูยอดขาย', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['salesboard'], pin: '7777' },
   ],
   oauth_tokens: [
     tokenRow('t-admin', ADMIN, TOK.admin),
@@ -55,6 +63,10 @@ const fake = createFakeDb({
     tokenRow('t-rate', STOCK_ONLY, TOK.rate),
     tokenRow('t-touch', STOCK_ONLY, TOK.touch),
     tokenRow('t-expired', STOCK_ONLY, TOK.expired, { access_expires_at: new Date(Date.now() - 1000).toISOString() }),
+    tokenRow('t-finance', FINANCE_ONLY, TOK.finance),
+    tokenRow('t-checkin', CHECKIN_ONLY, TOK.checkin),
+    tokenRow('t-crm', CRM_ONLY, TOK.crm),
+    tokenRow('t-sales', SALES_ONLY, TOK.sales),
   ],
   activity_logs: [],
   shelves: [{ id: 'sh-a', code: 'A-1', name: null, zone: 'A' }],
@@ -70,6 +82,20 @@ const fake = createFakeDb({
   kit_contents: [{ id: 'kc1', kit_id: 'kit-1', item_id: 'cam-1', quantity: 1 }],
   events: [],
   crm_leads: [],
+  expense_claims: [
+    { id: 'cl-own', claim_number: 'EXP-OWN', claim_type: 'other', title: 'ค่าแท็กซี่', amount: 250, status: 'pending', category: 'travel',
+      submitted_by: FINANCE_ONLY, created_at: '2026-09-02T00:00:00Z', expense_date: '2026-09-01', deleted_at: null,
+      receipt_urls: ['https://x/r.jpg'], bank_account_number: '999-9-99999-9' },
+    { id: 'cl-other', claim_number: 'EXP-OTHER', claim_type: 'other', title: 'ของแอดมิน', amount: 900, status: 'pending', category: 'food',
+      submitted_by: ADMIN, created_at: '2026-09-03T00:00:00Z', expense_date: '2026-09-01', deleted_at: null },
+  ],
+  job_cost_events: [],
+  finance_categories: [],
+  staff_checkins: [
+    { id: 'ci-1', user_id: CHECKIN_ONLY, check_type: 'office', checked_in_at: new Date(Date.now() - 3600_000).toISOString(), checked_out_at: null,
+      note: null, event_id: null, duties: [], province: null, district: null, out_of_province: false, latitude: 13.7, longitude: 100.5, photo_url: 'https://x/p.webp' },
+  ],
+  salary_duties: [],
 })
 
 // ── แทนโมดูลที่ต้องมี Next ─────────────────────────────────────────────────────
@@ -164,7 +190,11 @@ async function expect401(res: Response, label: string) {
 }
 
 const STOCK_TOOLS = ['stock_summary', 'search_items', 'low_stock', 'kit_status', 'shelf_contents']
-const ALL_TOOLS = [...STOCK_TOOLS, 'upcoming_events', 'event_detail', 'event_closures', 'job_readiness']
+const ALL_TOOLS = [
+  ...STOCK_TOOLS, 'upcoming_events', 'event_detail', 'event_closures', 'job_readiness',
+  'my_claims', 'all_claims', 'my_checkins', 'team_checkins',
+  'sales_summary', 'commission_summary', 'search_leads', 'lead_detail',
+]
 
 async function main() {
   // ═══ (a) ไม่มี Bearer → 401 ═════════════════════════════════════════════════
@@ -219,14 +249,74 @@ async function main() {
     const r = await callTool(TOK.none, 'stock_summary')
     assert.equal(r.isError, true)
     assert.ok(r.text.includes('ไม่มีสิทธิ์'))
-    pass('ผู้ใช้ที่ไม่มี stock/events/jobs: tools/list ว่าง · เรียก tool → isError')
+    pass('ผู้ใช้ที่ไม่มีโมดูลที่ MCP เปิด: tools/list ว่าง · เรียก tool → isError')
   }
 
-  // ═══ (c) admin เห็นครบ 9 ═══════════════════════════════════════════════════
+  // ═══ T1: finance-only (ไม่ใช่แอดมิน) เห็น my_claims ไม่เห็น all_claims ══════════
+  {
+    await initialize(TOK.finance)
+    assert.deepEqual(await listTools(TOK.finance), ['my_claims'])
+
+    const logsBefore = fake.tables.activity_logs.length
+    fake.failTables.add('expense_claims') // ถ้า all_claims รันจริงจะได้ "ดึงข้อมูลไม่สำเร็จ" ไม่ใช่ "ไม่มีสิทธิ์"
+    const denied = await callTool(TOK.finance, 'all_claims')
+    fake.failTables.delete('expense_claims')
+    assert.equal(denied.isError, true)
+    assert.ok(THAI.test(denied.text) && denied.text.includes('ไม่มีสิทธิ์') && denied.text.includes('แอดมิน'), denied.text)
+    assert.equal(fake.tables.activity_logs.length, logsBefore, 'tool ที่ไม่มีสิทธิ์ต้องไม่ถูกบันทึก')
+
+    const mine = await callTool(TOK.finance, 'my_claims', { submitter: 'แอดมิน', user_id: ADMIN })
+    assert.notEqual(mine.isError, true, mine.text)
+    const [summary, payload] = mine.text.split('\n')
+    assert.ok(THAI.test(summary))
+    const body = JSON.parse(payload) as { rows: Record<string, unknown>[]; total: number }
+    assert.deepEqual(body.rows.map(r => r.claim_number), ['EXP-OWN'])
+    assert.equal(body.rows[0].status, 'รออนุมัติ')
+    assert.ok(!payload.includes('https://x/') && !payload.includes('999-9-99999-9') && !payload.includes('_urls') && !payload.includes('bank_'))
+    const log = fake.tables.activity_logs[fake.tables.activity_logs.length - 1]
+    assert.equal(log.action_type, 'MCP_TOOL_CALL')
+    assert.equal(log.user_id, FINANCE_ONLY)
+    assert.equal((log.details as Record<string, unknown>).tool, 'my_claims')
+    pass(`T1 finance-only: tools/list = [my_claims] · all_claims → isError "${denied.text}" (ไม่รัน) · my_claims ได้ของตัวเองเท่านั้น + log MCP_TOOL_CALL`)
+  }
+
+  // ═══ T1: checkin-only (ไม่ใช่แอดมิน) เห็น my_checkins ไม่เห็น team_checkins ═════
+  {
+    await initialize(TOK.checkin)
+    assert.deepEqual(await listTools(TOK.checkin), ['my_checkins'])
+    const denied = await callTool(TOK.checkin, 'team_checkins')
+    assert.equal(denied.isError, true)
+    assert.ok(denied.text.includes('ไม่มีสิทธิ์') && denied.text.includes('แอดมิน'), denied.text)
+    const mine = await callTool(TOK.checkin, 'my_checkins')
+    assert.notEqual(mine.isError, true, mine.text)
+    const body = JSON.parse(mine.text.split('\n')[1]) as { rows: Record<string, unknown>[] }
+    assert.equal(body.rows.length, 1)
+    assert.equal(body.rows[0].type, 'เข้าออฟฟิศ')
+    assert.ok(!mine.text.includes('latitude') && !mine.text.includes('photo_url') && !mine.text.includes('https://x/'))
+    pass('T1 checkin-only: tools/list = [my_checkins] · team_checkins → isError ไทย · my_checkins ไม่มีพิกัด/รูป')
+  }
+
+  // ═══ WP2: crm-only / salesboard-only (ไม่ใช่แอดมิน) ═══════════════════════════
+  {
+    await initialize(TOK.crm)
+    assert.deepEqual(await listTools(TOK.crm), ['search_leads', 'lead_detail'])
+    await initialize(TOK.sales)
+    assert.deepEqual(await listTools(TOK.sales), ['sales_summary', 'commission_summary'])
+    const denied = await callTool(TOK.sales, 'search_leads')
+    assert.equal(denied.isError, true)
+    assert.ok(denied.text.includes('ไม่มีสิทธิ์'), denied.text)
+    pass('WP2 crm-only: tools/list = [search_leads, lead_detail] · salesboard-only: [sales_summary, commission_summary] · ข้ามโมดูล → isError')
+  }
+
+  // ═══ (c) admin เห็นครบ 17 ══════════════════════════════════════════════════
   {
     await initialize(TOK.admin)
     assert.deepEqual(await listTools(TOK.admin), ALL_TOOLS)
-    pass('(c) admin: tools/list ครบ 9 tool (แม้ allowed_modules มีแค่ finance)')
+    assert.equal(ALL_TOOLS.length, 17)
+    const all = await callTool(TOK.admin, 'all_claims')
+    assert.notEqual(all.isError, true, all.text)
+    assert.equal((JSON.parse(all.text.split('\n')[1]) as { total: number }).total, 2)
+    pass(`(c) admin: tools/list ครบ ${ALL_TOOLS.length} tool (แม้ allowed_modules มีแค่ finance) · all_claims เรียกได้`)
   }
 
   // ═══ (d) tools/call สำเร็จ → activity_logs MCP_TOOL_CALL ════════════════════

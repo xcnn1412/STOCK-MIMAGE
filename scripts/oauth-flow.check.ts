@@ -25,9 +25,9 @@ const STAFF = uid(1), ADMIN = uid(2), FINANCE_ONLY = uid(3), DEFAULT_MODULES = u
 
 const db: Record<string, Row[]> = {
   profiles: [
-    { id: STAFF, role: 'staff', full_name: 'สมชาย ทดสอบ', nickname: 'ชาย', is_approved: true, is_blocked: false, allowed_modules: ['stock', 'events', 'finance'] },
+    { id: STAFF, role: 'staff', full_name: 'สมชาย ทดสอบ', nickname: 'ชาย', is_approved: true, is_blocked: false, allowed_modules: ['stock', 'events', 'kpi'] },
     { id: ADMIN, role: 'admin', full_name: 'แอดมิน', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['finance'] },
-    { id: FINANCE_ONLY, role: 'staff', full_name: 'การเงิน', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['finance', 'crm'] },
+    { id: FINANCE_ONLY, role: 'staff', full_name: 'การเงิน', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['costs', 'kpi'] },
     { id: DEFAULT_MODULES, role: 'staff', full_name: 'ค่าเริ่มต้น', nickname: null, is_approved: true, is_blocked: false, allowed_modules: null },
   ],
   oauth_clients: [],
@@ -563,10 +563,11 @@ async function main() {
 
   // modulesFor + touchToken
   {
-    assert.deepEqual(oauth.modulesFor({ role: 'admin', allowed_modules: ['finance'] }), ['stock', 'events', 'jobs'])
+    assert.deepEqual(oauth.modulesFor({ role: 'admin', allowed_modules: ['finance'] }), ['stock', 'events', 'jobs', 'finance', 'checkin', 'salesboard', 'crm'])
     assert.deepEqual(oauth.modulesFor({ role: 'staff', allowed_modules: null }), ['stock'])
-    assert.deepEqual(oauth.modulesFor({ role: 'staff', allowed_modules: ['jobs', 'crm', 'admin'] }), ['jobs'])
-    assert.deepEqual(oauth.modulesFor({ role: 'staff', allowed_modules: ['finance'] }), [])
+    assert.deepEqual(oauth.modulesFor({ role: 'staff', allowed_modules: ['jobs', 'crm', 'admin'] }), ['jobs', 'crm'])
+    assert.deepEqual(oauth.modulesFor({ role: 'staff', allowed_modules: ['finance'] }), ['finance'])
+    assert.deepEqual(oauth.modulesFor({ role: 'staff', allowed_modules: ['costs', 'kpi', 'admin'] }), [])
 
     const c = await grantCode(clientId, V2)
     const a = (await exchange(clientId, c, V2)).body.access_token as string
@@ -588,7 +589,7 @@ async function main() {
     currentAuth = { userId: ADMIN, role: 'admin', sessionId: 's' }
     const ca = await grantCode(clientId, V2)
     const wa = await oauth.verifyAccessToken(fakeClient as never, (await exchange(clientId, ca, V2)).body.access_token as string)
-    assert.deepEqual(wa?.modules, ['stock', 'events', 'jobs'])
+    assert.deepEqual(wa?.modules, ['stock', 'events', 'jobs', 'finance', 'checkin', 'salesboard', 'crm'])
     currentAuth = { userId: DEFAULT_MODULES, role: 'staff', sessionId: 's' }
     const cd = await grantCode(clientId, V2)
     const wd = await oauth.verifyAccessToken(fakeClient as never, (await exchange(clientId, cd, V2)).body.access_token as string)
