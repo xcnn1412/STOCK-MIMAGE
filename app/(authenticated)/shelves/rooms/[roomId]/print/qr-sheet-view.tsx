@@ -1,6 +1,7 @@
 'use client'
 
-// แผ่นพิมพ์ QR ของทั้งห้อง — จัดป้ายลง A4 แนวตั้ง ตั้งขนาด QR ได้ (มม.)
+// แผ่นพิมพ์ QR รวม — จัดป้ายลง A4 แนวตั้ง ตั้งขนาด QR ได้ (มม.)
+// ใช้ทั้งแผ่น QR ของห้อง (ระดับชั้น) และแผ่น QR กระเป๋าทั้งหมด — หน้า server ส่งค่า QR เต็ม (url) มาในแต่ละป้าย
 // ทุกขนาดในแผ่นคิดเป็นหน่วย --u: ตอนพิมพ์ --u = 1mm (ขนาดจริง) · ตัวอย่างบนจอ --u ย่อตามความกว้างจอ
 // ตอนพิมพ์: แผ่นจริงอยู่ใน portal ใต้ <body> แล้วซ่อนทุกอย่างที่เหลือ — ไม่ขึ้นกับโครง layout ของแอป
 
@@ -16,7 +17,10 @@ import { A4, QR_SIZE, paginate, qrSheetLayout, type QrSheetLayout } from '../../
 
 export interface QrLabel {
   id: string
+  /** ตัวหนาใต้ QR (รหัสชั้น / ชื่อกระเป๋า) */
   code: string
+  /** ค่าใน QR — ลิงก์เต็ม */
+  url: string
 }
 
 const PRESETS = [25, 40, 60, 90]
@@ -37,7 +41,7 @@ const PRINT_CSS = `
 const u = (n: number) => `calc(var(--u) * ${n})`
 const unit = (value: string) => ({ ['--u' as string]: value }) as CSSProperties
 
-function Sheet({ labels, layout, roomName, origin }: { labels: QrLabel[]; layout: QrSheetLayout; roomName: string; origin: string }) {
+function Sheet({ labels, layout, caption }: { labels: QrLabel[]; layout: QrSheetLayout; caption: string }) {
   return (
     <div
       className="qr-sheet"
@@ -71,7 +75,7 @@ function Sheet({ labels, layout, roomName, origin }: { labels: QrLabel[]; layout
             overflow: 'hidden',
           }}
         >
-          <QRCode value={`${origin}/shelves/${l.id}`} size={256} style={{ width: u(layout.qr), height: u(layout.qr), flexShrink: 0 }} />
+          <QRCode value={l.url} size={256} style={{ width: u(layout.qr), height: u(layout.qr), flexShrink: 0 }} />
           <div
             style={{
               height: u(layout.textH),
@@ -88,7 +92,7 @@ function Sheet({ labels, layout, roomName, origin }: { labels: QrLabel[]; layout
               {l.code}
             </div>
             <div style={{ fontSize: u(layout.textH * 0.26), maxWidth: '100%', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: '#52525b' }}>
-              {roomName}
+              {caption}
             </div>
           </div>
         </div>
@@ -97,7 +101,19 @@ function Sheet({ labels, layout, roomName, origin }: { labels: QrLabel[]; layout
   )
 }
 
-export default function QrSheetView({ roomId, roomName, labels, origin }: { roomId: string; roomName: string; labels: QrLabel[]; origin: string }) {
+export interface QrSheetProps {
+  title: string
+  subtitle: string
+  /** ปุ่มย้อนกลับ */
+  backHref: string
+  /** ตัวเล็กใต้ชื่อทุกป้าย (ชื่อห้อง / คำแนะนำ) */
+  caption: string
+  /** ข้อความเมื่อไม่มีป้าย */
+  emptyText: string
+  labels: QrLabel[]
+}
+
+export default function QrSheetView({ title, subtitle, backHref, caption, emptyText, labels }: QrSheetProps) {
   // ช่องกรอกเก็บเป็นข้อความ (พิมพ์ค้างครึ่งทางได้) — ขนาดที่ใช้จริงผ่าน qrSheetLayout ซึ่งบีบเข้าช่วงให้
   const [size, setSize] = useState(String(QR_SIZE.default))
   const layout = qrSheetLayout(Number(size))
@@ -110,12 +126,12 @@ export default function QrSheetView({ roomId, roomName, labels, origin }: { room
       <style>{PRINT_CSS}</style>
 
       <div className="flex items-center gap-3">
-        <Link href={`/shelves/rooms/${roomId}`} className="shrink-0">
+        <Link href={backHref} className="shrink-0">
           <Button variant="ghost" size="icon" aria-label="กลับ"><ArrowLeft className="h-4 w-4" /></Button>
         </Link>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-xl font-bold tracking-tight md:text-2xl">พิมพ์ QR ทั้งห้อง</h1>
-          <p className="truncate text-xs text-muted-foreground md:text-sm">{roomName} · {labels.length} ระดับชั้น</p>
+          <h1 className="truncate text-xl font-bold tracking-tight md:text-2xl">{title}</h1>
+          <p className="truncate text-xs text-muted-foreground md:text-sm">{subtitle}</p>
         </div>
         <Button onClick={() => window.print()} disabled={labels.length === 0}>
           <Printer className="mr-2 h-4 w-4" /> พิมพ์
@@ -164,7 +180,7 @@ export default function QrSheetView({ roomId, roomName, labels, origin }: { room
 
       {labels.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed p-12 text-center text-sm text-muted-foreground">
-          ห้องนี้ยังไม่มีระดับชั้น — เพิ่มชั้นวางในห้องก่อน
+          {emptyText}
         </div>
       ) : (
         // ตัวอย่าง: กว้างสุดเท่ากระดาษจริง จอแคบกว่านั้นย่อทั้งแผ่นตามความกว้าง
@@ -172,7 +188,7 @@ export default function QrSheetView({ roomId, roomName, labels, origin }: { room
           <div className="space-y-4" style={unit(`min(1mm, calc(100cqw / ${A4.w}))`)}>
             {pages.map((page, i) => (
               <div key={i} className="overflow-hidden rounded-sm shadow-md ring-1 ring-zinc-200">
-                <Sheet labels={page} layout={layout} roomName={roomName} origin={origin} />
+                <Sheet labels={page} layout={layout} caption={caption} />
               </div>
             ))}
           </div>
@@ -184,7 +200,7 @@ export default function QrSheetView({ roomId, roomName, labels, origin }: { room
         createPortal(
           <div className="qr-print-root" style={unit('1mm')}>
             {pages.map((page, i) => (
-              <Sheet key={i} labels={page} layout={layout} roomName={roomName} origin={origin} />
+              <Sheet key={i} labels={page} layout={layout} caption={caption} />
             ))}
           </div>,
           document.body
