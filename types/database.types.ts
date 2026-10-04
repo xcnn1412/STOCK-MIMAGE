@@ -923,6 +923,141 @@ export interface Database {
           }
         ]
       }
+      oauth_clients: {
+        Row: {
+          client_id: string
+          client_name: string | null
+          redirect_uris: string[]
+          created_at: string
+        }
+        Insert: {
+          client_id: string
+          client_name?: string | null
+          redirect_uris: string[]
+          created_at?: string
+        }
+        Update: {
+          client_id?: string
+          client_name?: string | null
+          redirect_uris?: string[]
+          created_at?: string
+        }
+        Relationships: []
+      }
+      oauth_codes: {
+        Row: {
+          code_hash: string
+          client_id: string
+          user_id: string
+          redirect_uri: string
+          code_challenge: string
+          scope: string | null
+          resource: string | null
+          expires_at: string
+          used_at: string | null
+        }
+        Insert: {
+          code_hash: string
+          client_id: string
+          user_id: string
+          redirect_uri: string
+          code_challenge: string
+          scope?: string | null
+          resource?: string | null
+          expires_at: string
+          used_at?: string | null
+        }
+        Update: {
+          code_hash?: string
+          client_id?: string
+          user_id?: string
+          redirect_uri?: string
+          code_challenge?: string
+          scope?: string | null
+          resource?: string | null
+          expires_at?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "oauth_codes_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "oauth_clients"
+            referencedColumns: ["client_id"]
+          },
+          {
+            foreignKeyName: "oauth_codes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      oauth_tokens: {
+        Row: {
+          id: string
+          user_id: string
+          client_id: string
+          client_name: string | null
+          access_hash: string
+          refresh_hash: string
+          scope: string | null
+          code_hash: string | null
+          access_expires_at: string
+          refresh_expires_at: string
+          created_at: string
+          last_used_at: string | null
+          revoked_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          client_id: string
+          client_name?: string | null
+          access_hash: string
+          refresh_hash: string
+          scope?: string | null
+          code_hash?: string | null
+          access_expires_at: string
+          refresh_expires_at: string
+          created_at?: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          client_id?: string
+          client_name?: string | null
+          access_hash?: string
+          refresh_hash?: string
+          scope?: string | null
+          code_hash?: string | null
+          access_expires_at?: string
+          refresh_expires_at?: string
+          created_at?: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "oauth_tokens_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "oauth_clients"
+            referencedColumns: ["client_id"]
+          },
+          {
+            foreignKeyName: "oauth_tokens_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never

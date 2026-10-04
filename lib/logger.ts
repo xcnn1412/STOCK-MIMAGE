@@ -247,6 +247,10 @@ export type ActionType =
     | 'UPDATE_USER_PROFILE'
     | 'UPDATE_MY_PROFILE'
     | 'CHANGE_PIN'
+    // MCP — Claude อ่านข้อมูลแทนพนักงาน: อนุญาตเชื่อมต่อ / ยกเลิกการเชื่อมต่อ / เรียก tool
+    | 'MCP_CONNECT'
+    | 'MCP_REVOKE'
+    | 'MCP_TOOL_CALL'
 
 export async function logActivity(
     action: ActionType,

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import {
     LogOut, Menu, X,
     PanelLeftClose, PanelLeftOpen,
-    ChevronDown, ChevronRight, User, BookOpen, Trophy, Sparkles,
+    ChevronDown, ChevronRight, User, BookOpen, Trophy, Sparkles, Plug,
 } from "lucide-react"
 import { logout } from '@/app/login/actions'
 import { useLanguage } from '@/contexts/language-context'
@@ -358,6 +358,28 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
                     )}
                     <Sparkles className="h-4 w-4 shrink-0" />
                     {(!collapsed || isMobile) && <span className="truncate">มีอะไรใหม่</span>}
+                </Link>
+
+                {/* แอปที่เชื่อมต่อ — การเชื่อมต่อ Claude (MCP) ของตัวเอง (เห็นได้ทุก user) */}
+                <Link
+                    href="/connected-apps"
+                    onClick={isMobile ? closeMobile : undefined}
+                    className={`
+                        relative w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-[13.5px] font-medium
+                        transition-all duration-150
+                        ${collapsed && !isMobile ? 'justify-center' : ''}
+                        ${isActive('/connected-apps')
+                            ? 'bg-violet-50/70 dark:bg-violet-950/30 text-violet-700 dark:text-violet-400 font-semibold'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-violet-50/40 dark:hover:bg-violet-950/20'
+                        }
+                    `}
+                    title={t.nav.connectedApps}
+                >
+                    {isActive('/connected-apps') && (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-violet-500 dark:bg-violet-400" />
+                    )}
+                    <Plug className="h-4 w-4 shrink-0" />
+                    {(!collapsed || isMobile) && <span className="truncate">{t.nav.connectedApps}</span>}
                 </Link>
 
                 {/* Utility row — language + collapse + logout grouped on one
