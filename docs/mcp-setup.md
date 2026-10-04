@@ -18,6 +18,72 @@
 
 **มือถือ:** แอป Claude ใช้การเชื่อมต่อเดียวกับ claude.ai
 
+## ใช้กับโปรแกรมอื่นที่ไม่ใช่ Claude
+
+เซิร์ฟเวอร์นี้เป็น MCP มาตรฐาน (Streamable HTTP + OAuth 2.1) โปรแกรมไหนที่รองรับ "remote MCP server + OAuth" ก็เชื่อมได้ด้วยบัญชีเดิมของระบบ สิทธิ์และการบันทึกเหมือนกันทุกโปรแกรม
+
+> ทุกวิธีด้านล่าง**ยังไม่ได้ทดสอบจริง**กับโปรแกรมนั้นๆ (เขียนจากเอกสารของผู้ให้บริการ ณ ต.ค. 2026) — ถ้าติดตรงไหนให้จดข้อความที่โปรแกรมแสดงแล้วแจ้งผู้ดูแลระบบ
+
+### ChatGPT (เว็บ / แอป)
+
+ต้องเป็นแผน Plus, Pro, Business, Enterprise หรือ Edu (แผนรายบุคคล Plus/Pro ใช้ connector แบบอ่านอย่างเดียวได้ — ของเราอ่านอย่างเดียวพอดี)
+
+1. Settings → **Apps & Connectors** (บางเวอร์ชันเรียก **Plugins**) → **Advanced** → เปิด **Developer mode**
+2. กด **Create** / **Add connector** → ตั้งชื่อ `STOCK-MIMAGE` → URL `https://<โดเมนของระบบ>/api/mcp` → Authentication เลือก **OAuth** (ไม่ต้องใส่ Client ID/Secret — ChatGPT ลงทะเบียนตัวเองอัตโนมัติ)
+3. กด Create → ChatGPT จะเปิดหน้าล็อกอินของระบบเรา → ล็อกอินเบอร์โทร+PIN → กด **อนุญาต**
+4. ในแชต กด **+** → เลือก connector `STOCK-MIMAGE` แล้วถามได้เลย
+
+### Gemini (เว็บ) — ต้องให้แอดมินสร้าง Client ให้ก่อน
+
+แอป Gemini ไม่ลงทะเบียนตัวเองอัตโนมัติ ผู้ใช้ต้องกรอก Client ID/Secret เอง (ความสามารถนี้ขึ้นกับแผน Gemini ของบัญชี)
+
+**แอดมินทำครั้งเดียว:** ดู "Redirect URL" ที่หน้าเพิ่มแอปของ Gemini แสดง แล้วรันคำสั่งนี้ (แทนที่ URL ให้ตรง) จะได้ `client_id` กลับมา
+
+```bash
+curl -s -X POST https://<โดเมนของระบบ>/api/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"Gemini","redirect_uris":["<Redirect URL ที่ Gemini แสดง>"]}'
+```
+
+**ผู้ใช้:** Settings & help → **Connected apps** → **Add a custom app** → ใส่ URL `https://<โดเมนของระบบ>/api/mcp` → เลือก **OAuth 2.0** แล้วกรอก
+
+| ช่อง | ค่า |
+|---|---|
+| Authorization URL | `https://<โดเมนของระบบ>/oauth/authorize` |
+| Token URL | `https://<โดเมนของระบบ>/api/oauth/token` |
+| Client ID | ค่าที่แอดมินส่งให้ |
+| Client Secret | ใส่อะไรก็ได้ (ระบบไม่ใช้ secret — ใช้ PKCE แทน) |
+| Scopes | `mcp:read` |
+| PKCE | เปิด (S256) |
+
+จากนั้นกด Connect → ล็อกอินเบอร์โทร+PIN → **อนุญาต**
+
+### Gemini CLI (เทอร์มินัล)
+
+```bash
+gemini mcp add --transport http stock https://<โดเมนของระบบ>/api/mcp
+```
+
+หรือใส่ใน `~/.gemini/settings.json`: `"mcpServers": { "stock": { "httpUrl": "https://<โดเมนของระบบ>/api/mcp", "oauth": { "enabled": true } } }` แล้วใน Gemini CLI พิมพ์ `/mcp auth stock` → เบราว์เซอร์เปิดหน้าล็อกอินของระบบ → **อนุญาต** (CLI รับ callback ที่ `http://localhost:<port>` ซึ่งระบบรองรับ)
+
+### Claude Code (เทอร์มินัล)
+
+```bash
+claude mcp add --transport http stock https://<โดเมนของระบบ>/api/mcp
+```
+
+แล้วพิมพ์ `/mcp` ใน Claude Code เพื่อล็อกอิน (เบราว์เซอร์เปิดหน้าของระบบ → **อนุญาต**)
+
+### ทดสอบด้วย MCP Inspector (สำหรับผู้ดูแล)
+
+`npx @modelcontextprotocol/inspector` → Transport `Streamable HTTP` → URL `https://<โดเมนของระบบ>/api/mcp` → Connect → ล็อกอิน → เห็นรายการ tool ตามสิทธิ์ของบัญชีที่ล็อกอิน
+
+### ข้อกำหนดร่วม
+
+- URL ต้องเป็น `https://` ที่เข้าถึงได้จากอินเทอร์เน็ต (ระบบจริงเท่านั้น ไม่ใช่เครื่องทดสอบ)
+- Redirect URL ของโปรแกรมต้องเป็น `https://…` หรือ `http://localhost…` / `http://127.0.0.1…` เท่านั้น
+- ทุกโปรแกรมใช้การเชื่อมต่อแยกกัน ยกเลิกแยกกันได้ที่ **แอปที่เชื่อมต่อ** (ชื่อโปรแกรมแสดงตามที่โปรแกรมลงทะเบียน)
+
 ## Claude จะเห็นอะไรบ้าง
 
 ขึ้นกับสิทธิ์โมดูลในบัญชีของคุณ (แอดมินเห็นครบ)

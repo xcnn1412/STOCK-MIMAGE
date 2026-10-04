@@ -325,12 +325,15 @@ async function main() {
     const noName = await register.POST(post('/api/oauth/register', { redirect_uris: [CALLBACK] }))
     assert.equal((await json(noName)).client_name, 'MCP client')
 
-    // http://localhost ได้ตอนพัฒนา · production ไม่ได้
+    // loopback (http://localhost / 127.0.0.1 / [::1]) ได้ทุก port แม้ production — แอปบนเครื่อง (Claude Code, Gemini CLI) ใช้รับ callback
     assert.equal((await register.POST(post('/api/oauth/register', { redirect_uris: ['http://localhost:6274/oauth/callback'] }))).status, 201)
     assert.equal((await register.POST(post('/api/oauth/register', { redirect_uris: ['http://127.0.0.1:33418/cb'] }))).status, 201)
     const realNodeEnv = env.NODE_ENV
     env.NODE_ENV = 'production'
-    assert.equal((await register.POST(post('/api/oauth/register', { redirect_uris: ['http://localhost:6274/oauth/callback'] }))).status, 400)
+    assert.equal((await register.POST(post('/api/oauth/register', { redirect_uris: ['http://localhost:7777/oauth/callback'] }))).status, 201)
+    assert.equal((await register.POST(post('/api/oauth/register', { redirect_uris: ['http://[::1]:7777/oauth/callback'] }))).status, 201)
+    // http ที่ไม่ใช่ loopback ยังไม่ได้ (รวม localhost ปลอมอย่าง localhost.evil.com)
+    assert.equal((await register.POST(post('/api/oauth/register', { redirect_uris: ['http://localhost.evil.com/cb'] }))).status, 400)
     env.NODE_ENV = realNodeEnv
   }
   pass('M2 (a) DCR คืน client_id + บันทึก redirect_uris · http ที่ไม่ใช่ localhost / >10 URI / ชื่อ >100 ตัวอักษรถูกปฏิเสธ')
