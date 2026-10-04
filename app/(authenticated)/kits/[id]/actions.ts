@@ -4,7 +4,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { getKitManager, itemsOutInKit } from '@/lib/kit-bookings'
-import { MAX_QTY, onShelf, parseQty } from '@/app/(authenticated)/shelves/consumable-logic'
+import { MAX_QTY, onShelf, parseQty, shortage } from '@/app/(authenticated)/shelves/consumable-logic'
 
 
 
@@ -41,8 +41,8 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
       const existingAssignment = assignments?.[0]
       // Check if item is already in a kit
       if (existingAssignment) {
-          const assignedKitName = (existingAssignment.kits as any)?.name || 'another kit'
-          return { error: `Item is already in ${assignedKitName}` }
+          const assignedKitName = (existingAssignment.kits as any)?.name || 'กระเป๋าใบอื่น'
+          return { error: `อุปกรณ์นี้อยู่ใน${assignedKitName}แล้ว — เอาออกจากใบนั้นก่อน` }
       }
   }
 
@@ -54,7 +54,7 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
 
   if (error) {
     console.error(error)
-    return { error: 'Failed to add item' }
+    return { error: 'เพิ่มของเข้ากระเป๋าไม่สำเร็จ' }
   }
 
   // อุปกรณ์ในกระเป๋าอยู่ตามกระเป๋า — ไม่มีชั้นของตัวเอง (ยกเว้นวัสดุสิ้นเปลือง)
@@ -90,7 +90,7 @@ export async function removeItemFromKit(contentId: string, kitId: string) {
   
   if (error) {
       console.error(error)
-      return { error: 'Failed to remove item' }
+      return { error: 'เอาของออกจากกระเป๋าไม่สำเร็จ' }
   }
 
   // safely cast nested relations
@@ -107,37 +107,65 @@ export async function removeItemFromKit(contentId: string, kitId: string) {
   revalidatePath(`/kits/${kitId}`)
 }
 
-export async function updateKitItemQuantity(contentId: string, quantity: number) {
-    if (!(await getKitManager())) throw new Error('เฉพาะ admin และแผนกที่ดูแลกระเป๋าเท่านั้น')
+export async function updateKitItemQuantity(
+    contentId: string,
+    quantity: number
+): Promise<{ error: string } | { success: true; warning?: string }> {
+    if (!(await getKitManager())) return { error: 'เฉพาะ admin และแผนกที่ดูแลกระเป๋าเท่านั้น' }
 
     const supabase = createServiceClient()
 
     // Fetch details before update
-    const { data: content } = await supabase.from('kit_contents')
-        .select('quantity, kits(name), items(name)')
+    const { data } = await supabase.from('kit_contents')
+        .select('kit_id, item_id, quantity, items(name, is_consumable, quantity, unit), kits(name)')
         .eq('id', contentId)
-        .single()
+        .maybeSingle()
+    const content = data as unknown as {
+        kit_id: string
+        item_id: string
+        quantity: number | null
+        items: { name: string; is_consumable: boolean | null; quantity: number | null; unit: string | null } | null
+        kits: { name: string } | null
+    } | null
+    if (!content) return { error: 'ไม่พบรายการนี้ในกระเป๋า — รีเฟรชหน้าแล้วลองใหม่' }
 
-    const { error } = await supabase.from('kit_contents').update({ quantity }).eq('id', contentId)
-    
+    const out = await itemsOutInKit(supabase, content.kit_id)
+    if (out.length > 0) return { error: `กระเป๋านี้ยังออกงานอยู่ (${out.join(', ')}) — รับคืนหรือปิดงานก่อนจึงแก้ของในกระเป๋าได้` }
+
+    const qty = parseQty(quantity)
+    if (qty == null) return { error: `จำนวนต้องเป็นจำนวนเต็ม 1–${MAX_QTY.toLocaleString()}` }
+
+    const { error } = await supabase.from('kit_contents').update({ quantity: qty }).eq('id', contentId)
+
     if (error) {
         console.error(error)
-        throw new Error('Failed to update quantity')
+        return { error: 'บันทึกจำนวนไม่สำเร็จ' }
     }
 
-    const kitName = (content?.kits as any)?.name || 'Unknown Kit'
-    const itemName = (content?.items as any)?.name || 'Unknown Item'
-    
-    await logActivity('UPDATE_KIT_ITEM', { 
-        kitName,
-        itemName,
-        oldQuantity: content?.quantity,
-        newQuantity: quantity,
+    const item = content.items
+    await logActivity('UPDATE_KIT_ITEM', {
+        kitName: content.kits?.name || 'Unknown Kit',
+        itemName: item?.name || 'Unknown Item',
+        oldQuantity: content.quantity,
+        newQuantity: qty,
         contentId
     }, undefined)
 
-
     revalidatePath('/kits', 'layout')
+
+    // วัสดุสิ้นเปลือง: ผลรวมจำนวนประจำกระเป๋าทุกใบเกินยอดคงเหลือ = บันทึกได้ แต่เตือนว่ากระเป๋าจะขาด
+    if (item?.is_consumable) {
+        const { data: rows } = await supabase.from('kit_contents').select('quantity').eq('item_id', content.item_id)
+        const inKits = (rows || []).reduce((sum, r) => sum + (r.quantity || 0), 0)
+        const total = item.quantity ?? 0
+        if (shortage(total, inKits) > 0) {
+            return {
+                success: true,
+                warning: `บันทึกแล้ว แต่${item.name}ในกระเป๋าทุกใบรวม ${inKits} ${item.unit || ''} มากกว่ายอดคงเหลือ ${total} — กระเป๋าจะขาดจนกว่าจะเติมของ`.replace(/\s+/g, ' '),
+            }
+        }
+    }
+    return { success: true }
 }
 
 export async function updateKitDetails(kitId: string, name: string, description: string) {
@@ -155,7 +183,7 @@ export async function updateKitDetails(kitId: string, name: string, description:
 
   if (error) {
     console.error(error)
-    return { error: 'Failed to update kit details' }
+    return { error: 'บันทึกชื่อ/รายละเอียดกระเป๋าไม่สำเร็จ' }
   }
 
   await logActivity('UPDATE_KIT', { 

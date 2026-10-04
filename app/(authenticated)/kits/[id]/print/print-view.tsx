@@ -60,7 +60,7 @@ export default function PrintView({ kit }: { kit: Kit }) {
            )}
 
            <div className="mt-auto mb-2">
-               <p className="text-sm font-semibold tracking-wider uppercase">SCAN TO CHECKIN / CHECKOUT</p>
+               <p className="text-sm font-semibold tracking-wider">{t.kits.scanTo}</p>
            </div>
        </div>
 
@@ -70,7 +70,7 @@ export default function PrintView({ kit }: { kit: Kit }) {
 
        <div className="mt-6">
           <Button onClick={handleDownload} size="lg" className="shadow-md">
-            <Download className="mr-2 h-5 w-5" /> Download Image
+            <Download className="mr-2 h-5 w-5" /> {t.kits.downloadImage}
           </Button>
        </div>
     </div>

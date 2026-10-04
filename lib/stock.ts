@@ -45,10 +45,10 @@ export async function moveStock(db: Db, m: StockMove): Promise<{ balance: number
 }
 
 /**
- * ผู้มีสิทธิ์โมดูลสต็อก (เบิกใช้ / ดูประวัติ) = admin หรือ profiles.allowed_modules มี 'stock'
+ * ผู้ใช้มีสิทธิ์โมดูลนี้ไหม = admin หรือ profiles.allowed_modules มี key
  * allowed_modules เป็น null = ['stock'] — ค่าเริ่มต้นเดียวกับ proxy.ts
  */
-export async function getStockUser(): Promise<{ userId: string } | null> {
+export async function hasModule(key: string): Promise<{ userId: string } | null> {
   const auth = await requireAuth()
   if (!auth?.userId) return null
   if (auth.role === 'admin') return { userId: auth.userId }
@@ -59,5 +59,8 @@ export async function getStockUser(): Promise<{ userId: string } | null> {
     .eq('id', auth.userId)
     .maybeSingle()
   const modules: string[] = Array.isArray(data?.allowed_modules) ? data.allowed_modules : ['stock']
-  return modules.includes('stock') ? { userId: auth.userId } : null
+  return modules.includes(key) ? { userId: auth.userId } : null
 }
+
+/** ผู้มีสิทธิ์โมดูลสต็อก (เบิกใช้ / ดูประวัติ) */
+export const getStockUser = () => hasModule('stock')

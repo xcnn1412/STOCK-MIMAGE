@@ -28,7 +28,7 @@ export default async function StockDashboardPage() {
     supabase.from('items').select('*', { count: 'exact', head: true }),
     supabase.from('items').select('price, status'),
     supabase.from('kits').select('*', { count: 'exact', head: true }),
-    supabase.from('kits').select('*, events(id, name, event_date, location)').not('event_id', 'is', null).order('created_at', { ascending: false }),
+    supabase.from('kits').select('*, events(id, name, event_date, location), kit_contents(items(status, is_consumable))').not('event_id', 'is', null).order('created_at', { ascending: false }),
     supabase.from('profiles').select('*', { count: 'exact', head: true }),
     supabase.from('kit_templates').select('*, kit_template_contents(count)').order('created_at', { ascending: false }).limit(10),
     loadShelfHealth(createServiceClient()),

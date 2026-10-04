@@ -48,7 +48,7 @@ The Next.js middleware file is named `proxy.ts` and exports `proxy(request)` (ma
 
 1. **License gate** — `getLicenseStatus()` reads `LICENSE_EXPIRES_AT`; fail-closed (missing/malformed env = expired). Expired instances redirect everywhere (even `/login`) to `LICENSE_EXPIRED_REDIRECT_URL`.
 2. **Session gate** — verifies the HMAC-signed `session_token` cookie via Web Crypto (Edge runtime, see `verifySessionTokenEdge`), then reads `profiles` with the service-role key to confirm `is_approved`, `!is_blocked`, and that a **non-null** `active_session_id` equals the cookie's `session_id` (single-session enforcement — logging in elsewhere kicks the previous session; logout nulls it). No token, no `session_id`, or a null `active_session_id` → `/login`.
-3. **Module gate** — maps the path to a `ModuleKey` via the inlined `MODULE_ROUTES` table and checks `profiles.allowed_modules`. The `admin` key additionally requires `profiles.role === 'admin'` (from the DB row, never from a cookie).
+3. **Module gate** — maps the path to a `ModuleKey` via the inlined `MODULE_ROUTES` table and checks `profiles.allowed_modules`. The `admin` key additionally requires `profiles.role === 'admin'` (from the DB row, never from a cookie). One narrow exception: a kit QR path matching exactly `/kits/<id>/check` passes with `stock` **or** `events` (the rest of `/kits` still needs `stock`).
 
 `MODULE_ROUTES` in `proxy.ts` is **duplicated** from `lib/nav-config.ts` because the middleware runs in the Edge runtime and cannot import the lucide-react icons used in nav-config. **If you add a route to a module, update both.**
 

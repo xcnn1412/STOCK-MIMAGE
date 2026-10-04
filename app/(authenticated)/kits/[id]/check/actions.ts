@@ -37,7 +37,7 @@ async function kitItems(db: Db, kitId: string) {
 /** วัสดุสิ้นเปลืองไม่มีสถานะนำออก/รับคืน — ใช้ไปเท่าไรกรอกตอนปิดงาน */
 const CONSUMABLE_ERROR = 'วัสดุสิ้นเปลืองไม่ต้องนำออกหรือรับคืน — กรอกจำนวนที่ใช้ไปตอนปิดงาน'
 
-/** "จัดครบ" ของการจอง = อุปกรณ์ปกติทุกชิ้นในกระเป๋าถูกนำออก (in_use, ไม่นับวัสดุสิ้นเปลือง) — คิดใหม่ทุกครั้งที่นำออก/รับคืน */
+/** "จัดครบ" ของการจอง = ชิ้นที่นำออกได้ถูกนำออกครบ (ดู packState — ไม่นับของเสีย/ซ่อม/หาย และวัสดุสิ้นเปลือง) — คิดใหม่ทุกครั้งที่นำออก/รับคืน */
 async function syncPacked(db: Db, eventId: string, kitId: string, userId: string) {
   const items = await kitItems(db, kitId)
   const packed = isPacked(items)
@@ -59,10 +59,27 @@ function refresh(eventId: string, kitId: string) {
   revalidatePath('/jobs/tracking')
 }
 
+const NOT_LOGGED_IN = 'ไม่ได้เข้าสู่ระบบ'
+
+/** ป้าย "จัดครบ" ที่บันทึกไว้ไม่ตรงกติกาปัจจุบัน → หน้าจัดกระเป๋าเรียกให้คิดใหม่ */
+export async function syncKitPacked(eventId: string, kitId: string): Promise<{ error: string } | { packed: boolean }> {
+  const session = await requireAuth()
+  const userId = session?.userId
+  if (!userId) return { error: NOT_LOGGED_IN }
+
+  const supabase = createServiceClient()
+  const bookingError = await checkBooking(supabase, eventId, kitId)
+  if (bookingError) return { error: bookingError }
+
+  const packed = await syncPacked(supabase, eventId, kitId, userId)
+  refresh(eventId, kitId)
+  return { packed }
+}
+
 export async function checkoutItems(eventId: string, kitId: string, itemIds: string[]) {
   const session = await requireAuth()
   const userId = session?.userId
-  if (!userId) return { error: "Unauthorized" }
+  if (!userId) return { error: NOT_LOGGED_IN }
 
   const supabase = createServiceClient()
 
@@ -85,7 +102,10 @@ export async function checkoutItems(eventId: string, kitId: string, itemIds: str
     .update({ status: 'in_use' })
     .in('id', itemIds)
 
-  if (updateError) return { error: updateError.message }
+  if (updateError) {
+    console.error(updateError)
+    return { error: 'นำออกไม่สำเร็จ' }
+  }
 
   // 2. Insert logs
   const logs = itemIds.map(id => ({
@@ -99,7 +119,10 @@ export async function checkoutItems(eventId: string, kitId: string, itemIds: str
 
   const { error: logError } = await supabase.from('event_logs').insert(logs)
 
-  if (logError) return { error: logError.message }
+  if (logError) {
+    console.error(logError)
+    return { error: 'นำออกแล้ว แต่บันทึกประวัติไม่สำเร็จ' }
+  }
 
   const packed = await syncPacked(supabase, eventId, kitId, userId)
   refresh(eventId, kitId)
@@ -110,7 +133,7 @@ export async function checkinItem(eventId: string, kitId: string, itemId: string
     const session = await requireAuth()
     const userId = session?.userId
 
-    if (!userId) return { error: "Unauthorized" }
+    if (!userId) return { error: NOT_LOGGED_IN }
     if (!RETURN_STATUSES.includes(status)) return { error: 'สถานะไม่ถูกต้อง' }
 
     const supabase = createServiceClient()
@@ -129,7 +152,10 @@ export async function checkinItem(eventId: string, kitId: string, itemId: string
         .update({ status })
         .eq('id', itemId)
 
-    if (updateError) return { error: updateError.message }
+    if (updateError) {
+        console.error(updateError)
+        return { error: 'รับคืนไม่สำเร็จ' }
+    }
 
     // Log — condition เดิมเก็บ good/damaged/lost; ซ่อมบำรุงนับเป็น damaged
     const { error: logError } = await supabase.from('event_logs').insert({
@@ -142,7 +168,10 @@ export async function checkinItem(eventId: string, kitId: string, itemId: string
         note: note ?? (status === 'maintenance' ? 'ส่งซ่อมบำรุง' : undefined),
     })
 
-    if (logError) return { error: logError.message }
+    if (logError) {
+        console.error(logError)
+        return { error: 'รับคืนแล้ว แต่บันทึกประวัติไม่สำเร็จ' }
+    }
 
     await syncPacked(supabase, eventId, kitId, userId)
     refresh(eventId, kitId)

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Package, Briefcase, CalendarCheck, LayoutTemplate, MapPin, User, Clock, Wallet, Users, AlertTriangle } from "lucide-react"
 import { useLanguage } from "@/contexts/language-context"
 import TemplatesTable from './templates-table'
+import { kitShelfState } from '../../shelves/shelf-logic'
 import type { Profile, ActivityLog, Item, Kit, KitTemplate } from '@/types'
 
 interface DashboardViewProps {
@@ -37,7 +38,21 @@ export default function DashboardView({
   const itemsMaintenance = items?.filter(i => i.status === 'maintenance').length || 0
   const itemsDamaged = items?.filter(i => i.status === 'damaged').length || 0
   const itemsLost = items?.filter(i => i.status === 'lost').length || 0
-  const activeKitsCount = activeKitsWithDetails?.length || 0
+  // กระเป๋าที่มีงานผูกอยู่ = ออกงานจริง (มีอุปกรณ์ปกติ in_use) หรือแค่จองไว้
+  const kitState = (kit: Kit) =>
+    kitShelfState(
+      (kit.kit_contents || []).filter(c => c.items && !c.items.is_consumable).map(c => c.items!.status as string),
+      kit.events ?? null
+    ).kind
+  const outKitIds = new Set((activeKitsWithDetails || []).filter(k => kitState(k) === 'out').map(k => k.id))
+  const activeKitsCount = outKitIds.size
+  const bookedKitsCount = (activeKitsWithDetails?.length || 0) - activeKitsCount
+  const kitStatePill = (id: string) =>
+    outKitIds.has(id) ? (
+      <span className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">ออกงาน</span>
+    ) : (
+      <span className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200">จองไว้</span>
+    )
 
   const log: Record<string, any> = (latestLog || {}) as Record<string, any>
 
@@ -149,7 +164,7 @@ export default function DashboardView({
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold tracking-tight">{t.dashboard.activeDeployments}</h2>
           {activeKitsWithDetails && activeKitsWithDetails.length > 0 && (
-            <span className="text-sm text-zinc-500">{activeKitsWithDetails.length} active</span>
+            <span className="text-sm text-zinc-500">ออกงาน {activeKitsCount} · จองไว้ {bookedKitsCount}</span>
           )}
         </div>
         <Card className="border-zinc-200 dark:border-zinc-800 overflow-hidden">
@@ -163,7 +178,10 @@ export default function DashboardView({
                   </div>
                   <div className="min-w-0 flex-1">
                     <h3 className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate">{kit.name}</h3>
-                    <p className="text-xs text-zinc-500 truncate">{kit.events?.name || '-'}</p>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {kitStatePill(kit.id)}
+                      <p className="text-xs text-zinc-500 truncate">{kit.events?.name || '-'}</p>
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -205,6 +223,7 @@ export default function DashboardView({
                           <Briefcase className="w-3.5 h-3.5" />
                         </div>
                         <span className="font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[150px]">{kit.name}</span>
+                        {kitStatePill(kit.id)}
                       </div>
                     </td>
                     <td className="py-2.5 px-4">

@@ -4,51 +4,66 @@ import { useState } from 'react'
 import { updateKitItemQuantity } from './actions'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Pencil, Check, X } from "lucide-react"
+import { Pencil, Check, X, Loader2 } from "lucide-react"
+import { toast } from 'sonner'
 
-export function EditQuantity({ id, initialQty }: { id: string, initialQty: number }) {
+/** จำนวนของในกระเป๋า + ปุ่มดินสอแก้จำนวน (ผู้ดูแลกระเป๋าเท่านั้น) — unit = หน่วยของวัสดุสิ้นเปลือง */
+export function EditQuantity({ id, initialQty, unit }: { id: string; initialQty: number; unit?: string | null }) {
   const [isEditing, setIsEditing] = useState(false)
-  const [qty, setQty] = useState(initialQty)
+  const [qty, setQty] = useState(String(initialQty))
   const [isSaving, setIsSaving] = useState(false)
 
   const handleSave = async () => {
-      setIsSaving(true)
-      await updateKitItemQuantity(id, qty)
-      setIsSaving(false)
-      setIsEditing(false)
+    setIsSaving(true)
+    const res = await updateKitItemQuantity(id, Number(qty))
+    setIsSaving(false)
+    if ('error' in res) {
+      toast.error(res.error)
+      return
+    }
+    if (res.warning) toast.warning(res.warning)
+    setIsEditing(false)
   }
 
   if (isEditing) {
-      return (
-          <div className="flex items-center gap-1">
-              <Input 
-                type="number" 
-                min="1" 
-                value={qty} 
-                onChange={(e) => setQty(parseInt(e.target.value) || 1)}
-                className="w-16 h-8 text-sm"
-              />
-              <Button size="icon" variant="ghost" className="h-8 w-8 text-green-500" onClick={handleSave} disabled={isSaving}>
-                  <Check className="h-4 w-4" />
-              </Button>
-               <Button size="icon" variant="ghost" className="h-8 w-8 text-zinc-400" onClick={() => setIsEditing(false)} disabled={isSaving}>
-                  <X className="h-4 w-4" />
-              </Button>
-          </div>
-      )
+    return (
+      <div className="flex items-center gap-1">
+        <Input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          step="1"
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSave() }}
+          className="h-9 w-20 text-sm"
+          aria-label="จำนวน"
+          autoFocus
+        />
+        {unit && <span className="text-xs text-zinc-500">{unit}</span>}
+        <Button size="icon" variant="ghost" className="h-9 w-9 text-green-600" onClick={handleSave} disabled={isSaving} aria-label="บันทึกจำนวน">
+          {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+        </Button>
+        <Button size="icon" variant="ghost" className="h-9 w-9 text-zinc-400" onClick={() => setIsEditing(false)} disabled={isSaving} aria-label="ยกเลิก">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    )
   }
 
   return (
-      <div className="flex items-center gap-2 group">
-          <span>{initialQty}</span>
-          <Button 
-            size="icon" 
-            variant="ghost" 
-            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400" 
-            onClick={() => setIsEditing(true)}
-          >
-              <Pencil className="h-3 w-3" />
-          </Button>
-      </div>
+    <div className="flex items-center gap-1">
+      <span>{initialQty}{unit ? ` ${unit}` : ''}</span>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-9 w-9 text-zinc-500"
+        title="แก้จำนวน"
+        aria-label="แก้จำนวน"
+        onClick={() => { setQty(String(initialQty)); setIsEditing(true) }}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </Button>
+    </div>
   )
 }

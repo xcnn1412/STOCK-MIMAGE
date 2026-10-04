@@ -207,26 +207,26 @@ export default function EventsView({
             </CardContent>
 
             {/* Action Buttons - Mobile Optimized */}
-            <CardFooter className="border-t border-zinc-100 dark:border-zinc-800 p-4 gap-2">
-              <Link href={`/events/${event.id}/check-kits`} className="flex-1">
+            <CardFooter className="border-t border-zinc-100 dark:border-zinc-800 p-4 gap-2 flex-wrap">
+              <Link href={`/events/${event.id}/check-kits`} className="flex-1 min-w-0">
                 <Button 
                   variant="outline" 
                   size="sm" 
                   className="w-full min-h-[44px] border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-medium"
                 >
                   <Package className="w-4 h-4 mr-2" />
-                  Kits
+                  {lang === 'th' ? 'กระเป๋า' : 'Kits'}
                 </Button>
               </Link>
               {canEdit && (
-                <Link href={`/events/${event.id}/edit`} className="flex-1">
+                <Link href={`/events/${event.id}/edit`} className="flex-1 min-w-0">
                   <Button
                     variant="outline"
                     size="sm"
                     className="w-full min-h-[44px] border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-medium"
                   >
                     <Edit3 className="w-4 h-4 mr-2" />
-                    Edit
+                    {lang === 'th' ? 'แก้ไข' : 'Edit'}
                   </Button>
                 </Link>
               )}
@@ -237,7 +237,7 @@ export default function EventsView({
                     className="min-h-[44px] min-w-[44px] bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900"
                   >
                     <CheckCircle className="w-4 h-4" />
-                    <span className="sr-only">{t.events.finalizeJob}</span>
+                    {lang === 'th' ? 'ปิดงาน' : 'Close'}
                   </Button>
                 </Link>
               )}

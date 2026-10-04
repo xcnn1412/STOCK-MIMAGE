@@ -220,8 +220,11 @@ export async function proxy(request: NextRequest) {
         return redirectTo(request, '/dashboard')
       }
 
+      // QR กระเป๋า (/kits/<id>/check) — คนที่มีสิทธิ์อีเวนต์ก็สแกนจัดกระเป๋าได้ ส่วนอื่นของ /kits ยังต้องมี stock
+      const isKitQr = /^\/kits\/[^/]+\/check$/.test(pathname) && allowedModules.includes('events')
+
       // Module permission check
-      if (!allowedModules.includes(moduleKey)) {
+      if (!allowedModules.includes(moduleKey) && !isKitQr) {
         return redirectTo(request, '/dashboard')
       }
     }
