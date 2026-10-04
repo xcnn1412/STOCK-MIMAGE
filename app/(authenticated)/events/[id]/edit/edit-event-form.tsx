@@ -20,25 +20,11 @@ import { useLanguage } from '@/contexts/language-context'
 import EventsLogSheet, { type EventLog } from '../../events-log-sheet'
 import type { Event, Kit } from '@/types'
 import { EVENT_PHASES } from '../../../crm/event-phases'
+import type { Profile, StaffRole, StaffAssignment } from '../../event-form-types'
 
-interface Profile {
-  id: string
-  full_name: string | null
-  role: string
-}
-
-interface StaffRole {
-  value: string
-  label_th: string
-  label_en: string
-  color: string | null
-}
-
-interface StaffAssignment {
-  user_id: string
-  full_name: string
-  role: string
-}
+const Label = ({ children, htmlFor, className }: { children: React.ReactNode; htmlFor?: string; className?: string }) => (
+  <label htmlFor={htmlFor} className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${className}`}>{children}</label>
+)
 
 interface CrmLead {
   id: string
@@ -91,10 +77,6 @@ export default function EditEventForm({
       await unlinkEventFromCrm(event.id)
     })
   }
-
-  const Label = ({ children, htmlFor, className }: any) => (
-    <label htmlFor={htmlFor} className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${className}`}>{children}</label>
-  )
 
   // Staff assignments — structured (user_id + role)
   const [assignments, setAssignments] = useState<StaffAssignment[]>(initialStaffAssignments)

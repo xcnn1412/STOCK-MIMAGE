@@ -37,7 +37,7 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
   
   // Note: if kitIds is empty Supabase in() might fail or return nothing, strictly handled above but check just in case
   // items = อุปกรณ์ปกติ (เลือกสถานะ) · consumables = วัสดุสิ้นเปลือง + จำนวนประจำกระเป๋า (กรอกใช้ไป)
-  const itemsByKit: Record<string, { kitName: string, items: any[], consumables: Array<Item & { kitQuantity: number }> }> = {}
+  const itemsByKit: Record<string, { kitName: string, items: Item[], consumables: Array<Item & { kitQuantity: number }> }> = {}
   
   if (kitIds.length > 0) {
       // We want to group by Kit.
@@ -50,9 +50,10 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
             items (*)
         `)
         .in('kit_id', kitIds)
+        .overrideTypes<{ kit_id: string; quantity: number | null; items: Item | null }[], { merge: false }>()
       
       // Group them manually
-      contents?.forEach((c: any) => {
+      contents?.forEach((c) => {
           const kitName = kits.find(k => k.id === c.kit_id)?.name || 'กระเป๋า'
           if (!itemsByKit[c.kit_id]) {
               itemsByKit[c.kit_id] = { kitName, items: [], consumables: [] }

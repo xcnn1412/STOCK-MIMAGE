@@ -12,6 +12,13 @@ import { isClosedEvent } from '../jobs/tracking/tracking-logic'
 import { planReturnUse } from '../shelves/consumable-logic'
 import { moveStock } from '@/lib/stock'
 
+// แถวกระเป๋า + ของในกระเป๋า ที่ processEventReturn select มา (items เป็น object เดียวต่อแถว)
+type CloseKitContent = {
+  quantity: number | null
+  items: Pick<Item, 'id' | 'name' | 'serial_number' | 'status' | 'image_url' | 'is_consumable' | 'unit'> | null
+}
+type CloseKitRow = { id: string; name: string; kit_contents: CloseKitContent[] | null }
+
 
 // Recompute crm_leads.assigned_* roll-up arrays as the UNION of every linked event's
 // event_staff. Staff now lives per-event (event_staff keyed by event_id), but the
@@ -344,7 +351,8 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
           .from('event_staff')
           .select('user_id, role, profiles:user_id(full_name)')
           .eq('event_id', id)
-      oldStaff = ((rows || []) as any[]).map((s: any) => ({
+          .overrideTypes<{ user_id: string; role: string; profiles: { full_name: string | null } | null }[], { merge: false }>()
+      oldStaff = (rows || []).map((s) => ({
           user_id: s.user_id,
           full_name: s.profiles?.full_name || '',
           role: s.role,
@@ -383,8 +391,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
               .select('id, kit_contents(item_id)')
               .in('id', removed)
               .eq('event_id', id)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const itemIds = (outKits || []).flatMap(k => ((k.kit_contents as any[]) || []).map(kc => kc.item_id)).filter(Boolean)
+          const itemIds = (outKits || []).flatMap(k => (k.kit_contents || []).map(kc => kc.item_id)).filter(Boolean)
           if (itemIds.length > 0) {
               await supabase.from('items').update({ status: 'available' }).in('id', itemIds).eq('status', 'in_use')
           }
@@ -487,7 +494,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
                   .from('profiles')
                   .select('id, full_name')
                   .in('id', addedRaw.map(s => s.user_id))
-              const profMap = new Map(((profileRows || []) as any[]).map((p: any) => [p.id, p.full_name || '']))
+              const profMap = new Map(((profileRows || []) as { id: string; full_name: string | null }[]).map((p): [string, string] => [p.id, p.full_name || '']))
               addedStaff = addedRaw.map(s => ({
                   user_id: s.user_id,
                   full_name: profMap.get(s.user_id) || '',
@@ -499,7 +506,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
       }
   }
 
-  const logDetails: Record<string, any> = { id, name, kitIds: selectedKitIds }
+  const logDetails: Record<string, unknown> = { id, name, kitIds: selectedKitIds }
   if (Object.keys(fieldChanges).length > 0) logDetails.changes = fieldChanges
   if (addedKits.length > 0 || removedKits.length > 0) {
       logDetails.kits = { added: addedKits, removed: removedKits }
@@ -636,9 +643,9 @@ export async function processEventReturn(
              )
          `)
          .in('id', bookedKitIds)
+         .overrideTypes<CloseKitRow[], { merge: false }>()
 
-     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     const contentsOf = (k: { kit_contents: unknown }) => ((k.kit_contents as any[]) || []).filter(kc => kc.items?.id)
+     const contentsOf = (k: CloseKitRow) => (k.kit_contents || []).filter((kc): kc is CloseKitContent & { items: NonNullable<CloseKitContent['items']> } => !!kc.items?.id)
      // วัสดุสิ้นเปลืองไม่มีสถานะรับคืน — ใช้ไปเท่าไรตัดยอดผ่าน consumableUse
      const consumableIds = new Set(
          (kits || []).flatMap(k => contentsOf(k).filter(kc => kc.items.is_consumable).map(kc => kc.items.id as string))
@@ -700,8 +707,7 @@ export async function processEventReturn(
      const kitsSnapshot = kits?.map(kit => ({
          kitId: kit.id,
          kitName: kit.name,
-         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-         items: kit.kit_contents?.map((kc: any) => ({
+         items: kit.kit_contents?.map((kc) => ({
              itemId: kc.items?.id,
              itemName: kc.items?.name,
              serialNumber: kc.items?.serial_number,
@@ -738,8 +744,7 @@ export async function processEventReturn(
 
      await Promise.all(
          Object.entries(statusGroups).map(([status, ids]) => 
-             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-             supabase.from('items').update({ status } as any).in('id', ids)
+             supabase.from('items').update({ status }).in('id', ids)
          )
      )
 

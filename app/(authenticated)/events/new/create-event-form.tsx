@@ -16,25 +16,11 @@ import Link from 'next/link'
 import { ThaiDatePicker } from '@/components/thai-date-picker'
 import { useLanguage } from '@/contexts/language-context'
 import { EVENT_PHASES } from '../../crm/event-phases'
+import type { Profile, StaffRole, StaffAssignment } from '../event-form-types'
 
-interface Profile {
-  id: string
-  full_name: string | null
-  role: string
-}
-
-interface StaffRole {
-  value: string
-  label_th: string
-  label_en: string
-  color: string | null
-}
-
-interface StaffAssignment {
-  user_id: string
-  full_name: string
-  role: string
-}
+const Label = ({ children, htmlFor, className }: { children: React.ReactNode; htmlFor?: string; className?: string }) => (
+  <label htmlFor={htmlFor} className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${className}`}>{children}</label>
+)
 
 interface Prefill {
   name: string
@@ -104,10 +90,6 @@ export default function CreateEventForm({
   const getRoleColor = (roleValue: string) => {
     return staffRoles.find(s => s.value === roleValue)?.color || '#6b7280'
   }
-
-  const Label = ({ children, htmlFor, className }: any) => (
-    <label htmlFor={htmlFor} className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${className}`}>{children}</label>
-  )
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">

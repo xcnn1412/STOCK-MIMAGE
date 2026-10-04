@@ -4,6 +4,7 @@ import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-
 import { loadOpenBookings } from '@/lib/kit-bookings'
 import CreateEventForm from './create-event-form'
 import { getCrmSettings } from '../../crm/actions'
+import type { CrmSettingRow } from '../event-form-types'
 
 export const revalidate = 0
 
@@ -30,7 +31,7 @@ export default async function NewEventPage({ searchParams }: PageProps) {
 
   // Fetch staff role settings
   const { data: allSettings } = await getCrmSettings()
-  const staffRoles = (allSettings || []).filter((s: any) => s.category === 'staff_role' && s.is_active)
+  const staffRoles = ((allSettings || []) as CrmSettingRow[]).filter((s) => s.category === 'staff_role' && s.is_active)
 
   // If from_crm param, prefill identity fields from the lead (staff starts empty).
   let prefill: {
@@ -86,7 +87,7 @@ export default async function NewEventPage({ searchParams }: PageProps) {
       kitBookings={kitBookings}
       profiles={profiles || []}
       prefill={prefill ?? undefined}
-      staffRoles={staffRoles as any[]}
+      staffRoles={staffRoles}
     />
   )
 }
