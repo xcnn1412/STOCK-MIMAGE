@@ -28,9 +28,24 @@ import { useLanguage } from '@/contexts/language-context'
 export type EventLog = {
   id: string
   action_type: string
-  details: any
+  details: Record<string, unknown>
   created_at: string
   user: { full_name: string | null; role: string | null } | null
+}
+
+type LogPerson = { full_name?: string; user_id?: string; role?: string }
+
+type EventLogDetails = {
+  name?: string
+  location?: string
+  kitIds?: unknown[]
+  changes?: Record<string, { from: unknown; to: unknown }>
+  kits?: { added?: { id: string; name?: string }[]; removed?: { id: string; name?: string }[] }
+  staff_assignments?: { added?: LogPerson[]; removed?: LogPerson[] }
+  reason?: string
+  closureRecorded?: boolean
+  eventId?: string
+  leadId?: string
 }
 
 type ActionFilter = 'all' | 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT' | 'CLOSE_EVENT' | 'LINK' | 'UNLINK'
@@ -136,7 +151,7 @@ function formatDateTime(date: string, lang: 'th' | 'en') {
 }
 
 function LogEntryDetail({ log, lang }: { log: EventLog; lang: 'th' | 'en' }) {
-  const d = log.details || {}
+  const d = (log.details || {}) as EventLogDetails
   const action = log.action_type
 
   if (action === 'CREATE_EVENT') {
@@ -165,9 +180,9 @@ function LogEntryDetail({ log, lang }: { log: EventLog; lang: 'th' | 'en' }) {
       seller: { th: 'ผู้ขาย', en: 'Seller' },
     }
 
-    const changes = (d.changes || {}) as Record<string, { from: any; to: any }>
-    const kits = d.kits as { added?: any[]; removed?: any[] } | undefined
-    const staffDiff = d.staff_assignments as { added?: any[]; removed?: any[] } | undefined
+    const changes = (d.changes || {}) as Record<string, { from: unknown; to: unknown }>
+    const kits = d.kits
+    const staffDiff = d.staff_assignments
 
     const hasFieldChanges = Object.keys(changes).length > 0
     const hasKitChanges = !!kits && ((kits.added?.length || 0) > 0 || (kits.removed?.length || 0) > 0)
@@ -211,13 +226,13 @@ function LogEntryDetail({ log, lang }: { log: EventLog; lang: 'th' | 'en' }) {
             <div className="font-medium text-zinc-700 dark:text-zinc-300">
               {lang === 'th' ? 'กระเป๋า' : 'Kits'}
             </div>
-            {(kits?.added || []).map((k: any) => (
+            {(kits?.added || []).map((k) => (
               <div key={`add-${k.id}`} className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
                 <span className="font-mono">+</span>
                 <span className="break-all">{k.name || k.id}</span>
               </div>
             ))}
-            {(kits?.removed || []).map((k: any) => (
+            {(kits?.removed || []).map((k) => (
               <div key={`rm-${k.id}`} className="flex items-center gap-1.5 text-red-500/90">
                 <span className="font-mono">−</span>
                 <span className="break-all">{k.name || k.id}</span>
@@ -231,7 +246,7 @@ function LogEntryDetail({ log, lang }: { log: EventLog; lang: 'th' | 'en' }) {
             <div className="font-medium text-zinc-700 dark:text-zinc-300">
               {lang === 'th' ? 'ทีมงาน' : 'Staff'}
             </div>
-            {(staffDiff?.added || []).map((s: any, i: number) => (
+            {(staffDiff?.added || []).map((s, i: number) => (
               <div key={`s-add-${i}`} className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 flex-wrap">
                 <span className="font-mono">+</span>
                 <span>{s.full_name || s.user_id}</span>
@@ -242,7 +257,7 @@ function LogEntryDetail({ log, lang }: { log: EventLog; lang: 'th' | 'en' }) {
                 )}
               </div>
             ))}
-            {(staffDiff?.removed || []).map((s: any, i: number) => (
+            {(staffDiff?.removed || []).map((s, i: number) => (
               <div key={`s-rm-${i}`} className="flex items-center gap-1.5 text-red-500/90 flex-wrap">
                 <span className="font-mono">−</span>
                 <span>{s.full_name || s.user_id}</span>

@@ -7,8 +7,11 @@ import { getCrmSettings } from '../../../crm/actions'
 import type { EventLog } from '../../events-log-sheet'
 
 import type { Kit } from '@/types'
+import type { CrmSettingRow, StaffAssignment } from '../../event-form-types'
 
 export const revalidate = 0
+
+type EventStaffRow = { id: string; user_id: string; role: string; profiles: { full_name: string | null } | null }
 
 export default async function EditEventPage(props: { params: Promise<{ id: string }> }) {
   if (!(await getEventManager('edit'))) redirect('/events')
@@ -40,17 +43,18 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
     .select('id, user_id, role, profiles:user_id(full_name)')
     .eq('event_id', event.id)
     .order('created_at', { ascending: true })
-  const eventStaff: any[] = eventStaffData || []
+    .overrideTypes<EventStaffRow[], { merge: false }>()
+  const eventStaff: EventStaffRow[] = eventStaffData || []
 
   // 5. Fetch staff role settings
   const { data: allSettings } = await getCrmSettings()
-  const staffRoles = (allSettings || []).filter((s: any) => s.category === 'staff_role' && s.is_active)
+  const staffRoles = ((allSettings || []) as CrmSettingRow[]).filter((s) => s.category === 'staff_role' && s.is_active)
 
   const allDisplayKits = (allKits || []) as Kit[]
   const assignedKitIds = ownBookings.map(b => b.kitId)
 
   // Map event staff to assignments
-  let staffAssignments = (eventStaff || []).map((s: any) => ({
+  let staffAssignments: StaffAssignment[] = (eventStaff || []).map((s) => ({
     user_id: s.user_id,
     full_name: s.profiles?.full_name || '',
     role: s.role,
@@ -100,7 +104,7 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
     .order('created_at', { ascending: false })
     .limit(500)
 
-  const eventLogs = (rawLogs || []).filter((log: any) => {
+  const eventLogs = (rawLogs || []).filter((log: { action_type: string; details: Record<string, unknown> | null }) => {
     const d = log.details || {}
     if (log.action_type === 'UPDATE_EVENT') return d.id === event.id
     if (log.action_type === 'DELETE_EVENT') return d.eventId === event.id
@@ -117,7 +121,7 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
       kitBookings={kitBookings}
       profiles={profiles || []}
       staffAssignments={staffAssignments}
-      staffRoles={staffRoles as any[]}
+      staffRoles={staffRoles}
       crmLeads={(crmLeads || []).map(l => ({ id: l.id, customer_name: l.customer_name, event_date: l.event_date, package_name: l.package_name }))}
       logs={eventLogs}
     />

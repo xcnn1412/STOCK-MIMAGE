@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useLanguage } from '@/contexts/language-context'
 import { CalendarDays, MapPin, User, Package, ChevronDown, ChevronUp, Clock, ImageIcon } from "lucide-react"
-import type { EventClosure, KitSnapshot } from '@/types'
+import type { EventClosure, ItemSnapshot, KitSnapshot } from '@/types'
 import { cleanupOldClosures } from './actions'
 import { useRouter } from 'next/navigation'
 import { useTransition } from 'react'
@@ -120,7 +120,7 @@ function ClosureCard({ closure }: { closure: EventClosure }) {
                                             </Badge>
                                         </h4>
                                         <div className="space-y-2">
-                                            {kit.items.map((item: any, idx: number) => (
+                                            {kit.items.map((item: ItemSnapshot & { isConsumable?: boolean; used?: number }, idx: number) => (
                                                 <div
                                                     key={item.itemId || idx}
                                                     className="flex items-center justify-between text-sm bg-white rounded p-2 border"

@@ -34,7 +34,7 @@ export async function cleanupOldClosures() {
     }
 
     // 2. Cleanup Storage
-    const allImageUrls = (oldClosures as any[]).flatMap(c => c.image_urls || [])
+    const allImageUrls = (oldClosures as { id: string; image_urls: string[] | null; event_name: string | null }[]).flatMap(c => c.image_urls || [])
     if (allImageUrls.length > 0) {
         // Extract paths from URLs
         // URL format: .../storage/v1/object/public/event_closures/folder/file.jpg

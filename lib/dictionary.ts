@@ -153,6 +153,7 @@ export const dictionary = {
       newTitle: 'New Kit',
       newSubtitle: 'Create a new kit to assign items to.',
       editTitle: 'Edit Kit',
+      editHint: 'Edit the kit name or details, then save',
       searchPlaceholder: 'Search kits...',
       itemCount: 'items inside',
       items: 'Items',
@@ -443,6 +444,7 @@ export const dictionary = {
       newTitle: 'สร้างกระเป๋าใหม่',
       newSubtitle: 'สร้างกระเป๋าใหม่เพื่อจัดกลุ่มอุปกรณ์',
       editTitle: 'แก้ไขกระเป๋า',
+      editHint: 'แก้ชื่อหรือรายละเอียดของกระเป๋า แล้วกดบันทึก',
       searchPlaceholder: 'ค้นหากระเป๋า...',
       itemCount: 'รายการ',
       items: 'รายการของ', // Used for "Items" header
