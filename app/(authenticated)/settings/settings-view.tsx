@@ -7,6 +7,7 @@ import FinanceSettingsView from '@/app/(authenticated)/finance/settings/finance-
 import CrmSettingsView from '@/app/(authenticated)/crm/settings/settings-view'
 import MetaTokenSettings from '@/app/(authenticated)/content-planner/meta-token-settings'
 import EventManagersSettings from '@/app/(authenticated)/events/event-managers-settings'
+import McpAdminCard from '@/app/(authenticated)/connected-apps/admin-card'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
 import type { CrmSetting } from '@/app/(authenticated)/crm/crm-dashboard'
 
@@ -88,9 +89,11 @@ interface Props {
   crmSettings: CrmSetting[]
   metaToken: { connected: boolean; hint: string | null }
   eventPermissionIds: { edit: string[]; close: string[] }
+  /** การเชื่อมต่อ Claude (MCP) — มีค่าเฉพาะ admin, null = ไม่แสดงการ์ด */
+  mcp: { liveCount: number; endpoint: string } | null
 }
 
-export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken, eventPermissionIds }: Props) {
+export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken, eventPermissionIds, mcp }: Props) {
   const { locale } = useLocale()
   const t = labels[locale] || labels.th
   const [activeSection, setActiveSection] = useState<SettingsSection>('finance')
@@ -107,6 +110,9 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
           <p className="text-sm text-muted-foreground">{t.subtitle}</p>
         </div>
       </div>
+
+      {/* การเชื่อมต่อ Claude (MCP) — admin เท่านั้น */}
+      {mcp && <McpAdminCard liveCount={mcp.liveCount} endpoint={mcp.endpoint} />}
 
       {/* Section Selector Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

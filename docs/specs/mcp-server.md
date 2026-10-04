@@ -1,6 +1,6 @@
 # MCP ให้ Claude อ่านระบบ (v1.38.0)
 
-ให้พนักงานเปิด claude.ai / Claude Desktop แล้วเพิ่ม "custom connector" ชี้มาที่แอปนี้ Claude จะอ่านข้อมูลสต็อก อีเวนต์ และติดตามงาน **ได้เฉพาะโมดูลที่คนนั้นมีสิทธิ์** · ตัดสินใจกับเจ้าของ 2026-10-04 · สถานะ: **แผนล็อกแล้ว ยังไม่เริ่มทำ**
+ให้พนักงานเปิด claude.ai / Claude Desktop แล้วเพิ่ม "custom connector" ชี้มาที่แอปนี้ Claude จะอ่านข้อมูลสต็อก อีเวนต์ และติดตามงาน **ได้เฉพาะโมดูลที่คนนั้นมีสิทธิ์** · ตัดสินใจกับเจ้าของ 2026-10-04 · สถานะ: **ทำครบ 3 แพ็กเกจ 2026-10-04 (ผ่านรอบเดียวทุกแพ็กเกจ)** · ตรวจแล้ว: SQL บน postgres:17, สคริปต์จำลอง claude.ai ครบ M2/M6/M7, dev server จริง (metadata 3 ตัว, 401 discovery, preflight, redirect ไป login), หน้า connected-apps ที่ 360px, `next build` · **ยังไม่ได้ทดสอบกับ claude.ai จริง** (ต้อง deploy + รัน migration ก่อน) · ข้อยกเว้น M10: `components/sidebar.tsx` มี lint error เดิม 3 จุด (ไม่เพิ่ม ไม่แก้) · ใช้ `@modelcontextprotocol/server` ตรงๆ ไม่ใช้ `mcp-handler` (ลงทะเบียน tool ต่อคำขอได้) — ถอน `mcp-handler` ออกจาก dependencies ได้ในรอบถัดไป · คู่มือผู้ใช้ `docs/mcp-setup.md`
 branch `feature/mcp-server` · migration `supabase/migrations/20261008_oauth_mcp.sql` · เวอร์ชัน MINOR
 
 ## Problem Statement
