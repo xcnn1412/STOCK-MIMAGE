@@ -18,6 +18,20 @@ import { CLAIM_STATUSES, CLAIM_TYPES, getCategoryLabel, getClaimStatusLabel } fr
 import { isOpenClaim } from './finance/conditions'
 import { claimsQuery, readAllRows, selectColumns, type ClaimsQueryFilters } from '@/app/(authenticated)/finance/claim-db'
 import { JOB_EVENT_EMBED, LIST_COLUMNS, SUBMITTER_EMBED } from '@/app/(authenticated)/finance/list-data'
+import { buildHealth, claimDate, claimEffective, isRevLead, leadAmount, type PLLead } from '@/app/(authenticated)/overview/pl/pl-lib'
+import { loadSalesBoardData, type SalesLead } from '@/app/(authenticated)/sales-board/sales-data'
+import { loadCommissionData } from '@/app/(authenticated)/sales-board/commission-data'
+import {
+  TH_MONTHS_LONG,
+  buildCommission,
+  commissionPeriod,
+  defaultPeriodMonth,
+  mergeTargets,
+  summarizeFinance,
+  thaiEventRange,
+  type Row as CommissionRow,
+  type WarningCode,
+} from '@/app/(authenticated)/sales-board/commission-logic'
 
 // tool ของ MCP (อ่านอย่างเดียว) — ประกาศเป็นข้อมูล ไม่ผูกไลบรารี MCP (สเปค docs/specs/mcp-server.md)
 // app/api/mcp/route.ts ลงทะเบียนเฉพาะ tool ที่โมดูลของ token อนุญาต (toolsFor) · tool ที่ adminOnly ลงทะเบียนให้แอดมินเท่านั้น
@@ -30,7 +44,7 @@ export const MAX_ROWS = 100
 /** เพดานขนาดข้อความผลลัพธ์ต่อ tool (M7) */
 export const MAX_RESULT_BYTES = 64 * 1024
 
-export type McpModule = 'stock' | 'events' | 'jobs' | 'finance' | 'checkin'
+export type McpModule = 'stock' | 'events' | 'jobs' | 'finance' | 'checkin' | 'salesboard' | 'crm'
 
 /** ผู้เรียก tool (มาจาก access token ที่ตรวจแล้ว — ไม่ใช่จาก args) · tool ที่ต้องกรองตามเจ้าของข้อมูลใช้ userId นี้เสมอ */
 export interface ToolContext {
@@ -907,6 +921,413 @@ const teamCheckins = defineTool({
   },
 })
 
+// ── ยอดขาย (salesboard) ─────────────────────────────────────────────────────
+// ข้อมูลจาก loadSalesBoardData ตัวเดียวกับหน้า /sales-board · ตัวเลขผ่าน helper ล้วนของ pl-lib (buildHealth, isRevLead, leadAmount,
+// claimEffective, claimDate) ตามกติกาในคำอธิบาย INFO ของ sales-board-view.tsx: ฝั่งลีดนับตามเดือนที่สร้างลีด (created_at)
+// ยกเว้น "ดีลที่ปิดได้" ที่นับตามวันปิดดีลจริง (closed_at = status_change → accepted/success ครั้งแรก เวลาไทย)
+
+const inMonth = (d: string | null | undefined, m: string) => !!d && d.slice(0, 7) === m
+const shiftMonthUtc = (m: string, delta: number) => {
+  const [y, mo] = m.split('-').map(Number)
+  return new Date(Date.UTC(y, mo - 1 + delta, 1)).toISOString().slice(0, 7)
+}
+const thaiMonth = (m: string) => {
+  const [y, mo] = m.split('-').map(Number)
+  return `${TH_MONTHS_LONG[mo - 1]} ${y + 543}`
+}
+const round2 = (n: number) => Math.round(n * 100) / 100
+const pctOf = (value: number, target: number | null) => (target && target > 0 ? Math.round((value / target) * 100) : null)
+
+const WORK_TYPE_TH: Record<string, string> = { sale: 'ขาย', event: 'อีเวนต์', gp: 'GP' }
+/** ชื่อแพ็กเกจสำรอง — ชุดเดียวกับ PKG_LABEL/pkgLabel ของ sales-board-view.tsx (view import ไม่ได้) */
+const PKG_FALLBACK: Record<string, string> = { basic: 'Basic', standard: 'Standard', premium: 'Premium', premium_video: 'Premium Video', custom: 'Custom' }
+const pkgLabel = (p: string | null, labels: Record<string, string>) =>
+  p ? labels[p] || PKG_FALLBACK[p] || p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'ไม่ระบุระบบ'
+/** กรวยขาย (สะสม) — ชุดเดียวกับ FUNNEL_STAGES ของ sales-board-view.tsx · keys null = ทุกสถานะ */
+const FUNNEL: { keys: string[] | null; label: string }[] = [
+  { keys: null, label: 'ลูกค้าใหม่' },
+  { keys: ['quotation_sent', 'accepted', 'success'], label: 'ส่งใบเสนอราคา' },
+  { keys: ['accepted', 'success'], label: 'ปิดการขาย' },
+]
+const METRIC_TH = {
+  sales: 'ยอดขาย', deals: 'ดีลที่ปิดได้', revenue: 'เก็บเงินแล้ว', collectible: 'ยอดที่ต้องเก็บ', inflow: 'เงินเข้าเดือนนี้', expense: 'รายจ่าย',
+} as const
+type MetricKey = keyof typeof METRIC_TH
+
+type SalesData = Awaited<ReturnType<typeof loadSalesBoardData>>
+const createdDate = (l: PLLead) => l.created_at
+/** ดีลที่นับยอดขาย = สถานะตอบรับ/สำเร็จ มูลค่า > 0 */
+const isSale = (l: SalesLead) => isRevLead(l) && leadAmount(l) > 0
+
+/** ค่าการ์ดของเดือน m — สูตรเดียวกับ useMemo cur/values/prevValues ของ sales-board-view.tsx */
+function salesValues(d: SalesData, m: string): Record<MetricKey, number> {
+  const h = buildHealth(d.leads, d.claims, d.installments, d.jobEvents, d.costItems, x => inMonth(x, m), createdDate)
+  const inflow = d.installments
+    .filter(i => i.is_paid && inMonth(i.paid_date, m) && Number(i.amount) > 0)
+    .reduce((s, i) => s + Number(i.amount || 0), 0)
+  const expense = d.claims
+    .filter(c => c.status !== 'rejected' && c.status !== 'cancelled' && inMonth(claimDate(c), m) && claimEffective(c) > 0)
+    .reduce((s, c) => s + claimEffective(c), 0)
+  const deals = d.leads.filter(l => isSale(l) && inMonth(l.closed_at || l.created_at, m)).length
+  return { sales: h.bookedGross, deals, revenue: h.cashCollected, collectible: h.collectible, inflow, expense }
+}
+
+const salesSummary = defineTool({
+  name: 'sales_summary',
+  module: 'salesboard',
+  description: 'สรุปยอดขายรายเดือนกติกาเดียวกับหน้า Sales Board (ค่าเริ่มต้น = เดือนนี้) — ยอดขาย ดีลที่ปิดได้ เก็บเงินแล้ว/ยอดที่ต้องเก็บ เงินเข้าเดือนนี้ รายจ่าย '
+    + 'เทียบเดือนก่อนและเป้า, แยกตามประเภทงาน (ขาย/อีเวนต์/GP), รายคนขาย (ยอด + จำนวนดีล — ดีลที่มีคนขาย 2 คนนับให้ทั้งสองคน ผลรวมรายคนจึงอาจเกินยอดรวม), '
+    + 'กรวยขาย และจำนวนดีลแยกตามระบบที่ใช้บริการ · ยอดฝั่งลีดนับตามเดือนที่สร้างลีด ยกเว้นดีลที่ปิดได้นับตามวันปิดดีลจริง',
+  schema: z.object({
+    month: MONTH.optional().describe('เดือน รูปแบบ YYYY-MM ค.ศ. เช่น 2026-10 (ค่าเริ่มต้น เดือนนี้ตามเวลาไทย)'),
+  }),
+  async run(db, args) {
+    const month = args.month ?? bkkToday().slice(0, 7)
+    const prev = shiftMonthUtc(month, -1)
+    const d = await loadSalesBoardData(db)
+    const cur = salesValues(d, month)
+    const before = salesValues(d, prev)
+    const stored = d.targetStore[month] || {}
+    const storedTarget = (k: string) => (Number(stored[k]) > 0 ? Number(stored[k]) : null)
+    // เป้าเหมือนการ์ดบนหน้า: เก็บเงินแล้วเทียบยอดที่ต้องเก็บ · รายจ่ายเทียบยอดขาย (ฐานค่าเริ่มต้นของหน้า) · ที่เหลืออ่านจาก sales_board_targets
+    const targetOf: Record<MetricKey, number | null> = {
+      sales: storedTarget('sales'), deals: storedTarget('deals'), revenue: cur.collectible, collectible: null,
+      inflow: storedTarget('inflow'), expense: cur.sales,
+    }
+    const rows: Record<string, unknown>[] = (Object.keys(METRIC_TH) as MetricKey[]).map(k => ({
+      section: 'ตัวเลขหลัก', key: k, label: METRIC_TH[k], value: round2(cur[k]), prev_month: round2(before[k]),
+      target: targetOf[k] === null ? null : round2(targetOf[k]), pct_of_target: pctOf(cur[k], targetOf[k]),
+    }))
+
+    const monthSales = d.leads.filter(l => isSale(l) && inMonth(createdDate(l), month))
+    // ประเภทงาน — สูตรเดียวกับ workTypeStats
+    const wt: Record<string, { amount: number; deals: number }> = { sale: { amount: 0, deals: 0 }, event: { amount: 0, deals: 0 }, gp: { amount: 0, deals: 0 } }
+    const unspec = { amount: 0, deals: 0 }
+    for (const l of monthSales) {
+      const g = l.work_type && wt[l.work_type] ? wt[l.work_type] : unspec
+      g.amount += leadAmount(l)
+      g.deals++
+    }
+    for (const [k, g] of Object.entries(wt)) {
+      const target = storedTarget(`wt_${k}`)
+      rows.push({ section: 'ประเภทงาน', key: k, label: WORK_TYPE_TH[k], amount: round2(g.amount), deals: g.deals, target, pct_of_target: pctOf(g.amount, target) })
+    }
+    if (unspec.deals) rows.push({ section: 'ประเภทงาน', key: null, label: 'ไม่ระบุประเภทงาน', amount: round2(unspec.amount), deals: unspec.deals, target: null, pct_of_target: null })
+
+    // รายคนขาย — ลีดที่มีหลายคนขายนับเต็มให้ทุกคน
+    const bySales = new Map<string, { amount: number; deals: number }>()
+    for (const l of monthSales) {
+      const ids = (l.assigned_sales || []).filter(Boolean)
+      for (const id of ids.length ? ids : ['']) {
+        const g = bySales.get(id) ?? { amount: 0, deals: 0 }
+        g.amount += leadAmount(l)
+        g.deals++
+        bySales.set(id, g)
+      }
+    }
+    const salesIds = [...bySales.keys()].filter(Boolean)
+    const { data: people } = salesIds.length
+      ? await db.from('profiles').select('id, full_name, nickname').in('id', salesIds)
+      : { data: [] }
+    const nameOf = new Map(((people || []) as { id: string; full_name: string | null; nickname: string | null }[]).map(p => [p.id, personName(p)]))
+    for (const [id, g] of [...bySales].sort((a, b) => b[1].amount - a[1].amount)) {
+      rows.push({ section: 'คนขาย', id: id || null, name: id ? nameOf.get(id) ?? 'ไม่ทราบชื่อ' : 'ไม่ระบุคนขาย', amount: round2(g.amount), deals: g.deals })
+    }
+
+    // กรวยขาย — ลีดที่สร้างในเดือนนี้ทุกสถานะ นับสะสมตามขั้น
+    const monthLeads = d.leads.filter(l => inMonth(createdDate(l), month))
+    const st = (l: SalesLead) => (l.status || '').toLowerCase()
+    for (const f of FUNNEL) rows.push({ section: 'กรวยขาย', label: f.label, count: monthLeads.filter(l => f.keys === null || f.keys.includes(st(l))).length })
+    rows.push({ section: 'กรวยขาย', label: 'เสียดีล', count: monthLeads.filter(l => st(l) === 'rejected' || st(l) === 'cancelled').length })
+
+    // ระบบที่ใช้บริการ — ดีลชุดเดียวกับยอดขาย: เดือนนี้ + สะสมทุกเดือน (แสดงเฉพาะที่ขายได้เดือนนี้)
+    const products = new Map<string, { name: string; month: number; total: number }>()
+    for (const l of d.leads) {
+      if (!isSale(l)) continue
+      const key = l.package_name || ''
+      const g = products.get(key) ?? { name: pkgLabel(key, d.packageLabels), month: 0, total: 0 }
+      g.total++
+      if (inMonth(createdDate(l), month)) g.month++
+      products.set(key, g)
+    }
+    for (const g of [...products.values()].filter(p => p.month > 0).sort((a, b) => b.month - a.month || b.total - a.total)) {
+      rows.push({ section: 'ระบบที่ใช้บริการ', name: g.name, deals: g.month, deals_all_time: g.total })
+    }
+
+    const t = targetOf.sales
+    const summary = `เดือน ${thaiMonth(month)} ยอดขาย ${baht(round2(cur.sales))} (${t ? `เป้า ${baht(t)}, ${pctOf(cur.sales, t)}%` : 'ยังไม่ตั้งเป้า'}) · ดีลปิด ${cur.deals}`
+    return capped(rows, summary)
+  },
+})
+
+/** หัวข้อคำเตือน — ชุดเดียวกับ WARNING_LABEL / WARNING_ORDER ของ commission-view.tsx (view import ไม่ได้) */
+const COMMISSION_WARNING_TH: Record<WarningCode, string> = {
+  no_work_type: 'ยังไม่ระบุประเภทงาน (ไม่ถูกนับ)',
+  no_event_date: 'งานอีเวนต์ที่ไม่มีวันจัดงาน',
+  end_before_start: 'วันสิ้นสุดงานอยู่ก่อนวันเริ่มงาน',
+  no_quotation_ref: 'ไม่มีเลขใบเสนอราคา',
+  dup_quotation_ref: 'เลขใบเสนอราคาซ้ำกัน',
+  possible_duplicate: 'อาจเป็นงานเดียวกันซ้ำ (ลูกค้า + วันจัดงานเดียวกัน)',
+  no_history: 'ไม่มีประวัติเปลี่ยนสถานะ (ใช้วันสร้างการ์ดแทน)',
+  cutoff_day: 'ล็อคคิววันที่ 25 (ถูกนับสองงวด)',
+}
+const COMMISSION_WARNING_ORDER: WarningCode[] = ['no_work_type', 'cutoff_day', 'possible_duplicate', 'dup_quotation_ref', 'end_before_start', 'no_event_date', 'no_quotation_ref', 'no_history']
+
+const commissionSummary = defineTool({
+  name: 'commission_summary',
+  module: 'salesboard',
+  description: 'สรุปค่าคอมแอดมินของงวด 25 → 25 กติกาเดียวกับหน้า /sales-board/commission (ค่าเริ่มต้น = งวดที่ครอบวันนี้) — เป้าและยอดจริงของตู้ (จำนวนตู้) และงานอีเวนต์, '
+    + 'รายการการ์ดที่นับ (ลูกค้า วันล็อคคิว จำนวนตู้หรือวันจัดงาน เลขใบเสนอราคา สถานะ), รายการที่ต้องตรวจสอบแยกตามหัวข้อ และสรุปการเงินของงวด (เฉพาะแอดมิน)',
+  schema: z.object({
+    month: MONTH.optional().describe('เดือนของงวด รูปแบบ YYYY-MM ค.ศ. — งวด 2026-10 = 25 ก.ย. ถึง 25 ต.ค. 2026 (ค่าเริ่มต้น งวดที่ครอบวันนี้)'),
+    from: DATE.optional().describe('ปรับวันเริ่มเอง รูปแบบ YYYY-MM-DD ค.ศ. (ค่าเริ่มต้น วันเริ่มของงวด)'),
+    to: DATE.optional().describe('ปรับวันสิ้นสุดเอง รูปแบบ YYYY-MM-DD ค.ศ. (ค่าเริ่มต้น วันสิ้นสุดของงวด)'),
+  }),
+  async run(db, args, ctx) {
+    const isAdmin = ctx.role === 'admin'
+    const d = await loadCommissionData(isAdmin, db)
+    const month = args.month ?? defaultPeriodMonth(d.today)
+    const period = commissionPeriod(month)
+    if (!period) throw new ToolError('เดือนไม่ถูกต้อง ใช้รูปแบบ YYYY-MM ค.ศ.')
+    const from = args.from ?? period.from
+    const to = args.to ?? period.to
+    if (from > to) throw new ToolError('วันที่เริ่มต้องไม่หลังวันที่สิ้นสุด')
+
+    // เป้าผูกกับเดือนของงวดแม้ปรับช่วงเอง (เหมือนหน้า) · mergeTargets scope commission คัดเฉพาะ cm_* ที่ > 0
+    const cm = mergeTargets({}, d.initialTargets[month] || {}, 'commission')
+    const targets = { booths: cm.cm_booths ?? null, events: cm.cm_events ?? null }
+    const result = buildCommission({ leads: d.leads, lockDates: new Map(Object.entries(d.lockDates)), from, to })
+
+    // ชื่อลูกค้าใช้ customer_name เสมอ — Row.customer ของ buildCommission เป็นชื่อ LINE ซึ่งห้ามส่งออก
+    const nameOf = new Map(d.leads.map(l => [l.id, (l.customer_name || '').trim() || '(ไม่ระบุชื่อ)']))
+    const customer = (id: string) => nameOf.get(id) ?? '(ไม่ระบุชื่อ)'
+    const statusLabel = (s: string) => d.statusLabels[s.toLowerCase()] || s || '—'
+
+    const rows: Record<string, unknown>[] = [{
+      section: 'สรุป', period_month: month, from, to, custom_range: from !== period.from || to !== period.to,
+      booth_units: result.boothUnits, booth_cards: result.booths.length, booth_target: targets.booths,
+      event_count: result.eventCount, event_target: targets.events, unclassified: result.unclassified.length,
+      ...(d.unitCountAvailable ? {} : { note: 'ยังไม่มีช่องจำนวนตู้ในฐานข้อมูล — ทุกการ์ดนับเป็น 1 ตู้' }),
+    }]
+
+    const groups = new Map<WarningCode, { lead_id: string; customer: string; detail: string }[]>()
+    for (const w of result.warnings) groups.set(w.code, [...(groups.get(w.code) || []), { lead_id: w.leadId, customer: customer(w.leadId), detail: w.detail }])
+    for (const code of COMMISSION_WARNING_ORDER) {
+      const items = groups.get(code)
+      if (items) rows.push({ section: 'ต้องตรวจสอบ', code, label: COMMISSION_WARNING_TH[code], count: items.length, items })
+    }
+
+    if (isAdmin && d.finance) {
+      const f = summarizeFinance(result, d.finance)
+      rows.push({ section: 'การเงิน', booths: f.booths, events: f.events, total: f.total, unclassified: f.unclassified, no_price: f.noPrice })
+    }
+
+    const base = (r: CommissionRow) => ({ no: r.no, lead_id: r.leadId, customer: customer(r.leadId), lock_date: r.lockDate })
+    for (const r of result.booths) rows.push({ section: 'ตู้', ...base(r), units: r.units, quotation_ref: r.quotationRef, status: statusLabel(r.status) })
+    for (const r of result.events) {
+      rows.push({
+        section: 'อีเวนต์', ...base(r), event_date: r.eventDate, event_end_date: r.eventEndDate,
+        event_range: thaiEventRange(r.eventDate, r.eventEndDate), quotation_ref: r.quotationRef, status: statusLabel(r.status),
+      })
+    }
+
+    const goal = (n: number, t: number | null) => (t ? `${n}/${t}` : `${n}`)
+    const summary = `งวด ${thaiMonth(month)} (${from} ถึง ${to}) ขายตู้ ${goal(result.boothUnits, targets.booths)} ตู้ · อีเวนต์ ${goal(result.eventCount, targets.events)} งาน`
+      + ` · ต้องตรวจสอบ ${result.warnings.length} รายการ`
+    return capped(rows, summary)
+  },
+})
+
+// ── CRM (crm) ─────────────────────────────────────────────────────────────────
+// ทุกคนที่มีโมดูล CRM เห็นทุกลีด (เหมือนหน้า CRM) · ไม่ขอ/ไม่ส่ง customer_line และ notes · เบอร์โทรส่งแค่ 4 ตัวท้าย (phone_last4)
+
+const LEAD_COLUMNS = 'id, status, customer_name, customer_phone, customer_type, work_type, unit_count, lead_source, event_date, event_end_date, '
+  + 'event_time, event_end_time, event_location, package_name, quoted_price, confirmed_price, deposit, vat_mode, assigned_sales, is_returning, quotation_ref, created_at'
+
+type RawLead = {
+  id: string
+  status: string | null
+  customer_name: string | null
+  customer_phone: string | null
+  work_type: string | null
+  event_date: string | null
+  event_end_date: string | null
+  event_time: string | null
+  event_location: string | null
+  package_name: string | null
+  quoted_price: number | null
+  confirmed_price: number | null
+  deposit: number | null
+  assigned_sales: string[] | null
+  is_returning: boolean | null
+  created_at: string
+}
+
+/** '081-234-5678' → '***-***-5678' · ตัวเลขน้อยกว่า 4 หลัก/ไม่มี = null */
+export function phoneLast4(phone: string | null | undefined): string | null {
+  const digits = (phone || '').replace(/\D/g, '')
+  return digits.length >= 4 ? `***-***-${digits.slice(-4)}` : null
+}
+
+/** ป้ายไทยของสถานะ (kanban_status) และแพ็กเกจ (package) จาก crm_settings */
+async function crmLabels(db: Db): Promise<{ status: (s: string | null) => string; pkg: (p: string | null) => string | null; statusValue: (s: string) => string }> {
+  const { data } = await db.from('crm_settings').select('category, value, label_th').in('category', ['kanban_status', 'package'])
+  const status: Record<string, string> = {}
+  const pkg: Record<string, string> = {}
+  for (const r of (data || []) as { category: string; value: string | null; label_th: string | null }[]) {
+    if (!r.value || !r.label_th) continue
+    if (r.category === 'kanban_status') status[r.value.toLowerCase()] = r.label_th
+    else pkg[r.value] = r.label_th
+  }
+  return {
+    status: s => (s ? status[s.toLowerCase()] ?? s : 'ไม่ระบุ'),
+    pkg: p => (p ? pkg[p] ?? p : null),
+    // ผู้ถามอาจพิมพ์ป้ายไทย → แปลงกลับเป็นค่าในฐานข้อมูล
+    statusValue: s => Object.entries(status).find(([, th]) => th === s)?.[0] ?? s.toLowerCase(),
+  }
+}
+
+async function profileNames(db: Db, ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map()
+  const { data } = await db.from('profiles').select('id, full_name, nickname').in('id', ids)
+  return new Map(((data || []) as { id: string; full_name: string | null; nickname: string | null }[]).map(p => [p.id, personName(p)]))
+}
+
+type CrmLabels = Awaited<ReturnType<typeof crmLabels>>
+function leadRow(l: RawLead, labels: CrmLabels, names: Map<string, string>) {
+  return {
+    id: l.id,
+    customer: l.customer_name,
+    status: labels.status(l.status),
+    work_type: l.work_type ? WORK_TYPE_TH[l.work_type] ?? l.work_type : null,
+    event_date: day(l.event_date),
+    event_end_date: day(l.event_end_date),
+    event_time: hhmm(l.event_time),
+    event_location: l.event_location,
+    package: labels.pkg(l.package_name),
+    quoted_price: l.quoted_price,
+    confirmed_price: l.confirmed_price,
+    deposit: l.deposit,
+    assigned_sales: (l.assigned_sales || []).map(id => names.get(id) ?? 'ไม่ทราบชื่อ'),
+    is_returning: !!l.is_returning,
+    phone_last4: phoneLast4(l.customer_phone),
+    created_at: day(l.created_at),
+  }
+}
+
+const searchLeads = defineTool({
+  name: 'search_leads',
+  module: 'crm',
+  description: 'ค้นหาลีดใน CRM ตามคำค้น (ชื่อลูกค้า / สถานที่ / เลขใบเสนอราคา) สถานะ ช่วงวันงาน คนขาย หรือประเภทงาน (ค่าเริ่มต้น 50 รายการ ใหม่สุดก่อน) — '
+    + 'คืนลูกค้า สถานะ ประเภทงาน วันงาน เวลา สถานที่ แพ็กเกจ ราคาเสนอ/ยืนยัน มัดจำ คนขาย ลูกค้าเก่าหรือไม่ เบอร์โทร 4 ตัวท้าย และวันที่สร้าง (ไม่มี LINE/เบอร์เต็ม/โน้ต)',
+  schema: z.object({
+    q: z.string().max(100).optional().describe('คำค้น: ชื่อลูกค้า สถานที่จัดงาน หรือเลขใบเสนอราคา (ค้นแบบบางส่วน)'),
+    status: z.string().max(50).optional().describe('สถานะ เช่น lead, quotation_sent, accepted, success, rejected, cancelled หรือป้ายภาษาไทยตามหน้า CRM'),
+    from: DATE.optional().describe('วันงานตั้งแต่ รูปแบบ YYYY-MM-DD ค.ศ.'),
+    to: DATE.optional().describe('วันงานถึง รูปแบบ YYYY-MM-DD ค.ศ.'),
+    assigned: z.string().max(100).optional().describe('ชื่อหรือชื่อเล่นของคนขาย (ค้นแบบบางส่วน)'),
+    work_type: z.enum(['sale', 'event', 'gp']).optional().describe('ประเภทงาน: sale = ขาย, event = อีเวนต์, gp = GP'),
+    limit: z.number().int().min(1).max(MAX_ROWS).optional().describe('จำนวนแถวสูงสุด 1–100 (ค่าเริ่มต้น 50)'),
+  }),
+  async run(db, args) {
+    const labels = await crmLabels(db)
+    const who = args.assigned ? orSafe(args.assigned) : ''
+    let salesIds: string[] | null = null
+    if (who) {
+      const { data } = await db.from('profiles').select('id').or(`full_name.ilike.%${who}%,nickname.ilike.%${who}%`)
+      salesIds = ((data || []) as { id: string }[]).map(p => p.id)
+      if (salesIds.length === 0) return { summary: `ไม่พบคนขายชื่อ "${who}"`, rows: [] }
+    }
+    let query = db.from('crm_leads').select(LEAD_COLUMNS)
+    const q = args.q ? orSafe(args.q) : ''
+    if (q) query = query.or(`customer_name.ilike.%${q}%,event_location.ilike.%${q}%,quotation_ref.ilike.%${q}%`)
+    const status = args.status?.trim() ? labels.statusValue(args.status.trim()) : ''
+    if (status) query = query.eq('status', status)
+    if (args.from) query = query.gte('event_date', args.from)
+    if (args.to) query = query.lte('event_date', args.to)
+    if (args.work_type) query = query.eq('work_type', args.work_type)
+    if (salesIds) query = query.overlaps('assigned_sales', salesIds)
+    const { data, error } = await query.order('created_at', { ascending: false })
+    if (error) throw new Error(error.message)
+    const leads = (data || []) as unknown as RawLead[]
+    const names = await profileNames(db, [...new Set(leads.flatMap(l => l.assigned_sales || []))])
+    const what = [
+      q && `"${q}"`, status && `สถานะ${labels.status(status)}`, args.work_type && `งาน${WORK_TYPE_TH[args.work_type]}`,
+      who && `คนขาย "${who}"`, (args.from || args.to) && `วันงาน ${args.from ?? '…'} ถึง ${args.to ?? '…'}`,
+    ].filter(Boolean).join(' ')
+    return capped(leads.map(l => leadRow(l, labels, names)), `พบลีด${what ? ` ${what}` : ''} ${leads.length} ราย`, args.limit ?? 50)
+  },
+})
+
+const leadDetail = defineTool({
+  name: 'lead_detail',
+  module: 'crm',
+  description: 'รายละเอียดลีดหนึ่งราย (ระบุ id หรือชื่อลูกค้า) — ข้อมูลเดียวกับ search_leads พร้อมรายละเอียดงาน งวดชำระ (ยอด/จ่ายแล้ว/กำหนด/วันที่จ่าย) '
+    + 'อีเวนต์ที่ผูก ทีมที่จัดให้ลีด (ชื่อ + ตำแหน่ง) และประวัติเปลี่ยนสถานะ 10 รายการล่าสุด · ชื่อตรงหลายราย = คืนรายการให้เลือก',
+  schema: z.object({
+    id: z.string().max(64).optional().describe('id ของลีด'),
+    name: z.string().max(200).optional().describe('ชื่อลูกค้า (ค้นแบบบางส่วน) — ใช้เมื่อไม่รู้ id'),
+  }),
+  async run(db, args) {
+    const id = args.id?.trim()
+    const name = args.name?.trim()
+    if (!id && !name) throw new ToolError('ระบุ id หรือชื่อลูกค้าอย่างใดอย่างหนึ่ง')
+    const cols = `${LEAD_COLUMNS}, event_details`
+    type Detail = RawLead & { event_details: string | null }
+    const labels = await crmLabels(db)
+
+    let lead: Detail | null = null
+    if (id) {
+      const { data } = await db.from('crm_leads').select(cols).eq('id', id).maybeSingle()
+      lead = (data as unknown as Detail | null) ?? null
+    } else {
+      const { data } = await db.from('crm_leads').select(cols).ilike('customer_name', `%${likeEscape(name!)}%`).order('created_at', { ascending: false }).limit(20)
+      const found = (data || []) as unknown as Detail[]
+      const exact = found.filter(l => (l.customer_name || '').trim().toLowerCase() === name!.toLowerCase())
+      if (exact.length === 1 || found.length === 1) lead = exact[0] ?? found[0]
+      else if (found.length > 1) {
+        return {
+          summary: `พบลีดที่ชื่อตรงกับ "${name}" ${found.length} ราย — ระบุ id เพื่อดูรายละเอียด`,
+          rows: found.map(l => ({ id: l.id, customer: l.customer_name, event_date: day(l.event_date), status: labels.status(l.status) })),
+        }
+      }
+    }
+    if (!lead) throw new ToolError(id ? `ไม่พบลีด id ${id}` : `ไม่พบลีดชื่อ "${name}"`)
+
+    const [{ data: ins }, { data: evs }, { data: staff }, { data: acts }, names, roles] = await Promise.all([
+      db.from('crm_lead_installments').select('installment_number, amount, is_paid, due_date, paid_date').eq('lead_id', lead.id).order('installment_number', { ascending: true }),
+      db.from('events').select('id, name, event_date, status').eq('crm_lead_id', lead.id).order('event_date', { ascending: true }),
+      db.from('crm_lead_staff').select('user_id, role, profiles:user_id(full_name, nickname)').eq('lead_id', lead.id),
+      db.from('crm_activities').select('created_at, old_status, new_status').eq('lead_id', lead.id).eq('activity_type', 'status_change')
+        .order('created_at', { ascending: false }).limit(10),
+      profileNames(db, lead.assigned_sales || []),
+      roleLabels(db),
+    ])
+    type RawIns = { installment_number: number | null; amount: number | null; is_paid: boolean | null; due_date: string | null; paid_date: string | null }
+    type RawEv = { id: string; name: string; event_date: string | null; status: string | null }
+    type RawStaff = { user_id: string; role: string | null; profiles: { full_name: string | null; nickname: string | null } | null }
+    type RawAct = { created_at: string; old_status: string | null; new_status: string | null }
+    const installments = ((ins || []) as RawIns[]).map(i => ({
+      no: i.installment_number, amount: Number(i.amount) || 0, is_paid: !!i.is_paid, due_date: day(i.due_date), paid_date: day(i.paid_date),
+    }))
+    const row = {
+      ...leadRow(lead, labels, names),
+      event_details: lead.event_details,
+      installments,
+      events: ((evs || []) as RawEv[]).map(e => ({ id: e.id, name: e.name, event_date: day(e.event_date), status: e.status, closed: isClosedEvent(e.status) })),
+      staff: ((staff || []) as unknown as RawStaff[]).map(s => ({ name: personName(s.profiles), role: s.role ? roles[s.role] ?? s.role : null })),
+      activities: ((acts || []) as RawAct[]).map(a => ({
+        date: bkkDateTime(a.created_at), from: a.old_status ? labels.status(a.old_status) : null, to: labels.status(a.new_status),
+      })),
+    }
+    const paid = installments.filter(i => i.is_paid).length
+    return {
+      summary: `ลีด ${lead.customer_name || '(ไม่ระบุชื่อ)'} สถานะ ${row.status} · วันงาน ${row.event_date ?? 'ไม่ระบุ'} · งวดชำระ ${installments.length} งวด (จ่ายแล้ว ${paid})`,
+      rows: [row],
+    }
+  },
+})
+
 /** tool ทั้งหมด เรียงตามตารางในสเปค */
 export const MCP_TOOLS: McpTool[] = [
   stockSummary,
@@ -922,6 +1343,10 @@ export const MCP_TOOLS: McpTool[] = [
   allClaims,
   myCheckins,
   teamCheckins,
+  salesSummary,
+  commissionSummary,
+  searchLeads,
+  leadDetail,
 ]
 
 /** tool ที่ผู้ใช้เรียกได้ตามโมดูล — tool ที่ adminOnly เฉพาะ role = admin (role จากฐานข้อมูลผ่าน token) */

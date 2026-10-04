@@ -1,6 +1,6 @@
 // Supabase จำลองในหน่วยความจำ สำหรับ lib/mcp-tools.check.ts และ scripts/mcp-e2e.check.ts
 // รองรับเฉพาะส่วนของ query builder ที่ tool ของ MCP / getTrackingSnapshot / lib/oauth / logger ใช้:
-// select (คอลัมน์ + ตารางซ้อน alias:rel!hint(...)), eq neq is in gt gte lt lte ilike or order limit range,
+// select (คอลัมน์ + ตารางซ้อน alias:rel!hint(...)), eq neq is in gt gte lt lte ilike or not overlaps order limit range,
 // maybeSingle single, count/head, insert update (+ select คืนแถว)
 // ทุกการเขียนถูกบันทึกใน writes — สคริปต์ตรวจว่า tool ไม่เขียนอะไรเลย
 
@@ -47,6 +47,9 @@ export const RELS: Record<string, Record<string, Rel>> = {
   },
   staff_checkins: {
     event_id: { table: 'events', kind: 'one', local: 'event_id', foreign: 'id' },
+    user_id: { table: 'profiles', kind: 'one', local: 'user_id', foreign: 'id' },
+  },
+  crm_lead_staff: {
     user_id: { table: 'profiles', kind: 'one', local: 'user_id', foreign: 'id' },
   },
 }
@@ -135,6 +138,8 @@ export interface FakeDb {
   writes: { table: string; op: string }[]
   /** ตารางที่ทำให้คิวรี throw (จำลองฐานข้อมูลล่ม) */
   failTables: Set<string>
+  /** 'ตาราง.คอลัมน์' ที่ไม่มีในฐานข้อมูล (จำลองยังไม่รัน migration) — select คอลัมน์นี้ได้ error 42703 */
+  missingColumns: Set<string>
   client: { from(table: string): Query }
 }
 
@@ -171,6 +176,15 @@ class Query implements PromiseLike<Result> {
   lte(c: string, v: string) { this.preds.push(opPred(c, 'lte', v)); return this }
   ilike(c: string, p: string) { this.preds.push(opPred(c, 'ilike', p)); return this }
   or(expr: string) { this.preds.push(parseOr(expr)); return this }
+  not(c: string, op: string, v: unknown) {
+    const p = opPred(c, op, v === null ? 'null' : String(v))
+    this.preds.push(g => !p(g))
+    return this
+  }
+  overlaps(c: string, vs: unknown[]) {
+    this.preds.push(g => { const v = g(c); return Array.isArray(v) && v.some(x => vs.includes(x)) })
+    return this
+  }
   order(col: string, o?: { ascending?: boolean; nullsFirst?: boolean }) {
     const asc = o?.ascending ?? true
     this.orders.push({ col, asc, nullsFirst: o?.nullsFirst ?? !asc })
@@ -208,6 +222,10 @@ class Query implements PromiseLike<Result> {
   private run(): Result {
     if (this.fake.failTables.has(this.table)) throw new Error(`fake-db: ${this.table} ล่ม (จำลอง)`)
     const rows = this.rowsOf(this.table)
+    if (this.op === 'select') {
+      const missing = this.nodes.find(n => n.field && this.fake.missingColumns.has(`${this.table}.${n.field}`))
+      if (missing) return { data: null, error: { code: '42703', message: `column ${this.table}.${missing.field} does not exist` } }
+    }
     if (this.op === 'insert') {
       this.fake.writes.push({ table: this.table, op: 'insert' })
       const added = this.payload.map(p => ({ id: randomUUID(), created_at: new Date().toISOString(), ...p }))
@@ -274,6 +292,7 @@ export function createFakeDb(tables: Record<string, Row[]>): FakeDb {
     tables,
     writes: [],
     failTables: new Set(),
+    missingColumns: new Set(),
     client: { from: (table: string) => new Query(fake, table) },
   }
   return fake

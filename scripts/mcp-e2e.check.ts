@@ -19,7 +19,7 @@ process.env.LICENSE_EXPIRES_AT = LICENSE_OK
 
 // ── ฐานข้อมูลจำลอง ─────────────────────────────────────────────────────────────
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
-const ADMIN = uid(1), STOCK_ONLY = uid(2), NO_MODULES = uid(3), FINANCE_ONLY = uid(4), CHECKIN_ONLY = uid(5)
+const ADMIN = uid(1), STOCK_ONLY = uid(2), NO_MODULES = uid(3), FINANCE_ONLY = uid(4), CHECKIN_ONLY = uid(5), CRM_ONLY = uid(6), SALES_ONLY = uid(7)
 const sha = (s: string) => createHash('sha256').update(s).digest('hex')
 const inHour = () => new Date(Date.now() + 3600_000).toISOString()
 
@@ -32,6 +32,8 @@ const TOK = {
   expired: 'tok-expired-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
   finance: 'tok-finance-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG',
   checkin: 'tok-checkin-HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH',
+  crm: 'tok-crm-IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII',
+  sales: 'tok-sales-JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ',
 }
 const tokenRow = (id: string, user: string, token: string, extra: Row = {}): Row => ({
   id, user_id: user, client_id: 'client-1', client_name: 'Claude', access_hash: sha(token), refresh_hash: sha(`r-${token}`),
@@ -51,6 +53,8 @@ const fake = createFakeDb({
     { id: NO_MODULES, role: 'staff', full_name: 'บัญชี', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['costs', 'kpi'], pin: '3333' },
     { id: FINANCE_ONLY, role: 'staff', full_name: 'ผู้เบิก', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['finance'], pin: '4444' },
     { id: CHECKIN_ONLY, role: 'staff', full_name: 'คนเช็คอิน', nickname: 'เช็ค', is_approved: true, is_blocked: false, allowed_modules: ['checkin'], pin: '5555' },
+    { id: CRM_ONLY, role: 'staff', full_name: 'ฝ่ายขาย CRM', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['crm', 'kpi'], pin: '6666' },
+    { id: SALES_ONLY, role: 'staff', full_name: 'ดูยอดขาย', nickname: null, is_approved: true, is_blocked: false, allowed_modules: ['salesboard'], pin: '7777' },
   ],
   oauth_tokens: [
     tokenRow('t-admin', ADMIN, TOK.admin),
@@ -61,6 +65,8 @@ const fake = createFakeDb({
     tokenRow('t-expired', STOCK_ONLY, TOK.expired, { access_expires_at: new Date(Date.now() - 1000).toISOString() }),
     tokenRow('t-finance', FINANCE_ONLY, TOK.finance),
     tokenRow('t-checkin', CHECKIN_ONLY, TOK.checkin),
+    tokenRow('t-crm', CRM_ONLY, TOK.crm),
+    tokenRow('t-sales', SALES_ONLY, TOK.sales),
   ],
   activity_logs: [],
   shelves: [{ id: 'sh-a', code: 'A-1', name: null, zone: 'A' }],
@@ -187,6 +193,7 @@ const STOCK_TOOLS = ['stock_summary', 'search_items', 'low_stock', 'kit_status',
 const ALL_TOOLS = [
   ...STOCK_TOOLS, 'upcoming_events', 'event_detail', 'event_closures', 'job_readiness',
   'my_claims', 'all_claims', 'my_checkins', 'team_checkins',
+  'sales_summary', 'commission_summary', 'search_leads', 'lead_detail',
 ]
 
 async function main() {
@@ -289,10 +296,23 @@ async function main() {
     pass('T1 checkin-only: tools/list = [my_checkins] · team_checkins → isError ไทย · my_checkins ไม่มีพิกัด/รูป')
   }
 
-  // ═══ (c) admin เห็นครบ 13 ══════════════════════════════════════════════════
+  // ═══ WP2: crm-only / salesboard-only (ไม่ใช่แอดมิน) ═══════════════════════════
+  {
+    await initialize(TOK.crm)
+    assert.deepEqual(await listTools(TOK.crm), ['search_leads', 'lead_detail'])
+    await initialize(TOK.sales)
+    assert.deepEqual(await listTools(TOK.sales), ['sales_summary', 'commission_summary'])
+    const denied = await callTool(TOK.sales, 'search_leads')
+    assert.equal(denied.isError, true)
+    assert.ok(denied.text.includes('ไม่มีสิทธิ์'), denied.text)
+    pass('WP2 crm-only: tools/list = [search_leads, lead_detail] · salesboard-only: [sales_summary, commission_summary] · ข้ามโมดูล → isError')
+  }
+
+  // ═══ (c) admin เห็นครบ 17 ══════════════════════════════════════════════════
   {
     await initialize(TOK.admin)
     assert.deepEqual(await listTools(TOK.admin), ALL_TOOLS)
+    assert.equal(ALL_TOOLS.length, 17)
     const all = await callTool(TOK.admin, 'all_claims')
     assert.notEqual(all.isError, true, all.text)
     assert.equal((JSON.parse(all.text.split('\n')[1]) as { total: number }).total, 2)

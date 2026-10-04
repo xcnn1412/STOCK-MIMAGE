@@ -157,6 +157,90 @@ const tables: Record<string, Row[]> = {
 }
 const fake = createFakeDb(tables)
 
+// ── ข้อมูลจำลองชุดที่ 2: ยอดขาย / ค่าคอม / CRM (WP2) — แยกฐานเพื่อไม่กระทบ fixture ของ job_readiness
+// ทุกลีดมี customer_line / notes ที่มีคำว่า SECRET และงวดชำระมีลิงก์สลิป เพื่อพิสูจน์ว่าไม่หลุดออกไป
+function lead(id: string, extra: Row): Row {
+  return {
+    id, status: 'lead', customer_name: id, customer_line: `LINE-${id}-SECRET`, customer_phone: null, customer_type: 'บริษัท', work_type: null,
+    unit_count: null, lead_source: 'facebook', event_date: null, event_end_date: null, event_time: null, event_end_time: null,
+    event_location: null, event_details: null, package_name: null, quoted_price: 0, confirmed_price: 0, deposit: 0, vat_mode: 'none',
+    wht_rate: 0, assigned_sales: [], is_returning: false, quotation_ref: null, notes: 'NOTE-SECRET โทร 089-999-9999', archived_at: null, ...extra,
+  }
+}
+const act = (id: string, lead_id: string, old_status: string | null, new_status: string, created_at: string, activity_type = 'status_change'): Row =>
+  ({ id, lead_id, activity_type, old_status, new_status, created_at, description: 'x' })
+const ins = (id: string, lead_id: string, n: number, amount: number, is_paid: boolean, due_date: string | null, paid_date: string | null): Row =>
+  ({ id, lead_id, installment_number: n, amount, is_paid, due_date, paid_date, receipt_url: 'https://x/slip.jpg' })
+const expClaim = (id: string, extra: Row): Row => ({
+  id, job_event_id: null, claim_type: 'other', category: 'travel', amount: 0, actual_spent_amount: null, status: 'paid', vat_mode: 'none',
+  withholding_tax_rate: 0, expense_date: null, created_at: '2026-09-01T00:00:00Z', receipt_urls: ['https://x/r.jpg'], ...extra,
+})
+// เดือนทดสอบ = 2026-09 · เดือนก่อน = 2026-08 · ทุกลีด vat none / WHT 0 ยกเว้น L1 (VAT แยก 7%)
+const salesTables: Record<string, Row[]> = {
+  profiles: [
+    { id: 's1', full_name: 'สมชาย ขายเก่ง', nickname: 'ชาย', pin: '1111' },
+    { id: 's2', full_name: 'สมศรี', nickname: 'ศรี', pin: '2222' },
+    { id: 's3', full_name: 'ช่างภาพ หนึ่ง', nickname: null, pin: '3333' },
+  ],
+  crm_leads: [
+    lead('L1', { status: 'accepted', customer_name: 'บริษัท เอ จำกัด', customer_phone: '081-234-5678', work_type: 'sale', unit_count: 2,
+      event_date: '2026-10-15', event_time: '09:30:00', event_location: 'ไบเทค บางนา', event_details: 'บูธ 3x3', package_name: 'basic',
+      quoted_price: 12000, confirmed_price: 10000, deposit: 3000, vat_mode: 'excluded', assigned_sales: ['s1'], is_returning: true,
+      quotation_ref: 'QT-001', created_at: '2026-09-05T03:00:00Z' }),
+    lead('L2', { status: 'success', customer_name: 'คุณบี', customer_phone: '12', work_type: 'event', event_date: '2026-10-20', event_end_date: '2026-10-21',
+      package_name: 'premium', quoted_price: 20000, confirmed_price: null, assigned_sales: ['s1', 's2'], quotation_ref: 'QT-002', created_at: '2026-09-10T03:00:00Z' }),
+    lead('L3', { status: 'accepted', customer_name: 'ร้านซี', work_type: 'gp', package_name: 'basic', confirmed_price: 5000, assigned_sales: ['s2'],
+      quotation_ref: 'QT-003', created_at: '2026-08-20T03:00:00Z' }),
+    lead('L4', { status: 'quotation_sent', customer_name: 'บริษัท ซ้ำ จำกัด', customer_phone: '02 123 4567', work_type: 'sale', quoted_price: 8000,
+      assigned_sales: ['s2'], created_at: '2026-09-15T03:00:00Z' }),
+    lead('L5', { status: 'accepted', customer_name: 'คุณอี', work_type: 'event', assigned_sales: ['s1'], created_at: '2026-09-20T03:00:00Z' }),
+    lead('L6', { status: 'rejected', customer_name: 'บริษัท ซ้ำ จำกัด สาขา 2', quoted_price: 3000, created_at: '2026-09-25T03:00:00Z' }),
+  ],
+  crm_activities: [
+    act('a1', 'L1', 'lead', 'quotation_sent', '2026-09-05T04:00:00Z'),
+    act('a2', 'L1', 'quotation_sent', 'accepted', '2026-09-06T03:00:00Z'),
+    act('a3', 'L2', 'lead', 'accepted', '2026-09-30T18:00:00Z'), // = 2026-10-01 01:00 เวลาไทย → ปิดดีลเดือน 10
+    act('a4', 'L2', 'accepted', 'success', '2026-10-05T03:00:00Z'),
+    act('a5', 'L3', 'lead', 'accepted', '2026-09-02T01:00:00Z'),
+    act('a6', 'L5', 'lead', 'accepted', '2026-09-21T01:00:00Z'),
+    act('a7', 'L4', null, 'accepted', '2026-09-16T01:00:00Z', 'note'), // ไม่ใช่ status_change → ไม่นับ
+  ],
+  crm_lead_installments: [
+    ins('i1', 'L1', 1, 4000, true, '2026-09-20', '2026-09-20'),
+    ins('i2', 'L1', 2, 3000, false, '2026-10-10', null),
+    ins('i3', 'L2', 1, 25000, true, '2026-10-01', '2026-10-02'), // จ่ายเกินยอด → เก็บเงินแล้วตัดที่ 20,000
+    ins('i4', 'L3', 1, 5000, true, '2026-09-03', '2026-09-03'),
+    ins('i5', 'L6', 1, 1000, true, '2026-09-26', '2026-09-26'), // ลีดที่ปฏิเสธ — เงินเข้ายังนับ
+    ins('i6', 'L4', 1, 0, true, '2026-09-10', '2026-09-10'), // ยอด 0 ไม่นับ
+  ],
+  sales_board_targets: [
+    { month: '2026-09', targets: { sales: 40000, deals: 5, wt_sale: 15000, cm_booths: 3, cm_events: 2 } },
+    { month: '2026-08', targets: { sales: 10000 } },
+  ],
+  crm_settings: [
+    { category: 'kanban_status', value: 'accepted', label_th: 'ตอบรับแล้ว' },
+    { category: 'kanban_status', value: 'quotation_sent', label_th: 'ส่งใบเสนอราคาแล้ว' },
+    { category: 'kanban_status', value: 'lead', label_th: 'ลีดใหม่' },
+    { category: 'package', value: 'basic', label_th: 'แพ็กเกจเบสิก' },
+    { category: 'staff_role', value: 'photographer', label_th: 'ช่างภาพ' },
+  ],
+  expense_claims: [
+    expClaim('e1', { job_event_id: 'jce-a', amount: 1500, expense_date: '2026-09-08' }),
+    expClaim('e2', { claim_type: 'advance', amount: 5000, actual_spent_amount: 3200, status: 'refund_confirmed', expense_date: '2026-09-12' }),
+    expClaim('e3', { amount: 9999, status: 'rejected', expense_date: '2026-09-01' }),
+    expClaim('e4', { amount: 700, status: 'pending', expense_date: null, created_at: '2026-08-30T10:00:00Z' }),
+  ],
+  job_cost_events: [
+    { id: 'jce-a', linked_lead_id: 'L1', event_date: '2026-10-15' },
+    { id: 'jce-b', linked_lead_id: null, event_date: null },
+  ],
+  job_cost_items: [{ job_event_id: 'jce-a', amount: 2000, notes: 'EXP-E1::e1' }],
+  events: [{ id: 'ev-a', name: 'งาน บริษัท เอ', event_date: '2026-10-15', status: 'active', crm_lead_id: 'L1' }],
+  crm_lead_staff: [{ id: 'st1', lead_id: 'L1', user_id: 's3', role: 'photographer', note: 'SECRET', created_at: '2026-09-07T00:00:00Z' }],
+  paging: Array.from({ length: 2500 }, (_, i) => ({ id: `p${i}`, n: i })),
+}
+const sb = createFakeDb(salesTables)
+
 // ── แทนโมดูลที่ต้องมี Next ────────────────────────────────────────────────────
 const mocks: [RegExp, unknown][] = [
   [/supabase-server$/, { createServiceClient: () => fake.client }],
@@ -175,9 +259,13 @@ const load = createRequire(__filename)
 const tools = load('./mcp-tools') as typeof import('./mcp-tools')
 const tracking = load('../app/(authenticated)/jobs/tracking/tracking-logic') as typeof import('../app/(authenticated)/jobs/tracking/tracking-logic')
 const snapshotMod = load('../app/(authenticated)/jobs/tracking/data') as typeof import('../app/(authenticated)/jobs/tracking/data')
+const salesData = load('../app/(authenticated)/sales-board/sales-data') as typeof import('../app/(authenticated)/sales-board/sales-data')
+const commissionData = load('../app/(authenticated)/sales-board/commission-data') as typeof import('../app/(authenticated)/sales-board/commission-data')
+const commissionLogic = load('../app/(authenticated)/sales-board/commission-logic') as typeof import('../app/(authenticated)/sales-board/commission-logic')
 type ToolResult = import('./mcp-tools').ToolResult
 
 const db = fake.client as unknown as Parameters<import('./mcp-tools').McpTool['run']>[0]
+const sbDb = sb.client as unknown as Parameters<import('./mcp-tools').McpTool['run']>[0]
 type Ctx = import('./mcp-tools').ToolContext
 const STAFF: Ctx = { userId: 'u1', role: 'staff', modules: ['stock', 'events', 'jobs', 'finance', 'checkin'] }
 const ADMIN: Ctx = { userId: 'u2', role: 'admin', modules: ['stock', 'events', 'jobs', 'finance', 'checkin'] }
@@ -188,12 +276,13 @@ const byName = (name: string) => {
   assert.ok(t, `ไม่มี tool ${name}`)
   return t
 }
-async function call(name: string, args: Record<string, unknown> = {}, ctx: Ctx = STAFF): Promise<Omit<ToolResult, 'rows'> & { rows: Record<string, unknown>[] }> {
-  const r = await byName(name).run(db, args, ctx)
+type Called = Omit<ToolResult, 'rows'> & { rows: Record<string, unknown>[] }
+async function call(name: string, args: Record<string, unknown> = {}, ctx: Ctx = STAFF, on = db): Promise<Called> {
+  const r = await byName(name).run(on, args, ctx)
   assert.ok(typeof r.summary === 'string' && THAI.test(r.summary) && !r.summary.includes('\n'), `${name}: summary ต้องเป็นไทยบรรทัดเดียว`)
   assert.ok(Array.isArray(r.rows), `${name}: rows ต้องเป็นอาร์เรย์`)
   assert.ok(r.rows.length <= tools.MAX_ROWS, `${name}: rows ต้องไม่เกิน 100`)
-  return r as Omit<ToolResult, 'rows'> & { rows: Record<string, unknown>[] }
+  return r as Called
 }
 /** คีย์ทั้งหมดในโครงสร้าง (ลึกทุกชั้น) */
 function keysDeep(v: unknown, out = new Set<string>()): Set<string> {
@@ -221,9 +310,11 @@ async function main() {
     'stock_summary', 'search_items', 'low_stock', 'kit_status', 'shelf_contents',
     'upcoming_events', 'event_detail', 'event_closures', 'job_readiness',
     'my_claims', 'all_claims', 'my_checkins', 'team_checkins',
+    'sales_summary', 'commission_summary', 'search_leads', 'lead_detail',
   ])
   assert.deepEqual(tools.MCP_TOOLS.map(t => t.module), [
     'stock', 'stock', 'stock', 'stock', 'stock', 'events', 'events', 'events', 'jobs', 'finance', 'finance', 'checkin', 'checkin',
+    'salesboard', 'salesboard', 'crm', 'crm',
   ])
   assert.deepEqual(tools.MCP_TOOLS.filter(t => t.adminOnly).map(t => t.name), ['all_claims', 'team_checkins'])
   for (const t of tools.MCP_TOOLS) {
@@ -235,7 +326,9 @@ async function main() {
   }
   assert.deepEqual(tools.toolsFor(['stock'], 'staff').map(t => t.module), ['stock', 'stock', 'stock', 'stock', 'stock'])
   assert.equal(tools.toolsFor(['stock', 'events', 'jobs'], 'staff').length, 9)
-  assert.equal(tools.toolsFor(['crm', 'kpi'], 'staff').length, 0)
+  assert.equal(tools.toolsFor(['kpi', 'costs'], 'staff').length, 0)
+  assert.deepEqual(tools.toolsFor(['crm', 'kpi'], 'staff').map(t => t.name), ['search_leads', 'lead_detail'])
+  assert.deepEqual(tools.toolsFor(['salesboard'], 'staff').map(t => t.name), ['sales_summary', 'commission_summary'])
   // T1: adminOnly ไม่ออกให้ non-admin แม้มีโมดูล
   assert.deepEqual(tools.toolsFor(['finance'], 'staff').map(t => t.name), ['my_claims'])
   assert.deepEqual(tools.toolsFor(['checkin'], 'staff').map(t => t.name), ['my_checkins'])
@@ -244,7 +337,9 @@ async function main() {
   assert.deepEqual(tools.toolsFor(['checkin'], 'admin').map(t => t.name), ['my_checkins', 'team_checkins'])
   assert.equal(tools.toolsFor(['stock', 'events', 'jobs', 'finance', 'checkin'], 'admin').length, 13)
   assert.equal(tools.toolsFor(['stock', 'events', 'jobs', 'finance', 'checkin'], 'staff').length, 11)
-  pass('13 tools ตามตาราง · module · adminOnly · zod schema · คำอธิบายไทย · toolsFor(modules, role)')
+  assert.equal(tools.toolsFor(['stock', 'events', 'jobs', 'finance', 'checkin', 'salesboard', 'crm'], 'admin').length, 17)
+  assert.equal(tools.toolsFor(['stock', 'events', 'jobs', 'finance', 'checkin', 'salesboard', 'crm'], 'staff').length, 15)
+  pass('17 tools ตามตาราง · module · adminOnly · zod schema · คำอธิบายไทย · toolsFor(modules, role)')
 
   // ═══ stock_summary ══════════════════════════════════════════════════════════
   {
@@ -541,6 +636,273 @@ async function main() {
     assertClean('team_checkins', today)
     pass(`team_checkins — แอดมินเท่านั้น · ชื่อเล่น/ชื่อ · กรองคน/งาน · ค่าเริ่มต้นวันนี้ · ไม่มีพิกัด/รูป · ${r.summary}`)
   }
+
+  // ═══ WP2: ยอดขาย / ค่าคอม / CRM ══════════════════════════════════════════════
+  const SB_STAFF: Ctx = { userId: 's1', role: 'staff', modules: ['salesboard', 'crm'] }
+  const SB_ADMIN: Ctx = { userId: 'admin', role: 'admin', modules: ['salesboard', 'crm'] }
+  /** คีย์/ค่าต้องห้ามของลีด (สเปค mcp-tools-2): LINE · เบอร์เต็ม · โน้ต · พิกัด · pin · *_urls */
+  const assertCrmClean = (label: string, v: unknown) => {
+    const keys = keysDeep(v)
+    for (const k of ['customer_line', 'customer_phone', 'notes', 'latitude', 'longitude', 'pin', 'receipt_url']) assert.ok(!keys.has(k), `${label} ต้องไม่มีคีย์ ${k}`)
+    for (const k of keys) assert.ok(!/_urls$/.test(k), `${label} ต้องไม่มีคีย์ ${k}`)
+    const text = JSON.stringify(v)
+    for (const leak of ['SECRET', '081-234', '089-999', '02 123', 'https://x/']) assert.ok(!text.includes(leak), `${label} ต้องไม่มีค่า ${leak}`)
+  }
+
+  // ═══ T4: ตัวโหลดข้อมูลของหน้า (ย้ายออกจาก page.tsx) ══════════════════════════════
+  {
+    const read = (f: string) => readFileSync(join(__dirname, '..', 'app', '(authenticated)', 'sales-board', f), 'utf8')
+    assert.ok(read('page.tsx').includes('loadSalesBoardData()'), 'sales-board/page.tsx ต้องใช้ loadSalesBoardData')
+    assert.ok(read('commission/page.tsx').includes('loadCommissionData(isAdmin)'), 'commission/page.tsx ต้องใช้ loadCommissionData')
+    for (const f of ['sales-data.ts', 'commission-data.ts']) {
+      const src = read(f)
+      assert.ok(!/^\s*['"]use (server|client)['"]|from 'next\/|from "next\/|:\s*any\b|as any\b|<any>|eslint-disable/m.test(src), `${f} ต้องไม่มี use server/client, next/*, any, eslint-disable`)
+    }
+
+    // fetchAll อ่านครบทุกหน้า (เพดาน 1,000 แถวต่อคำขอ)
+    const paged = await salesData.fetchAll<{ n: number }>(sbDb, 'paging', 'id, n')
+    assert.equal(paged.rows.length, 2500)
+    assert.equal(paged.error, null)
+
+    const d = await salesData.loadSalesBoardData(sbDb)
+    // closed_at = status_change → accepted/success ครั้งแรก เป็นวันที่เวลาไทย · กิจกรรมที่ไม่ใช่ status_change ไม่นับ (L4)
+    assert.deepEqual(Object.fromEntries(d.leads.map(l => [l.id, l.closed_at])), {
+      L1: '2026-09-06', L2: '2026-10-01', L3: '2026-09-02', L4: null, L5: '2026-09-21', L6: null,
+    })
+    assert.ok(d.leads.every(l => !('customer_line' in l) && !('notes' in l)), 'ลีดของ Sales Board ไม่ขอ LINE/โน้ต')
+    assert.deepEqual(Object.keys(d.leads[0]).sort(), [
+      'assigned_sales', 'closed_at', 'confirmed_price', 'created_at', 'customer_name', 'deposit', 'event_date', 'id', 'package_name',
+      'quoted_price', 'status', 'vat_mode', 'wht_rate', 'work_type',
+    ])
+    assert.equal(d.claims.length, 4)
+    assert.ok(d.claims.every(c => !('receipt_urls' in c)))
+    assert.equal(d.installments.length, 6)
+    assert.deepEqual(d.installments[0], { lead_id: 'L1', amount: 4000, is_paid: true, due_date: '2026-09-20', paid_date: '2026-09-20' })
+    assert.deepEqual(d.jobEvents, [{ id: 'jce-a', linked_lead_id: 'L1', event_date: '2026-10-15' }, { id: 'jce-b', linked_lead_id: null, event_date: null }])
+    assert.deepEqual(d.costItems, [{ job_event_id: 'jce-a', amount: 2000 }])
+    assert.deepEqual(d.targetStore, { '2026-09': { sales: 40000, deals: 5, wt_sale: 15000, cm_booths: 3, cm_events: 2 }, '2026-08': { sales: 10000 } })
+    assert.deepEqual(d.packageLabels, { basic: 'แพ็กเกจเบสิก' })
+
+    const c = await commissionData.loadCommissionData(true, sbDb)
+    // won = สถานะปัจจุบันไม่ใช่ lead/booking/following_up/quotation_sent/rejected/cancelled
+    assert.deepEqual(c.leads.map(l => l.id), ['L1', 'L2', 'L3', 'L5'])
+    assert.equal(c.leads[0].unit_count, 2)
+    assert.deepEqual(c.lockDates, { L1: '2026-09-06', L2: '2026-10-01', L3: '2026-09-02', L5: '2026-09-21' })
+    assert.deepEqual(c.lockDates, Object.fromEntries(commissionLogic.buildLockDates(salesTables.crm_activities.filter(a => a.activity_type === 'status_change') as never)))
+    assert.deepEqual(c.initialTargets, d.targetStore)
+    assert.deepEqual(c.statusLabels, { accepted: 'ตอบรับแล้ว', quotation_sent: 'ส่งใบเสนอราคาแล้ว', lead: 'ลีดใหม่' })
+    assert.equal(c.unitCountAvailable, true)
+    assert.match(c.today, /^\d{4}-\d{2}-\d{2}$/)
+    assert.equal(c.today, commissionLogic.bangkokDay(new Date().toISOString()))
+    // finance (admin): ต้นทุน 2,000 + ใบเบิก e1 1,500 ที่ถูกคัดลอกเข้าต้นทุนแล้ว (notes ลงท้าย ::e1)
+    assert.deepEqual(c.finance, {
+      L1: { sales: 10000, cost: 2000, expense: 1500, expenseInCost: 1500 },
+      L2: { sales: 20000, cost: 0, expense: 0, expenseInCost: 0 },
+      L3: { sales: 5000, cost: 0, expense: 0, expenseInCost: 0 },
+      L5: { sales: 0, cost: 0, expense: 0, expenseInCost: 0 },
+    })
+    const staffView = await commissionData.loadCommissionData(false, sbDb)
+    assert.equal(staffView.finance, null)
+    assert.deepEqual(staffView.leads, c.leads)
+    // ยังไม่รัน migration unit_count → อ่านใหม่โดยไม่มีคอลัมน์ ทุกการ์ด unit_count = null
+    sb.missingColumns.add('crm_leads.unit_count')
+    const noUnits = await commissionData.loadCommissionData(false, sbDb)
+    sb.missingColumns.delete('crm_leads.unit_count')
+    assert.equal(noUnits.unitCountAvailable, false)
+    assert.deepEqual(noUnits.leads.map(l => l.id), ['L1', 'L2', 'L3', 'L5'])
+    assert.ok(noUnits.leads.every(l => l.unit_count === null))
+    pass('T4 loadSalesBoardData / loadCommissionData — closed_at เวลาไทย · won เท่านั้น · lockDates · unit_count fallback · finance เฉพาะ admin · fetchAll ครบทุกหน้า')
+  }
+
+  // ═══ T5: sales_summary ══════════════════════════════════════════════════════
+  {
+    const r = await call('sales_summary', { month: '2026-09' }, SB_STAFF, sbDb)
+    const metric = (k: string) => r.rows.find(x => x.section === 'ตัวเลขหลัก' && x.key === k)!
+    // ยอดขาย (ลีดตอบรับ/สำเร็จ มูลค่า > 0 สร้างเดือน 9): L1 10,000 (ราคายืนยัน) + L2 20,000 (ไม่มียืนยัน ใช้ราคาเสนอ) = 30,000
+    //   L3 สร้างเดือน 8 · L4 ยังไม่ตอบรับ · L5 มูลค่า 0 · L6 ปฏิเสธ → ไม่นับ · เดือนก่อน: L3 5,000
+    assert.deepEqual(metric('sales'), { section: 'ตัวเลขหลัก', key: 'sales', label: 'ยอดขาย', value: 30000, prev_month: 5000, target: 40000, pct_of_target: 75 })
+    // ดีลที่ปิดได้ (ตามวันปิดจริง): L1 ปิด 09-06 + L3 ปิด 09-02 (ลีดเดือน 8) = 2 · L2 ปิด 2026-10-01 เวลาไทย (UTC 09-30 18:00) ไม่นับ
+    //   เดือนก่อน = 0 · เป้า 5 → 2/5 = 40%
+    assert.deepEqual(metric('deals'), { section: 'ตัวเลขหลัก', key: 'deals', label: 'ดีลที่ปิดได้', value: 2, prev_month: 0, target: 5, pct_of_target: 40 })
+    // ยอดที่ต้องเก็บ: L1 10,000 × 1.07 (VAT แยก) = 10,700 + L2 20,000 = 30,700 · เดือนก่อน L3 5,000
+    assert.deepEqual(metric('collectible'), { section: 'ตัวเลขหลัก', key: 'collectible', label: 'ยอดที่ต้องเก็บ', value: 30700, prev_month: 5000, target: null, pct_of_target: null })
+    // เก็บเงินแล้ว: L1 มัดจำ 3,000 + งวด i1 4,000 = 7,000 · L2 งวด i3 25,000 ตัดที่ยอดต้องเก็บ 20,000 → 27,000
+    //   เป้า = ยอดที่ต้องเก็บ 30,700 → 27,000/30,700 = 87.9% ≈ 88 · เดือนก่อน L3 งวด i4 5,000
+    assert.deepEqual(metric('revenue'), { section: 'ตัวเลขหลัก', key: 'revenue', label: 'เก็บเงินแล้ว', value: 27000, prev_month: 5000, target: 30700, pct_of_target: 88 })
+    // เงินเข้าเดือนนี้ (paid_date เดือน 9 ทุกลีดทุกสถานะ ยอด > 0): i1 4,000 + i4 5,000 + i5 1,000 = 10,000 · i3 จ่าย 10-02 · i6 ยอด 0 · เดือนก่อน 0
+    assert.deepEqual(metric('inflow'), { section: 'ตัวเลขหลัก', key: 'inflow', label: 'เงินเข้าเดือนนี้', value: 10000, prev_month: 0, target: null, pct_of_target: null })
+    // รายจ่าย: e1 1,500 + e2 ทดลองจ่ายคืนแล้ว ใช้ยอดใช้จริง 3,200 = 4,700 · e3 ปฏิเสธ · e4 ไม่มีวันใช้จ่าย ใช้วันสร้าง 08-30 → เดือนก่อน 700
+    //   เป้า = ยอดขาย 30,000 (ฐานค่าเริ่มต้นของหน้า) → 4,700/30,000 = 15.7% ≈ 16
+    assert.deepEqual(metric('expense'), { section: 'ตัวเลขหลัก', key: 'expense', label: 'รายจ่าย', value: 4700, prev_month: 700, target: 30000, pct_of_target: 16 })
+
+    // ประเภทงาน: ขาย L1 10,000 (เป้า wt_sale 15,000 → 67%) · อีเวนต์ L2 20,000 · GP 0 (L3 อยู่เดือน 8)
+    const wt = r.rows.filter(x => x.section === 'ประเภทงาน')
+    assert.deepEqual(wt.map(x => [x.key, x.label, x.amount, x.deals, x.target, x.pct_of_target]), [
+      ['sale', 'ขาย', 10000, 1, 15000, 67], ['event', 'อีเวนต์', 20000, 1, null, null], ['gp', 'GP', 0, 0, null, null],
+    ])
+    assert.equal(wt.reduce((s, x) => s + Number(x.amount), 0), metric('sales').value) // ทุกดีลมีประเภทงาน → รวมเท่ายอดขาย
+
+    // รายคนขาย: ชาย = L1 10,000 + L2 20,000 = 30,000 (2 ดีล) · ศรี = L2 20,000 (1 ดีล) — L2 มี 2 คนจึงนับให้ทั้งคู่
+    const people = r.rows.filter(x => x.section === 'คนขาย')
+    assert.deepEqual(people.map(x => [x.id, x.name, x.amount, x.deals]), [['s1', 'สมชาย ขายเก่ง (ชาย)', 30000, 2], ['s2', 'สมศรี (ศรี)', 20000, 1]])
+    // ผลรวมรายคน 50,000 = ยอดขาย 30,000 + ส่วนที่นับซ้ำของ L2 20,000
+    assert.equal(people.reduce((s, x) => s + Number(x.amount), 0), 30000 + 20000)
+    assert.ok(byName('sales_summary').description.includes('นับให้ทั้งสองคน'))
+
+    // กรวยขาย (ลีดสร้างเดือน 9 = L1 L2 L4 L5 L6): ลูกค้าใหม่ 5 · ส่งใบเสนอราคา (L1 L2 L4 L5) 4 · ปิดการขาย (L1 L2 L5) 3 · เสียดีล (L6) 1
+    assert.deepEqual(r.rows.filter(x => x.section === 'กรวยขาย').map(x => [x.label, x.count]), [
+      ['ลูกค้าใหม่', 5], ['ส่งใบเสนอราคา', 4], ['ปิดการขาย', 3], ['เสียดีล', 1],
+    ])
+    // ระบบที่ใช้บริการ: basic เดือนนี้ 1 (L1) สะสม 2 (L1 L3) · premium (ไม่มีป้ายใน settings → ชื่อสำรอง Premium) 1/1
+    assert.deepEqual(r.rows.filter(x => x.section === 'ระบบที่ใช้บริการ').map(x => [x.name, x.deals, x.deals_all_time]), [
+      ['แพ็กเกจเบสิก', 1, 2], ['Premium', 1, 1],
+    ])
+    assert.equal(r.summary, 'เดือน กันยายน 2569 ยอดขาย ฿30,000 (เป้า ฿40,000, 75%) · ดีลปิด 2')
+
+    // เดือน 10: ดีลที่ปิดได้ = L2 (ปิด 2026-10-01 เวลาไทย) · ยอดขาย 0 · ไม่มีเป้า
+    const oct = await call('sales_summary', { month: '2026-10' }, SB_STAFF, sbDb)
+    assert.equal(oct.rows.find(x => x.key === 'deals')!.value, 1)
+    assert.equal(oct.summary, 'เดือน ตุลาคม 2569 ยอดขาย ฿0 (ยังไม่ตั้งเป้า) · ดีลปิด 1')
+    // ค่าเริ่มต้น = เดือนนี้ตามเวลาไทย
+    const now = await call('sales_summary', {}, SB_STAFF, sbDb)
+    const [y, m] = commissionLogic.bangkokDay(new Date().toISOString()).split('-').map(Number)
+    assert.ok(now.summary.startsWith(`เดือน ${commissionLogic.TH_MONTHS_LONG[m - 1]} ${y + 543}`), now.summary)
+    await assert.rejects(() => byName('sales_summary').run(sbDb, { month: '2026-13' }, SB_STAFF))
+    assertCrmClean('sales_summary', r)
+    pass(`T5 sales_summary — ตรงกับค่าคำนวณมือ · รายคนขาย · เป้าจาก sales_board_targets · ${r.summary}`)
+  }
+
+  // ═══ T6: commission_summary ═════════════════════════════════════════════════
+  {
+    const c = await commissionData.loadCommissionData(true, sbDb)
+    const period = commissionLogic.commissionPeriod('2026-09')!
+    assert.deepEqual(period, { from: '2026-08-25', to: '2026-09-25' })
+    const expected = commissionLogic.buildCommission({ leads: c.leads, lockDates: new Map(Object.entries(c.lockDates)), from: period.from, to: period.to })
+    // งวด 25 ส.ค. – 25 ก.ย.: L1 ขาย (ล็อค 09-06, 2 ตู้) · L5 อีเวนต์ (ล็อค 09-21) · L3 GP ไม่นับ · L2 ล็อค 10-01 อยู่นอกงวด
+    assert.equal(expected.boothUnits, 2)
+    assert.equal(expected.eventCount, 1)
+
+    const r = await call('commission_summary', { month: '2026-09' }, SB_ADMIN, sbDb)
+    const sec = (s: string) => r.rows.filter(x => x.section === s)
+    const head = sec('สรุป')[0]
+    assert.deepEqual(head, {
+      section: 'สรุป', period_month: '2026-09', from: '2026-08-25', to: '2026-09-25', custom_range: false,
+      booth_units: expected.boothUnits, booth_cards: expected.booths.length, booth_target: 3,
+      event_count: expected.eventCount, event_target: 2, unclassified: expected.unclassified.length,
+    })
+    assert.deepEqual(sec('ตู้').map(x => x.lead_id), expected.booths.map(b => b.leadId))
+    assert.deepEqual(sec('อีเวนต์').map(x => x.lead_id), expected.events.map(e => e.leadId))
+    assert.deepEqual(sec('ตู้')[0], {
+      section: 'ตู้', no: 1, lead_id: 'L1', customer: 'บริษัท เอ จำกัด', lock_date: '2026-09-06', units: 2, quotation_ref: 'QT-001', status: 'ตอบรับแล้ว',
+    })
+    assert.deepEqual(sec('อีเวนต์')[0], {
+      section: 'อีเวนต์', no: 1, lead_id: 'L5', customer: 'คุณอี', lock_date: '2026-09-21', event_date: null, event_end_date: null,
+      event_range: '—', quotation_ref: null, status: 'ตอบรับแล้ว',
+    })
+    // คำเตือนเท่ากับ buildCommission (จัดกลุ่มตาม code พร้อมหัวข้อไทย)
+    const codes = [...new Set(expected.warnings.map(w => w.code))].sort()
+    assert.deepEqual(codes, ['no_event_date', 'no_quotation_ref'])
+    assert.deepEqual(sec('ต้องตรวจสอบ').map(x => x.code).sort(), codes)
+    assert.deepEqual(sec('ต้องตรวจสอบ').map(x => x.label), ['งานอีเวนต์ที่ไม่มีวันจัดงาน', 'ไม่มีเลขใบเสนอราคา'])
+    assert.equal(sec('ต้องตรวจสอบ').reduce((s, x) => s + Number(x.count), 0), expected.warnings.length)
+    // การเงิน (admin) = summarizeFinance ของผลเดียวกัน
+    const f = commissionLogic.summarizeFinance(expected, c.finance!)
+    assert.deepEqual(sec('การเงิน')[0], { section: 'การเงิน', booths: f.booths, events: f.events, total: f.total, unclassified: f.unclassified, no_price: f.noPrice })
+    assert.equal(f.total.profit, 10000 - 2000) // ใบเบิก e1 อยู่ในต้นทุนแล้ว ไม่หักซ้ำ
+    assert.equal(r.summary, 'งวด กันยายน 2569 (2026-08-25 ถึง 2026-09-25) ขายตู้ 2/3 ตู้ · อีเวนต์ 1/2 งาน · ต้องตรวจสอบ 2 รายการ')
+
+    // ไม่ใช่ admin: ไม่มีส่วนการเงิน แต่ตารางเหมือนกัน
+    const staff = await call('commission_summary', { month: '2026-09' }, SB_STAFF, sbDb)
+    assert.equal(staff.rows.filter(x => x.section === 'การเงิน').length, 0)
+    assert.deepEqual(staff.rows.filter(x => x.section === 'ตู้' || x.section === 'อีเวนต์'), [...sec('ตู้'), ...sec('อีเวนต์')])
+    // ปรับช่วงเอง: ครอบ L2 (ล็อค 10-01) ด้วย → อีเวนต์ 2 งาน · เป้ายังผูกกับเดือนของงวด
+    const custom = await call('commission_summary', { month: '2026-09', from: '2026-09-01', to: '2026-10-31' }, SB_STAFF, sbDb)
+    const exp2 = commissionLogic.buildCommission({ leads: c.leads, lockDates: new Map(Object.entries(c.lockDates)), from: '2026-09-01', to: '2026-10-31' })
+    assert.equal(custom.rows[0].event_count, exp2.eventCount)
+    assert.equal(exp2.eventCount, 2)
+    assert.equal(custom.rows[0].custom_range, true)
+    assert.equal(custom.rows[0].event_target, 2)
+    await assert.rejects(() => byName('commission_summary').run(sbDb, { from: '2026-10-01', to: '2026-09-01' }, SB_STAFF), tools.ToolError)
+    // ค่าเริ่มต้น = defaultPeriodMonth(วันนี้)
+    const def = await call('commission_summary', {}, SB_STAFF, sbDb)
+    assert.equal(def.rows[0].period_month, commissionLogic.defaultPeriodMonth(c.today))
+    for (const x of [r, staff, custom]) assertCrmClean('commission_summary', x)
+    pass(`T6 commission_summary — เท่ากับ buildCommission/summarizeFinance บน fixture เดียวกัน · การเงินเฉพาะ admin · ไม่มีชื่อ LINE · ${r.summary}`)
+  }
+
+  // ═══ T7: search_leads / lead_detail ═════════════════════════════════════════
+  {
+    const ids = (x: { rows: Record<string, unknown>[] }) => x.rows.map(r => r.id)
+    const all = await call('search_leads', {}, SB_STAFF, sbDb)
+    assert.deepEqual(ids(all), ['L6', 'L5', 'L4', 'L2', 'L1', 'L3']) // ใหม่สุดก่อน
+    const l1 = all.rows.find(x => x.id === 'L1')!
+    assert.deepEqual(l1, {
+      id: 'L1', customer: 'บริษัท เอ จำกัด', status: 'ตอบรับแล้ว', work_type: 'ขาย', event_date: '2026-10-15', event_end_date: null,
+      event_time: '09:30', event_location: 'ไบเทค บางนา', package: 'แพ็กเกจเบสิก', quoted_price: 12000, confirmed_price: 10000, deposit: 3000,
+      assigned_sales: ['สมชาย ขายเก่ง (ชาย)'], is_returning: true, phone_last4: '***-***-5678', created_at: '2026-09-05',
+    })
+    const byId = (id: string) => all.rows.find(x => x.id === id)!
+    assert.equal(byId('L2').phone_last4, null) // '12' สั้นกว่า 4 หลัก
+    assert.equal(byId('L3').phone_last4, null) // ไม่มีเบอร์
+    assert.equal(byId('L4').phone_last4, '***-***-4567') // '02 123 4567' → ตัวเลขล้วน
+    assert.equal(byId('L2').status, 'success') // ไม่มีป้ายใน crm_settings → ค่าเดิม
+    assert.equal(byId('L6').status, 'rejected')
+    assert.equal(byId('L4').status, 'ส่งใบเสนอราคาแล้ว')
+    assert.deepEqual(byId('L2').assigned_sales, ['สมชาย ขายเก่ง (ชาย)', 'สมศรี (ศรี)'])
+    assert.equal(tools.phoneLast4('0812345678'), '***-***-5678')
+    assert.equal(tools.phoneLast4('123'), null)
+    assert.equal(tools.phoneLast4(null), null)
+
+    assert.deepEqual(ids(await call('search_leads', { q: 'ไบเทค' }, SB_STAFF, sbDb)), ['L1'])
+    assert.deepEqual(ids(await call('search_leads', { q: 'qt-002' }, SB_STAFF, sbDb)), ['L2'])
+    assert.deepEqual(ids(await call('search_leads', { status: 'accepted' }, SB_STAFF, sbDb)), ['L5', 'L1', 'L3'])
+    assert.deepEqual(ids(await call('search_leads', { status: 'ตอบรับแล้ว' }, SB_STAFF, sbDb)), ['L5', 'L1', 'L3'])
+    assert.deepEqual(ids(await call('search_leads', { assigned: 'ศรี' }, SB_STAFF, sbDb)), ['L4', 'L2', 'L3'])
+    assert.equal((await call('search_leads', { assigned: 'ไม่มีคนนี้' }, SB_STAFF, sbDb)).rows.length, 0)
+    assert.deepEqual(ids(await call('search_leads', { work_type: 'event' }, SB_STAFF, sbDb)), ['L5', 'L2'])
+    assert.deepEqual(ids(await call('search_leads', { from: '2026-10-16', to: '2026-10-31' }, SB_STAFF, sbDb)), ['L2'])
+    const cut = await call('search_leads', { limit: 2 }, SB_STAFF, sbDb)
+    assert.equal(cut.rows.length, 2)
+    assert.equal(cut.total, 6)
+    await call('search_leads', { q: 'a,b(c)%' }, SB_STAFF, sbDb)
+    await assert.rejects(() => byName('search_leads').run(sbDb, { work_type: 'other' }, SB_STAFF))
+    assertCrmClean('search_leads', all)
+
+    const d = await call('lead_detail', { id: 'L1' }, SB_STAFF, sbDb)
+    const row = d.rows[0]
+    assert.equal(row.customer, 'บริษัท เอ จำกัด')
+    assert.equal(row.phone_last4, '***-***-5678')
+    assert.equal(row.event_details, 'บูธ 3x3')
+    assert.deepEqual(row.installments, [
+      { no: 1, amount: 4000, is_paid: true, due_date: '2026-09-20', paid_date: '2026-09-20' },
+      { no: 2, amount: 3000, is_paid: false, due_date: '2026-10-10', paid_date: null },
+    ])
+    assert.deepEqual(row.events, [{ id: 'ev-a', name: 'งาน บริษัท เอ', event_date: '2026-10-15', status: 'active', closed: false }])
+    assert.deepEqual(row.staff, [{ name: 'ช่างภาพ หนึ่ง', role: 'ช่างภาพ' }])
+    assert.deepEqual(row.activities, [
+      { date: '2026-09-06 10:00', from: 'ส่งใบเสนอราคาแล้ว', to: 'ตอบรับแล้ว' },
+      { date: '2026-09-05 11:00', from: 'ลีดใหม่', to: 'ส่งใบเสนอราคาแล้ว' },
+    ])
+    assert.equal(d.summary, 'ลีด บริษัท เอ จำกัด สถานะ ตอบรับแล้ว · วันงาน 2026-10-15 · งวดชำระ 2 งวด (จ่ายแล้ว 1)')
+    assertCrmClean('lead_detail', d)
+
+    assert.equal((await call('lead_detail', { name: 'คุณบี' }, SB_STAFF, sbDb)).rows[0].id, 'L2')
+    // ชื่อซ้ำหลายราย → candidates (ไม่ error)
+    const dup = await call('lead_detail', { name: 'บริษัท ซ้ำ' }, SB_STAFF, sbDb)
+    assert.match(dup.summary, /พบลีดที่ชื่อตรงกับ "บริษัท ซ้ำ" 2 ราย — ระบุ id/)
+    assert.deepEqual(dup.rows, [
+      { id: 'L6', customer: 'บริษัท ซ้ำ จำกัด สาขา 2', event_date: null, status: 'rejected' },
+      { id: 'L4', customer: 'บริษัท ซ้ำ จำกัด', event_date: null, status: 'ส่งใบเสนอราคาแล้ว' },
+    ])
+    // ชื่อตรงทั้งชื่อรายเดียว → รายละเอียดเลย
+    assert.equal((await call('lead_detail', { name: 'บริษัท ซ้ำ จำกัด' }, SB_STAFF, sbDb)).rows[0].id, 'L4')
+    await assert.rejects(() => byName('lead_detail').run(sbDb, {}, SB_STAFF), tools.ToolError)
+    await assert.rejects(() => byName('lead_detail').run(sbDb, { id: 'nope' }, SB_STAFF), tools.ToolError)
+    await assert.rejects(() => byName('lead_detail').run(sbDb, { name: 'ไม่มีลูกค้านี้' }, SB_STAFF), tools.ToolError)
+    assertCrmClean('lead_detail candidates', dup)
+    pass('T7 search_leads / lead_detail — ไม่มี LINE/เบอร์เต็ม/โน้ต · phone_last4 · สถานะไทย (ไม่มีป้าย = ค่าเดิม) · ชื่อซ้ำ = candidates · งวดชำระ')
+  }
+  assert.deepEqual(sb.writes, [], 'tool ยอดขาย/CRM ต้องไม่เขียนฐานข้อมูล')
 
   // ═══ อ่านอย่างเดียว ═════════════════════════════════════════════════════════
   assert.deepEqual(fake.writes, [], 'tool ต้องไม่เขียนฐานข้อมูล')
