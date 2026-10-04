@@ -11,10 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner"
 import { CheckCircle2, AlertTriangle, XCircle, Loader2, Wrench } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
+import type { Kit, Item, KitContent } from '@/types'
 
-type Kit = any
-type Content = any
-type Event = any
+type Content = KitContent & { items: Item }
+type Event = { id: string; name: string; event_date: string | null; packed?: boolean }
 
 export default function CheckFlow({ kit, contents, events, initialEventId, initialPacked = false, lockEvent = false }: { kit: Kit, contents: Content[], events: Event[], initialEventId?: string, initialPacked?: boolean, lockEvent?: boolean }) {
   const { t } = useLanguage()
@@ -23,7 +23,11 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
   const [isProcessing, setIsProcessing] = useState(false)
   // "จัดครบ" = นำอุปกรณ์ออกครบทุกชิ้นแล้ว — server คิดให้ตอนนำออก/รับคืน (event_kits.packed_at)
   const [packedSaved, setPackedSaved] = useState(initialPacked)
-  useEffect(() => setPackedSaved(initialPacked), [initialPacked])
+  const [prevInitialPacked, setPrevInitialPacked] = useState(initialPacked)
+  if (prevInitialPacked !== initialPacked) {
+    setPrevInitialPacked(initialPacked)
+    setPackedSaved(initialPacked)
+  }
 
   // วัสดุสิ้นเปลืองแยกกลุ่ม — ไม่มีนำออก/รับคืน (กรอกจำนวนใช้ไปตอนปิดงาน)
   const regular = contents.filter(c => !c.items.is_consumable)
@@ -126,7 +130,7 @@ export default function CheckFlow({ kit, contents, events, initialEventId, initi
                 </SelectTrigger>
                 <SelectContent>
                     {events?.map(e => (
-                        <SelectItem key={e.id} value={e.id}>{e.name} ({new Date(e.event_date).toLocaleDateString()})</SelectItem>
+                        <SelectItem key={e.id} value={e.id}>{e.name} ({new Date(e.event_date!).toLocaleDateString()})</SelectItem>
                     ))}
                     {(!events || events.length === 0) && <SelectItem value="none" disabled>{t.checkin.noEvents}</SelectItem>}
                 </SelectContent>

@@ -4,12 +4,15 @@ import KitDetailsView, { type KitBookingRow } from './kit-details-view'
 import { getKitManager, loadBookingsForKits } from '@/lib/kit-bookings'
 import { hasModule } from '@/lib/stock'
 import { onShelf } from '@/app/(authenticated)/shelves/consumable-logic'
+import type { Kit, Item, KitContent } from '@/types'
+
+type KitRow = Kit & { events: { name: string | null; event_date: string | null } | null; shelves: { id: string; code: string } | null }
 
 export const revalidate = 0
 
 export default async function KitDetailsPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { data: kit } = await supabase.from('kits').select('*, events(name, event_date), shelves(id, code)').eq('id', params.id).single()
+  const { data: kit } = await supabase.from('kits').select('*, events(name, event_date), shelves(id, code)').eq('id', params.id).single<KitRow>()
 
   if (!kit) notFound()
 
@@ -18,10 +21,11 @@ export default async function KitDetailsPage(props: { params: Promise<{ id: stri
     .from('kit_contents')
     .select('id, quantity, items(*)')
     .eq('kit_id', kit.id)
+    .overrideTypes<(KitContent & { items: Item })[], { merge: false }>()
 
   // Get all items currently assigned to ANY kit to prevent duplicates
   const { data: allAssignedContents } = await supabase.from('kit_contents').select('item_id, kit_id, quantity')
-  const assignedItemIds = new Set(allAssignedContents?.map((c: any) => c.item_id))
+  const assignedItemIds = new Set(allAssignedContents?.map(c => c.item_id))
   const inThisKit = new Set(allAssignedContents?.filter(c => c.kit_id === kit.id).map(c => c.item_id))
   const inKitsQty = new Map<string, number>()
   for (const c of allAssignedContents || []) inKitsQty.set(c.item_id, (inKitsQty.get(c.item_id) || 0) + (c.quantity || 0))
@@ -46,8 +50,8 @@ export default async function KitDetailsPage(props: { params: Promise<{ id: stri
 
   return (
     <KitDetailsView
-      kit={kit as any}
-      contents={(contents || []) as any}
+      kit={kit}
+      contents={contents || []}
       availableItems={availableItems}
       canManage={!!canManage}
       bookings={openBookings}

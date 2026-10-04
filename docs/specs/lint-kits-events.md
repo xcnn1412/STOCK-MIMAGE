@@ -1,6 +1,6 @@
 # ล้าง lint error ในไฟล์กระเป๋า/อีเวนต์ (v1.37.1)
 
-งานภายใน ไม่มีผลที่ผู้ใช้เห็น · วางแผน 2026-10-04 · สถานะ: **แผนล็อกแล้ว ยังไม่เริ่มทำ**
+งานภายใน ไม่มีผลที่ผู้ใช้เห็น · วางแผน 2026-10-04 · สถานะ: **เสร็จ 2026-10-04 — ทั้ง 2 แพ็กเกจผ่านรอบเดียว** · 53 → 0 errors · HTML ของ 6 component เท่า baseline ทุกตัวอักษร (print-view ต่างเฉพาะ QR ตามแผน) · Opus ลบ `eslint-disable` เก่า 4 บรรทัดใน `events/actions.ts` เพิ่มด้วย (รับไว้) · ใช้ `.overrideTypes<T, { merge: false }>()` (runtime no-op) กับ join ที่ supabase-js เดาเป็น array · `.single<T>()` เมื่อ client ไม่มี Database type
 branch `hotfix-v1.37.1` · ไม่มี migration · **ไม่ลง What's New** (งาน internal ตาม CLAUDE.md)
 
 ## ขอบเขต

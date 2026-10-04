@@ -21,6 +21,7 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
       supabase.from('kits').select('name').eq('id', kitId).single(),
       supabase.from('items').select('name, is_consumable, unit, quantity').eq('id', itemId).single(),
       supabase.from('kit_contents').select('kit_id, quantity, kits(name)').eq('item_id', itemId)
+          .overrideTypes<{ kit_id: string; quantity: number; kits: { name: string } | null }[], { merge: false }>()
   ])
 
   let warning: string | undefined
@@ -41,7 +42,7 @@ export async function addItemToKit(kitId: string, itemId: string, quantity: numb
       const existingAssignment = assignments?.[0]
       // Check if item is already in a kit
       if (existingAssignment) {
-          const assignedKitName = (existingAssignment.kits as any)?.name || 'กระเป๋าใบอื่น'
+          const assignedKitName = existingAssignment.kits?.name || 'กระเป๋าใบอื่น'
           return { error: `อุปกรณ์นี้อยู่ใน${assignedKitName}แล้ว — เอาออกจากใบนั้นก่อน` }
       }
   }
@@ -85,6 +86,7 @@ export async function removeItemFromKit(contentId: string, kitId: string) {
     .select('quantity, kits(name), items(name)')
     .eq('id', contentId)
     .single()
+    .overrideTypes<{ quantity: number; kits: { name: string } | null; items: { name: string } | null }, { merge: false }>()
 
   const { error } = await supabase.from('kit_contents').delete().eq('id', contentId)
   
@@ -94,8 +96,8 @@ export async function removeItemFromKit(contentId: string, kitId: string) {
   }
 
   // safely cast nested relations
-  const kitName = (content?.kits as any)?.name || 'Unknown Kit'
-  const itemName = (content?.items as any)?.name || 'Unknown Item'
+  const kitName = content?.kits?.name || 'Unknown Kit'
+  const itemName = content?.items?.name || 'Unknown Item'
 
   await logActivity('REMOVE_KIT_ITEM', { 
       kitName, 

@@ -56,7 +56,7 @@ export default function EditKitDialog({ kit }: { kit: Kit }) {
         <DialogHeader>
           <DialogTitle>{t.kits.editTitle}</DialogTitle>
           <DialogDescription>
-            Make changes to the kit details here. Click save when you're done.
+            {t.kits.editHint}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">

@@ -1,5 +1,6 @@
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import { notFound } from 'next/navigation'
+import { requestOrigin } from '@/lib/request-origin'
 import PrintView from './print-view'
 
 export default async function PrintPage(props: { params: Promise<{ id: string }> }) {
@@ -8,5 +9,5 @@ export default async function PrintPage(props: { params: Promise<{ id: string }>
   
   if (!kit) notFound()
 
-  return <PrintView kit={kit} />
+  return <PrintView kit={kit} origin={await requestOrigin()} />
 }

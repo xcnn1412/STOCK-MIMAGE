@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { headers } from 'next/headers'
+import { requestOrigin } from '@/lib/request-origin'
 import { createServiceClient } from '@/lib/supabase-server'
 import QrSheetView, { type QrLabel } from './qr-sheet-view'
 
@@ -28,12 +28,7 @@ export default async function RoomQrPrintPage(props: { params: Promise<{ roomId:
     .map(l => ({ id: l.id as string, code: l.code as string, level: l.level as number, rack: rackCode.get(l.rack_id as string) ?? '' }))
     .sort((a, b) => cmp(a.rack, b.rack) || a.level - b.level)
 
-  // โดเมนจริงของคำขอ (หลัง proxy ของ Railway ใช้ x-forwarded-*) — QR ต้องเป็นลิงก์เต็ม
-  const h = await headers()
-  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000'
-  const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')
-
-  const origin = `${proto}://${host}`
+  const origin = await requestOrigin()
   const labels: QrLabel[] = sorted.map(({ id, code }) => ({ id, code, url: `${origin}/shelves/${id}` }))
 
   return (

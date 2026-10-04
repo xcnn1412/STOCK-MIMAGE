@@ -3,19 +3,15 @@ import QRCode from 'react-qr-code'
 import { Button } from "@/components/ui/button"
 import Link from 'next/link'
 import { ArrowLeft, Download } from "lucide-react"
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useRef, useCallback } from 'react'
 import { useLanguage } from '@/contexts/language-context'
 import { toPng } from 'html-to-image'
 import type { Kit } from '@/types'
 
-export default function PrintView({ kit }: { kit: Kit }) {
+export default function PrintView({ kit, origin }: { kit: Kit, origin: string }) {
   const { t } = useLanguage()
-  const [url, setUrl] = useState('')
+  const url = `${origin}/kits/${kit.id}/check`
   const cardRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    setUrl(`${window.location.origin}/kits/${kit.id}/check`)
-  }, [kit.id])
 
   const handleDownload = useCallback(() => {
     if (cardRef.current === null) {
@@ -53,11 +49,9 @@ export default function PrintView({ kit }: { kit: Kit }) {
                <h1 className="text-3xl font-bold wrap-break-word max-w-[380px] leading-tight">{kit.name}</h1>
            </div>
            
-           {url && (
-              <div className="my-4">
-                 <QRCode value={url} size={200} />
-              </div>
-           )}
+           <div className="my-4">
+              <QRCode value={url} size={200} />
+           </div>
 
            <div className="mt-auto mb-2">
                <p className="text-sm font-semibold tracking-wider">{t.kits.scanTo}</p>
