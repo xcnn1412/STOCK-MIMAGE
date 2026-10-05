@@ -8,7 +8,7 @@ import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Grid, OrbitControls } from '@react-three/drei'
 import { CanvasTexture, Plane, SRGBColorSpace, Vector3, type Group } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { CAMERA_FOV, LEVEL_H, RACK_DEPTH, cameraView, clampToRoom, footprint } from '../room-logic'
+import { CAMERA_FOV, LEVEL_H, RACK_DEPTH, cameraView, clampToRoom, doorPlacement, footprint } from '../room-logic'
 import type { RoomData, RoomRack, RoomLevel } from '../queries'
 
 const BOARD = 0.03
@@ -184,6 +184,32 @@ export function RackModel({
         )
       })}
       {showLabel && <Label text={rack.code} y={height + 0.25} selected={selected} />}
+    </group>
+  )
+}
+
+/** หมุดประตูทางเข้า — แผ่นสีส้มกว้าง 1 ช่องแนบผนัง + วงกบ + ป้าย "ทางเข้า" (ปักในโหมดจัดผัง) */
+function DoorMark({ room }: { room: RoomData }) {
+  if (!room.door) return null
+  const { x, z, rotation } = doorPlacement(room, room.door)
+  const H = 0.9
+  return (
+    <group position={[x, 0, z]} rotation={[0, rotation, 0]}>
+      <mesh position={[0, 0.01, 0]}>
+        <boxGeometry args={[0.9, 0.02, 0.2]} />
+        <meshStandardMaterial color="#f59e0b" />
+      </mesh>
+      {[-0.45, 0.45].map(sx => (
+        <mesh key={sx} position={[sx, H / 2, 0]}>
+          <boxGeometry args={[POST, H, POST]} />
+          <meshStandardMaterial color="#d97706" />
+        </mesh>
+      ))}
+      <mesh position={[0, H, 0]}>
+        <boxGeometry args={[0.9 + POST, POST, POST]} />
+        <meshStandardMaterial color="#d97706" />
+      </mesh>
+      <Label text="ทางเข้า" y={H + 0.22} selected={false} size={0.16} />
     </group>
   )
 }
@@ -482,6 +508,7 @@ export default function RoomScene({
         sectionSize={0}
         fadeDistance={span * 6}
       />
+      <DoorMark room={room} />
 
       {/* เงาบอกช่องที่ตู้จะลงเมื่อปล่อย */}
       {ghost && ghostSize && (

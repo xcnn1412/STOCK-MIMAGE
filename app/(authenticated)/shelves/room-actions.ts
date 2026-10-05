@@ -7,7 +7,7 @@ import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { getKitManager } from '@/lib/kit-bookings'
-import { clampToRoom, firstFreeSpot, levelCode, type RackPlacement, type Rotation } from './room-logic'
+import { clampDoor, clampToRoom, DOOR_SIDES, firstFreeSpot, levelCode, type Door, type RackPlacement, type Rotation } from './room-logic'
 
 type Result = { error?: string; success?: boolean; id?: string }
 
@@ -61,6 +61,21 @@ export async function updateRoom(roomId: string, input: { name: string; width: n
   }
 
   await logActivity('UPDATE_SHELF_ROOM', { roomId, name, width, depth })
+  refresh(roomId)
+  return { success: true }
+}
+
+/** ปักหมุดประตูทางเข้า — null = เอาออก · ตำแหน่งถูกดึงให้อยู่บนผนังเสมอ */
+export async function setRoomDoor(roomId: string, door: Door | null): Promise<Result> {
+  if (!(await getKitManager())) return { error: NO_PERMISSION }
+  if (door && !(DOOR_SIDES as readonly string[]).includes(door.side)) return { error: 'ด้านของประตูไม่ถูกต้อง' }
+  const supabase = createServiceClient()
+  const { data: room } = await supabase.from('shelf_rooms').select('width, depth').eq('id', roomId).maybeSingle()
+  if (!room) return { error: 'ไม่พบห้องนี้' }
+  const d = door ? clampDoor(room as { width: number; depth: number }, door) : null
+  const { error } = await supabase.from('shelf_rooms').update({ door_side: d?.side ?? null, door_pos: d?.pos ?? null }).eq('id', roomId)
+  if (error) return { error: `บันทึกไม่สำเร็จ: ${error.message}` }
+  await logActivity('UPDATE_SHELF_ROOM', { roomId, door: d })
   refresh(roomId)
   return { success: true }
 }

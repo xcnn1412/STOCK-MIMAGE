@@ -1,7 +1,7 @@
 // Runnable self-check (no test runner in this repo).
 // Run: npx tsx "app/(authenticated)/shelves/room-logic.check.ts"
 import assert from 'node:assert/strict'
-import { A4, cameraView, paginate, qrSheetLayout, cellsOf, clampToRoom, firstFreeSpot, footprint, levelCode, nextRotation, overlapping, LEVEL_H, type RackPlacement } from './room-logic'
+import { A4, cameraView, paginate, qrSheetLayout, cellsOf, clampToRoom, clampDoor, doorPlacement, firstFreeSpot, footprint, levelCode, nextRotation, overlapping, LEVEL_H, type RackPlacement } from './room-logic'
 
 const rack = (id: string, x: number, y: number, width = 2, rotation: RackPlacement['rotation'] = 0): RackPlacement => ({ id, x, y, width, rotation })
 const room = { width: 6, depth: 4 }
@@ -33,6 +33,15 @@ assert.deepEqual(firstFreeSpot({ width: 2, depth: 1 }, [rack('a', 0, 0, 2)], 2),
 assert.equal(levelCode('A', 2), 'A-2')
 assert.equal(nextRotation(270), 0)
 assert.equal(nextRotation(90), 180)
+
+// --- ประตู: ดึงให้อยู่บนผนัง · ตำแหน่ง 3D กลางช่อง แนบผนังด้านนั้น ---
+assert.deepEqual(clampDoor(room, { side: 'front', pos: 9 }), { side: 'front', pos: 5 })
+assert.deepEqual(clampDoor(room, { side: 'left', pos: -2 }), { side: 'left', pos: 0 })
+assert.deepEqual(clampDoor(room, { side: 'right', pos: NaN }), { side: 'right', pos: 0 })
+assert.deepEqual(doorPlacement(room, { side: 'front', pos: 2 }), { x: 2.5, z: 4, rotation: 0 })
+assert.deepEqual(doorPlacement(room, { side: 'back', pos: 0 }), { x: 0.5, z: 0, rotation: 0 })
+assert.deepEqual(doorPlacement(room, { side: 'left', pos: 3 }), { x: 0, z: 3.5, rotation: Math.PI / 2 })
+assert.deepEqual(doorPlacement(room, { side: 'right', pos: 7 }), { x: 6, z: 3.5, rotation: Math.PI / 2 })
 
 // --- มุมกล้อง ---
 const R = { width: 8, depth: 6 }

@@ -2,6 +2,7 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { auditDue } from './shelf-logic'
 import { onShelf, stockLevel } from './consumable-logic'
+import { clampDoor, DOOR_SIDES, type Door, type DoorSide } from './room-logic'
 
 type Db = ReturnType<typeof createServiceClient>
 
@@ -113,6 +114,8 @@ export interface RoomData {
   name: string
   width: number
   depth: number
+  /** หมุดประตูทางเข้า — null = ยังไม่ได้ปัก */
+  door: Door | null
   racks: RoomRack[]
 }
 
@@ -121,7 +124,8 @@ const PROBLEM = ['damaged', 'maintenance', 'lost']
 /** ห้องหนึ่งพร้อมชั้นวาง ระดับชั้น และของบนแต่ละระดับ — null = ไม่พบห้อง */
 export async function loadRoom(db: Db, roomId: string): Promise<RoomData | null> {
   const [{ data: room }, { data: racks }] = await Promise.all([
-    db.from('shelf_rooms').select('id, name, width, depth').eq('id', roomId).maybeSingle(),
+    // select * — คอลัมน์ประตู (migration 20261009) ยังไม่มีก็แค่ไม่มีประตู หน้าห้องไม่พัง
+    db.from('shelf_rooms').select('*').eq('id', roomId).maybeSingle(),
     db.from('shelf_racks').select('id, code, x, y, rotation, width').eq('room_id', roomId).order('code'),
   ])
   if (!room) return null
@@ -166,6 +170,9 @@ export async function loadRoom(db: Db, roomId: string): Promise<RoomData | null>
     name: room.name as string,
     width: room.width as number,
     depth: room.depth as number,
+    door: (DOOR_SIDES as readonly string[]).includes(room.door_side as string)
+      ? clampDoor({ width: room.width as number, depth: room.depth as number }, { side: room.door_side as DoorSide, pos: room.door_pos as number })
+      : null,
     racks: (racks || []).map(r => ({
       id: r.id as string,
       code: r.code as string,
