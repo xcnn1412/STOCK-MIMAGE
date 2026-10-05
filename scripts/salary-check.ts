@@ -20,6 +20,7 @@ import {
   lastFinishedWeek,
   monthKeyForDate,
   onsiteFromFor,
+  openPending,
   pendingItems,
   periodRange,
   selectCheckinsForRun,
@@ -700,6 +701,24 @@ function partA() {
       lines
     )
     assertEq(runnerAccepted.count, 4, 'รันเนอร์ยอมรับไม่ได้ — ยังนับเป็นงานค้างแม้มีคีย์ในรายการยอมรับ')
+
+    console.log('\n[A20] openPending: keys to bulk-accept vs blocked runner lines')
+    // รันเนอร์ยังไม่กรอก 1 → blocked; อีก 4 ชนิดยอมรับได้; ที่ยอมรับแล้ว (no_checkout) ไม่ต้องยอมรับซ้ำ
+    const open = openPending(some.groups)
+    assertEq(open.blocked, 1, 'รันเนอร์ยังไม่กรอก 1 บรรทัด → blocked = 1 ปุ่มยอมรับทั้งหมดใช้ไม่ได้')
+    assertEq(
+      open.keys,
+      ['no_event:2026-08-06:c3', 'override_dropped:2026-08-07:site:2026-08-07:cx:a', 'override_dropped:2026-08-07:site:2026-08-07:cx:b'],
+      'keys = เฉพาะที่ยังไม่ยอมรับและยอมรับได้ (ไม่มีรันเนอร์ ไม่มีที่ยอมรับไปแล้ว)'
+    )
+    // กรอกรันเนอร์แล้ว → ไม่มีอะไร block เหลือแต่ keys ให้ยอมรับเหมา
+    const filled = lines.map(l => ({ ...l, amount: l.amount ?? 0 }))
+    const unblocked = openPending(pendingItems(warnings, accepted, filled).groups)
+    assertEq(unblocked.blocked, 0, 'กรอกรันเนอร์ครบ → blocked = 0')
+    assertEq(unblocked.keys.length, 3, 'เหลือ 3 คีย์ให้ยอมรับเหมา')
+    // ยอมรับครบตาม keys แล้วคำนวณซ้ำ → งานค้างต้องเป็น 0 (เงื่อนไขที่ finalizeOne ใช้ปิดงวด)
+    const all = [...accepted, ...unblocked.keys.map(key => ({ key, by: 'admin', at: '2026-08-20T03:00:00.000Z' }))]
+    assertEq(pendingItems(warnings, all, filled).count, 0, 'ยอมรับตาม keys ครบแล้ว pendingItems().count = 0 → ปิดงวดผ่าน')
   }
 }
 

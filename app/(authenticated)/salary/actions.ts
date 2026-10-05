@@ -17,13 +17,13 @@ import { getSession, requireAdmin } from './session'
 import { fmtMoney, periodLabel, slipTitle, todayBangkok } from './format'
 import {
   bangkokParts, computeSlip, groupUnpaidByPeriod, isAcceptable, isMissingAmount,
-  lastFinishedMonth, lastFinishedWeek, lineAmount, onsiteFromFor, pendingItems, periodKeyFor, periodRange,
+  lastFinishedMonth, lastFinishedWeek, lineAmount, onsiteFromFor, openPending, pendingItems, periodKeyFor, periodRange,
   REOPEN_MIN_REASON, selectCheckinsForRun, shiftDay, toCheckinInput, toEmploymentType, toRunKind,
   weekRangeFor, weekdayOf,
 } from './compute'
 import type {
-  AcceptedWarning, CheckinInput, EmploymentType, RunKind, RunWindow, SalaryAdjustment, SalaryLine,
-  SalaryWarning, SlipCalcInputs, UnpaidCheckinLite,
+  AcceptedWarning, CheckinInput, EmploymentType, PendingGroup, RunKind, RunWindow, SalaryAdjustment,
+  SalaryLine, SalaryWarning, SlipCalcInputs, UnpaidCheckinLite,
 } from './compute'
 import { getSalarySettings, listDuties } from './settings/actions'
 import type { SalaryDutyRow } from './settings/actions'
@@ -122,7 +122,8 @@ export interface RunSlipRow {
   status: SlipStatus
   employment_type: EmploymentType
   total: number
-  warnings: SalaryWarning[]
+  /** งานค้างจัดกลุ่มตามชนิด (pendingItems().groups) — รายการที่ยอมรับแล้วติดมาด้วยแต่ accepted=true */
+  pending: PendingGroup[]
   /** งานค้างที่ยังไม่ได้ยอมรับ (pendingItems().count) — เกณฑ์เดียวกับที่ปิดงวดใช้ */
   pending_count: number
   /** เคยปิดงวด/จ่ายแล้วมาก่อน (ถูกเปิดแก้) — ลบไม่ได้แม้ตอนนี้เป็นร่าง */
@@ -859,7 +860,11 @@ export async function getRun(runId: string): Promise<{ error: string } | RunDeta
   const slips: RunSlipRow[] = slipRows
     .map(s => {
       const who = names.get(s.user_id)
-      const warnings = Array.isArray(s.warnings) ? s.warnings : []
+      const pending = pendingItems(
+        Array.isArray(s.warnings) ? s.warnings : [],
+        Array.isArray(s.accepted_warnings) ? s.accepted_warnings : [],
+        Array.isArray(s.lines) ? s.lines : []
+      )
       return {
         id: s.id,
         user_id: s.user_id,
@@ -868,12 +873,8 @@ export async function getRun(runId: string): Promise<{ error: string } | RunDeta
         status: s.status,
         employment_type: toEmploymentType(s.employment_type),
         total: Number(s.total || 0),
-        warnings,
-        pending_count: pendingItems(
-          warnings,
-          Array.isArray(s.accepted_warnings) ? s.accepted_warnings : [],
-          Array.isArray(s.lines) ? s.lines : []
-        ).count,
+        pending: pending.groups,
+        pending_count: pending.count,
         reopened:
           (Array.isArray(s.paid_history) && s.paid_history.length > 0) ||
           (Array.isArray(s.reopen_history) && s.reopen_history.length > 0),
@@ -2373,8 +2374,17 @@ function revalidateSlipPaths(slipId: string, runId: string) {
   revalidatePath('/salary')
 }
 
-/** ปิดงวดสลิปใบเดียว — หลังจากนี้แก้ตัวเลขไม่ได้อีก */
-export async function finalizeSlip(slipId: string): Promise<{ error?: string; success?: boolean }> {
+/**
+ * ปิดงวดสลิปใบเดียว — หลังจากนี้แก้ตัวเลขไม่ได้อีก
+ *
+ * `acceptPending` = ยอมรับงานค้างที่เหลือทั้งหมดก่อนปิด (ปุ่ม "ยอมรับทั้งหมดแล้วปิดงวด"
+ * ในหน้างวด) — ใช้กติกาเดียวกับกดยอมรับทีละรายการ: รันเนอร์ยังไม่กรอกยอมรับข้ามไม่ได้
+ * จึงตรวจซ้ำที่นี่เสมอ ไม่เชื่อหน้าจอ (สลิปอาจถูกคำนวณใหม่คั่นระหว่างเปิด dialog)
+ */
+export async function finalizeSlip(
+  slipId: string,
+  opts?: { acceptPending?: boolean }
+): Promise<{ error?: string; success?: boolean }> {
   const auth = await requireAdmin()
   if ('error' in auth) return { error: auth.error }
   if (!slipId) return { error: 'ไม่พบสลิป' }
@@ -2389,6 +2399,36 @@ export async function finalizeSlip(slipId: string): Promise<{ error?: string; su
 
   const raw = data as unknown as FinalizeRaw
   if (raw.status !== 'draft') return { error: 'สลิปนี้ปิดงวดแล้ว' }
+  const slip = toFinalizable(raw)
+
+  if (opts?.acceptPending) {
+    const { keys, blocked } = openPending(
+      pendingItems(slip.warnings, slip.accepted_warnings, slip.lines).groups
+    )
+    if (blocked > 0) {
+      return { error: `รันเนอร์ยังไม่กรอก ${blocked} รายการ — ต้องกรอกยอดก่อน ยอมรับข้ามไม่ได้` }
+    }
+    if (keys.length > 0) {
+      const at = new Date().toISOString()
+      const next: AcceptedWarning[] = [
+        ...slip.accepted_warnings,
+        ...keys.map(key => ({ key, by: auth.userId, at })),
+      ]
+      // เขียนลง DB ก่อน finalizeOne — RPC ล็อกสลิปแล้วแก้ accepted_warnings ไม่ได้อีก
+      const { error } = await supabase
+        .from('salary_slips')
+        .update({ accepted_warnings: next })
+        .eq('id', slip.id)
+        .eq('status', 'draft')
+      if (error) return { error: `บันทึกการยอมรับไม่สำเร็จ: ${error.message}` }
+      slip.accepted_warnings = next
+      await logActivity(
+        'ACCEPT_SALARY_WARNING',
+        { slipId: slip.id, runId: slip.run_id, keys, bulk: true },
+        slip.user_id
+      )
+    }
+  }
 
   const { data: runRaw } = await supabase
     .from('salary_runs')
@@ -2397,7 +2437,7 @@ export async function finalizeSlip(slipId: string): Promise<{ error?: string; su
     .maybeSingle()
   const runRef = (runRaw as unknown as RunRef | null) || EMPTY_RUN_REF
 
-  const res = await finalizeOne(supabase, toFinalizable(raw), runRef, auth.userId)
+  const res = await finalizeOne(supabase, slip, runRef, auth.userId)
   if (res.error) return { error: res.error }
 
   revalidateSlipPaths(slipId, raw.run_id)
