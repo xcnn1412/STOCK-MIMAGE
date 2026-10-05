@@ -8,7 +8,6 @@ import { ArrowLeft, Box, LayoutGrid, Plus, RotateCw, Trash2, Pencil, Minus, Chev
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { auditDue } from '../../shelf-logic'
 import { nextRotation } from '../../room-logic'
@@ -62,9 +61,7 @@ export default function RoomView({
   // จุดที่ focus: ไม่มี = ภาพรวมห้อง → ชั้นวาง → ระดับชั้น
   const [rackId, setRackId] = useState<string | null>(null)
   const [levelId, setLevelId] = useState<string | null>(null)
-  const [dialog, setDialog] = useState<'room' | 'rack' | null>(null)
-  /** ชั้นวางที่กำลังเปลี่ยนชื่ออยู่ (id) — เปลี่ยน focus แล้วหายเอง */
-  const [renaming, setRenaming] = useState<string | null>(null)
+  const [dialog, setDialog] = useState<'room' | 'rack' | 'rename' | null>(null)
   const [now] = useState(() => new Date())
   const selected = room.racks.find(r => r.id === rackId) ?? null
   const openLevelId = selected?.levels.some(l => l.id === levelId) ? levelId : null
@@ -228,26 +225,14 @@ export default function RoomView({
           ) : (
             <Card className="gap-4 p-4">
               <div className="flex items-start justify-between gap-2">
-                {canManage && renaming === selected.id ? (
-                  <RackCodeEditor
-                    key={selected.id}
-                    code={selected.code}
-                    onSave={async code => {
-                      if (await run(() => updateRack(selected.id, { code }), 'เปลี่ยนชื่อแล้ว')) setRenaming(null)
-                    }}
-                    onCancel={() => setRenaming(null)}
-                  />
-                ) : (
-                  <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground">ชั้นวาง</div>
-                    <div className="truncate text-xl font-bold">{selected.code}</div>
-                  </div>
-                )}
+                <div className="min-w-0">
+                  <div className="text-xs text-muted-foreground">ชั้นวาง</div>
+                  <div className="truncate text-xl font-bold">{selected.code}</div>
+                </div>
                 <div className="flex shrink-0 gap-1">
                   {canManage && (
                     <>
-                      <Button variant="outline" size="icon" title="เปลี่ยนชื่อชั้นวาง" aria-pressed={renaming === selected.id}
-                        onClick={() => setRenaming(cur => (cur === selected.id ? null : selected.id))}>
+                      <Button variant="outline" size="icon" title="เปลี่ยนชื่อชั้นวาง" aria-label="เปลี่ยนชื่อชั้นวาง" onClick={() => setDialog('rename')}>
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button variant="outline" size="icon" title="หมุน 90°" onClick={() => run(() => updateRack(selected.id, { rotation: nextRotation(selected.rotation) }), 'หมุนแล้ว')}>
@@ -414,6 +399,20 @@ export default function RoomView({
           onSubmit={v => run(() => createRack(room.id, { code: v.code, levels: Number(v.levels), width: Number(v.width) }), `เพิ่มชั้นวาง ${v.code} แล้ว`)}
         />
       )}
+      {canManage && dialog === 'rename' && selected && (
+        <FormDialog
+          key={selected.id}
+          title={`เปลี่ยนชื่อชั้นวาง ${selected.code}`}
+          fields={[{ key: 'code', label: 'ชื่อชั้นวางใหม่', initial: selected.code, placeholder: 'เช่น A, B, C1' }]}
+          hint={`ระดับที่ใช้ชื่ออัตโนมัติ (${selected.code}-1, ${selected.code}-2 …) เปลี่ยนตามให้เอง · QR ที่พิมพ์ไว้แล้วยังใช้ได้`}
+          onClose={() => setDialog(null)}
+          onSubmit={v => {
+            const code = v.code.trim()
+            if (!code || code === selected.code) return Promise.resolve(true)
+            return run(() => updateRack(selected.id, { code }), 'เปลี่ยนชื่อแล้ว')
+          }}
+        />
+      )}
       {canManage && dialog === 'room' && (
         <FormDialog
           title="แก้ไขห้อง"
@@ -446,36 +445,5 @@ function FocusChip({ active, onClick, children }: { active: boolean; onClick: ()
     >
       {children}
     </button>
-  )
-}
-
-/** เปลี่ยนชื่อ (รหัส) ชั้นวางตรงหัวแผง — Enter บันทึก, Esc ยกเลิก · ระดับที่ใช้ชื่ออัตโนมัติ (B-1, B-2…) เปลี่ยนตาม QR เดิมยังใช้ได้ */
-function RackCodeEditor({ code, onSave, onCancel }: { code: string; onSave: (code: string) => void; onCancel: () => void }) {
-  const [value, setValue] = useState(code)
-  const next = value.trim()
-  const changed = next !== '' && next !== code
-  return (
-    <form
-      className="min-w-0 flex-1"
-      onSubmit={e => {
-        e.preventDefault()
-        if (changed) onSave(next)
-      }}
-    >
-      <div className="text-xs text-muted-foreground">ชื่อชั้นวางใหม่ (ระดับ {code}-1, {code}-2… เปลี่ยนตาม)</div>
-      <div className="mt-1 flex items-center gap-1.5">
-        <Input
-          autoFocus
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Escape') onCancel()
-          }}
-          className="h-8 min-w-0 text-base font-bold"
-        />
-        <Button type="submit" size="sm" disabled={!changed}>บันทึก</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>ยกเลิก</Button>
-      </div>
-    </form>
   )
 }
