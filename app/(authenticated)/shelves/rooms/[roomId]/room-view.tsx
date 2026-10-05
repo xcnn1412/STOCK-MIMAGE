@@ -63,6 +63,8 @@ export default function RoomView({
   const [rackId, setRackId] = useState<string | null>(null)
   const [levelId, setLevelId] = useState<string | null>(null)
   const [dialog, setDialog] = useState<'room' | 'rack' | null>(null)
+  /** ชั้นวางที่กำลังเปลี่ยนชื่ออยู่ (id) — เปลี่ยน focus แล้วหายเอง */
+  const [renaming, setRenaming] = useState<string | null>(null)
   const [now] = useState(() => new Date())
   const selected = room.racks.find(r => r.id === rackId) ?? null
   const openLevelId = selected?.levels.some(l => l.id === levelId) ? levelId : null
@@ -225,14 +227,29 @@ export default function RoomView({
             </Card>
           ) : (
             <Card className="gap-4 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="text-xs text-muted-foreground">ชั้นวาง</div>
-                  <div className="text-xl font-bold">{selected.code}</div>
-                </div>
-                <div className="flex gap-1">
+              <div className="flex items-start justify-between gap-2">
+                {canManage && renaming === selected.id ? (
+                  <RackCodeEditor
+                    key={selected.id}
+                    code={selected.code}
+                    onSave={async code => {
+                      if (await run(() => updateRack(selected.id, { code }), 'เปลี่ยนชื่อแล้ว')) setRenaming(null)
+                    }}
+                    onCancel={() => setRenaming(null)}
+                  />
+                ) : (
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground">ชั้นวาง</div>
+                    <div className="truncate text-xl font-bold">{selected.code}</div>
+                  </div>
+                )}
+                <div className="flex shrink-0 gap-1">
                   {canManage && (
                     <>
+                      <Button variant="outline" size="icon" title="เปลี่ยนชื่อชั้นวาง" aria-pressed={renaming === selected.id}
+                        onClick={() => setRenaming(cur => (cur === selected.id ? null : selected.id))}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                       <Button variant="outline" size="icon" title="หมุน 90°" onClick={() => run(() => updateRack(selected.id, { rotation: nextRotation(selected.rotation) }), 'หมุนแล้ว')}>
                         <RotateCw className="h-4 w-4" />
                       </Button>
@@ -328,7 +345,7 @@ export default function RoomView({
 
               {canManage && (
                 <details className="rounded-lg border px-3 py-2 text-sm">
-                  <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">ตั้งค่าชั้นวาง (จำนวนระดับ ความกว้าง รหัส)</summary>
+                  <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">ตั้งค่าชั้นวาง (จำนวนระดับ ความกว้าง)</summary>
                   <div className="space-y-4 pb-1 pt-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -376,7 +393,6 @@ export default function RoomView({
                       </div>
                     )}
 
-                    <RackCodeEditor key={selected.id} code={selected.code} onSave={code => run(() => updateRack(selected.id, { code }), 'เปลี่ยนรหัสแล้ว')} />
                   </div>
                 </details>
               )}
@@ -433,21 +449,33 @@ function FocusChip({ active, onClick, children }: { active: boolean; onClick: ()
   )
 }
 
-function RackCodeEditor({ code, onSave }: { code: string; onSave: (code: string) => Promise<boolean> }) {
+/** เปลี่ยนชื่อ (รหัส) ชั้นวางตรงหัวแผง — Enter บันทึก, Esc ยกเลิก · ระดับที่ใช้ชื่ออัตโนมัติ (B-1, B-2…) เปลี่ยนตาม QR เดิมยังใช้ได้ */
+function RackCodeEditor({ code, onSave, onCancel }: { code: string; onSave: (code: string) => void; onCancel: () => void }) {
   const [value, setValue] = useState(code)
+  const next = value.trim()
+  const changed = next !== '' && next !== code
   return (
     <form
-      className="flex items-end gap-2"
+      className="min-w-0 flex-1"
       onSubmit={e => {
         e.preventDefault()
-        if (value.trim() && value.trim() !== code) onSave(value.trim())
+        if (changed) onSave(next)
       }}
     >
-      <div className="flex-1">
-        <div className="mb-1 text-xs text-muted-foreground">รหัสชั้นวาง (ระดับที่ใช้รหัสอัตโนมัติเปลี่ยนตาม)</div>
-        <Input value={value} onChange={e => setValue(e.target.value)} className="h-8" />
+      <div className="text-xs text-muted-foreground">ชื่อชั้นวางใหม่ (ระดับ {code}-1, {code}-2… เปลี่ยนตาม)</div>
+      <div className="mt-1 flex items-center gap-1.5">
+        <Input
+          autoFocus
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') onCancel()
+          }}
+          className="h-8 min-w-0 text-base font-bold"
+        />
+        <Button type="submit" size="sm" disabled={!changed}>บันทึก</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>ยกเลิก</Button>
       </div>
-      <Button type="submit" size="sm" variant="outline" disabled={!value.trim() || value.trim() === code}>บันทึก</Button>
     </form>
   )
 }
