@@ -956,3 +956,20 @@ export function pendingItems(
 
   return { count: all.filter(i => !i.accepted).length, groups }
 }
+
+/**
+ * งานค้างที่ยังไม่ยอมรับ แยกเป็น "ยอมรับเหมาได้" (keys) กับ "ต้องกรอกเอง" (blocked = รันเนอร์ยังไม่กรอก)
+ * — ใช้ตอน "ยอมรับทั้งหมดแล้วปิดงวด": blocked > 0 แปลว่าทำไม่ได้ ต้องไปกรอกยอดในสลิปก่อน
+ */
+export function openPending(groups: PendingGroup[]): { keys: string[]; blocked: number } {
+  const keys: string[] = []
+  let blocked = 0
+  for (const g of groups) {
+    for (const i of g.items) {
+      if (i.accepted) continue
+      if (isAcceptable(g.code)) keys.push(i.key)
+      else blocked += 1
+    }
+  }
+  return { keys, blocked }
+}

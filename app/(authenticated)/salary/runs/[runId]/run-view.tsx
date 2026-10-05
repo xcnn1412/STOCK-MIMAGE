@@ -26,6 +26,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatThaiDate } from '@/lib/thai-date'
+import { openPending, type PendingGroup } from '../../compute'
 import { EMPLOYMENT_LABEL, RUN_KIND_LABEL, fmtMoney, periodLabel, slipTitle } from '../../format'
 import { SlipStatusBadge } from '../../components/slip-status-badge'
 import type { SalaryProfileListRow } from '../../settings/actions'
@@ -51,6 +52,32 @@ const NO_DEPARTMENT = '__none__'
 
 function displayName(p: { full_name: string | null; nickname: string | null }): string {
   return p.full_name || p.nickname || '(ไม่มีชื่อ)'
+}
+
+/** รายการงานค้างที่ยังไม่ยอมรับ จัดกลุ่มตามชนิด — ใช้ทั้งใน popover ของแถวและ dialog ปิดงวด */
+function PendingList({ groups }: { groups: PendingGroup[] }) {
+  return (
+    <div className="space-y-2 text-xs">
+      {groups.map(group => {
+        const open = group.items.filter(i => !i.accepted)
+        if (open.length === 0) return null
+        return (
+          <div key={group.code}>
+            <p className="font-medium text-amber-700 dark:text-amber-500">
+              {group.label} {open.length} รายการ
+            </p>
+            <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
+              {open.map(item => (
+                <li key={item.key}>
+                  <span className="tabular-nums">{formatThaiDate(item.date)}</span> · {item.label || group.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 /** base64 จาก server → ไฟล์ที่เบราว์เซอร์ดาวน์โหลด (ไม่มี endpoint ไฟล์แยก) */
@@ -93,6 +120,11 @@ export default function RunView({
   const [statusTarget, setStatusTarget] = useState<
     { slip: RunSlipRow; action: 'finalize' | 'paid' } | null
   >(null)
+  /** สลิปที่กำลังจะปิดงวดแต่ยังมีงานค้าง — dialog เปลี่ยนเป็นถาม "ยอมรับทั้งหมด / ไปแก้ไข" */
+  const pendingTarget =
+    statusTarget?.action === 'finalize' && statusTarget.slip.pending_count > 0 ? statusTarget.slip : null
+  /** รันเนอร์ยังไม่กรอกที่ยังค้าง — > 0 แปลว่ายอมรับเหมาไม่ได้ (กติกาเดียวกับ server) */
+  const blockedPending = pendingTarget ? openPending(pendingTarget.pending).blocked : 0
   const [confirmFinalizeAll, setConfirmFinalizeAll] = useState(false)
   const [confirmPayAll, setConfirmPayAll] = useState(false)
   /** คนที่ปิดงวดไม่ได้ตอนกด "ปิดงวดที่เหลือทั้งหมด" ครั้งล่าสุด */
@@ -183,22 +215,29 @@ export default function RunView({
     })
   }
 
-  /** ยืนยันปุ่มในแถว — ปิดงวด (ร่าง) หรือ จ่ายแล้ว (ปิดงวดแล้ว) */
-  function confirmStatusChange() {
+  /**
+   * ยืนยันปุ่มในแถว — ปิดงวด (ร่าง) หรือ จ่ายแล้ว (ปิดงวดแล้ว)
+   * `acceptPending` = ปุ่ม "ยอมรับทั้งหมดแล้วปิดงวด" — server ตรวจกติกาซ้ำเอง
+   */
+  function confirmStatusChange(acceptPending = false) {
     const target = statusTarget
     if (!target) return
     const { slip, action } = target
     startTransition(async () => {
-      const res = action === 'finalize' ? await finalizeSlip(slip.id) : await markSlipPaid(slip.id)
+      const res = action === 'finalize'
+        ? await finalizeSlip(slip.id, acceptPending ? { acceptPending: true } : undefined)
+        : await markSlipPaid(slip.id)
       setStatusTarget(null)
       if (res.error) {
         toast.error(res.error)
         return
       }
       toast.success(
-        action === 'finalize'
-          ? `ปิดงวดสลิปของ${displayName(slip)}แล้ว`
-          : `บันทึกว่าจ่ายเงินให้${displayName(slip)}แล้ว`
+        action === 'paid'
+          ? `บันทึกว่าจ่ายเงินให้${displayName(slip)}แล้ว`
+          : acceptPending
+            ? `ยอมรับงานค้าง ${slip.pending_count} รายการ และปิดงวดสลิปของ${displayName(slip)}แล้ว`
+            : `ปิดงวดสลิปของ${displayName(slip)}แล้ว`
       )
       router.refresh()
     })
@@ -534,11 +573,7 @@ export default function RunView({
                             <p className="mb-2 text-sm font-medium">
                               งานค้าง {s.pending_count} รายการ
                             </p>
-                            <ul className="space-y-1 text-xs text-muted-foreground">
-                              {s.warnings.map((w, i) => (
-                                <li key={`${w.code}-${w.date}-${w.checkin_id || i}`}>• {w.message}</li>
-                              ))}
-                            </ul>
+                            <PendingList groups={s.pending} />
                           </PopoverContent>
                         </Popover>
                       )}
@@ -753,11 +788,15 @@ export default function RunView({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* ปิดงวด / จ่ายแล้ว — ถ้าสลิปยังมีงานค้าง dialog เปลี่ยนเป็นถามว่าจะยอมรับทั้งหมดแล้วปิดเลย
+          หรือเข้าไปแก้ในสลิปก่อน (รันเนอร์ยังไม่กรอกยอมรับข้ามไม่ได้ → เหลือทางเดียวคือไปกรอก) */}
       <AlertDialog open={!!statusTarget} onOpenChange={v => { if (!v) setStatusTarget(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {statusTarget?.action === 'paid' ? 'บันทึกว่าจ่ายแล้ว' : 'ปิดงวดสลิป'}
+              {statusTarget?.action === 'paid'
+                ? 'บันทึกว่าจ่ายแล้ว'
+                : pendingTarget ? `มีงานค้าง ${pendingTarget.pending_count} รายการ` : 'ปิดงวดสลิป'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {statusTarget?.action === 'paid' ? (
@@ -766,6 +805,19 @@ export default function RunView({
                   {statusTarget ? fmtMoney(statusTarget.slip.total) : '0'} บาทแล้ว
                   โดยลงวันที่ {formatThaiDate(new Date())} และชื่อผู้กดไว้ในสลิป
                 </>
+              ) : pendingTarget ? (
+                blockedPending > 0 ? (
+                  <>
+                    สลิปของ{displayName(pendingTarget)} มีรันเนอร์ยังไม่กรอกยอด {blockedPending} รายการ —
+                    ต้องเข้าไปกรอกยอดก่อน (กรอก 0 ได้ถ้าวันนั้นไม่มีค่ารันเนอร์) ยอมรับข้ามไม่ได้
+                  </>
+                ) : (
+                  <>
+                    สลิปของ{displayName(pendingTarget)} ยอดสุทธิ {fmtMoney(pendingTarget.total)} บาท
+                    ยังมีงานค้างด้านล่าง — จะยอมรับทั้งหมด (บันทึกชื่อคุณเป็นผู้ยอมรับ) แล้วปิดงวดเลย
+                    หรือเข้าไปแก้ไขในสลิปก่อน
+                  </>
+                )
               ) : (
                 <>
                   ปิดงวดสลิปของ{statusTarget ? displayName(statusTarget.slip) : 'คนนี้'} ยอดสุทธิ{' '}
@@ -775,11 +827,31 @@ export default function RunView({
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {pendingTarget && (
+            <div className="max-h-60 overflow-y-auto rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+              <PendingList groups={pendingTarget.pending} />
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isPending}>ยกเลิก</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmStatusChange} disabled={isPending}>
-              {statusTarget?.action === 'paid' ? 'จ่ายแล้ว' : 'ปิดงวด'}
-            </AlertDialogAction>
+            {pendingTarget ? (
+              <>
+                <Button asChild variant={blockedPending > 0 ? 'default' : 'outline'} disabled={isPending}>
+                  <Link href={`/salary/${pendingTarget.id}`}>
+                    {blockedPending > 0 ? 'ไปกรอกรันเนอร์' : 'ไปแก้ไข'}
+                  </Link>
+                </Button>
+                {blockedPending === 0 && (
+                  <AlertDialogAction onClick={() => confirmStatusChange(true)} disabled={isPending}>
+                    ยอมรับทั้งหมดแล้วปิดงวด
+                  </AlertDialogAction>
+                )}
+              </>
+            ) : (
+              <AlertDialogAction onClick={() => confirmStatusChange()} disabled={isPending}>
+                {statusTarget?.action === 'paid' ? 'จ่ายแล้ว' : 'ปิดงวด'}
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
