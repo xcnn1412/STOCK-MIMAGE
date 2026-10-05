@@ -72,6 +72,42 @@ export const levelCode = (rackCode: string, level: number) => `${rackCode}-${lev
 
 export const nextRotation = (r: Rotation): Rotation => ((r + 90) % 360) as Rotation
 
+// --- ประตูทางเข้า — แค่หมุดบอกว่าอยู่ผนังด้านไหน ช่องที่เท่าไร (ไม่กั้นพื้นที่วางชั้นวาง) -------------
+// back = ผนัง y 0 (ด้านบนของผัง) · front = ผนัง y depth (ด้านล่าง = ด้านหน้า) · left = x 0 · right = x width
+
+export const DOOR_SIDES = ['front', 'back', 'left', 'right'] as const
+export type DoorSide = (typeof DOOR_SIDES)[number]
+export interface Door {
+  side: DoorSide
+  /** ช่องบนผนังด้านนั้น เริ่ม 0 — front/back นับจากซ้าย, left/right นับจากหลัง */
+  pos: number
+}
+
+/** ความยาวผนังด้านนั้นเป็นช่อง */
+export const wallLength = (room: { width: number; depth: number }, side: DoorSide) =>
+  side === 'left' || side === 'right' ? room.depth : room.width
+
+/** ดึงประตูให้อยู่บนผนังเสมอ (ห้องถูกย่อ / ค่าเพี้ยน) */
+export function clampDoor(room: { width: number; depth: number }, door: Door): Door {
+  const n = Math.trunc(Number(door.pos))
+  return { side: door.side, pos: Math.max(0, Math.min(Number.isFinite(n) ? n : 0, wallLength(room, door.side) - 1)) }
+}
+
+/** กลางประตูในหน่วยโลก 3D (x, z) + มุมหมุนรอบแกน Y ให้แนบผนัง — ประตูกว้าง 1 ช่อง */
+export function doorPlacement(room: { width: number; depth: number }, door: Door): { x: number; z: number; rotation: number } {
+  const p = clampDoor(room, door).pos + 0.5
+  switch (door.side) {
+    case 'back':
+      return { x: p, z: 0, rotation: 0 }
+    case 'front':
+      return { x: p, z: room.depth, rotation: 0 }
+    case 'left':
+      return { x: 0, z: p, rotation: Math.PI / 2 }
+    case 'right':
+      return { x: room.width, z: p, rotation: Math.PI / 2 }
+  }
+}
+
 // --- มุมกล้อง 3D (ภาพรวมห้อง / focus ชั้นวาง / focus ระดับชั้น) -----------------------
 // หน่วยโลก 3D: 1 = 1 ช่องบนผัง · X = ซ้าย→ขวา, Z = หน้า→หลัง (y บนผัง), Y = ความสูง
 
