@@ -6,6 +6,7 @@ import { getQueueClaims } from './queue-data'
 import { getPaidClaimsLean, getStaffOpenClaims } from './list-data'
 import ClaimsListView from './claims-list-view'
 import QueueView from './queue-view'
+import { getOutstandingClaims } from './outstanding-data'
 
 export const revalidate = 0
 
@@ -61,9 +62,10 @@ export default async function FinancePage({
   }
 
   // พนักงาน: รายการใบเบิกของตัวเอง (เฉพาะใบที่ยังไม่จบ) เป็นแถวแบบเบา
-  const [{ data, error }, categories] = await Promise.all([
+  const [{ data, error }, categories, outstanding] = await Promise.all([
     getStaffOpenClaims(viewer),
     getFinanceCategories(),
+    getOutstandingClaims(userId),
   ])
 
   return (
@@ -76,6 +78,7 @@ export default async function FinancePage({
       paidClaims={[]}
       paidMonths={[]}
       paidMonth=""
+      outstanding={outstanding}
     />
   )
 }

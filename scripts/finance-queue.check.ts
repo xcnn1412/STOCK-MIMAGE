@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict'
 import Module from 'node:module'
-import { paymentLock } from '../app/(authenticated)/finance/claim-rules'
+import { outstandingKind, paymentLock } from '../app/(authenticated)/finance/claim-rules'
 import { CLAIM_TRANSITIONS } from '../app/(authenticated)/finance/claim-transitions'
 
 process.env.SESSION_SECRET = 'finance-queue-check'
@@ -514,12 +514,20 @@ async function main() {
     assert.deepEqual(claimRow(raced), afterRace)
     assert.deepEqual(sideEffects(), before)
 
-    // ผู้เบิกยื่นใบที่ถูกส่งกลับได้ และเหตุผลที่ส่งกลับถูกล้าง
+    // ผู้เบิกที่ยังมีใบค้างเคลียร์ (ทดลองจ่ายจ่ายแล้วยังไม่เคลียร์ / รอใบกำกับ) ยื่นใบใหม่ไม่ได้ — ใบที่ถูกส่งกลับก็ยื่นไม่ได้จนกว่าจะเคลียร์
     loginAs(STAFF)
+    const owed = db.expense_claims.filter(r => r.submitted_by === STAFF && !r.deleted_at && outstandingKind(r as unknown as Parameters<typeof outstandingKind>[0]))
+    assert.ok(owed.length > 0, 'ฟิกซ์เจอร์ต้องมีใบค้างเคลียร์ของพนักงาน')
+    const blocked = (await submitClaim(pending)) as { error?: string }
+    assert.match(String(blocked.error ?? ''), /ค้างเคลียร์/, 'มีใบค้างเคลียร์ → ยื่นไม่ได้')
+    assert.equal(claimRow(pending).status, 'draft', 'ถูกบล็อก → ยังเป็นแบบร่าง')
+    // ซ่อนใบค้างชั่วคราว → ยื่นได้ และเหตุผลที่ส่งกลับถูกล้าง
+    for (const r of owed) r.deleted_at = '2026-09-30T00:00:00.000Z'
     assert.deepEqual(await submitClaim(pending), { success: true })
+    for (const r of owed) r.deleted_at = null
     assert.equal(claimRow(pending).status, 'pending')
     assert.equal(claimRow(pending).reject_reason, null, 'ยื่นใหม่ → reject_reason ว่าง')
-    pass('AC7 sendBackClaim: พนักงาน → error · เหตุผลว่าง/ช่องว่าง → error ไม่อ่านไม่เขียน · รออนุมัติ → แบบร่าง + เหตุผล (ล้างผู้อนุมัติ/เวลายื่น) ประวัติ send_back · activity 1 · แจ้งผู้เบิก 1 · อนุมัติแล้ว/รอใบกำกับ/รอจ่ายสิ้นเดือน → รายการต้นทุน 0 · จ่ายแล้ว → error · ชนกัน → STALE · ยื่นใหม่ล้างเหตุผล')
+    pass('AC7 sendBackClaim: พนักงาน → error · เหตุผลว่าง/ช่องว่าง → error ไม่อ่านไม่เขียน · รออนุมัติ → แบบร่าง + เหตุผล (ล้างผู้อนุมัติ/เวลายื่น) ประวัติ send_back · activity 1 · แจ้งผู้เบิก 1 · อนุมัติแล้ว/รอใบกำกับ/รอจ่ายสิ้นเดือน → รายการต้นทุน 0 · จ่ายแล้ว → error · ชนกัน → STALE · มีใบค้างเคลียร์ → ยื่นไม่ได้ · ซ่อนใบค้างแล้วยื่นใหม่ล้างเหตุผล')
   }
 
   // ══ AC8: ซ่อน / กู้คืน / ใบที่ซ่อนในรายการ ═══════════════════════════════════════

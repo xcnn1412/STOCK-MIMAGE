@@ -17,6 +17,7 @@ import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { paymentLock, reasonRequiredForTransition, receiptRequiredForSubmit } from './claim-rules'
 import { BULK_TRANSITIONS, CLAIM_TRANSITIONS, findTransition, type TransitionKey } from './claim-transitions'
+import { getOutstandingClaims } from './outstanding-data'
 import {
   CLAIM_ID_RE,
   CLAIM_SYNC_SELECT,
@@ -77,6 +78,11 @@ async function submitCore(ctx: Ctx, id: string): Promise<Outcome> {
   // submission — they're uploaded later as expenses are logged. (กติกาเดียวกับ createClaim ที่ยื่นทันที)
   if (receiptRequiredForSubmit(claim.claim_type) && (!claim.receipt_urls || claim.receipt_urls.length === 0)) {
     return fail(RECEIPT_REQUIRED_ERROR, claim.claim_number)
+  }
+  // ยังมีรายการค้างเคลียร์ (ไม่นับใบนี้เอง) → ยื่นไม่ได้ ทุกคนรวมแอดมิน · กติกาเดียวกับ createClaim
+  const outstanding = (await getOutstandingClaims(userId)).filter(c => c.id !== id)
+  if (outstanding.length > 0) {
+    return fail(`ยังมีรายการค้างเคลียร์ ${outstanding.length} ใบ (${outstanding.map(c => c.claim_number).join(', ')}) — เคลียร์ให้ครบก่อนจึงยื่นใบเบิกใหม่ได้`, claim.claim_number)
   }
 
   // ยื่นใหม่หลังถูกส่งกลับให้แก้ → ล้างเหตุผลที่ส่งกลับ (ไม่ค้างเป็นแถบเตือนของใบที่ยื่นแล้ว)
@@ -963,7 +969,8 @@ export async function listHiddenClaims(): Promise<{ data: QueueClaim[]; error?: 
 
   if (isMissingColumn(error)) return { data: [], error: HIDE_MIGRATION_MISSING }
   if (error) return { data: [], error: error.message }
-  return { data: (data ?? []) as unknown as QueueClaim[] }
+  // ใบที่ซ่อนไม่โชว์ป้ายค้างเคลียร์ของผู้เบิก — ใส่ 0 ให้แถวรูปเดียวกับคิว
+  return { data: ((data ?? []) as unknown as QueueClaim[]).map(row => ({ ...row, submitter_outstanding: 0 })) }
 }
 
 // ============================================================================

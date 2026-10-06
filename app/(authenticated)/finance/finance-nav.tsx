@@ -25,7 +25,7 @@ const labels = {
 }
 
 /** role มาจาก layout (บทบาทที่ยืนยันกับฐานข้อมูลแล้ว) */
-export default function FinanceNav({ role }: { role: string }) {
+export default function FinanceNav({ role, outstandingCount = 0 }: { role: string; outstandingCount?: number }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { locale, setLocale } = useLocale()
@@ -79,6 +79,16 @@ export default function FinanceNav({ role }: { role: string }) {
               >
                 <Icon aria-hidden="true" className={`h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 transition-colors ${active ? 'text-emerald-600 dark:text-emerald-400' : ''}`} />
                 <span>{label}</span>
+                {tab.key === 'claims' && outstandingCount > 0 && (
+                  <span
+                    data-testid="outstanding-pill"
+                    aria-label={isEn ? `${outstandingCount} outstanding item(s)` : `มีรายการค้างเคลียร์ ${outstandingCount} ใบ`}
+                    title={isEn ? `${outstandingCount} outstanding item(s)` : `มีรายการค้างเคลียร์ ${outstandingCount} ใบ`}
+                    className="min-w-[1.125rem] rounded-full bg-red-600 px-1.5 py-0.5 text-center text-xs font-bold leading-none text-white"
+                  >
+                    {outstandingCount}
+                  </span>
+                )}
                 {active && (
                   <span className="absolute -bottom-[9px] left-3 right-3 h-[2px] rounded-full bg-emerald-500 dark:bg-emerald-400 hidden sm:block" />
                 )}

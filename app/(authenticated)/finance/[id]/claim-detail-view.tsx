@@ -25,13 +25,15 @@ import { useLocale } from '@/lib/i18n/context'
 import type { ExpenseClaim } from '../../costs/types'
 import BankSelect from '@/components/bank-select'
 import { Button } from '@/components/ui/button'
-import { compressImage } from '@/lib/utils'
+import { cn, compressImage } from '@/lib/utils'
 import { calcTax } from '@/lib/finance/money'
 import { THUMB_MAX_DIMENSION, THUMB_MAX_MB } from '@/lib/finance/receipt-thumbs'
 import { thaiTodayIso } from '@/lib/thai-date'
 import EventSelectCombobox from '../new/event-select-combobox'
 import { canSeeWorkPanel, receiptRequiredForSubmit, reasonRequiredForTransition, reasonRequiredForEdit, paymentLock } from '../claim-rules'
 import { ReceiptThumb, appendFilePairs, settleThumb, type FilePair } from './receipt-thumb'
+import { OutstandingAlert } from '../outstanding-alert'
+import type { OutstandingClaim } from '../outstanding-data'
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -164,7 +166,7 @@ type LinkableClaim = {
   submitter?: { id: string; full_name: string } | null
 }
 
-export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', pettyChildren = null, linkableClaims = null }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; pettyChildren?: PettyChildren | null; linkableClaims?: LinkableClaim[] | null }) {
+export default function ClaimDetailView({ claim, role, categories = [], logs = [], userId = '', pettyChildren = null, linkableClaims = null, submitterOutstanding = [] }: { claim: ExpenseClaim; role: string; categories?: FinanceCategory[]; logs?: ClaimLog[]; userId?: string; pettyChildren?: PettyChildren | null; linkableClaims?: LinkableClaim[] | null; submitterOutstanding?: OutstandingClaim[] }) {
   const router = useRouter()
   const { locale } = useLocale()
   const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
@@ -834,8 +836,29 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
 
   const inputCls = "w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-800 text-sm outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
 
+  // ใบที่จ่ายแล้ว: ทั้งหน้าเป็นสีเขียว + แถบ "ชำระเงินแล้ว" ตัวใหญ่ (เจ้าของสั่ง)
+  const isPaidOut = claim.status === 'paid' || claim.status === 'refund_confirmed'
+  const shownTotal = (viewVatMode !== 'none' || viewWhtRate > 0) && viewAmount > 0 ? viewTax.netPayable : viewAmount
+  const fundingBadge = (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+      style={{
+        backgroundColor: `${getFundingSourceColor(claim.funding_source)}20`,
+        color: getFundingSourceColor(claim.funding_source),
+      }}
+      title={isEn ? 'Funding source' : 'แหล่งเงินที่ใช้เบิก'}
+    >
+      {claim.funding_source === 'personal' ? (
+        <User className="h-2.5 w-2.5" />
+      ) : (
+        <Building2 className="h-2.5 w-2.5" />
+      )}
+      {getFundingSourceLabel(claim.funding_source, locale)}
+    </span>
+  )
+
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className={cn('max-w-3xl mx-auto', isPaidOut && 'bg-emerald-50/70 dark:bg-emerald-950/20 ring-1 ring-emerald-200 dark:ring-emerald-900 rounded-3xl p-2 sm:p-4 print:bg-transparent print:ring-0 print:p-0')}>
       {confirmDialog}
       {bundleOpen && (
         <BundleDialog
@@ -1128,7 +1151,34 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
 
       {/* Main Card */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden print:border-none print:shadow-none">
-        {/* Status Banner */}
+        {/* Status Banner — ใบที่จ่ายแล้วใช้แถบเขียวตัวใหญ่แทน */}
+        {isPaidOut ? (
+          <div data-testid="paid-banner" className="bg-emerald-600 dark:bg-emerald-700 text-white px-6 py-8 text-center">
+            <CheckCircle2 className="h-10 w-10 mx-auto" aria-hidden="true" />
+            <p className="mt-2 text-3xl sm:text-4xl font-extrabold tracking-tight">
+              {claim.status === 'refund_confirmed'
+                ? (isEn ? 'Paid · refund received' : 'ชำระและรับเงินคืนแล้ว')
+                : (isEn ? 'Paid' : 'ชำระเงินแล้ว')}
+            </p>
+            <p className="mt-2 text-base font-medium">
+              {claim.paid_at && `${new Date(claim.paid_at).toLocaleDateString(isEn ? 'en-GB' : 'th-TH', { day: 'numeric', month: 'long', year: 'numeric' })} · `}
+              ฿{fmtDec(shownTotal)}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-emerald-50">
+              <span className="rounded-full bg-white px-0.5">{fundingBadge}</span>
+              {claim.approver && (
+                <span>
+                  {isEn ? 'by' : 'โดย'} {claim.approver.full_name}
+                  {claim.approved_at && ` • ${new Date(claim.approved_at).toLocaleDateString('th-TH')}`}
+                </span>
+              )}
+              <span className="font-mono">{claim.claim_number}</span>
+              {claim.original_claim_number && (
+                <span className="font-mono">{isEn ? 'Previously' : 'เลขเดิม'} {claim.original_claim_number}</span>
+              )}
+            </div>
+          </div>
+        ) : (
         <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: `${statusColor}10` }}>
           <div className="flex items-center gap-3">
             {claim.status === 'draft' && <FileText className="h-5 w-5" style={{ color: statusColor }} />}
@@ -1144,21 +1194,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                   {getClaimStatusLabel(claim.status, locale)}
                 </span>
                 {/* Funding source badge */}
-                <span
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
-                  style={{
-                    backgroundColor: `${getFundingSourceColor(claim.funding_source)}20`,
-                    color: getFundingSourceColor(claim.funding_source),
-                  }}
-                  title={isEn ? 'Funding source' : 'แหล่งเงินที่ใช้เบิก'}
-                >
-                  {claim.funding_source === 'personal' ? (
-                    <User className="h-2.5 w-2.5" />
-                  ) : (
-                    <Building2 className="h-2.5 w-2.5" />
-                  )}
-                  {getFundingSourceLabel(claim.funding_source, locale)}
-                </span>
+                {fundingBadge}
               </div>
               {claim.approver && (
                 <span className="text-xs text-zinc-500 mt-0.5 block">
@@ -1178,6 +1214,14 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
             )}
           </div>
         </div>
+        )}
+
+        {/* ใบค้างเคลียร์อื่นของผู้เบิกคนนี้ (ไม่รวมใบนี้) */}
+        {submitterOutstanding.length > 0 && (
+          <div className="px-6 pt-4">
+            <OutstandingAlert claims={submitterOutstanding} isEn={isEn} mode="notice" />
+          </div>
+        )}
 
         {/* Content */}
         <div className="p-6 space-y-5">

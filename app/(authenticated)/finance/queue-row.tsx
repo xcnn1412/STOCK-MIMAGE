@@ -18,6 +18,7 @@ import { CLAIM_TRANSITIONS, transitionsFor, type TransitionKey } from './claim-t
 import { advanceState, ageAnchor, ageText, type QueueGroupKey } from './claim-queue'
 import type { QueueClaim } from './queue-data'
 import { StatusBadge } from './status-badge'
+import { OutstandingPill } from './outstanding-alert'
 
 /** ปุ่มหลักของส่วนใบเบิก = Button variant default + สีเขียว (primary ของธีมเป็นสีดำ) — ดู DESIGN.md */
 export const PRIMARY_BUTTON = 'bg-emerald-700 text-white hover:bg-emerald-800 dark:bg-emerald-700 dark:text-white dark:hover:bg-emerald-800'
@@ -180,7 +181,7 @@ export function QueueRow({
           >
             <span className="block w-full truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{c.title}</span>
             <span className="block w-full truncate text-xs text-zinc-600 dark:text-zinc-400">
-              <span className="font-mono">{c.claim_number}</span> · {c.submitter?.full_name || '—'}{event ? ` · ${event}` : ''}
+              <span className="font-mono">{c.claim_number}</span> · {c.submitter?.full_name || '—'} <OutstandingPill count={c.submitter_outstanding} isEn={isEn} />{event ? ` · ${event}` : ''}
             </span>
           </Button>
         </div>

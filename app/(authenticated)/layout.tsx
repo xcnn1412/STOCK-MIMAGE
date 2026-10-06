@@ -8,6 +8,7 @@ import LicenseBanner from '@/components/license-banner'
 import { getLicenseStatus } from '@/lib/license'
 import { getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
+import { getOutstandingClaims } from './finance/outstanding-data'
 
 type ServiceClient = ReturnType<typeof createServiceClient>
 
@@ -41,19 +42,23 @@ export default async function AuthenticatedLayout({
   let allowedModules = ['stock']
   let missingFields: string[] = []
   let pendingDocuments = 0
+  let outstandingCount = 0
 
   if (userId) {
     const supabase = createServiceClient()
     // รอบที่ 2: โปรไฟล์ + ตัวเลข "รออนุมัติ" ของ admin พร้อมกัน (scripts/layout-requests.check.ts ตรวจว่า ≤ 2 รอบ)
-    const [{ data: profile }, docCount] = await Promise.all([
+    // ponytail: ใบค้างเคลียร์อ่านพร้อมโปรไฟล์ (ยังไม่รู้ allowed_modules) แล้วค่อยตัดสินว่าโชว์ badge ไหมด้านล่าง — ไม่เพิ่มรอบ
+    const [{ data: profile }, docCount, outstanding] = await Promise.all([
       supabase
         .from('profiles')
         .select('role, allowed_modules, full_name, nickname, national_id, address, bank_name, bank_account_number, account_holder_name')
         .eq('id', userId)
         .single(),
       sessionRole === 'admin' ? pendingDocumentCount(supabase) : Promise.resolve(0),
+      getOutstandingClaims(userId, sessionRole === 'admin'),
     ])
     pendingDocuments = docCount
+    outstandingCount = outstanding.length
 
     const p = profile as Record<string, unknown> | null
     role = p?.role as string | undefined
@@ -101,6 +106,8 @@ export default async function AuthenticatedLayout({
   // ตัวเลขบนเมนู "รออนุมัติ" — เฉพาะ admin
   const badges: Record<string, number> = {}
   if (role === 'admin' && pendingDocuments > 0) badges['/documents/approvals'] = pendingDocuments
+  // ใบเบิกค้างเคลียร์: แอดมิน = ทั้งระบบ · คนอื่น = ของตัวเอง — เฉพาะคนที่เห็นเมนูใบเบิก
+  if ((role === 'admin' || allowedModules.includes('finance')) && outstandingCount > 0) badges['/finance'] = outstandingCount
 
   const license = getLicenseStatus()
   const licenseExpiresAt = license.expiresAt ? license.expiresAt.toISOString() : null

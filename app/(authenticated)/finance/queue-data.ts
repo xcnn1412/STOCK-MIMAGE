@@ -11,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { OPEN_STATUSES } from '@/lib/finance/conditions'
 import type { ExpenseClaim } from '../costs/types'
 import { getSession, isMissingColumn } from './claim-db'
+import { getOutstandingClaims } from './outstanding-data'
 
 /** คอลัมน์ของแถวในคิว — ห้ามเพิ่ม '*' / description / notes / ข้อมูลผู้อนุมัติหรือผู้จ่าย */
 export const QUEUE_SELECT = [
@@ -30,7 +31,7 @@ export type QueueClaim = Pick<ExpenseClaim,
   | 'refund_slip_urls' | 'refund_amount' | 'refund_confirmed_at' | 'actual_spent_amount' | 'advance_settled_at'
   | 'pettycash_fund_id' | 'reject_reason' | 'bank_name' | 'bank_account_number' | 'account_holder_name'
   | 'submitter' | 'job_event'
-> & { status_changed_at: string | null; deleted_at: string | null }
+> & { status_changed_at: string | null; deleted_at: string | null; submitter_outstanding: number }
 
 export const QUEUE_MIGRATION_MISSING = 'ต้องรันไฟล์ SQL 20260930_claim_hide_status_time.sql บนฐานข้อมูลก่อนจึงจะใช้คิวใบเบิกได้'
 
@@ -65,11 +66,12 @@ export async function getQueueClaims(): Promise<{ data: QueueClaim[]; hiddenCoun
   }
 
   // อ่านแยกสามชุดแทน .or() แล้วรวมด้วย id กันซ้ำ (เทคนิคเดียวกับ getClaims({ open: true }))
-  const [open, unsettled, refundPending, hidden] = await Promise.all([
+  const [open, unsettled, refundPending, hidden, outstanding] = await Promise.all([
     readAll(() => base().in('status', OPEN_STATUSES)),
     readAll(() => base().eq('claim_type', 'advance').eq('status', 'paid').is('actual_spent_amount', null)),
     readAll(() => base().eq('claim_type', 'advance').eq('status', 'paid').is('refund_confirmed_at', null).gt('refund_amount', 0)),
     supabase.from('expense_claims').select('id', { count: 'exact', head: true }).not('deleted_at', 'is', null),
+    getOutstandingClaims(userId, true),
   ])
 
   const failed = [open, unsettled, refundPending].find(p => p.error)?.error ?? hidden.error
@@ -79,8 +81,11 @@ export async function getQueueClaims(): Promise<{ data: QueueClaim[]; hiddenCoun
     return { data: [], hiddenCount: 0, error: `โหลดคิวใบเบิกไม่สำเร็จ: ${failed.message}` }
   }
 
+  // จำนวนใบค้างเคลียร์ของผู้เบิกแต่ละคน (ป้ายแดงข้างชื่อผู้เบิก)
+  const perSubmitter = new Map<string, number>()
+  for (const c of outstanding) perSubmitter.set(c.submitted_by, (perSubmitter.get(c.submitted_by) ?? 0) + 1)
   const byId = new Map([...open.rows, ...unsettled.rows, ...refundPending.rows].map(row => [row.id, row]))
-  const data = [...byId.values()].sort((a, b) =>
+  const data = [...byId.values()].map(row => ({ ...row, submitter_outstanding: (row.submitted_by && perSubmitter.get(row.submitted_by)) || 0 })).sort((a, b) =>
     a.created_at === b.created_at ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.created_at < b.created_at ? 1 : -1
   )
   return { data, hiddenCount: hidden.count ?? 0 }

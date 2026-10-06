@@ -47,7 +47,7 @@ function claim(n: number, submittedBy: string, wht: number | null, over: Row = {
     status: 'paid', submitted_by: submittedBy, expense_date: '2026-09-01', created_at: `2026-09-${String(n).padStart(2, '0')}T03:00:00+00:00`,
     bank_name: 'ธนาคารทดสอบ', bank_account_number: `000-0-0000${n}-9`, account_holder_name: `ผู้รับทดสอบ ${n}`,
     receipt_urls: [`https://fake.supabase.test/storage/v1/object/public/receipts/${n}.jpg`], notes: `หมายเหตุทดสอบ ${n}`,
-    deleted_at: null, status_changed_at: null,
+    deleted_at: null, status_changed_at: null, advance_settled_at: null, refund_amount: null,
     // join ของ getClaims (submitter:profiles!…(id, full_name)) — ตัวจำลองคืนทั้งแถวเมื่อเลือก '*'
     submitter: { id: submittedBy, full_name: `ผู้ใช้ทดสอบ ${submittedBy.slice(-1)}` },
     ...over,
@@ -62,7 +62,7 @@ const SCHEMA: Record<string, string[]> = {
   expense_claims: Object.keys(claim(1, STAFF, 3)),
   job_cost_events: ['id', 'event_name', 'event_date', 'event_location', 'status', 'source_event_id'],
   event_closures: ['id', 'event_name', 'event_date', 'event_location'],
-  events: ['id', 'name', 'event_date', 'location', 'status'],
+  events: ['id', 'name', 'event_date', 'event_time', 'event_end_time', 'location', 'status'],
 }
 
 const db: Record<string, Row[]> = {}

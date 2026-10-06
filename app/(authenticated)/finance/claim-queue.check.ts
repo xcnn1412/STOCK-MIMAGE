@@ -31,7 +31,7 @@ function claim(status: string, ages: number, over: Partial<QueueClaim> = {}): Qu
     actual_spent_amount: null, advance_settled_at: null, pettycash_fund_id: null, reject_reason: null,
     bank_name: null, bank_account_number: null, account_holder_name: null,
     submitter: { id: uid(900), full_name: 'ผู้เบิกทดสอบ' }, job_event: null,
-    status_changed_at: ago(ages), deleted_at: null,
+    status_changed_at: ago(ages), deleted_at: null, submitter_outstanding: 0,
     ...over,
   }
 }
