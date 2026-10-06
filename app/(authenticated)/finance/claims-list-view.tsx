@@ -22,6 +22,8 @@ import type { ClaimFilters, FiledFilter } from './claims-filter'
 import BundleDialog from './bundle-dialog'
 import type { BundleClaimRef } from './bundle-dialog'
 import type { ListClaim } from './view-data'
+import { OutstandingAlert } from './outstanding-alert'
+import type { OutstandingClaim } from './outstanding-data'
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -90,6 +92,7 @@ export default function ClaimsListView({
   paidClaims = [],
   paidMonths = [],
   paidMonth = '',
+  outstanding = [],
 }: {
   /** แถวแบบเบา (list-data.ts) — ไม่มีรายการ URL ของไฟล์แนบ ป้ายเอกสารคิดจาก docs */
   claims: ListClaim[]
@@ -102,6 +105,8 @@ export default function ClaimsListView({
   paidMonths?: { month: string; count: number }[]
   /** เดือนที่จ่ายที่ server โหลดมา 'YYYY-MM' ('' = ยังไม่มีการจ่าย) */
   paidMonth?: string
+  /** ใบค้างเคลียร์ของตัวเอง — มีแล้วเบิกใหม่ไม่ได้ (กล่องแดงบนสุด) */
+  outstanding?: OutstandingClaim[]
 }) {
   const { locale } = useLocale()
   const isEn = locale === 'en'
@@ -239,6 +244,7 @@ export default function ClaimsListView({
     // เว้นที่ใต้รายการเท่าความสูงแถบเลือกหลายใบ — แถวสุดท้ายต้องไม่ถูกแถบบัง
     <div className={`space-y-6 ${selectMode ? 'pb-48 md:pb-36' : ''}`}>
       {confirmDialog}
+      <OutstandingAlert claims={outstanding} isEn={isEn} mode="block" />
       {bundleFor && (
         <BundleDialog
           claims={bundleFor}

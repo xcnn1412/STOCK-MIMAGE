@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { COST_ITEM_STATUSES, canSeeWorkPanel, claimIdFromCostNote, costItemNote, shouldHaveCostItem } from './claim-rules'
 import { STATUS_RANK, isBackwardTransition, reasonRequiredForEdit, reasonRequiredForTransition, receiptRequiredForSubmit } from './claim-rules'
 import { isHiddenClaim, paymentLock } from './claim-rules'
+import { outstandingKind, outstandingLabel } from './claim-rules'
 
 const ID = '00000000-0000-4000-8000-000000000101'
 const EVENT = '00000000-0000-4000-8000-000000000901'
@@ -125,5 +126,15 @@ assert.equal(lockOf({ status: 'waiting_tax_invoice', receipt_urls: ['r.jpg'], ta
 assert.equal(lockOf({ status: 'waiting_tax_invoice', receipt_urls: ['r.jpg'], tax_invoice_urls: ['iv.pdf'] }).locked, false, 'มีไฟล์ใบกำกับ → จ่ายได้')
 assert.deepEqual(lockOf({ receipt_urls: ['r.jpg'], tax_invoice_urls: [''], tax_invoice_numbers: ['  '] }).missing, ['ใบกำกับภาษี'], 'มีรายการใบกำกับแต่ว่างทุกช่อง → ขาดใบกำกับ')
 assert.equal(lockOf({ status: 'pending_month_end', receipt_urls: ['r.jpg'] }).locked, false, 'ไม่เคยขอใบกำกับ → ไม่ต้องมี')
+
+// (j) รายการค้างเคลียร์ — มีค้าง เบิกใบใหม่ไม่ได้
+assert.equal(outstandingKind({ claim_type: 'event', status: 'waiting_tax_invoice' }), 'tax_invoice', 'รอใบกำกับ → ค้างใบกำกับ')
+assert.equal(outstandingKind({ claim_type: 'advance', status: 'paid', advance_settled_at: null }), 'advance_unsettled', 'ทดลองจ่ายจ่ายแล้วยังไม่เคลียร์')
+assert.equal(outstandingKind({ claim_type: 'advance', status: 'paid', advance_settled_at: '2026-10-01T00:00:00Z', refund_amount: '150.00' }), 'refund_pending', 'เคลียร์แล้วยังไม่คืนเงิน')
+assert.equal(outstandingKind({ claim_type: 'advance', status: 'paid', advance_settled_at: '2026-10-01T00:00:00Z', refund_amount: 0 }), null, 'เคลียร์แล้วไม่มีเงินคืน → ไม่ค้าง')
+assert.equal(outstandingKind({ claim_type: 'advance', status: 'approved', advance_settled_at: null }), null, 'ยังไม่จ่าย → ไม่ค้าง')
+assert.equal(outstandingKind({ claim_type: 'advance', status: 'refund_confirmed', advance_settled_at: '2026-10-01T00:00:00Z', refund_amount: 150 }), null, 'รับเงินคืนแล้ว → ไม่ค้าง')
+assert.equal(outstandingKind({ claim_type: 'advance', status: 'paid', advance_settled_at: null, deleted_at: '2026-10-01T00:00:00Z' }), null, 'ซ่อนแล้ว → ไม่ค้าง')
+assert.equal(outstandingLabel('advance_unsettled', false), 'ค้างเคลียร์ทดลองจ่าย')
 
 console.log('claim-rules: ผ่านทั้งหมด')

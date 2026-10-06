@@ -2,6 +2,7 @@ import { getFinanceViewer } from '../viewer'
 import { notFound, redirect } from 'next/navigation'
 import ClaimDetailView from './claim-detail-view'
 import { loadClaimPage } from '../claim-page-data'
+import { getOutstandingClaims } from '../outstanding-data'
 import { ClaimLinkedItems } from '../../jobs/purchasing/components/claim-linked-items'
 
 export const revalidate = 0
@@ -18,10 +19,14 @@ export default async function ClaimDetailPage({ params }: { params: Promise<{ id
   const page = await loadClaimPage(id, viewer)
   if (!page) notFound()
   const { claim, categories, logs, pettyChildren, linkableClaims, purchaseItems } = page
+  // ใบค้างเคลียร์อื่นของผู้เบิก — แอดมินหรือเจ้าของใบเท่านั้น (ไม่รวมใบนี้)
+  const submitterOutstanding = claim.submitted_by && (viewer.isAdmin || claim.submitted_by === userId)
+    ? (await getOutstandingClaims(claim.submitted_by)).filter(c => c.id !== claim.id)
+    : []
 
   return (
     <>
-      <ClaimDetailView claim={claim} role={role} categories={categories} logs={logs} userId={userId} pettyChildren={pettyChildren} linkableClaims={linkableClaims} />
+      <ClaimDetailView claim={claim} role={role} categories={categories} logs={logs} userId={userId} pettyChildren={pettyChildren} linkableClaims={linkableClaims} submitterOutstanding={submitterOutstanding} />
       {/* ความกว้างเดียวกับ ClaimDetailView (max-w-3xl กึ่งกลาง) — ไม่มีรายการที่ผูก = ไม่แสดงอะไร */}
       <div className="max-w-3xl mx-auto">
         <ClaimLinkedItems rows={purchaseItems} claim={claim} />

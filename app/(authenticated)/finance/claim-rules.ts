@@ -127,3 +127,33 @@ export function reasonRequiredForTransition(from: string, to: string): boolean {
 export function reasonRequiredForEdit(status: string): boolean {
   return MONEY_MOVED_STATUSES.includes(status)
 }
+
+// ── รายการค้างเคลียร์ — มีค้างอยู่ เบิกใบใหม่ไม่ได้ (ทุกคน รวม admin) ──────────────────
+
+export type OutstandingKind = 'advance_unsettled' | 'refund_pending' | 'tax_invoice'
+
+/** ใบนี้ค้างอะไรอยู่ (null = ไม่ค้าง) — ลำดับ: ซ่อนแล้ว → ใบกำกับ → ทดลองจ่ายยังไม่เคลียร์ → ยังไม่คืนเงิน */
+export function outstandingKind(c: {
+  claim_type: string
+  status: string
+  advance_settled_at?: string | null
+  refund_amount?: number | string | null
+  deleted_at?: string | null
+}): OutstandingKind | null {
+  if (c.deleted_at) return null
+  if (c.status === 'waiting_tax_invoice') return 'tax_invoice'
+  if (c.claim_type === 'advance' && c.status === 'paid') {
+    if (!c.advance_settled_at) return 'advance_unsettled'
+    if (Number(c.refund_amount) > 0) return 'refund_pending'
+  }
+  return null
+}
+
+export function outstandingLabel(kind: OutstandingKind, isEn: boolean): string {
+  const labels: Record<OutstandingKind, [string, string]> = {
+    advance_unsettled: ['ค้างเคลียร์ทดลองจ่าย', 'Advance not settled'],
+    refund_pending: ['ค้างคืนเงิน', 'Refund pending'],
+    tax_invoice: ['ค้างใบกำกับภาษี', 'Tax invoice pending'],
+  }
+  return labels[kind][isEn ? 1 : 0]
+}

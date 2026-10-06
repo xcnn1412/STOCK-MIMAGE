@@ -59,7 +59,7 @@ function claim(status: string, ages: number, over: Partial<QueueClaim> = {}): Qu
     pettycash_fund_id: null, reject_reason: null, bank_name: 'ธนาคารทดสอบ', bank_account_number: '000-0-01234-5',
     account_holder_name: 'ผู้รับทดสอบ', submitter: { id: uid(900), full_name: 'พิมพ์ชนก ทดสอบ' },
     job_event: { id: uid(800), event_name: 'งานเปิดตัวสินค้า ทดสอบ' },
-    status_changed_at: ago(ages), deleted_at: null,
+    status_changed_at: ago(ages), deleted_at: null, submitter_outstanding: 0,
     ...over,
   }
 }

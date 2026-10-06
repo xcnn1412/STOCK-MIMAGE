@@ -9,6 +9,7 @@ import { PAID_STATUSES, TERMINAL_STATUSES } from '@/lib/finance/conditions'
 import { thumbPathFor } from '@/lib/finance/receipt-thumbs'
 import { claimFileCount, thaiMonth } from './claims-filter'
 import { reasonRequiredForEdit, receiptRequiredForSubmit, shouldHaveCostItem } from './claim-rules'
+import { getOutstandingClaims } from './outstanding-data'
 // ตัวตน ตัวช่วยสถานะ/รายการต้นทุน และข้อความกลาง (ใช้ร่วมกับ lifecycle-actions.ts ซึ่งเป็นที่อยู่ของการเปลี่ยนสถานะทั้งหมด)
 import {
   CLAIM_ID_RE, COST_SYNC_ERROR, RECEIPT_REQUIRED_ERROR, STALE_SETTLE_ERROR, STALE_STATUS_ERROR, claimsQuery, findClaimCostItems,
@@ -325,6 +326,12 @@ async function uploadReceiptFiles(supabase: Db, files: File[], claimNumber: stri
 export async function createClaim(formData: FormData) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
+
+  // ยังมีรายการค้างเคลียร์ → เบิกใหม่ไม่ได้ (ทุกคน รวมแอดมิน) — ก่อนเขียนอะไรหรือจองเลขที่
+  const outstanding = await getOutstandingClaims(userId)
+  if (outstanding.length > 0) {
+    return { error: `ยังมีรายการค้างเคลียร์ ${outstanding.length} ใบ (${outstanding.map(c => c.claim_number).join(', ')}) — เคลียร์ให้ครบก่อนจึงสร้างใบเบิกใหม่ได้` }
+  }
 
   const supabase = createServiceClient()
 
