@@ -100,6 +100,9 @@ export default function SlipDayTable({
               const paidElsewhere = !!c?.paid_slip_id && c.paid_slip_id !== slip.id
               const rowEditable = editable && !!c && !paidElsewhere
               const onsite = c?.check_type === 'onsite'
+              // เวลามาจากตารางอีเวนต์ — แก้ตรงนี้ไปก็ถูกทับตอนโหลดใหม่ จึงล็อกไว้
+              // ponytail: per-checkin "ใช้เวลาจริง" override not built — add a boolean column if a staff member leaves early often
+              const byEvent = c?.schedule_source === 'event'
               const inAt = c ? bangkokParts(c.checked_in_at) : null
               const outAt = c?.checked_out_at ? bangkokParts(c.checked_out_at) : null
               const oopLine = sub?.oopLine
@@ -146,7 +149,7 @@ export default function SlipDayTable({
                           </span>
                           <TimeCell
                             value={inAt.time}
-                            disabled={!rowEditable}
+                            disabled={!rowEditable || byEvent}
                             ariaLabel={`เวลาเข้า ${day.date}`}
                             onSave={t =>
                               t
@@ -159,7 +162,7 @@ export default function SlipDayTable({
                             value={outAt?.time ?? null}
                             allowClear
                             placeholder="ยังไม่ออก"
-                            disabled={!rowEditable}
+                            disabled={!rowEditable || byEvent}
                             ariaLabel={`เวลาออก ${day.date}`}
                             overnightFrom={inAt}
                             onSave={(t, overnight) =>
@@ -171,6 +174,14 @@ export default function SlipDayTable({
                               })
                             }
                           />
+                          {byEvent && (
+                            <span
+                              title="เวลาเข้า-ออกยึดจากอีเวนต์ — แก้ได้ที่หน้าอีเวนต์"
+                              className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-400"
+                            >
+                              ตามเวลาอีเวนต์
+                            </span>
+                          )}
                         </div>
                         {paidElsewhere && (
                           <Link

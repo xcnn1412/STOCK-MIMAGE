@@ -1095,10 +1095,14 @@ export async function getJobEventsForSelect() {
     // 3. ดึงจาก events (อีเวนต์ที่สร้างจากหน้า /events — ยังเปิดอยู่)
     supabase
       .from('events')
-      .select('id, name, event_date, location, status')
+      .select('id, name, event_date, event_time, event_end_time, location, status')
       .order('event_date', { ascending: false })
       .limit(200),
   ])
+
+  // เวลาจัดงานมีเฉพาะในตาราง events — job_cost_events ที่ import มาจาก events ยืมจากต้นทาง
+  // ponytail: ต้นทางที่หลุดจาก 200 แถวล่าสุด = ไม่มีเวลา (ฟอร์มแค่ไม่เติมให้)
+  const scheduleById = new Map((stockEvents || []).map(e => [e.id, e]))
 
   // Map job_cost_events (active + completed)
   const events = (jobEvents || []).map(e => ({
@@ -1107,6 +1111,8 @@ export async function getJobEventsForSelect() {
     event_date: e.event_date,
     event_location: e.event_location || null,
     status: e.status || 'draft',
+    event_time: (e.source_event_id && scheduleById.get(e.source_event_id)?.event_time) || null,
+    event_end_time: (e.source_event_id && scheduleById.get(e.source_event_id)?.event_end_time) || null,
   }))
 
   // สร้าง Set ของ source_event_id ที่ import ไปแล้ว เพื่อ dedup กับ events table
@@ -1128,6 +1134,8 @@ export async function getJobEventsForSelect() {
       event_date: c.event_date,
       event_location: c.event_location || null,
       status: 'closed',
+      event_time: null,
+      event_end_time: null,
     }))
 
   // Map stock events — prefix ID กับ "stock:" เพื่อแยก source
@@ -1140,6 +1148,8 @@ export async function getJobEventsForSelect() {
       event_date: e.event_date,
       event_location: e.location || null,
       status: e.status || 'upcoming',
+      event_time: e.event_time || null,
+      event_end_time: e.event_end_time || null,
     }))
 
   return [...events, ...closureEvents, ...stockEventsMapped]

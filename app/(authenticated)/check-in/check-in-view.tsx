@@ -11,7 +11,7 @@ import {
 import { checkIn, checkOut, adminCheckIn, undoCheckout, quickCheckoutStale, adminDeleteCheckin, adminEditCheckin, updateMyCheckinLocation } from './actions'
 import LeaveSection from './leave-section'
 import type { LeaveRecord } from './leave-actions'
-import type { DutyInput } from '../salary/compute'
+import { hhmm, type DutyInput } from '../salary/compute'
 import { THAI_PROVINCES } from '@/lib/thai-address'
 import EventSelectCombobox from '../finance/new/event-select-combobox'
 import Link from 'next/link'
@@ -135,6 +135,8 @@ interface TodayEvent {
   event_date: string
   location: string | null
   status: string
+  event_time: string | null
+  event_end_time: string | null
   assigned_roles?: { role: string; label: string; color: string }[]
 }
 
@@ -144,6 +146,15 @@ interface JobEventOption {
   event_date: string | null
   event_location: string | null
   status: string
+  /** มีเฉพาะอีเวนต์ที่มาจากตาราง events — ใช้เติมวัน/เวลาในฟอร์มลงย้อนหลัง */
+  event_time?: string | null
+  event_end_time?: string | null
+}
+
+/** '10:00–18:00' (ไม่มีเวลาจบ = '10:00') · ไม่มีเวลาเริ่ม = '' */
+function eventRange(ev: { event_time?: string | null; event_end_time?: string | null }): string {
+  if (!ev.event_time) return ''
+  return ev.event_end_time ? `${hhmm(ev.event_time)}–${hhmm(ev.event_end_time)}` : hhmm(ev.event_time)
 }
 
 interface StaffMember {
@@ -642,9 +653,15 @@ export default function CheckInView({
                   className="w-full px-4 py-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-800 text-sm focus:border-zinc-400 dark:focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 outline-none transition-all">
                   <option value="">— เลือกอีเวนต์ —</option>
                   {todayEvents.map(ev => (
-                    <option key={ev.id} value={ev.id}>{ev.name} {ev.location ? `· ${ev.location}` : ''}</option>
+                    <option key={ev.id} value={ev.id}>{ev.name}{ev.event_time ? ` · ${eventRange(ev)}` : ''} {ev.location ? `· ${ev.location}` : ''}</option>
                   ))}
                 </select>
+                {(() => {
+                  const range = eventRange(todayEvents.find(e => e.id === eventId) ?? {})
+                  return range ? (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">ค่าแรงหน้างานคิดตามวัน-เวลาของอีเวนต์นี้ ({range})</p>
+                  ) : null
+                })()}
                 {/* Show assigned roles for selected event */}
                 {eventId && (() => {
                   const selectedEv = todayEvents.find(e => e.id === eventId)
@@ -908,7 +925,16 @@ export default function CheckInView({
               </div>
 
               {adminCheckType === 'onsite' && (
-                <EventSelectCombobox events={allEvents} value={adminEventId} onChange={setAdminEventId} />
+                <EventSelectCombobox events={allEvents} value={adminEventId} onChange={id => {
+                  setAdminEventId(id)
+                  // เติมวัน/เวลาจากตารางอีเวนต์ (ค่าแรงหน้างานคิดตามนี้) — แก้ต่อเองได้
+                  const ev = allEvents.find(e => e.id === id)
+                  if (ev?.event_date && ev.event_time) {
+                    setAdminDate(ev.event_date)
+                    setAdminTime(hhmm(ev.event_time))
+                    setAdminCheckoutTime(hhmm(ev.event_end_time))
+                  }
+                }} />
               )}
 
               {/* หน้าที่หน้างาน + จังหวัด/เขต + ต่างจังหวัด (เฉพาะ onsite) */}

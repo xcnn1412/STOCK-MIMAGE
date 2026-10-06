@@ -211,6 +211,14 @@ function DayCard({
               <span className="tabular-nums">
                 {inAt.time}–{outAt ? outAt.time : 'ยังไม่ออก'}
               </span>
+              {c.schedule_source === 'event' && (
+                <span
+                  title="เวลาเข้า-ออกยึดจากอีเวนต์ — แก้ได้ที่หน้าอีเวนต์"
+                  className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-400"
+                >
+                  ตามเวลาอีเวนต์
+                </span>
+              )}
               {names && <span className="truncate">· {names}</span>}
               {c.out_of_province && <span>· ตจว.</span>}
               {paidElsewhere && (
@@ -234,6 +242,9 @@ function DayCard({
             const c = sub.checkin
             const paidElsewhere = !!c.paid_slip_id && c.paid_slip_id !== slipId
             const rowEditable = !paidElsewhere
+            // เวลามาจากตารางอีเวนต์ — แก้ตรงนี้ไปก็ถูกทับตอนโหลดใหม่ จึงล็อกไว้
+            // ponytail: per-checkin "ใช้เวลาจริง" override not built — add a boolean column if a staff member leaves early often
+            const byEvent = c.schedule_source === 'event'
             const onsite = c.check_type === 'onsite'
             const inAt = bangkokParts(c.checked_in_at)
             const outAt = c.checked_out_at ? bangkokParts(c.checked_out_at) : null
@@ -244,12 +255,13 @@ function DayCard({
                 <p className="text-xs font-medium">
                   เช็คอิน{CHECK_TYPE_LABEL[c.check_type]}
                   {paidElsewhere && ' · จ่ายในสลิปอื่นแล้ว แก้ไม่ได้'}
+                  {byEvent && ' · เวลาตามอีเวนต์ (แก้ได้ที่หน้าอีเวนต์)'}
                 </p>
 
                 <PanelRow label="เวลาเข้า">
                   <TimeCell
                     value={inAt.time}
-                    disabled={!rowEditable}
+                    disabled={!rowEditable || byEvent}
                     ariaLabel={`เวลาเข้า ${day.date}`}
                     onSave={t =>
                       t
@@ -264,7 +276,7 @@ function DayCard({
                     value={outAt?.time ?? null}
                     allowClear
                     placeholder="ยังไม่ออก"
-                    disabled={!rowEditable}
+                    disabled={!rowEditable || byEvent}
                     ariaLabel={`เวลาออก ${day.date}`}
                     overnightFrom={inAt}
                     onSave={(t, overnight) =>
