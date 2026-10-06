@@ -1,4 +1,5 @@
-import { getArchivedLeads, getCrmSettings } from '../actions'
+import { getArchivedLeads, getCrmSettings, countStaleLeads } from '../actions'
+import { requireAuth } from '@/lib/auth'
 import ArchiveView from './archive-view'
 
 export const metadata = {
@@ -7,15 +8,19 @@ export const metadata = {
 }
 
 export default async function ArchivePage() {
-    const [leadsResult, settingsResult] = await Promise.all([
+    const session = await requireAuth()
+    const isAdmin = session?.role === 'admin'
+    const [leadsResult, settingsResult, staleResult] = await Promise.all([
         getArchivedLeads(),
         getCrmSettings(),
+        isAdmin ? countStaleLeads() : null,
     ])
 
     return (
         <ArchiveView
             leads={leadsResult.data as any[] || []}
             settings={settingsResult.data as any[] || []}
+            stale={staleResult && !('error' in staleResult) ? staleResult : null}
         />
     )
 }

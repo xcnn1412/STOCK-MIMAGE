@@ -16,7 +16,7 @@ import {
   DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { DateRangeFilter } from '@/components/date-range-filter'
-import { getStatusesFromSettings, getStatusConfig, type CrmLead, type CrmSetting, type LeadStatus } from './types'
+import { boardStatuses, unknownStatuses, getStatusConfig, type BoardLead, type CrmSetting, type LeadStatus } from './types'
 import { AddLeadDialog } from './components/add-lead-dialog'
 import { KanbanBoard } from './components/kanban-board'
 import { useLocale } from '@/lib/i18n/context'
@@ -26,17 +26,20 @@ import { useLocale } from '@/lib/i18n/context'
 // ============================================================================
 
 interface CrmDashboardProps {
-  leads: CrmLead[]
+  leads: BoardLead[]
   settings: CrmSetting[]
   users: Array<{ id: string; full_name: string | null; department: string | null }>
+  /** all = โหลดทุกแถว · ไม่งั้นโหลดเฉพาะงานที่เคลื่อนไหวใน days วันหรือยังไม่ถึงวันงาน */
+  window?: { days: number; all: boolean; shown: number; total: number }
+  initialSearch?: string
 }
 
-export default function CrmDashboard({ leads, settings, users }: CrmDashboardProps) {
+export default function CrmDashboard({ leads, settings, users, window: loadWindow, initialSearch = '' }: CrmDashboardProps) {
   const { locale, t } = useLocale()
   const tc = t.crm
   const [mounted, setMounted] = useState(false)
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban')
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [sourceFilter, setSourceFilter] = useState<string>('all')
   const [saleFilter, setSaleFilter] = useState<string>('all')
@@ -55,8 +58,10 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
     return locale === 'th' ? setting.label_th : setting.label_en
   }, [locale])
 
-  // Dynamic statuses from settings
-  const kanbanStatuses = useMemo(() => getStatusesFromSettings(settings), [settings])
+  // สถานะจาก settings + สถานะที่มีในข้อมูลแต่ยังไม่ได้ตั้งค่า (การ์ดต้องไม่หาย)
+  const kanbanStatuses = useMemo(() => boardStatuses(settings, leads), [settings, leads])
+  const missingStatuses = useMemo(() => unknownStatuses(settings, leads), [settings, leads])
+  const isEn = locale !== 'th'
 
   // Helper: get status label by locale
   const getStatusLabel = useCallback((status: LeadStatus) => {
@@ -171,6 +176,16 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
           {tc.dashboard.addEvent}
         </Button>
       </div>
+
+      {missingStatuses.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          <AlertCircle className="inline h-4 w-4 mr-1.5 -mt-0.5" />
+          {isEn
+            ? `${missingStatuses.length} status value(s) not configured: ${missingStatuses.join(', ')} — `
+            : `มี ${missingStatuses.length} สถานะที่ยังไม่ได้ตั้งค่า: ${missingStatuses.join(', ')} — `}
+          <Link href="/settings" className="font-medium underline">{isEn ? 'Settings' : 'ไปตั้งค่า'}</Link>
+        </div>
+      )}
 
       {/* Summary Cards — per-status */}
       <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory"
@@ -392,6 +407,41 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
         </div>
       </div>
 
+      {/* แถบบอกขอบเขตการโหลด */}
+      {loadWindow && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
+          {loadWindow.all ? (
+            <>
+              <span>{isEn ? `Showing all ${loadWindow.total} leads` : `แสดงทั้งหมด ${loadWindow.total} ราย`}</span>
+              <span>·</span>
+              <Link href="/crm" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
+                {isEn ? 'Back to active work only' : 'กลับไปแสดงเฉพาะงานที่เคลื่อนไหว'}
+              </Link>
+            </>
+          ) : (
+            <>
+              <span>
+                {isEn
+                  ? `Showing work active in the last ${loadWindow.days} days or with an upcoming event · ${loadWindow.shown} of ${loadWindow.total}`
+                  : `แสดงเฉพาะงานที่เคลื่อนไหวใน ${loadWindow.days} วันหรือยังไม่ถึงวันงาน · ${loadWindow.shown} จาก ${loadWindow.total} ราย`}
+              </span>
+              <span>·</span>
+              <Link href="/crm?all=1" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
+                {isEn ? 'Show all' : 'ดูทั้งหมด'}
+              </Link>
+            </>
+          )}
+        </div>
+      )}
+      {loadWindow && !loadWindow.all && search.trim() !== '' && filteredLeads.length === 0 && (
+        <div className="rounded-lg border border-dashed border-zinc-300 px-3 py-4 text-center text-sm text-zinc-500 dark:border-zinc-700">
+          {isEn ? 'Not found in active work · ' : 'ไม่พบในงานที่เคลื่อนไหว · '}
+          <Link href={`/crm?all=1&q=${encodeURIComponent(search.trim())}`} className="font-medium text-blue-600 hover:underline dark:text-blue-400">
+            {isEn ? 'Search all' : 'ค้นหาในทั้งหมด'}
+          </Link>
+        </div>
+      )}
+
       {/* Content Area */}
       {viewMode === 'kanban' ? (
         <div
@@ -427,7 +477,7 @@ export default function CrmDashboard({ leads, settings, users }: CrmDashboardPro
 // Table View
 // ============================================================================
 
-function TableView({ leads, settings }: { leads: CrmLead[]; settings: CrmSetting[] }) {
+function TableView({ leads, settings }: { leads: BoardLead[]; settings: CrmSetting[] }) {
   const { locale, t } = useLocale()
   const tc = t.crm
   const [sortField, setSortField] = useState<string>('created_at')
@@ -475,7 +525,7 @@ function TableView({ leads, settings }: { leads: CrmLead[]; settings: CrmSetting
   )
 
   // แดงเฉพาะดีลค้างท่อ (ยังคุยอยู่แต่วันงานเลยแล้ว) — สถานะหลังปิดดีลรวม custom ไม่นับ (ดู kanban-board)
-  const isOverdue = (lead: CrmLead) => {
+  const isOverdue = (lead: BoardLead) => {
     if (!lead.event_date) return false
     if (!['lead', 'quotation_sent'].includes(lead.status)) return false
     return new Date(lead.event_date) < new Date()

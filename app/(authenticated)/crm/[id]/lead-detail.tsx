@@ -36,7 +36,7 @@ import { EVENT_PHASES, getPhaseLabel } from '../event-phases'
 import { getClaimStatusLabel, getClaimStatusColor } from '../../costs/types'
 import { openGraphicJob } from '../../jobs/actions'
 import type { LeadInstallment } from '../actions'
-import { getStatusConfig, getStatusesFromSettings, type CrmLead, type CrmSetting, type LeadStatus } from '../types'
+import { getStatusConfig, getStatusesFromSettings, isWonStatus, type CrmLead, type CrmSetting, type LeadStatus } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 import { RequiredRolesEditor, RequiredRolesSummary } from '../../jobs/tracking/required-roles-editor'
 import { compressImage } from '@/lib/utils'
@@ -66,9 +66,11 @@ interface LeadDetailProps {
   costSummary?: LeadCostSummary
   /** ใบงานที่แตกจากงานนี้แล้ว — นับใบกราฟิก + ลิงก์ไปหน้าใบงานแต่ละใบ */
   leadJobs?: { id: string; job_type: string; title?: string | null }[]
+  /** profiles.role — ปุ่มลบโชว์เฉพาะแอดมิน */
+  role?: string | null
 }
 
-export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary, leadJobs = [] }: LeadDetailProps) {
+export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary, leadJobs = [], role = null }: LeadDetailProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.detail
@@ -595,7 +597,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {lead.status === 'accepted' && (
+          {isWonStatus(lead.status) && (
             <Button onClick={handleOpenEvent} disabled={loading} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white">
               <ExternalLink className="h-4 w-4 mr-1.5" />
               {linkedEvents.length > 0
@@ -603,7 +605,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
                 : tc.openEvent}
             </Button>
           )}
-          {lead.status === 'accepted' && (
+          {isWonStatus(lead.status) && (
             <Button onClick={handleOpenGraphicJob} disabled={loading} size="sm" className="bg-sky-600 hover:bg-sky-700 text-white">
               <Palette className="h-4 w-4 mr-1.5" />
               {locale === 'th' ? 'ใบงานกราฟิก' : 'Graphic Job'}
@@ -626,9 +628,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
               <><Archive className="h-4 w-4" /> Archive</>
             )}
           </Button>
-          <Button variant="ghost" size="icon" onClick={handleDelete} disabled={loading} className="text-red-500 hover:text-red-700 hover:bg-red-50">
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {role === 'admin' && (
+            <Button variant="ghost" size="icon" onClick={handleDelete} disabled={loading} className="text-red-500 hover:text-red-700 hover:bg-red-50">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
 

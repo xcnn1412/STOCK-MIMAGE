@@ -2,6 +2,7 @@
 // ไม่มี 'use server' / JSX / next/* → import จาก lib/mcp-tools.ts ได้ · รับ db เพื่อให้สคริปต์ตรวจใส่ Supabase จำลองได้
 
 import { createServiceClient } from '@/lib/supabase-server'
+import { isWonStatus } from '../crm/types'
 import type { PLClaim, PLInstallment, PLLead } from '../overview/pl/pl-lib'
 
 type Db = ReturnType<typeof createServiceClient>
@@ -67,12 +68,11 @@ export async function loadSalesBoardData(db: Db = createServiceClient()): Promis
       q.eq('activity_type', 'status_change').order('created_at', { ascending: true })),
   ])
 
-  // วันปิดดีลจริงต่อ lead = status_change → accepted/success ครั้งแรก (แปลงเป็นวันที่ไทย)
+  // วันปิดดีลจริงต่อ lead = status_change → สถานะ won (isWonStatus) ครั้งแรก (แปลงเป็นวันที่ไทย)
   // ใช้เฉพาะการ์ด "ดีลที่ปิดได้" — การ์ดอื่นนับตามเดือนที่สร้างลีด (KPI ทีมขาย)
   const firstClose = new Map<string, string>()
   for (const a of statusActs.rows) {
-    const ns = (a.new_status || '').toLowerCase()
-    if ((ns === 'accepted' || ns === 'success') && !firstClose.has(a.lead_id))
+    if (isWonStatus(a.new_status) && !firstClose.has(a.lead_id))
       firstClose.set(a.lead_id, new Date(a.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }))
   }
 

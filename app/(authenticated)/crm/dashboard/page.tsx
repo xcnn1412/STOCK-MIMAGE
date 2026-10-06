@@ -11,7 +11,7 @@ export default async function DashboardPage() {
     const supabase = createServiceClient()
     
     const [leadsResult, settingsResult, installmentsResult] = await Promise.all([
-        getLeads(),
+        getLeads({ includeArchived: true }),
         getCrmSettings(),
         supabase.from('crm_lead_installments').select('lead_id, amount, due_date, is_paid'),
     ])

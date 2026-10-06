@@ -3,6 +3,7 @@
 // server-only: มี service-role client อยู่ข้างใน — ห้าม import จาก client component
 import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
+import { NOT_WON_STATUSES } from '../../crm/types'
 import type { TrackingLead } from './tracking-view'
 import { CLAIM_CATEGORY, VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, parseWaived, POOL_TEAM_DEFAULTS, type ClaimKind, type DutyClaim, type EventVehicle, type PoolDepartments, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
@@ -125,7 +126,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     const cutoff = pastCutoffDate()
     // cast: supabase-js type แถวได้เฉพาะจาก literal — fallback ส่ง string เดียวกันที่ถอด backdrop_note ออก
     const leadsQueryFor = (cols: string) => {
-        const base = supabase.from('crm_leads').select(cols as typeof LEAD_COLS).eq('status', 'accepted')
+        const base = supabase.from('crm_leads').select(cols as typeof LEAD_COLS).not('status', 'in', `(${NOT_WON_STATUSES.join(',')})`) // ทุกสถานะ won (crm/types::isWonStatus)
         return (opts?.includePast
             ? base
             : base.or(`event_date.is.null,event_end_date.gte.${cutoff},and(event_end_date.is.null,event_date.gte.${cutoff})`)

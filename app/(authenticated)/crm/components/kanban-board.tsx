@@ -9,8 +9,8 @@ import {
 } from 'lucide-react'
 import { updateLeadStatus } from '../actions'
 import {
-  getStatusesFromSettings, getStatusConfig,
-  type CrmLead, type CrmSetting, type LeadStatus
+  boardStatuses, getStatusConfig,
+  type BoardLead, type CrmSetting, type LeadStatus
 } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 
@@ -25,7 +25,7 @@ interface SystemUser {
 }
 
 interface KanbanBoardProps {
-  leads: CrmLead[]
+  leads: BoardLead[]
   settings: CrmSetting[]
   users: SystemUser[]
 }
@@ -40,7 +40,7 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
   // Optimistic: instantly move card to new column before server responds
   const [optimisticLeads, setOptimisticLeads] = useOptimistic(
     leads,
-    (currentLeads: CrmLead[], { leadId, newStatus }: { leadId: string; newStatus: string }) =>
+    (currentLeads: BoardLead[], { leadId, newStatus }: { leadId: string; newStatus: string }) =>
       currentLeads.map(l => l.id === leadId ? { ...l, status: newStatus as LeadStatus } : l)
   )
 
@@ -98,7 +98,8 @@ export function KanbanBoard({ leads, settings, users }: KanbanBoardProps) {
     })
   }, [])
 
-  const kanbanStatuses = getStatusesFromSettings(settings)
+  // สถานะที่ไม่ได้ตั้งค่าแต่มีการ์ดอยู่ก็ได้คอลัมน์ (ใช้ leads จริง ไม่ใช่ optimistic — คอลัมน์ไม่หายระหว่างลาก)
+  const kanbanStatuses = boardStatuses(settings, leads)
   const [mobileTab, setMobileTab] = useState<string>(kanbanStatuses[0] || '')
 
   return (
@@ -283,7 +284,7 @@ function KanbanCard({
   onDragStart,
   onDragEnd,
 }: {
-  lead: CrmLead
+  lead: BoardLead
   settings: CrmSetting[]
   users: SystemUser[]
   statusColor: string

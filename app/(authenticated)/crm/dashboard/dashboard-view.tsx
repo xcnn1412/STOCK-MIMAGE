@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { useLocale } from '@/lib/i18n/context'
+import { isWonStatus, type BoardLead } from '../types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -9,20 +10,8 @@ import {
     AlertCircle, Clock, Package, BarChart3
 } from 'lucide-react'
 
-type Lead = {
-    id: string
-    created_at: string
-    status: string
-    customer_name: string
-    customer_type: string | null
-    lead_source: string | null
-    package_name: string | null
-    quoted_price: number
-    confirmed_price: number
-    deposit: number
-    event_date: string | null
-    tags: string[]
-}
+// คอลัมน์แบบเบาเดียวกับบอร์ด (getLeads ไม่ส่ง full) — อ่านคอลัมน์นอก BOARD_LEAD_KEYS แล้ว tsc จะฟ้อง
+type Lead = BoardLead
 
 type PaymentStats = {
     overdueCount: number
@@ -108,7 +97,7 @@ export default function DashboardView({ leads, settings, paymentStats }: { leads
 
     // === Summary Stats ===
     const stats = useMemo(() => {
-        const accepted = leads.filter(l => l.status === 'accepted')
+        const accepted = leads.filter(l => isWonStatus(l.status)) // ปิดการขาย = ทุกสถานะ won ไม่ใช่แค่ accepted
         const totalRevenue = leads.reduce((sum, l) => sum + (l.quoted_price || 0), 0)
         const confirmedRevenue = accepted.reduce((sum, l) => sum + (l.confirmed_price || 0), 0)
         const avgDeal = accepted.length > 0 ? confirmedRevenue / accepted.length : 0

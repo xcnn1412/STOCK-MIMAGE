@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -71,7 +72,12 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
   // Handle toggle (optimistic)
   const handleToggle = async (id: string, is_active: boolean) => {
     setOptimisticToggles(prev => ({ ...prev, [id]: is_active }))
-    await toggleCrmSetting(id, is_active)
+    const res = await toggleCrmSetting(id, is_active)
+    if (res?.error) {
+      // สถานะที่ยังมี lead ใช้อยู่ปิดไม่ได้ — คืนสวิตช์แล้วบอกเหตุผล
+      setOptimisticToggles(prev => ({ ...prev, [id]: !is_active }))
+      toast.error(res.error)
+    }
     router.refresh()
   }
 
@@ -82,7 +88,8 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
   // Handle delete
   const handleDelete = async (id: string) => {
     if (!confirm(tc.deleteConfirm)) return
-    await deleteCrmSetting(id)
+    const res = await deleteCrmSetting(id)
+    if (res?.error) toast.error(res.error)
     router.refresh()
   }
 

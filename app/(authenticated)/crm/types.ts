@@ -16,7 +16,8 @@ export function getStatusesFromSettings(settings: CrmSetting[]): string[] {
 // Get status config from settings (color, labels, etc.)
 export function getStatusConfig(settings: CrmSetting[], status: string): { label: string; labelTh: string; color: string; bgColor: string; textColor: string } {
   const s = settings.find(st => st.category === 'kanban_status' && st.value === status)
-  if (!s) return FALLBACK_STATUS
+  // ไม่มีแถวตั้งค่า → โชว์ค่าดิบ (เช่น "lead") ดีกว่า "ไม่ทราบ" ที่ทำให้ทุกคอลัมน์ที่ขาดหน้าตาเหมือนกัน
+  if (!s) return { ...FALLBACK_STATUS, label: status, labelTh: status }
   return {
     label: s.label_en,
     labelTh: s.label_th,
@@ -24,6 +25,68 @@ export function getStatusConfig(settings: CrmSetting[], status: string): { label
     bgColor: `bg-zinc-100 dark:bg-zinc-800`,
     textColor: `text-zinc-600 dark:text-zinc-400`,
   }
+}
+
+/** สถานะที่ลูกค้าใช้อยู่แต่ไม่มีแถวตั้งค่าที่เปิดอยู่ — เรียงจำนวนมาก → น้อย แล้วตามชื่อ */
+export function unknownStatuses(settings: CrmSetting[], leads: { status: string }[]): string[] {
+  const known = new Set(getStatusesFromSettings(settings))
+  const counts = new Map<string, number>()
+  // ponytail: status ว่าง/null ข้ามไป (คอลัมน์ไม่มีชื่อช่วยใครไม่ได้)
+  for (const l of leads) if (l.status && !known.has(l.status)) counts.set(l.status, (counts.get(l.status) ?? 0) + 1)
+  return [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([s]) => s)
+}
+
+/** คอลัมน์บนบอร์ด = สถานะที่ตั้งค่าไว้ + สถานะที่มีในข้อมูลจริงแต่ไม่ได้ตั้งค่า (การ์ดต้องไม่หายจากบอร์ด) */
+export function boardStatuses(settings: CrmSetting[], leads: { status: string }[]): string[] {
+  return [...getStatusesFromSettings(settings), ...unknownStatuses(settings, leads)]
+}
+
+// ── "ปิดการขาย" — นิยามเดียวทั้งระบบ ──
+// "ตอบรับแล้ว" = ทุกสถานะที่ไม่อยู่ในรายการนี้ (สถานะใหม่ที่เพิ่มใน kanban ภายหลังถือเป็น won อัตโนมัติ)
+export const NOT_WON_STATUSES: readonly string[] = ['lead', 'booking', 'following_up', 'quotation_sent', 'rejected', 'cancelled']
+export const NOT_WON = new Set(NOT_WON_STATUSES)
+
+export function isWonStatus(status: string | null | undefined): boolean {
+  const s = (status || '').trim().toLowerCase()
+  return s !== '' && !NOT_WON.has(s)
+}
+
+/** เข้าสถานะ won ครั้งแรก (จาก non-won) — ใช้เป็นจุดสร้างใบงานอัตโนมัติ */
+export function isFirstWon(oldStatus: string | null | undefined, newStatus: string | null | undefined): boolean {
+  return !isWonStatus(oldStatus) && isWonStatus(newStatus)
+}
+
+// ── วันที่ / เก็บงานเก่าเข้าคลัง ──
+export const DAY_MS = 86_400_000
+
+/** 'YYYY-MM-DD' วันนี้ตามเวลาไทย (UTC+7 ไม่มี DST) */
+export function bangkokToday(nowMs: number): string {
+  return new Date(nowMs + 7 * 3_600_000).toISOString().slice(0, 10)
+}
+
+export const STALE_CLOSED_STATUSES = ['rejected', 'ปิด']
+export const STALE_CLOSED_DAYS = 90
+export const STALE_COLD_DAYS = 180
+
+export type StaleRow = { id: string; status: string; updated_at: string | null; created_at: string; event_date: string | null }
+
+/**
+ * งานเก่าที่ควรเก็บเข้าคลัง (แถวที่ส่งเข้ามาต้องเป็นงานที่ยังไม่เก็บเท่านั้น)
+ * closed = ปฏิเสธ/ปิด และไม่ถูกแตะเกิน 90 วัน · cold = ลูกค้าใหม่ ไม่มีวันงาน (หรือวันงานผ่านไปแล้ว) และไม่ถูกแตะเกิน 180 วัน
+ */
+export function staleLeadIds(rows: StaleRow[], nowMs: number): { closed: string[]; cold: string[] } {
+  const today = bangkokToday(nowMs)
+  const closed: string[] = []
+  const cold: string[] = []
+  for (const r of rows) {
+    const age = nowMs - Date.parse(r.updated_at ?? r.created_at)
+    if (STALE_CLOSED_STATUSES.includes(r.status)) {
+      if (age > STALE_CLOSED_DAYS * DAY_MS) closed.push(r.id)
+    } else if (r.status === 'lead' && (!r.event_date || r.event_date.slice(0, 10) < today) && age > STALE_COLD_DAYS * DAY_MS) {
+      cold.push(r.id)
+    }
+  }
+  return { closed, cold }
 }
 
 export interface CrmLead {
@@ -93,3 +156,17 @@ export interface CrmSetting {
   is_active: boolean
   created_at: string
 }
+
+
+// ── คอลัมน์แบบเบาสำหรับบอร์ด/ตาราง/คลัง/แดชบอร์ด ──
+// ไม่ดึง notes / required_roles / installment_N ฯลฯ — วิวที่ใช้ BoardLead อ่านคอลัมน์ที่ไม่ได้โหลดจะไม่ผ่าน tsc
+export const BOARD_LEAD_KEYS = [
+  'id', 'created_at', 'updated_at', 'status', 'is_returning', 'customer_name', 'customer_line', 'customer_phone',
+  'customer_type', 'work_type', 'unit_count', 'lead_source', 'event_date', 'event_end_date', 'event_location',
+  'event_details', 'package_name', 'quoted_price', 'confirmed_price', 'deposit', 'tags', 'archived_at',
+  'assigned_sales', 'assigned_graphics', 'assigned_staff',
+] as const satisfies readonly (keyof CrmLead)[]
+
+export const BOARD_COLUMNS = `${BOARD_LEAD_KEYS.join(', ')}, crm_lead_installments(amount, is_paid)`
+
+export type BoardLead = Pick<CrmLead, (typeof BOARD_LEAD_KEYS)[number]> & { total_installments_paid: number }

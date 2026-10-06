@@ -3,6 +3,7 @@
 // นิยามการนับ: docs/specs/team-reports.md
 import { getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
+import { NOT_WON_STATUSES } from '../crm/types'
 import type { ReportPerson, StatKind, StatRow } from './report-stats'
 
 /** YYYY-MM-DD ตามเวลาไทย — เทียบกับคอลัมน์วันแบบ string ได้ตรงตัว */
@@ -77,8 +78,8 @@ export async function getReportStats(): Promise<ReportStats> {
         supabase.from('lead_duty_claims').select('claimed_by, duty, claimed_at'),
         // รับงานกราฟิก: ใบงานกราฟิกที่มีคนกดรับ
         supabase.from('jobs').select('claimed_by, claimed_at').eq('job_type', 'graphic').not('claimed_by', 'is', null),
-        // ยอดนักขาย: คนสร้าง CRM card ที่ปิดดีลได้ (สถานะตอบรับ) — หนึ่ง lead นับให้ผู้สร้างหนึ่งครั้ง
-        supabase.from('crm_leads').select('created_by, created_at').eq('status', 'accepted').not('created_by', 'is', null),
+        // ยอดนักขาย: คนสร้าง CRM card ที่ปิดดีลได้ (สถานะ won ใดก็ได้ — crm/types::isWonStatus) — หนึ่ง lead นับให้ผู้สร้างหนึ่งครั้ง
+        supabase.from('crm_leads').select('created_by, created_at').not('status', 'in', `(${NOT_WON_STATUSES.join(',')})`).not('created_by', 'is', null),
         // สร้างใบงาน: หนึ่งแถวใน jobs = สร้างหนึ่งใบ (ทุกประเภท)
         supabase.from('jobs').select('created_by, created_at').not('created_by', 'is', null),
         supabase.from('profiles').select('id, full_name, nickname, department, avatar_url').eq('is_approved', true),
