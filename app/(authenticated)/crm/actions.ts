@@ -2,6 +2,7 @@
 
 import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
+import { cache } from 'react'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
 import { createNotifications } from '@/lib/notifications'
@@ -20,7 +21,8 @@ async function getSession() {
 // System Users — fetch from profiles
 // ============================================================================
 
-export async function getSystemUsers() {
+// 'use server' files may only export async functions, so the cache() loaders stay private.
+const loadSystemUsers = cache(async () => {
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('profiles')
@@ -30,13 +32,17 @@ export async function getSystemUsers() {
 
   if (error) return { error: error.message, data: [] }
   return { data: data || [] }
+})
+
+export async function getSystemUsers() {
+  return loadSystemUsers()
 }
 
 // ============================================================================
 // CRM Settings — CRUD
 // ============================================================================
 
-export async function getCrmSettings(category?: string) {
+const loadCrmSettings = cache(async (category?: string) => {
   const supabase = createServiceClient()
   let query = supabase
     .from('crm_settings')
@@ -50,6 +56,10 @@ export async function getCrmSettings(category?: string) {
   const { data, error } = await query
   if (error) return { error: error.message, data: [] }
   return { data: data || [] }
+})
+
+export async function getCrmSettings(category?: string) {
+  return loadCrmSettings(category)
 }
 
 export async function createCrmSetting(formData: FormData) {
@@ -203,7 +213,8 @@ export async function getArchivedLeads() {
   return { data: data || [] }
 }
 
-export async function getLead(id: string) {
+// ponytail: cache() dedupes per request (crm/[id] calls getLead from generateMetadata + page)
+const loadLead = cache(async (id: string) => {
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('crm_leads')
@@ -213,6 +224,10 @@ export async function getLead(id: string) {
 
   if (error) return { error: error.message, data: null }
   return { data }
+})
+
+export async function getLead(id: string) {
+  return loadLead(id)
 }
 
 // Update the phase classifier on a job_cost_events row. Lead detail page allows inline editing.
@@ -232,6 +247,7 @@ export async function setJobCostEventPhase(jobEventId: string, phase: string | n
     .single()
 
   if (error) return { error: error.message }
+  await logActivity('UPDATE_CRM_EVENT_PHASE', { jobEventId, phase: phaseValue })
 
   if (row?.linked_lead_id) {
     revalidatePath(`/crm/${row.linked_lead_id}`)
@@ -965,80 +981,6 @@ export async function getLeadInstallments(leadId: string) {
   return (data || []) as LeadInstallment[]
 }
 
-export async function upsertInstallment(leadId: string, installment: {
-  installment_number: number
-  amount: number
-  due_date: string | null
-  is_paid: boolean
-  paid_date: string | null
-}) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
-
-  const supabase = createServiceClient()
-  const { error } = await supabase
-    .from('crm_lead_installments')
-    .upsert(
-      {
-        lead_id: leadId,
-        installment_number: installment.installment_number,
-        amount: installment.amount,
-        due_date: installment.due_date || null,
-        is_paid: installment.is_paid,
-        paid_date: installment.paid_date || null,
-      },
-      { onConflict: 'lead_id,installment_number' }
-    )
-
-  if (error) return { error: error.message }
-
-  // Also update lead's updated_at
-  await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', leadId)
-
-  revalidatePath(`/crm/${leadId}`)
-  revalidatePath('/crm/payments')
-  return { success: true }
-}
-
-export async function deleteInstallment(id: string, leadId: string) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
-
-  const supabase = createServiceClient()
-
-  const { data: inst } = await supabase
-    .from('crm_lead_installments').select('receipt_url').eq('id', id).single()
-
-  const { error } = await supabase.from('crm_lead_installments').delete().eq('id', id)
-  if (error) return { error: error.message }
-
-  if (inst) await removeStorageByUrls(supabase, 'crm-payment-proofs', [inst.receipt_url])
-
-  // Re-number remaining installments
-  const { data: remaining } = await supabase
-    .from('crm_lead_installments')
-    .select('id, installment_number')
-    .eq('lead_id', leadId)
-    .order('installment_number', { ascending: true })
-
-  if (remaining) {
-    for (let i = 0; i < remaining.length; i++) {
-      if (remaining[i].installment_number !== i + 1) {
-        await supabase
-          .from('crm_lead_installments')
-          .update({ installment_number: i + 1 })
-          .eq('id', remaining[i].id)
-      }
-    }
-  }
-
-  await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', leadId)
-
-  revalidatePath(`/crm/${leadId}`)
-  revalidatePath('/crm/payments')
-  return { success: true }
-}
-
 /** Bulk save all installments for a lead (used by the lead detail form) */
 export async function saveAllInstallments(leadId: string, installments: Array<{
   installment_number: number
@@ -1100,6 +1042,7 @@ export async function saveAllInstallments(leadId: string, installments: Array<{
 
   await supabase.from('crm_leads').update({ updated_at: new Date().toISOString() }).eq('id', leadId)
 
+  await logActivity('UPDATE_CRM_INSTALLMENTS', { leadId, count: installments.length })
   revalidatePath(`/crm/${leadId}`)
   revalidatePath('/crm/payments')
   return { success: true }
@@ -1215,26 +1158,8 @@ export async function deletePaymentProof(leadId: string, installmentId: string) 
 }
 
 // ============================================================================
-// CRM Lead Staff — Junction Table CRUD
+// CRM Lead Staff — per event (read-only here)
 // ============================================================================
-
-export async function getLeadStaff(leadId: string) {
-  const supabase = createServiceClient()
-  const { data, error } = await supabase
-    .from('crm_lead_staff')
-    .select('id, user_id, role, note, profiles:user_id(full_name)')
-    .eq('lead_id', leadId)
-    .order('created_at', { ascending: true })
-
-  if (error) return []
-  return (data || []).map((row: any) => ({
-    id: row.id,
-    user_id: row.user_id,
-    role: row.role,
-    note: row.note,
-    full_name: row.profiles?.full_name || null,
-  }))
-}
 
 export interface LeadEventStaff {
   eventId: string
@@ -1285,100 +1210,4 @@ export async function getLeadEventStaff(leadId: string): Promise<LeadEventStaff[
     phase: (e as { phase?: string | null }).phase ?? null,
     staff: byEvent.get(e.id) || [],
   }))
-}
-
-// Recompute crm_leads.assigned_* roll-up arrays from the UNION of every linked event's
-// event_staff. Staff is managed per-event now; these lead-level arrays exist only to
-// power the Kanban board's "assigned to me" filters. (This no longer pushes staff text
-// back into events.staff/seller — that lead→all-events overwrite is what made sibling
-// sub-events clobber each other.)
-async function syncLeadStaffArrays(supabase: any, leadId: string) {
-  const { data: linkedOpEvents } = await supabase.from('events').select('id').eq('crm_lead_id', leadId)
-  const eventIds = (linkedOpEvents || []).map((e: { id: string }) => e.id)
-
-  let staffData: { user_id: string; role: string }[] = []
-  if (eventIds.length > 0) {
-    const { data } = await supabase.from('event_staff').select('user_id, role').in('event_id', eventIds)
-    staffData = data || []
-  }
-
-  const uniq = (arr: string[]) => Array.from(new Set(arr))
-  const assigned_sales = uniq(staffData.filter(a => a.role === 'sale').map(a => a.user_id))
-  const assigned_graphics = uniq(staffData.filter(a => a.role === 'graphic').map(a => a.user_id))
-  const assigned_staff = uniq(staffData.filter(a => a.role !== 'sale' && a.role !== 'graphic').map(a => a.user_id))
-
-  await supabase.from('crm_leads').update({
-    assigned_sales,
-    assigned_graphics,
-    assigned_staff,
-    updated_at: new Date().toISOString()
-  }).eq('id', leadId)
-}
-
-export async function addLeadStaff(leadId: string, userId: string, role: string, note?: string) {
-  const { userId: sessionUserId } = await getSession()
-  if (!sessionUserId) return { error: 'Unauthorized' }
-
-  const supabase = createServiceClient()
-  const { error } = await supabase.from('crm_lead_staff').insert({
-    lead_id: leadId,
-    user_id: userId,
-    role,
-    note: note || null,
-  })
-
-  if (error) {
-    if (error.code === '23505') return { error: 'พนักงานนี้มีหน้าที่นี้อยู่แล้ว' }
-    return { error: error.message }
-  }
-
-  await syncLeadStaffArrays(supabase, leadId)
-
-  revalidatePath(`/crm/${leadId}`)
-  revalidatePath('/crm')
-  return { success: true }
-}
-
-export async function removeLeadStaff(id: string, leadId: string) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
-
-  const supabase = createServiceClient()
-  const { error } = await supabase.from('crm_lead_staff').delete().eq('id', id)
-  if (error) return { error: error.message }
-
-  await syncLeadStaffArrays(supabase, leadId)
-
-  revalidatePath(`/crm/${leadId}`)
-  revalidatePath('/crm')
-  return { success: true }
-}
-
-/** Bulk sync: replace all staff assignments for a lead */
-export async function syncLeadStaff(leadId: string, assignments: { user_id: string; role: string; note?: string }[]) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
-
-  const supabase = createServiceClient()
-
-  // Delete all existing
-  await supabase.from('crm_lead_staff').delete().eq('lead_id', leadId)
-
-  // Insert new
-  if (assignments.length > 0) {
-    const rows = assignments.map(a => ({
-      lead_id: leadId,
-      user_id: a.user_id,
-      role: a.role,
-      note: a.note || null,
-    }))
-    const { error } = await supabase.from('crm_lead_staff').insert(rows)
-    if (error) return { error: error.message }
-  }
-
-  await syncLeadStaffArrays(supabase, leadId)
-
-  revalidatePath(`/crm/${leadId}`)
-  revalidatePath('/crm')
-  return { success: true }
 }

@@ -9,9 +9,9 @@ import {
 } from 'lucide-react'
 import { updateLeadStatus } from '../actions'
 import {
-  ALL_STATUSES, STATUS_CONFIG, getStatusesFromSettings, getStatusConfig,
+  getStatusesFromSettings, getStatusConfig,
   type CrmLead, type CrmSetting, type LeadStatus
-} from '../crm-dashboard'
+} from '../types'
 import { useLocale } from '@/lib/i18n/context'
 
 // ============================================================================

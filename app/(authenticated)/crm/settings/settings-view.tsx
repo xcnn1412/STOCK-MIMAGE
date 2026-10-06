@@ -10,9 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { ArrowLeft, Plus, Trash2, Package, Users, MessageSquare, Pencil, Check, X, Tag, Columns3 } from 'lucide-react'
 import { createCrmSetting, updateCrmSetting, deleteCrmSetting, toggleCrmSetting } from '../actions'
-import type { CrmSetting } from '../crm-dashboard'
+import type { CrmSetting } from '../types'
 import { useLocale } from '@/lib/i18n/context'
-import ColorWheel from '../components/color-wheel'
 
 
 type TabKey = 'kanban_status' | 'package' | 'customer_type' | 'lead_source' | 'tag' | 'staff_role'
@@ -195,10 +194,10 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                   <X className="h-3 w-3" />
                 </Button>
               </div>
-              {/* Color wheel for tag or kanban_status or staff_role categories */}
+              {/* Color picker for tag or kanban_status or staff_role categories */}
               {(activeTab === 'tag' || activeTab === 'kanban_status' || activeTab === 'staff_role') && (
                 <div className="flex justify-center py-1">
-                  <ColorWheel size={200} value="#3b82f6" name="color" />
+                  <input type="color" name="color" defaultValue="#3b82f6" className="h-10 w-16 cursor-pointer rounded-lg border border-zinc-200 bg-transparent p-1 dark:border-zinc-700" />
                 </div>
               )}
             </form>
@@ -234,10 +233,10 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
-                  {/* Color wheel for tag or kanban_status or staff_role edit */}
+                  {/* Color picker for tag or kanban_status or staff_role edit */}
                   {(activeTab === 'tag' || activeTab === 'kanban_status' || activeTab === 'staff_role') && (
                     <div className="flex justify-center py-1">
-                      <ColorWheel size={200} value={setting.color || '#3b82f6'} name="color" />
+                      <input type="color" name="color" defaultValue={setting.color || '#3b82f6'} className="h-10 w-16 cursor-pointer rounded-lg border border-zinc-200 bg-transparent p-1 dark:border-zinc-700" />
                     </div>
                   )}
                 </form>
