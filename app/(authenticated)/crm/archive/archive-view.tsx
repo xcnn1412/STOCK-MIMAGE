@@ -12,16 +12,22 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { unarchiveLead } from '../actions'
-import { getStatusConfig, type CrmLead, type CrmSetting, type LeadStatus } from '../types'
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+    AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { unarchiveLead, archiveStaleLeads } from '../actions'
+import { getStatusConfig, STALE_CLOSED_DAYS, STALE_COLD_DAYS, type BoardLead, type CrmSetting, type LeadStatus } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 
 interface ArchiveViewProps {
-    leads: CrmLead[]
+    leads: BoardLead[]
     settings: CrmSetting[]
+    /** จำนวนงานเก่าที่เก็บเข้าคลังได้ — null = ไม่ใช่แอดมิน (ไม่โชว์การ์ด) */
+    stale?: { closed: number; cold: number } | null
 }
 
-export default function ArchiveView({ leads, settings }: ArchiveViewProps) {
+export default function ArchiveView({ leads, settings, stale = null }: ArchiveViewProps) {
     const { locale, t } = useLocale()
     const tc = t.crm
     const router = useRouter()
@@ -40,6 +46,18 @@ export default function ArchiveView({ leads, settings }: ArchiveViewProps) {
             lead.customer_line?.toLowerCase().includes(q)
         )
     }, [leads, search])
+
+    const [bulkBusy, setBulkBusy] = useState(false)
+    const [bulkError, setBulkError] = useState<string | null>(null)
+    const staleTotal = stale ? stale.closed + stale.cold : 0
+    const handleArchiveStale = async () => {
+        setBulkBusy(true)
+        setBulkError(null)
+        const res = await archiveStaleLeads()
+        setBulkBusy(false)
+        if ('error' in res && res.error) setBulkError(res.error)
+        router.refresh()
+    }
 
     const handleRestore = async (id: string) => {
         setRestoring(id)
@@ -65,6 +83,56 @@ export default function ArchiveView({ leads, settings }: ArchiveViewProps) {
                     </p>
                 </div>
             </div>
+
+            {/* เก็บงานเก่าเข้าคลังเป็นชุด — แอดมินเท่านั้น กดเองเท่านั้น */}
+            {stale && (
+                <Card className="border-zinc-200/60 dark:border-zinc-800/60">
+                    <CardContent className="p-4 space-y-3">
+                        <div className="font-semibold text-zinc-900 dark:text-zinc-100">
+                            {locale === 'th' ? 'เก็บงานเก่าเข้าคลัง' : 'Archive old leads'}
+                        </div>
+                        <ul className="text-sm text-zinc-600 dark:text-zinc-400 space-y-1">
+                            <li>
+                                {locale === 'th'
+                                    ? `ปฏิเสธ / ปิด ที่ไม่ถูกแตะเกิน ${STALE_CLOSED_DAYS} วัน: ${stale.closed} ราย`
+                                    : `Rejected / closed, untouched for over ${STALE_CLOSED_DAYS} days: ${stale.closed}`}
+                            </li>
+                            <li>
+                                {locale === 'th'
+                                    ? `ลูกค้าใหม่ที่ไม่มีวันงาน (หรือวันงานผ่านไปแล้ว) และไม่ถูกแตะเกิน ${STALE_COLD_DAYS} วัน: ${stale.cold} ราย`
+                                    : `New leads with no upcoming event, untouched for over ${STALE_COLD_DAYS} days: ${stale.cold}`}
+                            </li>
+                        </ul>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button size="sm" variant="outline" disabled={staleTotal === 0 || bulkBusy}>
+                                    <Archive className="h-4 w-4 mr-1.5" />
+                                    {locale === 'th' ? `เก็บเข้าคลัง ${staleTotal} ราย` : `Archive ${staleTotal} leads`}
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                        {locale === 'th' ? `เก็บเข้าคลัง ${staleTotal} ราย?` : `Archive ${staleTotal} leads?`}
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        {locale === 'th'
+                                            ? 'งานเหล่านี้จะหายจากบอร์ดและตาราง แต่ยังอยู่ในหน้าคลังนี้ และนำออกจากคลังทีละรายได้'
+                                            : 'They leave the board and table but stay here, and can be restored one by one.'}
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>{locale === 'th' ? 'ยกเลิก' : 'Cancel'}</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleArchiveStale}>
+                                        {locale === 'th' ? 'เก็บเข้าคลัง' : 'Archive'}
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                        {bulkError && <p className="text-sm text-red-600">{bulkError}</p>}
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Search */}
             <div className="relative max-w-xs">

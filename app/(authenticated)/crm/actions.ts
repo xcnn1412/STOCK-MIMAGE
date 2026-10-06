@@ -9,6 +9,7 @@ import { createNotifications } from '@/lib/notifications'
 import { claimEffectiveAmount, summarizeClaims } from '@/app/(authenticated)/costs/lib/crm-cost-grouping'
 import { autoCreateJobsFromAcceptedLead } from '@/app/(authenticated)/jobs/actions'
 import { readAllRows } from '@/lib/read-all-rows'
+import { BOARD_COLUMNS, DAY_MS, bangkokToday, isFirstWon, staleLeadIds, type StaleRow } from './types'
 
 
 
@@ -111,11 +112,23 @@ export async function updateCrmSetting(id: string, formData: FormData) {
   return { success: true }
 }
 
+/** สถานะ kanban ที่ยังมี lead ใช้อยู่ห้ามลบ/ปิด — การ์ดจะหลุดจากบอร์ด · คืนข้อความ error หรือ null */
+async function kanbanStatusInUse(supabase: ReturnType<typeof createServiceClient>, id: string): Promise<string | null> {
+  const { data: setting } = await supabase.from('crm_settings').select('category, value').eq('id', id).single()
+  if (setting?.category !== 'kanban_status') return null
+  const { count, error } = await supabase
+    .from('crm_leads').select('id', { count: 'exact', head: true }).eq('status', setting.value)
+  if (error) return error.message
+  return count ? `ยังมี lead ใช้สถานะนี้อยู่ ${count} ราย — ย้ายสถานะของ lead เหล่านั้นก่อนจึงลบ/ปิดได้` : null
+}
+
 export async function deleteCrmSetting(id: string) {
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
+  const inUse = await kanbanStatusInUse(supabase, id)
+  if (inUse) return { error: inUse }
   const { error } = await supabase.from('crm_settings').delete().eq('id', id)
   if (error) return { error: error.message }
 
@@ -129,6 +142,10 @@ export async function toggleCrmSetting(id: string, is_active: boolean) {
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
+  if (!is_active) {
+    const inUse = await kanbanStatusInUse(supabase, id)
+    if (inUse) return { error: inUse }
+  }
   const { error } = await supabase.from('crm_settings').update({ is_active }).eq('id', id)
   if (error) return { error: error.message }
 
@@ -148,13 +165,17 @@ export async function getLeads(filters?: {
   is_returning?: boolean
   search?: string
   includeArchived?: boolean
+  /** โหลดเฉพาะงานที่เคลื่อนไหว: updated_at ภายใน days วัน หรือวันงานยังไม่ถึง (ไม่ส่ง = ทุกแถว) */
+  window?: { days: number }
+  /** true = ทุกคอลัมน์ (ไฟล์ส่งออก) · ค่าเริ่มต้น = BOARD_COLUMNS แบบเบา */
+  full?: boolean
 }) {
   const supabase = createServiceClient()
   // PostgREST ตัดที่ 1,000 แถวต่อคำขอ → สร้างคำขอใหม่ทุกหน้า เรียง created_at + id ให้คงที่ข้ามหน้า
-  const build = (from: number, to: number) => {
+  const buildWith = (extra?: { col: 'updated_at' | 'event_date'; gte: string }) => (from: number, to: number) => {
     let query = supabase
       .from('crm_leads')
-      .select('*, crm_lead_installments(amount, is_paid)')
+      .select(filters?.full ? '*, crm_lead_installments(amount, is_paid)' : BOARD_COLUMNS)
       .order('created_at', { ascending: false })
 
     // By default, exclude archived leads
@@ -179,11 +200,33 @@ export async function getLeads(filters?: {
       const end = `${year}-${month}-${String(endDate.getDate()).padStart(2, '0')}`
       query = query.gte('created_at', `${start}T00:00:00`).lte('created_at', `${end}T23:59:59`)
     }
+    if (extra) query = query.gte(extra.col, extra.gte)
     return query.order('id').range(from, to)
   }
 
-  const { rows: data, error } = await readAllRows(build)
-  if (error) return { error: error.message, data: [] }
+  // ponytail: แถวดิบจาก client ที่ไม่มี type — ใช้แค่ id/created_at ตอนรวม
+  type RawLead = { id: string; created_at: string } & Record<string, unknown>
+  let data: RawLead[]
+  if (filters?.window) {
+    // ไม่ใช้ .or() — อ่านสองชุด (แตะล่าสุดใน N วัน / วันงานยังไม่ถึง) แล้วรวมตาม id
+    const now = Date.now()
+    const since = new Date(now - filters.window.days * DAY_MS).toISOString()
+    const today = bangkokToday(now)
+    const [touched, upcoming] = await Promise.all([
+      readAllRows<RawLead>(buildWith({ col: 'updated_at', gte: since })),
+      readAllRows<RawLead>(buildWith({ col: 'event_date', gte: today })),
+    ])
+    const error = touched.error || upcoming.error
+    if (error) return { error: error.message, data: [] }
+    const byId = new Map<string, RawLead>()
+    for (const r of [...touched.rows, ...upcoming.rows]) byId.set(r.id, r)
+    data = [...byId.values()].sort((a, b) =>
+      a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  } else {
+    const res = await readAllRows<RawLead>(buildWith())
+    if (res.error) return { error: res.error.message, data: [] }
+    data = res.rows
+  }
 
   // Compute total_installments_paid for each lead
   const enriched = (data || []).map((lead: any) => {
@@ -699,6 +742,7 @@ export async function updateLeadStatus(id: string, newStatus: string) {
   // Get current status
   const { data: lead } = await supabase.from('crm_leads').select('status').eq('id', id).single()
   const oldStatus = lead?.status || 'unknown'
+  const firstWon = isFirstWon(lead?.status, newStatus) // อ่านก่อนเขียน: สถานะเดิมยังไม่ใช่ won
 
   // Update status
   const { error } = await supabase
@@ -719,10 +763,10 @@ export async function updateLeadStatus(id: string, newStatus: string) {
 
   await logActivity('UPDATE_CRM_STATUS', { id, oldStatus, newStatus })
 
-  // ลูกค้าตอบรับ → ส่งใบงาน (กราฟิก + หน้างาน) เข้าพูลงานให้เองพร้อมแจ้งเตือนทีม
+  // ลูกค้าตอบรับ (เข้าสถานะ won ครั้งแรก เช่น ส่งใบเสนอราคา → รับมัดจำ ก็นับ) → ส่งใบงาน (กราฟิก + หน้างาน) เข้าพูลงานให้เองพร้อมแจ้งเตือนทีม
   // จงใจไม่ให้ล้มการเปลี่ยนสถานะ: ถ้าสร้างใบงานหรือแจ้งเตือนพลาด สถานะ lead ต้องเปลี่ยนสำเร็จอยู่ดี
   // (แอดมินยังกด "ส่งต่องาน" เองได้จากหน้า lead) — บันทึก error ไว้ใน log แล้วไปต่อ
-  if (newStatus === 'accepted') {
+  if (firstWon) {
     try {
       const auto = await autoCreateJobsFromAcceptedLead(id)
       if ('error' in auto) console.error('[CRM] auto-create jobs failed:', auto.error)
@@ -737,8 +781,9 @@ export async function updateLeadStatus(id: string, newStatus: string) {
 }
 
 export async function deleteLead(id: string) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
+  if (role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้นที่ลบลูกค้าได้ — พนักงานใช้ "เก็บเข้าคลัง" แทน' }
 
   const supabase = createServiceClient()
 
@@ -779,6 +824,48 @@ export async function archiveLead(id: string) {
   revalidatePath('/crm')
   revalidatePath(`/crm/${id}`)
   return { success: true }
+}
+
+// ── เก็บงานเก่าเข้าคลังเป็นชุด (แอดมินกดเองเท่านั้น ไม่มีการเก็บอัตโนมัติ) — กติกาอยู่ที่ types.ts::staleLeadIds ──
+async function findStaleLeads() {
+  const supabase = createServiceClient()
+  const { rows, error } = await readAllRows<StaleRow>((from, to) => supabase
+    .from('crm_leads')
+    .select('id, status, updated_at, created_at, event_date')
+    .is('archived_at', null)
+    .order('created_at', { ascending: false })
+    .order('id')
+    .range(from, to))
+  if (error) return { error: error.message }
+  return { stale: staleLeadIds(rows, Date.now()) }
+}
+
+export async function countStaleLeads() {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้น' }
+  const res = await findStaleLeads()
+  if ('error' in res) return { error: res.error }
+  return { closed: res.stale.closed.length, cold: res.stale.cold.length }
+}
+
+export async function archiveStaleLeads() {
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้น' }
+  const res = await findStaleLeads()
+  if ('error' in res) return { error: res.error }
+  const { closed, cold } = res.stale
+  const ids = [...closed, ...cold]
+  const supabase = createServiceClient()
+  const archived_at = new Date().toISOString()
+  for (let i = 0; i < ids.length; i += 500) {
+    // ponytail: ไม่ลง crm_activities รายตัว (หลายร้อยแถว) — log รวมครั้งเดียวพร้อม id พอสำหรับ audit
+    const { error } = await supabase.from('crm_leads').update({ archived_at }).in('id', ids.slice(i, i + 500))
+    if (error) return { error: error.message }
+  }
+  await logActivity('ARCHIVE_CRM_LEAD', { bulk: true, closed, cold }) // เก็บ id ไว้ เผื่อต้องนำออกจากคลังทั้งชุด
+  revalidatePath('/crm')
+  revalidatePath('/crm/archive')
+  return { success: true, archived: ids.length }
 }
 
 export async function unarchiveLead(id: string) {

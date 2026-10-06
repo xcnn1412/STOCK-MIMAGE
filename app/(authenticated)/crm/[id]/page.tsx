@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { getLead, getActivities, getCrmSettings, getSystemUsers, getLeadInstallments, getLeadEventStaff, getLeadEvents, getLeadCostSummary } from '../actions'
 import { getJobsByLeadId } from '../../jobs/actions'
 import LeadDetail from './lead-detail'
+import { requireAuth } from '@/lib/auth'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -29,6 +30,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
     // ใบงานของงานนี้ — ปุ่ม "เปิดใบงานกราฟิก" โผล่เฉพาะตอนยังไม่มีใบงานกราฟิก
     getJobsByLeadId(id),
   ])
+  const session = await requireAuth()
 
   if (!leadResult.data) notFound()
 
@@ -43,6 +45,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
       linkedEvents={eventsResult.data || []}
       costSummary={costSummary}
       leadJobs={leadJobs}
+      role={session?.role}
     />
   )
 }

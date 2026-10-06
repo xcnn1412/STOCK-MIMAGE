@@ -11,6 +11,7 @@
 
 import assert from 'node:assert/strict'
 import Module from 'node:module'
+import { outstandingKind } from '../app/(authenticated)/finance/claim-rules'
 
 process.env.SESSION_SECRET = 'finance-integrity-check'
 
@@ -51,7 +52,7 @@ const COLUMNS: Record<string, string[]> = {
   ],
   job_cost_events: ['id', 'event_name', 'event_date', 'event_location', 'status', 'source_event_id', 'created_at'],
   event_closures: ['id', 'event_name', 'event_date', 'event_location', 'created_at'],
-  events: ['id', 'name', 'event_date', 'location', 'status', 'created_at'],
+  events: ['id', 'name', 'event_date', 'event_time', 'event_end_time', 'location', 'status', 'created_at'],
 }
 
 const db: Record<string, Row[]> = Object.fromEntries(Object.keys(COLUMNS).map(t => [t, []]))
@@ -991,6 +992,9 @@ async function main() {
   // ══ v1.25.0 ขั้น 1: ยื่นทันที · แจ้งเตือนยื่น/จ่าย · เปิดใบที่ถูกปฏิเสธ · เหตุผลเฉพาะที่จำเป็น ═══════════════
   {
     rpcMode = 'installed'
+    // กติกา v1.43.0: มีใบค้างเคลียร์ → สร้าง/ยื่นใบใหม่ไม่ได้ — ชุดนี้ทดสอบเรื่องอื่น จึงซ่อนใบค้างของพนักงานจากส่วนก่อนหน้าไว้ชั่วคราว แล้วคืนตอนจบชุด
+    const owedBefore = db.expense_claims.filter(r => r.submitted_by === STAFF && !r.deleted_at && outstandingKind(r as unknown as Parameters<typeof outstandingKind>[0]))
+    for (const r of owedBefore) r.deleted_at = '2026-09-30T00:00:00.000Z'
     const lastNote = () => notifications.at(-1) as Row
     const actionsOf = (claimId: string) => activity.filter(a => (a.details as Row).claimId === claimId).map(a => a.action)
 
@@ -1192,6 +1196,7 @@ async function main() {
     const draftEdit = seedClaim({ status: 'draft', submitted_by: STAFF })
     assert.deepEqual(await updateClaim(draftEdit, { title: 'แก้แบบร่าง' }), { success: true })
     assert.equal(claimRow(draftEdit).title, 'แก้แบบร่าง')
+    for (const r of owedBefore) r.deleted_at = null
   }
   pass('v1.25.0 ขั้น 1 createClaim intent=submit → รออนุมัติ + submitted_at + ประวัติ submit + activity สร้าง/ยื่น + แจ้งแอดมินทุกคน · ไม่แนบ (ค่าอื่นๆ/งาน) → error ไม่เขียน ไม่ขอเลข · ทดลองจ่ายไม่แนบยื่นได้ · ไม่ส่ง intent = แบบร่าง ไม่แจ้ง · submitClaim แจ้งแอดมิน · markAsPaid แจ้งผู้เบิก · reopenRejectedClaim เฉพาะเจ้าของ + ใบที่ถูกปฏิเสธ (ล้างช่องอนุมัติ, STALE ไม่มีผลข้างเคียง) · เหตุผลบังคับเฉพาะถอย/เปิดใบที่ปิด/ปิดใบที่จ่ายแล้ว/แก้ใบที่จ่ายแล้ว')
 

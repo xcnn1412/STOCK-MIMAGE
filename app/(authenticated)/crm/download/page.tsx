@@ -17,7 +17,7 @@ export default async function DownloadPage() {
     }
 
     const [leadsResult, settingsResult] = await Promise.all([
-        getLeads(),
+        getLeads({ includeArchived: true, full: true }),
         getCrmSettings(),
     ])
 

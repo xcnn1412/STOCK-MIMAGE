@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { createNotifications, type NotificationType } from '@/lib/notifications'
 import { requireAuth } from '@/lib/auth'
+import { isWonStatus } from '../crm/types'
 // โมดูลตรรกะล้วน (ไม่มี React / ไม่มี 'use client') — import เข้ามาใน server action ได้
 import {
     READY_DESIGN_STATUSES, kitBookingClashes, shouldFinishGraphicJob,
@@ -736,7 +737,7 @@ export async function openGraphicJob(leadId: string, opts?: { allowDuplicate?: b
         .single()
 
     if (!lead) return { error: 'ไม่พบข้อมูล Lead' }
-    if (lead.status !== 'accepted') return { error: 'เปิดใบงานกราฟิกได้เมื่องานตอบรับแล้วเท่านั้น' }
+    if (!isWonStatus(lead.status)) return { error: 'เปิดใบงานกราฟิกได้เมื่องานตอบรับแล้วเท่านั้น' }
 
     // เปิดหลายใบต่องานได้ แต่ต้องยืนยันซ้ำจากฝั่ง client ก่อน (allowDuplicate)
     // ไม่ยืนยัน = พฤติกรรมเดิม: มีใบแล้วไม่สร้างเพิ่ม
@@ -2934,7 +2935,7 @@ async function resolveLeadEvent(
 ): Promise<{ eventId: string } | { error: string }> {
     const { data: lead } = await supabase
         .from('crm_leads').select('id, customer_name, event_location, event_date, status').eq('id', leadId).single()
-    if (!lead || lead.status !== 'accepted') return { error: 'ไม่พบงานที่ตอบรับแล้ว' }
+    if (!lead || !isWonStatus(lead.status)) return { error: 'ไม่พบงานที่ตอบรับแล้ว' }
 
     if (eventId) {
         const { data: ev } = await supabase.from('events').select('id, crm_lead_id').eq('id', eventId).single()

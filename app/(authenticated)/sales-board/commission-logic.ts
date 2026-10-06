@@ -62,14 +62,9 @@ export type CommissionResult = {
 export type CommissionTargets = { booths?: number | null; events?: number | null }
 export type DateRange = { from: string; to: string }
 
-// ── สถานะ ──
-// "ตอบรับแล้ว" = ทุกสถานะที่ไม่อยู่ในรายการนี้ (สถานะใหม่ที่เพิ่มใน kanban ภายหลังถือเป็น won อัตโนมัติ)
-const NOT_WON = new Set(['lead', 'booking', 'following_up', 'quotation_sent', 'rejected', 'cancelled'])
-
-export function isWonStatus(status: string | null | undefined): boolean {
-  const s = (status || '').trim().toLowerCase()
-  return s !== '' && !NOT_WON.has(s)
-}
+// ── สถานะ ── นิยาม won ย้ายไป crm/types.ts (ใช้ทั้งระบบ) — re-export ให้ไฟล์ที่ import จากที่นี่ใช้ต่อได้
+import { isWonStatus } from '../crm/types'
+export { isWonStatus }
 
 // ── วันที่ ──
 const BKK_OFFSET_MS = 7 * 3_600_000

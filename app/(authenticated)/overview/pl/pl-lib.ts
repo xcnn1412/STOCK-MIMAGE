@@ -2,11 +2,12 @@
 // P&L pure helpers — ใช้ร่วมกันระหว่าง dashboard (pl-summary) และหน้า detail ราย period
 // ไม่มี 'use client' / ไม่ import next|supabase → import ได้ทั้ง server และ client
 //
-// แยกฐานภาษีชัดเจน: ฐานก่อน VAT / VAT 7% / WHT / สุทธิ. รายรับ = CRM Success+accepted,
+// แยกฐานภาษีชัดเจน: ฐานก่อน VAT / VAT 7% / WHT / สุทธิ. รายรับ = CRM สถานะ won ทั้งหมด (isWonStatus),
 // รายจ่าย = expense_claims ทั้งหมด (ตัด rejected/cancelled). สูตรภาษีตรงกับ finance/overview.
 // ============================================================================
 
 import { calcTax } from '@/lib/finance/money'
+import { isWonStatus } from '../../crm/types'
 
 export interface PLLead {
   id: string; status: string | null; customer_name: string | null
@@ -31,7 +32,6 @@ export interface Ladder { base: number; vat: number; wht: number; net: number; g
 // paid/outstanding = เงินที่เก็บมาแล้ว (มัดจำ+งวดที่จ่าย) และยอดคงค้าง — มีค่าเฉพาะรายรับ (รายจ่าย = 0)
 export interface LineItem { name: string; meta: string; tag: string; href: string; linkLabel: string; gross: number; base: number; vat: number; wht: number; net: number; paid: number; outstanding: number }
 
-export const REV_STATUSES = new Set(['success', 'accepted'])
 export const CLAIM_TYPE_LABEL: Record<string, string> = { event: 'งานอีเวนต์', other: 'office/อื่นๆ', advance: 'เงินสดย่อย' }
 
 export const num = (v: unknown) => Number(v || 0)
@@ -56,7 +56,8 @@ export function claimEffective(c: PLClaim): number {
 export const leadDate = (l: PLLead) => l.event_date || l.created_at
 export const claimDate = (c: PLClaim) => c.expense_date || c.created_at
 export const leadAmount = (l: PLLead) => num(l.confirmed_price) || num(l.quoted_price)
-export const isRevLead = (l: PLLead) => REV_STATUSES.has((l.status || '').toLowerCase())
+// รายรับ = ทุกสถานะ won (crm/types::isWonStatus) — แท็ก success/accepted ข้างล่างยังแยกเหมือนเดิม
+export const isRevLead = (l: PLLead) => isWonStatus(l.status)
 
 // เงินที่เก็บมาแล้วจริงต่อ lead = มัดจำ + Σ(งวดที่ is_paid) — สูตรเดียวกับ CRM (actions.ts::total_installments_paid)
 export function buildPaidByLead(leads: PLLead[], installments: PLInstallment[]): Map<string, number> {
