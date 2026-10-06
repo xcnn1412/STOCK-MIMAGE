@@ -9,7 +9,7 @@ import MetaTokenSettings from '@/app/(authenticated)/content-planner/meta-token-
 import EventManagersSettings from '@/app/(authenticated)/events/event-managers-settings'
 import McpAdminCard from '@/app/(authenticated)/connected-apps/admin-card'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
-import type { CrmSetting } from '@/app/(authenticated)/crm/crm-dashboard'
+import type { CrmSetting } from '@/app/(authenticated)/crm/types'
 
 type SettingsSection = 'finance' | 'crm' | 'content' | 'events'
 

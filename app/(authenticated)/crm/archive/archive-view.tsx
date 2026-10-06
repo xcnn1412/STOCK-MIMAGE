@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { unarchiveLead } from '../actions'
-import { STATUS_CONFIG, getStatusConfig, type CrmLead, type CrmSetting, type LeadStatus } from '../crm-dashboard'
+import { getStatusConfig, type CrmLead, type CrmSetting, type LeadStatus } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 
 interface ArchiveViewProps {

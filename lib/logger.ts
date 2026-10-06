@@ -69,6 +69,8 @@ export type ActionType =
     | 'UPDATE_LEAD_TRACKING'
     | 'UPLOAD_PAYMENT_PROOF'
     | 'DELETE_PAYMENT_PROOF'
+    | 'UPDATE_CRM_EVENT_PHASE'
+    | 'UPDATE_CRM_INSTALLMENTS'
     // Finance Module (เบิกเงิน)
     | 'CREATE_EXPENSE_CLAIM'
     | 'SUBMIT_EXPENSE_CLAIM'

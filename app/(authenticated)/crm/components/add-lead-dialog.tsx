@@ -14,8 +14,7 @@ import {
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { createLead } from '../actions'
-import { getActiveStaff, getStaffDisplayName } from '@/database/staff-members'
-import type { CrmSetting } from '../crm-dashboard'
+import type { CrmSetting } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 import {
   User, Calendar, DollarSign, MapPin, FileText,
@@ -89,7 +88,6 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
   const packages = settings.filter(s => s.category === 'package' && s.is_active)
   const customerTypes = settings.filter(s => s.category === 'customer_type' && s.is_active)
   const leadSources = settings.filter(s => s.category === 'lead_source' && s.is_active)
-  const staffList = getActiveStaff()
 
   const getSettingLabel = (setting: CrmSetting) => {
     return locale === 'th' ? setting.label_th : setting.label_en

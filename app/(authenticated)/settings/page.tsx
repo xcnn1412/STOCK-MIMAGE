@@ -1,7 +1,7 @@
 import { getFinanceCategories, getAllCategoryItems, getStaffProfiles } from '@/app/(authenticated)/finance/settings-actions'
 import { getCrmSettings } from '@/app/(authenticated)/crm/actions'
 import { getMetaTokenStatus } from '@/app/(authenticated)/content-planner/actions'
-import type { CrmSetting } from '@/app/(authenticated)/crm/crm-dashboard'
+import type { CrmSetting } from '@/app/(authenticated)/crm/types'
 import { getEventPermissionIds } from '@/lib/event-permissions'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
