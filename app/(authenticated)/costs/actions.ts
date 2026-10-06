@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
 import type { Database } from '@/types/database.types'
+import { readAllRows } from '@/lib/read-all-rows'
 
 
 async function getSession() {
@@ -409,10 +410,16 @@ export async function bulkSyncRevenueFromCRM() {
   if (events.length === 0) return { success: true, syncedCount: 0, skippedCount: 0 }
 
   // ดึง CRM leads ทั้งหมดที่มี price > 0
-  const { data: leads } = await supabase
+  // PostgREST ตัดที่ 1,000 แถวต่อคำขอ → อ่านทีละหน้า (พังหน้าไหน = ไม่มี lead เหมือนเดิมที่ไม่สน error)
+  const { rows: leads } = await readAllRows<{
+    id: string; event_id: string | null; event_date: string | null; confirmed_price: number | null
+    quoted_price: number | null; customer_name: string | null; vat_mode: string | null; wht_rate: number | null
+  }>((from, to) => supabase
     .from('crm_leads')
     .select('id, event_id, event_date, confirmed_price, quoted_price, customer_name, vat_mode, wht_rate')
     .or('confirmed_price.gt.0,quoted_price.gt.0')
+    .order('id')
+    .range(from, to))
 
   if (!leads || leads.length === 0) {
     return { success: true, syncedCount: 0, skippedCount: events.length }

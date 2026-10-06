@@ -7,6 +7,7 @@ import { requireAuth } from '@/lib/auth'
 import { createNotifications } from '@/lib/notifications'
 import { claimEffectiveAmount, summarizeClaims } from '@/app/(authenticated)/costs/lib/crm-cost-grouping'
 import { autoCreateJobsFromAcceptedLead } from '@/app/(authenticated)/jobs/actions'
+import { readAllRows } from '@/lib/read-all-rows'
 
 
 
@@ -139,35 +140,39 @@ export async function getLeads(filters?: {
   includeArchived?: boolean
 }) {
   const supabase = createServiceClient()
-  let query = supabase
-    .from('crm_leads')
-    .select('*, crm_lead_installments(amount, is_paid)')
-    .order('created_at', { ascending: false })
+  // PostgREST ตัดที่ 1,000 แถวต่อคำขอ → สร้างคำขอใหม่ทุกหน้า เรียง created_at + id ให้คงที่ข้ามหน้า
+  const build = (from: number, to: number) => {
+    let query = supabase
+      .from('crm_leads')
+      .select('*, crm_lead_installments(amount, is_paid)')
+      .order('created_at', { ascending: false })
 
-  // By default, exclude archived leads
-  if (!filters?.includeArchived) {
-    query = query.is('archived_at', null)
-  }
-
-  if (filters?.status) query = query.eq('status', filters.status)
-  if (filters?.source) query = query.eq('lead_source', filters.source)
-  if (filters?.is_returning !== undefined) query = query.eq('is_returning', filters.is_returning)
-  if (filters?.search) {
-    // Sanitize: strip PostgREST special chars to prevent filter manipulation
-    const sanitized = filters.search.replace(/[.,()]/g, '').trim()
-    if (sanitized) {
-      query = query.or(`customer_name.ilike.%${sanitized}%,customer_line.ilike.%${sanitized}%`)
+    // By default, exclude archived leads
+    if (!filters?.includeArchived) {
+      query = query.is('archived_at', null)
     }
-  }
-  if (filters?.month) {
-    const [year, month] = filters.month.split('-')
-    const start = `${year}-${month}-01`
-    const endDate = new Date(Number(year), Number(month), 0)
-    const end = `${year}-${month}-${String(endDate.getDate()).padStart(2, '0')}`
-    query = query.gte('created_at', `${start}T00:00:00`).lte('created_at', `${end}T23:59:59`)
+
+    if (filters?.status) query = query.eq('status', filters.status)
+    if (filters?.source) query = query.eq('lead_source', filters.source)
+    if (filters?.is_returning !== undefined) query = query.eq('is_returning', filters.is_returning)
+    if (filters?.search) {
+      // Sanitize: strip PostgREST special chars to prevent filter manipulation
+      const sanitized = filters.search.replace(/[.,()]/g, '').trim()
+      if (sanitized) {
+        query = query.or(`customer_name.ilike.%${sanitized}%,customer_line.ilike.%${sanitized}%`)
+      }
+    }
+    if (filters?.month) {
+      const [year, month] = filters.month.split('-')
+      const start = `${year}-${month}-01`
+      const endDate = new Date(Number(year), Number(month), 0)
+      const end = `${year}-${month}-${String(endDate.getDate()).padStart(2, '0')}`
+      query = query.gte('created_at', `${start}T00:00:00`).lte('created_at', `${end}T23:59:59`)
+    }
+    return query.order('id').range(from, to)
   }
 
-  const { data, error } = await query
+  const { rows: data, error } = await readAllRows(build)
   if (error) return { error: error.message, data: [] }
 
   // Compute total_installments_paid for each lead
@@ -185,11 +190,14 @@ export async function getLeads(filters?: {
 
 export async function getArchivedLeads() {
   const supabase = createServiceClient()
-  const { data, error } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ponytail: the untyped client gave any[] before; keep the archive page's shape
+  const { rows: data, error } = await readAllRows<any>((from, to) => supabase
     .from('crm_leads')
     .select('*')
     .not('archived_at', 'is', null)
     .order('archived_at', { ascending: false })
+    .order('id')
+    .range(from, to))
 
   if (error) return { error: error.message, data: [] }
   return { data: data || [] }
