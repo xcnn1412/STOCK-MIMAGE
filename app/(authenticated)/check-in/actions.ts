@@ -904,7 +904,7 @@ export async function getTodayEvents() {
 
   const { data } = await supabase
     .from('events')
-    .select('id, name, event_date, location, status, crm_lead_id')
+    .select('id, name, event_date, event_time, event_end_time, location, status, crm_lead_id')
     .gte('event_date', yesterday)
     .lte('event_date', tomorrow)
     .in('status', ['upcoming', 'ongoing'])

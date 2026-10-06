@@ -163,6 +163,45 @@ export function bangkokParts(iso: string): { date: string; time: string } {
   return { date: s.slice(0, 10), time: s.slice(11, 16) }
 }
 
+/** 'HH:MM' หรือ 'HH:MM:SS' (Postgres time) → 'HH:MM' · ค่าว่าง → '' */
+export function hhmm(t: string | null | undefined): string {
+  return t ? t.slice(0, 5) : ''
+}
+
+/** แหล่งของเวลาเข้า/ออกที่ใช้คิดเงิน — 'event' = ตามตารางอีเวนต์, 'actual' = เวลากดจริง */
+export type ScheduleSource = 'event' | 'actual'
+
+/** ตารางเวลาของอีเวนต์ (events.event_date / event_time / event_end_time) */
+export interface EventScheduleInput {
+  event_date: string | null
+  event_time: string | null
+  event_end_time: string | null
+}
+
+/**
+ * เช็คอินหน้างานที่ผูกอีเวนต์ → เวลาเข้า/ออกตามตารางอีเวนต์ (ไม่แตะข้อมูลจริงใน DB)
+ * - ไม่ใช่ onsite / ไม่มีอีเวนต์ / ไม่มีวันหรือเวลาเริ่ม → ใช้เวลาจริง
+ * - มีเวลาจบ → ออก = วันเดียวกัน (ถ้า ≤ เวลาเข้า = ข้ามคืน → วันถัดไป)
+ * - ไม่มีเวลาจบ → คงเวลาออกจริงไว้
+ */
+export function applyEventSchedule<T extends { check_type: string; checked_in_at: string; checked_out_at: string | null }>(
+  c: T,
+  ev: EventScheduleInput | null | undefined
+): T & { schedule_source: ScheduleSource } {
+  const actual = { ...c, schedule_source: 'actual' as ScheduleSource }
+  if (c.check_type !== 'onsite' || !ev?.event_date || !ev.event_time) return actual
+  const start = Date.parse(`${ev.event_date}T${hhmm(ev.event_time)}:00+07:00`)
+  if (Number.isNaN(start)) return actual
+  let checked_out_at = c.checked_out_at
+  if (ev.event_end_time) {
+    let end = Date.parse(`${ev.event_date}T${hhmm(ev.event_end_time)}:00+07:00`)
+    if (Number.isNaN(end)) return actual
+    if (end <= start) end += 86_400_000
+    checked_out_at = new Date(end).toISOString()
+  }
+  return { ...c, checked_in_at: new Date(start).toISOString(), checked_out_at, schedule_source: 'event' }
+}
+
 /** เที่ยงคืนของวันไทย D บนแกนเวลาเดียวกับ bangkokMinutes() */
 function dayStartMinutes(date: string): number {
   return Math.floor(Date.parse(`${date}T00:00:00Z`) / MS_PER_MINUTE)

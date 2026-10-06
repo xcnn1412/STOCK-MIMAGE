@@ -18,11 +18,11 @@ import { fmtMoney, periodLabel, slipTitle, todayBangkok } from './format'
 import {
   bangkokParts, computeSlip, groupUnpaidByPeriod, isAcceptable, isMissingAmount,
   lastFinishedMonth, lastFinishedWeek, lineAmount, onsiteFromFor, openPending, pendingItems, periodKeyFor, periodRange,
-  REOPEN_MIN_REASON, selectCheckinsForRun, shiftDay, toCheckinInput, toEmploymentType, toRunKind,
+  REOPEN_MIN_REASON, applyEventSchedule, selectCheckinsForRun, shiftDay, toCheckinInput, toEmploymentType, toRunKind,
   weekRangeFor, weekdayOf,
 } from './compute'
 import type {
-  AcceptedWarning, CheckinInput, EmploymentType, PendingGroup, RunKind, RunWindow, SalaryAdjustment,
+  AcceptedWarning, CheckinInput, EventScheduleInput, ScheduleSource, EmploymentType, PendingGroup, RunKind, RunWindow, SalaryAdjustment,
   SalaryLine, SalaryWarning, SlipCalcInputs, UnpaidCheckinLite,
 } from './compute'
 import { getSalarySettings, listDuties } from './settings/actions'
@@ -236,6 +236,8 @@ export interface SlipCheckinRow {
   note: string | null
   /** สลิปที่จ่ายเช็คอินนี้ไปแล้ว (null = ยังไม่ถูกจ่าย) — ถ้าไม่ใช่สลิปที่กำลังดู = จ่ายในสลิปอื่น */
   paid_slip_id: string | null
+  /** 'event' = เวลาเข้า/ออกข้างบนมาจากตารางอีเวนต์ (เวลากดจริงยังอยู่ใน DB) */
+  schedule_source: ScheduleSource
 }
 
 /**
@@ -270,6 +272,9 @@ function cmpText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
 }
 
+/** อีเวนต์ที่ PostgREST ฝังมากับแถวเช็คอิน (ชื่อ + ตารางเวลา) */
+type EmbeddedEvent = { name: string | null } & Partial<EventScheduleInput>
+
 type CheckinRaw = {
   id: string
   user_id: string
@@ -282,7 +287,7 @@ type CheckinRaw = {
   note: string | null
   paid_slip_id?: string | null
   // PostgREST คืน to-one เป็น object แต่บางเวอร์ชันห่อเป็น array — รับทั้งสองแบบ
-  events: { name: string | null } | { name: string | null }[] | null
+  events: EmbeddedEvent | EmbeddedEvent[] | null
 }
 
 /** ชื่ออีเวนต์ที่ PostgREST ฝังมากับแถวเช็คอิน (object หรือ array ก็ได้) */
@@ -291,12 +296,19 @@ function embeddedEventName(events: CheckinRaw['events']): string | null {
   return embedded?.name ?? null
 }
 
+/** ตารางเวลาของอีเวนต์ที่ฝังมา (object หรือ array ก็ได้) */
+function embeddedEvent(events: CheckinRaw['events']): EventScheduleInput | null {
+  const e = Array.isArray(events) ? events[0] : events
+  return e ? { event_date: e.event_date ?? null, event_time: e.event_time ?? null, event_end_time: e.event_end_time ?? null } : null
+}
+
 /**
  * แถวดิบจาก staff_checkins → input ของเครื่องคำนวณ
  * ใช้ toCheckinInput ของ compute.ts ตัวเดียวกับภาพตัวอย่างฝั่ง client (รวมกติกา ref-tag)
  */
 function rawToCheckinInput(raw: CheckinRaw): CheckinInput {
-  return toCheckinInput({ ...raw, event_name: embeddedEventName(raw.events) })
+  // หน้างานที่ผูกอีเวนต์ → เวลาเข้า/ออกตามตารางอีเวนต์ (ก่อน selectCheckinsForRun จะเห็น)
+  return toCheckinInput(applyEventSchedule({ ...raw, event_name: embeddedEventName(raw.events) }, embeddedEvent(raw.events)))
 }
 
 /**
@@ -973,7 +985,7 @@ async function computeSlipsCore(
     supabase
       .from('staff_checkins')
       .select(
-        'id, user_id, check_type, checked_in_at, checked_out_at, event_id, duties, out_of_province, note, paid_slip_id, events:event_id(name)'
+        'id, user_id, check_type, checked_in_at, checked_out_at, event_id, duties, out_of_province, note, paid_slip_id, events:event_id(name, event_date, event_time, event_end_time)'
       )
       .in('user_id', ids)
       .gte('checked_in_at', fromISO)
@@ -1426,7 +1438,7 @@ async function listPeriodEvents(
 
 /** คอลัมน์ของ staff_checkins ที่มุมมองรายวันในหน้าสลิปต้องใช้ (ชื่ออีเวนต์ฝังมาด้วย) */
 const SLIP_CHECKIN_COLUMNS =
-  'id, check_type, checked_in_at, checked_out_at, event_id, duties, province, district, out_of_province, note, paid_slip_id, events:event_id(name)'
+  'id, check_type, checked_in_at, checked_out_at, event_id, duties, province, district, out_of_province, note, paid_slip_id, events:event_id(name, event_date, event_time, event_end_time)'
 
 type SlipCheckinRaw = {
   id: string
@@ -1441,15 +1453,17 @@ type SlipCheckinRaw = {
   note: string | null
   paid_slip_id: string | null
   // PostgREST คืน to-one เป็น object แต่บางเวอร์ชันห่อเป็น array — รับทั้งสองแบบ
-  events: { name: string | null } | { name: string | null }[] | null
+  events: EmbeddedEvent | EmbeddedEvent[] | null
 }
 
-function toSlipCheckinRow(r: SlipCheckinRaw): SlipCheckinRow {
+function toSlipCheckinRow(raw: SlipCheckinRaw): SlipCheckinRow {
+  const r = applyEventSchedule(raw, embeddedEvent(raw.events))
   return {
     id: r.id,
     check_type: r.check_type,
     checked_in_at: r.checked_in_at,
     checked_out_at: r.checked_out_at,
+    schedule_source: r.schedule_source,
     event_id: r.event_id,
     event_name: embeddedEventName(r.events),
     duties: Array.isArray(r.duties) ? r.duties : [],
