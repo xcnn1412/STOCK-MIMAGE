@@ -77,6 +77,7 @@ export const TYPE_CONFIG: Record<string, TypeConfig> = {
   salary_reopened:             { icon: '✏️', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', label: 'สลิปเงินเดือน' },
   packing_requested:           { icon: '📦', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',             label: 'งานรอจัดของ' },
   packing_ready:               { icon: '✅', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'ของพร้อมรับ' },
+  packing_returned:            { icon: '🔁', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',   label: 'คืนของแล้ว' },
 }
 
 export const DEFAULT_TYPE_CONFIG: TypeConfig = {

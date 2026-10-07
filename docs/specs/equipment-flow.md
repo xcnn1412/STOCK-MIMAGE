@@ -449,6 +449,17 @@ branch `feature/equipment-p1` · baseline: `tsc --incremental false` = 1 error �
 }
 ```
 
+**ผล Critic เฟส 4 (2026-10-07): ผ่านทั้งสองรอบ รอบละครั้ง** `{"pass": true, "score": 0.97, "passed_ids": ["P4-1"…"P4-11"], "failures": []}` — tsc 1 error เดิม · ชุดตรวจ 19 ตัวผ่าน (packing-flow (a)–(s) + หน้าปิดงานเดิม 2 กรณี, packing-render 367 ข้อ) · eslint ไฟล์ที่แตะ 0/0 (events/actions.ts warning เดิม 3) · kits/events/crm = 44 เดิม · merge เข้า main เป็น v1.50.0 (ยังไม่ push) · ไม่มี migration ใหม่
+ส่วนที่ยอมรับต่างจากเกณฑ์: `kit-check-core.ts` รับ `allowClosed` (คืนชั้นหลังอีเวนต์ปิดแล้ว) · `looseItems` อยู่ใน `kits_snapshot` เป็นกลุ่ม `loose-items` (ไม่มีคอลัมน์ใหม่) · `closeEventFromPacking` รับใบ `done` ที่อีเวนต์ยังเปิดด้วย · ของเสียในกระเป๋าตั้งทันทีตอนคืนผ่าน checkinKitItem
+ยังไม่ได้ลอง: ทุกหน้าในเบราว์เซอร์จริง — Select ของ Radix ใน SSR, เช็กลิสต์คืนของยาวบน 360px, sticky bar ขั้นคืนชั้น, กล้องมือถือ · ค้างไปเฟส 5: แดชบอร์ดการใช้งาน + ถ้วย (ข้อมูล handed_over_at/returned_at พร้อมแล้ว)
+
+**ผลรอบ B (รายละเอียดจาก Executor):** WP2 + WP3 (P4-7…P4-11) · ไม่แตะ actions/queries ของรอบ A
+- `/pickup/[id]`: `page.tsx` โหลด `loadListsAtSpot(db, id, ['ready','out','returned'], viewer)` + `getHandoverUser()` → `canAct` (ไม่ใช่ผู้รับของ = ดูอย่างเดียว) · `pickup-view.tsx` (server, 3 กลุ่ม พร้อมรับ/ออกงาน/คืนแล้ว, ป้าย "งานของคุณ") · `handover-sheet.tsx` (checkbox เป็นปุ่ม `role="checkbox"` สูง ≥44px, "ครบทุกชิ้น", "ยืนยันรับของ" disabled จนครบ → `handOverPackingList(listId, { lineIds })`) · `return-sheet.tsx` (Select สภาพต่อบรรทัด ค่าเริ่มต้นใช้ได้ + "ใช้ได้ทั้งหมด", กระเป๋ากดขยายระบุรายชิ้น (เฉพาะชิ้นที่ออกงานให้อีเวนต์นี้) ตามกติกา parseReturnInput, ช่อง "ใช้ไป" ด้วย parseCount เกินจำนวนประจำกระเป๋า = เตือนเหลือง, ที่ตัดยอดแล้วแสดงเฉยๆ ไม่ส่งซ้ำ, รูป compressImage → uploadReturnPhoto, หมายเหตุ, useConfirm เมื่อมีของสภาพไม่ปกติ, toast แยก 3 กรณี eventClosed/closeError/รอผู้มีสิทธิ์) · ใบเดียวที่จุด (พร้อมรับ+ออกงานรวม 1) = เปิดเช็กลิสต์ให้เลย
+- `/packing/[id]`: stepper 6 ขั้น (3 คอลัมน์มือถือ / 6 คอลัมน์ sm) · `out-summary.tsx` (OutSummary, DoneSummary + Timeline/LineSummaryList/PhotoGrid ใช้ร่วม) · `restock-step.tsx` (เรียง routeOf ตามชั้นบ้าน, ป้ายสภาพ `ReturnConditionBadge` ใหม่ใน status-chip.tsx, ปุ่ม "คืนชั้นแล้ว" ต่อบรรทัด, "คืนชั้นทั้งหมด" useConfirm, กล่องแดงของมีปัญหา, ป้าย "อีเวนต์ยังไม่ปิด — รอผู้มีสิทธิ์ปิดงาน", แถบล่าง x/y) · ป้าย "อีเวนต์นี้ปิดงานไปแล้ว" แสดงเฉพาะก่อนออกงาน (คืนชั้นหลังปิดงานเป็นเรื่องปกติ) · คิว `/packing` เพิ่มกลุ่ม ออกงาน / รอคืนชั้น
+- `/events/[id]/return`: `page.tsx` โหลดใบของอีเวนต์ — `returned` หรือ `done` (อีเวนต์ยังเปิด) → `packing-close-view.tsx::PackingCloseView` (สรุป + "ปิดงาน" useConfirm → closeEventFromPacking → /events) · สถานะต่ำกว่านั้น → `PackingNotReturned` (ข้อความ + ลิงก์ใบ) · ไม่มีใบ = หน้าเดิม (`return-checklist.tsx` ไม่แตะ) · โหลดใบพัง = กล่องแดง (ไม่ตกไปหน้าเดิม)
+- อื่นๆ: กระดิ่ง `packing_returned` (🔁 คืนของแล้ว) ใน notification-category/notification-toast · comment ค้างใน `check-in/actions.ts` ชี้ไป `events/close-core.ts` · `scripts/packing-render.check.ts` 367 ข้อ (จุดรับของ 3 สถานะ + ดูอย่างเดียว + เช็กลิสต์รับ/คืน, คิว 5 กลุ่ม, ใบ ออกงาน/คืนแล้ว/คืนชั้นแล้ว, หน้าปิดงานจากใบ/ยังไม่คืนของ)
+- ยังไม่ได้ลอง: ทุกหน้าในเบราว์เซอร์จริง — Select ของ Radix ใน SSR แสดงค่าว่างจน hydrate, เช็กลิสต์คืนของที่ยาวบนมือถือ 360px, sticky bar ล่างของขั้นคืนชั้น
+
 ### เฟส 5 — แดชบอร์ดการใช้งาน + ถ้วยนักจัดของ/นักคืนของ (v1.51.0, ไม่มี migration) · ขนาด M
 
 - หน้า: `/stock/usage` · `/reports` + `/dashboard` เฟรมใหม่ 2 ใบ

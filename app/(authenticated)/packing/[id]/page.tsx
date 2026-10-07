@@ -10,7 +10,7 @@ export const revalidate = 0
 
 export const metadata = { title: 'ใบจัดของ — คลังอุปกรณ์' }
 
-/** หน้าใบจัดของ: เลือกของ → กำลังหยิบ → พร้อมรับ — แอดมินและทีมจัดของเท่านั้น */
+/** หน้าใบจัดของ: เลือกของ → กำลังหยิบ → พร้อมรับ → ออกงาน → คืนแล้ว (คืนชั้น) → คืนชั้นแล้ว — แอดมินและทีมจัดของเท่านั้น */
 export default async function PackingListPage({ params }: { params: Promise<{ id: string }> }) {
   if (!(await getPackingTeam())) redirect('/stock/dashboard')
   const { id } = await params
