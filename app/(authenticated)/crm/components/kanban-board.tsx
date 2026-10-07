@@ -10,19 +10,13 @@ import {
 import { updateLeadStatus } from '../actions'
 import {
   boardStatuses, getStatusConfig,
-  type BoardLead, type CrmSetting, type LeadStatus
+  type BoardLead, type CrmLead, type CrmSetting, type LeadStatus, type SystemUser
 } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 
 // ============================================================================
 // Kanban Board — Fills available viewport
 // ============================================================================
-
-interface SystemUser {
-  id: string
-  full_name: string | null
-  department: string | null
-}
 
 interface KanbanBoardProps {
   leads: BoardLead[]
@@ -356,23 +350,24 @@ function KanbanCard({
 
   const allTags = [...generalTags, ...statusTags]
 
-  // Compute overdue installments
+  // Compute overdue installments (ponytail: BoardLead doesn't select installment_N, so these stay empty on the board)
+  const inst: Partial<CrmLead> = lead
   const today = new Date()
   const overduePayments: number[] = []
-  for (let n = 1; n <= 4; n++) {
-    const amount = (lead as any)[`installment_${n}`]
-    const date = (lead as any)[`installment_${n}_date`]
-    const paid = (lead as any)[`installment_${n}_paid`]
+  for (const n of [1, 2, 3, 4] as const) {
+    const amount = inst[`installment_${n}` as const]
+    const date = inst[`installment_${n}_date` as const]
+    const paid = inst[`installment_${n}_paid` as const]
     if (amount && amount > 0 && date && !paid && new Date(date) < today) {
       overduePayments.push(n)
     }
   }
   // Upcoming (within 3 days)
   const upcomingPayments: number[] = []
-  for (let n = 1; n <= 4; n++) {
-    const amount = (lead as any)[`installment_${n}`]
-    const date = (lead as any)[`installment_${n}_date`]
-    const paid = (lead as any)[`installment_${n}_paid`]
+  for (const n of [1, 2, 3, 4] as const) {
+    const amount = inst[`installment_${n}` as const]
+    const date = inst[`installment_${n}_date` as const]
+    const paid = inst[`installment_${n}_paid` as const]
     if (amount && amount > 0 && date && !paid) {
       const dueDate = new Date(date)
       const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))

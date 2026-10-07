@@ -301,7 +301,7 @@ async function main() {
   assert.ok('event_date' in lean && 'total_installments_paid' in lean)
   const full = await getLeads({ full: true })
   assert.equal(full.data.length, ACTIVE)
-  assert.ok((full.data as Row[]).every(r => 'notes' in r && 'required_roles' in r), '(h) full ต้องมีทุกคอลัมน์')
+  assert.ok(full.data.every(r => 'notes' in r && 'required_roles' in r), '(h) full ต้องมีทุกคอลัมน์')
   pass('(h) โหมดเบาไม่ดึง notes / required_roles · full: true ดึงครบ')
 
   // (i) includeArchived รวมงานในคลัง

@@ -23,8 +23,8 @@ export default async function DownloadPage() {
 
     return (
         <DownloadView
-            leads={leadsResult.data as any[] || []}
-            settings={settingsResult.data as any[] || []}
+            leads={leadsResult.data}
+            settings={settingsResult.data}
         />
     )
 }

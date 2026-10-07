@@ -57,7 +57,7 @@ type Setting = {
     label_en: string
     is_active?: boolean
     sort_order?: number
-    color?: string
+    color?: string | null
 }
 
 // Dynamic status labels from kanban_status settings
@@ -226,12 +226,12 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
                 )
             }
             if (includeInstallment) {
-                for (let n = 1; n <= 4; n++) {
+                for (const n of [1, 2, 3, 4] as const) {
                     row.push(
-                        ((l as any)[`installment_${n}`] || 0).toString(),
-                        (l as any)[`installment_${n}_date`] || '',
-                        (l as any)[`installment_${n}_paid`] ? (locale === 'th' ? 'ใช่' : 'Yes') : (locale === 'th' ? 'ไม่' : 'No'),
-                        (l as any)[`installment_${n}_paid_date`] || '',
+                        (l[`installment_${n}` as const] || 0).toString(),
+                        l[`installment_${n}_date` as const] || '',
+                        l[`installment_${n}_paid` as const] ? (locale === 'th' ? 'ใช่' : 'Yes') : (locale === 'th' ? 'ไม่' : 'No'),
+                        l[`installment_${n}_paid_date` as const] || '',
                     )
                 }
             }
@@ -504,9 +504,9 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
                                                     <td className="py-2.5 px-4 text-right text-zinc-700 dark:text-zinc-300 whitespace-nowrap">{l.deposit ? `฿${l.deposit.toLocaleString()}` : '—'}</td>
                                                 </>
                                             )}
-                                            {includeInstallment && [1, 2, 3, 4].map(n => {
-                                                const amt = (l as any)[`installment_${n}`] as number
-                                                const isPaid = (l as any)[`installment_${n}_paid`] as boolean
+                                            {includeInstallment && ([1, 2, 3, 4] as const).map(n => {
+                                                const amt = l[`installment_${n}` as const]
+                                                const isPaid = l[`installment_${n}_paid` as const]
                                                 return (
                                                     <td key={n} className="py-2.5 px-4 text-right whitespace-nowrap">
                                                         {amt ? (

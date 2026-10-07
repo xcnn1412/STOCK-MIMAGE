@@ -1,7 +1,6 @@
 import CrmDashboard from './crm-dashboard'
 import { getLeads, getCrmSettings, getSystemUsers } from './actions'
 import { createServiceClient } from '@/lib/supabase-server'
-import type { BoardLead } from './types'
 
 export const metadata = {
   title: 'CRM — Photobooth CRM',
@@ -24,13 +23,13 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
     // ponytail: นับงานที่ยังไม่เก็บเข้าคลังทั้งหมดครั้งเดียว (head) ไว้โชว์ "x จาก y ราย"
     createServiceClient().from('crm_leads').select('id', { count: 'exact', head: true }).is('archived_at', null),
   ])
-  const leads = (leadsResult.data || []) as BoardLead[]
+  const leads = leadsResult.data
 
   return (
     <CrmDashboard
       leads={leads}
-      settings={settingsResult.data as any[] || []}
-      users={usersResult.data as any[] || []}
+      settings={settingsResult.data}
+      users={usersResult.data}
       window={{ days, all, shown: leads.length, total: totalResult.count ?? leads.length }}
       initialSearch={initialSearch}
     />

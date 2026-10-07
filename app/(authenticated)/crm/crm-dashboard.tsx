@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import {
   Plus, Search, Filter, LayoutGrid, List, ChevronDown, AlertCircle, Tag, Calendar, CalendarClock, MessageSquare
@@ -16,7 +16,7 @@ import {
   DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { DateRangeFilter } from '@/components/date-range-filter'
-import { boardStatuses, unknownStatuses, getStatusConfig, type BoardLead, type CrmSetting, type LeadStatus } from './types'
+import { boardStatuses, unknownStatuses, getStatusConfig, type BoardLead, type CrmSetting, type LeadStatus, type SystemUser } from './types'
 import { AddLeadDialog } from './components/add-lead-dialog'
 import { KanbanBoard } from './components/kanban-board'
 import { useLocale } from '@/lib/i18n/context'
@@ -28,17 +28,17 @@ import { useLocale } from '@/lib/i18n/context'
 interface CrmDashboardProps {
   leads: BoardLead[]
   settings: CrmSetting[]
-  users: Array<{ id: string; full_name: string | null; department: string | null }>
+  users: SystemUser[]
   /** all = โหลดทุกแถว · ไม่งั้นโหลดเฉพาะงานที่เคลื่อนไหวใน days วันหรือยังไม่ถึงวันงาน */
   window?: { days: number; all: boolean; shown: number; total: number }
   initialSearch?: string
 }
 
+const subscribeNever = () => () => {}
+
 export default function CrmDashboard({ leads, settings, users, window: loadWindow, initialSearch = '' }: CrmDashboardProps) {
   const { locale, t } = useLocale()
   const tc = t.crm
-  const [mounted, setMounted] = useState(false)
-  const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban')
   const [search, setSearch] = useState(initialSearch)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [sourceFilter, setSourceFilter] = useState<string>('all')
@@ -50,8 +50,8 @@ export default function CrmDashboard({ leads, settings, users, window: loadWindo
   const [eventTo, setEventTo] = useState('')
   const [addDialogOpen, setAddDialogOpen] = useState(false)
 
-  // Flag to prevent SSR/client hydration mismatch on date-sensitive renders
-  useEffect(() => { setMounted(true) }, [])
+  // Flag to prevent SSR/client hydration mismatch on date-sensitive renders (false on server + hydration, true after)
+  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false)
 
   // Helper: get setting label by locale
   const getSettingLabel = useCallback((setting: CrmSetting) => {
@@ -69,11 +69,10 @@ export default function CrmDashboard({ leads, settings, users, window: loadWindo
     return tc.statuses[status] || cfg.labelTh || cfg.label
   }, [tc, settings])
 
-  // Restore view mode from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem('crm-view-mode')
-    if (saved === 'kanban' || saved === 'table') setViewMode(saved)
-  }, [])
+  // Restore view mode from localStorage (server + hydration render 'kanban', then the saved mode)
+  const savedViewMode = useSyncExternalStore(subscribeNever, () => localStorage.getItem('crm-view-mode'), () => null)
+  const [pickedViewMode, setViewMode] = useState<'kanban' | 'table' | null>(null)
+  const viewMode = pickedViewMode ?? (savedViewMode === 'table' ? 'table' : 'kanban')
 
   const handleViewModeChange = (mode: 'kanban' | 'table') => {
     setViewMode(mode)
@@ -480,7 +479,7 @@ export default function CrmDashboard({ leads, settings, users, window: loadWindo
 function TableView({ leads, settings }: { leads: BoardLead[]; settings: CrmSetting[] }) {
   const { locale, t } = useLocale()
   const tc = t.crm
-  const [sortField, setSortField] = useState<string>('created_at')
+  const [sortField, setSortField] = useState<keyof BoardLead>('created_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const getStatusLabel = (status: LeadStatus) => {
@@ -492,7 +491,7 @@ function TableView({ leads, settings }: { leads: BoardLead[]; settings: CrmSetti
     return locale === 'th' ? setting.label_th : setting.label_en
   }
 
-  const handleSort = (field: string) => {
+  const handleSort = (field: keyof BoardLead) => {
     if (sortField === field) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     } else {
@@ -503,14 +502,14 @@ function TableView({ leads, settings }: { leads: BoardLead[]; settings: CrmSetti
 
   const sortedLeads = useMemo(() => {
     return [...leads].sort((a, b) => {
-      const av = (a as any)[sortField]
-      const bv = (b as any)[sortField]
+      const av = a[sortField]
+      const bv = b[sortField]
       const cmp = String(av || '').localeCompare(String(bv || ''))
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [leads, sortField, sortDir])
 
-  const SortHeader = ({ field, label }: { field: string; label: string }) => (
+  const sortHeader = (field: keyof BoardLead, label: string) => (
     <th
       className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors select-none"
       onClick={() => handleSort(field)}
@@ -591,13 +590,13 @@ function TableView({ leads, settings }: { leads: BoardLead[]; settings: CrmSetti
         <table className="w-full">
           <thead className="border-b border-zinc-100 dark:border-zinc-800">
             <tr>
-              <SortHeader field="customer_name" label={tc.table.customer} />
-              <SortHeader field="status" label={tc.table.status} />
+              {sortHeader('customer_name', tc.table.customer)}
+              {sortHeader('status', tc.table.status)}
               <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 dark:text-zinc-400">{tc.table.channel}</th>
-              <SortHeader field="event_date" label={tc.table.eventDate} />
+              {sortHeader('event_date', tc.table.eventDate)}
               <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 dark:text-zinc-400">{tc.table.package}</th>
-              <SortHeader field="quoted_price" label={tc.table.quoted} />
-              <SortHeader field="deposit" label={tc.table.depositCol} />
+              {sortHeader('quoted_price', tc.table.quoted)}
+              {sortHeader('deposit', tc.table.depositCol)}
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
