@@ -1,8 +1,9 @@
 // ชั้นข้อมูลของสถิติทีม — ใช้ทั้ง /reports (เต็มหน้า) และ /dashboard (การ์ดอันดับ Top 3)
-// ดึง raw 3 ชุดแล้วคืนเป็นแถวเบาๆ (userId, ประเภท, วันที่อ้างอิง) ให้ผู้เรียกรวมยอดเอง
+// ดึง raw ทุกสาย (readAllRows ทุก query) แล้วคืนเป็นแถวเบาๆ (userId, ประเภท, วันที่อ้างอิง) ให้ผู้เรียกรวมยอดเอง
 // นิยามการนับ: docs/specs/team-reports.md
 import { getSessionLight } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
+import { readAllRows } from '@/lib/read-all-rows'
 import { NOT_WON_STATUSES } from '../crm/types'
 import type { ReportPerson, StatKind, StatRow } from './report-stats'
 
@@ -29,6 +30,12 @@ function dayOfTimestamp(value: unknown): string | null {
     return Number.isNaN(d.getTime()) ? null : bangkokDay(d)
 }
 
+/** สถานะใบจัดของที่ถือว่า "ยืนยันจัดของแล้ว" (≥ พร้อมรับ) — นับเข้าสายนักจัดของ */
+const PACKED_STATUSES = ['ready', 'out', 'returned', 'done']
+
+/** ตารางยังไม่มี: Postgres 42P01 (relation does not exist) / PostgREST PGRST205 */
+const MISSING_TABLE = new Set(['42P01', 'PGRST205'])
+
 /** duty ใน lead_duty_claims ใช้ค่าเดียวกับชื่อประเภทสถิติพอดี */
 const DUTY_KINDS = new Set<string>(['staffing', 'vehicle', 'kits'])
 
@@ -42,6 +49,8 @@ type DutyRow = { claimed_by: string | null; duty: string | null; claimed_at: str
 type GraphicRow = { claimed_by: string | null; claimed_at: string | null }
 type SaleRow = { created_by: string | null; created_at: string | null }
 type JobCreatedRow = { created_by: string | null; created_at: string | null }
+type PackedRow = { packed_by: string | null; packed_at: string | null; status: string | null }
+type RestockRow = { restocked_by: string | null; restocked_at: string | null }
 type ProfileRow = { id: string; full_name: string | null; nickname: string | null; department: string | null; avatar_url: string | null }
 
 /** แกะ event_date ออกจากผล embed ไม่ว่าจะมาเป็น object หรือ array */
@@ -65,30 +74,67 @@ export async function getReportStats(): Promise<ReportStats> {
     const today = bangkokDay(new Date())
     const tomorrow = nextDay(today)
 
-    const [staffRes, dutyRes, graphicRes, saleRes, jobCreatedRes, peopleRes] = await Promise.all([
+    // ทุก query อ่านผ่าน readAllRows (PostgREST ตัดที่ 1,000 แถวต่อคำขอ) เรียง id ให้คงที่ระหว่างหน้า
+    const [staffRes, dutyRes, graphicRes, saleRes, jobCreatedRes, peopleRes, packedRes, restockRes] = await Promise.all([
         // ออกงานอีเวนต์: event_staff → events (inner join) กรองเฉพาะงานที่ถึงวันแล้ว
         // `< พรุ่งนี้` = `<= วันนี้` สำหรับคอลัมน์ DATE และเผื่อไว้กรณีคอลัมน์เป็น timestamp
         // (ตัดซ้ำอีกชั้นด้วย today ตอนสร้างแถวข้างล่าง) — แถวเดียวกันอาจซ้ำได้ถ้าคนเดิมถูกจัด
         // หลายตำแหน่งในอีเวนต์เดียว จึงต้อง distinct ด้วย (user_id, event_id)
-        supabase
-            .from('event_staff')
-            .select('user_id, event_id, events!inner(event_date)')
-            .lt('events.event_date', tomorrow),
-        // จัดคน/จัดรถ/จัดกระเป๋า: หนึ่งแถว = หนึ่งหน้าที่ที่รับไว้ (คืนแล้ว = แถวหาย = ไม่นับ)
-        supabase.from('lead_duty_claims').select('claimed_by, duty, claimed_at'),
+        readAllRows<StaffJoinRow>((from, to) =>
+            supabase
+                .from('event_staff')
+                .select('user_id, event_id, events!inner(event_date)')
+                .lt('events.event_date', tomorrow)
+                .order('id')
+                .range(from, to)
+        ),
+        // จัดคน/จัดรถ/รับหน้าที่จัดของ: หนึ่งแถว = หนึ่งหน้าที่ที่รับไว้ (คืนแล้ว = แถวหาย = ไม่นับ)
+        readAllRows<DutyRow>((from, to) => supabase.from('lead_duty_claims').select('claimed_by, duty, claimed_at').order('id').range(from, to)),
         // รับงานกราฟิก: ใบงานกราฟิกที่มีคนกดรับ
-        supabase.from('jobs').select('claimed_by, claimed_at').eq('job_type', 'graphic').not('claimed_by', 'is', null),
+        readAllRows<GraphicRow>((from, to) =>
+            supabase.from('jobs').select('claimed_by, claimed_at').eq('job_type', 'graphic').not('claimed_by', 'is', null).order('id').range(from, to)
+        ),
         // ยอดนักขาย: คนสร้าง CRM card ที่ปิดดีลได้ (สถานะ won ใดก็ได้ — crm/types::isWonStatus) — หนึ่ง lead นับให้ผู้สร้างหนึ่งครั้ง
-        supabase.from('crm_leads').select('created_by, created_at').not('status', 'in', `(${NOT_WON_STATUSES.join(',')})`).not('created_by', 'is', null),
+        readAllRows<SaleRow>((from, to) =>
+            supabase
+                .from('crm_leads')
+                .select('created_by, created_at')
+                .not('status', 'in', `(${NOT_WON_STATUSES.join(',')})`)
+                .not('created_by', 'is', null)
+                .order('id')
+                .range(from, to)
+        ),
         // สร้างใบงาน: หนึ่งแถวใน jobs = สร้างหนึ่งใบ (ทุกประเภท)
-        supabase.from('jobs').select('created_by, created_at').not('created_by', 'is', null),
-        supabase.from('profiles').select('id, full_name, nickname, department, avatar_url').eq('is_approved', true),
+        readAllRows<JobCreatedRow>((from, to) => supabase.from('jobs').select('created_by, created_at').not('created_by', 'is', null).order('id').range(from, to)),
+        readAllRows<ProfileRow>((from, to) =>
+            supabase.from('profiles').select('id, full_name, nickname, department, avatar_url').eq('is_approved', true).order('id').range(from, to)
+        ),
+        // นักจัดของ: ใบจัดของที่ยืนยันจัดของแล้ว (สถานะ ≥ พร้อมรับ) — หนึ่งใบนับให้คนยืนยัน (packed_by) หนึ่งครั้ง
+        readAllRows<PackedRow>((from, to) =>
+            supabase
+                .from('packing_lists')
+                .select('packed_by, packed_at, status')
+                .in('status', PACKED_STATUSES)
+                .not('packed_by', 'is', null)
+                .order('id')
+                .range(from, to)
+        ),
+        // นักคืนของ: ใบจัดของที่คืนชั้นครบแล้ว (done) — หนึ่งใบนับให้คนคืนชั้น (restocked_by) หนึ่งครั้ง
+        readAllRows<RestockRow>((from, to) =>
+            supabase
+                .from('packing_lists')
+                .select('restocked_by, restocked_at')
+                .eq('status', 'done')
+                .not('restocked_by', 'is', null)
+                .order('id')
+                .range(from, to)
+        ),
     ])
 
     const rows: StatRow[] = []
 
     const seenEvent = new Set<string>()
-    for (const r of (staffRes.data || []) as unknown as StaffJoinRow[]) {
+    for (const r of staffRes.rows) {
         if (!r.user_id || !r.event_id) continue
         const key = `${r.user_id}:${r.event_id}`
         if (seenEvent.has(key)) continue // คนเดิม อีเวนต์เดิม หลายตำแหน่ง → นับครั้งเดียว
@@ -98,28 +144,42 @@ export async function getReportStats(): Promise<ReportStats> {
         rows.push({ userId: r.user_id, kind: 'onsite', date })
     }
 
-    for (const r of (dutyRes.data || []) as unknown as DutyRow[]) {
+    for (const r of dutyRes.rows) {
         if (!r.claimed_by || !r.duty || !DUTY_KINDS.has(r.duty)) continue
         rows.push({ userId: r.claimed_by, kind: r.duty as StatKind, date: dayOfTimestamp(r.claimed_at) })
     }
 
-    for (const r of (graphicRes.data || []) as unknown as GraphicRow[]) {
+    for (const r of graphicRes.rows) {
         if (!r.claimed_by) continue
         rows.push({ userId: r.claimed_by, kind: 'graphic', date: dayOfTimestamp(r.claimed_at) })
     }
 
     // ยอดนักขาย — วันที่อ้างอิง = วันสร้าง lead (วันตอบรับไม่มีเก็บแยก)
-    for (const r of (saleRes.data || []) as unknown as SaleRow[]) {
+    for (const r of saleRes.rows) {
         if (!r.created_by) continue
         rows.push({ userId: r.created_by, kind: 'sale', date: dayOfTimestamp(r.created_at) })
     }
 
-    for (const r of (jobCreatedRes.data || []) as unknown as JobCreatedRow[]) {
+    for (const r of jobCreatedRes.rows) {
         if (!r.created_by) continue
         rows.push({ userId: r.created_by, kind: 'jobs', date: dayOfTimestamp(r.created_at) })
     }
 
-    const people: ReportPerson[] = ((peopleRes.data || []) as unknown as ProfileRow[]).map(p => ({
+    // ใบจัดของ (เฟส 5) — ตาราง packing_lists ยังไม่ถูกสร้าง (ยังไม่รัน migration) = ข้าม 2 สายนี้ ไม่ล้มหน้า
+    // ส่วน error อื่นก็ข้ามเฉพาะสายนั้นเหมือน query เดิมที่ใช้ data || [] (หน้าไม่ล้มเพราะสถิติสายเดียว)
+    if (packedRes.error && !MISSING_TABLE.has(packedRes.error.code ?? '')) console.error('[reports] โหลดใบจัดของ (นักจัดของ) ไม่สำเร็จ:', packedRes.error.message)
+    for (const r of packedRes.rows) {
+        if (!r.packed_by || !r.status || !PACKED_STATUSES.includes(r.status)) continue
+        rows.push({ userId: r.packed_by, kind: 'packing', date: dayOfTimestamp(r.packed_at) })
+    }
+
+    if (restockRes.error && !MISSING_TABLE.has(restockRes.error.code ?? '')) console.error('[reports] โหลดใบจัดของ (นักคืนของ) ไม่สำเร็จ:', restockRes.error.message)
+    for (const r of restockRes.rows) {
+        if (!r.restocked_by) continue
+        rows.push({ userId: r.restocked_by, kind: 'restock', date: dayOfTimestamp(r.restocked_at) })
+    }
+
+    const people: ReportPerson[] = peopleRes.rows.map(p => ({
         id: p.id,
         fullName: p.full_name || '',
         nickname: p.nickname || null,

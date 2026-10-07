@@ -9,6 +9,8 @@ export const STAT_COLORS: Record<StatKind, string> = {
     staffing: '#8b5cf6',
     vehicle: '#f59e0b',
     kits: '#10b981',
+    packing: '#14b8a6',
+    restock: '#6366f1',
     graphic: '#ec4899',
     sale: '#16a34a',
     jobs: '#b91c1c',
@@ -21,7 +23,7 @@ const MEDALS = ['🥇', '🥈', '🥉'] as const
  * เฟรมแชมป์ของแต่ละสาย — ไฟล์จริงใน public/profile frame
  * cx/cy = จุดกลางวงของเฟรม (% ของกว้าง/สูง) · d = เส้นผ่านศูนย์กลางรูป (% ของกว้าง)
  * ตัวเลขวัดจากตำแหน่งวงในภาพแต่ละไฟล์ — เฟรมใหม่เพิ่ม entry ใหม่ได้เลย
- * (sale.png / jobs.png ยังไม่ใช้ — รอมีสถิติยอดขาย/สร้างงาน)
+ * packing / restock ใช้ไฟล์และสเปคเดียวกับ bags.png / jobs.png ชั่วคราว รอเฟรมจริงจากเจ้าของ
  */
 // ตัวเลขวัดจากพิกเซลจริง (flood-fill หารูโปร่งใสกลางเฟรม): จุดกลางวง = ขอบบนรู + เส้นผ่านศูนย์กลางแนวนอน/2
 // (ขอบล่างรูโดนริบบิ้นป้ายบัง จึงใช้ความกว้างรูเป็นเส้นผ่านศูนย์กลาง)
@@ -34,6 +36,10 @@ export const FRAMES: Partial<Record<FrameKey, FrameSpec>> = {
     staffing: { src: '/profile%20frame/staff.png', w: 332, h: 361, cx: 49.8, cy: 45.8, d: 94 },
     vehicle: { src: '/profile%20frame/car.png', w: 350, h: 333, cx: 47.3, cy: 49.7, d: 89.1 },
     kits: { src: '/profile%20frame/bags.png', w: 380, h: 339, cx: 52.4, cy: 49.0, d: 81.8 },
+    // ชั่วคราว รอเฟรมจริง — ใช้ bags.png ไปก่อน
+    packing: { src: '/profile%20frame/bags.png', w: 380, h: 339, cx: 52.4, cy: 49.0, d: 81.8 },
+    // ชั่วคราว รอเฟรมจริง — ใช้ jobs.png ไปก่อน
+    restock: { src: '/profile%20frame/jobs.png', w: 395, h: 339, cx: 51.6, cy: 48.7, d: 78.7 },
     graphic: { src: '/profile%20frame/graphic.png', w: 453, h: 406, cx: 55.1, cy: 49.9, d: 68.9 },
     sale: { src: '/profile%20frame/sale.png', w: 395, h: 356, cx: 52.7, cy: 49.5, d: 84.3 },
     jobs: { src: '/profile%20frame/jobs.png', w: 395, h: 339, cx: 51.6, cy: 48.7, d: 78.7 },

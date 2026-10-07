@@ -1,19 +1,19 @@
-// แถวทำเนียบแชมป์ — เฟรมทั้ง 7 เรียงแนวนอน (ใช้บนหัวหน้า /dashboard กับยอดสะสมทั้งหมด)
+// แถวทำเนียบแชมป์ — เฟรมทุกสาย (STAT_KINDS.length) เรียงแนวนอน (ใช้บนหัวหน้า /dashboard กับยอดสะสมทั้งหมด)
 // component แสดงผลล้วน ไม่มี hook — import ได้จาก server component
 import { cn } from '@/lib/utils'
 import { STAT_KINDS, type PersonStats, type StatKind } from './report-stats'
 import { FRAMES, FramedAvatar, type FrameKey } from './top3-grid'
 
 // ขนาดทั้งแถวคิดจากเส้นผ่านศูนย์กลางวง --c (ทุกเฟรมถูกย่อ/ขยายให้วงเท่ากัน):
-//   การ์ดกว้าง ≥ 700px → --c = ใหญ่ที่สุดที่ทั้ง 7 ช่องยังพอดีความกว้างการ์ด (ไม่เกิน 104px) เห็นครบไม่ต้องเลื่อน
+//   การ์ดกว้าง ≥ 700px → --c = ใหญ่ที่สุดที่ทุกช่อง (STAT_KINDS.length) ยังพอดีความกว้างการ์ด (56–104px) — การ์ดแคบจนวงต่ำกว่า 56px จะเลื่อนซ้ายขวาแทน
 //   การ์ดแคบกว่านั้น (มือถือ) → วง 64px แล้วเลื่อนซ้ายขวา
 /** ช่องหนึ่งกว้างกี่เท่าของวง (เผื่อชื่อใต้เฟรม) */
 const TILE_PER_CIRCLE = 1.54
 /** กล่องเฟรมสูงกี่เท่าของวง — เท่ากับเฟรมที่สูงสุดหลัง normalize (graphic) เฟรมอื่นชิดล่างให้ป้ายเรียงแนวเดียวกัน */
 const BOX_PER_CIRCLE = 1.31
-/** ช่องว่างรวมในแถว: 6 ช่องไฟ × 16px + ขอบขวา 32px (pr-8) */
-const ROW_SPACING_PX = 6 * 16 + 32
-/** วงที่ทำให้ 7 ช่องพอดีความกว้างการ์ด (cqw = ความกว้างของ @container ชั้นนอก) */
+/** ช่องว่างรวมในแถว: (จำนวนช่อง − 1) ช่องไฟ × 16px + ขอบขวา 32px (pr-8) */
+const ROW_SPACING_PX = (STAT_KINDS.length - 1) * 16 + 32
+/** วงที่ทำให้ทุกช่องพอดีความกว้างการ์ด (cqw = ความกว้างของ @container ชั้นนอก) */
 const CIRCLE_FIT = `calc((100cqw - ${ROW_SPACING_PX}px) / ${STAT_KINDS.length} / ${TILE_PER_CIRCLE})`
 
 /** ลำดับเฟรมบนแถว — ครบทุกสายสถิติ (รวมยอดนักขาย/สร้างใบงาน) */
@@ -52,7 +52,7 @@ export default function ChampionsStrip({
             }}
         >
             <div
-                className="mx-auto flex w-max gap-4 snap-x pr-8 [--c:64px] @[700px]:[--c:min(104px,var(--c-fit))]"
+                className="mx-auto flex w-max gap-4 snap-x pr-8 [--c:64px] @[700px]:[--c:clamp(56px,var(--c-fit),104px)]"
                 style={{ ['--c-fit' as string]: CIRCLE_FIT }}
             >
             {STRIP_ORDER.map(key => {

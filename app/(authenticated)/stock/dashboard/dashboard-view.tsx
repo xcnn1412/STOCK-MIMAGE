@@ -3,7 +3,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Package, Briefcase, CalendarCheck, LayoutTemplate, MapPin, User, Clock, Wallet, Users, AlertTriangle } from "lucide-react"
+import { Package, Briefcase, CalendarCheck, LayoutTemplate, MapPin, User, Clock, Wallet, Users, AlertTriangle, BarChart3 } from "lucide-react"
 import { useLanguage } from "@/contexts/language-context"
 import TemplatesTable from './templates-table'
 import { kitShelfState } from '../../shelves/shelf-logic'
@@ -261,7 +261,7 @@ export default function DashboardView({
 
       {/* Quick Links */}
       <h2 className="text-lg font-semibold tracking-tight mt-8">{t.dashboard.quickAccess}</h2>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
         <Link href="/items" className="group">
           <Card className="hover:shadow-lg transition-all border-zinc-200 dark:border-zinc-800 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 h-full group-hover:scale-[1.02]">
             <CardHeader className="p-5">
@@ -306,6 +306,18 @@ export default function DashboardView({
               </div>
               <CardTitle className="text-lg">{t.dashboard.templates}</CardTitle>
               <CardDescription className="text-zinc-300 dark:text-zinc-600 text-xs">{t.dashboard.standardSets}</CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+
+        <Link href="/stock/usage" className="group">
+          <Card className="hover:shadow-lg transition-all border-zinc-200 dark:border-zinc-800 bg-zinc-500 dark:bg-zinc-500 text-white dark:text-zinc-900 h-full group-hover:scale-[1.02]">
+            <CardHeader className="p-5">
+              <div className="mb-4 p-2 bg-white/20 dark:bg-black/10 w-fit rounded-lg">
+                <BarChart3 className="h-6 w-6" />
+              </div>
+              <CardTitle className="text-lg">{t.nav.stockUsage}</CardTitle>
+              <CardDescription className="text-zinc-200 dark:text-zinc-800 text-xs">{t.dashboard.usageDesc}</CardDescription>
             </CardHeader>
           </Card>
         </Link>
