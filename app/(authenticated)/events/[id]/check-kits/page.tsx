@@ -1,8 +1,10 @@
-import { supabaseServer as supabase } from '@/lib/supabase-server'
+import { createServiceClient, supabaseServer as supabase } from '@/lib/supabase-server'
 import { notFound } from 'next/navigation'
 import CheckKitsView from './check-kits-view'
 import type { Kit } from '@/types'
 import type { PackItem } from '@/app/(authenticated)/shelves/consumable-logic'
+import { loadPackingListForEvent } from '@/app/(authenticated)/packing/queries'
+import { getPackingTeam } from '@/app/(authenticated)/packing/permissions'
 
 export default async function EventKitsPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -25,5 +27,15 @@ export default async function EventKitsPage(props: { params: Promise<{ id: strin
     })
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  return <CheckKitsView event={event} kits={kits} />
+  // อีเวนต์ที่มีใบจัดของ → แบนเนอร์พาไปใบ (ลิงก์เฉพาะทีมจัดของที่เข้า /packing ได้) · ยังไม่รัน migration/อ่านไม่ได้ = หน้าเดิม
+  const [packingList, packingTeam] = await Promise.all([
+    loadPackingListForEvent(createServiceClient(), event.id).catch(e => {
+      console.error('[check-kits] packing list', e)
+      return null
+    }),
+    getPackingTeam(),
+  ])
+  const packing = packingList ? { id: packingList.id, canOpen: !!packingTeam } : null
+
+  return <CheckKitsView event={event} kits={kits} packing={packing} />
 }

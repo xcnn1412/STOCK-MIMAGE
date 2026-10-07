@@ -1,8 +1,6 @@
 'use client'
 
 import { useActionState, useState } from 'react'
-import KitPicker from '../kit-picker'
-import type { KitBookingDetail } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 import { createEvent } from '../actions'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,14 +33,10 @@ interface Prefill {
 }
 
 export default function CreateEventForm({
-  availableKits,
-  kitBookings,
   profiles,
   prefill,
   staffRoles = [],
 }: {
-  availableKits: { id: string; name: string }[]
-  kitBookings: KitBookingDetail[]
   profiles: Profile[]
   prefill?: Prefill
   staffRoles?: StaffRole[]
@@ -51,9 +45,6 @@ export default function CreateEventForm({
   const locale = lang || 'th'
   const [state, formAction, isPending] = useActionState(createEvent, { error: '' })
   // วัน/เวลาที่กรอกอยู่ — ใช้เตือนกระเป๋าชนในตัวเลือกกระเป๋า (ค่าเดียวกับที่ส่งไปบันทึก)
-  const [eventDate, setEventDate] = useState<string | null>(null)
-  const [eventTime, setEventTime] = useState((prefill?.eventTime ?? '').slice(0, 5))
-  const [eventEndTime, setEventEndTime] = useState((prefill?.eventEndTime ?? '').slice(0, 5))
 
   // Staff assignments — structured (user_id + role)
   const [assignments, setAssignments] = useState<StaffAssignment[]>(
@@ -145,18 +136,18 @@ export default function CreateEventForm({
             {/* วันที่ */}
             <div className="space-y-2">
               <Label htmlFor="event_date">{t.events.fields.date}</Label>
-              <ThaiDatePicker name="event_date" defaultValue={prefill?.eventDate ? new Date(prefill.eventDate) : undefined} onChange={setEventDate} />
+              <ThaiDatePicker name="event_date" defaultValue={prefill?.eventDate ? new Date(prefill.eventDate) : undefined} />
             </div>
 
             {/* เวลาเปิด / เวลาปิด — ไม่บังคับ */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <label htmlFor="event_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาเปิด' : 'Start time'}</label>
-                <Input id="event_time" name="event_time" type="time" defaultValue={(prefill?.eventTime ?? '').slice(0, 5)} onChange={e => setEventTime(e.target.value)} />
+                <Input id="event_time" name="event_time" type="time" defaultValue={(prefill?.eventTime ?? '').slice(0, 5)} />
               </div>
               <div className="space-y-2">
                 <label htmlFor="event_end_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาปิด' : 'End time'}</label>
-                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(prefill?.eventEndTime ?? '').slice(0, 5)} onChange={e => setEventEndTime(e.target.value)} />
+                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(prefill?.eventEndTime ?? '').slice(0, 5)} />
               </div>
             </div>
 
@@ -285,17 +276,14 @@ export default function CreateEventForm({
               )}
             </div>
 
-            {/* จัดการ กระเป๋า */}
-            <div className="space-y-4">
-               <Label>{t.common.actions} {t.kits.title}</Label>
-               <KitPicker
-                 kits={availableKits}
-                 bookings={kitBookings}
-                 eventId=""
-                 eventDate={eventDate}
-                 eventTime={eventTime}
-                 eventEndTime={eventEndTime}
-               />
+            {/* อุปกรณ์จัดผ่านใบจัดของ (เฟส 6 ถอดการจองกระเป๋าตรง) */}
+            <div className="space-y-2">
+               <Label>{locale === 'th' ? 'อุปกรณ์' : 'Equipment'}</Label>
+               <p className="text-sm text-zinc-500">
+                 {locale === 'th'
+                   ? 'อุปกรณ์ของอีเวนต์จัดผ่านใบจัดของ (เมนูคลังอุปกรณ์ → ใบจัดของ)'
+                   : 'Event equipment is arranged through packing lists (Equipment menu → Packing lists)'}
+               </p>
             </div>
 
             {state?.error && (

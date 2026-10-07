@@ -2,12 +2,10 @@ import { getEventManager } from '@/lib/event-permissions'
 import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-server'
 import { notFound, redirect } from 'next/navigation'
 import EditEventForm from './edit-event-form'
-import { loadBookingsForEvent, loadOpenBookings } from '@/lib/kit-bookings'
 import { getCrmSettings } from '../../../crm/actions'
 import type { EventLog } from '../../events-log-sheet'
 import { readAllRows } from '@/lib/read-all-rows'
 
-import type { Kit } from '@/types'
 import type { CrmSettingRow, StaffAssignment } from '../../event-form-types'
 
 export const revalidate = 0
@@ -21,13 +19,6 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
   const { data: event } = await supabase.from('events').select('*').eq('id', params.id).single()
   
   if (!event) notFound()
-
-  // 1–2. กระเป๋าทุกใบ + การจองของงานที่ยังไม่ปิด (event_kits) — ใบที่จองให้อีเวนต์นี้ติ๊กไว้ก่อน
-  const [{ data: allKits }, kitBookings, ownBookings] = await Promise.all([
-    supabase.from('kits').select('id, name').order('name'),
-    loadOpenBookings(createServiceClient()),
-    loadBookingsForEvent(createServiceClient(), event.id),
-  ])
 
   // 3. Fetch all user profiles for staff/seller selection
   const { data: profiles } = await supabase
@@ -50,9 +41,6 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
   // 5. Fetch staff role settings
   const { data: allSettings } = await getCrmSettings()
   const staffRoles = ((allSettings || []) as CrmSettingRow[]).filter((s) => s.category === 'staff_role' && s.is_active)
-
-  const allDisplayKits = (allKits || []) as Kit[]
-  const assignedKitIds = ownBookings.map(b => b.kitId)
 
   // Map event staff to assignments
   let staffAssignments: StaffAssignment[] = (eventStaff || []).map((s) => ({
@@ -120,9 +108,6 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
   return (
     <EditEventForm
       event={event}
-      availableKits={allDisplayKits}
-      assignedKitIds={assignedKitIds}
-      kitBookings={kitBookings}
       profiles={profiles || []}
       staffAssignments={staffAssignments}
       staffRoles={staffRoles}

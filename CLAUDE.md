@@ -19,9 +19,9 @@ One-off operational scripts live in `scripts/` (e.g., `create-admin.js`, `hash-e
 ### ชุดตรวจ (ไม่มี test runner — ใช้สคริปต์ `*.check.ts`)
 
 ทุกโมดูลสำคัญมีชุดตรวจแบบไม่แตะฐานข้อมูลจริง รันด้วย `npx tsx <ไฟล์>` บรรทัดสุดท้ายต้องเป็น `<ชื่อ>: ผ่านทั้งหมด` (อ่าน header ของแต่ละไฟล์ก่อน — บางตัวแตะ DB จริง เช่น `scripts/salary-check.ts`, `scripts/mcp-e2e.check.ts`, `scripts/tracking-snapshot-check.ts`):
-- กติกาบริสุทธิ์ข้างไฟล์: `app/(authenticated)/finance/*.check.ts`, `crm/types.check.ts`, `salary/compute-event-schedule.check.ts`, `jobs/**/*-logic.check.ts`, `shelves/*-logic.check.ts`, `reports/report-stats.check.ts`, `lib/finance/*.check.ts`
-- flow กับฐานข้อมูลจำลองในหน่วยความจำ (ดัก `Module._load` แทน `next/*`, `@/lib/supabase-server`, `@/lib/logger`): `scripts/finance-*.check.ts`, `scripts/claim-*.check.ts`, `scripts/crm-leads-load.check.ts`, `scripts/purchasing-flow.check.ts`, `scripts/salary-edit-flow.check.ts`, `scripts/layout-requests.check.ts`, `scripts/session-hardening.check.ts`, `scripts/proxy-session.check.ts`
-- static render เทียบ HTML: `scripts/crm-lead-detail-render.check.ts` (หน้า lead 3 ชุดข้อมูล + การ์ดการเงินโหมดแก้ไข) — แก้ส่วนแสดงผลที่ไม่ตั้งใจเปลี่ยนหน้าตา ให้ render ก่อน/หลังแล้ว `cmp` ต้องเท่ากันทุกไบต์
+- กติกาบริสุทธิ์ข้างไฟล์: `app/(authenticated)/finance/*.check.ts`, `crm/types.check.ts`, `salary/compute-event-schedule.check.ts`, `jobs/**/*-logic.check.ts`, `shelves/*-logic.check.ts`, `reports/report-stats.check.ts`, `lib/finance/*.check.ts`, `packing/packing-logic.check.ts`, `packing/usage-logic.check.ts`, `packages/package-logic.check.ts`, `stock/settings/category-logic.check.ts`
+- flow กับฐานข้อมูลจำลองในหน่วยความจำ (ดัก `Module._load` แทน `next/*`, `@/lib/supabase-server`, `@/lib/logger`): `scripts/finance-*.check.ts`, `scripts/claim-*.check.ts`, `scripts/crm-leads-load.check.ts`, `scripts/purchasing-flow.check.ts`, `scripts/salary-edit-flow.check.ts`, `scripts/layout-requests.check.ts`, `scripts/session-hardening.check.ts`, `scripts/proxy-session.check.ts`, `scripts/packing-flow.check.ts` (ใบจัดของทั้งเส้น เลือกของ → คืนชั้น)
+- static render เทียบ HTML: `scripts/crm-lead-detail-render.check.ts` (หน้า lead 3 ชุดข้อมูล + การ์ดการเงินโหมดแก้ไข) — แก้ส่วนแสดงผลที่ไม่ตั้งใจเปลี่ยนหน้าตา ให้ render ก่อน/หลังแล้ว `cmp` ต้องเท่ากันทุกไบต์ · อุปกรณ์: `scripts/packing-render.check.ts`, `scripts/package-picker-render.check.ts`, `scripts/packages-render.check.ts`, `scripts/usage-render.check.ts`, `scripts/stock-settings-render.check.ts`
 
 **ฐานข้อมูลจำลองมีรายการคอลัมน์ของแต่ละตาราง (SCHEMA) และตัดผลที่ 1,000 แถวเหมือน PostgREST** — เพิ่มคอลัมน์ใน select ของโค้ดจริงแล้วต้องเติมใน SCHEMA ของสคริปต์ที่เกี่ยว ไม่งั้นชุดตรวจล้ม (เคยพลาดกับ `events.event_time` ใน finance-access/finance-integrity) และเปลี่ยนกติกาธุรกิจ (เช่น บล็อกเบิกเมื่อมีใบค้าง) ต้องไล่แก้ fixture ที่คาดผลเดิม · หลังแก้โมดูลไหน ให้รันชุดตรวจทุกตัวที่ import ไฟล์นั้น (grep path ใน `scripts/`)
 
@@ -59,7 +59,7 @@ The Next.js middleware file is named `proxy.ts` and exports `proxy(request)` (ma
 
 1. **License gate** — `getLicenseStatus()` reads `LICENSE_EXPIRES_AT`; fail-closed (missing/malformed env = expired). Expired instances redirect everywhere (even `/login`) to `LICENSE_EXPIRED_REDIRECT_URL`.
 2. **Session gate** — verifies the HMAC-signed `session_token` cookie via Web Crypto (Edge runtime, see `verifySessionTokenEdge`), then reads `profiles` with the service-role key to confirm `is_approved`, `!is_blocked`, and that a **non-null** `active_session_id` equals the cookie's `session_id` (single-session enforcement — logging in elsewhere kicks the previous session; logout nulls it). No token, no `session_id`, or a null `active_session_id` → `/login`.
-3. **Module gate** — maps the path to a `ModuleKey` via the inlined `MODULE_ROUTES` table and checks `profiles.allowed_modules`. The `admin` key additionally requires `profiles.role === 'admin'` (from the DB row, never from a cookie). One narrow exception: a kit QR path matching exactly `/kits/<id>/check` passes with `stock` **or** `events` (the rest of `/kits` still needs `stock`).
+3. **Module gate** — maps the path to a `ModuleKey` via the inlined `MODULE_ROUTES` table and checks `profiles.allowed_modules`. The `admin` key additionally requires `profiles.role === 'admin'` (from the DB row, never from a cookie). One narrow exception: a kit QR path matching exactly `/kits/<id>/check` passes with `stock` **or** `events` (the rest of `/kits` still needs `stock`). The `stock` module also covers the equipment routes `/packages`, `/packing`, `/stock/settings`, `/stock/usage`. A second exception: the pickup-spot QR `/pickup/<id>` is not in `MODULE_ROUTES` and passes with `stock` **or** `events`.
 
 `MODULE_ROUTES` in `proxy.ts` is **duplicated** from `lib/nav-config.ts` because the middleware runs in the Edge runtime and cannot import the lucide-react icons used in nav-config. **If you add a route to a module, update both.**
 
@@ -144,6 +144,14 @@ Supabase types are generated to `types/database.types.ts` and re-exported from `
 - หน้า lead: `crm/[id]/lead-detail.tsx` เป็นตัวคุม state (≤ 500 บรรทัด) ส่วนแสดงผลอยู่ใน `crm/[id]/components/*` + `shared.tsx` · กล่องยืนยันใช้ `finance/use-confirm.tsx` + `toast` ห้าม `window.confirm/alert` · ไม่ต้อง `router.refresh()` หลัง action ที่ `revalidatePath('/crm/[id]')` อยู่แล้ว
 - `crm_*` ยังไม่อยู่ใน `types/database.types.ts` (regenerate ต้องใช้ Supabase access token) — ใช้ type เขียนมือใน `crm/types.ts` และ `.overrideTypes<T>()` / `.single<T>()` ที่ขอบเขต query
 - migration `20261007_crm_status_seed_and_credit.sql` เพิ่มแถวสถานะ `lead`/`rejected` และเปลี่ยนค่าสถานะ "รายรับเงินสดย่อย Office" เป็น `credit` — รันซ้ำได้ โค้ดมี fallback ให้บอร์ดถูกก่อนรัน
+
+### อุปกรณ์ / ใบจัดของ (เฟส 1–6, v1.47–v1.52)
+
+- ประเภทอุปกรณ์ (`equipment_categories`) → แพ็กเกจ (`packages`, ทีมขายเลือกต่องานผ่าน `lead_packages`) → **ใบจัดของอีเวนต์ละ 1 ใบ** (`packing_lists`/`packing_list_items`, สถานะ เลือกของ → กำลังหยิบ → พร้อมรับ → ออกงาน → คืนแล้ว → คืนชั้นแล้ว) · แผนเต็ม `docs/specs/equipment-flow.md`
+- สถานะอุปกรณ์เปลี่ยนตั้งแต่ **หยิบ** (`in_use`) จนถึง **คืนชั้น** (ตามสภาพ) — ช่วงวางที่จุดรับของยังเป็น `in_use` โดยตั้งใจ · บรรทัดกระเป๋าในใบเขียน `event_kits` ให้เอง
+- คืนของตามใบ = ปิดอีเวนต์ผ่าน core เดียวกับ flow กระเป๋าเดิม (`processEventReturn` โหมดไม่แตะ `items.status`) · `/events/[id]/return` ของอีเวนต์ที่มีใบแสดงสรุปจากใบ ไม่มีใบ = หน้าเดิม
+- **การจองกระเป๋าตรงถูกถอดแล้ว** (v1.52.0): ฟอร์มสร้าง/แก้อีเวนต์ไม่มี KitPicker, `createEvent/updateEvent` ไม่แตะ `event_kits`, พูลไม่มีปุ่มจอง (`bookKitForLead/unbookKitForLead` ลบแล้ว) — การจองแบบเดิมของอีเวนต์เก่าแสดงอ่านอย่างเดียว · QR กระเป๋าและ `/events/[id]/check-kits` ยังใช้ (มีใบ = แบนเนอร์ลิงก์ไปใบ)
+- `items.category` (text) เป็นค่า derived จาก `category_id` — เขียนได้เฉพาะ `stock/categories.ts::resolveCategory` และ sync ใน `updateCategory` ห้าม hardcode รายชื่อประเภท · `crm_settings` หมวด `package` เลิกใช้ (migration `20261014_crm_package_names.sql` แปลง `package_name` เป็นชื่อ) ผู้อ่าน `package_name` ทุกจุดต้องแสดงค่าดิบเมื่อไม่มี mapping
 
 ### กติกา Finance / Salary ที่เพิ่ม 2026-10-06
 

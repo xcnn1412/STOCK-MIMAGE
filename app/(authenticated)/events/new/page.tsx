@@ -1,7 +1,6 @@
 import { getEventManager } from '@/lib/event-permissions'
 import { redirect } from 'next/navigation'
-import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-server'
-import { loadOpenBookings } from '@/lib/kit-bookings'
+import { supabaseServer as supabase } from '@/lib/supabase-server'
 import CreateEventForm from './create-event-form'
 import { getCrmSettings } from '../../crm/actions'
 import type { CrmSettingRow } from '../event-form-types'
@@ -16,12 +15,6 @@ export default async function NewEventPage({ searchParams }: PageProps) {
   if (!(await getEventManager('edit'))) redirect('/events')
 
   const params = await searchParams
-
-  // กระเป๋าทุกใบ + การจองของงานที่ยังไม่ปิด — ฟอร์มเตือนเมื่อกระเป๋าชนวัน/เวลา (จองล่วงหน้าได้)
-  const [{ data: availableKits }, kitBookings] = await Promise.all([
-    supabase.from('kits').select('id, name').order('name'),
-    loadOpenBookings(createServiceClient()),
-  ])
 
   // Fetch all user profiles for staff/seller selection
   const { data: profiles } = await supabase
@@ -83,8 +76,6 @@ export default async function NewEventPage({ searchParams }: PageProps) {
 
   return (
     <CreateEventForm
-      availableKits={availableKits || []}
-      kitBookings={kitBookings}
       profiles={profiles || []}
       prefill={prefill ?? undefined}
       staffRoles={staffRoles}

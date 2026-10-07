@@ -75,7 +75,6 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
   const location = formData.get('location') as string
   const staff = formData.get('staff') as string
   const seller = formData.get('seller') as string
-  const kitIds = formData.getAll('kits') as string[]
   const fromCrm = formData.get('from_crm') as string | null
   const phaseRaw = formData.get('phase') as string | null
   const phase = phaseRaw && ['setup', 'main', 'teardown', 'delivery', 'other'].includes(phaseRaw) ? phaseRaw : null
@@ -139,23 +138,10 @@ export async function createEvent(prevState: ActionState, formData: FormData) {
     }
   }
 
-  // กระเป๋า = การจอง (event_kits, ADR-0003) — กระเป๋าชนเวลาแค่เตือนในฟอร์ม ไม่บล็อก
-  if (kitIds.length > 0) {
-      const { error: kitsError } = await supabase
-          .from('event_kits')
-          .upsert(kitIds.map(kit_id => ({ event_id: event.id, kit_id })), { onConflict: 'event_id,kit_id' })
-
-      if (kitsError) {
-          console.error('Assign kits error:', kitsError)
-          return { error: 'Event created but failed to assign kits' }
-      }
-      await recomputeKitPointers(supabase, kitIds)
-  }
-
-  await logActivity('CREATE_EVENT', { 
-      name, 
-      location, 
-      kitIds 
+  // อุปกรณ์/กระเป๋าของอีเวนต์จัดผ่านใบจัดของ (เฟส 6 ถอดการจองกระเป๋าตรงจากฟอร์ม)
+  await logActivity('CREATE_EVENT', {
+      name,
+      location,
   }, undefined)
 
   // If created from CRM, log activity (link is via events.crm_lead_id above) and
@@ -300,8 +286,6 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   const seller = formData.get('seller') as string
   const phaseRaw = formData.get('phase') as string | null
   const phase = phaseRaw && ['setup', 'main', 'teardown', 'delivery', 'other'].includes(phaseRaw) ? phaseRaw : null
-  // These are the kits that SHOULD be assigned now
-  const selectedKitIds = formData.getAll('kits') as string[]
 
   if (!name) return { error: 'Event name is required' }
 
@@ -326,14 +310,6 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   const hhmm = (v: unknown) => (typeof v === 'string' && v ? v.slice(0, 5) : '')
   const oldEventTime = hhmm((oldEvent as { event_time?: unknown } | null)?.event_time)
   const oldEventEndTime = hhmm((oldEvent as { event_end_time?: unknown } | null)?.event_end_time)
-
-  // กระเป๋าเดิมของอีเวนต์นี้ = การจอง (event_kits)
-  const { data: oldKitsRaw } = await supabase
-      .from('event_kits')
-      .select('kit_id, kits(name)')
-      .eq('event_id', id)
-  const oldKits = ((oldKitsRaw || []) as unknown as { kit_id: string; kits: { name: string } | null }[])
-      .map(r => ({ id: r.kit_id, name: r.kits?.name || r.kit_id }))
 
   // Staff now lives per-event in event_staff for every event (CRM-linked or not).
   let oldStaff: { user_id: string; full_name: string; role: string }[] = []
@@ -368,33 +344,12 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
       return { error: 'Failed to update event details' }
   }
 
-  // 2. Sync Kits — เทียบการจองเดิมกับที่เลือกใหม่ แตะเฉพาะกระเป๋าที่เปลี่ยน
-  {
-      const selected = new Set(selectedKitIds)
-      const before = new Set(oldKits.map(k => k.id))
-      const removed = oldKits.map(k => k.id).filter(kid => !selected.has(kid))
-      const added = selectedKitIds.filter(kid => !before.has(kid))
-
-      if (removed.length > 0) {
-          // กระเป๋าที่ถูกเอาออกและกำลังอยู่กับอีเวนต์นี้ → อุปกรณ์ที่นำออกไปแล้วกลับเป็น "ว่าง"
-          const { data: outKits } = await supabase
-              .from('kits')
-              .select('id, kit_contents(item_id)')
-              .in('id', removed)
-              .eq('event_id', id)
-          const itemIds = (outKits || []).flatMap(k => (k.kit_contents || []).map(kc => kc.item_id)).filter(Boolean)
-          if (itemIds.length > 0) {
-              await supabase.from('items').update({ status: 'available' }).in('id', itemIds).eq('status', 'in_use')
-          }
-          await supabase.from('event_kits').delete().eq('event_id', id).in('kit_id', removed)
-      }
-      if (added.length > 0) {
-          await supabase
-              .from('event_kits')
-              .upsert(added.map(kit_id => ({ event_id: id, kit_id })), { onConflict: 'event_id,kit_id' })
-      }
-      // เวลาเปลี่ยนก็อาจเปลี่ยนลำดับว่ากระเป๋าอยู่กับงานไหนก่อน — คำนวณใหม่ทุกใบที่เกี่ยว
-      await recomputeKitPointers(supabase, [...before, ...added])
+  // 2. กระเป๋า = การจองของใบจัดของ (ฟอร์มไม่แตะ event_kits แล้ว) — แต่เวลาเปลี่ยนอาจเปลี่ยนลำดับ
+  // ว่ากระเป๋าอยู่กับงานไหนก่อน → คำนวณตัวชี้ใหม่ให้กระเป๋าที่จองให้อีเวนต์นี้
+  if (oldEventTime !== (eventTime || '') || oldEventEndTime !== (eventEndTime || '')) {
+      const { data: bookedRows } = await supabase.from('event_kits').select('kit_id').eq('event_id', id)
+      const bookedKitIds = (bookedRows || []).map(r => r.kit_id as string)
+      if (bookedKitIds.length > 0) await recomputeKitPointers(supabase, bookedKitIds)
   }
 
   // 3. Sync staff — event_staff (keyed by event_id) is the single source of truth for
@@ -447,26 +402,6 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
       fieldChanges.event_end_time = { from: oldEventEndTime || null, to: eventEndTime || null }
   }
 
-  // Kit diff
-  const oldKitIdSet = new Set(oldKits.map(k => k.id))
-  const newKitIdSet = new Set(selectedKitIds)
-  const oldKitMap = new Map(oldKits.map(k => [k.id, k.name]))
-  const addedKitIds = selectedKitIds.filter(kid => !oldKitIdSet.has(kid))
-  const removedKitIds = oldKits.filter(k => !newKitIdSet.has(k.id)).map(k => k.id)
-
-  let addedKits: { id: string; name: string }[] = []
-  if (addedKitIds.length > 0) {
-      const { data: addedKitsData } = await supabase
-          .from('kits')
-          .select('id, name')
-          .in('id', addedKitIds)
-      addedKits = (addedKitsData || []) as { id: string; name: string }[]
-  }
-  const removedKits = removedKitIds.map(kid => ({
-      id: kid,
-      name: oldKitMap.get(kid) || kid,
-  }))
-
   // Staff diff
   let addedStaff: { user_id: string; full_name: string; role: string }[] = []
   let removedStaff: { user_id: string; full_name: string; role: string }[] = []
@@ -497,11 +432,8 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
       }
   }
 
-  const logDetails: Record<string, unknown> = { id, name, kitIds: selectedKitIds }
+  const logDetails: Record<string, unknown> = { id, name }
   if (Object.keys(fieldChanges).length > 0) logDetails.changes = fieldChanges
-  if (addedKits.length > 0 || removedKits.length > 0) {
-      logDetails.kits = { added: addedKits, removed: removedKits }
-  }
   if (addedStaff.length > 0 || removedStaff.length > 0) {
       logDetails.staff_assignments = { added: addedStaff, removed: removedStaff }
   }

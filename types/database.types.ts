@@ -1110,7 +1110,7 @@ export type Item = Tables['items']['Row'] & {
   /** ชั้นเก็บของ — เฉพาะอุปกรณ์ที่ไม่อยู่ในกระเป๋า (ในกระเป๋า = ชั้นของกระเป๋า) */
   shelf_id?: string | null
   shelves?: { code: string } | null
-  /** ประเภทอุปกรณ์ (migration 20261010_equipment_categories) — items.category เก็บชื่อคู่กัน */
+  /** ประเภทอุปกรณ์ (migration 20261010_equipment_categories) — items.category เป็นค่า derived (ชื่อประเภท) เขียนผ่าน stock/categories.ts::resolveCategory และ updateCategory sync เท่านั้น */
   category_id?: string | null
 }
 

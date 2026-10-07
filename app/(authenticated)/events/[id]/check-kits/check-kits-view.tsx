@@ -8,7 +8,16 @@ import { useLanguage } from '@/contexts/language-context'
 import type { Event, Kit } from '@/types'
 import { packState, type PackItem } from '@/app/(authenticated)/shelves/consumable-logic'
 
-export default function CheckKitsView({ event, kits }: { event: Event, kits: (Omit<Kit, 'kit_contents'> & { items: PackItem[] })[] }) {
+export default function CheckKitsView({
+  event,
+  kits,
+  packing = null,
+}: {
+  event: Event
+  kits: (Omit<Kit, 'kit_contents'> & { items: PackItem[] })[]
+  /** ใบจัดของของอีเวนต์นี้ (ถ้ามี) — canOpen = ผู้ดูเป็นทีมจัดของ (getPackingTeam) จึงเห็นลิงก์ */
+  packing?: { id: string; canOpen: boolean } | null
+}) {
   const { t } = useLanguage()
 
   return (
@@ -22,6 +31,18 @@ export default function CheckKitsView({ event, kits }: { event: Event, kits: (Om
                 <p className="text-muted-foreground">{event.name}</p>
             </div>
         </div>
+
+        {packing && (
+            <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100" data-testid="packing-banner">
+                {packing.canOpen ? (
+                    <Link href={`/packing/${packing.id}`} className="font-medium hover:underline">
+                        อีเวนต์นี้มีใบจัดของ — เปิดใบ
+                    </Link>
+                ) : (
+                    <span>อีเวนต์นี้มีใบจัดของ — อุปกรณ์ของงานนี้จัดและรับคืนผ่านใบจัดของ</span>
+                )}
+            </div>
+        )}
 
         <div className="grid gap-4">
             {kits?.map(kit => {

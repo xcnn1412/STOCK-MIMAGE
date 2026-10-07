@@ -214,10 +214,11 @@ export default function ArchiveView({ leads, settings, stale = null }: ArchiveVi
                                                         {getSettingLabel(sourceSetting)}
                                                     </span>
                                                 )}
-                                                {pkgSetting && (
+                                                {/* ไม่มีแถวตั้งค่าที่ตรง (แพ็กเกจย้ายไปตาราง packages แล้ว) = แสดงค่าดิบ */}
+                                                {(pkgSetting || lead.package_name) && (
                                                     <span className="flex items-center gap-1">
                                                         <Package className="h-3.5 w-3.5" />
-                                                        {getSettingLabel(pkgSetting)}
+                                                        {pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name}
                                                     </span>
                                                 )}
                                                 {price > 0 && (

@@ -16,7 +16,6 @@ import {
     type DutyClaim,
     type KitBookingDetail,
     type KitReadiness,
-    type Kit as PoolKit,
     type Person,
     type PrepDuty,
     type TrackingLead,
@@ -94,10 +93,8 @@ export default function DutyTab({
     claimByDuty,
     currentUserId = null,
     canManagePool = false,
-    kits = [],
     kitBookings = [],
     kitReadiness,
-    canManageKits = false,
     packing,
     gate,
     onVehicleSaved,
@@ -121,11 +118,9 @@ export default function DutyTab({
     claimByDuty: Map<string, DutyClaim>
     currentUserId?: string | null
     canManagePool?: boolean
-    kits?: PoolKit[]
     kitBookings?: KitBookingDetail[]
     kitReadiness?: Map<string, KitReadiness>
-    canManageKits?: boolean
-    /** ใบจัดของ (แท็บจัดของ) — สถานะใบ/ปุ่มเปิดใบ · ไม่ส่ง = UI จองกระเป๋าเดิม */
+    /** ใบจัดของ (แท็บจัดของ) — สถานะใบ/ปุ่มเปิดใบ · ไม่ส่ง = ยังไม่มีใบจัดของ/แพ็กเกจ */
     packing?: KitPackingInfo
     /** สิทธิ์รับหน้าที่นี้ของผู้ใช้ (D1) — ไม่ได้ = ปุ่มรับเป็นป้ายจาง "รอ…รับ" */
     gate?: ClaimGate
@@ -201,7 +196,7 @@ export default function DutyTab({
             )
         }
         if (duty === 'vehicle') return <VehicleCell lead={lead} all={all} onSaved={onVehicleSaved} autoFocus={opened} />
-        return <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} defaultOpen={opened} packing={packing} />
+        return <KitSummary lead={lead} bookings={kitBookings} packing={packing} />
     }
 
     const waitingLeads = visible.filter(l => !claimOf(l) && !isClaimWaived(l, duty))

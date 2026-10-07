@@ -1817,7 +1817,7 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
             <FlowArrow />
             <FlowNode variant="user"  emoji="➕" title={isEn ? 'Add items at /kits/[id]' : 'เพิ่ม item ที่ /kits/[id]'} subtitle={isEn ? 'one item per kit (no duplicates)' : 'item ละ kit (ห้ามซ้ำ)'} />
             <FlowArrow />
-            <FlowNode variant="admin" emoji="🎯" title={isEn ? 'Assigned to event (via /events/new or edit)' : 'ผูกกับ event (สร้าง / แก้ event)'} tag="kits.event_id = event.id" />
+            <FlowNode variant="admin" emoji="🎯" title={isEn ? 'Booked to an event via its packing list' : 'ผูกกับ event ผ่านใบจัดของ'} subtitle={isEn ? 'no more direct kit booking in the event form' : 'ฟอร์มอีเวนต์ไม่มีช่องจองกระเป๋าแล้ว'} tag="kits.event_id = event.id" />
             <FlowArrow />
             <FlowNode variant="user"  emoji="✅" title={isEn ? 'Check-out at /kits/[id]/check' : 'check-out ที่ /kits/[id]/check'} subtitle={isEn ? 'bulk-mark all selected as in_use' : 'กดทีเดียว set in_use ทุก item ที่เลือก'} />
             <FlowArrow label={isEn ? 'event runs' : 'งานดำเนิน...'} />
@@ -2039,6 +2039,199 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
             <MenuLink href="/example-kits"      labelEn="Templates"                   labelTh="Templates" />
             <MenuLink href="/stock/dashboard"   labelEn="Stock dashboard"             labelTh="แดชบอร์ดคลัง" />
             <MenuLink href="/logs"              labelEn="Activity log (admin)"        labelTh="Activity log (admin)" />
+          </div>
+        </div>
+
+        {/* ════ ใบจัดของ (เฟส 1–6 ของแผนอุปกรณ์) ════════════════════════ */}
+        <div id="stock-packing-flow" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ClipboardList className="h-4 w-4" />}
+            title={isEn ? 'Packing lists — /packing' : 'ใบจัดของ — /packing'}
+            color="violet"
+          />
+          <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-400">
+            {isEn
+              ? 'Every event gets its equipment through one packing list. Booking kits directly from the event form or the job pool has been removed — the list books kits and items for you.'
+              : 'อุปกรณ์ของทุกอีเวนต์จัดผ่านใบจัดของ (อีเวนต์ละ 1 ใบ) — การจองกระเป๋าตรงจากฟอร์มอีเวนต์หรือหน้าติดตามงานถูกถอดแล้ว ใบจัดของจองกระเป๋าและอุปกรณ์ให้เอง'}
+          </p>
+          <FlowchartBox
+            title={isEn ? '6 steps of a packing list' : '6 ขั้นของใบจัดของ'}
+            subtitle={isEn ? 'sales pick a package → packing team → on-site team → packing team' : 'ทีมขายเลือกแพ็กเกจ → ทีมจัดของ → ทีมหน้างาน → ทีมจัดของ'}
+            color="purple"
+          >
+            <FlowNode variant="start" emoji="🛒" title={isEn ? 'Sales pick a package (and booth unit)' : 'ทีมขายเลือกแพ็กเกจ (และตู้)'} subtitle={isEn ? 'on the CRM lead page — warns when equipment may run short' : 'ที่หน้าลูกค้าใน CRM — เตือนเมื่ออุปกรณ์อาจไม่พอ'} />
+            <FlowArrow label={isEn ? 'packing team opens the list' : 'ทีมจัดของเปิดใบจัดของ'} />
+            <FlowNode variant="user" emoji="📝" title={isEn ? '1. Selecting' : '1. เลือกของ'} subtitle={isEn ? 'choose a unit for each package requirement + extras' : 'เลือกอุปกรณ์ให้ครบทุกข้อของแพ็กเกจ + ของเสริมได้'} tag="selecting" />
+            <FlowArrow />
+            <FlowNode variant="user" emoji="🧺" title={isEn ? '2. Picking' : '2. กำลังหยิบ'} subtitle={isEn ? 'walk room → cabinet → shelf, tick each line (or print A4)' : 'เดินตามห้อง → ตู้ → ชั้น ติ๊กทีละบรรทัด (หรือพิมพ์ A4)'} tag="picking" />
+            <FlowArrow label={isEn ? 'photo + pickup spot' : 'ถ่ายรูป + เลือกจุดรับของ'} />
+            <FlowNode variant="admin" emoji="📦" title={isEn ? '3. Ready for pickup' : '3. พร้อมรับ'} subtitle={isEn ? 'the "packing" readiness item passes · team lead is notified' : 'ความพร้อมข้อ "จัดของ" ผ่าน · แจ้งหัวหน้างาน'} tag="ready" />
+            <FlowArrow label={isEn ? 'on-site team scans the pickup-spot QR' : 'ทีมหน้างานสแกน QR จุดรับของ'} />
+            <FlowNode variant="user" emoji="🚚" title={isEn ? '4. Out at the event' : '4. ออกงาน'} subtitle={isEn ? 'tick every line while loading · job moves to "loading"' : 'ติ๊กครบทุกบรรทัดตอนขึ้นรถ · ใบงานหน้างานเลื่อนเป็น "ขนของ"'} tag="out" />
+            <FlowArrow label={isEn ? 'back at the office, scan the same spot' : 'กลับออฟฟิศ สแกนจุดเดิม'} />
+            <FlowNode variant="user" emoji="↩️" title={isEn ? '5. Returned' : '5. คืนแล้ว'} subtitle={isEn ? 'condition per line + consumables used · the event closes' : 'เลือกสภาพทีละบรรทัด + วัสดุสิ้นเปลืองที่ใช้ · อีเวนต์ปิดให้เอง'} tag="returned" />
+            <FlowArrow />
+            <FlowNode variant="success" emoji="🗄️" title={isEn ? '6. Restocked' : '6. คืนชั้นแล้ว'} subtitle={isEn ? 'packing team puts each line back on its shelf' : 'ทีมจัดของเก็บของขึ้นชั้นทีละบรรทัด สถานะอุปกรณ์กลับตามสภาพ'} tag="done" />
+          </FlowchartBox>
+        </div>
+
+        <div id="stock-packing-roles" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Users className="h-4 w-4" />}
+            title={isEn ? 'Who does what' : 'ใครทำอะไร'}
+            color="violet"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="🛒 ทีมขาย"
+              titleEn="🛒 Sales"
+              lines={isEn
+                ? [
+                    'Pick packages for the job on the CRM lead page',
+                    'Booth-type categories: pick the exact unit (and variant)',
+                    'A warning shows when equipment may run short that day',
+                  ]
+                : [
+                    'เลือกแพ็กเกจของงานที่หน้าลูกค้าใน CRM',
+                    'ประเภทตู้: ทีมขายเลือกชิ้นเอง (และแบบประกอบ)',
+                    'ขึ้นคำเตือนเมื่ออุปกรณ์วันนั้นอาจไม่พอ',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="🧺 ทีมจัดของ"
+              titleEn="🧺 Packing team"
+              lines={isEn
+                ? [
+                    'Queue at /packing: jobs with a package but no list, lists in progress, lists to restock',
+                    'Open the list from the queue or the "Packing" tab of job tracking',
+                    'Select → pick → confirm with a photo and a pickup spot',
+                    'Restock returned lists shelf by shelf',
+                  ]
+                : [
+                    'คิวงานที่ /packing: งานที่มีแพ็กเกจแต่ยังไม่มีใบ · ใบที่กำลังทำ · ใบที่รอคืนชั้น',
+                    'เปิดใบจากคิว หรือแท็บ "จัดของ" ในหน้าติดตามงาน',
+                    'เลือกของ → หยิบ → ยืนยันพร้อมรูปและจุดรับของ',
+                    'คืนชั้นใบที่คืนแล้วทีละบรรทัด',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="🚚 ทีมหน้างาน"
+              titleEn="🚚 On-site team"
+              lines={isEn
+                ? [
+                    'Scan the pickup-spot QR → /pickup/<spot> lists the ready lists there',
+                    'Hand-over: tick lines (or "all items") while loading',
+                    'Return: scan the same spot, set condition per line, add photos if needed',
+                    'Kit QR codes still work for per-item check-out / check-in on site',
+                  ]
+                : [
+                    'สแกน QR จุดรับของ → /pickup/<จุด> แสดงใบที่พร้อมรับ ณ จุดนั้น',
+                    'รับของ: ติ๊กทีละบรรทัด (หรือ "ครบทุกชิ้น") ตอนขึ้นรถ',
+                    'คืนของ: สแกนจุดเดิม เลือกสภาพทีละบรรทัด แนบรูปได้',
+                    'QR กระเป๋ายังใช้นำออก/รับคืนรายชิ้นหน้างานได้เหมือนเดิม',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="✅ ผู้ปิดงาน"
+              titleEn="✅ Whoever closes the event"
+              lines={isEn
+                ? [
+                    'Returning the list closes the event (consumables, closure snapshot, on-site job done)',
+                    'Events with a list: /events/<id>/return shows the list summary to confirm',
+                    'Old events without a list close the old way',
+                  ]
+                : [
+                    'คืนของตามใบ = ปิดอีเวนต์ให้ (ตัดวัสดุสิ้นเปลือง · บันทึกปิดงาน · ใบงานหน้างานเสร็จ)',
+                    'อีเวนต์ที่มีใบ: /events/<id>/return แสดงสรุปจากใบให้ยืนยัน',
+                    'อีเวนต์เก่าที่ไม่มีใบ ปิดงานแบบเดิม',
+                  ]}
+            />
+          </div>
+        </div>
+
+        <div id="stock-packing-pickup" className="scroll-mt-6">
+          <SectionHeader
+            icon={<QrCode className="h-4 w-4" />}
+            title={isEn ? 'Pickup-spot QR — /stock/settings' : 'QR จุดรับของ — /stock/settings'}
+            color="violet"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="📍 ตั้งจุดรับของ"
+              titleEn="📍 Set up pickup spots"
+              lines={isEn
+                ? [
+                    'Stock settings → Pickup spots: add a spot (e.g. table by the door)',
+                    'Print the spot QR on A4 and stick it at the spot',
+                    'Anyone with the Events or Stock module can scan it',
+                  ]
+                : [
+                    'ตั้งค่าคลัง → จุดรับของ: เพิ่มจุด (เช่น โต๊ะหน้าประตู)',
+                    'พิมพ์ QR จุดรับของเป็น A4 แล้วติดไว้ที่จุดนั้น',
+                    'คนที่มีโมดูลอีเวนต์หรือสต็อกสแกนได้',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="🧾 ความพร้อม 'จัดของ'"
+              titleEn="🧾 'Packing' readiness"
+              lines={isEn
+                ? [
+                    'Missing until every open event of the job has a list at "Ready" or later',
+                    'Skipped on-site job or "no packing needed" = not counted',
+                    'Old events without a list but with fully packed kits still pass',
+                  ]
+                : [
+                    'ขาด จนกว่าทุกอีเวนต์ที่ยังไม่ปิดของงานมีใบจัดของถึง "พร้อมรับ" ขึ้นไป',
+                    'ใบงานหน้างานถูกข้าม หรือตั้ง "ไม่ต้องจัด" = ไม่นับ',
+                    'อีเวนต์เก่าที่ไม่มีใบแต่จัดกระเป๋าครบแล้ว ยังผ่านเหมือนเดิม',
+                  ]}
+            />
+          </div>
+        </div>
+
+        <div id="stock-packing-usage" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Trophy className="h-4 w-4" />}
+            title={isEn ? 'Trophies & usage page — /stock/usage' : 'ถ้วยรางวัล + หน้าการใช้งาน — /stock/usage'}
+            color="violet"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="🏆 ถ้วย 2 สาย"
+              titleEn="🏆 Two trophy tracks"
+              lines={isEn
+                ? [
+                    'Packer: lists confirmed (Ready or later) — one per list, to whoever confirmed',
+                    'Restocker: lists fully restocked — one per list, to whoever finished',
+                    'Shown with the other champions on the dashboard and in reports',
+                  ]
+                : [
+                    'นักจัดของ: ใบที่ยืนยันจัดของแล้ว (พร้อมรับขึ้นไป) — ใบละ 1 ครั้งให้คนยืนยัน',
+                    'นักคืนของ: ใบที่คืนชั้นครบ — ใบละ 1 ครั้งให้คนที่ทำจนจบ',
+                    'แสดงคู่กับแชมป์อื่นในแดชบอร์ดและหน้ารายงาน',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh="📊 หน้าการใช้งานอุปกรณ์"
+              titleEn="📊 Equipment usage page"
+              lines={isEn
+                ? [
+                    'Which packages and equipment are used most, hours out per unit',
+                    'Period chips filter packages by event date and people by pickup date',
+                    '12-month chart does not change with the chips',
+                  ]
+                : [
+                    'แพ็กเกจ/อุปกรณ์ที่ใช้บ่อย และชั่วโมงที่ออกงานของแต่ละชิ้น',
+                    'ชิปช่วงเวลา: แพ็กเกจกรองด้วยวันงาน · คนกรองด้วยวันรับของ',
+                    'กราฟ 12 เดือนไม่เปลี่ยนตามชิป',
+                  ]}
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/packing"        labelEn="Packing queue"          labelTh="คิวใบจัดของ" />
+            <MenuLink href="/packages"       labelEn="Packages"               labelTh="แพ็กเกจ" />
+            <MenuLink href="/stock/settings" labelEn="Stock settings & spots" labelTh="ตั้งค่าคลัง + จุดรับของ" />
+            <MenuLink href="/stock/usage"    labelEn="Equipment usage"        labelTh="การใช้งานอุปกรณ์" />
           </div>
         </div>
 
@@ -5550,8 +5743,8 @@ const MODULES: ModuleConfig[] = [
     Icon: Package,
     titleTh: 'Stock — คลังอุปกรณ์',
     titleEn: 'Stock — Inventory',
-    descTh: 'items · kits · templates · dashboard · QR · activity log',
-    descEn: 'items · kits · templates · dashboard · QR · activity log',
+    descTh: 'items · kits · ใบจัดของ · templates · dashboard · QR · activity log',
+    descEn: 'items · kits · packing lists · templates · dashboard · QR · activity log',
     groups: [
       {
         titleTh: 'เริ่มต้น',
@@ -5585,6 +5778,16 @@ const MODULES: ModuleConfig[] = [
         items: [
           { id: 'stock-permissions', titleTh: 'สิทธิ์การใช้งาน', titleEn: 'Permissions' },
           { id: 'stock-menu',        titleTh: 'เมนูทั้งหมด',     titleEn: 'Menu shortcuts' },
+        ],
+      },
+      {
+        titleTh: 'ใบจัดของ',
+        titleEn: 'Packing lists',
+        items: [
+          { id: 'stock-packing-flow',   titleTh: '6 ขั้นของใบจัดของ',  titleEn: '6 steps' },
+          { id: 'stock-packing-roles',  titleTh: 'ใครทำอะไร',         titleEn: 'Who does what' },
+          { id: 'stock-packing-pickup', titleTh: 'QR จุดรับของ',       titleEn: 'Pickup-spot QR' },
+          { id: 'stock-packing-usage',  titleTh: 'ถ้วย + การใช้งาน',   titleEn: 'Trophies & usage' },
         ],
       },
     ],

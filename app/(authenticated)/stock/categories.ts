@@ -31,6 +31,10 @@ export async function loadCategories(db: Db, opts: { includeInactive?: boolean }
 /**
  * ประเภทอุปกรณ์จากฟอร์ม (field category_id) → { category_id, category } ที่จะเขียนคู่กัน
  * ค่าว่าง = ไม่ระบุทั้งคู่ · id ที่ไม่มีในตาราง = error
+ *
+ * items.category (text) เป็นค่า derived จาก category_id → equipment_categories.name — เขียนได้สองทางเท่านั้น:
+ * ฟังก์ชันนี้ (ตอนสร้าง/แก้อุปกรณ์ใน items/actions, items/[id]/actions) และ stock/settings/actions.ts::updateCategory
+ * (เปลี่ยนชื่อประเภทแล้ว sync ข้อความตาม) · ห้ามเขียนชื่อประเภทตรงๆ หรือ hardcode รายชื่อประเภทในโค้ด
  */
 export async function resolveCategory(db: Db, raw: FormDataEntryValue | null): Promise<{ category_id: string | null; category: string | null } | { error: string }> {
   const id = typeof raw === 'string' ? raw.trim() : ''

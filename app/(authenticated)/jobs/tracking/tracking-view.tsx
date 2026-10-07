@@ -664,7 +664,6 @@ export default function TrackingView({
     packingLists = [],
     canPack = false,
     eventVehicles = [],
-    canManageKits = false,
     isAdmin = false,
     myDepartment = null,
     poolDepartments,
@@ -688,9 +687,9 @@ export default function TrackingView({
     currentUserId?: string | null
     /** แอดมิน/ฝ่ายประสานงาน — ข้ามใบงานและเปลี่ยนคนรับได้ */
     canManagePool?: boolean
-    /** กระเป๋าทั้งหมด — ตัวเลือกในกล่องจองกระเป๋าของใบงานหน้างาน */
+    /** กระเป๋าทั้งหมด — ชื่อกระเป๋าในเลนไทม์ไลน์ */
     kits?: PoolKit[]
-    /** การจองกระเป๋า (event_kits) ของงานเหล่านี้ + ของอีเวนต์อื่นในวันเดียวกัน (ใช้บอกว่าชน) */
+    /** การจองกระเป๋า (event_kits) ของงานเหล่านี้ + ของอีเวนต์อื่นในวันเดียวกัน — ความพร้อม/ไทม์ไลน์/การจองแบบเดิม */
     kitBookings?: KitBookingRow[]
     /** ใบจัดของของงานเหล่านี้ (snapshot.packingLists) — ความพร้อมข้อ "จัดของ" */
     packingLists?: PackingListSummary[]
@@ -698,8 +697,6 @@ export default function TrackingView({
     canPack?: boolean
     /** การจองรถรายอีเวนต์ (event_vehicles) — ช่อง "จัดรถ" ของแถวรายอีเวนต์อ่านค่าจากตรงนี้ */
     eventVehicles?: EventVehicle[]
-    /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
-    canManageKits?: boolean
     /** role = admin เท่านั้น — แท็บใบงานหน้างาน (หัวหน้างาน) แสดงเฉพาะแอดมิน */
     isAdmin?: boolean
     /** แผนกของผู้ใช้ — ตัดสินว่าปุ่มรับจุดไหนกดได้ (D1) */
@@ -1443,11 +1440,9 @@ export default function TrackingView({
                     today={today}
                     currentUserId={currentUserId}
                     canManagePool={canManagePool}
-                    kits={kits}
                     kitBookings={kitBookings}
                     kitReadiness={kitReadiness}
                     designReady={designReady}
-                    canManageKits={canManageKits}
                     packing={packing}
                     onJobDesignStatusChange={saveJobDesign}
                     onClaimJob={onClaimJob}
@@ -1467,10 +1462,8 @@ export default function TrackingView({
                     claimByDuty={claimByDuty}
                     currentUserId={currentUserId}
                     canManagePool={canManagePool}
-                    kits={kits}
                     kitBookings={kitBookings}
                     kitReadiness={kitReadiness}
-                    canManageKits={canManageKits}
                     packing={packing}
                     onVehicleSaved={syncVehicle}
                     onStaffSaved={onStaffSaved}
@@ -1638,7 +1631,7 @@ export default function TrackingView({
                                                 <TableCell><SupplierCell lead={lead} save={save} /></TableCell>
                                                 <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={null} defaultOpen={justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
                                                 <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={null} eventVehicles={eventVehicles} autoFocus={justClaimedDuty(lead.id, 'vehicle')} />)}</TableCell>
-                                                <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} packing={packing} eventId={null} defaultOpen={justClaimedDuty(lead.id, 'kits')} />)}</TableCell>
+                                                <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} bookings={kitBookings} packing={packing} eventId={null} />)}</TableCell>
                                                 <TableCell><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></TableCell>
                                             </TableRow>
                                         )
@@ -1680,7 +1673,7 @@ export default function TrackingView({
                                                     <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
                                                     {/* งานหลายอีเวนต์: เปิดให้เองเฉพาะแถวอีเวนต์แรก ไม่งั้นเด้งพร้อมกันทุกใบ */}
                                                     <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} autoFocus={si === 0 && justClaimedDuty(lead.id, 'vehicle')} />)}</TableCell>
-                                                    <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} packing={packing} eventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'kits')} />)}</TableCell>
+                                                    <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} bookings={kitBookings} packing={packing} eventId={ev.id} />)}</TableCell>
                                                 </TableRow>
                                             ))}
                                         </Fragment>
@@ -1750,7 +1743,7 @@ export default function TrackingView({
                                                 <EventLabel event={ev} />
                                                 <div className="grid grid-cols-2 gap-2">
                                                     {mobileDuty(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={ev.id} eventVehicles={eventVehicles} autoFocus={si === 0 && justClaimedDuty(lead.id, 'vehicle')} />, ev.id)}
-                                                    {mobileDuty(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} packing={packing} eventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'kits')} />, ev.id)}
+                                                    {mobileDuty(lead, 'kits', <KitSummary lead={lead} bookings={kitBookings} packing={packing} eventId={ev.id} />, ev.id)}
                                                 </div>
                                                 {mobileDuty(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={ev.id} defaultOpen={si === 0 && justClaimedDuty(lead.id, 'staffing')} />, ev.id)}
                                             </div>
@@ -1765,7 +1758,7 @@ export default function TrackingView({
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
                                     {mobileDuty(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} autoFocus={justClaimedDuty(lead.id, 'vehicle')} />)}
-                                    {mobileDuty(lead, 'kits', <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} packing={packing} defaultOpen={justClaimedDuty(lead.id, 'kits')} />)}
+                                    {mobileDuty(lead, 'kits', <KitSummary lead={lead} bookings={kitBookings} packing={packing} />)}
                                 </div>
 
                                 {mobileDuty(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} defaultOpen={justClaimedDuty(lead.id, 'staffing')} />)}
