@@ -247,6 +247,10 @@ export interface PackingListDetail {
   bookings: LineBooking[]
   /** หน่วยของทุกประเภทในโครงใบ (รวม inKit — หน้าเลือกกรองด้วย allowedUnits) */
   unitsByCategory: CategoryUnits
+  /** วัสดุสิ้นเปลืองในกระเป๋าของใบ + ที่ตัดยอดไปแล้วของอีเวนต์นี้ (เฟส 4 — สรุปคืนของ/ปิดงาน) */
+  consumables: KitConsumable[]
+  /** ชื่อคน (packed_by / handed_over_by / returned_by / restocked_by / picked_by / restocked_by ของบรรทัด) — id → ชื่อเล่นหรือชื่อเต็ม */
+  people: Record<string, string>
 }
 
 /** การ์ดในคิว /packing */
@@ -270,4 +274,66 @@ export interface PackingQueue {
   awaiting: PackingQueueCard[]
   active: PackingQueueCard[]
   ready: PackingQueueCard[]
+  /** ออกงาน (รับของแล้ว ยังไม่คืน) — เฟส 4 */
+  out: PackingQueueCard[]
+  /** รอคืนชั้น (คืนของแล้ว) — เฟส 4 */
+  returned: PackingQueueCard[]
 }
+
+// --- เฟส 4: รับของ / คืนของ / คืนชั้น ----------------------------------------------
+
+/** วัสดุสิ้นเปลืองในกระเป๋าหนึ่งใบ (ช่อง "ใช้ไป" ตอนคืนของ) */
+export interface KitConsumable {
+  kitId: string
+  itemId: string
+  name: string
+  unit: string | null
+  /** จำนวนประจำกระเป๋า (kit_contents.quantity) — เกิน = เตือนเหลืองไม่บล็อก */
+  kitQuantity: number
+  /** ที่ตัดยอดไปแล้วของอีเวนต์นี้ (stock_movements reason use) — null = ยังไม่ตัด */
+  alreadyUsed: number | null
+}
+
+/** การ์ดใบจัดของที่จุดรับของ (/pickup/[id]) — loadListsAtSpot */
+export interface PickupCard extends PackingQueueCard {
+  /** บรรทัดพร้อมชื่อ/serial/ชนิด/แพ็กเกจ · บรรทัดกระเป๋ามี kitItems (ชิ้นในกระเป๋า) */
+  lines: PackingLineView[]
+  /** วัสดุสิ้นเปลืองของทุกกระเป๋าในใบ */
+  consumables: KitConsumable[]
+  /** ผู้ดูอยู่ใน event_staff ของอีเวนต์นี้ (เรียงขึ้นก่อน) */
+  isMine: boolean
+  /** อีเวนต์ปิดแล้ว (ใบคืนแล้ว + ปิดงานแล้ว) */
+  eventClosed: boolean
+}
+
+/** ข้อมูลคืนของที่หน้าจุดรับของส่งให้ returnPackingList */
+export interface ReturnPackingInput {
+  /** สภาพของทุกบรรทัด (ค่าเริ่มต้นหน้าจอ = available) */
+  lines: { lineId: string; condition: ReturnCondition; note?: string | null }[]
+  /** สภาพรายชิ้นในกระเป๋า (ไม่ระบุ = ตามสภาพของบรรทัดกระเป๋า ถ้าไม่ได้ระบุชิ้นใดของกระเป๋านั้นเลย ไม่งั้น available) */
+  kitItems?: { itemId: string; condition: ReturnCondition }[]
+  /** วัสดุสิ้นเปลืองที่ใช้ไปต่อ (กระเป๋า, ของ) */
+  consumableUse: { kitId: string; itemId: string; used: number }[]
+  /** รูปตอนคืน (uploadReturnPhoto) — ไม่บังคับ */
+  photoUrls: string[]
+  note?: string | null
+}
+
+/** ผลตรวจ ReturnPackingInput (parseReturnInput) */
+export interface ParsedReturn {
+  lines: { lineId: string; condition: ReturnCondition; note: string | null }[]
+  /** ชิ้นในกระเป๋าที่สภาพ ≠ available (ต้องตั้งสถานะทันทีตอนคืน) */
+  kitItems: { kitId: string; itemId: string; condition: ReturnCondition }[]
+  consumableUse: { kitId: string; itemId: string; used: number }[]
+  note: string | null
+}
+
+/** ผลของ returnPackingList — eventClosed = ปิดอีเวนต์ในขั้นเดียวกัน (ผู้คืนมีสิทธิ์ปิดงาน) */
+export type ReturnPackingResult =
+  | { error: string }
+  | { success: true; eventClosed: boolean; /** ปิดงานไม่สำเร็จ (คืนของสำเร็จแล้ว) */ closeError?: string }
+
+/** แผนคืนชั้นของบรรทัดหนึ่ง (restockPlan) */
+export type RestockPlan =
+  | { kind: 'item'; itemId: string; itemStatus: ReturnCondition }
+  | { kind: 'kit'; kitId: string; kitItemIds: string[] }

@@ -250,6 +250,13 @@ export type ActionType =
     | 'CREATE_PICKUP_SPOT'
     | 'UPDATE_PICKUP_SPOT'
     | 'DELETE_PICKUP_SPOT'
+    // รับของ / คืนของ / คืนชั้น (เฟส 4)
+    | 'HAND_OVER_PACKING'
+    | 'RETURN_PACKING'
+    | 'RESTOCK_PACKING_LINE'
+    | 'RESTOCK_PACKING'
+    | 'AUTO_LOADING_POOL_JOB'
+    | 'CLOSE_EVENT_FROM_PACKING'
     // Salary (เงินเดือน)
     | 'UPDATE_SALARY_SETTINGS'
     | 'UPDATE_SALARY_DUTY'

@@ -120,6 +120,7 @@ export async function loadCapacityInputs(db: Db, opts: { leadIds?: string[]; dat
     })
   }
   const jobs = [...jobById.values()]
+  await attachPackedUnits(db, jobs)
 
   const unitBookings: UnitBooking[] = jobs
     .filter(j => !j.closed)
@@ -130,6 +131,52 @@ export async function loadCapacityInputs(db: Db, opts: { leadIds?: string[]; dat
     )
 
   return { jobs, packages, categories, unitsByCategory, unitBookings }
+}
+
+/** ยังไม่รัน migration 20261012 (ไม่มีตาราง packing_lists) */
+const MISSING_TABLE = ['42P01', 'PGRST205']
+
+/**
+ * บรรทัดใบจัดของของงานเหล่านี้ (ใบที่ยังไม่คืนชั้น · บรรทัดที่มี category_id) → CapacityJob.packedUnits
+ * งานที่มีใบ = นับเฉพาะชิ้นที่เลือกในใบเป็น "แน่นอน" ไม่มีส่วนประมาณการ · งานไม่มีใบ = ไม่แตะ (ใช้ lead_package_units เดิม)
+ * ยังไม่รัน migration = ข้าม (คำเตือนแบบเดิม) · อ่านพังอย่างอื่น = throw
+ */
+async function attachPackedUnits(db: Db, jobs: CapacityJob[]): Promise<void> {
+  if (jobs.length === 0) return
+  const lists = await readAllRows<{ id: string; lead_id: string | null }>((from, to) =>
+    db
+      .from('packing_lists')
+      .select('id, lead_id')
+      .in('lead_id', jobs.map(j => j.leadId))
+      .neq('status', 'done')
+      .order('created_at')
+      .order('id')
+      .range(from, to),
+  )
+  if (lists.error) {
+    if (MISSING_TABLE.includes(lists.error.code ?? '')) return
+    throw new Error(`โหลดใบจัดของไม่สำเร็จ: ${lists.error.message}`)
+  }
+  if (lists.rows.length === 0) return
+  const lines = await readAllRows<{ list_id: string; category_id: string; item_id: string | null; kit_id: string | null }>((from, to) =>
+    db
+      .from('packing_list_items')
+      .select('list_id, category_id, item_id, kit_id')
+      .in('list_id', lists.rows.map(l => l.id))
+      .not('category_id', 'is', null)
+      .order('created_at')
+      .order('id')
+      .range(from, to),
+  )
+  if (lines.error) throw new Error(`โหลดรายการในใบจัดของไม่สำเร็จ: ${lines.error.message}`)
+  const leadOfList = new Map(lists.rows.map(l => [l.id, l.lead_id]))
+  const withList = new Set(lists.rows.map(l => l.lead_id))
+  for (const job of jobs) {
+    if (!withList.has(job.leadId)) continue
+    job.packedUnits = lines.rows
+      .filter(l => leadOfList.get(l.list_id) === job.leadId && (l.item_id || l.kit_id))
+      .map(l => ({ categoryId: l.category_id, unitId: (l.item_id ?? l.kit_id) as string }))
+  }
 }
 
 /** คำเตือนของแต่ละงานจากข้อมูลที่โหลดแล้ว (pure) — งานที่ไม่มีแพ็กเกจ/ไม่มีวันงาน = [] */

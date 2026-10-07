@@ -12,6 +12,7 @@ import {
   PACKING_LINE_COLUMNS,
   PACKING_LIST_COLUMNS,
   PICKUP_SPOT_COLUMNS,
+  type KitConsumable,
   type KitItemState,
   type LineBooking,
   type PackingLineRow,
@@ -21,6 +22,7 @@ import {
   type PackingListSummary,
   type PackingQueue,
   type PackingQueueCard,
+  type PickupCard,
   type PickupSpot,
   type ShelfPlace,
 } from './types'
@@ -106,13 +108,83 @@ export async function loadPickupSpot(db: Db, id: string): Promise<PickupSpot | n
   return data ?? null
 }
 
-/** ใบจัดของที่วางไว้ที่จุดนี้ (หน้า /pickup/[id]) — สถานะที่ขอ (ค่าเริ่มต้น ready, out) */
-export async function loadListsAtSpot(db: Db, spotId: string, statuses: string[] = ['ready', 'out']): Promise<PackingQueueCard[]> {
+/**
+ * ใบจัดของที่วางไว้ที่จุดนี้ (หน้า /pickup/[id]) — สถานะที่ขอ (ค่าเริ่มต้น ready, out)
+ * แต่ละการ์ดมีบรรทัด (ชื่อ/serial/ชนิด/แพ็กเกจ · บรรทัดกระเป๋ามี kitItems) + วัสดุสิ้นเปลืองต่อกระเป๋า (ช่อง "ใช้ไป" ตอนคืนของ)
+ * เรียง: อีเวนต์ที่ผู้ดู (viewerUserId) อยู่ใน event_staff ขึ้นก่อน แล้ววันงาน/เวลาใกล้ก่อน
+ */
+export async function loadListsAtSpot(
+  db: Db,
+  spotId: string,
+  statuses: string[] = ['ready', 'out'],
+  viewerUserId: string | null = null,
+): Promise<PickupCard[]> {
   const res = await readAllRows<Pick<PackingListRow, 'id' | 'event_id' | 'lead_id' | 'status' | 'spot_id'>>((from, to) =>
     db.from('packing_lists').select('id, event_id, lead_id, status, spot_id').eq('spot_id', spotId).in('status', statuses).order('created_at').order('id').range(from, to),
   )
   fail('โหลดใบจัดของที่จุดรับของไม่สำเร็จ', res.error)
-  return queueCards(db, await summarize(db, res.rows), [])
+  const cards = await queueCards(db, await summarize(db, res.rows), [])
+  if (cards.length === 0) return []
+
+  const listIds = cards.flatMap(c => (c.list ? [c.list.id] : []))
+  const eventIds = [...new Set(cards.map(c => c.eventId))]
+  const leadIds = [...new Set(cards.flatMap(c => (c.leadId ? [c.leadId] : [])))]
+  const [lines, staffRes, evRes, packages] = await Promise.all([
+    loadPackingLines(db, listIds),
+    viewerUserId ? db.from('event_staff').select('event_id').eq('user_id', viewerUserId).in('event_id', eventIds) : Promise.resolve({ data: [], error: null }),
+    db.from('events').select('id, status').in('id', eventIds),
+    loadLeadPackages(db, leadIds),
+  ])
+  fail('โหลดทีมงานของอีเวนต์ไม่สำเร็จ', staffRes.error ?? evRes.error)
+  const mine = new Set(((staffRes.data ?? []) as { event_id: string }[]).map(r => r.event_id))
+  const closed = new Set(((evRes.data ?? []) as { id: string; status: string | null }[]).filter(e => isClosedEvent(e.status)).map(e => e.id))
+  const pkgName = new Map(Object.values(packages).flat().map(p => [p.packageId, p.packageName]))
+
+  const out: PickupCard[] = []
+  for (const c of cards) {
+    const listLines = lines.filter(l => l.list_id === c.list?.id)
+    const [views, consumables] = await Promise.all([
+      buildLineViews(db, listLines, c.eventId, pkgName),
+      loadKitConsumables(db, listLines.flatMap(l => (l.kit_id ? [l.kit_id] : [])), c.eventId),
+    ])
+    out.push({ ...c, lines: views, consumables, isMine: mine.has(c.eventId), eventClosed: closed.has(c.eventId) })
+  }
+  // sort เสถียร: ของผู้ดูขึ้นก่อน ลำดับวันงานจาก queueCards คงเดิม
+  return out.sort((a, b) => Number(b.isMine) - Number(a.isMine))
+}
+
+/**
+ * วัสดุสิ้นเปลืองในกระเป๋าเหล่านี้ + จำนวนที่ตัดยอดไปแล้วของอีเวนต์ eventId (stock_movements reason use)
+ * เรียงชื่อกระเป๋าตามลำดับที่ส่ง แล้วชื่อของ
+ */
+export async function loadKitConsumables(db: Db, kitIds: string[], eventId: string): Promise<KitConsumable[]> {
+  const ids = [...new Set(kitIds)]
+  if (ids.length === 0) return []
+  type Row = { kit_id: string; quantity: number | null; items: { id: string; name: string; unit: string | null; is_consumable: boolean | null } | null }
+  const [contents, moves] = await Promise.all([
+    readAllRows<Row>((from, to) =>
+      db.from('kit_contents').select('kit_id, quantity, items(id, name, unit, is_consumable)').in('kit_id', ids).order('id').range(from, to),
+    ),
+    readAllRows<{ kit_id: string | null; item_id: string; delta: number }>((from, to) =>
+      db.from('stock_movements').select('kit_id, item_id, delta').eq('event_id', eventId).eq('reason', 'use').order('created_at').order('id').range(from, to),
+    ),
+  ])
+  fail('โหลดวัสดุสิ้นเปลืองในกระเป๋าไม่สำเร็จ', contents.error ?? moves.error)
+  const usedOf = (kitId: string, itemId: string) => {
+    const hit = moves.rows.filter(m => m.kit_id === kitId && m.item_id === itemId)
+    return hit.length ? hit.reduce((sum, m) => sum - m.delta, 0) : null
+  }
+  return contents.rows
+    .filter(c => c.items?.is_consumable)
+    .map(c => ({
+      kitId: c.kit_id,
+      itemId: c.items!.id,
+      name: c.items!.name,
+      unit: c.items!.unit ?? null,
+      kitQuantity: c.quantity ?? 1,
+      alreadyUsed: usedOf(c.kit_id, c.items!.id),
+    }))
+    .sort((a, b) => ids.indexOf(a.kitId) - ids.indexOf(b.kitId) || a.name.localeCompare(b.name, 'th', { numeric: true }))
 }
 
 /** ตำแหน่งบนชั้น (ห้อง › ตู้ › ระดับ) ของชั้นเหล่านี้ — shelfId → ตำแหน่ง */
@@ -246,26 +318,82 @@ export async function loadPackingListDetail(db: Db, id: string): Promise<Packing
   const pickerPackages = await loadPickerPackages(db, { onlyIds: [...new Set(leadPackages.map(p => p.packageId))] })
   const scaffold = scaffoldLines(leadPackages, pickerPackages)
 
-  const itemIds = lines.flatMap(l => (l.item_id ? [l.item_id] : []))
   const kitIds = lines.flatMap(l => (l.kit_id ? [l.kit_id] : []))
-  const categoryIds = [...new Set([...scaffold.map(r => r.categoryId), ...lines.flatMap(l => (l.category_id ? [l.category_id] : []))])]
-  const [itemsRes, kitsRes, catsRes, kitStates, unitsByCategory, bookings, spot] = await Promise.all([
-    itemIds.length ? db.from('items').select('id, name, serial_number, status, shelf_id, category_id').in('id', itemIds) : Promise.resolve({ data: [], error: null }),
-    kitIds.length ? db.from('kits').select('id, name, shelf_id, category_id').in('id', kitIds) : Promise.resolve({ data: [], error: null }),
-    categoryIds.length ? db.from('equipment_categories').select('id, name').in('id', categoryIds) : Promise.resolve({ data: [], error: null }),
-    loadKitItemStates(db, kitIds, list.event_id),
+  const pkgName = new Map(leadPackages.map(p => [p.packageId, p.packageName]))
+  const peopleIds = [
+    list.packed_by, list.handed_over_by, list.returned_by, list.restocked_by, list.created_by,
+    ...lines.flatMap(l => [l.picked_by, l.restocked_by]),
+  ].filter((x): x is string => !!x)
+  const [views, unitsByCategory, bookings, spot, consumables, people] = await Promise.all([
+    buildLineViews(db, lines, list.event_id, pkgName),
     loadCategoryUnits(db, { categoryIds: scaffold.map(r => r.categoryId) }),
     loadLineBookings(db, e.event_date ?? null, list.event_id),
     list.spot_id ? loadPickupSpot(db, list.spot_id) : Promise.resolve(null),
+    loadKitConsumables(db, kitIds, list.event_id),
+    loadPeopleNames(db, peopleIds),
+  ])
+
+  return {
+    list,
+    event: {
+      id: list.event_id,
+      name: e.name || 'ไม่ระบุชื่ออีเวนต์',
+      event_date: dayOf(e.event_date),
+      event_time: timeOf(e.event_time),
+      event_end_time: timeOf(e.event_end_time),
+      location: e.location ?? null,
+      status: e.status ?? null,
+    },
+    lead: leadRes.data ?? null,
+    leadPackages,
+    scaffold,
+    lines: views,
+    spot,
+    bookings,
+    unitsByCategory,
+    consumables,
+    people,
+  }
+}
+
+/** ชื่อคน (ชื่อเล่น > ชื่อเต็ม) ของ id เหล่านี้ — id → ชื่อ */
+export async function loadPeopleNames(db: Db, ids: string[]): Promise<Record<string, string>> {
+  const unique = [...new Set(ids.filter(Boolean))]
+  if (unique.length === 0) return {}
+  const { data, error } = await db.from('profiles').select('id, full_name, nickname').in('id', unique)
+  fail('โหลดชื่อผู้ใช้ไม่สำเร็จ', error)
+  const out: Record<string, string> = {}
+  for (const p of (data ?? []) as { id: string; full_name: string | null; nickname: string | null }[]) out[p.id] = p.nickname || p.full_name || 'ไม่ระบุชื่อ'
+  return out
+}
+
+/**
+ * บรรทัดดิบ → บรรทัดพร้อมชื่อ/serial/สถานะ/ประเภท/แพ็กเกจ/ชั้น/ชิ้นในกระเป๋า/ป้ายหยิบไม่ได้ (หน้าใบจัดของ + จุดรับของ)
+ * eventId = อีเวนต์ของใบ (ธง outElsewhere ของชิ้นในกระเป๋า) · pkgName = packageId → ชื่อแพ็กเกจ
+ */
+async function buildLineViews(
+  db: Db,
+  lines: PackingLineRow[],
+  eventId: string,
+  pkgName: Map<string, string>,
+): Promise<PackingLineView[]> {
+  if (lines.length === 0) return []
+  const itemIds = lines.flatMap(l => (l.item_id ? [l.item_id] : []))
+  const kitIds = lines.flatMap(l => (l.kit_id ? [l.kit_id] : []))
+  const categoryIds = [...new Set(lines.flatMap(l => (l.category_id ? [l.category_id] : [])))]
+  const [itemsRes, kitsRes, catsRes, kitStates] = await Promise.all([
+    itemIds.length ? db.from('items').select('id, name, serial_number, status, shelf_id, category_id').in('id', itemIds) : Promise.resolve({ data: [], error: null }),
+    kitIds.length ? db.from('kits').select('id, name, shelf_id, category_id').in('id', kitIds) : Promise.resolve({ data: [], error: null }),
+    categoryIds.length ? db.from('equipment_categories').select('id, name').in('id', categoryIds) : Promise.resolve({ data: [], error: null }),
+    loadKitItemStates(db, kitIds, eventId),
   ])
   fail('โหลดอุปกรณ์ในใบไม่สำเร็จ', itemsRes.error ?? kitsRes.error ?? catsRes.error)
   const items = new Map(((itemsRes.data ?? []) as ItemRow[]).map(i => [i.id, i]))
   const kits = new Map(((kitsRes.data ?? []) as KitRow[]).map(k => [k.id, k]))
   const catName = new Map(((catsRes.data ?? []) as { id: string; name: string }[]).map(c => [c.id, c.name]))
-  const pkgName = new Map(leadPackages.map(p => [p.packageId, p.packageName]))
   const places = await loadShelfPlaces(db, [...[...items.values()].map(i => i.shelf_id), ...[...kits.values()].map(k => k.shelf_id)].filter((x): x is string => !!x))
 
-  const views: PackingLineView[] = lines.map(l => {
+  return lines.map(l => {
     const item = l.item_id ? items.get(l.item_id) : undefined
     const kit = l.kit_id ? kits.get(l.kit_id) : undefined
     const kitItems = l.kit_id ? kitStates[l.kit_id] ?? [] : undefined
@@ -286,26 +414,22 @@ export async function loadPackingListDetail(db: Db, id: string): Promise<Packing
       pickBlock: pick && 'error' in pick ? pick.error : null,
     }
   })
+}
 
-  return {
-    list,
-    event: {
-      id: list.event_id,
-      name: e.name || 'ไม่ระบุชื่ออีเวนต์',
-      event_date: dayOf(e.event_date),
-      event_time: timeOf(e.event_time),
-      event_end_time: timeOf(e.event_end_time),
-      location: e.location ?? null,
-      status: e.status ?? null,
-    },
-    lead: leadRes.data ?? null,
-    leadPackages,
-    scaffold,
-    lines: views,
-    spot,
-    bookings,
-    unitsByCategory,
-  }
+/** ใบจัดของของอีเวนต์ (UNIQUE event_id) · ไม่มี = null — หน้าปิดงาน /events/[id]/return ใช้ตัดสินว่าปิดแบบใบจัดของหรือแบบเดิม */
+export async function loadPackingListForEvent(db: Db, eventId: string): Promise<PackingListRow | null> {
+  const { data, error } = await db.from('packing_lists').select(PACKING_LIST_COLUMNS).eq('event_id', eventId).maybeSingle<PackingListRow>()
+  fail('โหลดใบจัดของของอีเวนต์ไม่สำเร็จ', error)
+  return data ? normalizeList(data) : null
+}
+
+/**
+ * สรุปคืนของสำหรับหน้ายืนยันปิดงานจากใบ (/events/[id]/return) — ใบจัดของเต็ม (บรรทัด+สภาพตอนคืน, วัสดุสิ้นเปลืองที่ตัดแล้ว,
+ * รูปตอนคืนใน list.return_photo_urls, ลูกค้า/วันงาน) · อีเวนต์ไม่มีใบ = null
+ */
+export async function loadReturnSummary(db: Db, eventId: string): Promise<PackingListDetail | null> {
+  const list = await loadPackingListForEvent(db, eventId)
+  return list ? loadPackingListDetail(db, list.id) : null
 }
 
 type LeadRow = { id: string; customer_name: string | null; event_location: string | null; status: string | null; archived_at: string | null }
@@ -353,13 +477,14 @@ async function queueCards(db: Db, lists: PackingListSummary[], awaitingEvents: E
  * คิว /packing ของทีมจัดของ:
  * - awaiting (รอเปิดใบ): อีเวนต์ที่ยังไม่ปิดของงานที่ตอบรับแล้ว ไม่ archive มีแพ็กเกจ วันงาน ≥ today−1 และยังไม่มีใบ
  * - active (กำลังทำ): ใบ เลือกของ/กำลังหยิบ · ready (พร้อมรับ): ใบพร้อมรับ
+ * - out (ออกงาน): รับของแล้ว · returned (รอคืนชั้น): คืนของแล้ว รอทีมจัดของขึ้นชั้น (ใบคืนชั้นแล้วไม่ขึ้นคิว)
  * เรียงวันงาน/เวลาใกล้ก่อน · today = YYYY-MM-DD (bangkokToday)
  */
 export async function loadPackingQueue(db: Db, today: string): Promise<PackingQueue> {
   const [lp, listsRes] = await Promise.all([
     readAllRows<{ lead_id: string }>((from, to) => db.from('lead_packages').select('lead_id').order('created_at').order('id').range(from, to)),
     readAllRows<Pick<PackingListRow, 'id' | 'event_id' | 'lead_id' | 'status' | 'spot_id'>>((from, to) =>
-      db.from('packing_lists').select('id, event_id, lead_id, status, spot_id').in('status', ['selecting', 'picking', 'ready']).order('created_at').order('id').range(from, to),
+      db.from('packing_lists').select('id, event_id, lead_id, status, spot_id').in('status', ['selecting', 'picking', 'ready', 'out', 'returned']).order('created_at').order('id').range(from, to),
     ),
   ])
   fail('โหลดแพ็กเกจของงานไม่สำเร็จ', lp.error)
@@ -399,6 +524,8 @@ export async function loadPackingQueue(db: Db, today: string): Promise<PackingQu
     awaiting: cards.filter(c => !c.list),
     active: cards.filter(c => c.list && (c.list.status === 'selecting' || c.list.status === 'picking')),
     ready: cards.filter(c => c.list?.status === 'ready'),
+    out: cards.filter(c => c.list?.status === 'out'),
+    returned: cards.filter(c => c.list?.status === 'returned'),
   }
 }
 

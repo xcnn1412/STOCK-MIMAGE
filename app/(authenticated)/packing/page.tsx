@@ -20,7 +20,7 @@ async function loadQueue(): Promise<{ queue: PackingQueue; loadError: string | n
   } catch (e) {
     console.error('PackingPage', e)
     return {
-      queue: { awaiting: [], active: [], ready: [] },
+      queue: { awaiting: [], active: [], ready: [], out: [], returned: [] },
       loadError: 'โหลดคิวใบจัดของไม่สำเร็จ — ลองโหลดหน้าใหม่ (ถ้าเพิ่งอัปเดตระบบ ให้แอดมินรัน migration 20261012 ก่อน)',
     }
   }

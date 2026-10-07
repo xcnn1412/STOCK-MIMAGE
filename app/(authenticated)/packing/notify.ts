@@ -13,6 +13,11 @@ type Db = ReturnType<typeof createServiceClient>
 export async function packingRequestedRecipients(db: Db, leadId: string): Promise<string[]> {
   const { data: lists } = await db.from('packing_lists').select('id').eq('lead_id', leadId).limit(1)
   if ((lists ?? []).length > 0) return []
+  return packingTeamRecipients(db)
+}
+
+/** สมาชิกทีมจัดของ = ผู้ใช้ที่อนุมัติแล้วในแผนกของ pool_duty_kits (ไม่รวมแอดมินที่อยู่แผนกอื่น) */
+export async function packingTeamRecipients(db: Db): Promise<string[]> {
   const departments = await packingTeamDepartments(db)
   if (departments.length === 0) return []
   const { data: members } = await db.from('profiles').select('id').eq('is_approved', true).in('department', departments)
@@ -43,4 +48,13 @@ export async function packingReadyRecipients(db: Db, list: { event_id: string; l
 export const packingReadyMessage = (eventName: string, spotName: string | null) => ({
   title: `ของพร้อมรับ: ${eventName}`,
   body: spotName ? `วางไว้ที่ ${spotName} — สแกน QR ที่จุดรับของตอนมารับ` : 'ทีมจัดของจัดของเสร็จแล้ว',
+})
+
+/** ข้อความ packing_returned (ทีมหน้างานคืนของแล้ว → ทีมจัดของ) — reference packing_list → กระดิ่งพาไป /packing/<id> */
+export const packingReturnedMessage = (eventName: string, spotName: string | null, damagedCount: number) => ({
+  title: `คืนของแล้ว รอคืนชั้น: ${eventName}`,
+  body: [
+    spotName ? `ของวางไว้ที่ ${spotName}` : 'ทีมหน้างานคืนของแล้ว',
+    damagedCount > 0 ? `มีของเสีย/ซ่อม/หาย ${damagedCount} รายการ` : null,
+  ].filter(Boolean).join(' · '),
 })

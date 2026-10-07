@@ -156,6 +156,15 @@ assert.deepEqual(capacityWarnings(base()), [])
   assert.equal(w.demandPlanned, 0)
 }
 
+// งานอื่นมีใบจัดของแต่ยังไม่มีบรรทัดของประเภทนี้ (packedUnits ว่าง) → ไม่มีส่วนประมาณการ ไม่เตือน (ใบจัดของแทนที่แพ็กเกจ)
+{
+  const input = base()
+  input.others = [job('L1', [{ packageId: 'Q', quantity: 3, units: [] }], { packedUnits: [] })]
+  assert.deepEqual(capacityWarnings(input), [])
+  input.others = [job('L1', [{ packageId: 'Q', quantity: 3, units: [] }], { packedUnits: [{ categoryId: 'booth', unitId: 'b1' }] })]
+  assert.deepEqual(capacityWarnings(input), [], 'ชิ้นของประเภทอื่นไม่นับเป็นความต้องการกล้อง')
+}
+
 // ชิ้นแน่นอนที่อยู่นอกชุดตัวเลือกของเราไม่นับ
 {
   const input = base()

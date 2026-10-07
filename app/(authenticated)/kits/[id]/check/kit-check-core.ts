@@ -12,8 +12,11 @@ export const RETURN_STATUSES: ReturnStatus[] = ['available', 'damaged', 'mainten
 
 export type Db = ReturnType<typeof createServiceClient>
 
-/** อีเวนต์ต้องจองกระเป๋าใบนี้ไว้ (event_kits) และยังไม่ปิด — ผ่าน = null */
-export async function checkBooking(db: Db, eventId: string, kitId: string): Promise<string | null> {
+/**
+ * อีเวนต์ต้องจองกระเป๋าใบนี้ไว้ (event_kits) และยังไม่ปิด — ผ่าน = null
+ * opts.allowClosed = ยอมอีเวนต์ที่ปิดแล้ว (คืนชั้นจากใบจัดของ — อีเวนต์ปิดตอนคืนของ แต่ของยังรอขึ้นชั้น)
+ */
+export async function checkBooking(db: Db, eventId: string, kitId: string, opts: { allowClosed?: boolean } = {}): Promise<string | null> {
   const { data } = await db
     .from('event_kits')
     .select('events!inner(status)')
@@ -21,7 +24,7 @@ export async function checkBooking(db: Db, eventId: string, kitId: string): Prom
     .eq('kit_id', kitId)
     .maybeSingle()
   if (!data) return 'กระเป๋าใบนี้ไม่ได้ถูกจองให้อีเวนต์นี้'
-  if (isClosedEvent((data as unknown as { events: { status: string | null } }).events?.status)) return 'อีเวนต์นี้ปิดงานไปแล้ว'
+  if (!opts.allowClosed && isClosedEvent((data as unknown as { events: { status: string | null } }).events?.status)) return 'อีเวนต์นี้ปิดงานไปแล้ว'
   return null
 }
 
@@ -103,14 +106,15 @@ export async function checkoutKitItems(
 /**
  * รับอุปกรณ์ในกระเป๋าคืน (ตั้งสถานะตามที่เลือก) + event_logs checkin + syncPacked
  * ตรวจ: สถานะถูกต้อง · อีเวนต์จองกระเป๋าไว้และยังไม่ปิด · ชิ้นอยู่ในกระเป๋าใบนี้ · ไม่ใช่วัสดุสิ้นเปลือง
+ * allowClosedEvent = ยอมอีเวนต์ที่ปิดแล้ว (เฉพาะคืนชั้นจากใบจัดของ — QR กระเป๋าไม่ส่ง)
  */
 export async function checkinKitItem(
   db: Db,
-  { eventId, kitId, itemId, status, note, userId }: { eventId: string; kitId: string; itemId: string; status: ReturnStatus; note?: string; userId: string },
+  { eventId, kitId, itemId, status, note, userId, allowClosedEvent }: { eventId: string; kitId: string; itemId: string; status: ReturnStatus; note?: string; userId: string; allowClosedEvent?: boolean },
 ): Promise<{ error: string } | { success: true }> {
   if (!RETURN_STATUSES.includes(status)) return { error: 'สถานะไม่ถูกต้อง' }
 
-  const bookingError = await checkBooking(db, eventId, kitId)
+  const bookingError = await checkBooking(db, eventId, kitId, { allowClosed: allowClosedEvent })
   if (bookingError) return { error: bookingError }
   const target = (await kitItems(db, kitId)).find(i => i.id === itemId)
   if (!target) return { error: 'อุปกรณ์นี้ไม่ได้อยู่ในกระเป๋าใบนี้' }
