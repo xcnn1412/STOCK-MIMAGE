@@ -1,6 +1,6 @@
 'use client'
 
-// สถิติทีม — การ์ดสรุป 5 ตัวเลข + การ์ดอันดับ Top 3 ของแต่ละประเภท (แทนตารางรายคนเดิม)
+// สถิติทีม — การ์ดสรุปทุกสาย (STAT_KINDS) + การ์ดอันดับ Top 3 ของแต่ละประเภท (แทนตารางรายคนเดิม)
 // การรวมยอดทำใน report-stats.ts (pure) หน้านี้ทำหน้าที่แสดงผลอย่างเดียว
 import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -50,7 +50,7 @@ export default function ReportsView({ rows, people, currentUserId, today }: Repo
                     สถิติทีม
                 </h1>
                 <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                    {PERIOD_HINTS_TH[period]} — ใครออกงานอีเวนต์กี่ครั้ง ใครรับหน้าที่จัดคน/จัดรถ/จัดกระเป๋า และใครรับใบงานกราฟิก
+                    {PERIOD_HINTS_TH[period]} — ใครออกงานอีเวนต์กี่ครั้ง ใครรับหน้าที่จัดคน/จัดรถ/จัดของ ใครจัดของและคืนของขึ้นชั้น และใครรับใบงานกราฟิก
                 </p>
             </div>
 
@@ -77,7 +77,7 @@ export default function ReportsView({ rows, people, currentUserId, today }: Repo
                 })}
             </div>
 
-            {/* การ์ดสรุปยอดรวมทีม — มือถือเลื่อนแนวนอน */}
+            {/* การ์ดสรุปยอดรวมทีม — จอต่ำกว่า xl เลื่อนแนวนอน (9 ใบเรียงเต็มแถวเฉพาะจอกว้าง ป้ายจะได้ไม่ถูกตัด) */}
             <div
                 className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory"
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
@@ -85,7 +85,7 @@ export default function ReportsView({ rows, people, currentUserId, today }: Repo
                 {STAT_KINDS.map(kind => (
                     <div
                         key={kind}
-                        className="flex-shrink-0 w-[130px] sm:w-auto sm:flex-1 sm:min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 sm:p-5 snap-start"
+                        className="flex-shrink-0 w-[130px] xl:w-auto xl:flex-1 xl:min-w-0 relative overflow-hidden rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/80 p-4 sm:p-5 snap-start"
                     >
                         <div
                             className="absolute left-0 top-0 bottom-0 w-1"

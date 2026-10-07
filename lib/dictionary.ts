@@ -8,6 +8,7 @@ export const dictionary = {
       packages: 'Packages',
       packing: 'Packing lists',
       shelves: 'Shelves',
+      stockUsage: 'Equipment usage',
       stockSettings: 'Stock settings',
       events: 'Events',
       examples: 'Example Kits',
@@ -275,6 +276,7 @@ export const dictionary = {
       bagManagement: 'Bag management',
       checkInOut: 'Check-in / Out',
       standardSets: 'Standard Sets',
+      usageDesc: 'Most-used units & hours',
       templates: 'Templates'
     },
     connectedApps: {
@@ -326,6 +328,7 @@ export const dictionary = {
       packages: 'แพ็กเกจ',
       packing: 'ใบจัดของ',
       shelves: 'ชั้นเก็บของ',
+      stockUsage: 'การใช้งาน',
       stockSettings: 'ตั้งค่าคลัง',
       events: 'อีเวนต์',
       examples: 'เช็คลิสต์',
@@ -593,6 +596,7 @@ export const dictionary = {
       bagManagement: 'จัดการกระเป๋า',
       checkInOut: 'เช็คอิน / เช็คเอาท์',
       standardSets: 'ชุดมาตรฐาน',
+      usageDesc: 'ชิ้นไหนใช้บ่อย กี่ชั่วโมง',
       templates: 'แม่แบบ'
     },
     connectedApps: {

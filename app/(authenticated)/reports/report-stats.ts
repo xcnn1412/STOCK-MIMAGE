@@ -3,24 +3,28 @@
 //
 // นิยามการนับล็อกไว้ที่ docs/specs/team-reports.md — ห้ามเปลี่ยนโดยไม่กลับไปแก้ spec:
 //   ออกงานอีเวนต์ = จำนวนอีเวนต์ไม่ซ้ำที่ถูกจัดชื่อเข้า และถึงวันแล้ว (event_date ≤ วันนี้)
-//   จัดคน / จัดรถ / จัดกระเป๋า = หนึ่งแถวใน lead_duty_claims ต่อหนึ่งหน้าที่ที่รับไว้
+//   จัดคน / จัดรถ / รับหน้าที่จัดของ (kits) = หนึ่งแถวใน lead_duty_claims ต่อหนึ่งหน้าที่ที่รับไว้
+//   นักจัดของ (packing) = ใบจัดของที่ packed_by = คน และสถานะ ≥ พร้อมรับ (วันที่ = packed_at)
+//   นักคืนของ (restock) = ใบจัดของสถานะ done ที่ restocked_by = คน (วันที่ = restocked_at)
 //   รับงานกราฟิก = ใบงาน job_type='graphic' ที่มีคนกดรับ (claimed_by)
 //   ยอดนักขาย = คนสร้าง CRM card (crm_leads.created_by) ที่งานถึงสถานะตอบรับ (accepted)
 //   สร้างใบงาน = คนที่สร้างแถวใน jobs (created_by) มากที่สุด
 // การกรอง "ไม่ซ้ำ" ของอีเวนต์ทำที่ฝั่ง server ตอนสร้างแถว — ที่นี่นับแถวตรงๆ
 
 /** ประเภทสถิติ — หนึ่งค่า = หนึ่งคอลัมน์ในตารางและหนึ่งการ์ดสรุป (key ตรงกับชื่อเฟรมแชมป์) */
-export type StatKind = 'onsite' | 'staffing' | 'vehicle' | 'kits' | 'graphic' | 'sale' | 'jobs'
+export type StatKind = 'onsite' | 'staffing' | 'vehicle' | 'kits' | 'packing' | 'restock' | 'graphic' | 'sale' | 'jobs'
 
 /** ลำดับที่ใช้ทั้งหน้า (การ์ดสรุป + คอลัมน์ตาราง + แถวแชมป์) */
-export const STAT_KINDS: readonly StatKind[] = ['onsite', 'staffing', 'vehicle', 'kits', 'graphic', 'sale', 'jobs']
+export const STAT_KINDS: readonly StatKind[] = ['onsite', 'staffing', 'vehicle', 'kits', 'packing', 'restock', 'graphic', 'sale', 'jobs']
 
 /** ป้ายเต็ม — ใช้บนการ์ดสรุป */
 export const STAT_LABELS_TH: Record<StatKind, string> = {
     onsite: 'ออกงานอีเวนต์',
     staffing: 'จัดคน',
     vehicle: 'จัดรถ',
-    kits: 'จัดกระเป๋า',
+    kits: 'รับหน้าที่จัดของ',
+    packing: 'นักจัดของ',
+    restock: 'นักคืนของ',
     graphic: 'รับงานกราฟิก',
     sale: 'ยอดนักขาย',
     jobs: 'สร้างใบงาน',
@@ -31,7 +35,9 @@ export const STAT_SHORT_LABELS_TH: Record<StatKind, string> = {
     onsite: 'ออกงาน',
     staffing: 'จัดคน',
     vehicle: 'จัดรถ',
-    kits: 'จัดกระเป๋า',
+    kits: 'รับจัดของ',
+    packing: 'จัดของ',
+    restock: 'คืนชั้น',
     graphic: 'กราฟิก',
     sale: 'ยอดขาย',
     jobs: 'สร้างงาน',
@@ -68,6 +74,8 @@ export interface PersonStats {
     staffing: number
     vehicle: number
     kits: number
+    packing: number
+    restock: number
     graphic: number
     sale: number
     jobs: number
@@ -171,7 +179,7 @@ export function filterByPeriod(rows: StatRow[], period: StatPeriod, today: strin
 
 /** ตัวนับเปล่าหนึ่งชุด */
 export function emptyTotals(): TeamTotals {
-    return { onsite: 0, staffing: 0, vehicle: 0, kits: 0, graphic: 0, sale: 0, jobs: 0 }
+    return { onsite: 0, staffing: 0, vehicle: 0, kits: 0, packing: 0, restock: 0, graphic: 0, sale: 0, jobs: 0 }
 }
 
 /**

@@ -20,7 +20,9 @@
 | สถิติ | นับจาก | วันที่อ้างอิงสำหรับกรองช่วง |
 |---|---|---|
 | ออกงานอีเวนต์ | `event_staff` (ถูกจัดชื่อเข้าอีเวนต์) — นับ distinct อีเวนต์ต่อคน | `events.event_date` — นับเฉพาะงานที่**ถึงวันแล้ว** (event_date ≤ วันนี้) |
-| จัดคน / จัดรถ / จัดกระเป๋า | `lead_duty_claims` รายหน้าที่ (`claimed_by`, `duty`) | วันที่กดรับหน้าที่ (`claimed_at`/`created_at` ของแถว claim) |
+| จัดคน / จัดรถ / รับหน้าที่จัดของ (เดิม "จัดกระเป๋า" — เปลี่ยนป้ายใน v1.51.0 นิยามเดิม) | `lead_duty_claims` รายหน้าที่ (`claimed_by`, `duty`) | วันที่กดรับหน้าที่ (`claimed_at`/`created_at` ของแถว claim) |
+| นักจัดของ (`packing`, v1.51.0) | `packing_lists` ที่ `packed_by` = คน และสถานะ ≥ พร้อมรับ (`ready`/`out`/`returned`/`done`) — หนึ่งใบนับหนึ่งครั้ง | `packed_at` (วันตามเวลาไทย) |
+| นักคืนของ (`restock`, v1.51.0) | `packing_lists` สถานะ `done` ที่ `restocked_by` = คน — หนึ่งใบนับหนึ่งครั้ง | `restocked_at` (วันตามเวลาไทย) |
 | รับงานกราฟิก | `jobs` ที่ `job_type='graphic'` และมี `claimed_by` | `claimed_at` ของใบงาน |
 | ยอดนักขาย | คนสร้าง CRM card (`crm_leads.created_by`) ที่งานถึงสถานะ `accepted` — หนึ่ง lead นับให้ผู้สร้างหนึ่งครั้ง | `created_at` ของ lead (วันตอบรับไม่มีเก็บแยก) |
 | สร้างใบงาน | แถวใน `jobs` ตาม `created_by` (ทุกประเภทใบงาน) | `created_at` ของใบงาน |

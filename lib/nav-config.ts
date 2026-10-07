@@ -76,6 +76,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/packing', icon: ClipboardList, labelKey: 'packing' },
       { href: '/shelves', icon: Layers, labelKey: 'shelves' },
       { href: '/example-kits', icon: FileText, labelKey: 'examples' },
+      { href: '/stock/usage', icon: BarChart3, labelKey: 'stockUsage' },
       { href: '/stock/settings', icon: Settings, labelKey: 'stockSettings' },
     ],
   },

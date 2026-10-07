@@ -8,6 +8,7 @@
 //          (5) QR กระเป๋า /kits/<id>/check เข้าได้ด้วยสิทธิ์ stock หรือ events (ส่วนอื่นของ /kits ต้องมี stock)
 //          (6) ตั้งค่าคลัง /stock/settings ต้องมีสิทธิ์ stock
 //          (7) แพ็กเกจ /packages ต้องมีสิทธิ์ stock
+//          (10) แดชบอร์ดการใช้งาน /stock/usage ต้องมีสิทธิ์ stock
 // ไม่แตะฐานข้อมูลหรือเครือข่ายจริง · ผู้ใช้สังเคราะห์
 // บรรทัดสุดท้ายของผลลัพธ์ต้องเป็น "proxy-session: ผ่านทั้งหมด"
 
@@ -198,6 +199,12 @@ async function main() {
   assert.equal(await outcome(`/pickup/${SPOT}`, ev), 'next', 'มีแต่สิทธิ์อีเวนต์ เปิดจุดรับของได้')
   assert.equal(await outcome(`/pickup/${SPOT}`, no), '/dashboard', 'ไม่มีทั้ง stock และ events → เปิดจุดรับของไม่ได้')
   pass('จุดรับของ: stock / events เข้า /pickup/<id> ได้ · ไม่มีทั้งสอง → /dashboard')
+
+  // (10) แดชบอร์ดการใช้งาน /stock/usage อยู่ใต้โมดูลสต็อก
+  assert.equal(await outcome('/stock/usage', st), 'next', 'มีสิทธิ์สต็อก เข้าแดชบอร์ดการใช้งานได้')
+  assert.equal(await outcome('/stock/usage', ev), '/dashboard', 'มีแต่สิทธิ์อีเวนต์ เข้าแดชบอร์ดการใช้งานไม่ได้')
+  assert.equal(await outcome('/stock/usage', no), '/dashboard', 'ไม่มีสิทธิ์สต็อก เข้าแดชบอร์ดการใช้งานไม่ได้')
+  pass('การใช้งานอุปกรณ์: stock เข้าได้ · events อย่างเดียว / ไม่มีสิทธิ์ → /dashboard')
 
   console.log('\nproxy-session: ผ่านทั้งหมด')
 }
