@@ -96,6 +96,7 @@ export type ActionType =
     // WORLDCUP 2026 (temporary) — remove after the tournament
     | 'WORLDCUP_PICK'
     | 'ADMIN_OVERRIDE_CLAIM_STATUS'
+    | 'CLOSE_CLAIM_EXTERNAL'
     // Security Module
     | 'ACCOUNT_LOCKED'
     | 'ACCOUNT_UNLOCKED'
