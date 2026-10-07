@@ -224,6 +224,11 @@ export type ActionType =
     | 'DRAW_STOCK'
     | 'DISCARD_STOCK'
     | 'ADJUST_STOCK'
+    // ประเภทอุปกรณ์
+    | 'CREATE_EQUIPMENT_CATEGORY'
+    | 'UPDATE_EQUIPMENT_CATEGORY'
+    | 'DELETE_EQUIPMENT_CATEGORY'
+    | 'REORDER_EQUIPMENT_CATEGORIES'
     // Salary (เงินเดือน)
     | 'UPDATE_SALARY_SETTINGS'
     | 'UPDATE_SALARY_DUTY'

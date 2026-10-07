@@ -14,6 +14,8 @@ import { ItemImagePreview } from './item-image-preview'
 import { useLanguage } from '@/contexts/language-context'
 import { cn } from '@/lib/utils'
 import { kitShelfState, PROBLEM_STATUSES } from '../../shelves/shelf-logic'
+import type { EquipmentCategory } from '../../stock/categories'
+import { useConfirm } from '../../finance/use-confirm'
 import type { Kit, Item, KitContent } from '@/types'
 
 type KitContentWithItem = KitContent & { items: Item }
@@ -63,8 +65,13 @@ export default function KitDetailsView({
     canManage = false,
     bookings = [],
     canOpenEvents = false,
+    categories = [],
 }: {
-    kit: Kit & { events: { name: string | null; event_date: string | null } | null; shelves?: { id: string; code: string } | null },
+    kit: Kit & {
+        events: { name: string | null; event_date: string | null } | null
+        shelves?: { id: string; code: string } | null
+        equipment_categories?: { name: string } | null
+    },
     contents: KitContentWithItem[],
     availableItems: AvailableItem[],
     /** admin หรือแผนกที่ดูแลกระเป๋า — คนอื่นดูได้อย่างเดียว */
@@ -73,14 +80,17 @@ export default function KitDetailsView({
     bookings?: KitBookingRow[]
     /** ผู้ดูมีสิทธิ์โมดูลอีเวนต์ — ลิงก์จัดกระเป๋าไปหน้าอีเวนต์ ไม่งั้นไปหน้า QR ของกระเป๋า */
     canOpenEvents?: boolean
+    /** ประเภทอุปกรณ์ให้เลือกในกล่องแก้ไข */
+    categories?: EquipmentCategory[]
 }) {
   const { t } = useLanguage()
+  const { confirm: ask, dialog } = useConfirm()
   const statusLabels = t.items.status as Record<string, string>
   const regularStatuses = contents.filter(c => c.items && !c.items.is_consumable).map(c => c.items.status as string)
   const state = kitShelfState(regularStatuses, kit.events)
 
   const remove = async (content: KitContentWithItem) => {
-    if (!confirm(`เอา ${content.items.name} ออกจากกระเป๋า ${kit.name}?`)) return
+    if (!(await ask({ title: `เอา ${content.items.name} ออกจากกระเป๋า ${kit.name}?`, variant: 'warning', confirmLabel: 'เอาออก' }))) return
     const res = await removeItemFromKit(content.id, kit.id)
     if (res?.error) toast.error(res.error)
     else toast.success(`เอา ${content.items.name} ออกจากกระเป๋าแล้ว`)
@@ -115,7 +125,7 @@ export default function KitDetailsView({
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-2xl md:text-3xl font-bold tracking-tight wrap-break-word">{kit.name}</h2>
-                    {canManage && <EditKitDialog kit={kit} />}
+                    {canManage && <EditKitDialog kit={kit} categories={categories} />}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                     {state.kind === 'out' && (
@@ -131,6 +141,7 @@ export default function KitDetailsView({
                     ) : (
                         <Link href="/shelves" className={cn(PILL, MUTED, 'text-zinc-500 hover:underline')}>ยังไม่มีชั้น</Link>
                     )}
+                    {kit.equipment_categories?.name && <span className={cn(PILL, MUTED)}>{kit.equipment_categories.name}</span>}
                 </div>
                 <p className="mt-1 text-zinc-500">{kit.description || t.common.noData}</p>
             </div>
@@ -285,6 +296,7 @@ export default function KitDetailsView({
             )}
         </div>
       </div>
+      {dialog}
     </div>
   )
 }

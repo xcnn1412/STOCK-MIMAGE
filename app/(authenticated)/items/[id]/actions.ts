@@ -8,6 +8,7 @@ import { requireAuth } from '@/lib/auth'
 import { getKitManager } from '@/lib/kit-bookings'
 import { moveStock } from '@/lib/stock'
 import { parseConsumableFields } from '@/app/(authenticated)/shelves/consumable-logic'
+import { resolveCategory } from '@/app/(authenticated)/stock/categories'
 import type { ActionState } from '@/types'
 
 
@@ -19,7 +20,6 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
   }
 
   const name = formData.get('name') as string
-  const category = formData.get('category') as string
   const serial_number = formData.get('serial_number') as string
   const status = formData.get('status') as string
   const price = formData.get('price') as string
@@ -48,6 +48,9 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
   }
 
   const supabase = createServiceClient()
+  const cat = await resolveCategory(supabase, formData.get('category_id'))
+  if ('error' in cat) return cat
+  const { category_id, category } = cat
 
   // Fetch current state for logging (+ กติกาวัสดุสิ้นเปลือง)
   const { data: currentItem } = await supabase.from('items').select('*').eq('id', id).single()
@@ -120,6 +123,7 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
     // วัสดุสิ้นเปลือง: ไม่ส่ง quantity/status/serial — แปลงจากอุปกรณ์ปกติ = ตั้ง 0 แล้วบันทึกยอดเดิมผ่าน moveStock ด้านล่าง
     name,
     category,
+    category_id,
     description: description || null,
     price: price ? parseFloat(price) : null,
     image_url: finalImages.length > 0 ? JSON.stringify(finalImages) : null,
@@ -130,6 +134,7 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
   } : {
     name,
     category,
+    category_id,
     serial_number,
     status,
     description: description || null,

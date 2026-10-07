@@ -12,9 +12,14 @@ import { ArrowLeft, Trash, X } from "lucide-react"
 import { compressImage } from "@/lib/utils"
 import { useLanguage } from '@/contexts/language-context'
 import type { Item } from '@/types'
+import { toast } from 'sonner'
+import { useConfirm } from '../../finance/use-confirm'
+import { CategorySelect } from '../category-select'
+import type { EquipmentCategory } from '../../stock/categories'
 
-export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?: string }) {
+export default function EditItemForm({ item, categories, returnTo }: { item: Item, categories: EquipmentCategory[], returnTo?: string }) {
   const { t } = useLanguage()
+  const { confirm: ask, dialog } = useConfirm()
   const [state, formAction, isPending] = useActionState(updateItem.bind(null, item.id), { error: '' })
   // ติ๊กออกบนวัสดุสิ้นเปลือง = แปลงกลับเป็นอุปกรณ์ปกติ → ช่องสถานะ/serial/จำนวนกลับมาด้วยค่าปัจจุบัน
   const [isConsumable, setIsConsumable] = useState(!!item.is_consumable)
@@ -42,7 +47,7 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
   }, [newFiles])
 
   const handleDelete = async () => {
-    if (confirm(t.items.deleteConfirm)) {
+    if (await ask({ title: t.items.deleteConfirm, description: item.name, variant: 'destructive', confirmLabel: t.common.delete })) {
         await deleteItem(item.id)
     }
   }
@@ -53,7 +58,7 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
       if (e.target.files) {
           const files = Array.from(e.target.files)
           if (totalImagesCount + files.length > 4) {
-              alert("Total images cannot exceed 4")
+              toast.error("รูปรวมได้ไม่เกิน 4 รูป")
               // Reset standard input
               e.target.value = ""
               return
@@ -190,7 +195,7 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="category" className="text-sm font-medium leading-none">{t.items.fields.category}</label>
-                <Input id="category" name="category" defaultValue={item.category || ''} />
+                <CategorySelect id="category" categories={categories} defaultValue={item.category_id} />
               </div>
               <div className="space-y-2">
                 <label htmlFor="price" className="text-sm font-medium leading-none">{t.items.fields.price}</label>
@@ -297,6 +302,7 @@ export default function EditItemForm({ item, returnTo }: { item: Item, returnTo?
           </CardFooter>
         </form>
       </Card>
+      {dialog}
     </div>
   )
 }
