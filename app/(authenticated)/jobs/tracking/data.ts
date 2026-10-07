@@ -7,6 +7,8 @@ import { NOT_WON_STATUSES, addDays, bangkokToday } from '../../crm/types'
 import { loadPickerContext } from '../../packages/capacity-data'
 import { canEditLeadPackages } from '../../packages/package-logic'
 import type { CapacityWarning, CategoryUnits, LeadPackageRow, PickerPackage, UnitBooking } from '../../packages/types'
+import { loadPackingListsForLeads } from '../../packing/queries'
+import type { PackingListSummary } from '../../packing/types'
 import type { TrackingLead } from './tracking-view'
 import { CLAIM_CATEGORY, VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, parseWaived, POOL_TEAM_DEFAULTS, type ClaimKind, type DutyClaim, type EventVehicle, type PoolDepartments, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
@@ -99,6 +101,13 @@ export interface TrackingSnapshot {
     canEditPackages: Record<string, boolean>
     /** ผู้สร้างการ์ดของแต่ละงาน (crm_leads.created_by) — แผงเตือนอุปกรณ์อาจไม่พอใช้ตัดสินว่าใครเห็น */
     leadCreatedBy: Record<string, string | null>
+    /**
+     * ใบจัดของของงานเหล่านี้ (ต่ออีเวนต์ พร้อมจำนวนบรรทัด/หยิบแล้ว) — ความพร้อมข้อ "จัดของ" อ่านจากตรงนี้ที่เดียว
+     * (kitReadinessByLead พารามิเตอร์ที่ 5) · ยังไม่รัน migration 20261012 / โหลดพัง = []
+     */
+    packingLists: PackingListSummary[]
+    /** ผู้ใช้คนนี้เป็นทีมจัดของไหม (แอดมิน หรือแผนกใน pool_duty_kits) — ซ่อน/แสดงปุ่มเปิดใบจัดของ */
+    canPack: boolean
 }
 
 /** ช่วงวันงานที่คิดคำเตือนอุปกรณ์อาจไม่พอ (สเปค 5.1: วันนี้ → +30 วัน) */
@@ -207,6 +216,12 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     const pickerPromise = loadPickerContext(supabase, leadIds, {
         warningLeadIds: (leads || []).filter(l => l.event_date && l.event_date >= today && l.event_date <= capacityTo).map(l => l.id),
         dateRange: { from: today, to: pickerTo },
+    })
+
+    // ใบจัดของของงานชุดนี้ — โหลดขนานกับระลอก B/C · พัง/ยังไม่ migrate = [] (ความพร้อมตกไปใช้กติกากระเป๋าเดิม)
+    const packingPromise = loadPackingListsForLeads(supabase, leadIds).catch((e: unknown) => {
+        console.error('[tracking] load packing lists', e)
+        return [] as PackingListSummary[]
     })
 
     // --- ระลอก B: อีเวนต์ / ใบงาน / การรับหน้าที่ ของงานชุดนี้ -------------------
@@ -433,6 +448,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     }
 
     const picker = await pickerPromise
+    const packingLists = await packingPromise
     const viewer = { userId: currentUserId, isAdmin: sessionRole === 'admin', department: myDepartment }
     const leadCreatedBy: Record<string, string | null> = {}
     const canEditPackages: Record<string, boolean> = {}
@@ -469,5 +485,8 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
         capacityWarnings: picker.capacityWarnings,
         canEditPackages,
         leadCreatedBy,
+        packingLists,
+        // ทีมจัดของ = แผนกที่รับหน้าที่ "จัดของ" ได้ (pool_duty_kits — ชุดเดียวกับ packing/permissions.ts::getPackingTeam)
+        canPack: canActOnPool(myDepartment, sessionRole === 'admin', poolDepartments.kits),
     }
 }

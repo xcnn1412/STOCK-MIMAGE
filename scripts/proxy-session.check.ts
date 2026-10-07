@@ -183,6 +183,22 @@ async function main() {
   assert.equal(await outcome('/packages', no), '/dashboard', 'ไม่มีสิทธิ์สต็อก เข้าหน้าแพ็กเกจไม่ได้')
   pass('แพ็กเกจ: stock เข้าได้ · events อย่างเดียว / ไม่มีสิทธิ์ → /dashboard')
 
+  // (8) ใบจัดของ /packing อยู่ใต้โมดูลสต็อก
+  const LIST = 'c4a2d3e5-6f70-4b8c-9dae-1f2a3b4c5d6e'
+  assert.equal(await outcome('/packing', st), 'next', 'มีสิทธิ์สต็อก เข้าคิวใบจัดของได้')
+  assert.equal(await outcome(`/packing/${LIST}`, st), 'next', 'มีสิทธิ์สต็อก เปิดใบจัดของได้')
+  assert.equal(await outcome('/packing', ev), '/dashboard', 'มีแต่สิทธิ์อีเวนต์ เข้าคิวใบจัดของไม่ได้')
+  assert.equal(await outcome(`/packing/${LIST}`, ev), '/dashboard', 'มีแต่สิทธิ์อีเวนต์ เปิดใบจัดของไม่ได้')
+  assert.equal(await outcome('/packing', no), '/dashboard', 'ไม่มีสิทธิ์สต็อก เข้าคิวใบจัดของไม่ได้')
+  pass('ใบจัดของ: stock เข้าได้ · events อย่างเดียว / ไม่มีสิทธิ์ → /dashboard')
+
+  // (9) QR จุดรับของ /pickup/<id> — stock หรือ events ผ่าน · ไม่มีทั้งสอง → /dashboard
+  const SPOT = 'd5b3e4f6-7081-4c9d-8ebf-2a3b4c5d6e7f'
+  assert.equal(await outcome(`/pickup/${SPOT}`, st), 'next', 'มีสิทธิ์สต็อก เปิดจุดรับของได้')
+  assert.equal(await outcome(`/pickup/${SPOT}`, ev), 'next', 'มีแต่สิทธิ์อีเวนต์ เปิดจุดรับของได้')
+  assert.equal(await outcome(`/pickup/${SPOT}`, no), '/dashboard', 'ไม่มีทั้ง stock และ events → เปิดจุดรับของไม่ได้')
+  pass('จุดรับของ: stock / events เข้า /pickup/<id> ได้ · ไม่มีทั้งสอง → /dashboard')
+
   console.log('\nproxy-session: ผ่านทั้งหมด')
 }
 

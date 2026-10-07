@@ -80,10 +80,10 @@ const POOL_TEAM_GROUPS: Record<PoolTeamCategory, { labelTh: string; labelEn: str
         hintEn: 'Departments allowed to claim the vehicle duty on the overview table',
     },
     pool_duty_kits: {
-        labelTh: 'หน้าที่: จัดกระเป๋า',
-        labelEn: 'Duty: Kits',
-        hintTh: 'แผนกที่กดรับหน้าที่จัดกระเป๋าของงานในตารางภาพรวมได้',
-        hintEn: 'Departments allowed to claim the kits duty on the overview table',
+        labelTh: 'หน้าที่: จัดของ',
+        labelEn: 'Duty: Packing',
+        hintTh: 'แผนกที่ดูแลอุปกรณ์/จัดของ — กดรับหน้าที่จัดของ เปิดใบจัดของ หยิบของ และยืนยันจัดของได้ (ตั้งเป็น "ทีมจัดของ")',
+        hintEn: 'Equipment/packing departments — may claim the packing duty, open packing lists, pick and confirm packing',
     },
 }
 

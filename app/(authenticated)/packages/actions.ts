@@ -9,6 +9,9 @@ import { canEditLeadPackages, checkLeadPicks, checkOptionUnits, copyName, leadPa
 import { capacityWarningsForLeads } from './capacity-data'
 import { loadPickerPackages } from './lead-packages'
 import { loadCategoryUnits, loadPackageDetail } from './queries'
+import { isWonStatus } from '../crm/types'
+import { createNotifications } from '@/lib/notifications'
+import { packingRequestedMessage, packingRequestedRecipients } from '../packing/notify'
 import type { CapacityWarning, CategoryUnits, LeadPackagePick, PickerPackage, RequirementRowInput } from './types'
 
 const NO_ACCESS = 'เฉพาะ admin และแผนกที่ดูแลอุปกรณ์เท่านั้นที่แก้แพ็กเกจได้'
@@ -265,9 +268,9 @@ export async function setLeadPackages(leadId: string, picks: LeadPackagePick[]):
 
   const { data: lead } = await db
     .from('crm_leads')
-    .select('id, customer_name, created_by, quoted_price')
+    .select('id, customer_name, created_by, quoted_price, status')
     .eq('id', leadId)
-    .maybeSingle<{ id: string; customer_name: string | null; created_by: string | null; quoted_price: number | null }>()
+    .maybeSingle<{ id: string; customer_name: string | null; created_by: string | null; quoted_price: number | null; status: string | null }>()
   if (!lead) return { error: 'ไม่พบงานนี้' }
   if (!canEditLeadPackages({ userId: session.userId, isAdmin: session.role === 'admin', department: session.department }, lead.created_by)) {
     return { error: 'เฉพาะแอดมิน ฝ่ายประสานงาน และผู้สร้างการ์ดเท่านั้นที่เลือกแพ็กเกจให้งานได้' }
@@ -353,6 +356,22 @@ export async function setLeadPackages(leadId: string, picks: LeadPackagePick[]):
   revalidatePath(`/crm/${leadId}`)
   revalidatePath('/crm')
   revalidatePath('/dashboard')
+
+  // งานตอบรับแล้ว (มีใบงานหน้างาน) → แจ้งทีมจัดของ · ไม่แจ้งซ้ำถ้างานมีใบจัดของแล้ว · ยังไม่ตอบรับ = แจ้งตอนตอบรับ (autoCreateJobsFromAcceptedLead)
+  if (checked.length > 0 && isWonStatus(lead.status)) {
+    try {
+      await createNotifications({
+        userIds: await packingRequestedRecipients(db, leadId),
+        type: 'packing_requested',
+        ...packingRequestedMessage(lead.customer_name),
+        referenceType: 'crm_lead',
+        referenceId: leadId,
+        actorId: session.userId,
+      })
+    } catch (e) {
+      console.error('setLeadPackages packing_requested', e)
+    }
+  }
 
   // 4) คำเตือนหลังบันทึก — คิดพังไม่ทำให้การบันทึกล้ม (คืน [] แทน)
   let warnings: CapacityWarning[] = []

@@ -31,6 +31,9 @@ const TYPE_CONFIG: Record<string, { icon: string; accent: string; glow: string; 
     kpi_evaluated:        { icon: '📊', accent: 'from-violet-400 to-purple-500', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-purple-500' },
     kpi_self_evaluated:   { icon: '📝', accent: 'from-indigo-400 to-blue-500', glow: 'shadow-indigo-400/25', border: '#6366f1', iconBg: 'bg-indigo-100 dark:bg-indigo-900/50', progressBar: 'from-indigo-400 to-blue-500' },
     kpi_evaluation_reply: { icon: '💬', accent: 'from-violet-400 to-fuchsia-400', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-fuchsia-400' },
+    // ใบจัดของ — ไอคอนชุดเดียวกับ TYPE_CONFIG ใน notification-category.ts
+    packing_requested:    { icon: '📦', accent: 'from-sky-400 to-blue-500', glow: 'shadow-sky-400/25', border: '#0ea5e9', iconBg: 'bg-sky-100 dark:bg-sky-900/50', progressBar: 'from-sky-400 to-blue-500' },
+    packing_ready:        { icon: '✅', accent: 'from-emerald-400 to-green-400', glow: 'shadow-emerald-400/25', border: '#10b981', iconBg: 'bg-emerald-100 dark:bg-emerald-900/50', progressBar: 'from-emerald-400 to-green-400' },
     crm_mentioned:        { icon: '📍', accent: 'from-orange-400 to-amber-400', glow: 'shadow-orange-400/25', border: '#f97316', iconBg: 'bg-orange-100 dark:bg-orange-900/50', progressBar: 'from-orange-400 to-amber-400' },
 }
 
@@ -48,6 +51,8 @@ function getNotificationUrl(item: NotificationItem): string {
     if (item.type === 'duty_claimed' || item.type === 'duty_released') {
         return `/jobs/tracking?lead=${item.reference_id}`
     }
+    // ใบจัดของ: งานรอจัดของพาไปแท็บจัดของของพูล · ใบที่พร้อมรับพาไปหน้าใบ
+    if (item.type === 'packing_requested') return `/jobs/tracking?tab=kits&lead=${item.reference_id}`
     switch (item.reference_type) {
         case 'job':
             return `/jobs/${item.reference_id}`
@@ -63,6 +68,8 @@ function getNotificationUrl(item: NotificationItem): string {
             return `/documents/${item.reference_id}`
         case 'salary_slip':
             return `/salary/${item.reference_id}`
+        case 'packing_list':
+            return `/packing/${item.reference_id}`
         default:
             return '/dashboard'
     }

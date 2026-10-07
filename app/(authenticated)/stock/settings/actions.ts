@@ -5,6 +5,8 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { getKitManager } from '@/lib/kit-bookings'
 import { canDeleteCategory, parseCategoryForm } from './category-logic'
+import { parsePickupSpotForm } from '../../packing/packing-logic'
+import type { PickupSpotInput } from '../../packing/types'
 
 const NO_ACCESS = 'เฉพาะ admin และแผนกที่ดูแลอุปกรณ์เท่านั้นที่ตั้งค่าประเภทอุปกรณ์ได้'
 const DUPLICATE = 'มีประเภทอุปกรณ์ชื่อนี้อยู่แล้ว'
@@ -116,5 +118,80 @@ export async function reorderCategories(ids: string[]): Promise<Result> {
 
   await logActivity('REORDER_EQUIPMENT_CATEGORIES', { ids })
   revalidateAll()
+  return { success: true }
+}
+
+// --- จุดรับของ (เฟส 3) — ตำแหน่งในออฟฟิศที่วางของที่จัดเสร็จ มี QR (/pickup/<id>) ---------------
+
+const SPOT_NO_ACCESS = 'เฉพาะ admin และแผนกที่ดูแลอุปกรณ์เท่านั้นที่ตั้งค่าจุดรับของได้'
+const SPOT_DUPLICATE = 'มีจุดรับของรหัสนี้อยู่แล้ว'
+
+function revalidateSpots(id?: string) {
+  revalidatePath('/stock/settings')
+  revalidatePath('/packing')
+  if (id) revalidatePath(`/pickup/${id}`)
+}
+
+export async function createPickupSpot(input: PickupSpotInput): Promise<{ error: string } | { id: string }> {
+  if (!(await getKitManager())) return { error: SPOT_NO_ACCESS }
+  const parsed = parsePickupSpotForm(input)
+  if ('error' in parsed) return parsed
+
+  const db = createServiceClient()
+  const { data: last } = await db.from('pickup_spots').select('sort_order').order('sort_order', { ascending: false }).limit(1)
+  const sort_order = ((last?.[0]?.sort_order as number | undefined) ?? -1) + 1
+  const { data, error } = await db.from('pickup_spots').insert({ ...parsed, sort_order }).select('id').single<{ id: string }>()
+  if (error || !data) {
+    if (error?.code === '23505') return { error: SPOT_DUPLICATE }
+    console.error('createPickupSpot', error)
+    return { error: 'เพิ่มจุดรับของไม่สำเร็จ' }
+  }
+
+  await logActivity('CREATE_PICKUP_SPOT', { id: data.id, ...parsed })
+  revalidateSpots(data.id)
+  return { id: data.id }
+}
+
+export async function updatePickupSpot(id: string, input: PickupSpotInput): Promise<Result> {
+  if (!(await getKitManager())) return { error: SPOT_NO_ACCESS }
+  const parsed = parsePickupSpotForm(input)
+  if ('error' in parsed) return parsed
+
+  const db = createServiceClient()
+  const { data: old } = await db.from('pickup_spots').select('name, code, note, is_active').eq('id', id).maybeSingle()
+  if (!old) return { error: 'ไม่พบจุดรับของนี้' }
+
+  const { error } = await db.from('pickup_spots').update(parsed).eq('id', id)
+  if (error) {
+    if (error.code === '23505') return { error: SPOT_DUPLICATE }
+    console.error('updatePickupSpot', error)
+    return { error: 'บันทึกจุดรับของไม่สำเร็จ' }
+  }
+
+  await logActivity('UPDATE_PICKUP_SPOT', { id, from: old, to: parsed })
+  revalidateSpots(id)
+  return { success: true }
+}
+
+/** ลบได้เมื่อไม่มีใบจัดของอ้างถึง (ไม่งั้นให้ปิดใช้แทน — ประวัติใบยังชี้จุดเดิม) */
+export async function deletePickupSpot(id: string): Promise<Result> {
+  if (!(await getKitManager())) return { error: SPOT_NO_ACCESS }
+  const db = createServiceClient()
+
+  const { data: spot } = await db.from('pickup_spots').select('name, code').eq('id', id).maybeSingle()
+  if (!spot) return { error: 'ไม่พบจุดรับของนี้' }
+
+  const { data: used, error: usedError } = await db.from('packing_lists').select('id').eq('spot_id', id).limit(1)
+  if (usedError) return { error: 'ตรวจใบจัดของที่ใช้จุดนี้ไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  if ((used ?? []).length > 0) return { error: 'ลบไม่ได้ — มีใบจัดของวางไว้ที่จุดนี้ ให้ปิดใช้แทน' }
+
+  const { error } = await db.from('pickup_spots').delete().eq('id', id)
+  if (error) {
+    console.error('deletePickupSpot', error)
+    return { error: 'ลบจุดรับของไม่สำเร็จ' }
+  }
+
+  await logActivity('DELETE_PICKUP_SPOT', { id, name: spot.name, code: spot.code })
+  revalidateSpots(id)
   return { success: true }
 }

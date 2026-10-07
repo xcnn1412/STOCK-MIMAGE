@@ -57,7 +57,8 @@ export const MISSING_LABELS: Record<MissingItem, string> = {
   staff: 'จัดคน',
   vehicle: 'จัดรถ',
   time: 'เวลาเริ่ม',
-  kits: 'กระเป๋า',
+  // key 'kits' คงไว้ (โค้ด/ข้อมูลเดิม) — ป้ายเป็น "จัดของ" ตั้งแต่มีใบจัดของ (v1.49.0)
+  kits: 'จัดของ',
 }
 
 // --- ไม่ต้องจัด (waiver): งานที่ไม่ต้องใช้ออกแบบ/คน/รถ/กระเป๋า ---------------------
@@ -77,7 +78,7 @@ export const WAIVER_LABELS: Record<WaivableItem, string> = {
   design: 'ไม่ต้องออกแบบ',
   staff: 'ไม่ต้องจัดคน',
   vehicle: 'ไม่ต้องจัดรถ',
-  kits: 'ไม่ต้องจัดกระเป๋า',
+  kits: 'ไม่ต้องจัดของ',
 }
 
 /** ค่าที่ส่งมาเป็นสิ่งที่ตั้งไม่ต้องจัดได้จริงไหม (กันค่าที่ client ส่งมามั่ว รวมถึง 'time') */
@@ -1167,7 +1168,7 @@ export type PrepDuty = (typeof PREP_DUTIES)[number]
 export const DUTY_LABELS_TH: Record<PrepDuty, string> = {
   staffing: 'จัดคน',
   vehicle: 'จัดรถ',
-  kits: 'จัดกระเป๋า',
+  kits: 'จัดของ',
 }
 
 /** หน้าที่ → หมวดใน job_settings ที่บอกว่าแผนกไหนรับหน้าที่นั้นได้ (ครบทุกหน้าที่) */
@@ -1203,7 +1204,7 @@ export const CLAIM_LABELS: Record<ClaimKind, string> = {
   onsite: 'รับเป็นหัวหน้างาน',
   staffing: 'รับจัดคน',
   vehicle: 'รับจัดรถ',
-  kits: 'รับจัดกระเป๋า',
+  kits: 'รับจัดของ',
 }
 
 /** สิ่งที่รับได้ → หมวดใน job_settings ที่บอกว่าแผนกไหนรับได้ */
@@ -1399,32 +1400,60 @@ export interface KitBookingDetail extends KitBooking {
   packed: boolean
 }
 
-/** ข้อมูลกระเป๋าของงานหนึ่ง เท่าที่เกณฑ์ความพร้อมข้อ 5 ต้องใช้ */
+/** สถานะใบจัดของที่นับว่า "จัดของแล้ว" (พร้อมรับขึ้นไป) — ชุดเดียวกับ packing/packing-logic.ts::PACKED_STATUSES */
+export const PACKED_LIST_STATUSES: readonly string[] = ['ready', 'out', 'returned', 'done']
+
+/** ใบจัดของของอีเวนต์หนึ่ง เท่าที่ความพร้อมข้อ "จัดของ" ต้องใช้ */
+export interface PackingListReadiness {
+  eventId: string
+  status: string
+}
+
+/** ข้อมูลจัดของของงานหนึ่ง เท่าที่เกณฑ์ความพร้อมข้อ 5 ("จัดของ" — key เดิม kits) ต้องใช้ */
 export interface KitReadiness {
-  /** ใบงานหน้างานของงานนี้ถูกข้าม — งานที่ไม่ออกหน้างานไม่ต้องใช้กระเป๋า */
+  /** ใบงานหน้างานของงานนี้ถูกข้าม — งานที่ไม่ออกหน้างานไม่ต้องจัดของ */
   onsiteSkipped: boolean
-  /** การจองกระเป๋าทุกใบของงานนี้ — [] = ยังไม่จองเลย */
-  bookings: { packed: boolean }[]
+  /** การจองกระเป๋าทุกใบของงานนี้ — [] = ยังไม่จองเลย · eventId ใช้ตัดสินรายอีเวนต์เมื่อมีใบจัดของ */
+  bookings: { packed: boolean; eventId?: string }[]
+  /** ใบจัดของของอีเวนต์ของงานนี้ (ไม่ส่ง = []) */
+  packingLists?: PackingListReadiness[]
+  /** อีเวนต์ที่ยังไม่ปิดของงานนี้ (lead.events) — ใช้เมื่อมีใบจัดของ (ไม่ส่ง = อีเวนต์ที่เห็นในใบ/การจอง) */
+  openEventIds?: string[]
 }
 
 /**
- * ขาด "กระเป๋า" ไหม — ยังไม่จองเลย หรือจองแล้วแต่ยังจัดไม่ครบทุกใบ
- * ใบงานหน้างานที่ถูกข้ามแล้วไม่นับข้อนี้ (ADR-0003)
+ * ขาด "จัดของ" ไหม (key เดิม kits) — ใบงานหน้างานที่ถูกข้ามแล้วไม่นับข้อนี้ (ADR-0003)
+ * - งานยังไม่มีใบจัดของเลย = กติกาเดิม: ยังไม่จองกระเป๋าเลย หรือจองแล้วแต่ยังจัดไม่ครบทุกใบ
+ * - มีใบจัดของ = ตัดสินรายอีเวนต์ที่ยังไม่ปิด: อีเวนต์ที่มีใบต้องถึง "พร้อมรับ" ขึ้นไป ·
+ *   อีเวนต์ที่ไม่มีใบต้องมีการจองกระเป๋าและจัดครบทุกใบ (แบบเดิม) ไม่งั้นขาด
  */
 export function isMissingKits(kit: KitReadiness): boolean {
   if (kit.onsiteSkipped) return false
-  return kit.bookings.length === 0 || kit.bookings.some((b) => !b.packed)
+  const lists = kit.packingLists ?? []
+  if (lists.length === 0) return kit.bookings.length === 0 || kit.bookings.some((b) => !b.packed)
+
+  const eventIds = kit.openEventIds && kit.openEventIds.length > 0
+    ? kit.openEventIds
+    : [...new Set([...lists.map((l) => l.eventId), ...kit.bookings.flatMap((b) => (b.eventId ? [b.eventId] : []))])]
+  return eventIds.some((eventId) => {
+    const list = lists.find((l) => l.eventId === eventId)
+    if (list) return !PACKED_LIST_STATUSES.includes(list.status)
+    const mine = kit.bookings.filter((b) => b.eventId === eventId)
+    return mine.length === 0 || mine.some((b) => !b.packed)
+  })
 }
 
 /**
- * ข้อมูลกระเป๋าต่องาน สำหรับเกณฑ์ความพร้อมข้อ 5 — คิดจากใบงานหน้างาน (ถูกข้ามหรือยัง)
- * + การจองกระเป๋าของอีเวนต์ที่ผูกกับงานนั้น · ทุกงานใน `leads` มีค่าเสมอ (ไม่จองเลย = bookings [])
+ * ข้อมูลจัดของต่องาน สำหรับเกณฑ์ความพร้อมข้อ 5 — คิดจากใบงานหน้างาน (ถูกข้ามหรือยัง)
+ * + การจองกระเป๋าของอีเวนต์ที่ผูกกับงานนั้น + ใบจัดของ (packingLists — ไม่ส่ง = ยังไม่มีใบ ใช้กติกาเดิม)
+ * ทุกงานใน `leads` มีค่าเสมอ (ไม่จองเลย = bookings []) · อีเวนต์ที่ยังไม่ปิด = lead.events
  */
 export function kitReadinessByLead(
   leads: TrackingLead[],
   jobs: PoolJob[],
   bookings: KitBookingDetail[],
-  skippedStatus: string = SKIPPED_JOB_STATUS
+  skippedStatus: string = SKIPPED_JOB_STATUS,
+  packingLists: { leadId: string | null; eventId: string; status: string }[] = []
 ): Map<string, KitReadiness> {
   const skipped = new Set(
     jobs
@@ -1435,7 +1464,9 @@ export function kitReadinessByLead(
   for (const lead of leads) {
     out.set(lead.id, {
       onsiteSkipped: skipped.has(lead.id),
-      bookings: bookings.filter((b) => b.leadId === lead.id).map((b) => ({ packed: b.packed })),
+      bookings: bookings.filter((b) => b.leadId === lead.id).map((b) => ({ packed: b.packed, eventId: b.eventId })),
+      packingLists: packingLists.filter((l) => l.leadId === lead.id).map((l) => ({ eventId: l.eventId, status: l.status })),
+      openEventIds: lead.events.map((e) => e.id),
     })
   }
   return out

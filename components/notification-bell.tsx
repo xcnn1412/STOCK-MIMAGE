@@ -44,6 +44,8 @@ function getNotificationUrl(item: NotificationItem): string {
   if (item.type === 'duty_claimed' || item.type === 'duty_released') {
     return `/jobs/tracking?lead=${item.reference_id}`
   }
+  // ใบจัดของ: งานรอจัดของพาไปแท็บจัดของของพูล · ใบที่พร้อมรับพาไปหน้าใบ
+  if (item.type === 'packing_requested') return `/jobs/tracking?tab=kits&lead=${item.reference_id}`
   switch (item.reference_type) {
     case 'job':
       return `/jobs/${item.reference_id}`
@@ -59,6 +61,8 @@ function getNotificationUrl(item: NotificationItem): string {
       return `/documents/${item.reference_id}`
     case 'salary_slip':
       return `/salary/${item.reference_id}`
+    case 'packing_list':
+      return `/packing/${item.reference_id}`
     default:
       return '/dashboard'
   }

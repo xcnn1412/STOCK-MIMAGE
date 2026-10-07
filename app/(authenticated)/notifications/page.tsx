@@ -18,6 +18,8 @@ import {
 function getUrl(item: NotificationItem): string {
   // จัดซื้อ: reference_type เป็น 'job' แต่ reference_id คือเช็กลิสต์ — ต้องตรวจก่อน switch ข้างล่าง
   if (item.type.startsWith('job_purchase_')) return `/jobs/purchasing?list=${item.reference_id}`
+  // ใบจัดของ: งานรอจัดของพาไปแท็บจัดของของพูล · ใบที่พร้อมรับพาไปหน้าใบ (case 'packing_list')
+  if (item.type === 'packing_requested') return `/jobs/tracking?tab=kits&lead=${item.reference_id}`
   switch (item.reference_type) {
     case 'job':           return `/jobs/${item.reference_id}`
     case 'ticket':        return `/jobs/tickets/${item.reference_id}`
@@ -25,6 +27,7 @@ function getUrl(item: NotificationItem): string {
     case 'kpi_evaluation':return `/kpi/reports`
     case 'crm_lead':      return `/crm/${item.reference_id}`
     case 'salary_slip':   return `/salary/${item.reference_id}`
+    case 'packing_list':  return `/packing/${item.reference_id}`
     default:              return '/dashboard'
   }
 }

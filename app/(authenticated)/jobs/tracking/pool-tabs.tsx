@@ -11,6 +11,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Briefcase, Clock, RotateCcw, UserRound, Users, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { assignPoolJob, bookKitForLead, reassignPoolJob, skipPoolJob, unbookKitForLead } from '../actions'
+import { createPackingList } from '../../packing/actions'
+import { PackingStatusChip } from '../../packing/status-chip'
+import type { PackingListSummary } from '../../packing/types'
 import { DESIGN_OPTIONS } from './design-options'
 import { formatDate } from './timeline-view'
 import {
@@ -712,9 +715,21 @@ function VehicleSummary({ lead }: { lead: TrackingLead }) {
 /** อีเวนต์ปลายทางของการจอง — ใบแรกที่ยังไม่ปิด (เรียงตามวันงานมาแล้ว) กติกาเดียวกับฝั่ง server */
 const targetEventOf = (lead: TrackingLead) => lead.events[0] ?? null
 
+/** ใบจัดของสำหรับช่อง "จัดของ" (snapshot.packingLists + แพ็กเกจของงาน + snapshot.canPack) — ไม่ส่ง = UI จองกระเป๋าเดิมทั้งหมด */
+export interface KitPackingInfo {
+    lists: PackingListSummary[]
+    /** งานที่ทีมขายเลือกแพ็กเกจแล้ว — ทีมจัดของเปิดใบจัดของได้ */
+    packageLeadIds: ReadonlySet<string>
+    /** ผู้ดูเป็นทีมจัดของ (แอดมิน / แผนกใน pool_duty_kits) */
+    canPack: boolean
+}
+
 /**
- * ช่อง "กระเป๋า" ของใบงานหน้างาน — ยังไม่จอง / จองแล้วยังไม่จัด (จัดแล้ว X/Y) / จัดครบ (ADR-0003)
- * กดเปิดกล่องจองกระเป๋า: จอง ยกเลิกจอง และลิงก์ไปหน้าเช็คกระเป๋าของอีเวนต์นั้น
+ * ช่อง "จัดของ" ของใบงานหน้างาน
+ * - อีเวนต์ที่มีใบจัดของ: ชิปสถานะใบ (+ หยิบแล้ว x/y) + ลิงก์เปิดใบ — การจองกระเป๋าของอีเวนต์นั้นเป็นของใบแล้ว (ซ่อนปุ่มจอง/ยกเลิกจอง)
+ * - งานมีแพ็กเกจแต่อีเวนต์ยังไม่มีใบ: ทีมจัดของเห็นปุ่ม "เปิดใบจัดของ" (createPackingList แล้วไปหน้าใบ)
+ * - อีเวนต์ที่ยังไม่มีใบ: กระเป๋าแบบเดิม — ยังไม่จอง / จองแล้วยังไม่จัด (จัดแล้ว X/Y) / จัดครบ (ADR-0003)
+ *   กดเปิดกล่องจองกระเป๋า: จอง ยกเลิกจอง และลิงก์ไปหน้าเช็คกระเป๋าของอีเวนต์นั้น
  */
 export function KitSummary({
     lead,
@@ -723,6 +738,7 @@ export function KitSummary({
     canManageKits,
     eventId = null,
     defaultOpen = false,
+    packing,
 }: {
     lead: TrackingLead
     kits: PoolKit[]
@@ -732,19 +748,44 @@ export function KitSummary({
     eventId?: string | null
     /** เปิดกล่องจองทันทีตอน mount — ใช้ตอนเพิ่งกดรับหน้าที่จัดกระเป๋า (ครั้งเดียวต่อการรับ) */
     defaultOpen?: boolean
+    /** ใบจัดของ — ไม่ส่ง = ไม่มีใบจัดของ (UI จองกระเป๋าเดิม) */
+    packing?: KitPackingInfo
 }) {
     const router = useRouter()
-    const [open, setOpen] = useState(defaultOpen)
     const [busy, setBusy] = useState<string | null>(null)
 
     const eventIds = new Set(eventId ? [eventId] : lead.events.map(e => e.id))
-    const mine = bookings.filter(b => eventIds.has(b.eventId))
+    const scopeEvents = lead.events.filter(e => eventIds.has(e.id))
+    const hasPackages = !!packing?.packageLeadIds.has(lead.id)
+    const listOf = (id: string) => packing?.lists.find(l => l.eventId === id) ?? null
+    // แถวใบจัดของ: อีเวนต์ที่มีใบ + (งานมีแพ็กเกจ) อีเวนต์ที่ยังไม่มีใบ
+    const packingRows = scopeEvents.map(e => ({ event: e, list: listOf(e.id) })).filter(r => r.list || hasPackages)
+    const listedEventIds = new Set(packingRows.flatMap(r => (r.list ? [r.event.id] : [])))
+    // กระเป๋าแบบเดิม: เฉพาะอีเวนต์ที่ยังไม่มีใบ (งานที่ยังไม่มีอีเวนต์ = แสดงตามเดิม)
+    const showBooking = scopeEvents.length === 0 || scopeEvents.some(e => !listedEventIds.has(e.id))
+    // เปิดกล่องจองเองหลังรับหน้าที่ — ไม่เปิดถ้าการจองทั้งหมดเป็นของใบจัดของแล้ว
+    const [open, setOpen] = useState(defaultOpen && showBooking)
+    const mine = bookings.filter(b => eventIds.has(b.eventId) && !listedEventIds.has(b.eventId))
     const packed = mine.filter(b => b.packed).length
+
+    const openList = async (evId: string | null) => {
+        setBusy(`open:${evId ?? ''}`)
+        const res = await createPackingList(lead.id, evId)
+        if ('error' in res) {
+            setBusy(null)
+            toast.error(res.error)
+            return
+        }
+        toast.success('เปิดใบจัดของแล้ว')
+        router.push(`/packing/${res.id}`)
+    }
 
     const target = eventId ? lead.events.find(e => e.id === eventId) ?? null : targetEventOf(lead)
     const targetDate = target?.event_date ?? lead.event_date
     // ยังไม่มีอีเวนต์ → ใช้ id ว่าง: ไม่ตรงกับอีเวนต์ใดเลย ทุกการจองวันเดียวกันจึงนับเป็นชน (server สร้างอีเวนต์ให้ตอนกดจอง)
     const targetEventId = target?.id ?? ''
+    // อีเวนต์ปลายทางมีใบจัดของแล้ว — จอง/ยกเลิกจองผ่านใบเท่านั้น
+    const targetListed = !!target && listedEventIds.has(target.id)
 
     const summary =
         mine.length === 0
@@ -772,17 +813,51 @@ export function KitSummary({
     }
 
     return (
-        <div>
-            <div className="text-[11px] text-zinc-500">กระเป๋า</div>
-            <button type="button" onClick={() => setOpen(true)} className="text-left">
-                <span className={cn(PILL, 'gap-1', summary.tone)}>
-                    <Briefcase className="h-3.5 w-3.5" /> {summary.text}
-                </span>
-            </button>
-            {mine.length > 0 && (
-                <div className="text-xs text-zinc-500 truncate">
-                    {mine.map(b => kits.find(k => k.id === b.kitId)?.name || 'กระเป๋า').join(', ')}
+        <div className="space-y-1">
+            <div className="text-[11px] text-zinc-500">จัดของ</div>
+            {packingRows.map(({ event: ev, list }) => (
+                <div key={ev.id} className="flex flex-wrap items-center gap-1.5" data-testid="packing-row">
+                    {scopeEvents.length > 1 && <span className="max-w-full truncate text-xs text-zinc-500">{ev.name || 'อีเวนต์'}</span>}
+                    {list ? (
+                        <>
+                            <PackingStatusChip status={list.status} picked={list.pickedCount} total={list.lineCount} />
+                            {packing?.canPack && (
+                                <Link href={`/packing/${list.id}`} className="inline-flex min-h-9 items-center text-xs font-medium text-violet-600 hover:underline dark:text-violet-400">
+                                    เปิดใบ
+                                </Link>
+                            )}
+                        </>
+                    ) : packing?.canPack ? (
+                        <Button size="sm" className="min-h-9" disabled={busy !== null} onClick={() => openList(ev.id)}>
+                            เปิดใบจัดของ
+                        </Button>
+                    ) : (
+                        <span className="text-xs text-zinc-400">ยังไม่เปิดใบจัดของ</span>
+                    )}
                 </div>
+            ))}
+            {hasPackages &&
+                scopeEvents.length === 0 &&
+                (packing?.canPack ? (
+                    <Button size="sm" className="min-h-9" disabled={busy !== null} onClick={() => openList(null)}>
+                        เปิดใบจัดของ
+                    </Button>
+                ) : (
+                    <div className="text-xs text-zinc-400">ยังไม่เปิดใบจัดของ</div>
+                ))}
+            {showBooking && (
+                <>
+                    <button type="button" onClick={() => setOpen(true)} className="text-left">
+                        <span className={cn(PILL, 'gap-1', summary.tone)}>
+                            <Briefcase className="h-3.5 w-3.5" /> {summary.text}
+                        </span>
+                    </button>
+                    {mine.length > 0 && (
+                        <div className="text-xs text-zinc-500 truncate">
+                            {mine.map(b => kits.find(k => k.id === b.kitId)?.name || 'กระเป๋า').join(', ')}
+                        </div>
+                    )}
+                </>
             )}
 
             <Dialog open={open} onOpenChange={setOpen}>
@@ -795,6 +870,11 @@ export function KitSummary({
                             ? `อีเวนต์: ${target.name || 'ไม่ระบุชื่อ'}${targetDate ? ` · ${formatDate(targetDate)}` : ''}`
                             : 'งานนี้ยังไม่มีอีเวนต์ — ระบบจะสร้างให้อัตโนมัติเมื่อกดจอง'}
                     </p>
+                    {targetListed && (
+                        <p className="rounded bg-violet-50 p-2 text-xs text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">
+                            อีเวนต์นี้มีใบจัดของแล้ว — จองหรือเปลี่ยนกระเป๋าในใบจัดของ
+                        </p>
+                    )}
 
                     <div className="max-h-80 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
                         {kits.length === 0 && <p className="text-sm text-zinc-500 py-4">ยังไม่มีกระเป๋าในระบบ</p>}
@@ -841,6 +921,7 @@ export function KitSummary({
                                             </Link>
                                         )}
                                         {canManageKits &&
+                                            !targetListed &&
                                             (booked ? (
                                                 <Button
                                                     size="sm"
@@ -921,6 +1002,7 @@ export default function PoolTabs({
     kitReadiness,
     designReady,
     canManageKits = false,
+    packing,
     gate,
     onJobDesignStatusChange,
     onClaimJob,
@@ -950,6 +1032,8 @@ export default function PoolTabs({
     designReady?: Map<string, boolean>
     /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
     canManageKits?: boolean
+    /** ใบจัดของ — ช่อง "จัดของ" ในการ์ดใบงานหน้างาน */
+    packing?: KitPackingInfo
     /** บันทึกสถานะออกแบบของ "ใบงานใบนั้น" (updateJobDesignStatus) — เส้นทางเดียวกับตารางภาพรวม */
     onJobDesignStatusChange: (jobId: string, designStatus: string) => void
     /** รับ/คืนใบงาน — เส้นทางเดียวกับตารางภาพรวม (ทับค่าทันทีแล้วค่อยเรียก server) */
@@ -1073,6 +1157,7 @@ export default function PoolTabs({
                                         kits={kits}
                                         bookings={kitBookings}
                                         canManageKits={canManageKits}
+                                        packing={packing}
                                     />
                                 </div>
                             </div>

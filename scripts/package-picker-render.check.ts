@@ -37,7 +37,7 @@ const value = [
   { id: 'lp1', packageId: 'p1', packageName: 'Selfie studio booth', price: 15000, isActive: true, quantity: 2, units: [] },
   { id: 'lp2', packageId: 'p2', packageName: 'ตู้ประกอบ', price: 20000, isActive: true, quantity: 1, units: [{ requirementId: 'r2', unitId: 'u1', kind: 'item', unitName: 'ตู้ประกอบ ชุด 1', variant: 'ประกอบ 2' }] },
 ]
-const warnings = [{ categoryId: 'c1', categoryName: 'คอมพิวเตอร์', packageName: 'Selfie studio booth', level: 'yellow', need: 2, capacity: 2, demandSure: 0, demandPlanned: 1, message: 'คอมพิวเตอร์ อาจไม่พอ — ต้องใช้ 2 มีที่ใช้ได้ 2 และงานอื่นที่เวลาทับอาจใช้อีก 1', leadIds: ['L2'] }]
+const warnings = [{ categoryId: 'c1', categoryName: 'คอมพิวเตอร์', packageName: 'Selfie studio booth', level: 'yellow' as const, need: 2, capacity: 2, demandSure: 0, demandPlanned: 1, message: 'คอมพิวเตอร์ อาจไม่พอ — ต้องใช้ 2 มีที่ใช้ได้ 2 และงานอื่นที่เวลาทับอาจใช้อีก 1', leadIds: ['L2'] }]
 const event = { date: '2026-10-20', time: '10:00', endTime: '18:00' }
 
 const view = renderToStaticMarkup(createElement(PackagePicker, { leadId: 'L1', event, value, packages, categoryUnits, warnings, canEdit: false }))

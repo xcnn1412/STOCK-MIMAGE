@@ -21,7 +21,7 @@ import {
     type PrepDuty,
     type TrackingLead,
 } from './tracking-logic'
-import { ClaimSection, DutyGate, KitSummary, LeadHeader, nameOf } from './pool-tabs'
+import { ClaimSection, DutyGate, KitSummary, LeadHeader, nameOf, type KitPackingInfo } from './pool-tabs'
 import { StaffEditor, VehicleCell, type StaffRole, type VehicleSyncFn } from './editors'
 import {
     NO_MATCH_TEXT,
@@ -98,6 +98,7 @@ export default function DutyTab({
     kitBookings = [],
     kitReadiness,
     canManageKits = false,
+    packing,
     gate,
     onVehicleSaved,
     onStaffSaved,
@@ -124,6 +125,8 @@ export default function DutyTab({
     kitBookings?: KitBookingDetail[]
     kitReadiness?: Map<string, KitReadiness>
     canManageKits?: boolean
+    /** ใบจัดของ (แท็บจัดของ) — สถานะใบ/ปุ่มเปิดใบ · ไม่ส่ง = UI จองกระเป๋าเดิม */
+    packing?: KitPackingInfo
     /** สิทธิ์รับหน้าที่นี้ของผู้ใช้ (D1) — ไม่ได้ = ปุ่มรับเป็นป้ายจาง "รอ…รับ" */
     gate?: ClaimGate
     onVehicleSaved?: VehicleSyncFn
@@ -198,7 +201,7 @@ export default function DutyTab({
             )
         }
         if (duty === 'vehicle') return <VehicleCell lead={lead} all={all} onSaved={onVehicleSaved} autoFocus={opened} />
-        return <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} defaultOpen={opened} />
+        return <KitSummary lead={lead} kits={kits} bookings={kitBookings} canManageKits={canManageKits} defaultOpen={opened} packing={packing} />
     }
 
     const waitingLeads = visible.filter(l => !claimOf(l) && !isClaimWaived(l, duty))

@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils'
 import { useConfirm } from '../../finance/use-confirm'
 import type { EquipmentCategory } from '../categories'
 import CategoryDialog from './category-dialog'
+import PickupSpotsSection from './pickup-spots-section'
+import type { PickupSpot } from '../../packing/types'
 import { deleteCategory, reorderCategories } from './actions'
 
 export interface CategoryCounts {
@@ -19,7 +21,16 @@ export interface CategoryCounts {
 
 const PILL = 'inline-flex items-center rounded px-2 py-0.5 text-xs font-medium'
 
-export default function SettingsView({ categories, counts }: { categories: EquipmentCategory[]; counts: Record<string, CategoryCounts> }) {
+export default function SettingsView({
+  categories,
+  counts,
+  spots,
+}: {
+  categories: EquipmentCategory[]
+  counts: Record<string, CategoryCounts>
+  /** จุดรับของ (รวมที่ปิดใช้) — ไม่ส่ง = ไม่แสดงหัวข้อจุดรับของ */
+  spots?: PickupSpot[]
+}) {
   // undefined = ปิดกล่อง · null = เพิ่มใหม่
   const [editing, setEditing] = useState<EquipmentCategory | null | undefined>(undefined)
   const [pending, startTransition] = useTransition()
@@ -121,6 +132,8 @@ export default function SettingsView({ categories, counts }: { categories: Equip
           })}
         </div>
       </section>
+
+      {spots && <PickupSpotsSection spots={spots} />}
 
       {editing !== undefined && <CategoryDialog key={editing?.id ?? 'new'} category={editing} onClose={() => setEditing(undefined)} />}
       {dialog}
