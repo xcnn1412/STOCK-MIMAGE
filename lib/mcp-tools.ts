@@ -566,7 +566,7 @@ const eventClosures = defineTool({
 const jobReadiness = defineTool({
   name: 'job_readiness',
   module: 'jobs',
-  description: 'งานที่ยังไม่พร้อม (กติกาเดียวกับหน้าติดตามงาน) — คืนชื่อลูกค้า วันงาน สิ่งที่ยังขาด (ออกแบบ/จัดคน/จัดรถ/เวลาเริ่ม/กระเป๋า) และกระเป๋าที่จองไว้',
+  description: 'งานที่ยังไม่พร้อม (กติกาเดียวกับหน้าติดตามงาน) — คืนชื่อลูกค้า วันงาน สิ่งที่ยังขาด (ออกแบบ/จัดคน/จัดรถ/เวลาเริ่ม/จัดของ) และกระเป๋าที่จองไว้',
   schema: z.object({}),
   async run() {
     // ponytail: getTrackingSnapshot สร้าง service client เอง (ไม่รับ db) — ส่ง session เปล่าเพราะไม่มี cookie ใน /api/mcp
@@ -574,7 +574,7 @@ const jobReadiness = defineTool({
     const today = new Date()
     // เหมือน tracking-view: มุมมองปกติไม่รวมงานที่ผ่านไปแล้ว · ออกแบบตัดสินจากใบงานกราฟิก (ไม่มีใบ = ขาด)
     const base = snap.rows.filter(r => !isPast(r, today))
-    const kitReadiness = kitReadinessByLead(snap.rows, snap.poolJobs, snap.kitBookings)
+    const kitReadiness = kitReadinessByLead(snap.rows, snap.poolJobs, snap.kitBookings, undefined, snap.packingLists)
     const readyByJobs = designReadyByLead(snap.poolJobs)
     const kitName = new Map(snap.kits.map(k => [k.id, k.name]))
 

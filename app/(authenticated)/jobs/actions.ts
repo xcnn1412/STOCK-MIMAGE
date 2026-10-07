@@ -17,6 +17,7 @@ import type { PoolTeamCategory, PrepDuty } from './tracking/tracking-logic'
 import { DESIGN_STATUS_VALUES } from './tracking/design-options'
 import { DEPARTMENTS } from '@/lib/departments'
 import { loadBookingsForKits, recomputeKitPointers } from '@/lib/kit-bookings'
+import { packingRequestedMessage, packingRequestedRecipients } from '../packing/notify'
 
 
 async function getSession() {
@@ -901,6 +902,25 @@ export async function autoCreateJobsFromAcceptedLead(leadId: string) {
 
     // แจ้งเตือน "ใบงานใหม่เข้าพูล" ยิงจาก createLeadJobs แล้ว — ที่นี่เหลือแค่บันทึกว่ามาทางอัตโนมัติ
     await logActivity('AUTO_CREATE_JOBS_FROM_LEAD', { leadId, jobIds: result.jobs.map(j => j.id) })
+
+    // งานมีแพ็กเกจแล้ว (ทีมขายเลือกไว้ตั้งแต่ใบเสนอราคา) → แจ้งทีมจัดของให้เปิดใบจัดของ · แจ้งพังไม่ล้มการสร้างใบงาน
+    const supabase = createServiceClient()
+    const { data: packages } = await supabase.from('lead_packages').select('id').eq('lead_id', leadId).limit(1)
+    if ((packages || []).length > 0) {
+        const { data: lead } = await supabase.from('crm_leads').select('customer_name').eq('id', leadId).maybeSingle()
+        try {
+            await createNotifications({
+                userIds: await packingRequestedRecipients(supabase, leadId),
+                type: 'packing_requested',
+                ...packingRequestedMessage((lead?.customer_name as string | null) ?? null),
+                referenceType: 'crm_lead',
+                referenceId: leadId,
+                actorId: userId,
+            })
+        } catch (e) {
+            console.error('[jobs] packing_requested notify', e)
+        }
+    }
     revalidatePath('/jobs')
     revalidatePath('/jobs/tracking')
     return { success: true, created: true }
@@ -2926,8 +2946,9 @@ export async function updateLeadTracking(
  * - ไม่ส่ง + opts.pickExisting = หยิบอีเวนต์ที่ยังไม่ปิดใบแรกของงาน (เรียงตามวันงาน — กติกาเดียวกับที่ UI ตั้งต้นให้)
  * - ยังไม่มีอีเวนต์ = สร้างอีเวนต์ "main" จากข้อมูลงานให้อัตโนมัติ
  * สิทธิ์: ทุกคนที่ล็อกอิน (ต่างจาก createEvent ที่ admin-only) เพราะผู้ใช้หลักคือฝ่ายประสานงาน/ทีมหน้างาน
+ * export ให้ใบจัดของ (packing/actions.ts) ใช้เส้นทางเดียวกัน — รับ service client จึงเรียกจาก client ไม่ได้ (ผู้เรียกตรวจสิทธิ์เอง)
  */
-async function resolveLeadEvent(
+export async function resolveLeadEvent(
     supabase: ReturnType<typeof createServiceClient>,
     leadId: string,
     eventId: string | null,

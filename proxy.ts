@@ -5,7 +5,7 @@ import { getLicenseStatus, getExpiredRedirectUrl } from '@/lib/license'
 
 // Module-route mapping (inlined to avoid importing components in edge runtime)
 const MODULE_ROUTES: Record<string, string[]> = {
-  stock: ['/stock/dashboard', '/stock/settings', '/items', '/kits', '/packages', '/shelves', '/example-kits'],
+  stock: ['/stock/dashboard', '/stock/settings', '/items', '/kits', '/packages', '/packing', '/shelves', '/example-kits'],
   events: ['/events'],
   kpi: ['/kpi'],
   costs: ['/costs'],
@@ -211,6 +211,11 @@ export async function proxy(request: NextRequest) {
 
   // 3. Module access guard — check if user has permission for this route
   if (isValidSession && !isPublicPath) {
+    // QR จุดรับของ (/pickup/<id>) — ไม่อยู่ใน MODULE_ROUTES: ผ่านเมื่อมีสิทธิ์ stock หรือ events (แบบ QR กระเป๋า)
+    if (/^\/pickup\/[^/]+$/.test(pathname) && !allowedModules.includes('stock') && !allowedModules.includes('events')) {
+      return redirectTo(request, '/dashboard')
+    }
+
     const moduleInfo = getModuleForPath(pathname)
     if (moduleInfo) {
       const { moduleKey, adminOnly } = moduleInfo

@@ -136,6 +136,8 @@ export interface DutyWarningInput {
     poolJobs: PoolJob[]
     /** การจองกระเป๋า (snapshot.kitBookings) */
     kitBookings: KitBookingDetail[]
+    /** ใบจัดของ (snapshot.packingLists) — ไม่ส่ง = ยังไม่มีใบ ความพร้อม "จัดของ" ใช้กติกากระเป๋าเดิม */
+    packingLists?: { leadId: string | null; eventId: string; status: string }[]
     /** หน้าที่เตรียมงานที่มีคนรับแล้ว (snapshot.dutyClaims) */
     dutyClaims: DutyClaim[]
     /** งานที่ถูก archive — ไม่เข้าแผง (snapshot.archivedLeadIds) */
@@ -198,7 +200,7 @@ export function buildDutyWarnings(input: DutyWarningInput): DutyWarningRow[] {
 
     const archived = new Set(input.archivedLeadIds ?? [])
     const designReady = designReadyByLead(poolJobs)
-    const kitReadiness = kitReadinessByLead(leads, poolJobs, kitBookings)
+    const kitReadiness = kitReadinessByLead(leads, poolJobs, kitBookings, undefined, input.packingLists ?? [])
     const graphicOwners = graphicOwnersByLead(poolJobs)
 
     const rows: DutyWarningRow[] = []

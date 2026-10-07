@@ -52,9 +52,12 @@ export type NotificationType =
   | 'doc_voided'
   | 'salary_finalized'
   | 'salary_reopened'
+  // ใบจัดของ (คลังอุปกรณ์)
+  | 'packing_requested'     // งานตอบรับแล้วมีแพ็กเกจ → ทีมจัดของ (reference_type = 'crm_lead') — กระดิ่งพาไป /jobs/tracking?tab=kits&lead=<id>
+  | 'packing_ready'         // ใบจัดของพร้อมรับ → หัวหน้างาน + คนในอีเวนต์ (reference_type = 'packing_list') — กระดิ่งพาไป /packing/<id>
 
 export type ReferenceType =
-  | 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation' | 'crm_lead' | 'document' | 'salary_slip'
+  | 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation' | 'crm_lead' | 'document' | 'salary_slip' | 'packing_list'
 
 interface CreateNotificationParams {
   userIds: string[]

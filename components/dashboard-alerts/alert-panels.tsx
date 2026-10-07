@@ -18,7 +18,7 @@ const MISSING_BAR_LABELS: Record<string, string> = {
     staff: 'จัดคน',
     vehicle: 'จัดรถ',
     time: 'เวลาเริ่ม',
-    kits: 'กระเป๋า',
+    kits: 'จัดของ',
 }
 
 /** จำนวนสิ่งที่ยังขาดแยกตามหน้าที่ จากคำเตือนที่ user คนนี้เห็น — เรียงมาก→น้อย */
@@ -45,6 +45,7 @@ export function buildAlertData(snapshot: TrackingSnapshot) {
         leads: rows,
         poolJobs,
         kitBookings: snapshot.kitBookings,
+        packingLists: snapshot.packingLists,
         dutyClaims: snapshot.dutyClaims,
         archivedLeadIds: [...snapshot.archivedLeadIds, ...snapshot.prepDoneLeadIds],
         dutyDepartments: snapshot.dutyDepartments,

@@ -40,6 +40,7 @@ export default async function TrackingPage({
         unitBookings,
         capacityWarnings,
         canEditPackages,
+        packingLists,
     } = snapshot
 
     // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
@@ -72,6 +73,7 @@ export default async function TrackingPage({
                 unitBookings={unitBookings}
                 capacityWarnings={capacityWarnings}
                 canEditPackages={canEditPackages}
+                packingLists={packingLists}
             />
         </Suspense>
     )

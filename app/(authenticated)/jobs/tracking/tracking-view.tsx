@@ -79,6 +79,7 @@ import DutyTab, { claimedDutyCount, dutyKey, dutySummary, unclaimedDutyCount } f
 import { DESIGN_OPTIONS } from './design-options'
 import PackagePicker from '../../packages/package-picker'
 import type { CapacityWarning, CategoryUnits, LeadPackageRow, PickerPackage, UnitBooking } from '../../packages/types'
+import type { PackingListSummary } from '../../packing/types'
 
 export type { TrackingLead, Person, StaffRole }
 
@@ -453,7 +454,7 @@ const POOL_CHIPS: { key: Exclude<PoolTab, 'overview'>; label: string }[] = [
     { key: 'graphic', label: 'กราฟิก' },
     { key: 'staffing', label: 'จัดคน' },
     { key: 'vehicle', label: 'จัดรถ' },
-    { key: 'kits', label: 'กระเป๋า' },
+    { key: 'kits', label: 'จัดของ' },
     { key: 'onsite', label: 'หน้างาน' },
 ]
 
@@ -660,6 +661,7 @@ export default function TrackingView({
     canManagePool = false,
     kits = [],
     kitBookings = [],
+    packingLists = [],
     eventVehicles = [],
     canManageKits = false,
     isAdmin = false,
@@ -689,6 +691,8 @@ export default function TrackingView({
     kits?: PoolKit[]
     /** การจองกระเป๋า (event_kits) ของงานเหล่านี้ + ของอีเวนต์อื่นในวันเดียวกัน (ใช้บอกว่าชน) */
     kitBookings?: KitBookingRow[]
+    /** ใบจัดของของงานเหล่านี้ (snapshot.packingLists) — ความพร้อมข้อ "จัดของ" */
+    packingLists?: PackingListSummary[]
     /** การจองรถรายอีเวนต์ (event_vehicles) — ช่อง "จัดรถ" ของแถวรายอีเวนต์อ่านค่าจากตรงนี้ */
     eventVehicles?: EventVehicle[]
     /** แอดมิน/แผนกที่ดูแลกระเป๋า — จองและยกเลิกจองได้ */
@@ -1074,7 +1078,7 @@ export default function TrackingView({
     const dutyClaims = applyDutyDraft(dutyClaimsProp, dutyDraft)
 
     // ความพร้อมข้อ 5 (กระเป๋า) — ต้องรู้ใบงานหน้างาน (ถูกข้ามไหม) + การจองของงานนั้น
-    const kitReadiness = kitReadinessByLead(rows, jobs, kitBookings)
+    const kitReadiness = kitReadinessByLead(rows, jobs, kitBookings, undefined, packingLists)
 
     // ความพร้อมข้อ 1 (ออกแบบ) — ตัดสินจากใบงานกราฟิกทุกใบของงาน ไม่ใช่ค่าระดับงานอีกแล้ว
     // งานที่ยังไม่เปิดใบงานกราฟิกเลยไม่อยู่ใน map → อ่านเป็น false (ยังไม่เปิดใบงาน = ขาดออกแบบ)

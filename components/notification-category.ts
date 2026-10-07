@@ -3,9 +3,9 @@
 // ใช้ร่วมกันระหว่างหน้า /notifications, กระดิ่งแจ้งเตือน และ actions
 // ============================================================================
 
-export type NotificationCategory = 'jobs' | 'finance' | 'kpi' | 'crm' | 'documents' | 'salary' | 'other'
+export type NotificationCategory = 'jobs' | 'finance' | 'kpi' | 'crm' | 'documents' | 'salary' | 'stock' | 'other'
 
-export const CATEGORY_ORDER: NotificationCategory[] = ['jobs', 'finance', 'kpi', 'crm', 'documents', 'salary', 'other']
+export const CATEGORY_ORDER: NotificationCategory[] = ['jobs', 'finance', 'kpi', 'crm', 'documents', 'salary', 'stock', 'other']
 
 export const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   jobs:    'งาน',
@@ -14,6 +14,7 @@ export const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   crm:     'CRM',
   documents: 'เอกสาร',
   salary:  'เงินเดือน',
+  stock:   'คลังอุปกรณ์',
   other:   'อื่นๆ',
 }
 
@@ -25,6 +26,7 @@ export const CATEGORY_PREFIXES: Record<Exclude<NotificationCategory, 'other'>, s
   crm:     ['crm_'],
   documents: ['doc_'],
   salary:  ['salary_'],
+  stock:   ['packing_'],
 }
 
 export function categoryOf(type: string): NotificationCategory {
@@ -73,6 +75,8 @@ export const TYPE_CONFIG: Record<string, TypeConfig> = {
   doc_voided:                  { icon: '🚫', color: 'bg-neutral-200 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400', label: 'เอกสารถูกยกเลิก' },
   salary_finalized:            { icon: '💰', color: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-400',        label: 'สลิปเงินเดือน' },
   salary_reopened:             { icon: '✏️', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', label: 'สลิปเงินเดือน' },
+  packing_requested:           { icon: '📦', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',             label: 'งานรอจัดของ' },
+  packing_ready:               { icon: '✅', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'ของพร้อมรับ' },
 }
 
 export const DEFAULT_TYPE_CONFIG: TypeConfig = {

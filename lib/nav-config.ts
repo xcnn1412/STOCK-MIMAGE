@@ -1,4 +1,4 @@
-import { Package, Archive, Layers, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History, Eye, User, Megaphone, Wallet, CalendarClock, Boxes } from 'lucide-react'
+import { Package, Archive, Layers, Calendar, CalendarDays, CheckCircle2, FileText, LayoutGrid, Users, Target, DollarSign, LayoutDashboard, UserCheck, ClipboardCheck, BarChart3, ContactRound, Settings, Banknote, Import, List, Download, Shield, Briefcase, MapPinCheckInside, History, Eye, User, Megaphone, Wallet, CalendarClock, Boxes, ClipboardList } from 'lucide-react'
 
 export type ModuleKey = 'overview' | 'crm' | 'content' | 'events' | 'stock' | 'costs' | 'finance' | 'salary' | 'documents' | 'kpi' | 'jobs' | 'checkin' | 'salesboard' | 'admin'
 
@@ -73,6 +73,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/items', icon: Package, labelKey: 'inventory' },
       { href: '/kits', icon: Archive, labelKey: 'kits' },
       { href: '/packages', icon: Boxes, labelKey: 'packages' },
+      { href: '/packing', icon: ClipboardList, labelKey: 'packing' },
       { href: '/shelves', icon: Layers, labelKey: 'shelves' },
       { href: '/example-kits', icon: FileText, labelKey: 'examples' },
       { href: '/stock/settings', icon: Settings, labelKey: 'stockSettings' },

@@ -1128,7 +1128,7 @@ assert.deepEqual(
 )
 assert.equal(isReady(mk(), kr({ bookings: [] })), false)
 assert.equal(isReady(mk(), kr()), true)
-assert.equal(missingLabel('kits', mk(), rrLabels), 'กระเป๋า')
+assert.equal(missingLabel('kits', mk(), rrLabels), 'จัดของ')
 
 // isUrgent / chipCounts เห็นข้อกระเป๋าเมื่อส่งข้อมูลมา
 assert.equal(isUrgent(mk({ event_date: T }), today), false)
@@ -1154,13 +1154,38 @@ const krMap = kitReadinessByLead(
   krJobs,
   krBookings
 )
-assert.deepEqual(krMap.get('A'), { onsiteSkipped: false, bookings: [{ packed: false }, { packed: true }] })
-assert.deepEqual(krMap.get('S'), { onsiteSkipped: true, bookings: [] }) // ใบงานหน้างานถูกข้าม
-assert.deepEqual(krMap.get('N'), { onsiteSkipped: false, bookings: [] }) // ยังไม่จองเลย
+assert.deepEqual(krMap.get('A'), { onsiteSkipped: false, bookings: [{ packed: false, eventId: 'e1' }, { packed: true, eventId: 'e1' }], packingLists: [], openEventIds: [] })
+assert.deepEqual(krMap.get('S'), { onsiteSkipped: true, bookings: [], packingLists: [], openEventIds: [] }) // ใบงานหน้างานถูกข้าม
+assert.deepEqual(krMap.get('N'), { onsiteSkipped: false, bookings: [], packingLists: [], openEventIds: [] }) // ยังไม่จองเลย
 assert.equal(isMissingKits(krMap.get('A')!), true) // มีใบที่ยังไม่จัด
 assert.equal(isMissingKits(krMap.get('S')!), false)
 assert.equal(isMissingKits(krMap.get('N')!), true)
 assert.equal(kitReadinessByLead([], krJobs, krBookings).size, 0)
+
+// --- ความพร้อม "จัดของ" กับใบจัดของ (เฟส 3) — ใบถึงพร้อมรับ = ผ่าน · อีเวนต์ไม่มีใบใช้กติกากระเป๋าเดิม ------
+const ev = (id: string) => ({ id, name: id, event_date: T, status: null })
+// (1) ใบ ready → ไม่ขาด (แม้ยังไม่จองกระเป๋าตรง)
+const plReady = kitReadinessByLead([mk({ id: 'PR', events: [ev('pe1')] })], [], [], undefined, [{ leadId: 'PR', eventId: 'pe1', status: 'ready' }])
+assert.equal(isMissingKits(plReady.get('PR')!), false)
+assert.deepEqual(getMissing(mk({ id: 'PR', events: [ev('pe1')] }), plReady.get('PR')), [])
+// (2) ใบ picking → ขาด
+const plPicking = kitReadinessByLead([mk({ id: 'PP', events: [ev('pe1')] })], [], [], undefined, [{ leadId: 'PP', eventId: 'pe1', status: 'picking' }])
+assert.equal(isMissingKits(plPicking.get('PP')!), true)
+// (3) อีเวนต์ไม่มีใบแต่จองกระเป๋าครบ → ผ่าน (อีเวนต์อีกใบมีใบ ready)
+const plMixed = kitReadinessByLead(
+  [mk({ id: 'PM', events: [ev('pe1'), ev('pe2')] })],
+  [],
+  [{ kitId: 'k1', eventId: 'pe2', eventDate: T, eventName: 'pe2', leadId: 'PM', packed: true }],
+  undefined,
+  [{ leadId: 'PM', eventId: 'pe1', status: 'ready' }]
+)
+assert.equal(isMissingKits(plMixed.get('PM')!), false)
+// (4) อีเวนต์เปิด 2 ใบ มีใบจัดของใบเดียว (อีกอีเวนต์ไม่มีใบและไม่ได้จอง) → ขาด
+const plHalf = kitReadinessByLead([mk({ id: 'PH', events: [ev('pe1'), ev('pe2')] })], [], [], undefined, [{ leadId: 'PH', eventId: 'pe1', status: 'done' }])
+assert.equal(isMissingKits(plHalf.get('PH')!), true)
+// ใบของงานอื่นไม่ปนเข้ามา · ใบงานหน้างานถูกข้าม = ไม่นับแม้ใบยังเลือกของ
+assert.deepEqual(plReady.get('PR')!.packingLists, [{ eventId: 'pe1', status: 'ready' }])
+assert.equal(isMissingKits({ onsiteSkipped: true, bookings: [], packingLists: [{ eventId: 'x', status: 'selecting' }], openEventIds: ['x'] }), false)
 
 // --- ไทม์ไลน์: เลนกระเป๋า -----------------------------------------------------
 const kits = [
@@ -1270,7 +1295,7 @@ assert.deepEqual([...POOL_TEAM_DEFAULTS.pool_kit_departments], [...POOL_TEAM_DEF
 // --- หน้าที่เตรียมงาน (Prep duty) ---------------------------------------------
 
 assert.deepEqual([...PREP_DUTIES], ['staffing', 'vehicle', 'kits'])
-assert.deepEqual([...PREP_DUTIES].map((d) => DUTY_LABELS_TH[d]), ['จัดคน', 'จัดรถ', 'จัดกระเป๋า'])
+assert.deepEqual([...PREP_DUTIES].map((d) => DUTY_LABELS_TH[d]), ['จัดคน', 'จัดรถ', 'จัดของ'])
 
 // duty → category ครบทุกหน้าที่ ไม่ซ้ำกัน และทุก category อยู่ในรายการที่ตั้งค่าได้จริง
 const dutyCategories = PREP_DUTIES.map((d) => PREP_DUTY_CATEGORY[d])
@@ -1358,7 +1383,7 @@ assert.equal(CLAIM_LABELS.graphic, 'รับออกแบบ')
 assert.equal(CLAIM_LABELS.onsite, 'รับเป็นหัวหน้างาน')
 assert.equal(CLAIM_LABELS.staffing, 'รับจัดคน')
 assert.equal(CLAIM_LABELS.vehicle, 'รับจัดรถ')
-assert.equal(CLAIM_LABELS.kits, 'รับจัดกระเป๋า')
+assert.equal(CLAIM_LABELS.kits, 'รับจัดของ')
 assert.equal(new Set(Object.values(CLAIM_LABELS)).size, 5)
 
 // ทุกจุดที่กดรับได้ต้องมีหมวดตั้งค่าแผนกของตัวเองใน job_settings (data.ts อ่านจากรายการนี้)
