@@ -6,6 +6,7 @@
 //          (3) session ที่ใช้ไม่ได้ถูกส่งไปหน้าล็อกอิน (รวม cookie แบบเก่าที่ไม่ได้เซ็น, active_session_id เป็น null,
 //              ไม่มี session_id) และ cookie ของ session ถูกลบทุกครั้ง
 //          (5) QR กระเป๋า /kits/<id>/check เข้าได้ด้วยสิทธิ์ stock หรือ events (ส่วนอื่นของ /kits ต้องมี stock)
+//          (6) ตั้งค่าคลัง /stock/settings ต้องมีสิทธิ์ stock
 // ไม่แตะฐานข้อมูลหรือเครือข่ายจริง · ผู้ใช้สังเคราะห์
 // บรรทัดสุดท้ายของผลลัพธ์ต้องเป็น "proxy-session: ผ่านทั้งหมด"
 
@@ -167,6 +168,12 @@ async function main() {
   assert.equal(await outcome(`/kits/${KIT}/check`, st), 'next', 'มีแต่สิทธิ์สต็อก สแกน QR กระเป๋าได้')
   assert.equal(await outcome('/kits', st), 'next')
   pass('QR กระเป๋า: events/stock เข้า /kits/<id>/check ได้ · events อย่างเดียวเข้า /kits ส่วนอื่นไม่ได้ · ไม่มีทั้งสองเข้าไม่ได้')
+
+  // (6) ตั้งค่าคลัง /stock/settings อยู่ใต้โมดูลสต็อก
+  assert.equal(await outcome('/stock/settings', st), 'next', 'มีสิทธิ์สต็อก เข้าตั้งค่าคลังได้')
+  assert.equal(await outcome('/stock/settings', ev), '/dashboard', 'มีแต่สิทธิ์อีเวนต์ เข้าตั้งค่าคลังไม่ได้')
+  assert.equal(await outcome('/stock/settings', no), '/dashboard', 'ไม่มีสิทธิ์สต็อก เข้าตั้งค่าคลังไม่ได้')
+  pass('ตั้งค่าคลัง: stock เข้าได้ · events อย่างเดียว / ไม่มีสิทธิ์ → /dashboard')
 
   console.log('\nproxy-session: ผ่านทั้งหมด')
 }

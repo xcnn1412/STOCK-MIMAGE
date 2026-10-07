@@ -170,17 +170,24 @@ export async function updateKitItemQuantity(
     return { success: true }
 }
 
-export async function updateKitDetails(kitId: string, name: string, description: string) {
+export async function updateKitDetails(kitId: string, name: string, description: string, categoryId: string | null = null) {
   if (!(await getKitManager())) return { error: 'เฉพาะ admin และแผนกที่ดูแลกระเป๋าเท่านั้น' }
 
   const supabase = createServiceClient()
+
+  // ประเภทอุปกรณ์ของกระเป๋า — ต้องมีอยู่จริงเมื่อไม่ใช่ "ไม่ระบุ"
+  if (categoryId) {
+    const { data: cat } = await supabase.from('equipment_categories').select('id').eq('id', categoryId).maybeSingle()
+    if (!cat) return { error: 'ไม่พบประเภทอุปกรณ์ที่เลือก — โหลดหน้าใหม่แล้วเลือกอีกครั้ง' }
+  }
   
   // Fetch old details for logging
-  const { data: oldKit } = await supabase.from('kits').select('name, description').eq('id', kitId).single()
+  const { data: oldKit } = await supabase.from('kits').select('name, description, category_id').eq('id', kitId).single()
 
   const { error } = await supabase.from('kits').update({ 
     name, 
-    description 
+    description,
+    category_id: categoryId || null,
   }).eq('id', kitId)
 
   if (error) {
@@ -194,6 +201,8 @@ export async function updateKitDetails(kitId: string, name: string, description:
       newName: name,
       oldDescription: oldKit?.description,
       newDescription: description,
+      oldCategoryId: oldKit?.category_id ?? null,
+      newCategoryId: categoryId || null,
       action: 'UPDATE_DETAILS'
   }, undefined)
 

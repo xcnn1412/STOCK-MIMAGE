@@ -8,6 +8,7 @@ import { requireAuth } from '@/lib/auth'
 import { getKitManager } from '@/lib/kit-bookings'
 import { moveStock } from '@/lib/stock'
 import { parseConsumableFields } from '@/app/(authenticated)/shelves/consumable-logic'
+import { resolveCategory } from '@/app/(authenticated)/stock/categories'
 import type { ActionState, Database } from '@/types'
 
 
@@ -19,7 +20,6 @@ export async function createItem(prevState: ActionState, formData: FormData) {
   }
 
   const name = formData.get('name') as string
-  const category = formData.get('category') as string
   const serial_number = formData.get('serial_number') as string
   const status = formData.get('status') as string
   const price = formData.get('price') as string
@@ -40,6 +40,10 @@ export async function createItem(prevState: ActionState, formData: FormData) {
   const validImages = images.filter(img => img.size > 0).slice(0, 4) // Limit to 4
 
   const supabase = createServiceClient()
+  const cat = await resolveCategory(supabase, formData.get('category_id'))
+  if ('error' in cat) return cat
+  const { category_id, category } = cat
+
   const imageUrls: string[] = []
   const uploadErrors: string[] = []
 
@@ -78,6 +82,7 @@ export async function createItem(prevState: ActionState, formData: FormData) {
   const { data: newItem, error } = await supabase.from('items').insert(consumable ? {
     name,
     category,
+    category_id,
     serial_number: serial_number || null,
     description: (formData.get('description') as string) || null,
     status: 'available',
@@ -90,6 +95,7 @@ export async function createItem(prevState: ActionState, formData: FormData) {
   } : {
     name,
     category,
+    category_id,
     serial_number,
     description: (formData.get('description') as string) || null,
     status: status || 'available',
@@ -120,6 +126,7 @@ export async function createItem(prevState: ActionState, formData: FormData) {
   await logActivity('CREATE_ITEM', {
       name,
       category,
+      category_id,
       serial_number,
       quantity,
       image_url,

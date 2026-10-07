@@ -13,33 +13,39 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Pencil } from "lucide-react"
+import { toast } from 'sonner'
 import { updateKitDetails } from './actions'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/contexts/language-context'
 import type { Kit } from '@/types'
+import type { EquipmentCategory } from '../../stock/categories'
 
-export default function EditKitDialog({ kit }: { kit: Kit }) {
+const NONE = 'none'
+
+export default function EditKitDialog({ kit, categories = [] }: { kit: Kit; categories?: EquipmentCategory[] }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [name, setName] = useState(kit.name)
   const [description, setDescription] = useState(kit.description || '')
+  const [categoryId, setCategoryId] = useState(kit.category_id || NONE)
   const router = useRouter()
   const { t } = useLanguage()
 
   const handleUpdate = async () => {
     setLoading(true)
     try {
-      const result = await updateKitDetails(kit.id, name, description)
+      const result = await updateKitDetails(kit.id, name, description, categoryId === NONE ? null : categoryId)
       if (result?.error) {
-        alert(result.error)
+        toast.error(result.error)
       } else {
         setOpen(false)
         router.refresh()
       }
     } catch (e) {
       console.error(e)
-      alert('Failed to update')
+      toast.error('บันทึกกระเป๋าไม่สำเร็จ')
     } finally {
         setLoading(false)
     }
@@ -81,6 +87,27 @@ export default function EditKitDialog({ kit }: { kit: Kit }) {
               onChange={(e) => setDescription(e.target.value)}
               className="col-span-3"
             />
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <label htmlFor="kit-category" className="text-right text-sm font-medium">
+              ประเภท
+            </label>
+            <div className="col-span-3">
+              <Select value={categoryId} onValueChange={setCategoryId}>
+                <SelectTrigger id="kit-category" className="w-full">
+                  <SelectValue placeholder="ไม่ระบุ" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>ไม่ระบุ</SelectItem>
+                  {categories.map(c => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      {!c.is_active && ' (ปิดใช้)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
         <DialogFooter>

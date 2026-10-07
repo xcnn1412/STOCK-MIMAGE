@@ -10,6 +10,8 @@ import { Card } from "@/components/ui/card"
 import { deleteItemAction } from './[id]/delete-action'
 import { cleanupOrphanedItems } from './cleanup-items'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { toast } from 'sonner'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +47,9 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   const [filterText, setFilterText] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [onlyConsumable, setOnlyConsumable] = useState(false)
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  // ประเภทที่มีในรายการที่โหลดมา (ชื่อประเภทเขียนคู่กับ category_id)
+  const categoryOptions = [...new Set(items.map(i => i.category?.trim()).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, 'th'))
 
   const handleCleanup = async () => {
     startTransition(async () => {
@@ -106,7 +111,9 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
         matchesStatus = item.status === statusFilter
     }
 
-    return matchesText && matchesStatus && (!onlyConsumable || item.is_consumable)
+    const matchesCategory = categoryFilter === 'all' || (item.category?.trim() || '') === categoryFilter
+
+    return matchesText && matchesStatus && matchesCategory && (!onlyConsumable || item.is_consumable)
   })
 
   const sortedItems = [...filteredItems].sort((a, b) => {
@@ -175,6 +182,17 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                   </DropdownMenuCheckboxItem>
               </DropdownMenuContent>
           </DropdownMenu>
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-full sm:w-48" aria-label="กรองตามประเภท">
+                  <SelectValue placeholder="ทุกประเภท" />
+              </SelectTrigger>
+              <SelectContent>
+                  <SelectItem value="all">ทุกประเภท</SelectItem>
+                  {categoryOptions.map(c => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+              </SelectContent>
+          </Select>
           <Button
             variant={onlyConsumable ? 'default' : 'outline'}
             className="gap-2 w-full sm:w-auto"
@@ -279,7 +297,7 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                                                     window.location.reload()
                                                 } catch (error) {
                                                     console.error("Delete failed", error)
-                                                    alert("Failed to delete item. Please check logs.")
+                                                    toast.error("ลบอุปกรณ์ไม่สำเร็จ")
                                                     btn.innerText = originalText
                                                     btn.style.opacity = "1"
                                                 }

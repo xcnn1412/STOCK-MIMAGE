@@ -4,15 +4,20 @@ import KitDetailsView, { type KitBookingRow } from './kit-details-view'
 import { getKitManager, loadBookingsForKits } from '@/lib/kit-bookings'
 import { hasModule } from '@/lib/stock'
 import { onShelf } from '@/app/(authenticated)/shelves/consumable-logic'
+import { loadCategories } from '@/app/(authenticated)/stock/categories'
 import type { Kit, Item, KitContent } from '@/types'
 
-type KitRow = Kit & { events: { name: string | null; event_date: string | null } | null; shelves: { id: string; code: string } | null }
+type KitRow = Kit & {
+  events: { name: string | null; event_date: string | null } | null
+  shelves: { id: string; code: string } | null
+  equipment_categories: { name: string } | null
+}
 
 export const revalidate = 0
 
 export default async function KitDetailsPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { data: kit } = await supabase.from('kits').select('*, events(name, event_date), shelves(id, code)').eq('id', params.id).single<KitRow>()
+  const { data: kit } = await supabase.from('kits').select('*, category_id, events(name, event_date), shelves(id, code), equipment_categories(name)').eq('id', params.id).single<KitRow>()
 
   if (!kit) notFound()
 
@@ -38,11 +43,14 @@ export default async function KitDetailsPage(props: { params: Promise<{ id: stri
     .map(item => (item.is_consumable ? { ...item, on_shelf: onShelf(item.quantity ?? 0, inKitsQty.get(item.id) || 0) } : item))
 
   // งานที่จองกระเป๋านี้ (ยังไม่ปิด) เรียงตามวันงาน
-  const [bookings, canManage, eventsUser] = await Promise.all([
+  const [bookings, canManage, eventsUser, allCategories] = await Promise.all([
     loadBookingsForKits(createServiceClient(), [kit.id]),
     getKitManager(),
     hasModule('events'),
+    loadCategories(createServiceClient(), { includeInactive: true }),
   ])
+  // ประเภทที่เปิดใช้ + ประเภทปัจจุบันของกระเป๋า (แม้ปิดใช้)
+  const categories = allCategories.filter(c => c.is_active || c.id === kit.category_id)
   const openBookings: KitBookingRow[] = bookings
     .filter(b => !b.closed)
     .sort((a, b) => (a.eventDate ?? '9999').localeCompare(b.eventDate ?? '9999') || (a.eventTime ?? '').localeCompare(b.eventTime ?? ''))
@@ -56,6 +64,7 @@ export default async function KitDetailsPage(props: { params: Promise<{ id: stri
       canManage={!!canManage}
       bookings={openBookings}
       canOpenEvents={!!eventsUser}
+      categories={categories}
     />
   )
 }

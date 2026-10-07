@@ -18,6 +18,8 @@ export interface KitCard {
   description: string | null
   itemCount: number
   shelf: { id: string; code: string } | null
+  /** ชื่อประเภทอุปกรณ์ของกระเป๋า (ไม่มี = null) */
+  categoryName: string | null
   /** งานที่กระเป๋าผูกอยู่ (kits.event_id) */
   event: { name: string | null; event_date: string | null } | null
   /** สถานะของอุปกรณ์ปกติในกระเป๋า (ไม่รวมวัสดุสิ้นเปลือง) */
@@ -87,6 +89,7 @@ export default function KitsView({ kits, canManage = false }: { kits: KitCard[];
                   <Briefcase className="h-5 w-5 shrink-0 text-zinc-500" />
                   <span className="truncate">{kit.name}</span>
                 </CardTitle>
+                {kit.categoryName && <p className="truncate text-xs text-zinc-500">{kit.categoryName}</p>}
               </CardHeader>
               <CardContent className="flex-1 space-y-3">
                 <p className="text-sm text-zinc-500 line-clamp-2">{kit.description || t.common.noData}</p>

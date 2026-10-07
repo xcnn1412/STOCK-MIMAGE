@@ -9,6 +9,7 @@ type KitRow = {
   name: string
   description: string | null
   shelves: { id: string; code: string } | null
+  equipment_categories: { name: string } | null
   events: { name: string | null; event_date: string | null } | null
   kit_contents: { id: string; items: { status: string; is_consumable: boolean | null } | null }[] | null
 }
@@ -16,7 +17,7 @@ type KitRow = {
 export default async function KitsPage() {
   const { data } = await supabase
     .from('kits')
-    .select('*, shelves(id, code), events(name, event_date), kit_contents(id, items(status, is_consumable))')
+    .select('*, shelves(id, code), equipment_categories(name), events(name, event_date), kit_contents(id, items(status, is_consumable))')
     .order('name')
 
   const kits: KitCard[] = ((data || []) as unknown as KitRow[]).map(k => ({
@@ -25,6 +26,7 @@ export default async function KitsPage() {
     description: k.description,
     itemCount: k.kit_contents?.length || 0,
     shelf: k.shelves,
+    categoryName: k.equipment_categories?.name ?? null,
     event: k.events,
     // สถานะของอุปกรณ์ปกติ (วัสดุสิ้นเปลืองไม่มีสถานะออกงาน)
     statuses: (k.kit_contents || []).filter(c => c.items && !c.items.is_consumable).map(c => c.items!.status),
