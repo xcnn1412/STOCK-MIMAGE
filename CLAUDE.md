@@ -171,9 +171,9 @@ Several module-level design/spec markdowns live in `docs/` (`Finance.md`, `KPI.m
 
 ## Agent Workflow (Plan → Execute → Verify Loop)
 
-Pattern: **Fable5 วางแผน → Opus 4.8 ลงมือ → Fable5 ตรวจ → ไม่ผ่านวนใหม่ (สูงสุด 5 รอบ)**
+Pattern: **Fable 5.1 วางแผน → Opus 5.5 ลงมือ → Fable 5.1 ตรวจ → ไม่ผ่านวนใหม่ (สูงสุด 5 รอบ)**
 
-> Executor ใช้ **Opus 4.8** — ตอน dispatch ผ่าน Agent tool เลือก tier `opus` ได้เท่านั้น (เลือกเวอร์ชันย่อยตรงๆ ไม่ได้) เวอร์ชันจริงตามที่ session/config ของ Claude Code resolve ให้
+> รุ่น ณ 2026-10: Planner/Critic = session หลัก (**Fable 5.1**, `claude-fable-5-1`) · Executor = **Opus 5.5** (`claude-opus-5-5`) — ตอน dispatch ผ่าน Agent tool เลือกได้แค่ tier (`fable` / `opus` / `sonnet` / `haiku`) ใช้ `model: "opus"` เวอร์ชันจริงตามที่ Claude Code resolve ให้ · งานง่ายๆ (lint เฉพาะไฟล์, ย้ายโค้ดตรงๆ) ใช้ `sonnet` (Sonnet 5.5) ได้
 
 ### หลักการสำคัญ (ประหยัด token 50–70% ในงานที่วนหลายรอบ)
 
@@ -189,25 +189,25 @@ Pattern: **Fable5 วางแผน → Opus 4.8 ลงมือ → Fable5 ต
 
 ```
 [รอบวางแผน — ครั้งเดียว]
-Fable5: สร้างแผน + acceptance criteria (lock ไว้) → cache
+Fable 5.1: สร้างแผน + acceptance criteria (lock ไว้) → cache
 
 [Loop สูงสุด 5 รอบ]
-Opus4.8: ลงมือ (รอบแรก = แผนเต็ม / รอบถัดไป = เฉพาะ failures)
-Fable5: ตรวจกับ criteria → JSON {pass, score, passed_ids, failures}
+Opus 5.5: ลงมือ (รอบแรก = แผนเต็ม / รอบถัดไป = เฉพาะ failures)
+Fable 5.1: ตรวจกับ criteria → JSON {pass, score, passed_ids, failures}
   ┌─ pass = true ───────────→ จบทันที
   ├─ score >= pass_threshold ─→ จบ ("ดีพอ" แม้ไม่ perfect)
   ├─ score ไม่ขยับ 2 รอบติด ──→ จบ คืนผลงานดีสุดที่มี
   ├─ ครบ 5 รอบ ──────────────→ จบ คืนผลงานดีสุด + แจ้งว่าไม่ผ่านครบ
-  └─ ไม่ผ่าน ────────────────→ ส่งเฉพาะ failures กลับ Opus 4.8, lock passed_ids (ไม่ตรวจซ้ำ)
+  └─ ไม่ผ่าน ────────────────→ ส่งเฉพาะ failures กลับ Opus 5.5, lock passed_ids (ไม่ตรวจซ้ำ)
 ```
 
 ### Role prompts
 
-**Planner (Fable5 — ครั้งเดียว):** output JSON เท่านั้น `{"plan": [ขั้นตอนย่อยเรียงลำดับ], "acceptance_criteria": [{"id": "AC1", "check": "เกณฑ์วัดได้ ผ่าน/ไม่ผ่านชัดเจน"}], "pass_threshold": 0.85}` — เกณฑ์ต้องวัดได้เป็นข้อเท็จจริง ห้ามคลุมเครือ (❌ "โค้ดควรอ่านง่าย" ✅ "ทุกฟังก์ชันมี docstring") และถูก lock ตลอดทุกรอบ
+**Planner (Fable 5.1 — ครั้งเดียว):** output JSON เท่านั้น `{"plan": [ขั้นตอนย่อยเรียงลำดับ], "acceptance_criteria": [{"id": "AC1", "check": "เกณฑ์วัดได้ ผ่าน/ไม่ผ่านชัดเจน"}], "pass_threshold": 0.85}` — เกณฑ์ต้องวัดได้เป็นข้อเท็จจริง ห้ามคลุมเครือ (❌ "โค้ดควรอ่านง่าย" ✅ "ทุกฟังก์ชันมี docstring") และถูก lock ตลอดทุกรอบ
 
-**Executor (Opus 4.8):** รอบแรกรับแผนเต็ม + criteria ทำให้ครบ; รอบ 2+ รับเฉพาะ `{failed_section}` + `{failures}` — แก้เฉพาะจุดที่ตก ห้ามรื้อส่วนที่ผ่านแล้ว ห้าม regenerate ทั้งชิ้น ส่งเฉพาะ delta
+**Executor (Opus 5.5):** รอบแรกรับแผนเต็ม + criteria ทำให้ครบ; รอบ 2+ รับเฉพาะ `{failed_section}` + `{failures}` — แก้เฉพาะจุดที่ตก ห้ามรื้อส่วนที่ผ่านแล้ว ห้าม regenerate ทั้งชิ้น ส่งเฉพาะ delta
 
-**Critic (Fable5):** ตรวจเทียบเกณฑ์ที่ lock เท่านั้น ห้ามเพิ่มเกณฑ์ใหม่ ข้ามส่วนที่ lock แล้ว output JSON เท่านั้น `{"pass": bool, "score": 0.0-1.0, "passed_ids": [...], "failures": [{"loc", "ac_id", "issue"}]}` — issue สั้นที่สุดพอให้ Executor รู้ว่าแก้อะไร; pass=true → failures=[]
+**Critic (Fable 5.1):** ตรวจเทียบเกณฑ์ที่ lock เท่านั้น ห้ามเพิ่มเกณฑ์ใหม่ ข้ามส่วนที่ lock แล้ว output JSON เท่านั้น `{"pass": bool, "score": 0.0-1.0, "passed_ids": [...], "failures": [{"loc", "ac_id", "issue"}]}` — issue สั้นที่สุดพอให้ Executor รู้ว่าแก้อะไร; pass=true → failures=[]
 
 ### กฎทอง
 
