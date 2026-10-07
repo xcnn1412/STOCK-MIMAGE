@@ -31,7 +31,6 @@ export default async function TrackingPage({
         kits,
         kitBookings,
         eventVehicles,
-        canManageKits,
         myDepartment,
         poolDepartments,
         leadPackages,
@@ -65,7 +64,6 @@ export default async function TrackingPage({
                 kits={kits}
                 kitBookings={kitBookings}
                 eventVehicles={eventVehicles}
-                canManageKits={canManageKits}
                 myDepartment={myDepartment}
                 poolDepartments={poolDepartments}
                 leadPackages={leadPackages}

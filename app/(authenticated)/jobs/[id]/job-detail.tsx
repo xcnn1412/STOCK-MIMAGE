@@ -318,7 +318,6 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
     // CRM settings derivatives
     const getSettingLabel = (s: { label_th?: string; label_en?: string; value: string }) =>
         locale === 'th' ? (s.label_th || s.value) : (s.label_en || s.value)
-    const packages = crmSettings.filter(s => s.category === 'package' && s.is_active)
     const sources = crmSettings.filter(s => s.category === 'lead_source' && s.is_active)
     const customerTypes = crmSettings.filter(s => s.category === 'customer_type' && s.is_active)
     const pkgSetting = crmSettings.find(s => s.category === 'package' && s.value === lead?.package_name)
@@ -336,7 +335,7 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                 fd.set('customer_type', crmForm.customer_type)
                 fd.set('lead_source', crmForm.lead_source)
                 fd.set('is_returning', String(crmForm.is_returning))
-                fd.set('package_name', crmForm.package_name)
+                // ไม่ส่ง package_name — ชื่อแพ็กเกจ sync จากแพ็กเกจที่เลือก (setLeadPackages) ค่าเก่าในฟอร์มจะทับไม่ได้
             } else if (section === 'event') {
                 fd.set('event_date', crmForm.event_date)
                 fd.set('event_end_date', crmForm.event_end_date)
@@ -844,13 +843,17 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                                             options={sources.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
                                             placeholder={locale === 'th' ? 'เลือกช่องทาง...' : 'Select source...'}
                                         />
-                                        <CrmEditSelect
-                                            label={locale === 'th' ? 'แพ็กเกจ' : 'Package'}
-                                            value={crmForm.package_name}
-                                            onChange={v => updateCrmForm('package_name', v)}
-                                            options={packages.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
-                                            placeholder={locale === 'th' ? 'เลือกแพ็กเกจ...' : 'Select package...'}
-                                        />
+                                        {/* แพ็กเกจย้ายไปตาราง packages แล้ว — แก้ที่นี่ไม่ได้ (อ่านอย่างเดียว) */}
+                                        <div className="space-y-1">
+                                            <InfoRow label={locale === 'th' ? 'แพ็กเกจ' : 'Package'} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
+                                            <p className="text-xs text-zinc-500">
+                                                {locale === 'th' ? 'เปลี่ยนแพ็กเกจได้ที่' : 'Change the package in'}{' '}
+                                                <Link href={`/jobs/tracking?lead=${lead.id}`} className="text-violet-600 hover:underline dark:text-violet-400">
+                                                    {locale === 'th' ? 'หน้าติดตามงาน' : 'job tracking'}
+                                                </Link>{' '}
+                                                {locale === 'th' ? 'หรือการ์ดลูกค้าใน CRM' : 'or the customer card in CRM'}
+                                            </p>
+                                        </div>
                                         <CrmCardEditActions section="customer" />
                                     </div>
                                 ) : (

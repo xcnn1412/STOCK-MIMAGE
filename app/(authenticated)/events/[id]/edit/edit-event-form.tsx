@@ -1,8 +1,6 @@
 'use client'
 
 import { useActionState, useState, useTransition } from 'react'
-import KitPicker from '../../kit-picker'
-import type { KitBookingDetail } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 import { updateEvent, linkEventToCrm, unlinkEventFromCrm } from '../../actions'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,7 +16,7 @@ import { cn } from "@/lib/utils"
 import Link from 'next/link'
 import { useLanguage } from '@/contexts/language-context'
 import EventsLogSheet, { type EventLog } from '../../events-log-sheet'
-import type { Event, Kit } from '@/types'
+import type { Event } from '@/types'
 import { EVENT_PHASES } from '../../../crm/event-phases'
 import type { Profile, StaffRole, StaffAssignment } from '../../event-form-types'
 
@@ -35,9 +33,6 @@ interface CrmLead {
 
 export default function EditEventForm({
   event,
-  availableKits,
-  assignedKitIds,
-  kitBookings,
   profiles,
   staffAssignments: initialStaffAssignments = [],
   staffRoles = [],
@@ -45,9 +40,6 @@ export default function EditEventForm({
   logs = [],
 }: {
   event: Event
-  availableKits: Kit[]
-  assignedKitIds: string[]
-  kitBookings: KitBookingDetail[]
   profiles: Profile[]
   staffAssignments?: StaffAssignment[]
   staffRoles?: StaffRole[]
@@ -87,8 +79,6 @@ export default function EditEventForm({
   const [phase, setPhase] = useState<string>((event as { phase?: string | null }).phase || 'main')
 
   // เวลาที่กรอกอยู่ — ใช้เตือนกระเป๋าชนในตัวเลือกกระเป๋า
-  const [eventTime, setEventTime] = useState((event.event_time ?? '').slice(0, 5))
-  const [eventEndTime, setEventEndTime] = useState((event.event_end_time ?? '').slice(0, 5))
 
   const addAssignment = () => {
     if (!selectUser || !selectRole) return
@@ -268,11 +258,11 @@ export default function EditEventForm({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <label htmlFor="event_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาเปิด' : 'Start time'}</label>
-                <Input id="event_time" name="event_time" type="time" defaultValue={(event.event_time ?? '').slice(0, 5)} onChange={e => setEventTime(e.target.value)} />
+                <Input id="event_time" name="event_time" type="time" defaultValue={(event.event_time ?? '').slice(0, 5)} />
               </div>
               <div className="space-y-2">
                 <label htmlFor="event_end_time" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{locale === 'th' ? 'เวลาปิด' : 'End time'}</label>
-                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(event.event_end_time ?? '').slice(0, 5)} onChange={e => setEventEndTime(e.target.value)} />
+                <Input id="event_end_time" name="event_end_time" type="time" defaultValue={(event.event_end_time ?? '').slice(0, 5)} />
               </div>
             </div>
 
@@ -402,18 +392,14 @@ export default function EditEventForm({
               )}
             </div>
 
-            {/* จัดการ กระเป๋า */}
-            <div className="space-y-4">
-               <Label>{t.kits.title}</Label>
-               <KitPicker
-                 kits={availableKits}
-                 bookings={kitBookings}
-                 eventId={event.id}
-                 eventDate={event.event_date}
-                 eventTime={eventTime}
-                 eventEndTime={eventEndTime}
-                 initialIds={assignedKitIds}
-               />
+            {/* อุปกรณ์จัดผ่านใบจัดของ (เฟส 6 ถอดการจองกระเป๋าตรง) */}
+            <div className="space-y-2">
+               <Label>{locale === 'th' ? 'อุปกรณ์' : 'Equipment'}</Label>
+               <p className="text-sm text-zinc-500">
+                 {locale === 'th'
+                   ? 'อุปกรณ์ของอีเวนต์จัดผ่านใบจัดของ (เมนูคลังอุปกรณ์ → ใบจัดของ)'
+                   : 'Event equipment is arranged through packing lists (Equipment menu → Packing lists)'}
+               </p>
             </div>
 
             {state?.error && (

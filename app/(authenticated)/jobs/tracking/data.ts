@@ -82,7 +82,6 @@ export interface TrackingSnapshot {
     myDepartment: string | null
     isAdmin: boolean
     canManagePool: boolean
-    canManageKits: boolean
     /** แผนกที่รับผิดชอบแต่ละทีม/หน้าที่ (job_settings; ยังไม่ตั้งค่า = ค่าเริ่มต้น) */
     dutyDepartments: DutyDepartments
     /** แผนกที่กดรับได้ของทุกจุด (dutyDepartments + ใบงานหน้างาน) — ปุ่มรับใช้ตัดสินว่ากดได้ไหม */
@@ -290,7 +289,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
             claimedBy: r.claimed_by as string,
         }))
 
-    // กระเป๋า + การจอง (event_kits) — การ์ดใบงานหน้างานแสดงสถานะจัดกระเป๋าและเปิดกล่องจองจากตรงนี้
+    // กระเป๋า + การจอง (event_kits) — ชื่อกระเป๋าในเลนไทม์ไลน์ + ความพร้อม/การจองแบบเดิมของอีเวนต์ที่ไม่มีใบ
     const kits: PoolKit[] = (kitRows || []).map(k => ({ id: k.id as string, name: (k.name as string) || 'ไม่ระบุชื่อ' }))
 
     const KIT_BOOKING_SELECT = 'kit_id, event_id, packed_at, events!inner(id, name, event_date, event_time, event_end_time, status, crm_lead_id)'
@@ -421,15 +420,11 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     const canManagePool = sessionRole === 'admin' || myDepartment === 'ฝ่ายประสานงาน'
 
     // แผนกของแต่ละหมวดในแท็บ "ทีมของพูลงาน" (ยังไม่ตั้ง = ค่าเริ่มต้น) — อ่านมาแล้วในระลอก A
-    // ใช้สองที่: ซ่อนปุ่มจองกระเป๋า (สิทธิ์จริงบังคับใน server action อีกชั้นด้วย canActOnPool ตัวเดียวกัน)
-    // และบอกว่าใครควรเห็นคำเตือน "หน้าที่ยังไม่ครบ" ของหน้าที่ที่ยังไม่มีคนรับ
+    // ใช้บอกว่าใครควรเห็นคำเตือน "หน้าที่ยังไม่ครบ" ของหน้าที่ที่ยังไม่มีคนรับ
     const departmentsOf = (category: string, fallback: readonly string[]): string[] => {
         const values = deptByCategory.get(category)
         return values && values.length > 0 ? values : [...fallback]
     }
-
-    const kitDepartments = departmentsOf('pool_kit_departments', POOL_TEAM_DEFAULTS.pool_kit_departments)
-    const canManageKits = canActOnPool(myDepartment, sessionRole === 'admin', kitDepartments)
 
     // แผนกที่รับได้ของทุกสิ่งที่กดรับได้ (ใบงานกราฟิก/หน้างาน + สามหน้าที่) — ปุ่มรับใช้ชุดนี้ตัดสิน D1
     const poolDepartments = Object.fromEntries(
@@ -475,7 +470,6 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
         myDepartment,
         isAdmin: sessionRole === 'admin',
         canManagePool,
-        canManageKits,
         dutyDepartments,
         poolDepartments,
         leadPackages: picker.leadPackages,

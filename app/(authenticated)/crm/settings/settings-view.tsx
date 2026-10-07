@@ -6,16 +6,16 @@ import { toast } from 'sonner'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
-import { ArrowLeft, Plus, Trash2, Package, Users, MessageSquare, Pencil, Check, X, Tag, Columns3 } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Users, MessageSquare, Pencil, Check, X, Tag, Columns3 } from 'lucide-react'
 import { createCrmSetting, updateCrmSetting, deleteCrmSetting, toggleCrmSetting } from '../actions'
 import type { CrmSetting } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 
 
-type TabKey = 'kanban_status' | 'package' | 'customer_type' | 'lead_source' | 'tag' | 'staff_role'
+// แพ็กเกจย้ายไปตาราง packages แล้ว (คลังอุปกรณ์ → แพ็กเกจ) — แท็บ package ถอดในเฟส 6
+type TabKey = 'kanban_status' | 'customer_type' | 'lead_source' | 'tag' | 'staff_role'
 
 export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }) {
   const router = useRouter()
@@ -28,9 +28,8 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
   const [loading, setLoading] = useState(false)
   const [optimisticToggles, setOptimisticToggles] = useState<Record<string, boolean>>({})
 
-  const TABS: { key: TabKey; label: string; icon: typeof Package }[] = [
+  const TABS: { key: TabKey; label: string; icon: typeof Users }[] = [
     { key: 'kanban_status', label: locale === 'th' ? 'สถานะ Kanban' : 'Kanban Status', icon: Columns3 },
-    { key: 'package', label: tc.packages, icon: Package },
     { key: 'customer_type', label: tc.customerTypes, icon: Users },
     { key: 'lead_source', label: tc.leadSources, icon: MessageSquare },
     { key: 'tag', label: tc.tags, icon: Tag },
@@ -153,17 +152,6 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
         </div>
       )}
 
-      {/* แพ็กเกจย้ายไปตาราง packages แล้ว — รายการในแท็บนี้เหลือไว้แปลงชื่อของงานเก่า (package_name เป็นคีย์) */}
-      {activeTab === 'package' && (
-        <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-          แพ็กเกจใหม่ตั้งที่{' '}
-          <Link href="/packages" className="font-semibold underline">
-            คลังอุปกรณ์ → แพ็กเกจ
-          </Link>{' '}
-          รายการนี้ใช้แสดงชื่อของงานเก่าเท่านั้น
-        </div>
-      )}
-
       {/* Content */}
       <Card>
         <CardHeader className="pb-3 flex flex-row items-center justify-between">
@@ -195,12 +183,6 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                   <label className="text-[10px] text-zinc-400">{tc.labelEn}</label>
                   <Input name="label_en" required placeholder="Label EN" className="h-8 text-sm" />
                 </div>
-                {activeTab === 'package' && (
-                  <div className="w-24 space-y-1">
-                    <label className="text-[10px] text-zinc-400">{tc.price}</label>
-                    <Input name="price" type="number" placeholder="0" className="h-8 text-sm" />
-                  </div>
-                )}
                 <div className="w-16 space-y-1">
                   <label className="text-[10px] text-zinc-400">{tc.sort}</label>
                   <Input name="sort_order" type="number" defaultValue="0" className="h-8 text-sm" />
@@ -236,11 +218,6 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                     <div className="flex-1">
                       <Input name="label_en" defaultValue={setting.label_en} className="h-8 text-sm" />
                     </div>
-                    {activeTab === 'package' && (
-                      <div className="w-24">
-                        <Input name="price" type="number" defaultValue={setting.price || ''} className="h-8 text-sm" />
-                      </div>
-                    )}
                     <div className="w-16">
                       <Input name="sort_order" type="number" defaultValue={setting.sort_order} className="h-8 text-sm" />
                     </div>
@@ -272,11 +249,6 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
                       {setting.label_en}
                     </span>
                     <span className="text-xs text-zinc-400">{setting.label_th}</span>
-                    {activeTab === 'package' && setting.price && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        ฿{setting.price.toLocaleString()}
-                      </Badge>
-                    )}
                     <span className="text-[10px] text-zinc-300 dark:text-zinc-600">#{setting.sort_order}</span>
                   </div>
                   <div className="flex items-center gap-2">

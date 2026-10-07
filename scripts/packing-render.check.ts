@@ -457,27 +457,29 @@ const trackingLead = {
   events: [{ id: 'E1', name: 'งานแต่งคุณเอ', event_date: '2026-10-20', status: 'planned', event_time: '10:00', event_end_time: '18:00' }],
   staff: [],
 }
-const kits = [{ id: 'kit1', name: 'กระเป๋า A' }]
 const kitBookings = [{ eventId: 'E1', kitId: 'kit1', packed: false, eventName: 'งานแต่งคุณเอ', eventDate: '2026-10-20' }]
 const withList = render(
-  createElement(KitSummary, { lead: trackingLead, kits, bookings: kitBookings, canManageKits: true, packing: { lists: [summary({})], packageLeadIds: new Set(['L1']), canPack: true } }),
+  createElement(KitSummary, { lead: trackingLead, bookings: kitBookings, packing: { lists: [summary({})], packageLeadIds: new Set(['L1']), canPack: true } }),
 )
 has(withList, ['จัดของ', 'กำลังหยิบ · หยิบแล้ว 2/5', 'เปิดใบ', 'href="/packing/PL1"'], 'ช่องจัดของ (มีใบ)')
-lacks(withList, ['ยังไม่จอง', 'จองแล้ว', 'เปิดใบจัดของ'], 'ช่องจัดของ (มีใบ) — ซ่อนการจองกระเป๋า')
+lacks(withList, ['ยังไม่จอง', 'จองแล้ว', 'จองไว้แบบเดิม', 'เปิดใบจัดของ', 'เลือกแพ็กเกจก่อน'], 'ช่องจัดของ (มีใบ) — ไม่มีการจองกระเป๋าตรง')
 const withListViewer = render(
-  createElement(KitSummary, { lead: trackingLead, kits, bookings: [], canManageKits: false, packing: { lists: [summary({ status: 'ready', pickedCount: 5 })], packageLeadIds: new Set(['L1']), canPack: false } }),
+  createElement(KitSummary, { lead: trackingLead, bookings: [], packing: { lists: [summary({ status: 'ready', pickedCount: 5 })], packageLeadIds: new Set(['L1']), canPack: false } }),
 )
 has(withListViewer, ['พร้อมรับ'], 'ช่องจัดของ (มีใบ, คนนอกทีม)')
 lacks(withListViewer, ['href="/packing/'], 'ช่องจัดของ (มีใบ, คนนอกทีม) — ไม่มีลิงก์ที่เข้าไม่ได้')
-const noList = render(createElement(KitSummary, { lead: trackingLead, kits, bookings: [], canManageKits: true, packing: { lists: [], packageLeadIds: new Set(['L1']), canPack: true } }))
-has(noList, ['จัดของ', 'เปิดใบจัดของ', 'ยังไม่จอง'], 'ช่องจัดของ (มีแพ็กเกจ ยังไม่มีใบ)')
-const noListOther = render(createElement(KitSummary, { lead: trackingLead, kits, bookings: [], canManageKits: false, packing: { lists: [], packageLeadIds: new Set(['L1']), canPack: false } }))
+const noList = render(createElement(KitSummary, { lead: trackingLead, bookings: [], packing: { lists: [], packageLeadIds: new Set(['L1']), canPack: true } }))
+has(noList, ['จัดของ', 'เปิดใบจัดของ'], 'ช่องจัดของ (มีแพ็กเกจ ยังไม่มีใบ)')
+lacks(noList, ['ยังไม่จอง', 'จองไว้แบบเดิม', 'เลือกแพ็กเกจก่อน'], 'ช่องจัดของ (มีแพ็กเกจ ยังไม่มีใบ) — ไม่มีปุ่มจองกระเป๋า')
+const noListOther = render(createElement(KitSummary, { lead: trackingLead, bookings: [], packing: { lists: [], packageLeadIds: new Set(['L1']), canPack: false } }))
 has(noListOther, ['ยังไม่เปิดใบจัดของ'], 'ช่องจัดของ (มีแพ็กเกจ, คนนอกทีม)')
-const legacy = render(createElement(KitSummary, { lead: trackingLead, kits, bookings: kitBookings, canManageKits: true, packing: { lists: [], packageLeadIds: new Set(), canPack: true } }))
-has(legacy, ['จองแล้ว 1 ใบ — ยังไม่จัด', 'กระเป๋า A'], 'ช่องจัดของ (ไม่มีแพ็กเกจ = แบบเดิม)')
-lacks(legacy, ['เปิดใบจัดของ', 'data-testid="packing-row"'], 'ช่องจัดของ (ไม่มีแพ็กเกจ = แบบเดิม)')
-const noPackingProp = render(createElement(KitSummary, { lead: trackingLead, kits, bookings: kitBookings, canManageKits: true }))
-has(noPackingProp, ['จองแล้ว 1 ใบ — ยังไม่จัด'], 'ช่องจัดของ (ไม่ส่ง packing)')
+lacks(noListOther, ['<button'], 'ช่องจัดของ (มีแพ็กเกจ, คนนอกทีม) — ไม่มีปุ่ม')
+const legacy = render(createElement(KitSummary, { lead: trackingLead, bookings: kitBookings, packing: { lists: [], packageLeadIds: new Set(), canPack: true } }))
+has(legacy, ['เลือกแพ็กเกจก่อน จึงเปิดใบจัดของได้', 'จองไว้แบบเดิม 1 ใบ · จัดแล้ว 0/1', 'href="/events/E1/check-kits"', 'data-testid="legacy-kits"'], 'ช่องจัดของ (ไม่มีแพ็กเกจ + การจองแบบเดิม)')
+lacks(legacy, ['เปิดใบจัดของ<', 'data-testid="packing-row"', '<button'], 'ช่องจัดของ (ไม่มีแพ็กเกจ + การจองแบบเดิม) — อ่านอย่างเดียว')
+const noPackingProp = render(createElement(KitSummary, { lead: trackingLead, bookings: [] }))
+has(noPackingProp, ['เลือกแพ็กเกจก่อน จึงเปิดใบจัดของได้'], 'ช่องจัดของ (ไม่ส่ง packing)')
+lacks(noPackingProp, ['จองไว้แบบเดิม', '<button'], 'ช่องจัดของ (ไม่ส่ง packing)')
 
 // --- 9) ทั่วไป: จอแคบ + ไม่มี confirm/alert ของเบราว์เซอร์ -----------------------------------
 for (const html of all) assert.ok(!/min-w-\[(3[6-9]\d|[4-9]\d\d|\d{4,})px\]/.test(html), 'ไม่มี min-width คงที่เกิน 360px')
