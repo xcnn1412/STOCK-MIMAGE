@@ -11,7 +11,7 @@ import { CollapsibleCardHeader, CardEditActions, EditField, InfoRow, type Editab
 
 // Event Info
 export function EventCard({
-  lead, form, updateForm, editing, collapsed, saving, onEdit, onToggle, onSave, onCancel,
+  lead, form, updateForm, editing, collapsed, saving, onEdit, onToggle, onSave, onCancel, badge,
   staffRoleOptions, onRequiredRolesChange,
 }: EditableCardProps & {
   staffRoleOptions: StaffRoleOption[]
@@ -25,6 +25,7 @@ export function EventCard({
         icon={<Calendar className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />}
         iconBg="bg-violet-50 dark:bg-violet-950/40"
         title={tc.eventInfo}
+        badge={badge}
         editing={editing} onEdit={onEdit} onToggle={onToggle}
       />
       {!collapsed && (

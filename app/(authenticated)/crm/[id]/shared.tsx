@@ -98,6 +98,8 @@ export interface EditableCardProps {
   onToggle: () => void
   onSave: () => void
   onCancel: () => void
+  /** ป้ายต่อท้ายชื่อหัวการ์ด */
+  badge?: ReactNode
 }
 
 
@@ -148,10 +150,12 @@ export const toFormInstallments = (list: LeadInstallment[]): FormInstallment[] =
 export const multiline = (text: string): ReactNode => <span className="whitespace-pre-line">{text}</span>
 
 // Reusable collapsible card header
-export function CollapsibleCardHeader({ icon, iconBg, title, collapsed, editing, onEdit, onToggle }: {
+export function CollapsibleCardHeader({ icon, iconBg, title, badge, collapsed, editing, onEdit, onToggle }: {
   icon: ReactNode
   iconBg: string
   title: string
+  /** ป้ายต่อท้ายชื่อการ์ด (หน้าใบงานใส่ "CRM") — ไม่ส่ง = ไม่มี node เพิ่ม */
+  badge?: ReactNode
   collapsed: boolean
   editing?: boolean
   /** ไม่ส่ง = การ์ดนี้ไม่มีปุ่มแก้ไข */
@@ -166,6 +170,7 @@ export function CollapsibleCardHeader({ icon, iconBg, title, collapsed, editing,
             {icon}
           </div>
           {title}
+          {badge}
         </CardTitle>
         <div className="flex items-center gap-1">
           {onEdit && !collapsed && !editing && (

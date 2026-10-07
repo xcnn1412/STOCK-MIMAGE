@@ -1,5 +1,6 @@
 // หน้าลูกค้า CRM (/crm/[id]) — เรนเดอร์ LeadDetail แบบ static ด้วยข้อมูลสังเคราะห์ 3 ชุด (A/B/C) เพื่อเทียบ HTML ก่อน/หลังแตกไฟล์
 // + ชุด D: FinancialCard โหมดแก้ไข (ช่องจำนวนเงิน/อัปโหลดสลิปครบทุกงวด, ตัวเลขสรุปภาษี)
+// + ชุด E: CustomerCard โหมดแก้ไข · ชุด F: LeadCards แบบหน้าใบงาน (ป้าย CRM + พับตั้งต้น)
 // Run:  npx tsx scripts/crm-lead-detail-render.check.ts [โฟลเดอร์ปลายทาง]
 //
 // ไม่แตะเครือข่าย/ฐานข้อมูล: server action (../actions, ../../jobs/actions) ถูกแทนด้วยตัวจำลอง (async no-op คืน { success: true })
@@ -231,6 +232,29 @@ if (FinancialCard) {
   const c = card({ ...FIXTURES.C, lead: { ...FIXTURES.C.lead, package_name: 'pkg_a' } })
   assert.ok(c.includes('แพ็กเกจ A') && !c.includes('แก้แพ็กเกจ'), 'E: ไม่มีข้อมูลแพ็กเกจของงาน = ชื่อเดิมอ่านอย่างเดียว')
   console.log('PASS  E  CustomerCard แก้ไข: ช่องแพ็กเกจเป็น PackagePicker')
+}
+
+// F: LeadCards แบบหน้าใบงาน (/jobs/[id]) — ป้าย "CRM" ทุกหัวการ์ด + พับตั้งต้น (ไม่มีเนื้อหา) · กาง = ฟีเจอร์ครบเหมือนหน้า CRM
+{
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const { LeadCards } = require('../app/(authenticated)/crm/[id]/lead-cards') as typeof import('../app/(authenticated)/crm/[id]/lead-cards')
+  const { Badge } = require('../components/ui/badge') as typeof import('../components/ui/badge')
+  const { getDictionary } = require('../lib/i18n/dictionaries') as typeof import('../lib/i18n/dictionaries')
+  /* eslint-enable @typescript-eslint/no-require-imports */
+  const tc = getDictionary('th').crm.detail
+  const a = FIXTURES.A
+  const askConfirm = async () => true
+  const badge = createElement(Badge, { className: 'text-[8px] px-1.5 py-0 bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400 border-0' }, 'CRM')
+  const base = { lead: a.lead, settings: a.settings, installments: a.installments, packagePicker: a.packagePicker, badge, askConfirm }
+  const folded = renderToStaticMarkup(createElement(LeadCards, { ...base, defaultCollapsed: true }))
+  assert.ok(folded.split('>CRM<').length - 1 >= 3, 'F: พับ — ป้าย CRM ครบ 3 หัวการ์ด')
+  assert.ok(!folded.includes(a.lead.customer_name), 'F: พับ — ไม่มีชื่อลูกค้า')
+  assert.ok(!folded.includes('฿'), 'F: พับ — ไม่มีราคา')
+  const open = renderToStaticMarkup(createElement(LeadCards, base))
+  for (const s of [tc.package, 'Selfie Studio Booth', tc.eventTime, '10:00 น.', tc.requiredRoles, 'ชำระงวด 1', a.lead.customer_name]) {
+    assert.ok(open.includes(s), `F: กาง — ต้องมี "${s}"`)
+  }
+  console.log('PASS  F  LeadCards หน้าใบงาน: ป้าย CRM 3 ใบ + พับตั้งต้น · กางแล้วมีแพ็กเกจ/เวลา/ตำแหน่ง/งวด')
 }
 
 console.log('crm-lead-detail-render: ผ่านทั้งหมด')

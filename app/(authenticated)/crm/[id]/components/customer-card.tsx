@@ -11,7 +11,7 @@ import { CollapsibleCardHeader, CardEditActions, EditField, EditSelect, InfoRow,
 
 // Customer Info
 export function CustomerCard({
-  lead, form, updateForm, editing, collapsed, saving, onEdit, onToggle, onSave, onCancel,
+  lead, form, updateForm, editing, collapsed, saving, onEdit, onToggle, onSave, onCancel, badge,
   settings, workTypeOptions, packagePicker, onPackagesSaved,
 }: EditableCardProps & {
   settings: CrmSetting[]
@@ -57,6 +57,7 @@ export function CustomerCard({
         icon={<User className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />}
         iconBg="bg-blue-50 dark:bg-blue-950/40"
         title={tc.customerInfo}
+        badge={badge}
         editing={editing} onEdit={onEdit} onToggle={onToggle}
       />
       {!collapsed && (
