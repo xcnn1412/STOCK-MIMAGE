@@ -61,6 +61,7 @@ export function FinancialCard(props: FinancialCardProps) {
         icon={<DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />}
         iconBg="bg-emerald-50 dark:bg-emerald-950/40"
         title={tc.financial}
+        badge={props.badge}
         editing={editing} onEdit={onEdit} onToggle={onToggle}
       />
       {!collapsed && <CardContent className="space-y-3">

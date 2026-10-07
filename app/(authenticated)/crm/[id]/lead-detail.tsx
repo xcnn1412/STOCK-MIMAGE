@@ -5,26 +5,22 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
-  archiveLead, unarchiveLead, saveAllInstallments,
-  uploadPaymentProof, deletePaymentProof, checkEventDateConflicts,
+  archiveLead, unarchiveLead, checkEventDateConflicts,
   setJobCostEventPhase,
   type LeadCostSummary, type LinkedLeadEvent, type LeadEventStaff, type LeadInstallment,
 } from '../actions'
 import { openGraphicJob } from '../../jobs/actions'
 import { getStatusConfig, type CrmLead, type CrmSetting } from '../types'
 import { useLocale } from '@/lib/i18n/context'
-import { compressImage } from '@/lib/utils'
 import { useConfirm } from '../../finance/use-confirm'
-import { buildLeadForm, multiline, toFormInstallments, type CardSection, type EditableCardProps, type LeadActivity, type LeadPackagePickerData, type LeadForm, type LeadJob, type SystemUser } from './shared'
+import { multiline, type LeadActivity, type LeadPackagePickerData, type LeadJob, type SystemUser } from './shared'
 import { LeadHeader, GraphicJobsLink } from './components/lead-header'
 import { CostSummaryCard } from './components/cost-summary-card'
 import { LinkedEventsCard } from './components/linked-events-card'
 import { StatusBar } from './components/status-bar'
 import { TagsBar } from './components/tags-bar'
 import { StaffCard } from './components/staff-card'
-import { CustomerCard } from './components/customer-card'
-import { EventCard } from './components/event-card'
-import { FinancialCard } from './components/financial-card'
+import { LeadCards } from './lead-cards'
 import { ActivityTimeline } from './components/activity-timeline'
 
 interface LeadDetailProps {
@@ -53,12 +49,13 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   const L = (th: string, en: string) => (locale === 'th' ? th : en)
   const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  // Per-card editing state
-  const [editingCard, setEditingCard] = useState<CardSection | null>(null)
-  // Collapsible state — defaults open
+  // การ์ดกิจกรรมพับได้ (การ์ดลูกค้า/อีเวนต์/การเงินพับเองใน LeadCards)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const toggleCollapse = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
+  // ชื่อลูกค้าที่กำลังพิมพ์ในการ์ดลูกค้า — หัวหน้าแสดงตามทันที
+  const [draftName, setDraftName] = useState<string | null>(null)
+  // แท็กแก้แยกจากการ์ด (บันทึกทันทีที่กด)
+  const [tags, setTags] = useState<string[]>(lead.tags || [])
   const [activityType, setActivityType] = useState('note')
   const [activityDesc, setActivityDesc] = useState('')
   const [addingActivity, setAddingActivity] = useState(false)
@@ -66,32 +63,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   // Staff role settings — still needed to render role labels/colors in the read-only
   // per-event staff display (staff is edited per event, not here).
   const staffRoles = settings.filter(s => s.category === 'staff_role' && s.is_active).sort((a, b) => a.sort_order - b.sort_order)
-  const staffRoleOptions = staffRoles.map(r => ({ value: r.value, label: locale === 'th' ? r.label_th : r.label_en }))
-  const [uploadingInstallment, setUploadingInstallment] = useState<string | null>(null)
-  const [localReceiptUrls, setLocalReceiptUrls] = useState<Record<string, string>>(
-    Object.fromEntries(initialInstallments.filter(i => i.receipt_url).map(i => [i.id, i.receipt_url!]))
-  )
 
   const getStatusLabel = (status: string) => {
     const cfg = getStatusConfig(settings, status)
     return ts[status] || cfg.labelTh || cfg.label || status
   }
-
-  // ---------- Dynamic installments + tax state ----------
-  const [formInstallments, setFormInstallments] = useState(toFormInstallments(initialInstallments))
-
-  const buildForm = () => buildLeadForm(lead, settings)
-  const [form, setForm] = useState<LeadForm>(buildForm)
-
-  const updateForm = (key: keyof LeadForm, value: string | number | boolean) => {
-    setForm(prev => ({ ...prev, [key]: value }))
-  }
-
-  const workTypeOptions = [
-    { value: 'sale', label: locale === 'th' ? 'ขาย' : 'Sale' },
-    { value: 'event', label: locale === 'th' ? 'อีเวนต์' : 'Event' },
-    { value: 'gp', label: 'GP' },
-  ]
 
   // แดงเฉพาะดีลค้างท่อ (ยังคุยอยู่แต่วันงานเลยแล้ว) — สถานะหลังปิดดีลรวม custom ไม่นับ (ดู kanban-board)
   const isOverdue = Boolean(
@@ -114,57 +90,6 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     setLoading(true)
     await updateLeadStatus(lead.id, newStatus)
     setLoading(false)
-  }
-
-  const handleSaveCard = async (section: CardSection) => {
-    setSaving(true)
-    const formData = new FormData()
-
-    // Choose which fields to save based on section
-    const fieldsBySection: Record<CardSection, (keyof LeadForm)[]> = {
-      customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'work_type', 'unit_count', 'lead_source', 'is_returning'],
-      event: ['event_date', 'event_end_date', 'event_time', 'event_end_time', 'event_location', 'event_details', 'required_roles'],
-      // package_name ไม่ส่ง — แพ็กเกจบันทึกแยกด้วย setLeadPackages (ค่าในฟอร์มอาจเก่ากว่า แล้วทับชื่อที่เพิ่ง sync)
-      financial: ['quoted_price', 'confirmed_price', 'deposit', 'vat_mode', 'wht_rate', 'quotation_ref', 'notes'],
-    }
-
-    fieldsBySection[section].forEach(key => {
-      const value = form[key]
-      if (key === 'required_roles') {
-        formData.set(key, JSON.stringify(value ?? {}))
-      } else {
-        formData.set(key, String(value))
-      }
-    })
-
-    const results = await Promise.all([
-      updateLead(lead.id, formData),
-      // Also save installments when saving financial section
-      section === 'financial'
-        ? saveAllInstallments(lead.id, formInstallments.map(inst => ({
-          installment_number: inst.installment_number,
-          amount: inst.amount,
-          due_date: inst.due_date || null,
-          is_paid: inst.is_paid,
-          paid_date: inst.paid_date || null,
-        })))
-        : null,
-    ])
-    setSaving(false)
-
-    const error = results.map(r => (r as { error?: string } | null)?.error).find(Boolean)
-    if (error) {
-      toast.error(error)
-      return
-    }
-    setEditingCard(null)
-  }
-
-  const handleCancelCardEdit = () => {
-    // Reset form to original lead data
-    setForm(buildForm())
-    setFormInstallments(toFormInstallments(initialInstallments))
-    setEditingCard(null)
   }
 
   const handleAddActivity = async (e: FormEvent) => {
@@ -314,8 +239,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   }
 
   const handleToggleTag = async (tagValue: string, isSelected: boolean) => {
-    const newTags = isSelected ? form.tags.filter(t => t !== tagValue) : [...form.tags, tagValue]
-    setForm(prev => ({ ...prev, tags: newTags }))
+    const newTags = isSelected ? tags.filter(t => t !== tagValue) : [...tags, tagValue]
+    setTags(newTags)
     const fd = new FormData()
     fd.set('tags', newTags.join(','))
     await updateLead(lead.id, fd)
@@ -334,66 +259,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   // displays it grouped by event — see the "Staff & Roles" card, which links out
   // to each event's edit page for changes.
 
-  // แพ็กเกจบันทึกแยกด้วย setLeadPackages — ฟอร์มการ์ดไม่รีเซ็ตตาม props จึงต้องตามชื่อ/ราคาเสนอที่ server เพิ่งเติมให้เอง
-  const handlePackagesSaved = ({ quotedPrice, packageName }: { quotedPrice: number | null; packageName: string | null }) => {
-    updateForm('package_name', packageName ?? '')
-    if (quotedPrice !== null) updateForm('quoted_price', quotedPrice)
-  }
-
-  // ---------- Payment Proof Upload ----------
-  const handleUploadProof = async (installmentId: string, file: File) => {
-    setUploadingInstallment(installmentId)
-    // Compress image before uploading to reduce size (especially from mobile)
-    const compressedFile = file.type.startsWith('image/') ? await compressImage(file) : file
-    const formData = new FormData()
-    formData.append('file', compressedFile)
-    const result = await uploadPaymentProof(lead.id, installmentId, formData)
-    setUploadingInstallment(null)
-    if (result.error) {
-      toast.error(result.error)
-    } else if (result.url) {
-      // Save uploaded URL to local state immediately for preview
-      setLocalReceiptUrls(prev => ({ ...prev, [installmentId]: result.url! }))
-    }
-  }
-
-  const handleDeleteProof = async (installmentId: string) => {
-    const ok = await askConfirm({
-      title: L('ต้องการลบหลักฐานการชำระเงินนี้?', 'Delete this payment proof?'),
-      variant: 'destructive',
-      confirmLabel: L('ลบ', 'Delete'),
-    })
-    if (!ok) return
-    setUploadingInstallment(installmentId)
-    const result = await deletePaymentProof(lead.id, installmentId)
-    setUploadingInstallment(null)
-    if (result.error) {
-      toast.error(result.error)
-    } else {
-      // Remove from local state
-      setLocalReceiptUrls(prev => {
-        const next = { ...prev }
-        delete next[installmentId]
-        return next
-      })
-    }
-  }
-
-  const cardProps = (section: CardSection): EditableCardProps => ({
-    lead, form, updateForm, saving,
-    editing: editingCard === section,
-    collapsed: !!collapsed[section],
-    onEdit: () => setEditingCard(section),
-    onToggle: () => toggleCollapse(section),
-    onSave: () => handleSaveCard(section),
-    onCancel: handleCancelCardEdit,
-  })
-
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <LeadHeader
         lead={lead}
-        displayName={editingCard === 'customer' ? form.customer_name : lead.customer_name}
+        displayName={draftName ?? lead.customer_name}
         isOverdue={isOverdue}
         isFullyPaid={isFullyPaid}
         loading={loading}
@@ -416,37 +286,21 @@ export default function LeadDetail({ lead, activities, settings, users, installm
 
       <StatusBar settings={settings} status={lead.status} loading={loading} getStatusLabel={getStatusLabel} onChange={handleStatusChange} />
 
-      <TagsBar settings={settings} tags={form.tags} status={lead.status} loading={loading} getStatusLabel={getStatusLabel} onToggle={handleToggleTag} />
+      <TagsBar settings={settings} tags={tags} status={lead.status} loading={loading} getStatusLabel={getStatusLabel} onToggle={handleToggleTag} />
 
       <StaffCard eventStaffGroups={eventStaffGroups} staffRoles={staffRoles} />
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Customer + Event + Financial Info */}
-        <div className="space-y-6">
-          <CustomerCard
-            {...cardProps('customer')}
-            settings={settings}
-            workTypeOptions={workTypeOptions}
-            packagePicker={packagePicker}
-            onPackagesSaved={handlePackagesSaved}
-          />
-          <EventCard
-            {...cardProps('event')}
-            staffRoleOptions={staffRoleOptions}
-            onRequiredRolesChange={v => setForm(prev => ({ ...prev, required_roles: v }))}
-          />
-          <FinancialCard
-            {...cardProps('financial')}
-            formInstallments={formInstallments}
-            setFormInstallments={setFormInstallments}
-            initialInstallments={initialInstallments}
-            localReceiptUrls={localReceiptUrls}
-            uploadingInstallment={uploadingInstallment}
-            onUploadProof={handleUploadProof}
-            onDeleteProof={handleDeleteProof}
-          />
-        </div>
+        <LeadCards
+          lead={lead}
+          settings={settings}
+          installments={initialInstallments}
+          packagePicker={packagePicker}
+          onCustomerNameDraft={setDraftName}
+          askConfirm={askConfirm}
+        />
 
         {/* Right: Activity Timeline */}
         <div>
