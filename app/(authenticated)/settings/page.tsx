@@ -6,7 +6,7 @@ import { getEventPermissionIds } from '@/lib/event-permissions'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
 import { requestOrigin } from '@/lib/request-origin'
-import SettingsView from './settings-view'
+import SettingsView, { type SettingsSection } from './settings-view'
 
 export const revalidate = 0
 
@@ -27,7 +27,13 @@ async function getMcpSummary(): Promise<{ liveCount: number; endpoint: string } 
   return { liveCount: count ?? 0, endpoint: `${await requestOrigin()}/api/mcp` }
 }
 
-export default async function SettingsPage() {
+const SECTIONS: readonly SettingsSection[] = ['finance', 'crm', 'content', 'events']
+
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  // ?section=crm เปิดแท็บ CRM ทันที (ลิงก์จากบอร์ด CRM) — ค่าอื่น/ไม่ส่ง = การเงิน
+  const raw = (await searchParams).section
+  const wanted = Array.isArray(raw) ? raw[0] : raw
+  const initialSection = SECTIONS.find(k => k === wanted)
   const [categories, categoryItems, staffProfiles, { data: crmSettings }, metaToken, eventPermissionIds, mcp] = await Promise.all([
     getFinanceCategories(false), // include inactive
     getAllCategoryItems(),
@@ -47,6 +53,7 @@ export default async function SettingsPage() {
       metaToken={metaToken}
       eventPermissionIds={eventPermissionIds}
       mcp={mcp}
+      initialSection={initialSection}
     />
   )
 }

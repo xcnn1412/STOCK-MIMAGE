@@ -182,7 +182,7 @@ async function loadLeads(filters?: LeadFilters): Promise<{ data: BoardLead[]; er
   const buildWith = (extra?: { col: 'updated_at' | 'event_date'; gte: string }) => (from: number, to: number) => {
     let query = supabase
       .from('crm_leads')
-      .select(filters?.full ? '*, crm_lead_installments(amount, is_paid)' : BOARD_COLUMNS)
+      .select(filters?.full ? '*, crm_lead_installments(installment_number, amount, is_paid, due_date)' : BOARD_COLUMNS)
       .order('created_at', { ascending: false })
 
     // By default, exclude archived leads
@@ -213,7 +213,7 @@ async function loadLeads(filters?: LeadFilters): Promise<{ data: BoardLead[]; er
 
   // แถวดิบ = คอลัมน์ที่ select + งวดที่ join มา (ยังไม่มี total_installments_paid)
   type RawLead = Omit<BoardLead, 'total_installments_paid'> & {
-    crm_lead_installments?: { amount: number | string | null; is_paid: boolean | null }[] | null
+    crm_lead_installments?: { installment_number: number | null; amount: number | string | null; is_paid: boolean | null; due_date: string | null }[] | null
   }
   let data: RawLead[]
   if (filters?.window) {
@@ -244,7 +244,11 @@ async function loadLeads(filters?: LeadFilters): Promise<{ data: BoardLead[]; er
       .filter((i) => i.is_paid)
       .reduce((sum: number, i) => sum + (Number(i.amount) || 0), 0)
     const { crm_lead_installments, ...rest } = lead
-    return { ...rest, total_installments_paid }
+    // งวดจริงสำหรับป้ายบนการ์ด (เลยกำหนด/ใกล้กำหนด) — เรียงตามเลขงวด
+    const normalized = installments
+      .map(i => ({ installment_number: Number(i.installment_number) || 0, amount: Number(i.amount) || 0, is_paid: !!i.is_paid, due_date: i.due_date ?? null }))
+      .sort((a, b) => a.installment_number - b.installment_number)
+    return { ...rest, total_installments_paid, installments: normalized }
   })
 
   return { data: enriched }

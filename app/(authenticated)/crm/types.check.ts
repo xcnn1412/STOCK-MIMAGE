@@ -3,7 +3,7 @@
 // บรรทัดสุดท้ายของผลลัพธ์ต้องเป็น "crm-types: ผ่านทั้งหมด"
 
 import assert from 'node:assert/strict'
-import {
+import { addDays,
   boardStatuses, unknownStatuses, getStatusConfig, isWonStatus, isFirstWon, staleLeadIds, bangkokToday,
   BOARD_COLUMNS, DAY_MS, NOT_WON_STATUSES, type CrmSetting, type StaleRow,
 } from './types'
@@ -71,5 +71,10 @@ console.log('PASS  (e) staleLeadIds ขอบ 89/91 และ 179/181 วัน 
 // (f) คอลัมน์แบบเบาไม่มีคอลัมน์หนัก
 for (const heavy of ['notes', 'required_roles', 'installment_1', '*']) assert.ok(!BOARD_COLUMNS.split(/[ ,()]+/).includes(heavy), `BOARD_COLUMNS ต้องไม่มี ${heavy}`)
 console.log('PASS  (f) BOARD_COLUMNS ไม่ดึง notes / required_roles / installment_N')
+
+// addDays — ข้ามเดือน/ปี และติดลบ
+assert.equal(addDays('2026-10-30', 3), '2026-11-02')
+assert.equal(addDays('2026-12-31', 1), '2027-01-01')
+assert.equal(addDays('2026-03-01', -1), '2026-02-28')
 
 console.log('\ncrm-types: ผ่านทั้งหมด')

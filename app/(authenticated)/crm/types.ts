@@ -64,6 +64,11 @@ export function bangkokToday(nowMs: number): string {
   return new Date(nowMs + 7 * 3_600_000).toISOString().slice(0, 10)
 }
 
+/** 'YYYY-MM-DD' + n วัน (ลบได้) */
+export function addDays(ymd: string, n: number): string {
+  return new Date(Date.parse(`${ymd}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10)
+}
+
 export const STALE_CLOSED_STATUSES = ['rejected', 'ปิด']
 export const STALE_CLOSED_DAYS = 90
 export const STALE_COLD_DAYS = 180
@@ -167,9 +172,12 @@ export const BOARD_LEAD_KEYS = [
   'assigned_sales', 'assigned_graphics', 'assigned_staff',
 ] as const satisfies readonly (keyof CrmLead)[]
 
-export const BOARD_COLUMNS = `${BOARD_LEAD_KEYS.join(', ')}, crm_lead_installments(amount, is_paid)`
+export const BOARD_COLUMNS = `${BOARD_LEAD_KEYS.join(', ')}, crm_lead_installments(installment_number, amount, is_paid, due_date)`
 
-export type BoardLead = Pick<CrmLead, (typeof BOARD_LEAD_KEYS)[number]> & { total_installments_paid: number }
+/** งวดชำระจากตารางจริง (crm_lead_installments) — การ์ดใช้ทำป้ายเลยกำหนด/ใกล้กำหนด */
+export type BoardInstallment = { installment_number: number; amount: number; is_paid: boolean; due_date: string | null }
+
+export type BoardLead = Pick<CrmLead, (typeof BOARD_LEAD_KEYS)[number]> & { total_installments_paid: number; installments?: BoardInstallment[] }
 
 /** ผู้ใช้ที่อนุมัติแล้ว (profiles) สำหรับเลือกเซลส์/กราฟิก/ทีมงาน */
 export type SystemUser = { id: string; full_name: string | null; department: string | null }
