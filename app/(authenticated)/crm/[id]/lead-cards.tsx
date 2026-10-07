@@ -2,7 +2,7 @@
 
 // การ์ดลูกค้า / อีเวนต์ / การเงินของ lead พร้อม state ฟอร์มแก้ไขในที่ — ใช้ทั้งหน้า /crm/[id] และหน้าใบงาน /jobs/[id]
 
-import { useState, type ReactNode } from 'react'
+import { useState, type KeyboardEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import {
   updateLead, saveAllInstallments, uploadPaymentProof, deletePaymentProof,
@@ -11,11 +11,12 @@ import {
 import type { CrmLead, CrmSetting } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 import { compressImage } from '@/lib/utils'
+import { formatThaiDate } from '@/lib/thai-date'
 import type { useConfirm } from '../../finance/use-confirm'
 import { buildLeadForm, toFormInstallments, type CardSection, type EditableCardProps, type LeadPackagePickerData, type LeadForm } from './shared'
 import { CustomerCard } from './components/customer-card'
 import { EventCard } from './components/event-card'
-import { FinancialCard } from './components/financial-card'
+import { FinancialCard, baht, leadBalance } from './components/financial-card'
 
 interface LeadCardsProps {
   lead: CrmLead
@@ -60,6 +61,9 @@ export function LeadCards({
 
   const buildForm = () => buildLeadForm(lead, settings)
   const [form, setForm] = useState<LeadForm>(buildForm)
+  // ชื่อแพ็กเกจ/ราคาเสนอที่ setLeadPackages บันทึกให้แล้ว = ค่าเดิม ไม่ใช่การแก้ค้าง (หน้าใบงานไม่ revalidate lead จึงต้องจำเอง)
+  const [pkgSaved, setPkgSaved] = useState<Partial<LeadForm>>({})
+  const baseForm = () => ({ ...buildForm(), ...pkgSaved })
 
   const updateForm = (key: keyof LeadForm, value: string | number | boolean) => {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -115,12 +119,21 @@ export function LeadCards({
     }
     setEditingCard(null)
     onCustomerNameDraft?.(null)
+    toast.success(L('บันทึกแล้ว', 'Saved'))
     onSaved?.()
   }
 
-  const handleCancelCardEdit = () => {
+  const handleCancelCardEdit = async () => {
+    // แก้ค้างอยู่ = ถามก่อนทิ้ง (กด Esc/ยกเลิกพลาดแล้ว draft หาย)
+    const dirty = JSON.stringify(form) !== JSON.stringify(baseForm())
+      || JSON.stringify(formInstallments) !== JSON.stringify(toFormInstallments(initialInstallments))
+    if (dirty && !(await askConfirm({
+      title: L('ทิ้งการแก้ไข?', 'Discard changes?'),
+      variant: 'destructive',
+      confirmLabel: L('ทิ้ง', 'Discard'),
+    }))) return
     // Reset form to original lead data
-    setForm(buildForm())
+    setForm(baseForm())
     setFormInstallments(toFormInstallments(initialInstallments))
     setEditingCard(null)
     onCustomerNameDraft?.(null)
@@ -135,6 +148,7 @@ export function LeadCards({
   const handlePackagesSaved = ({ quotedPrice, packageName }: { quotedPrice: number | null; packageName: string | null }) => {
     updateForm('package_name', packageName ?? '')
     if (quotedPrice !== null) updateForm('quoted_price', quotedPrice)
+    setPkgSaved(prev => ({ ...prev, package_name: packageName ?? '', ...(quotedPrice !== null ? { quoted_price: quotedPrice } : {}) }))
   }
 
   // ---------- Payment Proof Upload ----------
@@ -176,8 +190,40 @@ export function LeadCards({
     }
   }
 
+  // บรรทัดสรุปตอนพับ — จากข้อมูลที่บันทึกแล้ว
+  const labelOf = (category: string, value: string | null) => {
+    const s = settings.find(x => x.category === category && x.value === value)
+    return s ? (locale === 'th' ? s.label_th : s.label_en) : value
+  }
+  const joinDot = (parts: (string | null | undefined)[]) => parts.filter(Boolean).join(' · ') || undefined
+  const bal = leadBalance(lead, initialInstallments)
+  const summaries: Record<CardSection, ReactNode> = {
+    customer: joinDot([lead.customer_name, lead.customer_phone, labelOf('lead_source', lead.lead_source)]),
+    event: joinDot([formatThaiDate(lead.event_date), lead.event_location]),
+    financial: !bal.agreed
+      ? L('ยังไม่ตกลงราคา', 'Price not agreed')
+      : bal.outstanding > 0
+        ? <span className="text-amber-600 dark:text-amber-400">{L('ค้าง', 'Due')} {baht(bal.outstanding)}</span>
+        : <span className="text-emerald-600 dark:text-emerald-400">{L('ชำระครบ', 'Fully paid')}</span>,
+  }
+
+  // Esc = ยกเลิก · Ctrl/⌘+Enter = บันทึก — ข้ามเมื่อกดอยู่ใน dropdown/dialog ที่ซ้อนในการ์ด (Esc ของมันปิดตัวเอง)
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!editingCard || saving) return
+    if ((e.target as HTMLElement).closest('[role="dialog"],[role="listbox"],[role="menu"],[role="alertdialog"]')) return
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      handleCancelCardEdit()
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault()
+      handleSaveCard(editingCard)
+    }
+  }
+
   const cardProps = (section: CardSection): EditableCardProps => ({
     lead, form, updateForm, saving, badge,
+    summary: summaries[section],
+    editLocked: editingCard !== null && editingCard !== section,
     editing: editingCard === section,
     collapsed: !!collapsed[section],
     onEdit: () => handleEdit(section),
@@ -187,7 +233,7 @@ export function LeadCards({
   })
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" onKeyDown={editingCard ? handleKeyDown : undefined}>
       <CustomerCard
         {...cardProps('customer')}
         settings={settings}

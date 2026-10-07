@@ -450,7 +450,7 @@ export default function JobDetail({ job, activities, settings, users, crm, check
                                 settings={crmSettings}
                                 installments={crm.installments}
                                 packagePicker={crm.packagePicker}
-                                badge={<Badge className="text-[8px] px-1.5 py-0 bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400 border-0">CRM</Badge>}
+                                badge={<Badge className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400 border-0">CRM</Badge>}
                                 defaultCollapsed
                                 onSaved={() => router.refresh()}
                                 askConfirm={askConfirm}

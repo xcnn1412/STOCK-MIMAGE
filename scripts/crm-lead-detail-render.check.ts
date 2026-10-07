@@ -1,10 +1,11 @@
 // หน้าลูกค้า CRM (/crm/[id]) — เรนเดอร์ LeadDetail แบบ static ด้วยข้อมูลสังเคราะห์ 3 ชุด (A/B/C) เพื่อเทียบ HTML ก่อน/หลังแตกไฟล์
-// + ชุด D: FinancialCard โหมดแก้ไข (ช่องจำนวนเงิน/อัปโหลดสลิปครบทุกงวด, ตัวเลขสรุปภาษี)
-// + ชุด E: CustomerCard โหมดแก้ไข · ชุด F: LeadCards แบบหน้าใบงาน (ป้าย CRM + พับตั้งต้น)
+// + กติกาโหมดดูของการ์ด 3 ใบ (v1.54.0): วันที่ไทย, ซ่อนแถวว่าง ("ไม่ระบุ" เฉพาะช่องหลัก), ไม่มีปุ่มลบสลิป, แถบตัวเลขการเงิน, ยังไม่ตกลงราคา
+// + ชุด D: FinancialCard โหมดแก้ไข (ช่องจำนวนเงิน/อัปโหลดสลิปครบทุกงวด, ตัวเลขสรุปภาษี, ช่องเงิน inputmode decimal)
+// + ชุด E: CustomerCard โหมดแก้ไข (Select เต็มแถว, ปุ่มบันทึกบน/ล่าง) + ดินสอหายเมื่อการ์ดอื่นแก้อยู่ · ชุด F: LeadCards แบบหน้าใบงาน (ป้าย CRM + พับตั้งต้นพร้อมสรุป)
 // Run:  npx tsx scripts/crm-lead-detail-render.check.ts [โฟลเดอร์ปลายทาง]
 //
 // ไม่แตะเครือข่าย/ฐานข้อมูล: server action (../actions, ../../jobs/actions) ถูกแทนด้วยตัวจำลอง (async no-op คืน { success: true })
-// next/navigation, sonner, @/lib/i18n/context ถูกแทนด้วยตัวจำลอง · ใส่โฟลเดอร์ปลายทาง = เขียน A.html/B.html/C.html ไว้ cmp
+// next/navigation, sonner, @/lib/i18n/context ถูกแทนด้วยตัวจำลอง · ใส่โฟลเดอร์ปลายทาง = เขียน A/B/C/D/E/F-folded/F-open.html (ใช้ถ่ายภาพ)
 // บรรทัดสุดท้ายของผลลัพธ์ต้องเป็น "crm-lead-detail-render: ผ่านทั้งหมด"
 
 process.env.TZ = 'Asia/Bangkok'
@@ -168,7 +169,12 @@ const FIXTURES: Record<'A' | 'B' | 'C', Props> = {
 
 const outDir = process.argv[2]
 if (outDir) fs.mkdirSync(outDir, { recursive: true })
-for (const [name, props] of Object.entries(FIXTURES)) {
+const write = (name: string, html: string) => { if (outDir) fs.writeFileSync(path.join(outDir, `${name}.html`), html) }
+const countIn = (html: string, needle: string) => html.split(needle).length - 1
+// รูปสลิปต้องอยู่ใน <a href> (เปิดขนาดเต็มได้โดยไม่พึ่ง hover)
+const SLIP_LINK = /<a [^>]*href="https:\/\/x\.supabase\.co\/[^"]*slip-1\.jpg"[^>]*><img /
+const HTML: Partial<Record<'A' | 'B' | 'C', string>> = {}
+for (const [name, props] of Object.entries(FIXTURES) as ['A' | 'B' | 'C', Props][]) {
   const html = renderToStaticMarkup(createElement(LeadDetail, props))
   assert.ok(html.length > 1000, `${name}: HTML ว่าง`)
   assert.ok(html.includes(props.lead.customer_name), `${name}: ต้องมีชื่อลูกค้า`)
@@ -181,8 +187,44 @@ for (const [name, props] of Object.entries(FIXTURES)) {
   } else {
     assert.ok(!html.includes('ยังไม่เลือกแพ็กเกจ'), `${name}: ไม่มีแพ็กเกจของงาน = แสดงชื่อเดิมเหมือนก่อน`)
   }
-  if (outDir) fs.writeFileSync(path.join(outDir, `${name}.html`), html)
+  // ส่วนการ์ด 3 ใบ (ลูกค้า → อีเวนต์ → การเงิน) อยู่ท้ายหน้า
+  const cards = html.slice(html.indexOf('ข้อมูลลูกค้า'))
+  assert.ok(cards.length < html.length, `${name}: ต้องมีการ์ดข้อมูลลูกค้า`)
+  assert.equal((cards.match(/\d{4}-\d{2}-\d{2}/g) || []).length, 0, `${name}: การ์ดโหมดดูไม่มีวันที่แบบ YYYY-MM-DD`)
+  assert.equal(countIn(html, 'card-actions-top') + countIn(html, 'card-actions-bottom'), 0, `${name}: โหมดดูไม่มีปุ่มบันทึก/ยกเลิก`)
+  HTML[name] = html
+  write(name, html)
   console.log(`PASS  ${name}  sha1=${crypto.createHash('sha1').update(html).digest('hex')}  (${html.length} chars)`)
+}
+
+{
+  const A = HTML.A!, B = HTML.B!, C = HTML.C!
+  // วันที่ไทย: วันจัดงาน/วันสิ้นสุด + วันนัดชำระ/วันที่ชำระจริงของงวด
+  for (const s of ['20 ธันวาคม 2642', '21 ธันวาคม 2642', '15 สิงหาคม 2569', '14 สิงหาคม 2569']) assert.ok(A.includes(s), `A: ต้องมีวันที่ไทย "${s}"`)
+  assert.ok(C.includes('1 มกราคม 2563'), 'C: วันจัดงานเป็นวันที่ไทย')
+  // ชุด B ข้อมูลโล่ง: ไม่มีแถว "—" · ช่องหลักที่ว่าง (วันจัดงาน) ขึ้น "ไม่ระบุ" ไม่เกิน 4
+  const bCards = B.slice(B.indexOf('ข้อมูลลูกค้า'))
+  assert.equal(countIn(bCards, '>—<'), 0, 'B: การ์ดไม่มีแถว "—"')
+  const bUnset = countIn(bCards, 'ไม่ระบุ')
+  assert.ok(bUnset >= 1 && bUnset <= 4, `B: "ไม่ระบุ" 1–4 ครั้ง (ได้ ${bUnset})`)
+  assert.ok(!bCards.includes('LINE ID') && !bCards.includes('เลขใบเสนอราคา'), 'B: ช่องไม่หลักที่ว่างถูกซ่อน')
+  assert.equal(countIn(C.slice(C.indexOf('ข้อมูลลูกค้า')), '>—<'), 0, 'C: การ์ดไม่มีแถว "—"')
+  // สลิป: โหมดดูอัปโหลด/เปลี่ยนได้ ไม่มีปุ่มลบ · รูปเป็นลิงก์
+  assert.equal(countIn(A, '>ลบ<'), 0, 'A: โหมดดูไม่มีปุ่มลบสลิป')
+  assert.ok(A.includes('อัพโหลดสลิป') && A.includes('เปลี่ยน') && A.includes('ดูขนาดเต็ม'), 'A: โหมดดูยังอัปโหลด/เปลี่ยน/ดูสลิปได้')
+  assert.ok(SLIP_LINK.test(A), 'A: รูปสลิปอยู่ใน <a href>')
+  // ยอดค้าง: ราคาเสนออย่างเดียว = "ยังไม่ตกลงราคา" ไม่ใช่กล่องยอดค้าง
+  for (const [n, h, quote] of [['B', B, '฿15,000'], ['C', C, '฿53,500']] as const) {
+    assert.ok(!h.includes('ยอดค้างชำระ'), `${n}: ไม่มีกล่องยอดค้างชำระ (มีแค่ราคาเสนอ)`)
+    assert.ok(h.includes(`ยังไม่ตกลงราคา (เสนอ ${quote})`), `${n}: ต้องมี "ยังไม่ตกลงราคา (เสนอ ${quote})"`)
+  }
+  // ชุด A: แถบ 3 ช่อง ยอดสุทธิ/ชำระแล้ว/ค้างชำระ อยู่ก่อนแถวราคาเสนอ + ยังมีกล่องยอดค้าง
+  const fin = A.slice(A.indexOf('>การเงิน<'))
+  assert.ok(A.includes('ยอดค้างชำระ'), 'A: มีกล่องยอดค้างชำระ')
+  for (const s of ['ยอดสุทธิ', 'ชำระแล้ว', 'ค้างชำระ', '฿31,200', '฿15,000', '฿16,200']) {
+    assert.ok(fin.indexOf(s) >= 0 && fin.indexOf(s) < fin.indexOf('ราคาเสนอ'), `A: แถบตัวเลข "${s}" อยู่ก่อนราคาเสนอ`)
+  }
+  console.log('PASS  A/B/C  โหมดดู: วันที่ไทย · ซ่อนแถวว่าง · ไม่มีปุ่มลบสลิป · แถบตัวเลข/ยังไม่ตกลงราคา')
 }
 
 // D: การ์ดการเงินโหมดแก้ไข (ข้อมูลชุด A) — ช่องจำนวนเงิน + ที่อัปโหลดสลิปครบทุกงวด · ตัวเลขสรุปภาษีถูก
@@ -211,6 +253,14 @@ if (FinancialCard) {
   assert.equal(count('ดูขนาดเต็ม'), 0, 'D: โหมดแก้ไขไม่มีลิงก์ดูขนาดเต็ม')
   // 30,000 ยังไม่รวม VAT · หัก ณ ที่จ่าย 3% → VAT 2,100 · หัก 900 · สุทธิ 31,200 · จ่ายแล้ว 5,000 + 10,000 → ค้าง 16,200
   for (const s of ['฿30,000', '+฿2,100', '-฿900', '฿31,200', '฿16,200', 'หัก ณ ที่จ่าย 3%']) assert.ok(html.includes(s), `D: สรุปภาษีต้องมี ${s}`)
+  // ช่องเงิน (ราคาเสนอ/ยืนยัน/มัดจำ + จำนวนต่องวด) เปิดแป้นตัวเลข · โหมดแก้ไขลบสลิปได้ · รูปสลิปเป็นลิงก์
+  assert.equal(count('inputMode="decimal"') + count('inputmode="decimal"'), 3 + n, 'D: ช่องเงินทุกช่อง inputmode=decimal')
+  assert.ok(count('>ลบ<') >= 1, 'D: โหมดแก้ไขมีปุ่มลบสลิป')
+  assert.ok(SLIP_LINK.test(html), 'D: รูปสลิปอยู่ใน <a href>')
+  assert.ok(!html.includes('group-hover:opacity-100'), 'D: ไม่มีปุ่มที่โผล่เฉพาะตอน hover')
+  assert.equal(count('data-testid="card-actions-top"'), 1, 'D: ปุ่มบันทึกที่หัวการ์ด')
+  assert.equal(count('data-testid="card-actions-bottom"'), 1, 'D: ปุ่มบันทึกท้ายฟอร์ม')
+  write('D', html)
   console.log(`PASS  D  FinancialCard แก้ไข: ${n} งวด ช่องจำนวน+อัปโหลดครบ · สรุปภาษีถูก`)
 }
 
@@ -221,8 +271,8 @@ if (FinancialCard) {
   const { CustomerCard } = require('../app/(authenticated)/crm/[id]/components/customer-card') as typeof import('../app/(authenticated)/crm/[id]/components/customer-card')
   const { buildLeadForm } = require('../app/(authenticated)/crm/[id]/shared') as typeof import('../app/(authenticated)/crm/[id]/shared') // eslint-disable-line @typescript-eslint/no-require-imports
   const noop = () => {}
-  const card = (p: Props) => renderToStaticMarkup(createElement(CustomerCard, {
-    lead: p.lead, form: buildLeadForm(p.lead, p.settings), updateForm: noop, editing: true, collapsed: false, saving: false,
+  const card = (p: Props, over: { editing?: boolean; editLocked?: boolean } = {}) => renderToStaticMarkup(createElement(CustomerCard, {
+    lead: p.lead, form: buildLeadForm(p.lead, p.settings), updateForm: noop, editing: true, collapsed: false, saving: false, ...over,
     onEdit: noop, onToggle: noop, onSave: noop, onCancel: noop,
     settings: p.settings, workTypeOptions: [{ value: 'event', label: 'อีเวนต์' }], packagePicker: p.packagePicker,
   }))
@@ -231,10 +281,24 @@ if (FinancialCard) {
   assert.ok(!a.includes('เลือกระบบที่ใช้บริการ'), 'E: ไม่มี dropdown แพ็กเกจแบบเดิม (placeholder tc.selectPackage)')
   const c = card({ ...FIXTURES.C, lead: { ...FIXTURES.C.lead, package_name: 'pkg_a' } })
   assert.ok(c.includes('แพ็กเกจ A') && !c.includes('แก้แพ็กเกจ'), 'E: ไม่มีข้อมูลแพ็กเกจของงาน = ชื่อเดิมอ่านอย่างเดียว')
-  console.log('PASS  E  CustomerCard แก้ไข: ช่องแพ็กเกจเป็น PackagePicker')
+  // Select ทุกตัวเต็มแถว (shadcn เป็น w-fit) · ปุ่มบันทึก/ยกเลิกทั้งหัวการ์ดและท้ายฟอร์ม · โทร/LINE
+  const triggers = a.match(/<button[^>]*data-slot="select-trigger"[^>]*>/g) || []
+  assert.ok(triggers.length >= 3, `E: มี Select อย่างน้อย 3 ตัว (ได้ ${triggers.length})`)
+  assert.equal(triggers.filter(t => /class="[^"]*\bw-full\b/.test(t)).length, triggers.length, 'E: SelectTrigger ทุกตัวมี w-full')
+  assert.equal(countIn(a, 'data-testid="card-actions-top"'), 1, 'E: ปุ่มบันทึกที่หัวการ์ด 1 ชุด')
+  assert.equal(countIn(a, 'data-testid="card-actions-bottom"'), 1, 'E: ปุ่มบันทึกท้ายฟอร์ม 1 ชุด')
+  // หัวการ์ด = ก่อน card-content (PackagePicker ในเนื้อการ์ดมีดินสอของตัวเอง)
+  const head = (html: string) => html.slice(0, html.indexOf('data-slot="card-content"'))
+  assert.ok(!head(a).includes('lucide-pencil') && !head(a).includes('lucide-chevron-up'), 'E: ตอนแก้ไขหัวการ์ดไม่มีดินสอ/ลูกศร')
+  assert.ok(a.includes('type="tel"') && a.includes('autoCapitalize="none"'), 'E: ช่องโทร type=tel · LINE ไม่ขึ้นตัวใหญ่')
+  write('E', a)
+  // แก้ทีละใบ: การ์ดอื่นกำลังแก้ (editLocked) = ไม่มีดินสอ
+  assert.ok(!head(card(FIXTURES.A, { editing: false, editLocked: true })).includes('lucide-pencil'), 'E: editLocked → ไม่มีดินสอ')
+  assert.ok(head(card(FIXTURES.A, { editing: false, editLocked: false })).includes('lucide-pencil'), 'E: ไม่ล็อก → มีดินสอ')
+  console.log('PASS  E  CustomerCard แก้ไข: PackagePicker · Select เต็มแถว · ปุ่มบน/ล่าง · editLocked ซ่อนดินสอ')
 }
 
-// F: LeadCards แบบหน้าใบงาน (/jobs/[id]) — ป้าย "CRM" ทุกหัวการ์ด + พับตั้งต้น (ไม่มีเนื้อหา) · กาง = ฟีเจอร์ครบเหมือนหน้า CRM
+// F: LeadCards แบบหน้าใบงาน (/jobs/[id]) — ป้าย "CRM" ทุกหัวการ์ด + พับตั้งต้น (เห็นแค่บรรทัดสรุป) · กาง = ฟีเจอร์ครบเหมือนหน้า CRM
 {
   /* eslint-disable @typescript-eslint/no-require-imports */
   const { LeadCards } = require('../app/(authenticated)/crm/[id]/lead-cards') as typeof import('../app/(authenticated)/crm/[id]/lead-cards')
@@ -244,17 +308,24 @@ if (FinancialCard) {
   const tc = getDictionary('th').crm.detail
   const a = FIXTURES.A
   const askConfirm = async () => true
-  const badge = createElement(Badge, { className: 'text-[8px] px-1.5 py-0 bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400 border-0' }, 'CRM')
+  const badge = createElement(Badge, { className: 'text-[10px] px-1.5 py-0 bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400 border-0' }, 'CRM')
   const base = { lead: a.lead, settings: a.settings, installments: a.installments, packagePicker: a.packagePicker, badge, askConfirm }
   const folded = renderToStaticMarkup(createElement(LeadCards, { ...base, defaultCollapsed: true }))
   assert.ok(folded.split('>CRM<').length - 1 >= 3, 'F: พับ — ป้าย CRM ครบ 3 หัวการ์ด')
-  assert.ok(!folded.includes(a.lead.customer_name), 'F: พับ — ไม่มีชื่อลูกค้า')
-  assert.ok(!folded.includes('฿'), 'F: พับ — ไม่มีราคา')
+  // พับ = บรรทัดสรุปต่อการ์ด (ชื่อ · โทร · ช่องทาง | วันที่ · สถานที่ | ค้างเท่าไร) แต่ไม่มีเนื้อหาการ์ด
+  for (const s of [a.lead.customer_name, '081-234-5678', 'LINE OA', '20 ธันวาคม 2642', 'ไบเทค บางนา', 'ค้าง ฿16,200']) {
+    assert.ok(folded.includes(s), `F: พับ — สรุปต้องมี "${s}"`)
+  }
+  assert.ok(!folded.includes(tc.eventTime) && !folded.includes('ชำระงวด 1'), 'F: พับ — ไม่มีเนื้อหาการ์ด')
+  write('F-folded', folded)
   const open = renderToStaticMarkup(createElement(LeadCards, base))
+  assert.equal(countIn(open, a.lead.customer_name), 1, 'F: กาง — ไม่มีบรรทัดสรุปซ้ำ (ชื่อลูกค้าครั้งเดียว)')
+  assert.ok(!open.includes('ค้าง ฿16,200'), 'F: กาง — ไม่มีสรุปการเงินในหัวการ์ด')
+  write('F-open', open)
   for (const s of [tc.package, 'Selfie Studio Booth', tc.eventTime, '10:00 น.', tc.requiredRoles, 'ชำระงวด 1', a.lead.customer_name]) {
     assert.ok(open.includes(s), `F: กาง — ต้องมี "${s}"`)
   }
-  console.log('PASS  F  LeadCards หน้าใบงาน: ป้าย CRM 3 ใบ + พับตั้งต้น · กางแล้วมีแพ็กเกจ/เวลา/ตำแหน่ง/งวด')
+  console.log('PASS  F  LeadCards หน้าใบงาน: ป้าย CRM 3 ใบ + พับตั้งต้นพร้อมสรุป · กางแล้วมีแพ็กเกจ/เวลา/ตำแหน่ง/งวด')
 }
 
 console.log('crm-lead-detail-render: ผ่านทั้งหมด')
