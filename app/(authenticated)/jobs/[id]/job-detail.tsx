@@ -4,9 +4,9 @@ import { useState, useTransition, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-    ArrowLeft, Calendar, MapPin, User, Tag, Clock, Palette, Wrench, Pencil,
+    ArrowLeft, MapPin, User, Tag, Clock, Palette, Wrench,
     Save, X, Trash2, Edit2, Plus, Phone, MessageCircle, Mail, Users as UsersIcon,
-    ExternalLink, Lock, ChevronDown, ChevronUp, DollarSign, Package, Briefcase,
+    ExternalLink, Lock, ChevronDown, ChevronUp, Package, Briefcase,
     ListChecks, CheckSquare, Square, Archive
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -27,7 +27,12 @@ import {
     updateJob, updateJobStatus, deleteJob, createJobActivity,
     toggleChecklistItem, archiveJob,
 } from '../actions'
-import { updateLead } from '../../crm/actions'
+import type { LeadEventStaff, LeadInstallment } from '../../crm/actions'
+import type { CrmLead, CrmSetting } from '../../crm/types'
+import type { LeadPackagePickerData } from '../../crm/[id]/shared'
+import { LeadCards } from '../../crm/[id]/lead-cards'
+import { StaffCard } from '../../crm/[id]/components/staff-card'
+import { useConfirm } from '../../finance/use-confirm'
 import type { Job, JobSetting, JobType, ChecklistTemplate, ChecklistItem } from '../actions'
 import { getStatusesFromSettings, getStatusConfig } from '../jobs-dashboard'
 import { useLocale } from '@/lib/i18n/context'
@@ -54,140 +59,12 @@ interface Activity {
     profiles?: { full_name: string | null } | null
 }
 
-interface StaffAssignment {
-    user_id: string
-    full_name: string
-    role: string
-}
-
-interface CrmDataProp {
-    lead: Record<string, any>
-    installments: Array<{
-        id: string
-        installment_number: number
-        amount: number
-        due_date: string | null
-        is_paid: boolean
-        paid_date: string | null
-        receipt_url: string | null
-    }>
-    crmSettings: Array<{
-        id: string
-        category: string
-        value: string
-        label_th: string
-        label_en: string
-        color: string | null
-        price: number | null
-        sort_order: number
-        is_active: boolean
-    }>
-    leadStaff: StaffAssignment[]
-}
-
-// ============================================================================
-// Collapsible CRM Card
-// ============================================================================
-
-// CRM-style Collapsible Card (matches CRM UI exactly)
-function CrmCard({ title, icon, iconBg, children, defaultOpen = false, onEdit, isEditing }: {
-    title: string
-    icon: React.ReactNode
-    iconBg: string
-    children: React.ReactNode
-    defaultOpen?: boolean
-    onEdit?: () => void
-    isEditing?: boolean
-}) {
-    const [open, setOpen] = useState(defaultOpen)
-    return (
-        <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                        <div className={`flex items-center justify-center h-6 w-6 rounded-md ${iconBg}`}>
-                            {icon}
-                        </div>
-                        {title}
-                        <Badge className="text-[8px] px-1.5 py-0 bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400 border-0">
-                            CRM
-                        </Badge>
-                    </CardTitle>
-                    <div className="flex items-center gap-1">
-                        {onEdit && open && !isEditing && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0 text-zinc-400 hover:text-blue-600"
-                                onClick={onEdit}
-                            >
-                                <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                        )}
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-zinc-400 hover:text-zinc-600"
-                            onClick={() => setOpen(!open)}
-                        >
-                            {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                        </Button>
-                    </div>
-                </div>
-            </CardHeader>
-            {open && (
-                <CardContent className="space-y-3">
-                    {children}
-                </CardContent>
-            )}
-        </Card>
-    )
-}
-
-// Info Row — Read-only display (same as CRM)
-function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
-    return (
-        <div className="flex justify-between items-start gap-4">
-            <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{label}</span>
-            <span className="text-sm text-zinc-900 dark:text-zinc-100 text-right">{value || '—'}</span>
-        </div>
-    )
-}
-
-// Edit Field — Input with label (same as CRM)
-function CrmEditField({ label, value, onChange, type = 'text', placeholder }: {
-    label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string
-}) {
-    return (
-        <div>
-            <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{label}</Label>
-            <Input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="h-9 text-sm" />
-        </div>
-    )
-}
-
-// Edit Select — Dropdown with label (same as CRM)
-function CrmEditSelect({ label, value, onChange, options, placeholder }: {
-    label: string; value: string; onChange: (v: string) => void
-    options: { value: string; label: string }[]; placeholder?: string
-}) {
-    const seen = new Set<string>()
-    const displayOptions = options.filter(o => { if (seen.has(o.value)) return false; seen.add(o.value); return true })
-    const isValid = value && displayOptions.some(o => o.value === value)
-    const selectProps = isValid ? { value, onValueChange: onChange } : { onValueChange: onChange }
-    return (
-        <div>
-            <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{label}</Label>
-            <Select {...selectProps}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={placeholder} /></SelectTrigger>
-                <SelectContent position="popper" className="max-h-[300px] overflow-y-auto">
-                    {displayOptions.map(opt => (
-                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-        </div>
-    )
+export interface JobCrmData {
+    lead: CrmLead
+    settings: CrmSetting[]
+    installments: LeadInstallment[]
+    eventStaffGroups: LeadEventStaff[]
+    packagePicker: LeadPackagePickerData
 }
 
 // ============================================================================
@@ -208,22 +85,23 @@ interface JobDetailProps {
     activities: Activity[]
     settings: JobSetting[]
     users: SystemUser[]
-    crmData: CrmDataProp | null
+    /** ข้อมูล lead ของ CRM ชุดเดียวกับหน้า /crm/[id] — ใบงานที่ไม่ผูก CRM = null */
+    crm: JobCrmData | null
     checklistTemplates: ChecklistTemplate[]
     checklistItems: ChecklistItem[]
     jobTypes: JobSetting[]
     siblingJobs: SiblingJob[]
 }
 
-export default function JobDetail({ job, activities, settings, users, crmData, checklistTemplates, checklistItems, jobTypes, siblingJobs }: JobDetailProps) {
+export default function JobDetail({ job, activities, settings, users, crm, checklistTemplates, checklistItems, jobTypes, siblingJobs }: JobDetailProps) {
     const { locale } = useLocale()
     const router = useRouter()
     const [isPending, startTransition] = useTransition()
 
     const isFromCrm = !!job.crm_lead_id
-    const lead = crmData?.lead
-    const installments = crmData?.installments || []
-    const crmSettings = crmData?.crmSettings || []
+    const lead = crm?.lead
+    const crmSettings = crm?.settings || []
+    const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
 
     // Edit state (job's own fields)
     const [editing, setEditing] = useState<string | null>(null)
@@ -237,159 +115,15 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
     // Tags state
     const [localTags, setLocalTags] = useState<string[]>(job.tags || [])
 
-    // Staff & Roles — junction table approach
-    const initialStaffAssignments = crmData?.leadStaff || []
-    const [localStaffAssignments, setLocalStaffAssignments] = useState<StaffAssignment[]>(initialStaffAssignments)
-    const [staffSelectUser, setStaffSelectUser] = useState('')
-    const [staffSelectRole, setStaffSelectRole] = useState('')
-    const staffRoles = crmSettings.filter(s => s.category === 'staff_role' && s.is_active)
-
-    const getStaffRoleColor = (role: string) => {
-        const r = staffRoles.find(s => s.value === role)
-        return r?.color || '#6b7280'
-    }
-    const getStaffRoleLabel = (role: string) => {
-        const r = staffRoles.find(s => s.value === role)
-        return r ? (locale === 'th' ? r.label_th : r.label_en) : role
-    }
-
-    const syncStaffToDb = (assignments: StaffAssignment[]) => {
-        if (!job.crm_lead_id) return
-        startTransition(async () => {
-            const fd = new FormData()
-            fd.set('staff_assignments', JSON.stringify(assignments.map(a => ({ user_id: a.user_id, role: a.role }))))
-            await updateLead(job.crm_lead_id!, fd)
-            router.refresh()
-        })
-    }
-
-    const handleAddStaffAssignment = () => {
-        if (!staffSelectUser || !staffSelectRole) return
-        const user = users.find(u => u.id === staffSelectUser)
-        const newAssignment: StaffAssignment = {
-            user_id: staffSelectUser,
-            full_name: user?.full_name || staffSelectUser,
-            role: staffSelectRole,
-        }
-        const updated = [...localStaffAssignments, newAssignment]
-        setLocalStaffAssignments(updated)
-        setStaffSelectUser('')
-        setStaffSelectRole('')
-        syncStaffToDb(updated)
-    }
-
-    const handleRemoveStaffAssignment = (idx: number) => {
-        const updated = localStaffAssignments.filter((_, i) => i !== idx)
-        setLocalStaffAssignments(updated)
-        syncStaffToDb(updated)
-    }
+    // ป้าย/สีหน้าที่ในการ์ดทีมงาน
+    const staffRoles = crmSettings.filter(s => s.category === 'staff_role' && s.is_active).sort((a, b) => a.sort_order - b.sort_order)
 
     // Checklist optimistic state — instant UI updates
     const [localChecklistItems, setLocalChecklistItems] = useState<ChecklistItem[]>(checklistItems)
     const [collapsedChecklistStatuses, setCollapsedChecklistStatuses] = useState<Set<string>>(new Set())
 
-    // CRM card editing state
-    type CrmCardSection = 'customer' | 'event' | 'financial'
-    const [editingCrmCard, setEditingCrmCard] = useState<CrmCardSection | null>(null)
-    const [crmForm, setCrmForm] = useState({
-        customer_name: lead?.customer_name || '',
-        customer_line: lead?.customer_line || '',
-        customer_phone: lead?.customer_phone || '',
-        customer_type: lead?.customer_type || '',
-        lead_source: lead?.lead_source || '',
-        is_returning: lead?.is_returning || false,
-        event_date: lead?.event_date || '',
-        event_end_date: lead?.event_end_date || '',
-        event_location: lead?.event_location || '',
-        event_details: lead?.event_details || '',
-        package_name: lead?.package_name || '',
-        quoted_price: lead?.quoted_price || 0,
-        confirmed_price: lead?.confirmed_price || 0,
-        deposit: lead?.deposit || 0,
-        vat_mode: lead?.vat_mode || 'none',
-        wht_rate: lead?.wht_rate || 0,
-        quotation_ref: lead?.quotation_ref || '',
-        notes: lead?.notes || '',
-    })
-    const updateCrmForm = (key: string, value: string | number | boolean) => {
-        setCrmForm(prev => ({ ...prev, [key]: value }))
-    }
-
-    // CRM settings derivatives
     const getSettingLabel = (s: { label_th?: string; label_en?: string; value: string }) =>
         locale === 'th' ? (s.label_th || s.value) : (s.label_en || s.value)
-    const sources = crmSettings.filter(s => s.category === 'lead_source' && s.is_active)
-    const customerTypes = crmSettings.filter(s => s.category === 'customer_type' && s.is_active)
-    const pkgSetting = crmSettings.find(s => s.category === 'package' && s.value === lead?.package_name)
-    const sourceSetting = crmSettings.find(s => s.category === 'lead_source' && s.value === lead?.lead_source)
-    const typeSetting = crmSettings.find(s => s.category === 'customer_type' && s.value === lead?.customer_type)
-
-    const handleSaveCrmCard = async (section: CrmCardSection) => {
-        if (!job.crm_lead_id) return
-        startTransition(async () => {
-            const fd = new FormData()
-            if (section === 'customer') {
-                fd.set('customer_name', crmForm.customer_name)
-                fd.set('customer_line', crmForm.customer_line)
-                fd.set('customer_phone', crmForm.customer_phone)
-                fd.set('customer_type', crmForm.customer_type)
-                fd.set('lead_source', crmForm.lead_source)
-                fd.set('is_returning', String(crmForm.is_returning))
-                // ไม่ส่ง package_name — ชื่อแพ็กเกจ sync จากแพ็กเกจที่เลือก (setLeadPackages) ค่าเก่าในฟอร์มจะทับไม่ได้
-            } else if (section === 'event') {
-                fd.set('event_date', crmForm.event_date)
-                fd.set('event_end_date', crmForm.event_end_date)
-                fd.set('event_location', crmForm.event_location)
-                fd.set('event_details', crmForm.event_details)
-            } else if (section === 'financial') {
-                fd.set('quoted_price', String(crmForm.quoted_price))
-                fd.set('confirmed_price', String(crmForm.confirmed_price))
-                fd.set('deposit', String(crmForm.deposit))
-                fd.set('vat_mode', crmForm.vat_mode)
-                fd.set('wht_rate', String(crmForm.wht_rate))
-                fd.set('quotation_ref', crmForm.quotation_ref)
-                fd.set('notes', crmForm.notes)
-            }
-            await updateLead(job.crm_lead_id!, fd)
-            setEditingCrmCard(null)
-            router.refresh()
-        })
-    }
-    const handleCancelCrmEdit = () => {
-        setCrmForm({
-            customer_name: lead?.customer_name || '',
-            customer_line: lead?.customer_line || '',
-            customer_phone: lead?.customer_phone || '',
-            customer_type: lead?.customer_type || '',
-            lead_source: lead?.lead_source || '',
-            is_returning: lead?.is_returning || false,
-            event_date: lead?.event_date || '',
-            event_end_date: lead?.event_end_date || '',
-            event_location: lead?.event_location || '',
-            event_details: lead?.event_details || '',
-            package_name: lead?.package_name || '',
-            quoted_price: lead?.quoted_price || 0,
-            confirmed_price: lead?.confirmed_price || 0,
-            deposit: lead?.deposit || 0,
-            vat_mode: lead?.vat_mode || 'none',
-            wht_rate: lead?.wht_rate || 0,
-            quotation_ref: lead?.quotation_ref || '',
-            notes: lead?.notes || '',
-        })
-        setEditingCrmCard(null)
-    }
-
-    // CRM Card Save/Cancel buttons
-    const CrmCardEditActions = ({ section }: { section: CrmCardSection }) => (
-        <div className="flex items-center gap-2 pt-3 mt-3 border-t border-zinc-100 dark:border-zinc-800">
-            <Button onClick={() => handleSaveCrmCard(section)} disabled={isPending} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 h-8 text-xs">
-                <Save className="h-3.5 w-3.5" />{isPending ? (locale === 'th' ? 'กำลังบันทึก...' : 'Saving...') : (locale === 'th' ? 'บันทึก' : 'Save')}
-            </Button>
-            <Button onClick={handleCancelCrmEdit} variant="outline" size="sm" className="gap-1.5 h-8 text-xs">
-                <X className="h-3.5 w-3.5" />{locale === 'th' ? 'ยกเลิก' : 'Cancel'}
-            </Button>
-        </div>
-    )
 
     const statuses = getStatusesFromSettings(settings, job.job_type as JobType)
     const currentStatusCfg = getStatusConfig(settings, job.job_type as JobType, job.status)
@@ -494,17 +228,6 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
 
 
 
-
-    const getCrmSettingLabel = (category: string, value: string | null) => {
-        if (!value) return null
-        const s = crmSettings.find(st => st.category === category && st.value === value)
-        return s ? getSettingLabel(s) : value
-    }
-
-    const formatPrice = (n: number | null | undefined) => {
-        if (!n) return '—'
-        return `฿${n.toLocaleString()}`
-    }
 
     return (
         <div className="max-w-6xl mx-auto space-y-6">
@@ -716,405 +439,22 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                     {/* Order: Staff → Customer → Event → Financial */}
                     {/* (Tags moved to unified tag card above) */}
                     {/* ============================================ */}
-                    {isFromCrm && lead && (
+                    {isFromCrm && crm && lead && (
                         <>
-                            {/* 1. Staff & Roles — Junction Table UI */}
-                            <CrmCard
-                                title={locale === 'th' ? 'ทีมงาน & หน้าที่' : 'Staff & Roles'}
-                                icon={<UsersIcon className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />}
-                                iconBg="bg-amber-50 dark:bg-amber-950/40"
-                            >
-                                <div className="space-y-3">
-                                    {/* Add row */}
-                                    <div className="flex items-end gap-2">
-                                        <div className="flex-1 space-y-1">
-                                            <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'เลือกพนักงาน' : 'Select Staff'}</label>
-                                            <Select value={staffSelectUser} onValueChange={setStaffSelectUser}>
-                                                <SelectTrigger className="h-8 text-sm">
-                                                    <SelectValue placeholder={locale === 'th' ? 'เลือกพนักงาน...' : 'Select staff...'} />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {users.map(user => (
-                                                        <SelectItem key={user.id} value={user.id}>
-                                                            {user.full_name || user.id}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="flex-1 space-y-1">
-                                            <label className="text-[10px] text-zinc-400">{locale === 'th' ? 'หน้าที่' : 'Role'}</label>
-                                            <Select value={staffSelectRole} onValueChange={setStaffSelectRole}>
-                                                <SelectTrigger className="h-8 text-sm">
-                                                    <SelectValue placeholder={locale === 'th' ? 'เลือกหน้าที่...' : 'Select role...'} />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {staffRoles.map(role => (
-                                                        <SelectItem key={role.value} value={role.value}>
-                                                            <span className="flex items-center gap-2">
-                                                                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color || '#6b7280' }} />
-                                                                {locale === 'th' ? role.label_th : role.label_en}
-                                                            </span>
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            className="h-8 px-3"
-                                            onClick={handleAddStaffAssignment}
-                                            disabled={!staffSelectUser || !staffSelectRole || isPending}
-                                        >
-                                            <Plus className="h-3.5 w-3.5 mr-1" />
-                                            {locale === 'th' ? 'เพิ่ม' : 'Add'}
-                                        </Button>
-                                    </div>
+                            {/* ทีมงานจัดการแยกต่ออีเวนต์ — อ่านอย่างเดียว แก้ที่หน้าอีเวนต์ */}
+                            <StaffCard eventStaffGroups={crm.eventStaffGroups} staffRoles={staffRoles} />
 
-                                    {/* Staff list */}
-                                    {localStaffAssignments.length > 0 ? (
-                                        <div className="space-y-1.5">
-                                            {localStaffAssignments.map((a, idx) => (
-                                                <div
-                                                    key={`${a.user_id}-${a.role}-${idx}`}
-                                                    className="flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 group hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors"
-                                                >
-                                                    <div className="flex items-center gap-3 min-w-0">
-                                                        <div className="flex items-center justify-center h-7 w-7 rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
-                                                            {(a.full_name || '?').charAt(0).toUpperCase()}
-                                                        </div>
-                                                        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
-                                                            {a.full_name}
-                                                        </span>
-                                                        <Badge
-                                                            variant="secondary"
-                                                            className="text-[10px] shrink-0"
-                                                            style={{ backgroundColor: getStaffRoleColor(a.role) + '20', color: getStaffRoleColor(a.role), borderColor: getStaffRoleColor(a.role) + '40' }}
-                                                        >
-                                                            {getStaffRoleLabel(a.role)}
-                                                        </Badge>
-                                                    </div>
-                                                    <Button
-                                                        type="button"
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
-                                                        onClick={() => handleRemoveStaffAssignment(idx)}
-                                                        disabled={isPending}
-                                                    >
-                                                        <X className="h-3 w-3" />
-                                                    </Button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="text-xs text-zinc-400 text-center py-2">
-                                            {locale === 'th' ? 'ยังไม่มีทีมงาน — เพิ่มพนักงานและเลือกหน้าที่' : 'No staff assigned'}
-                                        </p>
-                                    )}
-                                </div>
-                            </CrmCard>
-
-                            {/* 3. Customer Info */}
-                            <CrmCard
-                                title={locale === 'th' ? 'ข้อมูลลูกค้า' : 'Customer Info'}
-                                icon={<User className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />}
-                                iconBg="bg-blue-50 dark:bg-blue-950/40"
-                                onEdit={() => setEditingCrmCard('customer')}
-                                isEditing={editingCrmCard === 'customer'}
-                            >
-                                {editingCrmCard === 'customer' ? (
-                                    <div className="space-y-4">
-                                        <CrmEditField label={locale === 'th' ? 'ชื่อลูกค้า' : 'Customer Name'} value={crmForm.customer_name} onChange={v => updateCrmForm('customer_name', v)} />
-                                        <CrmEditField label="LINE" value={crmForm.customer_line} onChange={v => updateCrmForm('customer_line', v)} placeholder="@line_id" />
-                                        <CrmEditField label={locale === 'th' ? 'โทรศัพท์' : 'Phone'} value={crmForm.customer_phone} onChange={v => updateCrmForm('customer_phone', v)} placeholder="0xx-xxx-xxxx" />
-                                        <CrmEditSelect
-                                            label={locale === 'th' ? 'ประเภทลูกค้า' : 'Customer Type'}
-                                            value={crmForm.customer_type}
-                                            onChange={v => updateCrmForm('customer_type', v)}
-                                            options={customerTypes.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
-                                            placeholder={locale === 'th' ? 'เลือกประเภท...' : 'Select type...'}
-                                        />
-                                        <CrmEditSelect
-                                            label={locale === 'th' ? 'ช่องทาง' : 'Source'}
-                                            value={crmForm.lead_source}
-                                            onChange={v => updateCrmForm('lead_source', v)}
-                                            options={sources.map(s => ({ value: s.value, label: getSettingLabel(s) }))}
-                                            placeholder={locale === 'th' ? 'เลือกช่องทาง...' : 'Select source...'}
-                                        />
-                                        {/* แพ็กเกจย้ายไปตาราง packages แล้ว — แก้ที่นี่ไม่ได้ (อ่านอย่างเดียว) */}
-                                        <div className="space-y-1">
-                                            <InfoRow label={locale === 'th' ? 'แพ็กเกจ' : 'Package'} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
-                                            <p className="text-xs text-zinc-500">
-                                                {locale === 'th' ? 'เปลี่ยนแพ็กเกจได้ที่' : 'Change the package in'}{' '}
-                                                <Link href={`/jobs/tracking?lead=${lead.id}`} className="text-violet-600 hover:underline dark:text-violet-400">
-                                                    {locale === 'th' ? 'หน้าติดตามงาน' : 'job tracking'}
-                                                </Link>{' '}
-                                                {locale === 'th' ? 'หรือการ์ดลูกค้าใน CRM' : 'or the customer card in CRM'}
-                                            </p>
-                                        </div>
-                                        <CrmCardEditActions section="customer" />
-                                    </div>
-                                ) : (
-                                    <>
-                                        <InfoRow label={locale === 'th' ? 'ชื่อลูกค้า' : 'Customer'} value={lead.customer_name} />
-                                        <InfoRow label="LINE" value={lead.customer_line} />
-                                        <InfoRow label={locale === 'th' ? 'โทรศัพท์' : 'Phone'} value={lead.customer_phone} />
-                                        <InfoRow label={locale === 'th' ? 'ประเภท' : 'Type'} value={typeSetting ? getSettingLabel(typeSetting) : lead.customer_type} />
-                                        <InfoRow label={locale === 'th' ? 'ช่องทาง' : 'Source'} value={sourceSetting ? getSettingLabel(sourceSetting) : lead.lead_source} />
-                                        <InfoRow label={locale === 'th' ? 'แพ็กเกจ' : 'Package'} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
-                                    </>
-                                )}
-                            </CrmCard>
-
-                            {/* 4. Event Info */}
-                            <CrmCard
-                                title={locale === 'th' ? 'ข้อมูลงาน/อีเวนต์' : 'Event Info'}
-                                icon={<Calendar className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />}
-                                iconBg="bg-violet-50 dark:bg-violet-950/40"
-                                onEdit={() => setEditingCrmCard('event')}
-                                isEditing={editingCrmCard === 'event'}
-                            >
-                                {editingCrmCard === 'event' ? (
-                                    <div className="space-y-4">
-                                        <CrmEditField label={locale === 'th' ? 'วันงาน' : 'Event Date'} value={crmForm.event_date} onChange={v => updateCrmForm('event_date', v)} type="date" />
-                                        <CrmEditField label={locale === 'th' ? 'วันสิ้นสุด' : 'End Date'} value={crmForm.event_end_date} onChange={v => updateCrmForm('event_end_date', v)} type="date" />
-                                        <CrmEditField label={locale === 'th' ? 'สถานที่' : 'Location'} value={crmForm.event_location} onChange={v => updateCrmForm('event_location', v)} />
-                                        <div>
-                                            <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{locale === 'th' ? 'รายละเอียดงาน' : 'Details'}</Label>
-                                            <Textarea value={crmForm.event_details} onChange={e => updateCrmForm('event_details', e.target.value)} rows={3} className="text-sm" />
-                                        </div>
-                                        <CrmCardEditActions section="event" />
-                                    </div>
-                                ) : (
-                                    <>
-                                        <InfoRow label={locale === 'th' ? 'วันงาน' : 'Event Date'} value={lead.event_date ? new Date(lead.event_date).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB') : null} />
-                                        <InfoRow label={locale === 'th' ? 'วันสิ้นสุด' : 'End Date'} value={lead.event_end_date ? new Date(lead.event_end_date).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB') : null} />
-                                        {lead.event_date && lead.event_end_date && (
-                                            <div className="flex justify-between items-start gap-4">
-                                                <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{locale === 'th' ? 'ระยะเวลา' : 'Duration'}</span>
-                                                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border-0 text-xs">
-                                                    {(() => {
-                                                        const days = Math.max(1, Math.round((new Date(lead.event_end_date).getTime() - new Date(lead.event_date).getTime()) / (1000 * 60 * 60 * 24)) + 1)
-                                                        return `${days} ${locale === 'th' ? 'วัน' : days === 1 ? 'day' : 'days'}`
-                                                    })()}
-                                                </Badge>
-                                            </div>
-                                        )}
-                                        <InfoRow label={locale === 'th' ? 'สถานที่' : 'Location'} value={lead.event_location} />
-                                        <InfoRow label={locale === 'th' ? 'รายละเอียด' : 'Details'} value={lead.event_details} />
-                                    </>
-                                )}
-                            </CrmCard>
-
-                            {/* 5. Financial Info */}
-                            <CrmCard
-                                title={locale === 'th' ? 'ข้อมูลการเงิน' : 'Financial Info'}
-                                icon={<DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />}
-                                iconBg="bg-emerald-50 dark:bg-emerald-950/40"
-                                onEdit={() => setEditingCrmCard('financial')}
-                                isEditing={editingCrmCard === 'financial'}
-                            >
-                                {editingCrmCard === 'financial' ? (() => {
-                                    const basePrice = crmForm.confirmed_price || crmForm.quoted_price || 0
-                                    const vatAmount = crmForm.vat_mode === 'excluded' ? basePrice * 0.07
-                                        : crmForm.vat_mode === 'included' ? basePrice - (basePrice / 1.07) : 0
-                                    const priceBeforeVat = crmForm.vat_mode === 'included' ? basePrice / 1.07 : basePrice
-                                    const whtAmount = priceBeforeVat * (crmForm.wht_rate / 100)
-                                    const netTotal = crmForm.vat_mode === 'excluded'
-                                        ? basePrice + vatAmount - whtAmount
-                                        : basePrice - whtAmount
-
-                                    return (
-                                        <div className="space-y-4">
-                                            <CrmEditField label={`${locale === 'th' ? 'ราคาเสนอ' : 'Quoted Price'} (฿)`} value={String(crmForm.quoted_price)} onChange={v => updateCrmForm('quoted_price', Number(v) || 0)} type="number" />
-                                            <CrmEditField label={`${locale === 'th' ? 'ราคาตกลง' : 'Confirmed Price'} (฿)`} value={String(crmForm.confirmed_price)} onChange={v => updateCrmForm('confirmed_price', Number(v) || 0)} type="number" />
-                                            <CrmEditField label={`${locale === 'th' ? 'มัดจำ' : 'Deposit'} (฿)`} value={String(crmForm.deposit)} onChange={v => updateCrmForm('deposit', Number(v) || 0)} type="number" />
-
-                                            {/* Tax Settings */}
-                                            <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
-                                                <p className="text-xs font-semibold text-zinc-500 mb-3">{locale === 'th' ? '💰 การคำนวณภาษี' : '💰 Tax Calculation'}</p>
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <CrmEditSelect
-                                                        label={locale === 'th' ? 'VAT' : 'VAT Mode'}
-                                                        value={crmForm.vat_mode}
-                                                        onChange={v => updateCrmForm('vat_mode', v)}
-                                                        options={[
-                                                            { value: 'none', label: locale === 'th' ? 'ไม่มี VAT' : 'No VAT' },
-                                                            { value: 'included', label: locale === 'th' ? 'รวม VAT แล้ว' : 'VAT Included' },
-                                                            { value: 'excluded', label: locale === 'th' ? 'ยังไม่รวม VAT' : 'VAT Excluded' },
-                                                        ]}
-                                                    />
-                                                    <CrmEditSelect
-                                                        label={locale === 'th' ? 'หัก ณ ที่จ่าย' : 'WHT Rate'}
-                                                        value={String(crmForm.wht_rate)}
-                                                        onChange={v => updateCrmForm('wht_rate', Number(v))}
-                                                        options={[
-                                                            { value: '0', label: locale === 'th' ? 'ไม่หัก' : 'None' },
-                                                            { value: '1', label: '1%' },
-                                                            { value: '2', label: '2%' },
-                                                            { value: '3', label: '3%' },
-                                                            { value: '5', label: '5%' },
-                                                        ]}
-                                                    />
-                                                </div>
-                                                {/* Tax Summary Preview */}
-                                                {(crmForm.vat_mode !== 'none' || crmForm.wht_rate > 0) && basePrice > 0 && (
-                                                    <div className="mt-3 p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
-                                                        {crmForm.vat_mode !== 'none' && (
-                                                            <>
-                                                                <div className="flex justify-between text-xs">
-                                                                    <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
-                                                                    <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                                                </div>
-                                                                <div className="flex justify-between text-xs">
-                                                                    <span className="text-zinc-500">VAT 7%</span>
-                                                                    <span className="font-medium text-blue-600 dark:text-blue-400">+฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                                                </div>
-                                                            </>
-                                                        )}
-                                                        {crmForm.wht_rate > 0 && (
-                                                            <div className="flex justify-between text-xs">
-                                                                <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${crmForm.wht_rate}%` : `WHT ${crmForm.wht_rate}%`}</span>
-                                                                <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                                            </div>
-                                                        )}
-                                                        <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
-                                                            <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
-                                                            <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Installments (read-only in edit mode) */}
-                                            {installments.length > 0 && (
-                                                <div className="border-t border-zinc-100 dark:border-zinc-800 pt-3">
-                                                    <p className="text-xs font-semibold text-zinc-500 mb-2">{locale === 'th' ? '📋 งวดชำระเงิน' : '📋 Installments'}</p>
-                                                    {installments.map((inst: { installment_number: number; amount: number; due_date: string | null; is_paid: boolean }) => (
-                                                        <div key={inst.installment_number} className="flex items-center justify-between py-1.5 border-b border-zinc-50 dark:border-zinc-800 last:border-0">
-                                                            <span className="text-xs text-zinc-500">{locale === 'th' ? `งวดที่ ${inst.installment_number}` : `#${inst.installment_number}`}</span>
-                                                            <div className="flex items-center gap-3">
-                                                                <span className="font-medium text-sm text-zinc-900 dark:text-zinc-100">{formatPrice(inst.amount)}</span>
-                                                                {inst.is_paid && <Badge className="text-[9px] bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 border-0">{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}</Badge>}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-
-                                            {/* Quotation Ref */}
-                                            <CrmEditField label={locale === 'th' ? 'เลขใบเสนอราคา' : 'Quotation Ref'} value={crmForm.quotation_ref} onChange={v => updateCrmForm('quotation_ref', v)} />
-
-                                            {/* Notes */}
-                                            <div>
-                                                <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{locale === 'th' ? 'หมายเหตุ' : 'Notes'}</Label>
-                                                <Textarea
-                                                    value={crmForm.notes}
-                                                    onChange={e => updateCrmForm('notes', e.target.value)}
-                                                    rows={3}
-                                                    className="text-sm"
-                                                    placeholder={locale === 'th' ? 'หมายเหตุเพิ่มเติม...' : 'Additional notes...'}
-                                                />
-                                            </div>
-
-                                            <CrmCardEditActions section="financial" />
-                                        </div>
-                                    )
-                                })() : (
-                                    (() => {
-                                        const basePrice = lead.confirmed_price || lead.quoted_price || 0
-                                        const vatMode = lead.vat_mode || 'none'
-                                        const whtRate = lead.wht_rate || 0
-                                        const vatAmount = vatMode === 'excluded' ? basePrice * 0.07
-                                            : vatMode === 'included' ? basePrice - (basePrice / 1.07) : 0
-                                        const priceBeforeVat = vatMode === 'included' ? basePrice / 1.07 : basePrice
-                                        const whtAmount = priceBeforeVat * (whtRate / 100)
-                                        const netTotal = vatMode === 'excluded'
-                                            ? basePrice + vatAmount - whtAmount
-                                            : basePrice - whtAmount
-                                        const totalPaid = (lead.deposit || 0) + installments.filter((i: { is_paid: boolean }) => i.is_paid).reduce((s: number, i: { amount: number }) => s + (i.amount || 0), 0)
-                                        const outstanding = netTotal - totalPaid
-
-                                        return (
-                                            <>
-                                                <InfoRow label={locale === 'th' ? 'ราคาเสนอ' : 'Quoted'} value={formatPrice(lead.quoted_price)} />
-                                                <InfoRow label={locale === 'th' ? 'ราคาตกลง' : 'Confirmed'} value={formatPrice(lead.confirmed_price)} />
-                                                <InfoRow label={locale === 'th' ? 'มัดจำ' : 'Deposit'} value={formatPrice(lead.deposit)} />
-
-                                                {/* Tax Summary */}
-                                                {(vatMode !== 'none' || whtRate > 0) && basePrice > 0 && (
-                                                    <div className="p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
-                                                        {vatMode !== 'none' && (
-                                                            <>
-                                                                <div className="flex justify-between text-xs">
-                                                                    <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
-                                                                    <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                                                </div>
-                                                                <div className="flex justify-between text-xs">
-                                                                    <span className="text-zinc-500">VAT 7% ({vatMode === 'included' ? (locale === 'th' ? 'รวมแล้ว' : 'incl.') : (locale === 'th' ? 'ยังไม่รวม' : 'excl.')})</span>
-                                                                    <span className="font-medium text-blue-600 dark:text-blue-400">{vatMode === 'excluded' ? '+' : ''}฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                                                </div>
-                                                            </>
-                                                        )}
-                                                        {whtRate > 0 && (
-                                                            <div className="flex justify-between text-xs">
-                                                                <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${whtRate}%` : `WHT ${whtRate}%`}</span>
-                                                                <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                                            </div>
-                                                        )}
-                                                        <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
-                                                            <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
-                                                            <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Installments */}
-                                                {installments.length > 0 && (
-                                                    <div className="border-t border-zinc-100 dark:border-zinc-800 pt-3 mt-3">
-                                                        <p className="text-xs font-semibold text-zinc-500 mb-2">{locale === 'th' ? '📋 งวดชำระเงิน' : '📋 Installments'}</p>
-                                                        {installments.map((inst: { installment_number: number; amount: number; due_date: string | null; is_paid: boolean }) => (
-                                                            <div key={inst.installment_number} className="flex items-center justify-between py-1.5 border-b border-zinc-50 dark:border-zinc-800 last:border-0">
-                                                                <span className="text-xs text-zinc-500">{locale === 'th' ? `งวดที่ ${inst.installment_number}` : `#${inst.installment_number}`}</span>
-                                                                <div className="flex items-center gap-3">
-                                                                    <span className="font-medium text-sm text-zinc-900 dark:text-zinc-100">{formatPrice(inst.amount)}</span>
-                                                                    {inst.is_paid && <Badge className="text-[9px] bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 border-0">{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}</Badge>}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-
-                                                {/* Outstanding Balance */}
-                                                {basePrice > 0 && (
-                                                    <div className={`p-3 rounded-lg ${outstanding <= 0 ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/30' : 'bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30'}`}>
-                                                        <div className="flex justify-between items-center">
-                                                            <span className={`text-xs font-semibold ${outstanding <= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                                                                {outstanding <= 0 ? (locale === 'th' ? '✅ ชำระครบ' : '✅ Fully Paid') : (locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding')}
-                                                            </span>
-                                                            <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
-                                                                ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                                            </span>
-                                                        </div>
-                                                        <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
-                                                            <span>{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}: ฿{totalPaid.toLocaleString()}</span>
-                                                            <span>{locale === 'th' ? 'ยอดสุทธิ' : 'Net'}: ฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Quotation Ref */}
-                                                <InfoRow label={locale === 'th' ? 'เลขใบเสนอราคา' : 'Quotation Ref'} value={lead.quotation_ref} />
-
-                                                {/* Notes */}
-                                                {lead.notes && <InfoRow label={locale === 'th' ? 'หมายเหตุ' : 'Notes'} value={lead.notes} />}
-                                            </>
-                                        )
-                                    })()
-                                )}
-                            </CrmCard>
+                            {/* การ์ดลูกค้า/อีเวนต์/การเงินชุดเดียวกับหน้า CRM — updateLead ไม่ revalidate หน้าใบงาน จึงรีเฟรชเอง */}
+                            <LeadCards
+                                lead={lead}
+                                settings={crmSettings}
+                                installments={crm.installments}
+                                packagePicker={crm.packagePicker}
+                                badge={<Badge className="text-[8px] px-1.5 py-0 bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400 border-0">CRM</Badge>}
+                                defaultCollapsed
+                                onSaved={() => router.refresh()}
+                                askConfirm={askConfirm}
+                            />
 
                             {/* Link to CRM */}
                             <Link href={`/crm/${job.crm_lead_id}`} className="inline-flex items-center gap-1.5 text-sm text-blue-500 hover:text-blue-600 hover:underline">
@@ -1494,6 +834,7 @@ export default function JobDetail({ job, activities, settings, users, crmData, c
                     </Card>
                 </div>
             </div>
+            {confirmDialog}
         </div>
     )
 }
