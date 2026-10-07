@@ -170,3 +170,6 @@ export const BOARD_LEAD_KEYS = [
 export const BOARD_COLUMNS = `${BOARD_LEAD_KEYS.join(', ')}, crm_lead_installments(amount, is_paid)`
 
 export type BoardLead = Pick<CrmLead, (typeof BOARD_LEAD_KEYS)[number]> & { total_installments_paid: number }
+
+/** ผู้ใช้ที่อนุมัติแล้ว (profiles) สำหรับเลือกเซลส์/กราฟิก/ทีมงาน */
+export type SystemUser = { id: string; full_name: string | null; department: string | null }

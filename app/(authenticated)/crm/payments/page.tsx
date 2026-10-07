@@ -17,7 +17,16 @@ export default async function PaymentsPage() {
         .not('due_date', 'is', null)
         .order('due_date', { ascending: true })
 
-    const payments = (installments || []).map((inst: any) => ({
+    type InstallmentRow = {
+        id: string
+        installment_number: number
+        amount: number | null
+        due_date: string
+        is_paid: boolean | null
+        paid_date: string | null
+        crm_leads: { id: string; customer_name: string; status: string }
+    }
+    const payments = ((installments || []) as InstallmentRow[]).map((inst) => ({
         id: inst.id,
         leadId: inst.crm_leads.id,
         customerName: inst.crm_leads.customer_name,

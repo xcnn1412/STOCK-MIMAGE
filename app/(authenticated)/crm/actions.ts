@@ -9,7 +9,7 @@ import { createNotifications } from '@/lib/notifications'
 import { claimEffectiveAmount, summarizeClaims } from '@/app/(authenticated)/costs/lib/crm-cost-grouping'
 import { autoCreateJobsFromAcceptedLead } from '@/app/(authenticated)/jobs/actions'
 import { readAllRows } from '@/lib/read-all-rows'
-import { BOARD_COLUMNS, DAY_MS, bangkokToday, isFirstWon, staleLeadIds, type StaleRow } from './types'
+import { BOARD_COLUMNS, DAY_MS, bangkokToday, isFirstWon, staleLeadIds, type BoardLead, type CrmLead, type CrmSetting, type StaleRow, type SystemUser } from './types'
 
 
 
@@ -23,7 +23,7 @@ async function getSession() {
 // ============================================================================
 
 // 'use server' files may only export async functions, so the cache() loaders stay private.
-const loadSystemUsers = cache(async () => {
+const loadSystemUsers = cache(async (): Promise<{ data: SystemUser[]; error?: string }> => {
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('profiles')
@@ -43,7 +43,7 @@ export async function getSystemUsers() {
 // CRM Settings — CRUD
 // ============================================================================
 
-const loadCrmSettings = cache(async (category?: string) => {
+const loadCrmSettings = cache(async (category?: string): Promise<{ data: CrmSetting[]; error?: string }> => {
   const supabase = createServiceClient()
   let query = supabase
     .from('crm_settings')
@@ -158,7 +158,7 @@ export async function toggleCrmSetting(id: string, is_active: boolean) {
 // CRM Leads — CRUD
 // ============================================================================
 
-export async function getLeads(filters?: {
+type LeadFilters = {
   status?: string
   source?: string
   month?: string
@@ -169,7 +169,14 @@ export async function getLeads(filters?: {
   window?: { days: number }
   /** true = ทุกคอลัมน์ (ไฟล์ส่งออก) · ค่าเริ่มต้น = BOARD_COLUMNS แบบเบา */
   full?: boolean
-}) {
+}
+
+/** full: true → CrmLead[] (ทุกคอลัมน์) · ไม่งั้น BoardLead[] */
+export async function getLeads<F extends LeadFilters = LeadFilters>(filters?: F) {
+  return loadLeads(filters) as Promise<{ data: F extends { full: true } ? CrmLead[] : BoardLead[]; error?: string }>
+}
+
+async function loadLeads(filters?: LeadFilters): Promise<{ data: BoardLead[]; error?: string }> {
   const supabase = createServiceClient()
   // PostgREST ตัดที่ 1,000 แถวต่อคำขอ → สร้างคำขอใหม่ทุกหน้า เรียง created_at + id ให้คงที่ข้ามหน้า
   const buildWith = (extra?: { col: 'updated_at' | 'event_date'; gte: string }) => (from: number, to: number) => {
@@ -204,8 +211,10 @@ export async function getLeads(filters?: {
     return query.order('id').range(from, to)
   }
 
-  // ponytail: แถวดิบจาก client ที่ไม่มี type — ใช้แค่ id/created_at ตอนรวม
-  type RawLead = { id: string; created_at: string } & Record<string, unknown>
+  // แถวดิบ = คอลัมน์ที่ select + งวดที่ join มา (ยังไม่มี total_installments_paid)
+  type RawLead = Omit<BoardLead, 'total_installments_paid'> & {
+    crm_lead_installments?: { amount: number | string | null; is_paid: boolean | null }[] | null
+  }
   let data: RawLead[]
   if (filters?.window) {
     // ไม่ใช้ .or() — อ่านสองชุด (แตะล่าสุดใน N วัน / วันงานยังไม่ถึง) แล้วรวมตาม id
@@ -229,11 +238,11 @@ export async function getLeads(filters?: {
   }
 
   // Compute total_installments_paid for each lead
-  const enriched = (data || []).map((lead: any) => {
+  const enriched = (data || []).map((lead) => {
     const installments = lead.crm_lead_installments || []
     const total_installments_paid = installments
-      .filter((i: any) => i.is_paid)
-      .reduce((sum: number, i: any) => sum + (Number(i.amount) || 0), 0)
+      .filter((i) => i.is_paid)
+      .reduce((sum: number, i) => sum + (Number(i.amount) || 0), 0)
     const { crm_lead_installments, ...rest } = lead
     return { ...rest, total_installments_paid }
   })
@@ -243,8 +252,7 @@ export async function getLeads(filters?: {
 
 export async function getArchivedLeads() {
   const supabase = createServiceClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ponytail: the untyped client gave any[] before; keep the archive page's shape
-  const { rows: data, error } = await readAllRows<any>((from, to) => supabase
+  const { rows: data, error } = await readAllRows<CrmLead>((from, to) => supabase
     .from('crm_leads')
     .select('*')
     .not('archived_at', 'is', null)
@@ -263,7 +271,7 @@ const loadLead = cache(async (id: string) => {
     .from('crm_leads')
     .select('*')
     .eq('id', id)
-    .single()
+    .single<CrmLead>()
 
   if (error) return { error: error.message, data: null }
   return { data }
@@ -1274,14 +1282,16 @@ export async function getLeadEventStaff(leadId: string): Promise<LeadEventStaff[
   if (!events || events.length === 0) return []
 
   const eventIds = events.map(e => e.id)
+  type StaffRow = { event_id: string; user_id: string; role: string; profiles: { full_name: string | null } | null }
   const { data: staffRows } = await supabase
     .from('event_staff')
     .select('event_id, user_id, role, profiles:user_id(full_name)')
     .in('event_id', eventIds)
     .order('created_at', { ascending: true })
+    .overrideTypes<StaffRow[], { merge: false }>()
 
   const byEvent = new Map<string, { user_id: string; full_name: string | null; role: string }[]>()
-  for (const s of (staffRows || []) as any[]) {
+  for (const s of staffRows || []) {
     if (!byEvent.has(s.event_id)) byEvent.set(s.event_id, [])
     byEvent.get(s.event_id)!.push({
       user_id: s.user_id,

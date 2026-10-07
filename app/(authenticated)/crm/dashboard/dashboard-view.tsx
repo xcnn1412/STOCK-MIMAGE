@@ -148,9 +148,10 @@ export default function DashboardView({ leads, settings, paymentStats }: { leads
 
     // === Monthly Trend (last 6 months) ===
     const monthlyTrend = useMemo(() => {
+        const now = new Date()
         const months: { label: string; count: number }[] = []
         for (let i = 5; i >= 0; i--) {
-            const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
             const monthNames = locale === 'th'
                 ? ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']

@@ -18,8 +18,8 @@ export default async function ArchivePage() {
 
     return (
         <ArchiveView
-            leads={leadsResult.data as any[] || []}
-            settings={settingsResult.data as any[] || []}
+            leads={leadsResult.data}
+            settings={settingsResult.data}
             stale={staleResult && !('error' in staleResult) ? staleResult : null}
         />
     )

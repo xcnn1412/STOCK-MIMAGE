@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,19 +14,13 @@ import {
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { createLead } from '../actions'
-import type { CrmSetting } from '../types'
+import type { CrmSetting, SystemUser } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 import {
   User, Calendar, DollarSign, MapPin, FileText,
   Users, ChevronDown, ChevronUp, X, Plus
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-
-interface SystemUser {
-  id: string
-  full_name: string | null
-  department: string | null
-}
 
 interface AddLeadDialogProps {
   open: boolean
@@ -124,8 +118,10 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
     }
   }
 
-  // Reset state when dialog opens
-  useEffect(() => {
+  // Reset state when dialog opens (during render, React's "adjust state on prop change" pattern)
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
     if (open) {
       setError(null)
       setQuotedPrice('')
@@ -137,7 +133,7 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
       setSelectedGraphics([])
       setSelectedStaff([])
     }
-  }, [open])
+  }
 
   const toggleUser = (list: string[], setList: (v: string[]) => void, userId: string) => {
     setList(list.includes(userId) ? list.filter(id => id !== userId) : [...list, userId])

@@ -37,8 +37,8 @@ export default async function DashboardPage() {
 
     return (
         <DashboardView
-            leads={leadsResult.data as any[] || []}
-            settings={settingsResult.data as any[] || []}
+            leads={leadsResult.data}
+            settings={settingsResult.data}
             paymentStats={{ overdueCount, paidCount, totalOutstanding, totalPaid }}
         />
     )
