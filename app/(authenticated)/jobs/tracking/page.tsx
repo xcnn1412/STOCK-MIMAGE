@@ -41,6 +41,7 @@ export default async function TrackingPage({
         capacityWarnings,
         canEditPackages,
         packingLists,
+        canPack,
     } = snapshot
 
     // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
@@ -74,6 +75,7 @@ export default async function TrackingPage({
                 capacityWarnings={capacityWarnings}
                 canEditPackages={canEditPackages}
                 packingLists={packingLists}
+                canPack={canPack}
             />
         </Suspense>
     )

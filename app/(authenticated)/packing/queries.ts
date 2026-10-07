@@ -1,6 +1,7 @@
 // โหลดข้อมูลใบจัดของ — server-only (รับ service client จากผู้เรียก) · ไม่ใช้ .or() — อ่านแยกชุดแล้วรวมด้วย id
 // อ่านที่อาจเกิน 1,000 แถวใช้ readAllRows (เรียง created_at,id · ตารางไม่มี created_at เรียง id)
 import type { createServiceClient } from '@/lib/supabase-server'
+import type { CategoryUnit } from '../packages/types'
 import { readAllRows } from '@/lib/read-all-rows'
 import { isClosedEvent } from '../jobs/tracking/tracking-logic'
 import { isWonStatus } from '../crm/types'
@@ -399,4 +400,25 @@ export async function loadPackingQueue(db: Db, today: string): Promise<PackingQu
     active: cards.filter(c => c.list && (c.list.status === 'selecting' || c.list.status === 'picking')),
     ready: cards.filter(c => c.list?.status === 'ready'),
   }
+}
+
+/**
+ * หน่วยทั้งคลังสำหรับ "ของเสริม" นอกแพ็กเกจ (หน้าใบจัดของ) — อุปกรณ์เดี่ยวที่ไม่อยู่ในกระเป๋า + กระเป๋าทุกใบ
+ * รวมอุปกรณ์ที่ยังไม่มีประเภท · วัสดุสิ้นเปลืองไม่นับ (ไม่หยิบเป็นหน่วย) · เรียงชื่อ
+ */
+export async function loadExtraUnits(db: Db): Promise<CategoryUnit[]> {
+  const [items, kits, contents] = await Promise.all([
+    readAllRows<{ id: string; name: string; serial_number: string | null; status: string; is_consumable: boolean | null }>((from, to) =>
+      db.from('items').select('id, name, serial_number, status, is_consumable').order('created_at').order('id').range(from, to),
+    ),
+    readAllRows<{ id: string; name: string }>((from, to) => db.from('kits').select('id, name').order('created_at').order('id').range(from, to)),
+    readAllRows<{ item_id: string }>((from, to) => db.from('kit_contents').select('item_id').order('id').range(from, to)),
+  ])
+  fail('โหลดอุปกรณ์ทั้งคลังไม่สำเร็จ', items.error ?? kits.error ?? contents.error)
+  const inKit = new Set(contents.rows.map(c => c.item_id))
+  const out: CategoryUnit[] = [
+    ...items.rows.filter(i => !inKit.has(i.id) && !i.is_consumable).map(i => ({ id: i.id, kind: 'item' as const, name: i.name, serial: i.serial_number, status: i.status, inKit: false })),
+    ...kits.rows.map(k => ({ id: k.id, kind: 'kit' as const, name: k.name, serial: null, status: 'available', inKit: false })),
+  ]
+  return out.sort((a, b) => a.name.localeCompare(b.name, 'th', { numeric: true }))
 }

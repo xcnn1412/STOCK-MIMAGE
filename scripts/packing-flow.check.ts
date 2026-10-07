@@ -650,6 +650,24 @@ async function main() {
   assert.equal(row('packing_lists', LIST2).status, 'selecting')
   expectOk(await actions.startPicking(LIST2), 'กำลังหยิบอีกครั้ง')
 
+  // ── เปลี่ยนของ (replacePackingLine — ปุ่ม "เปลี่ยนของ" ขั้นกำลังหยิบ) ──────────────────
+  const compLine = lineOf(LIST2, I1).id as string
+  expectError(await actions.replacePackingLine(lineOf(LIST2, B1).id as string, { itemId: B2 }), 'ทีมขาย', 'ตู้ที่ทีมขายเลือกเปลี่ยนไม่ได้')
+  expectError(await actions.replacePackingLine(compLine, { itemId: I3 }), 'ไม่ได้อยู่ในตัวเลือก', 'เปลี่ยนเป็นหน่วยนอกตัวเลือก')
+  expectError(await actions.replacePackingLine(compLine, { itemId: I1 }), 'หน่วยอื่น', 'เปลี่ยนเป็นหน่วยเดิม')
+  expectError(await actions.replacePackingLine(compLine, { itemId: KI1 }), 'อยู่ในกระเป๋า', 'เปลี่ยนเป็นของในกระเป๋า')
+  expectOk(await actions.replacePackingLine(compLine, { itemId: I2 }), 'เปลี่ยนคอม 1 → คอม 2')
+  assert.equal(row('packing_list_items', compLine).item_id, I2)
+  assert.equal(row('packing_list_items', compLine).picked_at, null)
+  expectError(await actions.replacePackingLine(lineOf(LIST2, K1).id as string, { kitId: K1 }), 'หน่วยอื่น', 'เปลี่ยนกระเป๋าเป็นใบเดิม')
+  assert.equal(bookings(EV1).length, 1, 'การจองกระเป๋าไม่เปลี่ยน')
+  loginAs(OTHER)
+  expectError(await actions.replacePackingLine(compLine, { itemId: I1 }), 'ทีมจัดของ', 'แผนกอื่นเปลี่ยนของไม่ได้')
+  loginAs(PACKER)
+  expectOk(await actions.replacePackingLine(compLine, { itemId: I1 }), 'เปลี่ยนกลับเป็นคอม 1')
+  assert.equal(row('packing_list_items', compLine).item_id, I1)
+  pass('replacePackingLine: ตู้ล็อก/นอกตัวเลือก/หน่วยเดิม/ของในกระเป๋า/แผนกอื่น = error · เปลี่ยนได้เฉพาะบรรทัดที่ยังไม่หยิบ')
+
   // ── (k) cleanupOrphanedItems ไม่รีเซ็ตของในใบที่ยังไม่คืนชั้น ─────────────────────
   expectOk(await actions.pickLine(lineOf(LIST2, I1).id as string), 'หยิบคอม (ใบใหม่)')
   expectOk(await actions.pickLine(lineOf(LIST2, K1).id as string), 'หยิบกระเป๋า (ใบใหม่)')

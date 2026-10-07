@@ -3,6 +3,8 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { getKitManager } from '@/lib/kit-bookings'
 import { readAllRows } from '@/lib/read-all-rows'
 import { loadCategories } from '../categories'
+import { loadPickupSpots } from '../../packing/queries'
+import type { PickupSpot } from '../../packing/types'
 import SettingsView, { type CategoryCounts } from './settings-view'
 
 export const revalidate = 0
@@ -16,7 +18,13 @@ export default async function StockSettingsPage() {
     readAllRows<{ category_id: string }>((from, to) =>
       db.from(table).select('category_id').not('category_id', 'is', null).order('created_at').order('id').range(from, to),
     )
-  const [categories, items, kits] = await Promise.all([loadCategories(db, { includeInactive: true }), ownedBy('items'), ownedBy('kits')])
+  // จุดรับของ: ยังไม่รัน migration 20261012 = รายการว่าง (หน้าตั้งค่าประเภทยังใช้ได้)
+  const [categories, items, kits, spots] = await Promise.all([
+    loadCategories(db, { includeInactive: true }),
+    ownedBy('items'),
+    ownedBy('kits'),
+    loadPickupSpots(db, { includeInactive: true }).catch((): PickupSpot[] => []),
+  ])
 
   // นับในหน่วยความจำ — อ่านครั้งเดียวต่อตาราง ไม่ query ต่อประเภท
   const counts: Record<string, CategoryCounts> = {}
@@ -24,5 +32,5 @@ export default async function StockSettingsPage() {
   for (const r of items.rows) if (counts[r.category_id]) counts[r.category_id].items++
   for (const r of kits.rows) if (counts[r.category_id]) counts[r.category_id].kits++
 
-  return <SettingsView categories={categories} counts={counts} />
+  return <SettingsView categories={categories} counts={counts} spots={spots} />
 }

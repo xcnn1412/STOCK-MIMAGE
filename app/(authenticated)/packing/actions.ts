@@ -413,6 +413,65 @@ export async function unpickLine(lineId: string): Promise<Result> {
   return { success: true }
 }
 
+// --- เปลี่ยนของ (ขั้นกำลังหยิบ) ---------------------------------------------------
+
+/**
+ * เปลี่ยนหน่วยของบรรทัดที่ยังไม่หยิบ (ขั้นกำลังหยิบ — ปุ่ม "เปลี่ยนของ" เมื่อหน่วยเดิมหยิบไม่ได้)
+ * บรรทัด locked (ตู้ที่ทีมขายเลือก) เปลี่ยนไม่ได้ · ตรวจตัวเลือก/หน่วยซ้ำ/อยู่ในกระเป๋าด้วย checkPackingLines ชุดเดียวกับ setPackingLines
+ * กระเป๋าใหม่ = จอง event_kits · กระเป๋าเดิม = ยกเลิกจอง (ใบจัดของเป็นเจ้าของการจองของอีเวนต์นั้น)
+ */
+export async function replacePackingLine(lineId: string, unit: { itemId?: string | null; kitId?: string | null }): Promise<Result> {
+  const team = await getPackingTeam()
+  if (!team) return { error: NO_ACCESS }
+  const db = createServiceClient()
+  const line = await loadLine(db, lineId)
+  if (!line) return { error: 'ไม่พบบรรทัดนี้ในใบจัดของ' }
+  const ctx = await loadOpenList(db, line.list_id)
+  if ('error' in ctx) return ctx
+  if (ctx.list.status !== 'picking') return { error: 'เปลี่ยนของได้เฉพาะขั้นกำลังหยิบ' }
+  if (line.locked) return { error: 'ตู้ที่ทีมขายเลือกไว้เปลี่ยนที่นี่ไม่ได้ — แจ้งทีมขายเปลี่ยนในแพ็กเกจของงาน' }
+  if (line.picked_at) return { error: 'บรรทัดนี้หยิบไปแล้ว — ยกเลิกหยิบก่อนเปลี่ยนของ' }
+
+  const itemId = String(unit?.itemId ?? '').trim() || null
+  const kitId = String(unit?.kitId ?? '').trim() || null
+  if ((itemId ?? kitId) && (itemId ?? kitId) === (line.item_id ?? line.kit_id)) return { error: 'เลือกหน่วยอื่นที่ไม่ใช่หน่วยเดิม' }
+
+  let checked: ReturnType<typeof checkPackingLines>
+  try {
+    const { scaffold } = await loadScaffold(db, ctx.list.lead_id)
+    const units = await loadCategoryUnits(db, { categoryIds: [...new Set(scaffold.map(r => r.categoryId))] })
+    const info = await loadUnitInfo(db, itemId ? [itemId] : [], kitId ? [kitId] : [])
+    const others = (await loadPackingLines(db, [line.list_id])).filter(l => l.id !== lineId)
+    checked = checkPackingLines([{ packageId: line.package_id, categoryId: line.category_id, itemId, kitId }], scaffold, units, info, others)
+  } catch (e) {
+    console.error('replacePackingLine load', e)
+    return { error: 'โหลดข้อมูลใบจัดของไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  }
+  if ('error' in checked) return checked
+  // checkPackingLines ข้ามหน่วยที่มีในใบแล้ว (บรรทัดอื่นส่งเป็นชุดที่ล็อก) → ไม่เหลือบรรทัด = ซ้ำ
+  const next = checked[0]
+  if (!next) return { error: 'หน่วยนี้อยู่ในใบนี้แล้ว — เลือกหน่วยอื่น' }
+
+  const { error } = await db.from('packing_list_items').update({ item_id: next.itemId, kit_id: next.kitId }).eq('id', lineId).is('picked_at', null)
+  if (error) return { error: error.code === '23505' ? 'หน่วยนี้อยู่ในใบนี้แล้ว — เลือกหน่วยอื่น' : 'เปลี่ยนของไม่สำเร็จ' }
+
+  const bookError =
+    (next.kitId ? await bookKits(db, ctx.list.event_id, [next.kitId]) : null) ??
+    (line.kit_id && line.kit_id !== next.kitId ? await unbookKits(db, ctx.list.event_id, [line.kit_id]) : null)
+  if (bookError) return { error: bookError }
+  const touchedKits = [next.kitId, line.kit_id].filter((k): k is string => !!k)
+  await recomputeKitPointers(db, touchedKits)
+  await db.from('packing_lists').update({ updated_at: new Date().toISOString() }).eq('id', line.list_id)
+
+  await logActivity('UPDATE_PACKING_LINES', {
+    id: line.list_id,
+    event_id: ctx.list.event_id,
+    replaced: { line_id: lineId, from: { item_id: line.item_id, kit_id: line.kit_id }, to: { item_id: next.itemId, kit_id: next.kitId } },
+  })
+  refresh(line.list_id, touchedKits)
+  return { success: true }
+}
+
 // --- ยืนยันจัดของ ----------------------------------------------------------------
 
 /** อัปโหลดรูปชุดที่จัดเสร็จ (formData: listId, file) → bucket packing-photos `<listId>/<ts>_<name>` · คืน public URL */
