@@ -12,6 +12,7 @@ import { Pencil, Save, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { CrmLead, CrmSetting } from '../types'
 import type { LeadInstallment } from '../actions'
+import type { CapacityWarning, CategoryUnits, LeadPackageRow, PickerPackage, UnitBooking } from '../../packages/types'
 
 export type CardSection = 'customer' | 'event' | 'financial'
 
@@ -64,6 +65,17 @@ export interface LeadForm {
   quotation_ref: string
   notes: string
   tags: string[]
+}
+
+/** ข้อมูลของ PackagePicker ในการ์ดลูกค้า (โหลดใน page.tsx ด้วย packages/capacity-data.ts::loadPickerContext) */
+export interface LeadPackagePickerData {
+  value: LeadPackageRow[]
+  packages: PickerPackage[]
+  categoryUnits: CategoryUnits
+  unitBookings: UnitBooking[]
+  warnings: CapacityWarning[]
+  /** แอดมิน / ฝ่ายประสานงาน / ผู้สร้างการ์ด */
+  canEdit: boolean
 }
 
 export interface FormInstallment {

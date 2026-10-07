@@ -5,7 +5,7 @@ import { getLicenseStatus, getExpiredRedirectUrl } from '@/lib/license'
 
 // Module-route mapping (inlined to avoid importing components in edge runtime)
 const MODULE_ROUTES: Record<string, string[]> = {
-  stock: ['/stock/dashboard', '/stock/settings', '/items', '/kits', '/shelves', '/example-kits'],
+  stock: ['/stock/dashboard', '/stock/settings', '/items', '/kits', '/packages', '/shelves', '/example-kits'],
   events: ['/events'],
   kpi: ['/kpi'],
   costs: ['/costs'],

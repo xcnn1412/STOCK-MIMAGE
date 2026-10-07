@@ -22,11 +22,20 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
+/** แพ็กเกจที่เลือกได้ตอนสร้างการ์ด (ตาราง packages ที่เปิดใช้) */
+export interface NewLeadPackage {
+  id: string
+  name: string
+  price: number | null
+}
+
 interface AddLeadDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   settings: CrmSetting[]
   users: SystemUser[]
+  /** แพ็กเกจแรกของงาน — เพิ่ม/ปรับจำนวนชุด/เลือกตู้ทีหลังที่การ์ดลูกค้าหรือหน้าติดตามงาน */
+  packages?: NewLeadPackage[]
 }
 
 // Section Card wrapper
@@ -62,7 +71,7 @@ function SectionCard({ icon, iconBg, title, children, defaultOpen = true }: {
   )
 }
 
-export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDialogProps) {
+export function AddLeadDialog({ open, onOpenChange, settings, users, packages = [] }: AddLeadDialogProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.addLead
@@ -79,7 +88,7 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
   // Staff is assigned per event (event_staff), not at lead creation — this dialog no
   // longer has a staff editor.
 
-  const packages = settings.filter(s => s.category === 'package' && s.is_active)
+  const [packageId, setPackageId] = useState('')
   const customerTypes = settings.filter(s => s.category === 'customer_type' && s.is_active)
   const leadSources = settings.filter(s => s.category === 'lead_source' && s.is_active)
 
@@ -87,8 +96,11 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
     return locale === 'th' ? setting.label_th : setting.label_en
   }
 
+  // แพ็กเกจจากตาราง packages — ส่ง package_id ให้ createLead บันทึกเป็นแพ็กเกจของงาน + package_name = ชื่อ (การ์ดเดิมทุกจุดแสดงได้)
+  const selectedPackage = packages.find(p => p.id === packageId)
   const handlePackageChange = (value: string) => {
-    const pkg = packages.find(p => p.value === value)
+    setPackageId(value)
+    const pkg = packages.find(p => p.id === value)
     if (pkg?.price) {
       setQuotedPrice(String(pkg.price))
     }
@@ -124,6 +136,7 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
     setPrevOpen(open)
     if (open) {
       setError(null)
+      setPackageId('')
       setQuotedPrice('')
       setConfirmedPrice('')
       setVatMode('none')
@@ -320,14 +333,16 @@ export function AddLeadDialog({ open, onOpenChange, settings, users }: AddLeadDi
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-sm">{tc.package}</Label>
-                <Select name="package_name" onValueChange={handlePackageChange}>
+                <input type="hidden" name="package_id" value={packageId} />
+                <input type="hidden" name="package_name" value={selectedPackage?.name ?? ''} />
+                <Select value={packageId} onValueChange={handlePackageChange}>
                   <SelectTrigger>
                     <SelectValue placeholder={tc.packagePlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
                     {packages.map(pkg => (
-                      <SelectItem key={pkg.value} value={pkg.value}>
-                        {getSettingLabel(pkg)} {pkg.price ? `— ฿${pkg.price.toLocaleString()}` : ''}
+                      <SelectItem key={pkg.id} value={pkg.id}>
+                        {pkg.name} {pkg.price ? `— ฿${pkg.price.toLocaleString()}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>

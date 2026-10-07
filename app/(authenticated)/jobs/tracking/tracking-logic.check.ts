@@ -47,6 +47,8 @@ import {
   isUrgent,
   kitBookingConflict,
   kitBookingClashes,
+  kitWindow,
+  resourceClashes,
   pickKitPointer,
   kitReadinessByLead,
   lacksTime,
@@ -1061,6 +1063,22 @@ assert.deepEqual(kitBookingConflict([kt('eA', '09:00', '12:00')], kt('e9', null,
 assert.deepEqual(kitBookingClashes([kt('eA', '20:00', '02:00')], kt('e9', '22:00', '23:00')), [{ eventId: 'eA', status: 'conflict' }])
 // วันที่แบบ timestamp เทียบเฉพาะส่วนวัน
 assert.deepEqual(kitBookingConflict([kt('eA', null, null, '2026-08-30T00:00:00')], kt('e9', null, null)), ['eA'])
+
+// --- resourceClashes: ทรัพยากรทั่วไป (กติกาเดียวกับกระเป๋า) + kitWindow ---------
+const rb = (resourceId: string, eventId: string, eventTime: string | null, eventEndTime: string | null) =>
+  ({ resourceId, eventId, eventDate: '2026-08-30', eventTime, eventEndTime })
+// ทรัพยากรเดียวกัน เวลาทับ → ชน · ทรัพยากรอื่นไม่นับ
+assert.deepEqual(
+  resourceClashes([rb('item-1', 'eA', '09:00', '13:00'), rb('item-2', 'eB', '09:00', '13:00')], rb('item-1', 'e9', '12:00', '16:00')),
+  [{ eventId: 'eA', status: 'conflict' }]
+)
+// จบตรงเริ่มพอดี → ต่อคิว · ไม่มีเวลา → เช็คเวลาไม่ได้
+assert.deepEqual(
+  resourceClashes([rb('c1', 'eA', '09:00', '13:00'), rb('c1', 'eB', null, null)], rb('c1', 'e9', '13:00', '17:00')),
+  [{ eventId: 'eA', status: 'queued' }, { eventId: 'eB', status: 'unknown' }]
+)
+assert.deepEqual(kitWindow({ eventTime: '09:00', eventEndTime: '12:30' }), [540, 750])
+assert.equal(kitWindow({ eventTime: '09:00', eventEndTime: null }), null)
 
 // --- pickKitPointer: กระเป๋าอยู่กับอีเวนต์ที่ยังไม่ปิดที่เร็วที่สุด -----------------
 const kp = (eventId: string, eventDate: string | null, eventTime: string | null, closed = false) => ({ eventId, eventDate, eventTime, closed })

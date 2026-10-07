@@ -6,17 +6,19 @@ import { Switch } from '@/components/ui/switch'
 import { User } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import type { CrmSetting } from '../../types'
-import { CollapsibleCardHeader, CardEditActions, EditField, EditSelect, InfoRow, type EditableCardProps } from '../shared'
+import PackagePicker from '../../../packages/package-picker'
+import { CollapsibleCardHeader, CardEditActions, EditField, EditSelect, InfoRow, type EditableCardProps, type LeadPackagePickerData } from '../shared'
 
 // Customer Info
 export function CustomerCard({
   lead, form, updateForm, editing, collapsed, saving, onEdit, onToggle, onSave, onCancel,
-  settings, packages, workTypeOptions, onPackageChange,
+  settings, workTypeOptions, packagePicker, onPackagesSaved,
 }: EditableCardProps & {
   settings: CrmSetting[]
-  packages: CrmSetting[]
   workTypeOptions: { value: string; label: string }[]
-  onPackageChange: (value: string) => void
+  /** แพ็กเกจของงาน (PackagePicker) — ไม่ส่ง = แสดงชื่อแพ็กเกจเดิมจาก package_name อย่างเดียว */
+  packagePicker?: LeadPackagePickerData
+  onPackagesSaved?: (result: { quotedPrice: number | null; packageName: string | null }) => void
 }) {
   const { locale, t } = useLocale()
   const tc = t.crm.detail
@@ -27,6 +29,27 @@ export function CustomerCard({
   const sources = settings.filter(s => s.category === 'lead_source' && s.is_active)
   const customerTypes = settings.filter(s => s.category === 'customer_type' && s.is_active)
   const workTypeLabel = workTypeOptions.find(o => o.value === lead.work_type)?.label
+  // ชื่อแพ็กเกจเดิม: คีย์ crm_settings ของงานเก่า → ป้าย · งานที่เลือกแพ็กเกจใหม่เก็บชื่อไว้ตรงๆ (fallback ค่าดิบ)
+  const legacyPackage = pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name
+  // แถวแพ็กเกจแบบชิป (โหมดดูเมื่อมีแพ็กเกจของงาน · โหมดแก้ = เลือก/แก้ได้) — บันทึกแยกจากปุ่มบันทึกของการ์ดด้วย setLeadPackages
+  const packageRow = (canEdit: boolean) => packagePicker && (
+    <div className="flex justify-between items-start gap-4">
+      <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{tc.package}</span>
+      <PackagePicker
+        leadId={lead.id}
+        event={{ date: lead.event_date, time: lead.event_time, endTime: lead.event_end_time }}
+        value={packagePicker.value}
+        packages={packagePicker.packages}
+        categoryUnits={packagePicker.categoryUnits}
+        unitBookings={packagePicker.unitBookings}
+        warnings={packagePicker.warnings}
+        canEdit={canEdit}
+        onSaved={onPackagesSaved}
+        legacyName={legacyPackage}
+        className="flex-1"
+      />
+    </div>
+  )
   return (
     <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
       <CollapsibleCardHeader
@@ -67,13 +90,7 @@ export function CustomerCard({
                 options={sources.map(s => ({ id: s.id, value: s.value, label: getSettingLabel(s) }))}
                 placeholder={tc.selectSource}
               />
-              <EditSelect
-                label={tc.package}
-                value={form.package_name}
-                onChange={onPackageChange}
-                options={packages.map(s => ({ id: s.id, value: s.value, label: getSettingLabel(s) }))}
-                placeholder={tc.selectPackage}
-              />
+              {packagePicker ? packageRow(packagePicker.canEdit) : <InfoRow label={tc.package} value={legacyPackage} />}
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-zinc-500">{tc.returningCustomer}</Label>
                 <Switch
@@ -94,7 +111,9 @@ export function CustomerCard({
                 <InfoRow label={locale === 'th' ? 'จำนวนตู้' : 'Units'} value={String(lead.unit_count && lead.unit_count > 0 ? lead.unit_count : 1)} />
               )}
               <InfoRow label={tc.channel} value={sourceSetting ? getSettingLabel(sourceSetting) : lead.lead_source} />
-              <InfoRow label={tc.package} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
+              {packagePicker && packagePicker.value.length > 0
+                ? packageRow(false)
+                : <InfoRow label={tc.package} value={legacyPackage} />}
             </>
           )}
         </CardContent>

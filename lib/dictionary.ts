@@ -5,6 +5,7 @@ export const dictionary = {
     nav: {
       inventory: 'Inventory',
       kits: 'Kits',
+      packages: 'Packages',
       shelves: 'Shelves',
       stockSettings: 'Stock settings',
       events: 'Events',
@@ -321,6 +322,7 @@ export const dictionary = {
     nav: {
       inventory: 'คลังอุปกรณ์',
       kits: 'กระเป๋า',
+      packages: 'แพ็กเกจ',
       shelves: 'ชั้นเก็บของ',
       stockSettings: 'ตั้งค่าคลัง',
       events: 'อีเวนต์',

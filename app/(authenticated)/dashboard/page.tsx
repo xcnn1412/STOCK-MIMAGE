@@ -15,6 +15,7 @@ import { DashCard } from '@/components/dashboard-alerts/dash-card'
 import { DASHBOARD_ANCHORS, MissingByDutyCard, StatTiles } from '@/components/dashboard-alerts/dashboard-stats'
 import MyJobsPanel from '@/components/dashboard-alerts/my-jobs-panel'
 import DutyWarningPanel from '@/components/dashboard-alerts/duty-warning-panel'
+import CapacityPanel from '@/components/dashboard-alerts/capacity-panel'
 import { listUnpaidPreviousPeriods } from '@/app/(authenticated)/salary/actions'
 import UnpaidPeriodsNotice from '@/app/(authenticated)/salary/components/unpaid-periods-notice'
 import { getPurchaseAlerts } from '@/app/(authenticated)/jobs/purchasing/data'
@@ -30,11 +31,11 @@ export default async function DashboardPage() {
         listUnpaidPreviousPeriods(),
         getPurchaseAlerts(),
     ])
-    const { leadDates, warnings, myJobsCount, stats } = buildAlertData(snapshot)
-    const hasAlerts = myJobsCount > 0 || warnings.length > 0
+    const { leadDates, warnings, myJobsCount, stats, capacityRows } = buildAlertData(snapshot)
+    const hasAlerts = myJobsCount > 0 || warnings.length > 0 || capacityRows.length > 0
     const hasBars = stats.missingByDuty.some(b => b.count > 0)
-    // คอลัมน์การ์ดเสริม: จัดซื้อ / เงินเดือน / กราฟ — หรือการ์ด "ไม่มีเรื่องต้องตาม" เมื่อเคลียร์หมด · ไม่มีสักใบ = ไม่มีคอลัมน์นี้
-    const hasSide = purchaseAlerts.length > 0 || unpaid.length > 0 || hasBars || !hasAlerts
+    // คอลัมน์การ์ดเสริม: อุปกรณ์อาจไม่พอ / จัดซื้อ / เงินเดือน / กราฟ — หรือการ์ด "ไม่มีเรื่องต้องตาม" เมื่อเคลียร์หมด · ไม่มีสักใบ = ไม่มีคอลัมน์นี้
+    const hasSide = capacityRows.length > 0 || purchaseAlerts.length > 0 || unpaid.length > 0 || hasBars || !hasAlerts
 
     // แชมป์ตัดสินจากยอดสะสมทั้งหมด (ภาพรวม) — ตรงกับชิปเริ่มต้นของ /reports
     const allTimeStats = aggregateStats(report.rows, report.people).people
@@ -82,6 +83,9 @@ export default async function DashboardPage() {
                 {/* การ์ดเสริม — มือถือ/xl เรียงลงล่าง · lg วาง 2 คอลัมน์เต็มแถว */}
                 {hasSide && (
                     <div className="grid grid-cols-1 content-start gap-4 lg:col-span-2 lg:grid-cols-2 xl:col-span-1 xl:grid-cols-1">
+                        {/* แพ็กเกจที่ขายแล้วแต่อุปกรณ์อาจไม่พอ (งานใน 30 วัน) — ว่าง = ไม่ render */}
+                        <CapacityPanel rows={capacityRows} />
+
                         {/* ของยังไม่ครบ — ใกล้วันงาน (เช็กลิสต์จัดซื้อที่มีรายการค้างซึ่งด่วน) */}
                         {purchaseAlerts.length > 0 && (
                             <DashCard as="div">

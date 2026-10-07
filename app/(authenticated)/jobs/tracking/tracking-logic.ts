@@ -1457,25 +1457,34 @@ const minutesOf = (t: string): number => {
  * ช่วงเวลาของอีเวนต์เป็นนาที [เริ่ม, จบ) — ขาดเวลาใดเวลาหนึ่ง = null
  * ponytail: จบก่อน/เท่าเริ่ม (งานข้ามเที่ยงคืน) ยืดถึง 24:00 ของวันงาน ไม่คิดส่วนที่ล้นไปวันถัดไป
  */
-function kitWindow(b: KitBooking): [number, number] | null {
+export function kitWindow(b: { eventTime?: string | null; eventEndTime?: string | null }): [number, number] | null {
   if (!b.eventTime || !b.eventEndTime) return null
   const start = minutesOf(b.eventTime)
   const end = minutesOf(b.eventEndTime)
   return [start, end <= start ? 24 * 60 : end]
 }
 
+/** การจองของ "ทรัพยากร" ใดก็ได้ (กระเป๋า / อุปกรณ์เดี่ยว / ประเภท) กับอีเวนต์หนึ่ง — กติกาเดียวกับ KitBooking */
+export interface ResourceBooking {
+  resourceId: string
+  eventId: string
+  eventDate: string | null
+  eventTime?: string | null
+  eventEndTime?: string | null
+}
+
 /**
- * การจองอื่นของกระเป๋าใบเดียวกันในวันเดียวกัน พร้อมสถานะเวลา (กติกาเดียวกับคน/รถ: เวลาทับ = ชน, จบตรงเริ่มพอดี = ต่อคิว)
+ * การจองอื่นของทรัพยากรเดียวกันในวันเดียวกัน พร้อมสถานะเวลา (กติกาเดียวกับคน/รถ: เวลาทับ = ชน, จบตรงเริ่มพอดี = ต่อคิว)
  * ใช้ "เตือน" เท่านั้น ไม่บล็อกการจอง · จองซ้ำอีเวนต์เดิม = ไม่นับ · ไม่รู้วันงาน = เทียบไม่ได้ → ไม่นับ
  * คืน eventId ไม่ซ้ำ ตามลำดับที่เจอใน bookings
  */
-export function kitBookingClashes(bookings: KitBooking[], candidate: KitBooking): KitClash[] {
+export function resourceClashes(bookings: ResourceBooking[], candidate: ResourceBooking): KitClash[] {
   if (!candidate.eventDate) return []
   const day = candidate.eventDate.slice(0, 10)
   const mine = kitWindow(candidate)
   const out: KitClash[] = []
   for (const b of bookings) {
-    if (b.kitId !== candidate.kitId) continue
+    if (b.resourceId !== candidate.resourceId) continue
     if (b.eventId === candidate.eventId) continue
     if (!b.eventDate || b.eventDate.slice(0, 10) !== day) continue
     if (out.some((c) => c.eventId === b.eventId)) continue
@@ -1485,6 +1494,13 @@ export function kitBookingClashes(bookings: KitBooking[], candidate: KitBooking)
     out.push({ eventId: b.eventId, status })
   }
   return out
+}
+
+const asResource = ({ kitId, ...rest }: KitBooking): ResourceBooking => ({ resourceId: kitId, ...rest })
+
+/** การจองอื่นของกระเป๋าใบเดียวกันในวันเดียวกัน — wrapper ของ resourceClashes (resourceId = kitId) */
+export function kitBookingClashes(bookings: KitBooking[], candidate: KitBooking): KitClash[] {
+  return resourceClashes(bookings.map(asResource), asResource(candidate))
 }
 
 /** eventId ที่ต้องเตือนบนไทม์ไลน์ — ชน หรือเช็คเวลาไม่ได้ (ต่อคิวไม่นับ) */
