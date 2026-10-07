@@ -3,6 +3,8 @@ import { getLead, getActivities, getCrmSettings, getSystemUsers, getLeadInstallm
 import { getJobsByLeadId } from '../../jobs/actions'
 import LeadDetail from './lead-detail'
 import { requireAuth } from '@/lib/auth'
+import type { CrmLead, CrmSetting } from '../types'
+import type { LeadActivity, SystemUser } from './shared'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -36,10 +38,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
 
   return (
     <LeadDetail
-      lead={leadResult.data as any}
-      activities={activitiesResult.data as any[] || []}
-      settings={settingsResult.data as any[] || []}
-      users={usersResult.data as any[] || []}
+      lead={leadResult.data as CrmLead}
+      activities={(activitiesResult.data || []) as LeadActivity[]}
+      settings={(settingsResult.data || []) as CrmSetting[]}
+      users={(usersResult.data || []) as SystemUser[]}
       installments={installments}
       eventStaffGroups={eventStaffGroups}
       linkedEvents={eventsResult.data || []}

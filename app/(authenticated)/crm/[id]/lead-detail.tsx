@@ -1,63 +1,35 @@
 'use client'
 
-import { useState, useRef, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import MentionTextarea from '@/components/mention-textarea'
-import { Switch } from '@/components/ui/switch'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
-import {
-  ArrowLeft, Phone, MessageSquare, Mail, Pencil, Save, X,
-  FileText, ExternalLink, Clock, User, Calendar, MapPin,
-  DollarSign, Package, AlertCircle, Trash2, Tag, Archive, ArchiveRestore,
-  Users, Palette, Wrench, ChevronDown, ChevronUp,
-  Upload, Image as ImageIcon, Eye
-} from 'lucide-react'
 import {
   updateLeadStatus, updateLead, createActivity, deleteLead,
   archiveLead, unarchiveLead, saveAllInstallments,
   uploadPaymentProof, deletePaymentProof, checkEventDateConflicts,
   setJobCostEventPhase,
-  type LeadCostSummary, type LinkedLeadEvent, type LeadEventStaff,
+  type LeadCostSummary, type LinkedLeadEvent, type LeadEventStaff, type LeadInstallment,
 } from '../actions'
-import { EVENT_PHASES, getPhaseLabel } from '../event-phases'
-import { getClaimStatusLabel, getClaimStatusColor } from '../../costs/types'
 import { openGraphicJob } from '../../jobs/actions'
-import type { LeadInstallment } from '../actions'
-import { getStatusConfig, getStatusesFromSettings, isWonStatus, type CrmLead, type CrmSetting, type LeadStatus } from '../types'
+import { getStatusConfig, type CrmLead, type CrmSetting } from '../types'
 import { useLocale } from '@/lib/i18n/context'
-import { RequiredRolesEditor, RequiredRolesSummary } from '../../jobs/tracking/required-roles-editor'
 import { compressImage } from '@/lib/utils'
-
-interface SystemUser {
-  id: string
-  full_name: string | null
-  department: string | null
-}
+import { useConfirm } from '../../finance/use-confirm'
+import { buildLeadForm, multiline, toFormInstallments, type CardSection, type EditableCardProps, type LeadActivity, type LeadForm, type LeadJob, type SystemUser } from './shared'
+import { LeadHeader, GraphicJobsLink } from './components/lead-header'
+import { CostSummaryCard } from './components/cost-summary-card'
+import { LinkedEventsCard } from './components/linked-events-card'
+import { StatusBar } from './components/status-bar'
+import { TagsBar } from './components/tags-bar'
+import { StaffCard } from './components/staff-card'
+import { CustomerCard } from './components/customer-card'
+import { EventCard } from './components/event-card'
+import { FinancialCard } from './components/financial-card'
+import { ActivityTimeline } from './components/activity-timeline'
 
 interface LeadDetailProps {
   lead: CrmLead
-  activities: Array<{
-    id: string
-    created_at: string
-    activity_type: string
-    description: string | null
-    old_status: string | null
-    new_status: string | null
-    profiles?: { full_name: string | null } | null
-  }>
+  activities: LeadActivity[]
   settings: CrmSetting[]
   users: SystemUser[]
   installments: LeadInstallment[]
@@ -65,21 +37,22 @@ interface LeadDetailProps {
   linkedEvents?: LinkedLeadEvent[]
   costSummary?: LeadCostSummary
   /** ใบงานที่แตกจากงานนี้แล้ว — นับใบกราฟิก + ลิงก์ไปหน้าใบงานแต่ละใบ */
-  leadJobs?: { id: string; job_type: string; title?: string | null }[]
+  leadJobs?: LeadJob[]
   /** profiles.role — ปุ่มลบโชว์เฉพาะแอดมิน */
   role?: string | null
 }
 
+// Server actions ที่หน้านี้เรียกทุกตัว revalidatePath('/crm/<id>') เอง → ไม่ต้องสั่งรีเฟรชหน้าตามหลัง
 export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary, leadJobs = [], role = null }: LeadDetailProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.detail
-  const ta = t.crm.activity
   const ts = t.crm.statuses
+  const L = (th: string, en: string) => (locale === 'th' ? th : en)
+  const { confirm: askConfirm, dialog: confirmDialog } = useConfirm()
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   // Per-card editing state
-  type CardSection = 'customer' | 'event' | 'financial'
   const [editingCard, setEditingCard] = useState<CardSection | null>(null)
   // Collapsible state — defaults open
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -93,7 +66,6 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   const staffRoles = settings.filter(s => s.category === 'staff_role' && s.is_active).sort((a, b) => a.sort_order - b.sort_order)
   const staffRoleOptions = staffRoles.map(r => ({ value: r.value, label: locale === 'th' ? r.label_th : r.label_en }))
   const [uploadingInstallment, setUploadingInstallment] = useState<string | null>(null)
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [localReceiptUrls, setLocalReceiptUrls] = useState<Record<string, string>>(
     Object.fromEntries(initialInstallments.filter(i => i.receipt_url).map(i => [i.id, i.receipt_url!]))
   )
@@ -103,79 +75,30 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     return ts[status] || cfg.labelTh || cfg.label || status
   }
 
-  const getSettingLabel = (setting: CrmSetting) => {
-    return locale === 'th' ? setting.label_th : setting.label_en
-  }
-
   // ---------- Dynamic installments + tax state ----------
-  const [formInstallments, setFormInstallments] = useState(
-    initialInstallments.map(inst => ({
-      installment_number: inst.installment_number,
-      amount: inst.amount || 0,
-      due_date: inst.due_date || '',
-      is_paid: inst.is_paid || false,
-      paid_date: inst.paid_date || '',
-    }))
-  )
+  const [formInstallments, setFormInstallments] = useState(toFormInstallments(initialInstallments))
 
-  // Validate single-select: if stored value doesn't match any valid option, reset to ''
-  const validTypeValues = new Set(settings.filter(s => s.category === 'customer_type' && s.is_active).map(s => s.value))
-  const validSourceValues = new Set(settings.filter(s => s.category === 'lead_source' && s.is_active).map(s => s.value))
-  const sanitizeType = (v: string | null) => v && validTypeValues.has(v) ? v : ''
-  const sanitizeSource = (v: string | null) => v && validSourceValues.has(v) ? v : ''
+  const buildForm = () => buildLeadForm(lead, settings)
+  const [form, setForm] = useState<LeadForm>(buildForm)
 
-  const [form, setForm] = useState({
-    customer_name: lead.customer_name || '',
-    customer_line: lead.customer_line || '',
-    customer_phone: lead.customer_phone || '',
-    customer_type: sanitizeType(lead.customer_type),
-    work_type: lead.work_type || '',
-    unit_count: String(lead.unit_count ?? 1),
-    lead_source: sanitizeSource(lead.lead_source),
-    is_returning: lead.is_returning || false,
-    event_date: lead.event_date || '',
-    event_end_date: lead.event_end_date || '',
-    event_time: (lead.event_time || '').slice(0, 5),
-    event_end_time: (lead.event_end_time || '').slice(0, 5),
-    event_location: lead.event_location || '',
-    event_details: lead.event_details || '',
-    required_roles: lead.required_roles || {},
-    package_name: lead.package_name || '',
-    quoted_price: lead.quoted_price || 0,
-    confirmed_price: lead.confirmed_price || 0,
-    deposit: lead.deposit || 0,
-    vat_mode: lead.vat_mode || 'none',
-    wht_rate: lead.wht_rate || 0,
-    quotation_ref: lead.quotation_ref || '',
-    notes: lead.notes || '',
-    tags: lead.tags || [] as string[],
-  })
-
-  const updateForm = (key: string, value: string | number | boolean) => {
+  const updateForm = (key: keyof LeadForm, value: string | number | boolean) => {
     setForm(prev => ({ ...prev, [key]: value }))
   }
 
-  const statusConfig = getStatusConfig(settings, lead.status)
-  const pkgSetting = settings.find(s => s.category === 'package' && s.value === lead.package_name)
-  const sourceSetting = settings.find(s => s.category === 'lead_source' && s.value === lead.lead_source)
-  const typeSetting = settings.find(s => s.category === 'customer_type' && s.value === lead.customer_type)
-
   const packages = settings.filter(s => s.category === 'package' && s.is_active)
-  const sources = settings.filter(s => s.category === 'lead_source' && s.is_active)
-  const customerTypes = settings.filter(s => s.category === 'customer_type' && s.is_active)
 
   const workTypeOptions = [
     { value: 'sale', label: locale === 'th' ? 'ขาย' : 'Sale' },
     { value: 'event', label: locale === 'th' ? 'อีเวนต์' : 'Event' },
     { value: 'gp', label: 'GP' },
   ]
-  const workTypeLabel = workTypeOptions.find(o => o.value === lead.work_type)?.label
 
   // แดงเฉพาะดีลค้างท่อ (ยังคุยอยู่แต่วันงานเลยแล้ว) — สถานะหลังปิดดีลรวม custom ไม่นับ (ดู kanban-board)
-  const isOverdue =
+  const isOverdue = Boolean(
     lead.event_date &&
     ['lead', 'quotation_sent'].includes(lead.status) &&
     new Date(lead.event_date) < new Date()
+  )
 
   // Compute outstanding balance for header badge
   const headerBasePrice = lead.confirmed_price || lead.quoted_price || 0
@@ -191,7 +114,6 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     setLoading(true)
     await updateLeadStatus(lead.id, newStatus)
     setLoading(false)
-    router.refresh()
   }
 
   const handleSaveCard = async (section: CardSection) => {
@@ -199,156 +121,52 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     const formData = new FormData()
 
     // Choose which fields to save based on section
-    const fieldsBySection: Record<CardSection, string[]> = {
+    const fieldsBySection: Record<CardSection, (keyof LeadForm)[]> = {
       customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'work_type', 'unit_count', 'lead_source', 'is_returning'],
       event: ['event_date', 'event_end_date', 'event_time', 'event_end_time', 'event_location', 'event_details', 'required_roles'],
       financial: ['package_name', 'quoted_price', 'confirmed_price', 'deposit', 'vat_mode', 'wht_rate', 'quotation_ref', 'notes'],
     }
 
-    const fields = fieldsBySection[section]
-    fields.forEach(key => {
-      const value = (form as any)[key]
-      if (key === 'tags') {
-        formData.set(key, (value as string[]).join(','))
-      } else if (key === 'required_roles') {
+    fieldsBySection[section].forEach(key => {
+      const value = form[key]
+      if (key === 'required_roles') {
         formData.set(key, JSON.stringify(value ?? {}))
       } else {
         formData.set(key, String(value))
       }
     })
 
-    const promises: Promise<any>[] = [updateLead(lead.id, formData)]
-
-    // Also save installments when saving financial section
-    if (section === 'financial') {
-      promises.push(
-        saveAllInstallments(lead.id, formInstallments.map(inst => ({
+    const results = await Promise.all([
+      updateLead(lead.id, formData),
+      // Also save installments when saving financial section
+      section === 'financial'
+        ? saveAllInstallments(lead.id, formInstallments.map(inst => ({
           installment_number: inst.installment_number,
           amount: inst.amount,
           due_date: inst.due_date || null,
           is_paid: inst.is_paid,
           paid_date: inst.paid_date || null,
         })))
-      )
-    }
-
-    const results = await Promise.all(promises)
+        : null,
+    ])
     setSaving(false)
 
-    const hasError = results.some((r: any) => r?.error)
-    if (hasError) {
-      alert(results.find((r: any) => r?.error)?.error)
+    const error = results.map(r => (r as { error?: string } | null)?.error).find(Boolean)
+    if (error) {
+      toast.error(error)
       return
     }
     setEditingCard(null)
-    router.refresh()
   }
 
   const handleCancelCardEdit = () => {
     // Reset form to original lead data
-    setForm({
-      customer_name: lead.customer_name || '',
-      customer_line: lead.customer_line || '',
-      customer_phone: lead.customer_phone || '',
-      customer_type: sanitizeType(lead.customer_type),
-      work_type: lead.work_type || '',
-      unit_count: String(lead.unit_count ?? 1),
-      lead_source: sanitizeSource(lead.lead_source),
-      is_returning: lead.is_returning || false,
-      event_date: lead.event_date || '',
-      event_end_date: lead.event_end_date || '',
-      event_time: (lead.event_time || '').slice(0, 5),
-      event_end_time: (lead.event_end_time || '').slice(0, 5),
-      event_location: lead.event_location || '',
-      event_details: lead.event_details || '',
-      required_roles: lead.required_roles || {},
-      package_name: lead.package_name || '',
-      quoted_price: lead.quoted_price || 0,
-      confirmed_price: lead.confirmed_price || 0,
-      deposit: lead.deposit || 0,
-      vat_mode: lead.vat_mode || 'none',
-      wht_rate: lead.wht_rate || 0,
-      quotation_ref: lead.quotation_ref || '',
-      notes: lead.notes || '',
-      tags: lead.tags || [],
-    })
-    setFormInstallments(
-      initialInstallments.map(inst => ({
-        installment_number: inst.installment_number,
-        amount: inst.amount || 0,
-        due_date: inst.due_date || '',
-        is_paid: inst.is_paid || false,
-        paid_date: inst.paid_date || '',
-      }))
-    )
+    setForm(buildForm())
+    setFormInstallments(toFormInstallments(initialInstallments))
     setEditingCard(null)
   }
 
-  // Reusable collapsible card header
-  const CollapsibleCardHeader = ({ sectionKey, icon, iconBg, title, editKey }: {
-    sectionKey: string
-    icon: React.ReactNode
-    iconBg: string
-    title: string
-    editKey?: CardSection
-  }) => (
-    <CardHeader className="pb-3">
-      <div className="flex items-center justify-between">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <div className={`flex items-center justify-center h-6 w-6 rounded-md ${iconBg}`}>
-            {icon}
-          </div>
-          {title}
-        </CardTitle>
-        <div className="flex items-center gap-1">
-          {editKey && !collapsed[sectionKey] && editingCard !== editKey && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 text-zinc-400 hover:text-blue-600"
-              onClick={() => setEditingCard(editKey)}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-zinc-400 hover:text-zinc-600"
-            onClick={() => toggleCollapse(sectionKey)}
-          >
-            {collapsed[sectionKey] ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-          </Button>
-        </div>
-      </div>
-    </CardHeader>
-  )
-
-  // Save/Cancel buttons for per-card editing
-  const CardEditActions = ({ section }: { section: CardSection }) => (
-    <div className="flex items-center gap-2 pt-3 mt-3 border-t border-zinc-100 dark:border-zinc-800">
-      <Button
-        onClick={() => handleSaveCard(section)}
-        disabled={saving}
-        size="sm"
-        className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 h-8 text-xs"
-      >
-        <Save className="h-3.5 w-3.5" />
-        {saving ? tc.saving : tc.save}
-      </Button>
-      <Button
-        onClick={handleCancelCardEdit}
-        variant="outline"
-        size="sm"
-        className="gap-1.5 h-8 text-xs"
-      >
-        <X className="h-3.5 w-3.5" />
-        {tc.cancel}
-      </Button>
-    </div>
-  )
-
-  const handleAddActivity = async (e: React.FormEvent) => {
+  const handleAddActivity = async (e: FormEvent) => {
     e.preventDefault()
     if (!activityDesc.trim()) return
 
@@ -363,14 +181,17 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     setActivityDesc('')
     setMentionedActivityUsers([])
     setAddingActivity(false)
-    router.refresh()
   }
 
   const handleOpenEvent = async () => {
     setLoading(true)
     // Soft warning if this lead already has linked events — user may want to add another sub-event (setup/teardown/etc.)
     if (linkedEvents.length > 0) {
-      const proceed = confirm(`Lead นี้มี ${linkedEvents.length} อีเวนต์ผูกอยู่แล้ว ต้องการเพิ่มอีเวนต์ใหม่หรือไม่?`)
+      const proceed = await askConfirm({
+        title: L(`Lead นี้มี ${linkedEvents.length} อีเวนต์ผูกอยู่แล้ว`, `This lead already has ${linkedEvents.length} linked event(s)`),
+        description: L('ต้องการเพิ่มอีเวนต์ใหม่หรือไม่?', 'Add another event?'),
+        confirmLabel: L('เพิ่มอีเวนต์', 'Add event'),
+      })
       if (!proceed) {
         setLoading(false)
         return
@@ -393,9 +214,15 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         if (duplicates.length > 0) {
           // 🔴 Strong warning — likely duplicate
           const dupNames = duplicates.map(e => e.event_name).join('\n• ')
-          const proceed = confirm(
-            `🔴 อีเวนต์ซ้ำ!\n\nลูกค้า "${lead.customer_name}" มีอีเวนต์ในวันเดียวกันอยู่แล้ว:\n• ${dupNames}\n\n⚠️ อาจเป็นอีเวนต์ที่สร้างไปแล้ว — ต้องการสร้างเพิ่มหรือไม่?`
-          )
+          const proceed = await askConfirm({
+            title: L('🔴 อีเวนต์ซ้ำ!', '🔴 Duplicate event!'),
+            description: multiline(L(
+              `ลูกค้า "${lead.customer_name}" มีอีเวนต์ในวันเดียวกันอยู่แล้ว:\n• ${dupNames}\n\n⚠️ อาจเป็นอีเวนต์ที่สร้างไปแล้ว — ต้องการสร้างเพิ่มหรือไม่?`,
+              `Customer "${lead.customer_name}" already has an event on this date:\n• ${dupNames}\n\n⚠️ It may already exist — create another one?`,
+            )),
+            variant: 'destructive',
+            confirmLabel: L('สร้างเพิ่ม', 'Create anyway'),
+          })
           if (!proceed) {
             setLoading(false)
             return
@@ -403,9 +230,15 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         } else if (sameDay.length > 0) {
           // 🟡 Informational — other events on same day
           const dayNames = sameDay.map(e => `${e.event_name}${e.event_location ? ` (${e.event_location})` : ''}`).join('\n• ')
-          const proceed = confirm(
-            `📋 วันที่ ${lead.event_date} มีอีเวนต์อื่นอยู่แล้ว ${sameDay.length} งาน:\n• ${dayNames}\n\nตรวจสอบทีมหน้างานก่อนสร้างอีเวนต์ใหม่ — ดำเนินการต่อหรือไม่?`
-          )
+          const proceed = await askConfirm({
+            title: L(`📋 วันที่ ${lead.event_date} มีอีเวนต์อื่นอยู่แล้ว ${sameDay.length} งาน`, `📋 ${sameDay.length} other event(s) on ${lead.event_date}`),
+            description: multiline(L(
+              `• ${dayNames}\n\nตรวจสอบทีมหน้างานก่อนสร้างอีเวนต์ใหม่ — ดำเนินการต่อหรือไม่?`,
+              `• ${dayNames}\n\nCheck the on-site team before creating a new event — continue?`,
+            )),
+            variant: 'warning',
+            confirmLabel: L('ดำเนินการต่อ', 'Continue'),
+          })
           if (!proceed) {
             setLoading(false)
             return
@@ -427,9 +260,11 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   const handleOpenGraphicJob = async () => {
     const hasExisting = graphicJobCount > 0
     if (hasExisting) {
-      const proceed = confirm(
-        `งานนี้มีใบงานกราฟิกอยู่แล้ว ${graphicJobCount} ใบ\nต้องการเปิดใบงานกราฟิกใบใหม่เพิ่มหรือไม่?`
-      )
+      const proceed = await askConfirm({
+        title: L(`งานนี้มีใบงานกราฟิกอยู่แล้ว ${graphicJobCount} ใบ`, `This lead already has ${graphicJobCount} graphic job(s)`),
+        description: L('ต้องการเปิดใบงานกราฟิกใบใหม่เพิ่มหรือไม่?', 'Open another graphic job?'),
+        confirmLabel: L('เปิดใบใหม่', 'Open new job'),
+      })
       if (!proceed) return
     }
     setLoading(true)
@@ -439,7 +274,6 @@ export default function LeadDetail({ lead, activities, settings, users, installm
       toast.error(result.error)
       return
     }
-    router.refresh()
     toast.success(
       hasExisting
         ? `เปิดใบงานกราฟิกใบที่ ${graphicJobCount + 1} แล้ว — เข้าพูลรอรับงาน`
@@ -455,7 +289,13 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   }
 
   const handleDelete = async () => {
-    if (!confirm(tc.deleteConfirm)) return
+    const ok = await askConfirm({
+      title: L('ลบลูกค้า', 'Delete lead'),
+      description: tc.deleteConfirm,
+      variant: 'destructive',
+      confirmLabel: L('ลบ', 'Delete'),
+    })
+    if (!ok) return
     setLoading(true)
     await deleteLead(lead.id)
     setLoading(false)
@@ -470,27 +310,28 @@ export default function LeadDetail({ lead, activities, settings, users, installm
       await archiveLead(lead.id)
     }
     setLoading(false)
-    router.refresh()
+  }
+
+  const handleToggleTag = async (tagValue: string, isSelected: boolean) => {
+    const newTags = isSelected ? form.tags.filter(t => t !== tagValue) : [...form.tags, tagValue]
+    setForm(prev => ({ ...prev, tags: newTags }))
+    const fd = new FormData()
+    fd.set('tags', newTags.join(','))
+    await updateLead(lead.id, fd)
+  }
+
+  const handlePhaseChange = async (costId: string, phase: string | null) => {
+    const res = await setJobCostEventPhase(costId, phase)
+    if (res?.error) {
+      toast.error(res.error)
+    } else {
+      toast.success(locale === 'th' ? 'อัปเดต phase แล้ว' : 'Phase updated')
+    }
   }
 
   // Staff is managed per event (event_staff), not at the lead level. This page only
-  // displays it grouped by event — see the "Staff & Roles" card below, which links out
+  // displays it grouped by event — see the "Staff & Roles" card, which links out
   // to each event's edit page for changes.
-
-  // Get role label from settings
-  const getRoleLabel = (roleValue: string) => {
-    const setting = staffRoles.find(s => s.value === roleValue)
-    if (!setting) return roleValue
-    return locale === 'th' ? setting.label_th : setting.label_en
-  }
-  const getRoleColor = (roleValue: string) => {
-    return staffRoles.find(s => s.value === roleValue)?.color || '#6b7280'
-  }
-
-  const getUserName = (userId: string) => {
-    const user = users.find(u => u.id === userId)
-    return user?.full_name || userId
-  }
 
   // Auto-fill price when package changes
   const handlePackageChange = (val: string) => {
@@ -511,23 +352,25 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     const result = await uploadPaymentProof(lead.id, installmentId, formData)
     setUploadingInstallment(null)
     if (result.error) {
-      alert(result.error)
-    } else {
+      toast.error(result.error)
+    } else if (result.url) {
       // Save uploaded URL to local state immediately for preview
-      if (result.url) {
-        setLocalReceiptUrls(prev => ({ ...prev, [installmentId]: result.url! }))
-      }
-      router.refresh()
+      setLocalReceiptUrls(prev => ({ ...prev, [installmentId]: result.url! }))
     }
   }
 
   const handleDeleteProof = async (installmentId: string) => {
-    if (!confirm(locale === 'th' ? 'ต้องการลบหลักฐานการชำระเงินนี้?' : 'Delete this payment proof?')) return
+    const ok = await askConfirm({
+      title: L('ต้องการลบหลักฐานการชำระเงินนี้?', 'Delete this payment proof?'),
+      variant: 'destructive',
+      confirmLabel: L('ลบ', 'Delete'),
+    })
+    if (!ok) return
     setUploadingInstallment(installmentId)
     const result = await deletePaymentProof(lead.id, installmentId)
     setUploadingInstallment(null)
     if (result.error) {
-      alert(result.error)
+      toast.error(result.error)
     } else {
       // Remove from local state
       setLocalReceiptUrls(prev => {
@@ -535,1554 +378,98 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         delete next[installmentId]
         return next
       })
-      router.refresh()
     }
   }
 
-  const activityIcons: Record<string, typeof Phone> = {
-    call: Phone,
-    line: MessageSquare,
-    email: Mail,
-    note: FileText,
-    meeting: User,
-    status_change: Clock,
-  }
-
-  const activityLabels: Record<string, string> = {
-    call: ta.call,
-    line: ta.line,
-    email: ta.email,
-    meeting: ta.meeting,
-    note: ta.note,
-  }
+  const cardProps = (section: CardSection): EditableCardProps => ({
+    lead, form, updateForm, saving,
+    editing: editingCard === section,
+    collapsed: !!collapsed[section],
+    onEdit: () => setEditingCard(section),
+    onToggle: () => toggleCollapse(section),
+    onSave: () => handleSaveCard(section),
+    onCancel: handleCancelCardEdit,
+  })
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link href="/crm">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-zinc-100 truncate">
-                {editingCard === 'customer' ? form.customer_name : lead.customer_name}
-              </h1>
-              {lead.is_returning && (
-                <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-600">{t.crm.kanban.returning}</Badge>
-              )}
-              {isOverdue && (
-                isFullyPaid ? (
-                  <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-0">
-                    <AlertCircle className="h-3 w-3 mr-0.5" /> {locale === 'th' ? 'ชำระครบ' : 'Fully Paid'}
-                  </Badge>
-                ) : (
-                  <Badge className="text-[10px] bg-red-100 text-red-700 border-0">
-                    <AlertCircle className="h-3 w-3 mr-0.5" /> {t.crm.kanban.overdue}
-                  </Badge>
-                )
-              )}
-              {lead.archived_at && (
-                <Badge className="text-[10px] bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 border-0 gap-1">
-                  <Archive className="h-3 w-3" /> Archived
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm text-zinc-500">
-              {tc.created} {new Date(lead.created_at).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB')}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {isWonStatus(lead.status) && (
-            <Button onClick={handleOpenEvent} disabled={loading} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white">
-              <ExternalLink className="h-4 w-4 mr-1.5" />
-              {linkedEvents.length > 0
-                ? (locale === 'th' ? 'เพิ่มอีเวนต์' : 'Add Event')
-                : tc.openEvent}
-            </Button>
-          )}
-          {isWonStatus(lead.status) && (
-            <Button onClick={handleOpenGraphicJob} disabled={loading} size="sm" className="bg-sky-600 hover:bg-sky-700 text-white">
-              <Palette className="h-4 w-4 mr-1.5" />
-              {locale === 'th' ? 'ใบงานกราฟิก' : 'Graphic Job'}
-              {graphicJobCount > 0 && <span className="ml-1 opacity-80">({graphicJobCount})</span>}
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleArchive}
-            disabled={loading}
-            className={`gap-1.5 ${lead.archived_at
-              ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200'
-              : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50'
-              }`}
-          >
-            {lead.archived_at ? (
-              <><ArchiveRestore className="h-4 w-4" /> นำออก Archive</>
-            ) : (
-              <><Archive className="h-4 w-4" /> Archive</>
-            )}
-          </Button>
-          {role === 'admin' && (
-            <Button variant="ghost" size="icon" onClick={handleDelete} disabled={loading} className="text-red-500 hover:text-red-700 hover:bg-red-50">
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-      </div>
+      <LeadHeader
+        lead={lead}
+        displayName={editingCard === 'customer' ? form.customer_name : lead.customer_name}
+        isOverdue={isOverdue}
+        isFullyPaid={isFullyPaid}
+        loading={loading}
+        linkedEventCount={linkedEvents.length}
+        graphicJobCount={graphicJobCount}
+        role={role}
+        onOpenEvent={handleOpenEvent}
+        onOpenGraphicJob={handleOpenGraphicJob}
+        onArchive={handleArchive}
+        onDelete={handleDelete}
+      />
 
-      {/* ลิงก์ไปแท็บใบงานกราฟิกในพูลงาน — โผล่เมื่องานนี้เปิดใบงานแล้วเท่านั้น */}
-      {graphicJobs.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={`/jobs/tracking?tab=graphic&lead=${lead.id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:bg-sky-950/70"
-          >
-            <Palette className="h-3 w-3" />
-            {locale === 'th'
-              ? `ใบงานกราฟิก ${graphicJobs.length} ใบ — ดูในพูลงาน`
-              : `${graphicJobs.length} graphic job${graphicJobs.length > 1 ? 's' : ''} — view in pool`}
-            <ExternalLink className="h-3 w-3" />
-          </Link>
-        </div>
-      )}
+      {graphicJobs.length > 0 && <GraphicJobsLink leadId={lead.id} count={graphicJobs.length} />}
 
-      {/* Cost Summary — Revenue (from lead) vs. Cost (claims across all linked events) */}
       {costSummary && (costSummary.claimCount > 0 || costSummary.revenue > 0) && (
-        <Card>
-          <CardContent className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-zinc-500">
-                {locale === 'th' ? 'สรุปต้นทุน — กำไรขั้นต้น' : 'Cost Summary — Gross P&L'}
-              </span>
-              <span className="text-[10px] text-zinc-400">
-                {costSummary.claimCount} {locale === 'th' ? 'รายการเบิก' : 'claims'}
-                {' • '}
-                {linkedEvents.length} {locale === 'th' ? 'อีเวนต์' : 'events'}
-              </span>
-            </div>
-
-            {/* Top row: Revenue / Cost / Gross Profit */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-3">
-              <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/10 p-2.5 sm:p-3">
-                <p className="text-[10px] uppercase tracking-wider text-emerald-600/70 dark:text-emerald-400/70 font-semibold">
-                  {locale === 'th' ? 'รายได้' : 'Revenue'}
-                </p>
-                <p className="text-lg sm:text-xl font-bold text-emerald-700 dark:text-emerald-300 mt-1">
-                  ฿{costSummary.revenue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div className="rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50/40 dark:bg-rose-950/10 p-2.5 sm:p-3">
-                <p className="text-[10px] uppercase tracking-wider text-rose-600/70 dark:text-rose-400/70 font-semibold">
-                  {locale === 'th' ? 'ต้นทุน' : 'Cost'}
-                </p>
-                <p className="text-lg sm:text-xl font-bold text-rose-700 dark:text-rose-300 mt-1">
-                  ฿{costSummary.totalClaimed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                </p>
-                {costSummary.totalPending > 0 && (
-                  <p className="text-[10px] text-zinc-500 mt-0.5">
-                    {locale === 'th' ? 'รอจ่าย' : 'pending'} ฿{costSummary.totalPending.toLocaleString()}
-                  </p>
-                )}
-              </div>
-              {(() => {
-                const profit = costSummary.revenue - costSummary.totalClaimed
-                const positive = profit >= 0
-                return (
-                  <div className={`rounded-lg border p-2.5 sm:p-3 ${positive
-                    ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-100/50 dark:bg-emerald-950/20'
-                    : 'border-rose-300 dark:border-rose-700 bg-rose-100/50 dark:bg-rose-950/20'
-                  }`}>
-                    <p className={`text-[10px] uppercase tracking-wider font-semibold ${positive
-                      ? 'text-emerald-700/70 dark:text-emerald-300/70'
-                      : 'text-rose-700/70 dark:text-rose-300/70'
-                    }`}>
-                      {locale === 'th' ? 'กำไรขั้นต้น' : 'Gross Profit'}
-                    </p>
-                    <p className={`text-lg sm:text-xl font-bold mt-1 ${positive
-                      ? 'text-emerald-700 dark:text-emerald-300'
-                      : 'text-rose-700 dark:text-rose-300'
-                    }`}>
-                      {positive ? '' : '−'}฿{Math.abs(profit).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                    </p>
-                    {costSummary.revenue > 0 && (
-                      <p className="text-[10px] text-zinc-500 mt-0.5">
-                        {((profit / costSummary.revenue) * 100).toFixed(1)}%
-                      </p>
-                    )}
-                  </div>
-                )
-              })()}
-            </div>
-
-            {/* Per-event breakdown — cost (claims) per linked event. Revenue is
-                single-sourced at the lead level, so events show cost only. */}
-            {costSummary.byEvent.length > 0 && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold mb-1.5">
-                  {locale === 'th' ? 'แยกตามอีเวนต์' : 'By Event'}
-                </p>
-                <div className="space-y-1.5">
-                  {costSummary.byEvent.map(ev => {
-                    const phaseCfg = EVENT_PHASES.find(p => p.value === ev.phase)
-                    const pct = costSummary.totalClaimed > 0 ? (ev.amount / costSummary.totalClaimed) * 100 : 0
-                    return (
-                      <Link
-                        key={ev.eventId}
-                        href={`/costs/events/${ev.eventId}`}
-                        className="block px-2.5 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 hover:border-rose-300 hover:bg-rose-50/30 dark:hover:bg-rose-950/10 transition-colors"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0 flex items-center gap-2">
-                            {phaseCfg && <span className="text-xs shrink-0">{phaseCfg.icon}</span>}
-                            <div className="min-w-0">
-                              <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">{ev.name}</p>
-                              <p className="text-[10px] text-zinc-400">
-                                {ev.date ? new Date(ev.date).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB') : '—'}
-                                {ev.count > 0
-                                  ? ` • ${ev.count} ${locale === 'th' ? 'ใบเบิก' : 'claims'}`
-                                  : ` • ${locale === 'th' ? 'ยังไม่มีเบิก' : 'no claims'}`}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-xs font-mono font-semibold text-rose-600 dark:text-rose-400">
-                              ฿{ev.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                            </p>
-                            {ev.pending > 0 && (
-                              <p className="text-[10px] text-zinc-500">
-                                {locale === 'th' ? 'รอจ่าย' : 'pending'} ฿{ev.pending.toLocaleString()}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        {/* Share of total cost */}
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <div className="flex-1 h-1 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-rose-400/80 dark:bg-rose-500/80 transition-all duration-500"
-                              style={{ width: `${Math.min(pct, 100)}%` }}
-                            />
-                          </div>
-                          <span className="text-[10px] font-mono text-zinc-400 w-11 text-right shrink-0">
-                            {pct.toFixed(1)}%
-                          </span>
-                        </div>
-                      </Link>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Phase breakdown */}
-            {Object.keys(costSummary.byPhase).length > 0 && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold mb-1.5">
-                  {locale === 'th' ? 'แยกตาม Phase' : 'By Phase'}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {EVENT_PHASES.concat([{ value: 'unphased' as any, labelTh: 'ไม่ระบุ', labelEn: 'Unphased', color: 'zinc', icon: '•' }])
-                    .filter(p => costSummary.byPhase[p.value])
-                    .map(p => {
-                      const data = costSummary.byPhase[p.value]
-                      return (
-                        <div key={p.value} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
-                          <span className="text-xs">{p.icon}</span>
-                          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                            {locale === 'th' ? p.labelTh : p.labelEn}
-                          </span>
-                          <span className="text-xs text-zinc-400">×{data.count}</span>
-                          <span className="text-xs font-mono font-semibold text-rose-600 dark:text-rose-400">
-                            ฿{data.amount.toLocaleString()}
-                          </span>
-                        </div>
-                      )
-                    })}
-                </div>
-              </div>
-            )}
-
-            {/* Status breakdown */}
-            {Object.keys(costSummary.byStatus).length > 0 && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-semibold mb-1.5">
-                  {locale === 'th' ? 'แยกตามสถานะใบเบิก' : 'By Status'}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {Object.entries(costSummary.byStatus)
-                    .sort((a, b) => b[1].amount - a[1].amount)
-                    .map(([statusKey, data]) => {
-                      const color = getClaimStatusColor(statusKey)
-                      return (
-                        <div
-                          key={statusKey}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs"
-                          style={{ borderColor: `${color}40`, backgroundColor: `${color}10` }}
-                        >
-                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-                          <span className="font-medium" style={{ color }}>
-                            {getClaimStatusLabel(statusKey, locale === 'th' ? 'th' : 'en')}
-                          </span>
-                          <span className="text-zinc-400">×{data.count}</span>
-                          <span className="font-mono font-semibold text-zinc-700 dark:text-zinc-300">
-                            ฿{data.amount.toLocaleString()}
-                          </span>
-                        </div>
-                      )
-                    })}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <CostSummaryCard costSummary={costSummary} linkedEventCount={linkedEvents.length} />
       )}
 
-      {/* Linked Events List (1 lead → N events: setup / main / teardown / delivery / etc.) */}
-      {linkedEvents.length > 0 && (
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-zinc-500">
-                {locale === 'th' ? 'อีเวนต์ที่เชื่อมต่อ' : 'Linked Events'}
-                <span className="ml-1.5 text-xs text-zinc-400">({linkedEvents.length})</span>
-              </span>
-            </div>
-            <div className="space-y-1.5">
-              {linkedEvents.map(ev => {
-                const phaseCfg = EVENT_PHASES.find(p => p.value === ev.phase)
-                // Prefer linking to the cost-side detail (which shows claims/financials); fall back to operational event edit
-                const detailHref = ev.costId
-                  ? `/costs/events/${ev.costId}`
-                  : ev.operationalId
-                    ? `/events/${ev.operationalId}/edit`
-                    : '#'
-                const rowKey = ev.costId || ev.operationalId || `${ev.name}-${ev.date}`
-                const importedToCosts = Boolean(ev.costId)
-                return (
-                  <div
-                    key={rowKey}
-                    className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-emerald-300 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/10 transition-colors"
-                  >
-                    <Link href={detailHref} className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{ev.name}</p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                        {ev.date ? new Date(ev.date).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB') : '—'}
-                        {ev.location && ` • ${ev.location}`}
-                      </p>
-                    </Link>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {importedToCosts && ev.costId ? (
-                        <Select
-                          value={ev.phase || 'none'}
-                          onValueChange={(v) => {
-                            (async () => {
-                              const res = await setJobCostEventPhase(ev.costId!, v === 'none' ? null : v)
-                              if (res?.error) {
-                                toast.error(res.error)
-                              } else {
-                                toast.success(locale === 'th' ? 'อัปเดต phase แล้ว' : 'Phase updated')
-                                router.refresh()
-                              }
-                            })()
-                          }}
-                        >
-                          <SelectTrigger className="h-7 text-[11px] w-auto min-w-[110px] gap-1 border-dashed">
-                            <SelectValue placeholder={locale === 'th' ? 'เลือก phase' : 'Set phase'}>
-                              {phaseCfg ? (
-                                <span className="inline-flex items-center gap-1">
-                                  <span>{phaseCfg.icon}</span>
-                                  <span>{locale === 'th' ? phaseCfg.labelTh : phaseCfg.labelEn}</span>
-                                </span>
-                              ) : (
-                                <span className="text-zinc-400">{locale === 'th' ? 'เลือก phase' : 'Set phase'}</span>
-                              )}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">{locale === 'th' ? '— ไม่ระบุ —' : '— None —'}</SelectItem>
-                            {EVENT_PHASES.map(p => (
-                              <SelectItem key={p.value} value={p.value}>
-                                <span className="inline-flex items-center gap-1.5">
-                                  <span>{p.icon}</span>
-                                  <span>{locale === 'th' ? p.labelTh : p.labelEn}</span>
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-800">
-                          {locale === 'th' ? 'ยังไม่นำเข้า Costs' : 'Not imported'}
-                        </Badge>
-                      )}
-                      {ev.status && (
-                        <Badge variant="outline" className="text-[10px]">{ev.status}</Badge>
-                      )}
-                      <Link href={detailHref}>
-                        <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
-                      </Link>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {linkedEvents.length > 0 && <LinkedEventsCard linkedEvents={linkedEvents} onPhaseChange={handlePhaseChange} />}
 
-      {/* Status Change Bar */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-zinc-500">{tc.currentStatus}</span>
-            <Badge className={`${statusConfig.bgColor} ${statusConfig.textColor} border-0 text-sm px-3`}>
-              {getStatusLabel(lead.status)}
-            </Badge>
-          </div>
-          <div className="flex gap-2 mt-3 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-            {getStatusesFromSettings(settings).filter(s => s !== lead.status).map(s => {
-              const cfg = getStatusConfig(settings, s)
-              return (
-                <Button
-                  key={s}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleStatusChange(s)}
-                  disabled={loading}
-                  className="text-xs shrink-0 whitespace-nowrap"
-                >
-                  <span className="h-2 w-2 rounded-full mr-1.5" style={{ backgroundColor: cfg.color }} />
-                  {getStatusLabel(s)}
-                </Button>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
+      <StatusBar settings={settings} status={lead.status} loading={loading} getStatusLabel={getStatusLabel} onChange={handleStatusChange} />
 
-      {/* Tags Bar — Jobs-style UI */}
-      <Card>
-        <CardContent className="py-4 space-y-4">
-          {/* General Tags */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Tag className="h-4 w-4 text-zinc-400" />
-              <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">{tc.generalTags}</span>
-            </div>
+      <TagsBar settings={settings} tags={form.tags} status={lead.status} loading={loading} getStatusLabel={getStatusLabel} onToggle={handleToggleTag} />
 
-            {/* Selected general tags */}
-            {(form.tags as string[]).filter(t => settings.find(st => st.value === t && st.category === 'tag')).length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {(form.tags as string[]).filter(t => settings.find(st => st.value === t && st.category === 'tag')).map(tag => {
-                  const tagSetting = settings.find(s => s.category === 'tag' && s.value === tag)
-                  const tagColor = tagSetting?.color || '#3b82f6'
-                  return (
-                    <Badge key={tag} className="text-[10px] px-2 py-0.5 border" style={{ backgroundColor: `${tagColor}18`, color: tagColor, borderColor: `${tagColor}40` }}>
-                      {tagSetting ? getSettingLabel(tagSetting) : tag}
-                    </Badge>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Toggle buttons */}
-            <div className="flex flex-wrap gap-2">
-              {settings.filter(s => s.category === 'tag' && s.is_active).map(tagSetting => {
-                const tagValue = tagSetting.value
-                const isSelected = (form.tags as string[]).includes(tagValue)
-                const tagColor = tagSetting.color || '#3b82f6'
-                return (
-                  <Button key={tagSetting.id} variant="outline" size="sm"
-                    onClick={async () => {
-                      const currentTags = form.tags as string[]
-                      const newTags = isSelected ? currentTags.filter(t => t !== tagValue) : [...currentTags, tagValue]
-                      setForm(prev => ({ ...prev, tags: newTags }))
-                      const fd = new FormData()
-                      fd.set('tags', newTags.join(','))
-                      await updateLead(lead.id, fd)
-                      router.refresh()
-                    }}
-                    disabled={loading}
-                    className="text-xs transition-all"
-                    style={isSelected ? { backgroundColor: `${tagColor}20`, color: tagColor, borderColor: `${tagColor}60` } : {}}
-                  >
-                    <span className="h-2.5 w-2.5 rounded-full mr-1.5 shrink-0" style={{ backgroundColor: tagColor }} />
-                    {getSettingLabel(tagSetting)}
-                  </Button>
-                )
-              })}
-              {settings.filter(s => s.category === 'tag' && s.is_active).length === 0 && (
-                <span className="text-xs text-zinc-400">{tc.noTags}</span>
-              )}
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="border-t border-zinc-100 dark:border-zinc-800" />
-
-          {/* Status-specific Tags */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Tag className="h-4 w-4 text-zinc-400" />
-              <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">{tc.statusTags}</span>
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0" style={{ borderColor: statusConfig.color, color: statusConfig.color }}>
-                {getStatusLabel(lead.status)}
-              </Badge>
-            </div>
-
-            {/* Selected status tags */}
-            {(form.tags as string[]).filter(t => settings.find(st => st.value === t && st.category === `tag_${lead.status}`)).length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {(form.tags as string[]).filter(t => settings.find(st => st.value === t && st.category === `tag_${lead.status}`)).map(tag => {
-                  const tagSetting = settings.find(s => s.category === `tag_${lead.status}` && s.value === tag)
-                  const tagColor = tagSetting?.color || '#8b5cf6'
-                  return (
-                    <Badge key={tag} className="text-[10px] px-2 py-0.5 border" style={{ backgroundColor: `${tagColor}18`, color: tagColor, borderColor: `${tagColor}40` }}>
-                      {tagSetting ? getSettingLabel(tagSetting) : tag}
-                    </Badge>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Toggle buttons */}
-            <div className="flex flex-wrap gap-2">
-              {settings.filter(s => s.category === `tag_${lead.status}` && s.is_active).map(tagSetting => {
-                const tagValue = tagSetting.value
-                const isSelected = (form.tags as string[]).includes(tagValue)
-                const tagColor = tagSetting.color || '#8b5cf6'
-                return (
-                  <Button key={tagSetting.id} variant="outline" size="sm"
-                    onClick={async () => {
-                      const currentTags = form.tags as string[]
-                      const newTags = isSelected ? currentTags.filter(t => t !== tagValue) : [...currentTags, tagValue]
-                      setForm(prev => ({ ...prev, tags: newTags }))
-                      const fd = new FormData()
-                      fd.set('tags', newTags.join(','))
-                      await updateLead(lead.id, fd)
-                      router.refresh()
-                    }}
-                    disabled={loading}
-                    className="text-xs transition-all"
-                    style={isSelected ? { backgroundColor: `${tagColor}20`, color: tagColor, borderColor: `${tagColor}60` } : {}}
-                  >
-                    <span className="h-2.5 w-2.5 rounded-full mr-1.5 shrink-0" style={{ backgroundColor: tagColor }} />
-                    {getSettingLabel(tagSetting)}
-                  </Button>
-                )
-              })}
-              {settings.filter(s => s.category === `tag_${lead.status}` && s.is_active).length === 0 && (
-                <span className="text-xs text-zinc-400">{tc.noTags}</span>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Staff Assignments Card — read-only, grouped per event.
-          Staff lives in event_staff (keyed by event_id); each linked event manages its
-          own team. Editing happens in each event's edit page, not here. */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <div className="flex items-center justify-center h-6 w-6 rounded-md bg-amber-50 dark:bg-amber-950/40">
-              <Users className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-            </div>
-            {locale === 'th' ? 'ทีมงาน & หน้าที่' : 'Staff & Roles'}
-            <span className="ml-auto text-[10px] font-normal text-zinc-400">
-              {locale === 'th' ? 'จัดการแยกแต่ละอีเวนต์' : 'managed per event'}
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {eventStaffGroups.length === 0 ? (
-            <p className="text-xs text-zinc-400 text-center py-4">
-              {locale === 'th'
-                ? 'ยังไม่มีอีเวนต์ — สร้างอีเวนต์เพื่อกำหนดทีมงาน'
-                : 'No events yet — create an event to assign staff'}
-            </p>
-          ) : (
-            eventStaffGroups.map(group => {
-              const phaseCfg = EVENT_PHASES.find(p => p.value === group.phase)
-              return (
-                <div key={group.eventId} className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-                  {/* Event header */}
-                  <div className="flex items-center justify-between gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800">
-                    <div className="min-w-0 flex items-center gap-2">
-                      {phaseCfg && <span className="text-sm shrink-0">{phaseCfg.icon}</span>}
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{group.eventName}</p>
-                        {group.eventDate && (
-                          <p className="text-[11px] text-zinc-400">
-                            {new Date(group.eventDate).toLocaleDateString(locale === 'th' ? 'th-TH' : 'en-GB')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <Link href={`/events/${group.eventId}/edit`} className="shrink-0">
-                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
-                        <Pencil className="h-3 w-3 mr-1" />
-                        {locale === 'th' ? 'แก้ไขใน event' : 'Edit in event'}
-                      </Button>
-                    </Link>
-                  </div>
-
-                  {/* Staff list for this event */}
-                  {group.staff.length === 0 ? (
-                    <p className="text-xs text-zinc-400 text-center py-3">
-                      {locale === 'th' ? 'ยังไม่มีทีมงานสำหรับอีเวนต์นี้' : 'No staff for this event'}
-                    </p>
-                  ) : (
-                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
-                      {group.staff.map((s, i) => (
-                        <div key={`${s.user_id}-${s.role}-${i}`} className="flex items-center gap-3 px-3 py-2">
-                          <div className="flex items-center justify-center h-7 w-7 rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
-                            {(s.full_name || '?').charAt(0).toUpperCase()}
-                          </div>
-                          <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate flex-1 min-w-0">
-                            {s.full_name || s.user_id}
-                          </span>
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] shrink-0"
-                            style={{ backgroundColor: getRoleColor(s.role) + '20', color: getRoleColor(s.role), borderColor: getRoleColor(s.role) + '40' }}
-                          >
-                            {getRoleLabel(s.role)}
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })
-          )}
-        </CardContent>
-      </Card>
-
+      <StaffCard eventStaffGroups={eventStaffGroups} staffRoles={staffRoles} />
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Customer + Event + Financial Info */}
         <div className="space-y-6">
-          {/* Customer Info */}
-          <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CollapsibleCardHeader
-              sectionKey="customer"
-              icon={<User className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />}
-              iconBg="bg-blue-50 dark:bg-blue-950/40"
-              title={tc.customerInfo}
-              editKey="customer"
-            />
-            {!collapsed.customer && (
-              <CardContent className="space-y-3">
-                {editingCard === 'customer' ? (
-                  <div className="space-y-4">
-                    <EditField label={tc.name} value={form.customer_name} onChange={v => updateForm('customer_name', v)} />
-                    <EditField label={tc.lineId} value={form.customer_line} onChange={v => updateForm('customer_line', v)} placeholder="@line_id" />
-                    <EditField label={tc.phone} value={form.customer_phone} onChange={v => updateForm('customer_phone', v)} placeholder="0xx-xxx-xxxx" />
-                    <EditSelect
-                      label={tc.type}
-                      value={form.customer_type}
-                      onChange={v => updateForm('customer_type', v)}
-                      options={customerTypes.map(s => ({ id: s.id, value: s.value, label: getSettingLabel(s) }))}
-                      placeholder={tc.selectType}
-                    />
-                    <EditSelect
-                      label={locale === 'th' ? 'ประเภทงาน' : 'Work Type'}
-                      value={form.work_type}
-                      onChange={v => updateForm('work_type', v)}
-                      options={workTypeOptions}
-                      placeholder={locale === 'th' ? 'เลือกประเภทงาน' : 'Select work type'}
-                    />
-                    {form.work_type === 'sale' && (
-                      <EditField label={locale === 'th' ? 'จำนวนตู้' : 'Units'} type="number" value={form.unit_count} onChange={v => updateForm('unit_count', v)} placeholder="1" />
-                    )}
-                    <EditSelect
-                      label={tc.channel}
-                      value={form.lead_source}
-                      onChange={v => updateForm('lead_source', v)}
-                      options={sources.map(s => ({ id: s.id, value: s.value, label: getSettingLabel(s) }))}
-                      placeholder={tc.selectSource}
-                    />
-                    <EditSelect
-                      label={tc.package}
-                      value={form.package_name}
-                      onChange={handlePackageChange}
-                      options={packages.map(s => ({ id: s.id, value: s.value, label: getSettingLabel(s) }))}
-                      placeholder={tc.selectPackage}
-                    />
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs text-zinc-500">{tc.returningCustomer}</Label>
-                      <Switch
-                        checked={form.is_returning}
-                        onCheckedChange={v => updateForm('is_returning', v)}
-                      />
-                    </div>
-                    <CardEditActions section="customer" />
-                  </div>
-                ) : (
-                  <>
-                    <InfoRow label={tc.name} value={lead.customer_name} />
-                    <InfoRow label={tc.lineId} value={lead.customer_line} />
-                    <InfoRow label={tc.phone} value={lead.customer_phone} />
-                    <InfoRow label={tc.type} value={typeSetting ? getSettingLabel(typeSetting) : lead.customer_type} />
-                    <InfoRow label={locale === 'th' ? 'ประเภทงาน' : 'Work Type'} value={workTypeLabel || lead.work_type} />
-                    {lead.work_type === 'sale' && (
-                      <InfoRow label={locale === 'th' ? 'จำนวนตู้' : 'Units'} value={String(lead.unit_count && lead.unit_count > 0 ? lead.unit_count : 1)} />
-                    )}
-                    <InfoRow label={tc.channel} value={sourceSetting ? getSettingLabel(sourceSetting) : lead.lead_source} />
-                    <InfoRow label={tc.package} value={pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name} />
-                  </>
-                )}
-              </CardContent>
-            )}
-          </Card>
-
-          {/* Event Info */}
-          <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CollapsibleCardHeader
-              sectionKey="event"
-              icon={<Calendar className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />}
-              iconBg="bg-violet-50 dark:bg-violet-950/40"
-              title={tc.eventInfo}
-              editKey="event"
-            />
-            {!collapsed.event && (
-              <CardContent className="space-y-3">
-                {editingCard === 'event' ? (
-                  <div className="space-y-4">
-                    <EditField label={tc.eventDate} value={form.event_date} onChange={v => updateForm('event_date', v)} type="date" />
-                    <EditField label={tc.endDate} value={form.event_end_date} onChange={v => updateForm('event_end_date', v)} type="date" />
-                    <EditField label={tc.eventTime} value={form.event_time} onChange={v => updateForm('event_time', v)} type="time" />
-                    <EditField label={tc.eventEndTime} value={form.event_end_time} onChange={v => updateForm('event_end_time', v)} type="time" />
-                    <div>
-                      <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{tc.requiredRoles}</Label>
-                      <RequiredRolesEditor
-                        value={form.required_roles}
-                        roles={staffRoleOptions}
-                        onChange={v => setForm(prev => ({ ...prev, required_roles: v }))}
-                      />
-                    </div>
-                    {form.event_date && form.event_end_date && (
-                      <div className="flex justify-between items-center px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30">
-                        <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">{tc.duration}</span>
-                        <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border-0 text-xs">
-                          {(() => {
-                            const start = new Date(form.event_date)
-                            const end = new Date(form.event_end_date)
-                            const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
-                            return `${days} ${days === 1 ? tc.day : tc.days}`
-                          })()}
-                        </Badge>
-                      </div>
-                    )}
-                    <EditField label={tc.locationLabel} value={form.event_location} onChange={v => updateForm('event_location', v)} />
-                    <div>
-                      <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{tc.details}</Label>
-                      <Textarea
-                        value={form.event_details}
-                        onChange={e => updateForm('event_details', e.target.value)}
-                        rows={3}
-                        className="text-sm"
-                        placeholder={tc.eventDetailsPlaceholder}
-                      />
-                    </div>
-                    <CardEditActions section="event" />
-                  </div>
-                ) : (
-                  <>
-                    <InfoRow label={tc.eventDate} value={lead.event_date} />
-                    <InfoRow label={tc.endDate} value={lead.event_end_date} />
-                    <InfoRow label={tc.eventTime} value={lead.event_time ? `${lead.event_time.slice(0, 5)} น.` : null} />
-                    <InfoRow label={tc.eventEndTime} value={lead.event_end_time ? `${lead.event_end_time.slice(0, 5)} น.` : null} />
-                    {lead.event_date && lead.event_end_date && (
-                      <div className="flex justify-between items-start gap-4">
-                        <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{tc.duration}</span>
-                        <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border-0 text-xs">
-                          {(() => {
-                            const start = new Date(lead.event_date)
-                            const end = new Date(lead.event_end_date)
-                            const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
-                            return `${days} ${days === 1 ? tc.day : tc.days}`
-                          })()}
-                        </Badge>
-                      </div>
-                    )}
-                    <InfoRow label={tc.locationLabel} value={lead.event_location} />
-                    <InfoRow label={tc.requiredRoles} value={<RequiredRolesSummary value={lead.required_roles || {}} roles={staffRoleOptions} />} />
-                    <InfoRow label={tc.details} value={lead.event_details} />
-                  </>
-                )}
-              </CardContent>
-            )}
-          </Card>
-
-          {/* Financial Info */}
-          <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CollapsibleCardHeader
-              sectionKey="financial"
-              icon={<DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />}
-              iconBg="bg-emerald-50 dark:bg-emerald-950/40"
-              title={tc.financial}
-              editKey="financial"
-            />
-            {!collapsed.financial && <CardContent className="space-y-3">
-              {editingCard === 'financial' ? (() => {
-                // Tax calculation helpers
-                const basePrice = form.confirmed_price || form.quoted_price || 0
-                const vatAmount = form.vat_mode === 'excluded' ? basePrice * 0.07
-                  : form.vat_mode === 'included' ? basePrice - (basePrice / 1.07) : 0
-                const priceBeforeVat = form.vat_mode === 'included' ? basePrice / 1.07
-                  : basePrice
-                const whtAmount = priceBeforeVat * (form.wht_rate / 100)
-                const netTotal = form.vat_mode === 'excluded'
-                  ? basePrice + vatAmount - whtAmount
-                  : basePrice - whtAmount
-                const totalPaid = form.deposit + formInstallments.filter(i => i.is_paid).reduce((s, i) => s + i.amount, 0)
-                const outstanding = netTotal - totalPaid
-
-                return (
-                  <div className="space-y-4">
-                    <EditField label={`${tc.quotedPrice} (฿)`} value={String(form.quoted_price)} onChange={v => updateForm('quoted_price', Number(v) || 0)} type="number" />
-                    <EditField label={`${tc.confirmedPrice} (฿)`} value={String(form.confirmed_price)} onChange={v => updateForm('confirmed_price', Number(v) || 0)} type="number" />
-                    <EditField label={`${tc.depositLabel} (฿)`} value={String(form.deposit)} onChange={v => updateForm('deposit', Number(v) || 0)} type="number" />
-
-                    {/* Tax Settings */}
-                    <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
-                      <p className="text-xs font-semibold text-zinc-500 mb-3">{locale === 'th' ? '💰 การคำนวณภาษี' : '💰 Tax Calculation'}</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <EditSelect
-                          label={locale === 'th' ? 'VAT' : 'VAT Mode'}
-                          value={form.vat_mode}
-                          onChange={v => updateForm('vat_mode', v)}
-                          options={[
-                            { value: 'none', label: locale === 'th' ? 'ไม่มี VAT' : 'No VAT' },
-                            { value: 'included', label: locale === 'th' ? 'รวม VAT แล้ว' : 'VAT Included' },
-                            { value: 'excluded', label: locale === 'th' ? 'ยังไม่รวม VAT' : 'VAT Excluded' },
-                          ]}
-                        />
-                        <EditSelect
-                          label={locale === 'th' ? 'หัก ณ ที่จ่าย' : 'WHT Rate'}
-                          value={String(form.wht_rate)}
-                          onChange={v => updateForm('wht_rate', Number(v))}
-                          options={[
-                            { value: '0', label: locale === 'th' ? 'ไม่หัก' : 'None' },
-                            { value: '1', label: '1%' },
-                            { value: '2', label: '2%' },
-                            { value: '3', label: '3%' },
-                            { value: '5', label: '5%' },
-                          ]}
-                        />
-                      </div>
-                      {/* Tax Summary */}
-                      {(form.vat_mode !== 'none' || form.wht_rate > 0) && basePrice > 0 && (
-                        <div className="mt-3 p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
-                          {form.vat_mode !== 'none' && (
-                            <>
-                              <div className="flex justify-between text-xs">
-                                <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
-                                <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                              </div>
-                              <div className="flex justify-between text-xs">
-                                <span className="text-zinc-500">VAT 7%</span>
-                                <span className="font-medium text-blue-600 dark:text-blue-400">+฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                              </div>
-                            </>
-                          )}
-                          {form.wht_rate > 0 && (
-                            <div className="flex justify-between text-xs">
-                              <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${form.wht_rate}%` : `WHT ${form.wht_rate}%`}</span>
-                              <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            </div>
-                          )}
-                          <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
-                            <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
-                            <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Dynamic Installments */}
-                    <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-xs font-semibold text-zinc-500">{locale === 'th' ? '📋 งวดชำระเงิน' : '📋 Payment Installments'}</p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs gap-1"
-                          onClick={() => {
-                            const nextNum = formInstallments.length + 1
-                            setFormInstallments(prev => [...prev, {
-                              installment_number: nextNum,
-                              amount: 0,
-                              due_date: '',
-                              is_paid: false,
-                              paid_date: '',
-                            }])
-                          }}
-                        >
-                          + {locale === 'th' ? 'เพิ่มงวด' : 'Add'}
-                        </Button>
-                      </div>
-                      {formInstallments.map((inst, idx) => (
-                        <div key={idx} className="space-y-2 mb-4 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 relative">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                              {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
-                              onClick={() => {
-                                setFormInstallments(prev => prev.filter((_, i) => i !== idx).map((item, i) => ({ ...item, installment_number: i + 1 })))
-                              }}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <EditField
-                              label={`${locale === 'th' ? 'จำนวน' : 'Amount'} (฿)`}
-                              value={String(inst.amount)}
-                              onChange={v => {
-                                setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, amount: Number(v) || 0 } : item))
-                              }}
-                              type="number"
-                            />
-                            <EditField
-                              label={(tc as any).dueDate || 'วันนัดชำระ'}
-                              value={inst.due_date}
-                              onChange={v => {
-                                setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, due_date: v } : item))
-                              }}
-                              type="date"
-                            />
-                          </div>
-                          <div className="flex items-center gap-3 pl-1">
-                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={inst.is_paid}
-                                onChange={e => {
-                                  setFormInstallments(prev => prev.map((item, i) => i === idx ? {
-                                    ...item,
-                                    is_paid: e.target.checked,
-                                    paid_date: e.target.checked ? (item.paid_date || new Date().toISOString().split('T')[0]) : '',
-                                  } : item))
-                                }}
-                                className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
-                              />
-                              <span className={`text-xs font-medium ${inst.is_paid ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
-                                {(tc as any).paid || 'ชำระแล้ว'}
-                              </span>
-                            </label>
-                            {inst.is_paid && (
-                              <div className="flex-1 max-w-[180px]">
-                                <EditField
-                                  label={(tc as any).paidDate || 'วันที่ชำระจริง'}
-                                  value={inst.paid_date}
-                                  onChange={v => {
-                                    setFormInstallments(prev => prev.map((item, i) => i === idx ? { ...item, paid_date: v } : item))
-                                  }}
-                                  type="date"
-                                />
-                              </div>
-                            )}
-                          </div>
-                          {/* Payment Proof Upload - Edit Mode */}
-                          {(() => {
-                            const existingInstallment = initialInstallments[idx]
-                            if (!existingInstallment) return null
-                            const proofUrl = localReceiptUrls[existingInstallment.id] || existingInstallment.receipt_url
-                            const isUploading = uploadingInstallment === existingInstallment.id
-                            return (
-                              <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-700">
-                                <Label className="text-xs font-medium text-zinc-500 mb-1.5 flex items-center gap-1.5">
-                                  <Upload className="h-3 w-3" />
-                                  {locale === 'th' ? 'หลักฐานการชำระเงิน' : 'Payment Proof'}
-                                </Label>
-                                {proofUrl ? (
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <div className="relative group w-16 h-16 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 shrink-0">
-                                      {proofUrl.endsWith('.pdf') ? (
-                                        <div className="w-full h-full flex items-center justify-center bg-red-50 dark:bg-red-950/30">
-                                          <FileText className="h-6 w-6 text-red-500" />
-                                        </div>
-                                      ) : (
-                                        <img src={proofUrl} alt="receipt" className="w-full h-full object-cover" />
-                                      )}
-                                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
-                                        <a href={proofUrl} target="_blank" rel="noopener noreferrer" className="p-1 rounded bg-white/20 hover:bg-white/40">
-                                          <Eye className="h-3 w-3 text-white" />
-                                        </a>
-                                      </div>
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">✓ {locale === 'th' ? 'อัพโหลดแล้ว' : 'Uploaded'}</span>
-                                      <div className="flex gap-1">
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-6 text-[10px] px-2 gap-1"
-                                          disabled={isUploading}
-                                          onClick={() => fileInputRefs.current[existingInstallment.id]?.click()}
-                                        >
-                                          <Upload className="h-2.5 w-2.5" />
-                                          {locale === 'th' ? 'เปลี่ยน' : 'Change'}
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 text-[10px] px-2 gap-1 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                          disabled={isUploading}
-                                          onClick={() => handleDeleteProof(existingInstallment.id)}
-                                        >
-                                          <Trash2 className="h-2.5 w-2.5" />
-                                          {locale === 'th' ? 'ลบ' : 'Delete'}
-                                        </Button>
-                                      </div>
-                                    </div>
-                                    <input
-                                      type="file"
-                                      accept="image/*,.pdf"
-                                      className="hidden"
-                                      ref={el => { fileInputRefs.current[existingInstallment.id] = el }}
-                                      onChange={e => {
-                                        const f = e.target.files?.[0]
-                                        if (f) handleUploadProof(existingInstallment.id, f)
-                                        e.target.value = ''
-                                      }}
-                                    />
-                                  </div>
-                                ) : (
-                                  <div
-                                    className={`mt-1 border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors ${isUploading ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20' : 'border-zinc-200 dark:border-zinc-700 hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-950/10'}`}
-                                    onClick={() => !isUploading && fileInputRefs.current[existingInstallment.id]?.click()}
-                                    onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
-                                    onDrop={e => {
-                                      e.preventDefault(); e.stopPropagation()
-                                      const f = e.dataTransfer.files[0]
-                                      if (f) handleUploadProof(existingInstallment.id, f)
-                                    }}
-                                  >
-                                    {isUploading ? (
-                                      <div className="flex items-center justify-center gap-2">
-                                        <div className="h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                                        <span className="text-xs text-blue-600 dark:text-blue-400">{locale === 'th' ? 'กำลังอัพโหลด...' : 'Uploading...'}</span>
-                                      </div>
-                                    ) : (
-                                      <>
-                                        <Upload className="h-5 w-5 text-zinc-400 mx-auto mb-1" />
-                                        <p className="text-xs text-zinc-500">
-                                          {locale === 'th' ? 'คลิกหรือลากไฟล์มาวาง' : 'Click or drag file here'}
-                                        </p>
-                                        <p className="text-[10px] text-zinc-400 mt-0.5">JPEG, PNG, WebP, PDF (สูงสุด 10MB)</p>
-                                      </>
-                                    )}
-                                    <input
-                                      type="file"
-                                      accept="image/*,.pdf"
-                                      className="hidden"
-                                      ref={el => { fileInputRefs.current[existingInstallment.id] = el }}
-                                      onChange={e => {
-                                        const f = e.target.files?.[0]
-                                        if (f) handleUploadProof(existingInstallment.id, f)
-                                        e.target.value = ''
-                                      }}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })()}
-                        </div>
-                      ))}
-                      {formInstallments.length === 0 && (
-                        <p className="text-xs text-zinc-400 text-center py-3">{locale === 'th' ? 'ยังไม่มีงวดชำระ' : 'No installments yet'}</p>
-                      )}
-                    </div>
-
-                    {/* Outstanding Balance */}
-                    {netTotal > 0 && (
-                      <div className={`p-3 rounded-lg ${outstanding <= 0 ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/30' : 'bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30'}`}>
-                        <div className="flex justify-between items-center">
-                          <span className={`text-xs font-semibold ${outstanding <= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                            {outstanding <= 0 ? (locale === 'th' ? '✅ ชำระครบ' : '✅ Fully Paid') : (locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding')}
-                          </span>
-                          <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
-                            ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
-                          <span>{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}: ฿{totalPaid.toLocaleString()}</span>
-                          <span>{locale === 'th' ? 'ยอดสุทธิ' : 'Net'}: ฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    <EditField label={tc.quotationRef} value={form.quotation_ref} onChange={v => updateForm('quotation_ref', v)} />
-                    <div>
-                      <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{tc.notesLabel}</Label>
-                      <Textarea
-                        value={form.notes}
-                        onChange={e => updateForm('notes', e.target.value)}
-                        rows={3}
-                        className="text-sm"
-                        placeholder={tc.notesPlaceholder}
-                      />
-                    </div>
-                    <CardEditActions section="financial" />
-                  </div>
-                )
-              })() : (() => {
-                // View mode: tax calculation
-                const basePrice = lead.confirmed_price || lead.quoted_price || 0
-                const vatMode = lead.vat_mode || 'none'
-                const whtRate = lead.wht_rate || 0
-                const vatAmount = vatMode === 'excluded' ? basePrice * 0.07
-                  : vatMode === 'included' ? basePrice - (basePrice / 1.07) : 0
-                const priceBeforeVat = vatMode === 'included' ? basePrice / 1.07 : basePrice
-                const whtAmount = priceBeforeVat * (whtRate / 100)
-                const netTotal = vatMode === 'excluded'
-                  ? basePrice + vatAmount - whtAmount
-                  : basePrice - whtAmount
-                const totalPaid = (lead.deposit || 0) + initialInstallments.filter(i => i.is_paid).reduce((s, i) => s + (i.amount || 0), 0)
-                const outstanding = netTotal - totalPaid
-
-                return (
-                  <>
-                    <InfoRow label={tc.quotedPrice} value={lead.quoted_price ? `฿${lead.quoted_price.toLocaleString()}` : null} />
-                    <InfoRow label={tc.confirmedPrice} value={lead.confirmed_price ? `฿${lead.confirmed_price.toLocaleString()}` : null} />
-                    <InfoRow label={tc.depositLabel} value={lead.deposit ? `฿${lead.deposit.toLocaleString()}` : null} />
-
-                    {/* Tax Summary in View Mode */}
-                    {(vatMode !== 'none' || whtRate > 0) && basePrice > 0 && (
-                      <div className="p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
-                        {vatMode !== 'none' && (
-                          <>
-                            <div className="flex justify-between text-xs">
-                              <span className="text-zinc-500">{locale === 'th' ? 'ราคาก่อน VAT' : 'Before VAT'}</span>
-                              <span className="font-medium text-zinc-700 dark:text-zinc-300">฿{priceBeforeVat.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            </div>
-                            <div className="flex justify-between text-xs">
-                              <span className="text-zinc-500">VAT 7% ({vatMode === 'included' ? (locale === 'th' ? 'รวมแล้ว' : 'incl.') : (locale === 'th' ? 'ยังไม่รวม' : 'excl.')})</span>
-                              <span className="font-medium text-blue-600 dark:text-blue-400">{vatMode === 'excluded' ? '+' : ''}฿{vatAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            </div>
-                          </>
-                        )}
-                        {whtRate > 0 && (
-                          <div className="flex justify-between text-xs">
-                            <span className="text-zinc-500">{locale === 'th' ? `หัก ณ ที่จ่าย ${whtRate}%` : `WHT ${whtRate}%`}</span>
-                            <span className="font-medium text-red-600 dark:text-red-400">-฿{whtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                          </div>
-                        )}
-                        <div className="border-t border-emerald-200 dark:border-emerald-800 pt-1.5 flex justify-between text-xs">
-                          <span className="font-semibold text-zinc-700 dark:text-zinc-300">{locale === 'th' ? 'ยอดสุทธิ' : 'Net Total'}</span>
-                          <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Dynamic Installments (View) */}
-                    {initialInstallments.map(inst => {
-                      const isOverduePayment = inst.due_date && !inst.is_paid && new Date(inst.due_date) < new Date()
-                      const borderColor = inst.is_paid
-                        ? 'border-l-emerald-500'
-                        : isOverduePayment
-                          ? 'border-l-red-500'
-                          : 'border-l-zinc-200 dark:border-l-zinc-700'
-
-                      return (
-                        <div key={inst.id} className={`border-l-[3px] ${borderColor} rounded-r-lg bg-zinc-50/50 dark:bg-zinc-800/30 px-3 py-2.5`}>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                              {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
-                            </span>
-                            {inst.is_paid ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full">
-                                ✓ {(tc as any).paid || 'ชำระแล้ว'}
-                              </span>
-                            ) : isOverduePayment ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 px-2 py-0.5 rounded-full">
-                                ⚠ {(tc as any).overdue || 'เลยกำหนด'}
-                              </span>
-                            ) : inst.due_date ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
-                                {(tc as any).unpaid || 'ยังไม่ชำระ'}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="flex items-baseline justify-between">
-                            <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                              {inst.amount ? `฿${inst.amount.toLocaleString()}` : '—'}
-                            </span>
-                            {inst.due_date && (
-                              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                                {(tc as any).dueDate || 'วันนัดชำระ'}: {inst.due_date}
-                              </span>
-                            )}
-                          </div>
-                          {inst.is_paid && inst.paid_date && (
-                            <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">
-                              {(tc as any).paidDate || 'วันที่ชำระจริง'}: {inst.paid_date}
-                            </div>
-                          )}
-                          {/* Payment Proof - View Mode (with upload capability) */}
-                          {(() => {
-                            const proofUrl = localReceiptUrls[inst.id] || inst.receipt_url
-                            const isUploading = uploadingInstallment === inst.id
-                            return (
-                              <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-700/50">
-                                <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 flex items-center gap-1 mb-1.5">
-                                  <Upload className="h-3 w-3" />
-                                  {locale === 'th' ? 'หลักฐานการชำระเงิน' : 'Payment Proof'}
-                                </span>
-                                {proofUrl ? (
-                                  <div className="flex items-center gap-2">
-                                    <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 shrink-0 cursor-pointer">
-                                      {proofUrl.endsWith('.pdf') ? (
-                                        <a href={proofUrl} target="_blank" rel="noopener noreferrer" className="w-full h-full flex items-center justify-center bg-red-50 dark:bg-red-950/30">
-                                          <FileText className="h-5 w-5 text-red-500" />
-                                        </a>
-                                      ) : (
-                                        <a href={proofUrl} target="_blank" rel="noopener noreferrer">
-                                          <img src={proofUrl} alt="receipt" className="w-full h-full object-cover" />
-                                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <Eye className="h-4 w-4 text-white" />
-                                          </div>
-                                        </a>
-                                      )}
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">✓ {locale === 'th' ? 'อัพโหลดแล้ว' : 'Uploaded'}</span>
-                                      <div className="flex gap-1">
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-6 text-[10px] px-2 gap-1"
-                                          disabled={isUploading}
-                                          onClick={() => fileInputRefs.current[`view_${inst.id}`]?.click()}
-                                        >
-                                          <Upload className="h-2.5 w-2.5" />
-                                          {locale === 'th' ? 'เปลี่ยน' : 'Change'}
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 text-[10px] px-2 gap-1 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                          disabled={isUploading}
-                                          onClick={() => handleDeleteProof(inst.id)}
-                                        >
-                                          <Trash2 className="h-2.5 w-2.5" />
-                                          {locale === 'th' ? 'ลบ' : 'Delete'}
-                                        </Button>
-                                      </div>
-                                      <a
-                                        href={proofUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
-                                      >
-                                        {locale === 'th' ? 'ดูขนาดเต็ม' : 'View full size'}
-                                      </a>
-                                    </div>
-                                    <input
-                                      type="file"
-                                      accept="image/*,.pdf"
-                                      className="hidden"
-                                      ref={el => { fileInputRefs.current[`view_${inst.id}`] = el }}
-                                      onChange={e => {
-                                        const f = e.target.files?.[0]
-                                        if (f) handleUploadProof(inst.id, f)
-                                        e.target.value = ''
-                                      }}
-                                    />
-                                  </div>
-                                ) : (
-                                  <div
-                                    className={`border-2 border-dashed rounded-lg p-2.5 text-center cursor-pointer transition-colors ${isUploading ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20' : 'border-zinc-200 dark:border-zinc-700 hover:border-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-950/10'}`}
-                                    onClick={() => !isUploading && fileInputRefs.current[`view_${inst.id}`]?.click()}
-                                    onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
-                                    onDrop={e => {
-                                      e.preventDefault(); e.stopPropagation()
-                                      const f = e.dataTransfer.files[0]
-                                      if (f) handleUploadProof(inst.id, f)
-                                    }}
-                                  >
-                                    {isUploading ? (
-                                      <div className="flex items-center justify-center gap-2">
-                                        <div className="h-3.5 w-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                                        <span className="text-xs text-blue-600 dark:text-blue-400">{locale === 'th' ? 'กำลังอัพโหลด...' : 'Uploading...'}</span>
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center justify-center gap-2">
-                                        <Upload className="h-3.5 w-3.5 text-zinc-400" />
-                                        <span className="text-xs text-zinc-500">
-                                          {locale === 'th' ? 'อัพโหลดสลิป' : 'Upload slip'}
-                                        </span>
-                                      </div>
-                                    )}
-                                    <input
-                                      type="file"
-                                      accept="image/*,.pdf"
-                                      className="hidden"
-                                      ref={el => { fileInputRefs.current[`view_${inst.id}`] = el }}
-                                      onChange={e => {
-                                        const f = e.target.files?.[0]
-                                        if (f) handleUploadProof(inst.id, f)
-                                        e.target.value = ''
-                                      }}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })()}
-                        </div>
-                      )
-                    })}
-
-                    {/* Outstanding Balance (View) */}
-                    {basePrice > 0 && (
-                      <div className={`p-3 rounded-lg ${outstanding <= 0 ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/30' : 'bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30'}`}>
-                        <div className="flex justify-between items-center">
-                          <span className={`text-xs font-semibold ${outstanding <= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                            {outstanding <= 0 ? (locale === 'th' ? '✅ ชำระครบ' : '✅ Fully Paid') : (locale === 'th' ? '💳 ยอดค้างชำระ' : '💳 Outstanding')}
-                          </span>
-                          <span className={`text-sm font-bold ${outstanding <= 0 ? 'text-emerald-600' : 'text-amber-700 dark:text-amber-300'}`}>
-                            ฿{outstanding.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
-                          <span>{locale === 'th' ? 'ชำระแล้ว' : 'Paid'}: ฿{totalPaid.toLocaleString()}</span>
-                          <span>{locale === 'th' ? 'ยอดสุทธิ' : 'Net'}: ฿{netTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    <InfoRow label={tc.quotationRef} value={lead.quotation_ref} />
-                    {lead.notes && <InfoRow label={tc.notesLabel} value={lead.notes} />}
-                  </>
-                )
-              })()}
-            </CardContent>}
-          </Card>
+          <CustomerCard
+            {...cardProps('customer')}
+            settings={settings}
+            packages={packages}
+            workTypeOptions={workTypeOptions}
+            onPackageChange={handlePackageChange}
+          />
+          <EventCard
+            {...cardProps('event')}
+            staffRoleOptions={staffRoleOptions}
+            onRequiredRolesChange={v => setForm(prev => ({ ...prev, required_roles: v }))}
+          />
+          <FinancialCard
+            {...cardProps('financial')}
+            formInstallments={formInstallments}
+            setFormInstallments={setFormInstallments}
+            initialInstallments={initialInstallments}
+            localReceiptUrls={localReceiptUrls}
+            uploadingInstallment={uploadingInstallment}
+            onUploadProof={handleUploadProof}
+            onDeleteProof={handleDeleteProof}
+          />
         </div>
 
         {/* Right: Activity Timeline */}
         <div>
-          <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
-            <CollapsibleCardHeader
-              sectionKey="activity"
-              icon={<Clock className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />}
-              iconBg="bg-orange-50 dark:bg-orange-950/40"
-              title={ta.title}
-            />
-            {!collapsed.activity && <CardContent>
-              {/* Add Activity Form */}
-              <form onSubmit={handleAddActivity} className="mb-6 space-y-3">
-                <div className="flex gap-2">
-                  {['call', 'line', 'email', 'meeting', 'note'].map(type => {
-                    const Icon = activityIcons[type] || FileText
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => setActivityType(type)}
-                        className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${activityType === type
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                          : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
-                          }`}
-                      >
-                        <Icon className="h-3 w-3" />
-                        {activityLabels[type] || type.charAt(0).toUpperCase() + type.slice(1)}
-                      </button>
-                    )
-                  })}
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <MentionTextarea
-                      value={activityDesc}
-                      onChange={setActivityDesc}
-                      users={users}
-                      placeholder={ta.addNotePlaceholder}
-                      rows={2}
-                      onMentionedUsersChange={setMentionedActivityUsers}
-                    />
-                  </div>
-                  <Button type="submit" size="sm" disabled={addingActivity || !activityDesc.trim()}>
-                    {addingActivity ? '...' : ta.add}
-                  </Button>
-                </div>
-              </form>
-
-              {/* Timeline */}
-              <div className="space-y-4">
-                {activities.length === 0 && (
-                  <p className="text-sm text-zinc-400 text-center py-4">{ta.noActivities}</p>
-                )}
-                {activities.map((activity, idx) => {
-                  const Icon = activityIcons[activity.activity_type] || FileText
-                  const isStatusChange = activity.activity_type === 'status_change'
-
-                  return (
-                    <div key={activity.id} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <div className={`flex items-center justify-center h-8 w-8 rounded-full shrink-0 ${isStatusChange
-                          ? 'bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400'
-                          : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
-                          }`}>
-                          <Icon className="h-3.5 w-3.5" />
-                        </div>
-                        {idx < activities.length - 1 && (
-                          <div className="w-px flex-1 bg-zinc-200 dark:bg-zinc-700 mt-1" />
-                        )}
-                      </div>
-                      <div className="pb-4 min-w-0 flex-1">
-                        {isStatusChange ? (
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {activity.old_status && (
-                              <Badge variant="outline" className="text-[10px]">
-                                {getStatusLabel(activity.old_status)}
-                              </Badge>
-                            )}
-                            <span className="text-xs text-zinc-400">→</span>
-                            {activity.new_status && (
-                              <Badge className={`text-[10px] border-0`} style={{ backgroundColor: `${getStatusConfig(settings, activity.new_status).color}15`, color: getStatusConfig(settings, activity.new_status).color }}>
-                                {getStatusLabel(activity.new_status)}
-                              </Badge>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-zinc-700 dark:text-zinc-300">{activity.description}</p>
-                        )}
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] text-zinc-400">
-                            {new Date(activity.created_at).toLocaleString(locale === 'th' ? 'th-TH' : 'en-GB', {
-                              day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-                            })}
-                          </span>
-                          {activity.profiles && (
-                            <span className="text-[10px] text-zinc-400">
-                              {ta.by} {(activity.profiles as any)?.full_name || 'System'}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </CardContent>}
-          </Card>
+          <ActivityTimeline
+            activities={activities}
+            users={users}
+            settings={settings}
+            getStatusLabel={getStatusLabel}
+            collapsed={!!collapsed.activity}
+            onToggle={() => toggleCollapse('activity')}
+            activityType={activityType}
+            setActivityType={setActivityType}
+            activityDesc={activityDesc}
+            setActivityDesc={setActivityDesc}
+            addingActivity={addingActivity}
+            setMentionedActivityUsers={setMentionedActivityUsers}
+            handleAddActivity={handleAddActivity}
+          />
         </div>
       </div>
-    </div>
-  )
-}
-
-// ============================================================================
-// Edit Field helper — Input with label
-// ============================================================================
-
-function EditField({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  type?: string
-  placeholder?: string
-}) {
-  return (
-    <div>
-      <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{label}</Label>
-      <Input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="h-9 text-sm"
-      />
-    </div>
-  )
-}
-
-// ============================================================================
-// Edit Select helper — Dropdown with label
-// ============================================================================
-
-function EditSelect({
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: { id?: string; value: string; label: string }[]
-  placeholder?: string
-}) {
-  // Deduplicate by value for display (Radix shows checkmark for ALL items with matching value)
-  const seen = new Set<string>()
-  const displayOptions = options.filter(o => {
-    if (seen.has(o.value)) return false
-    seen.add(o.value)
-    return true
-  })
-  // Only pass value if it matches a valid option; otherwise omit for "no selection"
-  const isValid = value && displayOptions.some(o => o.value === value)
-  const selectProps = isValid ? { value, onValueChange: onChange } : { onValueChange: onChange }
-  return (
-    <div>
-      <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{label}</Label>
-      <Select {...selectProps}>
-        <SelectTrigger className="h-9 text-sm">
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent position="popper" className="max-h-[300px] overflow-y-auto">
-          {displayOptions.map(opt => (
-            <SelectItem key={opt.id || opt.value} value={opt.value}>{opt.label}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  )
-}
-
-// ============================================================================
-// Info Row helper — Read-only display
-// ============================================================================
-
-function InfoRow({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex justify-between items-start gap-4">
-      <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{label}</span>
-      <span className="text-sm text-zinc-900 dark:text-zinc-100 text-right">{value || '—'}</span>
+      {confirmDialog}
     </div>
   )
 }
