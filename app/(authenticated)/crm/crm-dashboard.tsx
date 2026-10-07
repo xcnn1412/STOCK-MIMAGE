@@ -182,7 +182,7 @@ export default function CrmDashboard({ leads, settings, users, window: loadWindo
           {isEn
             ? `${missingStatuses.length} status value(s) not configured: ${missingStatuses.join(', ')} — `
             : `มี ${missingStatuses.length} สถานะที่ยังไม่ได้ตั้งค่า: ${missingStatuses.join(', ')} — `}
-          <Link href="/settings" className="font-medium underline">{isEn ? 'Settings' : 'ไปตั้งค่า'}</Link>
+          <Link href="/settings?section=crm" className="font-medium underline">{isEn ? 'Settings' : 'ไปตั้งค่า'}</Link>
         </div>
       )}
 

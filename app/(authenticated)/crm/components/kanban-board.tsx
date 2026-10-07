@@ -10,7 +10,7 @@ import {
 import { updateLeadStatus } from '../actions'
 import {
   boardStatuses, getStatusConfig,
-  type BoardLead, type CrmLead, type CrmSetting, type LeadStatus, type SystemUser
+  addDays, bangkokToday, type BoardLead, type CrmSetting, type LeadStatus, type SystemUser
 } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 
@@ -350,32 +350,12 @@ function KanbanCard({
 
   const allTags = [...generalTags, ...statusTags]
 
-  // Compute overdue installments (ponytail: BoardLead doesn't select installment_N, so these stay empty on the board)
-  const inst: Partial<CrmLead> = lead
-  const today = new Date()
-  const overduePayments: number[] = []
-  for (const n of [1, 2, 3, 4] as const) {
-    const amount = inst[`installment_${n}` as const]
-    const date = inst[`installment_${n}_date` as const]
-    const paid = inst[`installment_${n}_paid` as const]
-    if (amount && amount > 0 && date && !paid && new Date(date) < today) {
-      overduePayments.push(n)
-    }
-  }
-  // Upcoming (within 3 days)
-  const upcomingPayments: number[] = []
-  for (const n of [1, 2, 3, 4] as const) {
-    const amount = inst[`installment_${n}` as const]
-    const date = inst[`installment_${n}_date` as const]
-    const paid = inst[`installment_${n}_paid` as const]
-    if (amount && amount > 0 && date && !paid) {
-      const dueDate = new Date(date)
-      const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-      if (diffDays >= 0 && diffDays <= 3 && !overduePayments.includes(n)) {
-        upcomingPayments.push(n)
-      }
-    }
-  }
+  // งวดเลยกำหนด / ใกล้กำหนด (ภายใน 3 วัน) — จากตารางงวดจริงที่ server ส่งมาใน lead.installments
+  const todayYmd = bangkokToday(Date.now())
+  const soonYmd = addDays(todayYmd, 3)
+  const unpaid = (lead.installments ?? []).filter(i => i.amount > 0 && !!i.due_date && !i.is_paid)
+  const overduePayments = unpaid.filter(i => (i.due_date as string) < todayYmd).map(i => i.installment_number)
+  const upcomingPayments = unpaid.filter(i => (i.due_date as string) >= todayYmd && (i.due_date as string) <= soonYmd).map(i => i.installment_number)
 
   const [expanded, setExpanded] = useState(false)
 

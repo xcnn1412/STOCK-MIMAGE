@@ -11,7 +11,7 @@ import McpAdminCard from '@/app/(authenticated)/connected-apps/admin-card'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
 import type { CrmSetting } from '@/app/(authenticated)/crm/types'
 
-type SettingsSection = 'finance' | 'crm' | 'content' | 'events'
+export type SettingsSection = 'finance' | 'crm' | 'content' | 'events'
 
 const sections: {
   key: SettingsSection
@@ -91,12 +91,14 @@ interface Props {
   eventPermissionIds: { edit: string[]; close: string[] }
   /** การเชื่อมต่อ Claude (MCP) — มีค่าเฉพาะ admin, null = ไม่แสดงการ์ด */
   mcp: { liveCount: number; endpoint: string } | null
+  /** แท็บที่เปิดก่อน (จาก ?section=) — ไม่ส่ง = การเงิน */
+  initialSection?: SettingsSection
 }
 
-export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken, eventPermissionIds, mcp }: Props) {
+export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken, eventPermissionIds, mcp, initialSection }: Props) {
   const { locale } = useLocale()
   const t = labels[locale] || labels.th
-  const [activeSection, setActiveSection] = useState<SettingsSection>('finance')
+  const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection ?? 'finance')
 
   return (
     <div className="space-y-6">

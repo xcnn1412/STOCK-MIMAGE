@@ -5,6 +5,7 @@ import EditEventForm from './edit-event-form'
 import { loadBookingsForEvent, loadOpenBookings } from '@/lib/kit-bookings'
 import { getCrmSettings } from '../../../crm/actions'
 import type { EventLog } from '../../events-log-sheet'
+import { readAllRows } from '@/lib/read-all-rows'
 
 import type { Kit } from '@/types'
 import type { CrmSettingRow, StaffAssignment } from '../../event-form-types'
@@ -85,10 +86,13 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
   }
 
   // 6. Fetch CRM leads list for "เชื่อมกับ CRM" dropdown
-  const { data: crmLeads } = await serviceClient
+  // PostgREST ตัดที่ 1,000 แถวต่อคำขอ → อ่านทีละหน้าให้ครบทุกราย (เรียง created_at + id ให้คงที่)
+  const { rows: crmLeads } = await readAllRows<{ id: string; customer_name: string; event_date: string | null; package_name: string | null }>((from, to) => serviceClient
     .from('crm_leads')
     .select('id, customer_name, event_date, package_name')
     .order('created_at', { ascending: false })
+    .order('id')
+    .range(from, to))
 
   // 7. Fetch logs specific to this event
   const { data: rawLogs } = await serviceClient
