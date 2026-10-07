@@ -1,7 +1,8 @@
-// สิทธิ์ทีมจัดของ — server-only (อ่าน session + job_settings ด้วย service client) · ไม่ใช่ 'use server'
+// สิทธิ์ทีมจัดของ + ผู้รับของ — server-only (อ่าน session + job_settings ด้วย service client) · ไม่ใช่ 'use server'
 // ทีมจัดของ = แอดมิน หรือแผนกที่ตั้งเป็นผู้รับหน้าที่ "จัดของ" (job_settings หมวด pool_duty_kits — ยังไม่ตั้ง = ค่าเริ่มต้น)
 import { createServiceClient } from '@/lib/supabase-server'
 import { requireAuth } from '@/lib/auth'
+import { hasModule } from '@/lib/stock'
 import { canActOnPool, POOL_TEAM_DEFAULTS } from '../jobs/tracking/tracking-logic'
 
 export const PACKING_TEAM_CATEGORY = 'pool_duty_kits'
@@ -28,4 +29,16 @@ export async function getPackingTeam(): Promise<PackingTeamMember | null> {
   if (isAdmin) return { userId: auth.userId, isAdmin, department }
   const departments = await packingTeamDepartments()
   return canActOnPool(department, false, departments) ? { userId: auth.userId, isAdmin, department } : null
+}
+
+export interface HandoverUser {
+  userId: string
+}
+
+/**
+ * "ผู้รับของ" — รับของ/คืนของที่จุดรับของ (เฟส 4) = แอดมิน หรือผู้ใช้ที่มีโมดูล events หรือ stock (lib/stock.ts::hasModule)
+ * ไม่ใช่/ไม่ได้ล็อกอิน = null · server action ตรวจเองทุกครั้ง
+ */
+export async function getHandoverUser(): Promise<HandoverUser | null> {
+  return (await hasModule('events')) ?? (await hasModule('stock'))
 }

@@ -1,10 +1,11 @@
-// ใบจัดของ (เฟส 3) — รัน server action จริงกับฐานข้อมูลจำลองในหน่วยความจำ
+// ใบจัดของ (เฟส 3–4) — รัน server action จริงกับฐานข้อมูลจำลองในหน่วยความจำ
 // Run:  npx tsx scripts/packing-flow.check.ts
 //
 // ไม่แตะฐานข้อมูล/สตอเรจจริง ไม่ต้องมี env: แทน next/headers, next/cache และ @/lib/supabase-server ด้วยตัวจำลอง
 // (เทคนิคเดียวกับ scripts/purchasing-flow.check.ts) · logger / notifications ใช้ตัวจริงเขียนลงตารางจำลอง
 // ฐานข้อมูลจำลองมี SCHEMA ต่อตาราง (อ้างคอลัมน์ที่ไม่มี = ล้ม), ตัดผลที่ 1,000 แถวเหมือน PostgREST, .or() = throw
-// ครอบคลุม docs/specs/equipment-flow.md เกณฑ์ P3-6 ข้อ (a)–(k) · คนและงานทั้งหมดสังเคราะห์
+// ครอบคลุม docs/specs/equipment-flow.md เกณฑ์ P3-6 ข้อ (a)–(k) และ P4-6 ข้อ (l)–(s) · คนและงานทั้งหมดสังเคราะห์
+// rpc('adjust_item_stock') จำลองแบบง่าย: ยอดห้ามติดลบ + unique (event_id, kit_id, item_id) ของ reason 'use' → 23505
 // บรรทัดสุดท้ายของผลลัพธ์ต้องเป็น "packing-flow: ผ่านทั้งหมด"
 
 import assert from 'node:assert/strict'
@@ -19,6 +20,7 @@ type Result = { data: unknown; error: DbError | null }
 
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 const ADMIN = uid(1), PACKER = uid(2), OTHER = uid(3), LEADER = uid(4), STAFF1 = uid(5)
+const EVUSER = uid(6), CRMUSER = uid(7), CLOSER = uid(8)
 const LEAD_WON = uid(101), LEAD_NOPKG = uid(102), LEAD_QUOTE = uid(103)
 const EV1 = uid(201), EV_OTHER = uid(202)
 const CAT_COMP = uid(301), CAT_BOOTH = uid(302), CAT_BAG = uid(303)
@@ -34,14 +36,18 @@ const PUBLIC_BASE = 'https://fake.supabase.test/storage/v1/object/public'
 
 // ── SCHEMA: ตาราง → คอลัมน์ที่มีจริง ───────────────────────────────────────────
 const SCHEMA: Record<string, string[]> = {
-  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'active_session_id'],
+  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'active_session_id', 'allowed_modules'],
+  app_settings: ['key', 'value', 'updated_at'],
   job_settings: ['id', 'category', 'value', 'label_th', 'label_en', 'color', 'sort_order', 'is_active'],
   crm_leads: ['id', 'customer_name', 'event_location', 'event_date', 'event_time', 'event_end_time', 'status', 'archived_at', 'created_by', 'quoted_price', 'package_name', 'created_at', 'updated_at'],
   events: ['id', 'name', 'location', 'event_date', 'event_time', 'event_end_time', 'status', 'crm_lead_id', 'phase', 'created_at'],
   event_staff: ['id', 'event_id', 'user_id', 'role', 'created_at'],
-  jobs: ['id', 'job_type', 'status', 'claimed_by', 'crm_lead_id', 'archived_at', 'created_at'],
+  jobs: ['id', 'job_type', 'status', 'claimed_by', 'crm_lead_id', 'archived_at', 'created_at', 'updated_at'],
+  job_activities: ['id', 'job_id', 'created_by', 'activity_type', 'description', 'old_status', 'new_status', 'created_at'],
   equipment_categories: ['id', 'name', 'sort_order', 'is_active', 'sales_pick', 'variants', 'created_at'],
-  items: ['id', 'name', 'serial_number', 'status', 'category_id', 'shelf_id', 'is_consumable', 'created_at'],
+  items: ['id', 'name', 'serial_number', 'status', 'category_id', 'shelf_id', 'is_consumable', 'quantity', 'unit', 'image_url', 'created_at'],
+  stock_movements: ['id', 'item_id', 'delta', 'balance_after', 'reason', 'note', 'event_id', 'kit_id', 'created_by', 'created_at'],
+  event_closures: ['id', 'event_name', 'event_date', 'event_location', 'closed_by', 'closed_at', 'kits_snapshot', 'notes', 'image_urls', 'created_at'],
   kits: ['id', 'name', 'category_id', 'shelf_id', 'event_id', 'created_at'],
   kit_contents: ['id', 'kit_id', 'item_id', 'quantity'],
   event_kits: ['id', 'event_id', 'kit_id', 'packed_at', 'packed_by', 'created_at'],
@@ -101,15 +107,16 @@ const REL: Record<string, { type: 'one' | 'many'; fk: string }> = {
   'event_kits.events': { type: 'one', fk: 'event_id' },
   'package_requirements.equipment_categories': { type: 'one', fk: 'category_id' },
   'items.kit_contents': { type: 'many', fk: 'item_id' },
+  'kits.kit_contents': { type: 'many', fk: 'kit_id' },
 }
 
 const MAX_ROWS = 1000
 
 // ── ข้อมูลตั้งต้น ──────────────────────────────────────────────────────────────
-const person = (id: string, full_name: string, role: string, department: string): Row =>
-  ({ id, full_name, nickname: null, role, department, is_approved: true, active_session_id: `sess-${id}` })
+const person = (id: string, full_name: string, role: string, department: string, allowed_modules: string[] | null = null): Row =>
+  ({ id, full_name, nickname: null, role, department, is_approved: true, active_session_id: `sess-${id}`, allowed_modules })
 const item = (id: string, name: string, category_id: string | null, status = 'available', extra: Row = {}): Row =>
-  ({ id, name, serial_number: null, status, category_id, shelf_id: null, is_consumable: false, created_at: NOW, ...extra })
+  ({ id, name, serial_number: null, status, category_id, shelf_id: null, is_consumable: false, quantity: null, unit: null, image_url: null, created_at: NOW, ...extra })
 
 const lead0: Row = { event_date: DAY, event_time: null, event_end_time: null, archived_at: null, created_by: ADMIN, quoted_price: null, package_name: null, created_at: NOW, updated_at: NOW }
 
@@ -120,8 +127,16 @@ const db: Record<string, Row[]> = {
     person(OTHER, 'คนออกแบบ ทดสอบ', 'staff', 'ฝ่ายออกแบบ'),
     person(LEADER, 'หัวหน้างาน ทดสอบ', 'staff', 'ทีมออกหน้างาน'),
     person(STAFF1, 'สตาฟ ทดสอบ', 'staff', 'สตาฟ'),
+    person(EVUSER, 'อีเวนต์ ทดสอบ', 'staff', 'สตาฟ', ['events']),
+    person(CRMUSER, 'ฝ่ายขาย ทดสอบ', 'staff', 'ฝ่ายขาย', ['crm']),
+    person(CLOSER, 'ผู้ปิดงาน ทดสอบ', 'staff', 'บัญชี', ['events']),
   ],
-  job_settings: [{ id: uid(901), category: 'pool_duty_kits', value: 'ทีมจัดของ', label_th: 'ทีมจัดของ', label_en: 'ทีมจัดของ', color: null, sort_order: 0, is_active: true }],
+  app_settings: [{ key: 'events_closers', value: JSON.stringify([CLOSER]), updated_at: NOW }],
+  job_settings: [
+    { id: uid(901), category: 'pool_duty_kits', value: 'ทีมจัดของ', label_th: 'ทีมจัดของ', label_en: 'ทีมจัดของ', color: null, sort_order: 0, is_active: true },
+    // ไปป์ไลน์ status_onsite (เรียง sort_order) — hook รับของเลื่อนเป็น loading
+    ...['awaiting_claim', 'preparing', 'loading', 'onsite', 'teardown', 'done'].map((value, i) => ({ id: uid(911 + i), category: 'status_onsite', value, label_th: value, label_en: value, color: null, sort_order: i, is_active: true })),
+  ],
   crm_leads: [
     { ...lead0, id: LEAD_WON, customer_name: 'บริษัท ทดสอบ จำกัด', event_location: 'สยาม', status: 'accepted' },
     { ...lead0, id: LEAD_NOPKG, customer_name: 'งานไม่มีแพ็กเกจ', event_location: 'บางนา', status: 'accepted' },
@@ -135,7 +150,10 @@ const db: Record<string, Row[]> = {
     { id: uid(951), event_id: EV1, user_id: STAFF1, role: 'staff', created_at: NOW },
     { id: uid(952), event_id: EV1, user_id: PACKER, role: 'staff', created_at: NOW },
   ],
-  jobs: [{ id: JOB1, job_type: 'onsite', status: 'preparing', claimed_by: LEADER, crm_lead_id: LEAD_WON, archived_at: null, created_at: NOW }],
+  jobs: [{ id: JOB1, job_type: 'onsite', status: 'preparing', claimed_by: LEADER, crm_lead_id: LEAD_WON, archived_at: null, created_at: NOW, updated_at: NOW }],
+  job_activities: [],
+  stock_movements: [],
+  event_closures: [],
   equipment_categories: [
     { id: CAT_COMP, name: 'คอมพิวเตอร์', sort_order: 0, is_active: true, sales_pick: false, variants: [], created_at: NOW },
     { id: CAT_BOOTH, name: 'ตู้ประกอบ', sort_order: 1, is_active: true, sales_pick: true, variants: ['ประกอบ 1', 'ประกอบ 2'], created_at: NOW },
@@ -151,7 +169,7 @@ const db: Record<string, Row[]> = {
     item(KI1, 'คอมในกระเป๋า', CAT_COMP),
     item(KI2, 'กล้องในกระเป๋า', null),
     item(KI3, 'แฟลชเสีย', null, 'damaged'),
-    item(KC, 'กระดาษ', null, 'available', { is_consumable: true }),
+    item(KC, 'กระดาษ', null, 'available', { is_consumable: true, quantity: 10, unit: 'แผ่น' }),
   ],
   kits: [{ id: K1, name: 'กระเป๋า A', category_id: CAT_BAG, shelf_id: null, event_id: null, created_at: NOW }],
   kit_contents: [KI1, KI2, KI3, KC].map((item_id, i) => ({ id: uid(1001 + i), kit_id: K1, item_id, quantity: 1 })),
@@ -398,7 +416,26 @@ const storage = {
     }
   },
 }
-const fakeClient = { from: (table: string) => new Query(table), storage }
+// rpc adjust_item_stock (migration 20261007) แบบง่าย: เฉพาะวัสดุสิ้นเปลือง · ยอดห้ามติดลบ · use ซ้ำต่อ (อีเวนต์, กระเป๋า, ของ) = 23505
+function rpc(fn: string, args: Record<string, unknown>): PromiseLike<Result> {
+  return Promise.resolve().then(() => {
+    assert.equal(fn, 'adjust_item_stock', `ตัวจำลองไม่รู้จัก rpc ${fn}`)
+    const it = db.items.find(i => i.id === args.p_item)
+    if (!it?.is_consumable) return { data: null, error: { code: 'P0001', message: 'NOT_CONSUMABLE' } }
+    if (args.p_reason === 'use' && args.p_event && args.p_kit && db.stock_movements.some(m => m.reason === 'use' && m.event_id === args.p_event && m.kit_id === args.p_kit && m.item_id === args.p_item)) {
+      return dup('stock_movements')
+    }
+    const balance = Number(it.quantity ?? 0) + Number(args.p_delta)
+    if (balance < 0) return { data: null, error: { code: 'P0001', message: 'INSUFFICIENT_STOCK' } }
+    it.quantity = balance
+    db.stock_movements.push({
+      id: randomUUID(), item_id: args.p_item, delta: args.p_delta, balance_after: balance, reason: args.p_reason, note: args.p_note ?? null,
+      event_id: args.p_event ?? null, kit_id: args.p_kit ?? null, created_by: args.p_user ?? null, created_at: stamp(),
+    })
+    return { data: balance, error: null }
+  })
+}
+const fakeClient = { from: (table: string) => new Query(table), storage, rpc }
 
 // ── แทนโมดูลที่ต้องมี Next/ฐานข้อมูลจริง ─────────────────────────────────────
 const cookieJar = new Map<string, string>()
@@ -409,6 +446,7 @@ const mocks: [RegExp, unknown][] = [
     headers: async () => ({ get: () => null }),
   }],
   [/^next\/cache$/, { revalidatePath() {}, revalidateTag() {} }],
+  [/^next\/navigation$/, { redirect(url: string) { throw new Error(`redirect ${url}`) }, notFound() { throw new Error('notFound') } }],
 ]
 type Loader = (request: string, ...rest: unknown[]) => unknown
 const M = Module as unknown as { _load: Loader }
@@ -426,6 +464,9 @@ const packageActions = require('../app/(authenticated)/packages/actions') as typ
 const spots = require('../app/(authenticated)/stock/settings/actions') as typeof import('../app/(authenticated)/stock/settings/actions')
 const cleanup = require('../app/(authenticated)/items/cleanup-items') as typeof import('../app/(authenticated)/items/cleanup-items')
 const tracking = require('../app/(authenticated)/jobs/tracking/tracking-logic') as typeof import('../app/(authenticated)/jobs/tracking/tracking-logic')
+const events = require('../app/(authenticated)/events/actions') as typeof import('../app/(authenticated)/events/actions')
+const capacity = require('../app/(authenticated)/packages/capacity-data') as typeof import('../app/(authenticated)/packages/capacity-data')
+const packageLogic = require('../app/(authenticated)/packages/package-logic') as typeof import('../app/(authenticated)/packages/package-logic')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 // ── ตัวช่วย ────────────────────────────────────────────────────────────────
@@ -728,6 +769,239 @@ async function main() {
   const atSpot = await queries.loadListsAtSpot(fakeClient as never, SPOT1)
   assert.equal(atSpot.length, 0, 'ใบกำลังหยิบไม่ขึ้นที่จุดรับของ')
   pass('loadPackingListDetail / loadPackingQueue / loadListsAtSpot ทำงานกับฐานข้อมูลจำลอง (SCHEMA ครบ ไม่ใช้ .or())')
+
+  // ══ เฟส 4: รับของ → คืนของ → ปิดงาน → คืนชั้น (P4-6 ข้อ l–s) ═══════════════════════════
+  // ใบ LIST2 ตอนนี้: กำลังหยิบ · คอม 1 + กระเป๋า A หยิบแล้ว · ตู้ประกอบ ชุด 1 ยังไม่หยิบ · จุด A
+  loginAs(PACKER)
+  expectOk(await actions.pickLine(lineOf(LIST2, B1).id as string), 'หยิบตู้ (ใบใหม่)')
+  const up2 = expectOk(await actions.uploadPackingPhoto(form({ listId: LIST2, file: photoFile() })), 'รูปจัดของ (ใบใหม่)') as { url: string }
+
+  // ── (l) รับของ ─────────────────────────────────────────────────────────────
+  loginAs(EVUSER)
+  expectError(await actions.handOverPackingList(LIST2), 'พร้อมรับ', 'ใบกำลังหยิบรับของไม่ได้')
+  loginAs(PACKER)
+  expectOk(await actions.confirmPacking(LIST2, { photoUrls: [up2.url], spotId: SPOT1 }), 'ยืนยันจัดของ (ใบใหม่)')
+  loginAs(CRMUSER)
+  expectError(await actions.handOverPackingList(LIST2), 'อีเวนต์/สต็อก', 'ผู้ใช้ที่ไม่มีโมดูล events/stock รับของไม่ได้')
+  loginAs(EVUSER)
+  const allLineIds = lines(LIST2).map(l => l.id as string)
+  expectError(await actions.handOverPackingList(LIST2, { lineIds: allLineIds.slice(1) }), 'ขาด 1', 'ติ๊กไม่ครบ = error ระบุจำนวน')
+  assert.equal(row('packing_lists', LIST2).status, 'ready')
+  assert.equal(row('jobs', JOB1).status, 'preparing')
+  expectOk(await actions.handOverPackingList(LIST2, { lineIds: allLineIds }), 'รับของ (ผู้ใช้ที่มีแค่โมดูล events)')
+  const out = row('packing_lists', LIST2)
+  assert.deepEqual([out.status, out.handed_over_by], ['out', EVUSER])
+  assert.ok(out.handed_over_at)
+  assert.ok(lines(LIST2).every(l => l.handed_over_at), 'ทุกบรรทัด handed_over_at')
+  assert.equal(row('jobs', JOB1).status, 'loading', 'ใบงานหน้างาน preparing → loading')
+  const loadingActs = db.job_activities.filter(a => a.job_id === JOB1 && a.new_status === 'loading')
+  assert.equal(loadingActs.length, 1)
+  assert.deepEqual([loadingActs[0].old_status, loadingActs[0].description, loadingActs[0].created_by], ['preparing', 'ขนของอัตโนมัติ: ทีมรับของจากจุดรับของแล้ว', EVUSER])
+  assert.equal(logsOf('HAND_OVER_PACKING').length, 1)
+  assert.equal(logsOf('AUTO_LOADING_POOL_JOB').length, 1)
+  expectError(await actions.handOverPackingList(LIST2), 'รับของไปแล้ว', 'รับของซ้ำ')
+  assert.equal(db.job_activities.filter(a => a.new_status === 'loading').length, 1, 'ไม่ขยับซ้ำ')
+
+  const spotCards = await queries.loadListsAtSpot(fakeClient as never, SPOT1, ['ready', 'out'], STAFF1)
+  assert.equal(spotCards.length, 1)
+  assert.deepEqual([spotCards[0].list?.status, spotCards[0].lines.length, spotCards[0].isMine, spotCards[0].eventClosed], ['out', 3, true, false])
+  assert.equal(spotCards[0].lines.find(l => l.kit_id === K1)?.kitItems?.length, 4, 'บรรทัดกระเป๋ามีชิ้นในกระเป๋า')
+  assert.deepEqual(spotCards[0].consumables, [{ kitId: K1, itemId: KC, name: 'กระดาษ', unit: 'แผ่น', kitQuantity: 1, alreadyUsed: null }])
+  assert.equal((await queries.loadListsAtSpot(fakeClient as never, SPOT1, ['ready', 'out'], OTHER))[0].isMine, false)
+  const queueOut = await queries.loadPackingQueue(fakeClient as never, '2026-10-07')
+  assert.deepEqual([queueOut.ready.length, queueOut.out.length, queueOut.returned.length], [0, 1, 0])
+  pass('(l) handOverPackingList: ผู้ใช้โมดูล events รับของได้ · ไม่มีสิทธิ์/ใบไม่ใช่ ready/ติ๊กไม่ครบ = error · ใบ out + ทุกบรรทัด handed_over_at · ใบงาน preparing → loading + job_activities · loadListsAtSpot มีบรรทัด/ชิ้นในกระเป๋า/วัสดุสิ้นเปลือง')
+
+  // ── (m) คืนของ ─────────────────────────────────────────────────────────────
+  const lI1 = lineOf(LIST2, I1).id as string, lB1 = lineOf(LIST2, B1).id as string, lK1 = lineOf(LIST2, K1).id as string
+  const retPhoto = expectOk(await actions.uploadReturnPhoto(form({ listId: LIST2, file: photoFile('back.jpg') })), 'รูปตอนคืน') as { url: string }
+  assert.ok(retPhoto.url.startsWith(`${PUBLIC_BASE}/packing-photos/${LIST2}/return_`), 'path <listId>/return_<ts>_<name>')
+  loginAs(CRMUSER)
+  expectError(await actions.uploadReturnPhoto(form({ listId: LIST2, file: photoFile() })), 'อีเวนต์/สต็อก', 'ไม่มีสิทธิ์อัปโหลดรูปตอนคืน')
+  expectError(await actions.returnPackingList(LIST2, { lines: [], consumableUse: [], photoUrls: [] }), 'อีเวนต์/สต็อก', 'ไม่มีสิทธิ์คืนของ')
+  loginAs(EVUSER)
+  const use = [{ kitId: K1, itemId: KC, used: 3 }]
+  expectError(
+    await actions.returnPackingList(LIST2, { lines: [{ lineId: lI1, condition: 'damaged' }, { lineId: lK1, condition: 'available' }], consumableUse: use, photoUrls: [] }),
+    'ตู้ประกอบ ชุด 1',
+    'ไม่ครบสภาพ = error ระบุชื่อ',
+  )
+  expectError(
+    await actions.returnPackingList(LIST2, { lines: [{ lineId: lI1, condition: 'broken' as never }, { lineId: lB1, condition: 'available' }, { lineId: lK1, condition: 'available' }], consumableUse: use, photoUrls: [] }),
+    'สภาพไม่ถูกต้อง',
+    'สภาพนอก 4 ค่า',
+  )
+  assert.equal(db.stock_movements.length, 0, 'ตรวจไม่ผ่าน = ยังไม่ตัดยอด')
+  assert.equal(row('packing_lists', LIST2).status, 'out')
+  const ret = expectOk(
+    await actions.returnPackingList(LIST2, {
+      lines: [{ lineId: lI1, condition: 'damaged', note: 'จอแตก' }, { lineId: lB1, condition: 'available' }, { lineId: lK1, condition: 'available' }],
+      kitItems: [{ itemId: KI2, condition: 'maintenance' }],
+      consumableUse: use,
+      photoUrls: [retPhoto.url, 'https://evil.test/x.jpg'],
+      note: 'กลับถึงออฟฟิศ',
+    }),
+    'คืนของ',
+  ) as { success: true; eventClosed: boolean }
+  assert.equal(ret.eventClosed, false, 'ผู้คืนไม่มีสิทธิ์ปิดงาน → eventClosed false')
+  assert.deepEqual([status(I1), status(B1), status(KI1), status(KI2), status(KI3), status(KC)], ['damaged', 'in_use', 'in_use', 'maintenance', 'damaged', 'available'], 'เสีย/ซ่อมตั้งทันที · ใช้ได้ยัง in_use')
+  assert.equal(db.event_logs.filter(l => l.item_id === I1 && l.action === 'checkin' && l.condition === 'damaged' && l.kit_id === null).length, 1)
+  assert.equal(db.stock_movements.length, 1, 'วัสดุสิ้นเปลืองถูกตัด 1 ครั้ง')
+  assert.deepEqual([db.stock_movements[0].reason, db.stock_movements[0].delta, db.stock_movements[0].event_id, db.stock_movements[0].kit_id], ['use', -3, EV1, K1])
+  assert.equal(row('items', KC).quantity, 7)
+  const returned = row('packing_lists', LIST2)
+  assert.deepEqual([returned.status, returned.returned_by, returned.return_note, returned.return_photo_urls], ['returned', EVUSER, 'กลับถึงออฟฟิศ', [retPhoto.url]], 'รูปจากที่อื่นไม่นับ')
+  assert.deepEqual([row('packing_list_items', lI1).return_condition, row('packing_list_items', lI1).return_note, row('packing_list_items', lB1).return_condition], ['damaged', 'จอแตก', 'available'])
+  assert.ok(lines(LIST2).every(l => l.returned_at))
+  assert.equal(row('events', EV1).status, null, 'อีเวนต์ยังไม่ปิด')
+  assert.deepEqual(db.notifications.filter(n => n.type === 'packing_returned').map(n => [n.user_id, n.reference_type, n.reference_id]), [[PACKER, 'packing_list', LIST2]], 'กระดิ่งถึงทีมจัดของ')
+  assert.equal(logsOf('RETURN_PACKING').length, 1)
+  expectError(await actions.returnPackingList(LIST2, { lines: [], consumableUse: use, photoUrls: [] }), 'คืนของไปแล้ว', 'คืนซ้ำ')
+  assert.equal(db.stock_movements.length, 1, 'คืนซ้ำไม่ตัดอีก')
+  const queueRet = await queries.loadPackingQueue(fakeClient as never, '2026-10-07')
+  assert.deepEqual([queueRet.out.length, queueRet.returned.length], [0, 1])
+  const summaryRet = await queries.loadReturnSummary(fakeClient as never, EV1)
+  assert.equal(summaryRet?.list.id, LIST2)
+  assert.equal(summaryRet?.lines.find(l => l.unitId === I1)?.return_condition, 'damaged')
+  assert.deepEqual(summaryRet?.consumables.map(c => c.alreadyUsed), [3])
+  assert.equal(summaryRet?.people[EVUSER], 'อีเวนต์ ทดสอบ')
+  assert.equal(await queries.loadReturnSummary(fakeClient as never, EV_OTHER), null, 'อีเวนต์ไม่มีใบ = null')
+  pass('(m) returnPackingList: ไม่ครบสภาพ/สภาพผิด = error ไม่ตัดยอด · damaged ทันที, ใช้ได้ยัง in_use · วัสดุสิ้นเปลืองตัด 1 ครั้ง (คืนซ้ำไม่ตัด) · ใบ returned · อีเวนต์ยังเปิด (eventClosed false) · กระดิ่ง packing_returned')
+
+  // ── (n) ปิดงานจากใบ ─────────────────────────────────────────────────────────
+  expectError(await actions.closeEventFromPacking(LIST2), 'ไม่มีสิทธิ์ปิดงาน', 'ผู้ไม่มีสิทธิ์ปิดงาน')
+  assert.equal(row('events', EV1).status, null)
+  loginAs(CLOSER)
+  expectOk(await actions.closeEventFromPacking(LIST2), 'ปิดงานจากใบ')
+  assert.equal(row('events', EV1).status, 'completed')
+  assert.equal(db.event_closures.length, 1)
+  const snap = db.event_closures[0].kits_snapshot as { kitId: string; isLoose?: boolean; items: { itemId: string; status: string; isConsumable?: boolean; used?: number }[] }[]
+  const bagSnap = snap.find(k => k.kitId === K1)!
+  assert.deepEqual(
+    [bagSnap.items.find(i => i.itemId === KI1)?.status, bagSnap.items.find(i => i.itemId === KI2)?.status, bagSnap.items.find(i => i.itemId === KC)?.used],
+    ['available', 'maintenance', 3],
+    'kits_snapshot: ชิ้นที่ยังออกงาน = ใช้ได้ · ชิ้นซ่อม · วัสดุสิ้นเปลืองใช้ไปจากที่ตัดแล้ว',
+  )
+  const looseSnap = snap.find(k => k.isLoose)!
+  assert.deepEqual(looseSnap.items.map(i => [i.itemId, i.status]).sort(), [[B1, 'available'], [I1, 'damaged']].sort(), 'looseItems = อุปกรณ์เดี่ยว + สภาพตอนคืน')
+  assert.deepEqual(db.event_closures[0].image_urls, [retPhoto.url])
+  assert.equal(db.event_closures[0].closed_by, CLOSER)
+  assert.equal(row('jobs', JOB1).status, 'done', 'ใบงานหน้างาน → done')
+  assert.deepEqual([status(I1), status(B1), status(KI1), status(KI2)], ['damaged', 'in_use', 'in_use', 'maintenance'], 'items.status ไม่ถูกแตะ')
+  assert.equal(db.stock_movements.length, 1, 'ปิดงานไม่ตัดยอดซ้ำ')
+  assert.deepEqual([logsOf('CLOSE_EVENT').length, logsOf('CLOSE_EVENT_FROM_PACKING').length], [1, 1])
+  expectError(await actions.closeEventFromPacking(LIST2), 'ปิดงานไปแล้ว', 'ปิดซ้ำ')
+  assert.equal(db.event_closures.length, 1)
+  pass('(n) closeEventFromPacking: ไม่มีสิทธิ์ = error · ผู้มีสิทธิ์ → completed + event_closures 1 แถว (kits_snapshot + looseItems) + ใบงาน done · items.status ไม่ถูกแตะ · ปิดซ้ำ = error')
+
+  // ── หน้าปิดงานเดิม (อีเวนต์ไม่มีใบจัดของ) ยังทำงานแบบเดิม ──────────────────────────────
+  loginAs(EVUSER)
+  expectError(await events.processEventReturn(EV_OTHER, []), 'ไม่มีสิทธิ์ปิดงาน', 'processEventReturn ต้องมีสิทธิ์ปิดงาน')
+  loginAs(CLOSER)
+  expectError(await events.processEventReturn(EV1, []), 'ปิดงานไปแล้ว', 'processEventReturn อีเวนต์ที่ปิดแล้ว')
+  expectOk(await events.processEventReturn(EV_OTHER, [], ['https://x.test/a.jpg']), 'processEventReturn อีเวนต์ไม่มีใบ')
+  assert.equal(row('events', EV_OTHER).status, 'completed')
+  assert.equal(db.event_closures.length, 2)
+  assert.deepEqual(db.event_closures[1].kits_snapshot, [], 'ไม่มีกระเป๋า ไม่มีกลุ่มอุปกรณ์เดี่ยว')
+  pass('processEventReturn (ผ่าน closeEventCore keepItemStatuses:false): สิทธิ์/ปิดแล้ว = ข้อความเดิม · อีเวนต์ไม่มีใบปิดได้แบบเดิม')
+
+  // ── (q) ผู้ใช้แผนกอื่น / ผู้รับของ คืนชั้นไม่ได้ ──────────────────────────────────────
+  for (const who of [OTHER, EVUSER]) {
+    loginAs(who)
+    expectError(await actions.restockLine(lI1), 'ทีมจัดของ', 'ไม่ใช่ทีมจัดของ restockLine')
+    expectError(await actions.restockAll(LIST2), 'ทีมจัดของ', 'ไม่ใช่ทีมจัดของ restockAll')
+  }
+  assert.ok(lines(LIST2).every(l => !l.restocked_at))
+  pass('(q) แผนกอื่น / ผู้รับของที่ไม่ใช่ทีมจัดของ คืนชั้นไม่ได้')
+
+  // ── (p) คืนชั้นทีละบรรทัด ─────────────────────────────────────────────────────
+  loginAs(PACKER)
+  const r1 = expectOk(await actions.restockLine(lI1), 'คืนชั้นคอม (เสีย)') as { listDone: boolean }
+  assert.equal(r1.listDone, false)
+  assert.equal(status(I1), 'damaged', 'ของเสียยังเสีย')
+  const r2 = expectOk(await actions.restockLine(lB1), 'คืนชั้นตู้') as { listDone: boolean }
+  assert.equal(r2.listDone, false)
+  assert.equal(status(B1), 'available', 'อุปกรณ์เดี่ยว in_use → available')
+  assert.equal(db.event_logs.filter(l => l.item_id === B1 && l.action === 'checkin' && l.kit_id === null && l.condition === 'good' && l.note === 'คืนชั้น (ใบจัดของ)').length, 1)
+  expectError(await actions.restockLine(lB1), 'คืนชั้นแล้ว', 'restockLine ซ้ำ')
+  assert.ok(bookings(EV1)[0].packed_at, 'ก่อนคืนชั้นกระเป๋า packed_at ยังอยู่')
+  const r3 = expectOk(await actions.restockLine(lK1), 'คืนชั้นกระเป๋า (อีเวนต์ปิดแล้ว)') as { listDone: boolean }
+  assert.equal(r3.listDone, true)
+  assert.deepEqual([status(KI1), status(KI2), status(KI3), status(KC)], ['available', 'maintenance', 'damaged', 'available'], 'ชิ้นที่ออกงาน → available · ซ่อม/เสียคงเดิม')
+  assert.equal(bookings(EV1)[0].packed_at, null, 'event_kits.packed_at ถูกคิดใหม่ (syncPacked)')
+  const doneList = row('packing_lists', LIST2)
+  assert.deepEqual([doneList.status, doneList.restocked_by], ['done', PACKER])
+  assert.ok(doneList.restocked_at)
+  assert.ok(lines(LIST2).every(l => l.restocked_at && l.restocked_by === PACKER))
+  assert.equal(row('kits', K1).event_id, null, 'recomputeKitPointers: อีเวนต์ปิดแล้ว กระเป๋าว่าง')
+  assert.deepEqual([logsOf('RESTOCK_PACKING_LINE').length, logsOf('RESTOCK_PACKING').length], [3, 1])
+  expectError(await actions.restockLine(lI1), 'คืนชั้นครบแล้ว', 'ใบ done คืนชั้นอีกไม่ได้')
+  pass('(p) restockLine: เสียคงเสีย · อุปกรณ์เดี่ยว in_use → available + event_logs · กระเป๋า: ชิ้นที่ออกงาน → available ชิ้นซ่อม/เสียคงเดิม · packed_at คิดใหม่ · ครบ → done · ซ้ำ = error')
+
+  // ── (o) ผู้คืนเป็นแอดมิน → ปิดอีเวนต์ในขั้นเดียว + คืนชั้นทั้งใบ ─────────────────────────────
+  const EV3 = uid(203), LIST3 = uid(851)
+  db.events.push({ id: EV3, name: 'งานแอดมินคืนเอง', location: 'ลาดพร้าว', event_date: DAY, event_time: null, event_end_time: null, status: null, crm_lead_id: null, phase: 'main', created_at: NOW })
+  db.packing_lists.push({ ...clone(DEFAULTS.packing_lists), id: LIST3, event_id: EV3, lead_id: null, status: 'out', spot_id: SPOT1, packed_at: NOW, handed_over_at: NOW, created_at: NOW, updated_at: NOW })
+  db.packing_list_items.push({ ...clone(DEFAULTS.packing_list_items), id: uid(861), list_id: LIST3, item_id: I2, picked_at: NOW, handed_over_at: NOW, created_at: NOW })
+  row('items', I2).status = 'in_use'
+  loginAs(ADMIN)
+  const adminRet = expectOk(await actions.returnPackingList(LIST3, { lines: [{ lineId: uid(861), condition: 'available' }], consumableUse: [], photoUrls: [] }), 'แอดมินคืนของ') as { eventClosed: boolean }
+  assert.equal(adminRet.eventClosed, true, 'ผู้คืนมีสิทธิ์ปิดงาน → ปิดในขั้นเดียว')
+  assert.equal(row('events', EV3).status, 'completed')
+  assert.equal(db.event_closures.length, 3)
+  assert.equal(status(I2), 'in_use', 'ใช้ได้ยังรอคืนชั้น')
+  const all3 = expectOk(await actions.restockAll(LIST3), 'คืนชั้นทั้งใบ') as { listDone: boolean }
+  assert.equal(all3.listDone, true)
+  assert.deepEqual([status(I2), row('packing_lists', LIST3).status], ['available', 'done'])
+  expectError(await actions.restockAll(LIST3), 'คืนชั้นครบแล้ว', 'restockAll ซ้ำ')
+  pass('(o) แอดมินคืนของ → eventClosed true ในขั้นเดียว · restockAll → ใบ done')
+
+  // ── (r) cleanupOrphanedItems หลังใบ done ทำงานตามปกติ ────────────────────────────────
+  row('items', B1).status = 'in_use' // จำลองสถานะค้าง — ใบของ B1 คืนชั้นแล้ว จึงไม่ถูกกัน
+  const cleaned2 = expectOk(await cleanup.cleanupOrphanedItems(), 'cleanup หลังใบ done') as { itemIds?: string[] }
+  assert.deepEqual(cleaned2.itemIds, [B1])
+  assert.equal(status(B1), 'available')
+  pass('(r) cleanupOrphanedItems หลังใบ done: ของในใบ done ไม่ถูกกัน รีเซ็ตได้ตามปกติ')
+
+  // ── (s) คำเตือนอุปกรณ์อาจไม่พอนับจากใบจัดของจริง (packedUnits) ───────────────────────────
+  const EV4 = uid(204), LIST4 = uid(852)
+  db.events.push({ id: EV4, name: 'งานไม่มีแพ็กเกจ (วันงาน)', location: 'บางนา', event_date: DAY, event_time: null, event_end_time: null, status: null, crm_lead_id: LEAD_NOPKG, phase: 'main', created_at: NOW })
+  db.packing_lists.push({ ...clone(DEFAULTS.packing_lists), id: LIST4, event_id: EV4, lead_id: LEAD_NOPKG, status: 'picking', created_at: NOW, updated_at: NOW })
+  db.packing_list_items.push(
+    { ...clone(DEFAULTS.packing_list_items), id: uid(871), list_id: LIST4, package_id: P1, category_id: CAT_COMP, item_id: I2, created_at: NOW },
+    { ...clone(DEFAULTS.packing_list_items), id: uid(872), list_id: LIST4, item_id: B2, created_at: NOW }, // ของเสริม (ไม่มีประเภท) ไม่นับ
+  )
+  const cap = await capacity.loadCapacityInputs(fakeClient as never, { leadIds: [LEAD_WON] })
+  const capNoPkg = cap.jobs.find(j => j.leadId === LEAD_NOPKG)!
+  assert.deepEqual(capNoPkg.packedUnits, [{ categoryId: CAT_COMP, unitId: I2 }], 'ใบที่ยังไม่คืนชั้น → packedUnits (เฉพาะบรรทัดที่มีประเภท)')
+  assert.equal(cap.jobs.find(j => j.leadId === LEAD_WON)!.packedUnits, undefined, 'ใบ done ไม่นับ → ใช้แพ็กเกจแบบเดิม')
+  const capWarnings = packageLogic.capacityWarnings({
+    target: cap.jobs.find(j => j.leadId === LEAD_WON)!,
+    others: [capNoPkg],
+    packages: cap.packages,
+    categories: cap.categories,
+    unitsByCategory: cap.unitsByCategory,
+  })
+  assert.ok(capWarnings.every(w => w.demandPlanned === 0), 'งานที่มีใบจัดของไม่มีส่วนประมาณการ')
+  pass('(s) loadCapacityInputs: ใบที่ยังไม่คืนชั้น → packedUnits · capacityWarnings ไม่นับประมาณการของงานที่มีใบ')
+
+  // ── หน้าปิดงานเดิมกับกระเป๋าที่จองตรง (ไม่มีใบจัดของ): ตั้งสถานะ + ตัดยอด + snapshot แบบเดิม ─────────────
+  const EV5 = uid(205)
+  db.events.push({ id: EV5, name: 'งานจองกระเป๋าตรง', location: 'ปากเกร็ด', event_date: DAY, event_time: null, event_end_time: null, status: null, crm_lead_id: null, phase: 'main', created_at: NOW })
+  db.event_kits.push({ id: uid(881), event_id: EV5, kit_id: K1, packed_at: null, packed_by: null, created_at: NOW })
+  row('items', KI1).status = 'in_use'
+  loginAs(CLOSER)
+  expectError(await events.processEventReturn(EV5, [{ itemId: KI1, status: 'in_use' }]), 'สถานะอุปกรณ์ไม่ถูกต้อง', 'สถานะนอก 4 ค่า (ข้อความเดิม)')
+  expectError(await events.processEventReturn(EV5, [{ itemId: KC, status: 'available' }]), 'วัสดุสิ้นเปลืองไม่ต้องเลือกสถานะ', 'วัสดุสิ้นเปลืองเลือกสถานะไม่ได้ (ข้อความเดิม)')
+  const movesBefore = db.stock_movements.length
+  expectOk(await events.processEventReturn(EV5, [{ itemId: KI1, status: 'damaged' }], [], [{ kitId: K1, itemId: KC, used: 2 }]), 'ปิดงานแบบเดิม')
+  assert.equal(status(KI1), 'damaged', 'keepItemStatuses:false ตั้ง items.status ตามที่เลือก')
+  assert.equal(db.stock_movements.length, movesBefore + 1)
+  assert.equal(row('items', KC).quantity, 5)
+  assert.equal(row('events', EV5).status, 'completed')
+  const snap5 = db.event_closures[db.event_closures.length - 1].kits_snapshot as { kitId: string; items: { itemId: string; status: string; used?: number }[] }[]
+  assert.deepEqual([snap5.length, snap5[0].kitId, snap5[0].items.find(i => i.itemId === KI1)?.status, snap5[0].items.find(i => i.itemId === KC)?.used], [1, K1, 'damaged', 2])
+  pass('processEventReturn กับกระเป๋าที่จองตรง: ข้อความ error เดิม · ตั้งสถานะ + ตัดยอด 1 ครั้ง + snapshot แบบเดิม (ไม่มีกลุ่มอุปกรณ์เดี่ยว)')
 
   assert.ok(ops.length > 0)
   console.log('\npacking-flow: ผ่านทั้งหมด')

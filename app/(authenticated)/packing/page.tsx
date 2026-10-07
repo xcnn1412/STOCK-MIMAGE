@@ -10,7 +10,7 @@ export const revalidate = 0
 
 export const metadata = {
   title: 'ใบจัดของ — คลังอุปกรณ์',
-  description: 'คิวงานของทีมจัดของ: งานที่รอเปิดใบ ใบที่กำลังทำ และใบที่พร้อมรับ',
+  description: 'คิวงานของทีมจัดของ: งานที่รอเปิดใบ ใบที่กำลังทำ ใบที่พร้อมรับ ใบที่ออกงาน และใบที่รอคืนชั้น',
 }
 
 /** คิววันนี้ (เวลาไทย) · โหลดพัง = คิวว่าง + ข้อความ (ยังไม่รัน migration ก็ไม่ล้มทั้งหน้า) */
@@ -20,7 +20,7 @@ async function loadQueue(): Promise<{ queue: PackingQueue; loadError: string | n
   } catch (e) {
     console.error('PackingPage', e)
     return {
-      queue: { awaiting: [], active: [], ready: [] },
+      queue: { awaiting: [], active: [], ready: [], out: [], returned: [] },
       loadError: 'โหลดคิวใบจัดของไม่สำเร็จ — ลองโหลดหน้าใหม่ (ถ้าเพิ่งอัปเดตระบบ ให้แอดมินรัน migration 20261012 ก่อน)',
     }
   }

@@ -6,12 +6,15 @@ import type { CategoryUnits, LeadPackageRow, PickerPackage } from '../packages/t
 import type {
   CheckedPackingLine,
   KitItemState,
+  ParsedReturn,
   LineAvailability,
   LineBooking,
   PackingLineInput,
   PackingStatus,
   PickRouteGroup,
   PickupSpotInput,
+  RestockPlan,
+  ReturnCondition,
   ScaffoldRequirement,
   ShelfPlace,
   UnitInfo,
@@ -41,11 +44,16 @@ export const isPackedStatus = (status: string): boolean => PACKED_STATUSES.inclu
 /** ใบที่ยังไม่ปิดกระบวนการ (ยังไม่คืนชั้น) — หน่วยในใบยังถือว่าถูกใช้ */
 export const isOpenPackingStatus = (status: string): boolean => status !== 'done'
 
-/** การเปลี่ยนสถานะที่ทำได้ในเฟสนี้ (เฟส 3): เดินหน้า เลือกของ→กำลังหยิบ→พร้อมรับ · ถอย พร้อมรับ→กำลังหยิบ, กำลังหยิบ→เลือกของ */
+/**
+ * การเปลี่ยนสถานะที่ทำได้: เดินหน้า เลือกของ→กำลังหยิบ→พร้อมรับ→ออกงาน (รับของ)→คืนแล้ว (คืนของ)→คืนชั้นแล้ว
+ * ถอย พร้อมรับ→กำลังหยิบ, กำลังหยิบ→เลือกของ · ตั้งแต่ออกงานถอยไม่ได้
+ */
 const TRANSITIONS: Partial<Record<PackingStatus, PackingStatus[]>> = {
   selecting: ['picking'],
   picking: ['ready', 'selecting'],
-  ready: ['picking'],
+  ready: ['picking', 'out'],
+  out: ['returned'],
+  returned: ['done'],
 }
 
 export function canTransition(from: PackingStatus | string, to: PackingStatus | string): boolean {
@@ -351,3 +359,157 @@ export function parsePickupSpotForm(input: Partial<PickupSpotInput>): { name: st
   if (note && note.length > 200) return { error: 'หมายเหตุยาวเกิน 200 ตัวอักษร' }
   return { name, code, note, is_active: input.is_active !== false }
 }
+
+// --- เฟส 4: รับของ / คืนของ / คืนชั้น ------------------------------------------------
+
+/** สภาพตอนคืนของ (ค่าเริ่มต้นหน้าจอ = available) */
+export const RETURN_CONDITIONS: readonly ReturnCondition[] = ['available', 'damaged', 'maintenance', 'lost']
+
+export const RETURN_CONDITION_LABELS: Record<ReturnCondition, string> = {
+  available: 'ใช้ได้',
+  damaged: 'เสียหาย',
+  maintenance: 'ซ่อม',
+  lost: 'หาย',
+}
+
+export const isReturnCondition = (value: unknown): value is ReturnCondition =>
+  typeof value === 'string' && (RETURN_CONDITIONS as readonly string[]).includes(value)
+
+/** event_logs.condition ของการรับคืน — เก็บ good/damaged/lost (ซ่อมนับเป็น damaged) แบบเดียวกับ kit-check-core */
+export const returnLogCondition = (status: ReturnCondition): 'good' | 'damaged' | 'lost' =>
+  status === 'available' ? 'good' : status === 'lost' ? 'lost' : 'damaged'
+
+/**
+ * รับของ (พร้อมรับ → ออกงาน) ได้ไหม — ใบต้องพร้อมรับ · lineIds ถ้าส่งต้องติ๊กครบทุกบรรทัด (ขาด = error ระบุจำนวน)
+ * id ที่ไม่ใช่บรรทัดของใบถูกข้าม
+ */
+export function canHandOver(
+  list: { status: string },
+  lines: { id: string }[],
+  lineIds?: string[] | null,
+): { ok: true } | { error: string } {
+  if (list.status !== 'ready') {
+    if (list.status === 'out') return { error: 'ใบนี้รับของไปแล้ว' }
+    return { error: 'รับของได้เฉพาะใบที่พร้อมรับ' }
+  }
+  if (lines.length === 0) return { error: 'ใบนี้ยังไม่มีของ' }
+  if (Array.isArray(lineIds)) {
+    const ticked = new Set(lineIds)
+    const missing = lines.filter(l => !ticked.has(l.id)).length
+    if (missing > 0) return { error: `ยังติ๊กของไม่ครบ (ขาด ${missing} รายการ) — ติ๊กทุกบรรทัดก่อนยืนยันรับของ` }
+  }
+  return { ok: true }
+}
+
+const MAX_RETURN_NOTE = 500
+
+/**
+ * ตรวจข้อมูลคืนของ (pure — returnPackingList เรียกก่อนเขียน) คืน ParsedReturn หรือ { error } ไทย
+ * - ทุกบรรทัดของใบต้องมีสภาพ (ขาด = error ระบุชื่อ) · สภาพ ∈ ใช้ได้/เสียหาย/ซ่อม/หาย · บรรทัดซ้ำ/ไม่ใช่ของใบ = error
+ * - kitItems อ้างได้เฉพาะชิ้นในกระเป๋าของบรรทัดกระเป๋า (ไม่ใช่วัสดุสิ้นเปลือง ไม่ได้ออกงานอยู่กับงานอื่น) ไม่ซ้ำ
+ * - กระเป๋าที่ไม่ได้ระบุชิ้นใดเลย + สภาพบรรทัด ≠ ใช้ได้ = ทุกชิ้นที่ออกงานให้อีเวนต์นี้ได้สภาพนั้น (เช่น กระเป๋าหายทั้งใบ)
+ *   ระบุบางชิ้น = ชิ้นที่ไม่ระบุถือว่าใช้ได้ · ผลลัพธ์ kitItems มีเฉพาะชิ้นที่สภาพ ≠ ใช้ได้
+ * - consumableUse ตรวจรูปแบบที่นี่ (จำนวนเต็ม ≥ 0) ส่วนคู่ที่อนุญาต/ตัดแล้วตรวจด้วย planReturnUse ตอนตัดยอด
+ */
+export function parseReturnInput(
+  raw: unknown,
+  lines: { id: string; item_id: string | null; kit_id: string | null; unitName?: string | null }[],
+  kitItemStates: Record<string, KitItemState[]>,
+): ParsedReturn | { error: string } {
+  const input = (raw ?? {}) as Record<string, unknown>
+  const rawLines = Array.isArray(input.lines) ? input.lines : null
+  if (!rawLines) return { error: 'ข้อมูลคืนของไม่ถูกต้อง' }
+
+  const nameOf = (l: { unitName?: string | null }) => l.unitName || 'รายการ'
+  const byId = new Map(lines.map(l => [l.id, l]))
+  const given = new Map<string, { condition: ReturnCondition; note: string | null }>()
+  for (const r of rawLines) {
+    const row = (r ?? {}) as Record<string, unknown>
+    const lineId = String(row.lineId ?? '')
+    const line = byId.get(lineId)
+    if (!line) return { error: 'มีรายการที่ไม่อยู่ในใบนี้ — โหลดหน้าใหม่แล้วลองอีกครั้ง' }
+    if (given.has(lineId)) return { error: `"${nameOf(line)}" ระบุสภาพซ้ำ` }
+    if (!isReturnCondition(row.condition)) return { error: `"${nameOf(line)}" สภาพไม่ถูกต้อง — เลือกได้แค่ ใช้ได้ / เสียหาย / ซ่อม / หาย` }
+    const note = String(row.note ?? '').trim() || null
+    if (note && note.length > MAX_RETURN_NOTE) return { error: `หมายเหตุของ "${nameOf(line)}" ยาวเกิน ${MAX_RETURN_NOTE} ตัวอักษร` }
+    given.set(lineId, { condition: row.condition, note })
+  }
+  const missing = lines.filter(l => !given.has(l.id))
+  if (missing.length > 0) return { error: `ยังไม่ได้ระบุสภาพ: ${missing.map(nameOf).join(', ')}` }
+
+  // ชิ้นในกระเป๋า: itemId → กระเป๋าในใบ
+  const kitLines = lines.filter(l => l.kit_id)
+  const kitOfItem = new Map<string, { kitId: string; state: KitItemState }>()
+  for (const l of kitLines) for (const st of kitItemStates[l.kit_id as string] ?? []) kitOfItem.set(st.id, { kitId: l.kit_id as string, state: st })
+
+  const rawKitItems = input.kitItems == null ? [] : input.kitItems
+  if (!Array.isArray(rawKitItems)) return { error: 'ข้อมูลสภาพรายชิ้นไม่ถูกต้อง' }
+  const perItem = new Map<string, ReturnCondition>()
+  for (const r of rawKitItems) {
+    const row = (r ?? {}) as Record<string, unknown>
+    const itemId = String(row.itemId ?? '')
+    const hit = kitOfItem.get(itemId)
+    if (!hit) return { error: 'มีชิ้นที่ไม่อยู่ในกระเป๋าของใบนี้ — โหลดหน้าใหม่แล้วลองอีกครั้ง' }
+    if (hit.state.is_consumable) return { error: `"${hit.state.name}" เป็นวัสดุสิ้นเปลือง — กรอกจำนวนที่ใช้ไปแทนสภาพ` }
+    if (hit.state.outElsewhere) return { error: `"${hit.state.name}" ออกงานอยู่กับงานอื่น — ระบุสภาพจากใบนี้ไม่ได้` }
+    if (perItem.has(itemId)) return { error: `"${hit.state.name}" ระบุสภาพซ้ำ` }
+    if (!isReturnCondition(row.condition)) return { error: `"${hit.state.name}" สภาพไม่ถูกต้อง — เลือกได้แค่ ใช้ได้ / เสียหาย / ซ่อม / หาย` }
+    perItem.set(itemId, row.condition)
+  }
+
+  const kitItems: ParsedReturn['kitItems'] = []
+  for (const l of kitLines) {
+    const kitId = l.kit_id as string
+    const states = (kitItemStates[kitId] ?? []).filter(st => !st.is_consumable && !st.outElsewhere)
+    const anyGiven = states.some(st => perItem.has(st.id))
+    const lineCondition = given.get(l.id)!.condition
+    for (const st of states) {
+      const condition = perItem.get(st.id) ?? (!anyGiven && st.status === 'in_use' ? lineCondition : 'available')
+      if (condition !== 'available') kitItems.push({ kitId, itemId: st.id, condition })
+    }
+  }
+
+  const rawUse = input.consumableUse == null ? [] : input.consumableUse
+  if (!Array.isArray(rawUse)) return { error: 'ข้อมูลวัสดุสิ้นเปลืองไม่ถูกต้อง' }
+  const consumableUse: ParsedReturn['consumableUse'] = []
+  for (const r of rawUse) {
+    const row = (r ?? {}) as Record<string, unknown>
+    const used = Number(row.used)
+    if (!Number.isInteger(used) || used < 0) return { error: 'จำนวนที่ใช้ไปต้องเป็นจำนวนเต็มตั้งแต่ 0' }
+    consumableUse.push({ kitId: String(row.kitId ?? ''), itemId: String(row.itemId ?? ''), used })
+  }
+
+  const note = String(input.note ?? '').trim() || null
+  if (note && note.length > MAX_RETURN_NOTE) return { error: `หมายเหตุยาวเกิน ${MAX_RETURN_NOTE} ตัวอักษร` }
+
+  return {
+    lines: lines.map(l => ({ lineId: l.id, ...given.get(l.id)! })),
+    kitItems,
+    consumableUse,
+    note,
+  }
+}
+
+/**
+ * แผนคืนชั้นของบรรทัดหนึ่ง (pure) — อุปกรณ์เดี่ยว: สถานะ = สภาพตอนคืน (ไม่ระบุ = ใช้ได้)
+ * กระเป๋า: ชิ้นที่ยังออกงาน (in_use) ให้อีเวนต์นี้ → ใช้ได้ (ชิ้นที่ตั้งเสีย/ซ่อม/หายตอนคืนไม่แตะ · วัสดุสิ้นเปลืองไม่นับ)
+ * คืนชั้นแล้ว = error
+ */
+export function restockPlan(
+  line: { item_id: string | null; kit_id: string | null; return_condition: ReturnCondition | null; restocked_at: string | null },
+  kitItems: KitItemState[] = [],
+): RestockPlan | { error: string } {
+  if (line.restocked_at) return { error: 'บรรทัดนี้คืนชั้นแล้ว' }
+  if (line.item_id) return { kind: 'item', itemId: line.item_id, itemStatus: line.return_condition ?? 'available' }
+  if (line.kit_id) {
+    return {
+      kind: 'kit',
+      kitId: line.kit_id,
+      kitItemIds: kitItems.filter(i => !i.is_consumable && i.status === 'in_use' && !i.outElsewhere).map(i => i.id),
+    }
+  }
+  return { error: 'บรรทัดนี้ไม่มีอุปกรณ์' }
+}
+
+/** คืนชั้นครบทุกบรรทัดแล้วไหม (ใบที่ไม่มีบรรทัด = ครบ) */
+export const isRestockComplete = (lines: { restocked_at: string | null }[]): boolean => lines.every(l => !!l.restocked_at)

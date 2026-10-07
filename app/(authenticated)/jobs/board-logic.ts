@@ -9,6 +9,9 @@ export const ONSITE_JOB_TYPE = 'onsite'
 /** สถานะ "ออกหน้างาน" ในไปป์ไลน์ status_onsite — ปลายทางของการขยับอัตโนมัติเมื่อทีมเช็คอินหน้างาน */
 export const ONSITE_ARRIVED_STATUS = 'onsite'
 
+/** สถานะ "ขนของ" ในไปป์ไลน์ status_onsite — ปลายทางของการขยับอัตโนมัติเมื่อทีมรับของจากจุดรับของ (ใบจัดของ) */
+export const ONSITE_LOADING_STATUS = 'loading'
+
 /** ชิปช่วงวันเหนือบอร์ด — ค่าเริ่มต้นคือ week7 */
 export type DayChip = 'week7' | 'today' | 'all'
 
@@ -68,21 +71,26 @@ export function boardJobs<T extends { job_type: string; event_date: string | nul
 }
 
 /**
- * ใบงานหน้างานใบนี้ควรขยับเป็น "ออกหน้างาน" อัตโนมัติหรือไม่ เมื่อทีมเช็คอินหน้างานของอีเวนต์ที่ผูกงานนี้
+ * ใบงานหน้างานใบนี้ควรขยับไปสถานะ target อัตโนมัติหรือไม่
  *
  * `orderedStatuses` = ค่าสถานะของไปป์ไลน์ status_onsite เรียงตาม sort_order (แอดมินแก้ชุดสถานะได้)
- * เงื่อนไขเดียว: สถานะปัจจุบันต้องอยู่ "ก่อน" ออกหน้างานในลำดับนั้น — ห้ามถอยหลังเด็ดขาด
+ * เงื่อนไขเดียว: สถานะปัจจุบันต้องอยู่ "ก่อน" target ในลำดับนั้น — ห้ามถอยหลังเด็ดขาด
  * - สถานะปัจจุบันไม่อยู่ในลำดับ (สถานะแปลกปลอม/ถูกลบทิ้ง) → ไม่แตะ
- * - ไม่มี 'onsite' ในลำดับ (แอดมินตัดขั้นนี้ออก) → ไม่มีปลายทางให้ขยับ → ไม่แตะ
- * - จบแล้ว/ถูกข้าม → ไม่แตะ แม้จะถูกจัดลำดับไว้ก่อนออกหน้างานก็ตาม
+ * - ไม่มี target ในลำดับ (แอดมินตัดขั้นนี้ออก) → ไม่มีปลายทางให้ขยับ → ไม่แตะ
+ * - จบแล้ว/ถูกข้าม → ไม่แตะ แม้จะถูกจัดลำดับไว้ก่อน target ก็ตาม
  */
-export function shouldAdvanceToOnsite(currentStatus: string, orderedStatuses: string[]): boolean {
+export function shouldAdvanceTo(currentStatus: string, targetStatus: string, orderedStatuses: string[]): boolean {
   if (POOL_DONE_STATUSES.includes(currentStatus)) return false
-  const target = orderedStatuses.indexOf(ONSITE_ARRIVED_STATUS)
+  const target = orderedStatuses.indexOf(targetStatus)
   if (target === -1) return false
   const current = orderedStatuses.indexOf(currentStatus)
   if (current === -1) return false
   return current < target
+}
+
+/** ขยับเป็น "ออกหน้างาน" เมื่อทีมเช็คอินหน้างานของอีเวนต์ที่ผูกงานนี้ — กติกาเดียวกับ shouldAdvanceTo */
+export function shouldAdvanceToOnsite(currentStatus: string, orderedStatuses: string[]): boolean {
+  return shouldAdvanceTo(currentStatus, ONSITE_ARRIVED_STATUS, orderedStatuses)
 }
 
 /** เรียงใบงานลอย: มีวันงานก่อน (วันใกล้สุดขึ้นก่อน) แล้วค่อยใบที่ยังไม่ระบุวัน */

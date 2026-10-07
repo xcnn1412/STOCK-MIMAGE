@@ -1,25 +1,55 @@
 'use server'
 
 // ใบจัดของ (เฟส 3): เปิดใบ → เลือกของ → กำลังหยิบ → พร้อมรับ (+ ถอยกลับ/ยกเลิก)
-// ทุก action: ทีมจัดของเท่านั้น (getPackingTeam) · อีเวนต์ปิดแล้ว = error · คืน { error } ไทย ไม่ throw · logActivity ทุก mutation
+// เฟส 4: รับของ (ออกงาน) → คืนของ (คืนแล้ว + ปิดอีเวนต์) → คืนชั้น (คืนชั้นแล้ว)
+// สิทธิ์: จัดของ/คืนชั้น = ทีมจัดของ (getPackingTeam) · รับของ/คืนของ = ผู้รับของ (getHandoverUser) · ปิดงาน = getEventManager('close')
+// อีเวนต์ปิดแล้ว = error (ยกเว้นคืนชั้น) · คืน { error } ไทย ไม่ throw · logActivity ทุก mutation
 // ใบจัดของเป็นเจ้าของการจองกระเป๋าของอีเวนต์นั้น: บรรทัดกระเป๋า = upsert event_kits · ลบบรรทัด/ยกเลิกใบ = ลบแถว event_kits
 import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
 import { recomputeKitPointers } from '@/lib/kit-bookings'
+import { getEventManager } from '@/lib/event-permissions'
+import { moveStock } from '@/lib/stock'
 import { isWonStatus } from '../crm/types'
 import { isClosedEvent } from '../jobs/tracking/tracking-logic'
 import { resolveLeadEvent } from '../jobs/actions'
-import { checkinKitItem, checkoutKitItems } from '../kits/[id]/check/kit-check-core'
+import { closeEventCore, type CloseLooseItem } from '../events/close-core'
+import { checkinKitItem, checkoutKitItems, syncPacked } from '../kits/[id]/check/kit-check-core'
+import { planReturnUse } from '../shelves/consumable-logic'
 import { loadLeadPackages, loadPickerPackages } from '../packages/lead-packages'
 import { loadCategoryUnits } from '../packages/queries'
 import type { CategoryUnits, LeadPackageRow } from '../packages/types'
-import { packingReadyMessage, packingReadyRecipients } from './notify'
-import { canCancelList, canConfirmReady, canPickLine, canStartPicking, canTransition, checkPackingLines, scaffoldLines } from './packing-logic'
-import { getPackingTeam, type PackingTeamMember } from './permissions'
-import { loadKitItemStates, loadPackingLines, loadPackingListRow } from './queries'
-import type { PackingLineInput, PackingLineRow, PackingListRow, ScaffoldRequirement, UnitInfo } from './types'
+import { advanceOnsiteJobsToLoading } from './board-hook'
+import { packingReadyMessage, packingReadyRecipients, packingReturnedMessage, packingTeamRecipients } from './notify'
+import {
+  RETURN_CONDITIONS,
+  canCancelList,
+  canConfirmReady,
+  canHandOver,
+  canPickLine,
+  canStartPicking,
+  canTransition,
+  checkPackingLines,
+  isRestockComplete,
+  parseReturnInput,
+  restockPlan,
+  returnLogCondition,
+  scaffoldLines,
+} from './packing-logic'
+import { getHandoverUser, getPackingTeam, type PackingTeamMember } from './permissions'
+import { loadKitItemStates, loadPackingLines, loadPackingListRow, loadPickupSpot } from './queries'
+import type {
+  KitItemState,
+  PackingLineInput,
+  PackingLineRow,
+  PackingListRow,
+  ReturnPackingInput,
+  ReturnPackingResult,
+  ScaffoldRequirement,
+  UnitInfo,
+} from './types'
 
 type Db = ReturnType<typeof createServiceClient>
 type Result = { error: string } | { success: true }
@@ -610,6 +640,452 @@ export async function cancelPackingList(listId: string): Promise<Result> {
   await logActivity('CANCEL_PACKING_LIST', { id: listId, event_id: ctx.list.event_id, lead_id: ctx.list.lead_id, lines: lines.length, unbooked_kits: kitIds })
   refresh(listId, kitIds)
   return { success: true }
+}
+
+// --- รับของ / คืนของ / คืนชั้น (เฟส 4) ----------------------------------------------
+// รับของ/คืนของ = "ผู้รับของ" (getHandoverUser: แอดมิน | โมดูล events | โมดูล stock) · คืนชั้น = ทีมจัดของ (getPackingTeam)
+// สถานะอุปกรณ์ตลอดเส้น: หยิบ → in_use → คืนของ (เสีย/ซ่อม/หาย ตั้งทันที · ใช้ได้ยังเป็น in_use) → คืนชั้น (ใช้ได้)
+
+const NO_HANDOVER = 'เฉพาะแอดมินหรือผู้ที่มีสิทธิ์อีเวนต์/สต็อกเท่านั้นที่รับของหรือคืนของได้'
+const NO_CLOSE = 'ไม่มีสิทธิ์ปิดงานอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า'
+const RESTOCK_NOTE = 'คืนชั้น (ใบจัดของ)'
+const RETURN_NOTE = 'คืนของ (ใบจัดของ)'
+
+/** revalidate ชุดของเส้นรับ/คืน/คืนชั้น (คิว, ใบ, จุดรับของ, บอร์ดวันงาน, หน้าสต็อก) */
+function refreshFlow(list: { id: string; spot_id: string | null; event_id: string }, kitIds: (string | null | undefined)[] = []) {
+  refresh(list.id, kitIds)
+  if (list.spot_id) revalidatePath(`/pickup/${list.spot_id}`)
+  revalidatePath('/jobs')
+  revalidatePath('/items')
+  revalidatePath('/shelves')
+  revalidatePath('/stock/dashboard')
+  revalidatePath(`/events/${list.event_id}/return`)
+}
+
+/**
+ * รับของที่จุดรับของ: พร้อมรับ → ออกงาน — ผู้รับของเท่านั้น · อีเวนต์ต้องยังไม่ปิด
+ * input.lineIds (เช็กลิสต์ที่ติ๊ก) ถ้าส่งต้องครบทุกบรรทัด · บันทึก handed_over_at/by ทั้งใบและทุกบรรทัด · log HAND_OVER_PACKING
+ * hook บอร์ดวันงาน: ใบงานหน้างานที่ยังอยู่ก่อน "ขนของ" → ขนของ (ล้มไม่ล้มการรับของ)
+ */
+export async function handOverPackingList(listId: string, input: { lineIds?: string[] } = {}): Promise<Result> {
+  const user = await getHandoverUser()
+  if (!user) return { error: NO_HANDOVER }
+  const db = createServiceClient()
+  const ctx = await loadOpenList(db, listId)
+  if ('error' in ctx) return ctx
+
+  const lines = await loadPackingLines(db, [listId]).catch(() => null)
+  if (!lines) return { error: 'โหลดใบจัดของไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  const ok = canHandOver(ctx.list, lines, Array.isArray(input?.lineIds) ? input.lineIds : null)
+  if ('error' in ok) return ok
+
+  const now = new Date().toISOString()
+  const { data: moved, error } = await db
+    .from('packing_lists')
+    .update({ status: 'out', handed_over_at: now, handed_over_by: user.userId, updated_at: now })
+    .eq('id', listId)
+    .eq('status', 'ready')
+    .select('id')
+  if (error) return { error: 'รับของไม่สำเร็จ' }
+  if (!moved || moved.length === 0) return { error: 'ใบนี้ถูกรับของไปแล้ว หรือทีมจัดของเพิ่งแก้ไข — โหลดหน้าใหม่' }
+  const { error: lineError } = await db.from('packing_list_items').update({ handed_over_at: now }).eq('list_id', listId)
+  if (lineError) console.error('handOverPackingList lines', lineError)
+
+  await logActivity('HAND_OVER_PACKING', { id: listId, event_id: ctx.list.event_id, spot_id: ctx.list.spot_id, lines: lines.length })
+  try {
+    await advanceOnsiteJobsToLoading(db, { leadId: ctx.list.lead_id, eventId: ctx.list.event_id, actorId: user.userId })
+  } catch (e) {
+    console.error('handOverPackingList board hook', e)
+  }
+  refreshFlow(ctx.list)
+  return { success: true }
+}
+
+/** อัปโหลดรูปตอนคืนของ (formData: listId, file) → packing-photos `<listId>/return_<ts>_<name>` · ใบต้องออกงานอยู่ */
+export async function uploadReturnPhoto(formData: FormData): Promise<{ url: string } | { error: string }> {
+  const user = await getHandoverUser()
+  if (!user) return { error: NO_HANDOVER }
+  const file = formData.get('file') as File | null
+  const listId = formData.get('listId') as string | null
+  if (!file || typeof file === 'string') return { error: 'ไม่พบไฟล์' }
+  if (!listId) return { error: NOT_FOUND }
+  if (!file.type?.startsWith('image/')) return { error: 'รองรับเฉพาะไฟล์รูปภาพ' }
+  if (file.size > MAX_PHOTO_BYTES) return { error: 'ไฟล์ใหญ่เกิน 5MB' }
+
+  const db = createServiceClient()
+  const ctx = await loadOpenList(db, listId)
+  if ('error' in ctx) return ctx
+  if (ctx.list.status !== 'out') return { error: 'อัปโหลดรูปตอนคืนได้เฉพาะใบที่ออกงานอยู่' }
+
+  const sanitizedName = (file.name || 'photo.jpg').replace(/[^a-zA-Z0-9._-]/g, '_')
+  const path = `${listId}/return_${Date.now()}_${sanitizedName}`
+  const { error } = await db.storage.from(BUCKET).upload(path, file, { contentType: file.type })
+  if (error) {
+    console.error('uploadReturnPhoto', error)
+    return { error: 'อัปโหลดรูปไม่สำเร็จ' }
+  }
+  const { data } = db.storage.from(BUCKET).getPublicUrl(path)
+  return { url: data.publicUrl }
+}
+
+/**
+ * ตัดยอดวัสดุสิ้นเปลืองในกระเป๋าของใบ (planReturnUse + moveStock reason 'use') — คู่ที่อีเวนต์นี้ตัดไปแล้วถูกข้าม
+ * (unique index stock_movements (event_id, kit_id, item_id) reason use กันซ้ำอีกชั้น) · ล้ม = { error } ยังไม่คืนของ
+ */
+async function cutConsumables(
+  db: Db,
+  ctx: { eventId: string; eventName: string | null; userId: string },
+  kitStates: Record<string, KitItemState[]>,
+  use: { kitId: string; itemId: string; used: number }[],
+): Promise<{ error: string } | { cut: number }> {
+  const kitConsumables = Object.entries(kitStates).flatMap(([kitId, items]) =>
+    items.filter(i => i.is_consumable).map(i => ({ kitId, itemId: i.id, name: i.name })),
+  )
+  const { data: usedRows, error } = await db.from('stock_movements').select('kit_id, item_id, delta').eq('event_id', ctx.eventId).eq('reason', 'use')
+  if (error) return { error: 'โหลดประวัติตัดยอดไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  const alreadyCut = ((usedRows ?? []) as { kit_id: string | null; item_id: string; delta: number }[])
+    .filter(r => r.kit_id)
+    .map(r => ({ kitId: r.kit_id as string, itemId: r.item_id, used: -r.delta }))
+  const plan = planReturnUse(kitConsumables, use, alreadyCut)
+  if ('error' in plan) return { error: plan.error }
+
+  for (const cut of plan.cuts) {
+    const name = kitConsumables.find(c => c.kitId === cut.kitId && c.itemId === cut.itemId)?.name || 'วัสดุสิ้นเปลือง'
+    const res = await moveStock(db, {
+      itemId: cut.itemId,
+      delta: -cut.used,
+      reason: 'use',
+      eventId: ctx.eventId,
+      kitId: cut.kitId,
+      userId: ctx.userId,
+      note: `คืนของ ${ctx.eventName || ''}`.trim(),
+    })
+    if ('error' in res) return { error: `ตัดยอด ${name} ไม่สำเร็จ: ${res.error} — ยังไม่ได้คืนของ` }
+    await logActivity('DRAW_STOCK', { itemId: cut.itemId, name, delta: -cut.used, balance: res.balance, eventId: ctx.eventId, kitId: cut.kitId })
+  }
+  return { cut: plan.cuts.length }
+}
+
+/**
+ * ปิดอีเวนต์ของใบที่คืนของแล้ว ผ่าน closeEventCore โหมดไม่แตะ items.status — ผู้เรียกตรวจสิทธิ์ปิดงานเอง
+ * วัสดุสิ้นเปลืองตัดไปแล้วตอนคืน (consumableUse [] — snapshot อ่านจาก stock_movements) · รูปตอนคืน = รูปปิดงาน
+ * snapshot: กระเป๋า (ชิ้นที่ยังออกงานให้งานนี้ = ใช้ได้ ที่เหลือตามสถานะจริง) + อุปกรณ์เดี่ยว (สภาพตอนคืน)
+ */
+async function closeListEvent(db: Db, list: PackingListRow, userId: string): Promise<{ error: string } | { success: true }> {
+  let lines: PackingLineRow[]
+  let states: Record<string, KitItemState[]>
+  let loose: { id: string; name: string; serial_number: string | null }[]
+  try {
+    lines = await loadPackingLines(db, [list.id])
+    const itemIds = lines.flatMap(l => (l.item_id ? [l.item_id] : []))
+    states = await loadKitItemStates(db, lines.flatMap(l => (l.kit_id ? [l.kit_id] : [])), list.event_id)
+    const { data, error } = itemIds.length
+      ? await db.from('items').select('id, name, serial_number').in('id', itemIds)
+      : { data: [], error: null }
+    if (error) throw new Error(error.message)
+    loose = (data ?? []) as { id: string; name: string; serial_number: string | null }[]
+  } catch (e) {
+    console.error('closeListEvent load', e)
+    return { error: 'โหลดใบจัดของไม่สำเร็จ — ยังไม่ได้ปิดงาน ลองใหม่อีกครั้ง' }
+  }
+  const looseItems: CloseLooseItem[] = lines.flatMap(l => {
+    if (!l.item_id) return []
+    const item = loose.find(i => i.id === l.item_id)
+    return [{ itemId: l.item_id, itemName: item?.name ?? 'ชิ้นที่ถูกลบ', serialNumber: item?.serial_number ?? null, status: l.return_condition ?? 'available' }]
+  })
+  const itemStatuses = Object.values(states).flatMap(items =>
+    items
+      .filter(i => !i.is_consumable && !i.outElsewhere)
+      .map(i => ({ itemId: i.id, status: i.status === 'in_use' ? 'available' : i.status }))
+      .filter(s => (RETURN_CONDITIONS as readonly string[]).includes(s.status)),
+  )
+  return closeEventCore(db, {
+    eventId: list.event_id,
+    userId,
+    itemStatuses,
+    imageUrls: list.return_photo_urls,
+    consumableUse: [],
+    keepItemStatuses: true,
+    looseItems,
+  })
+}
+
+/**
+ * คืนของที่จุดรับของ: ออกงาน → คืนแล้ว — ผู้รับของเท่านั้น · อีเวนต์ต้องยังไม่ปิด
+ * ตรวจ parseReturnInput (ทุกบรรทัดมีสภาพ) → (1) ตัดยอดวัสดุสิ้นเปลือง (2) ของเสีย/ซ่อม/หาย ตั้ง items.status ทันที (ใช้ได้รอคืนชั้น)
+ * → (3) บรรทัด returned_at/return_condition/return_note + ใบ returned → (4) log RETURN_PACKING → (5) แจ้งทีมจัดของ
+ * → (6) ผู้คืนมีสิทธิ์ปิดงาน = ปิดอีเวนต์ทันที (eventClosed true) ไม่มี = รอผู้มีสิทธิ์ปิดจากหน้าปิดงาน (closeEventFromPacking)
+ * ponytail: ไม่อยู่ใน transaction — ล้มก่อนขั้น (3) กดคืนซ้ำได้ (ตัดยอดไม่ซ้ำ · ตั้งสถานะซ้ำได้ผลเดิม)
+ */
+export async function returnPackingList(listId: string, input: ReturnPackingInput): Promise<ReturnPackingResult> {
+  const user = await getHandoverUser()
+  if (!user) return { error: NO_HANDOVER }
+  const db = createServiceClient()
+  const ctx = await loadOpenList(db, listId)
+  if ('error' in ctx) return ctx
+  if (ctx.list.status !== 'out') return { error: ctx.list.status === 'returned' || ctx.list.status === 'done' ? 'ใบนี้คืนของไปแล้ว' : 'คืนของได้เฉพาะใบที่ออกงานอยู่ (รับของแล้ว)' }
+  const eventId = ctx.list.event_id
+
+  let lines: PackingLineRow[]
+  let states: Record<string, KitItemState[]>
+  let info: Record<string, UnitInfo>
+  try {
+    lines = await loadPackingLines(db, [listId])
+    const kitIds = lines.flatMap(l => (l.kit_id ? [l.kit_id] : []))
+    ;[states, info] = await Promise.all([
+      loadKitItemStates(db, kitIds, eventId),
+      loadUnitInfo(db, lines.flatMap(l => (l.item_id ? [l.item_id] : [])), kitIds),
+    ])
+  } catch (e) {
+    console.error('returnPackingList load', e)
+    return { error: 'โหลดใบจัดของไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  }
+  const nameOf = (l: PackingLineRow) => info[(l.item_id ?? l.kit_id) as string]?.name ?? 'ชิ้นที่ถูกลบ'
+  const parsed = parseReturnInput(input, lines.map(l => ({ ...l, unitName: nameOf(l) })), states)
+  if ('error' in parsed) return parsed
+
+  // (1) วัสดุสิ้นเปลืองในกระเป๋า — ตัดยอดก่อน ล้ม = ยังไม่คืนของ
+  const cut = await cutConsumables(db, { eventId, eventName: ctx.event.name, userId: user.userId }, states, parsed.consumableUse)
+  if ('error' in cut) return cut
+
+  // (2) ของที่สภาพไม่ใช่ "ใช้ได้" ตั้งสถานะทันที — ponytail: ของยังวางที่จุดรับของจนคืนชั้น ตรวจนับชั้นอาจคาดว่าเจอบนชั้น
+  const conditionOf = new Map(parsed.lines.map(l => [l.lineId, l]))
+  let problems = 0
+  for (const l of lines) {
+    const c = conditionOf.get(l.id)!
+    if (!l.item_id || c.condition === 'available') continue
+    problems++
+    const { error } = await db.from('items').update({ status: c.condition }).eq('id', l.item_id)
+    if (error) return { error: `ตั้งสภาพ "${nameOf(l)}" ไม่สำเร็จ — ยังไม่ได้คืนของ ลองใหม่อีกครั้ง` }
+    const { error: logError } = await db.from('event_logs').insert({
+      event_id: eventId,
+      item_id: l.item_id,
+      kit_id: null,
+      user_id: user.userId,
+      action: 'checkin',
+      condition: returnLogCondition(c.condition),
+      note: c.note ?? RETURN_NOTE,
+    })
+    if (logError) console.error('returnPackingList event_logs', logError)
+  }
+  for (const k of parsed.kitItems) {
+    problems++
+    const res = await checkinKitItem(db, { eventId, kitId: k.kitId, itemId: k.itemId, status: k.condition, note: RETURN_NOTE, userId: user.userId })
+    if ('error' in res) return { error: `${res.error} — ยังไม่ได้คืนของ ลองใหม่อีกครั้ง` }
+  }
+
+  // (3) บรรทัด + ใบ
+  const now = new Date().toISOString()
+  for (const l of parsed.lines) {
+    const { error } = await db.from('packing_list_items').update({ returned_at: now, return_condition: l.condition, return_note: l.note }).eq('id', l.lineId)
+    if (error) return { error: 'บันทึกสภาพตอนคืนไม่สำเร็จ — ลองกดคืนของอีกครั้ง' }
+  }
+  const photoUrls = [...new Set((Array.isArray(input?.photoUrls) ? input.photoUrls : []).filter((u): u is string => typeof u === 'string' && u.includes(`/${BUCKET}/${listId}/`)))]
+  const { data: moved, error } = await db
+    .from('packing_lists')
+    .update({ status: 'returned', returned_at: now, returned_by: user.userId, return_note: parsed.note, return_photo_urls: photoUrls, updated_at: now })
+    .eq('id', listId)
+    .eq('status', 'out')
+    .select('id')
+  if (error) return { error: 'คืนของไม่สำเร็จ' }
+  if (!moved || moved.length === 0) return { error: 'ใบนี้คืนของไปแล้ว — โหลดหน้าใหม่' }
+
+  // (4) log
+  await logActivity('RETURN_PACKING', {
+    id: listId,
+    event_id: eventId,
+    lines: parsed.lines.map(l => ({ line_id: l.lineId, condition: l.condition })),
+    kit_items: parsed.kitItems,
+    consumables_cut: cut.cut,
+    photos: photoUrls.length,
+  })
+
+  // (5) แจ้งทีมจัดของ (createNotifications ตัดผู้ทำออก) · พังไม่ล้มการคืน
+  try {
+    const spot = ctx.list.spot_id ? await loadPickupSpot(db, ctx.list.spot_id).catch(() => null) : null
+    await createNotifications({
+      userIds: await packingTeamRecipients(db),
+      type: 'packing_returned',
+      ...packingReturnedMessage(ctx.event.name || 'อีเวนต์', spot?.name ?? null, problems),
+      referenceType: 'packing_list',
+      referenceId: listId,
+      actorId: user.userId,
+    })
+  } catch (e) {
+    console.error('returnPackingList notify', e)
+  }
+
+  // (6) ผู้คืนมีสิทธิ์ปิดงาน → ปิดอีเวนต์ในขั้นเดียว
+  let eventClosed = false
+  let closeError: string | undefined
+  const closer = await getEventManager('close')
+  if (closer) {
+    const res = await closeListEvent(db, { ...ctx.list, status: 'returned', return_photo_urls: photoUrls }, closer.userId)
+    if ('error' in res) closeError = res.error
+    else eventClosed = true
+  }
+  refreshFlow(ctx.list, lines.map(l => l.kit_id))
+  return closeError ? { success: true, eventClosed, closeError } : { success: true, eventClosed }
+}
+
+/**
+ * ปิดอีเวนต์จากใบที่คืนของแล้ว (ผู้คืนไม่มีสิทธิ์ปิดงาน) — ผู้มีสิทธิ์ปิดงานเท่านั้น · ใบต้องคืนแล้ว (หรือคืนชั้นครบแล้ว) และอีเวนต์ยังไม่ปิด
+ * ไม่ต้องติ๊กซ้ำ: ใช้สภาพตอนคืน + รูปตอนคืน · log CLOSE_EVENT (จาก core) + CLOSE_EVENT_FROM_PACKING
+ */
+export async function closeEventFromPacking(listId: string): Promise<Result> {
+  const closer = await getEventManager('close')
+  if (!closer) return { error: NO_CLOSE }
+  const db = createServiceClient()
+  let list: PackingListRow | null
+  try {
+    list = await loadPackingListRow(db, listId)
+  } catch (e) {
+    console.error('closeEventFromPacking load', e)
+    return { error: 'โหลดใบจัดของไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  }
+  if (!list) return { error: NOT_FOUND }
+  if (list.status !== 'returned' && list.status !== 'done') return { error: 'ใบจัดของยังไม่คืนของ — ให้ทีมหน้างานคืนของที่จุดรับของก่อน' }
+  const { data: event } = await db.from('events').select('id, status').eq('id', list.event_id).maybeSingle<{ id: string; status: string | null }>()
+  if (!event) return { error: 'ไม่พบอีเวนต์ของใบจัดของนี้' }
+  if (isClosedEvent(event.status)) return { error: 'อีเวนต์นี้ปิดงานไปแล้ว' }
+
+  const res = await closeListEvent(db, list, closer.userId)
+  if ('error' in res) return res
+  await logActivity('CLOSE_EVENT_FROM_PACKING', { id: listId, event_id: list.event_id })
+  refreshFlow(list)
+  return { success: true }
+}
+
+/** คืนชั้นบรรทัดหนึ่ง (ผู้เรียกตรวจสิทธิ์ + สถานะใบแล้ว) — อุปกรณ์เดี่ยว: สถานะ = สภาพตอนคืน · กระเป๋า: ชิ้นที่ยังออกงานให้งานนี้ → ใช้ได้ */
+async function restockOne(db: Db, list: PackingListRow, line: PackingLineRow, userId: string): Promise<string | null> {
+  let states: KitItemState[] = []
+  if (line.kit_id) {
+    try {
+      states = (await loadKitItemStates(db, [line.kit_id], list.event_id))[line.kit_id] ?? []
+    } catch (e) {
+      console.error('restockOne kit items', e)
+      return 'โหลดของในกระเป๋าไม่สำเร็จ ลองใหม่อีกครั้ง'
+    }
+  }
+  const plan = restockPlan(line, states)
+  if ('error' in plan) return plan.error
+
+  if (plan.kind === 'item') {
+    const { data: item } = await db.from('items').select('id, status').eq('id', plan.itemId).maybeSingle<{ id: string; status: string }>()
+    // ยังออกงานอยู่ = ขึ้นชั้นตามสภาพตอนคืน · สถานะอื่น (ตั้งเสีย/ซ่อม/หายไปแล้วตอนคืน หรือมีคนแก้มือ) = ไม่แตะ
+    if (item?.status === 'in_use') {
+      const { error } = await db.from('items').update({ status: plan.itemStatus }).eq('id', plan.itemId).eq('status', 'in_use')
+      if (error) return 'คืนชั้นไม่สำเร็จ'
+      const { error: logError } = await db.from('event_logs').insert({
+        event_id: list.event_id,
+        item_id: plan.itemId,
+        kit_id: null,
+        user_id: userId,
+        action: 'checkin',
+        condition: returnLogCondition(plan.itemStatus),
+        note: RESTOCK_NOTE,
+      })
+      if (logError) console.error('restockOne event_logs', logError)
+    }
+  } else {
+    // อีเวนต์ปิดไปแล้วตอนคืนของได้ — allowClosedEvent (การจอง event_kits ยังต้องมี)
+    for (const itemId of plan.kitItemIds) {
+      const res = await checkinKitItem(db, { eventId: list.event_id, kitId: plan.kitId, itemId, status: 'available', note: RESTOCK_NOTE, userId, allowClosedEvent: true })
+      if ('error' in res) return res.error
+    }
+    await syncPacked(db, list.event_id, plan.kitId, userId)
+  }
+
+  const { data: marked, error } = await db
+    .from('packing_list_items')
+    .update({ restocked_at: new Date().toISOString(), restocked_by: userId })
+    .eq('id', line.id)
+    .is('restocked_at', null)
+    .select('id')
+  if (error) return 'บันทึกคืนชั้นไม่สำเร็จ — กดอีกครั้ง'
+  if (!marked || marked.length === 0) return 'บรรทัดนี้คืนชั้นแล้ว'
+  await logActivity('RESTOCK_PACKING_LINE', { id: list.id, line_id: line.id, item_id: line.item_id, kit_id: line.kit_id, event_id: list.event_id })
+  return null
+}
+
+/** ทุกบรรทัดคืนชั้นแล้ว → ใบ คืนชั้นแล้ว (done) + restocked_at/by + recomputeKitPointers + log RESTOCK_PACKING · คืน true ถ้าปิดใบ */
+async function finishRestockIfComplete(db: Db, list: PackingListRow, userId: string): Promise<boolean> {
+  const lines = await loadPackingLines(db, [list.id])
+  if (!isRestockComplete(lines)) return false
+  const now = new Date().toISOString()
+  const { data: moved } = await db
+    .from('packing_lists')
+    .update({ status: 'done', restocked_at: now, restocked_by: userId, updated_at: now })
+    .eq('id', list.id)
+    .eq('status', 'returned')
+    .select('id')
+  if (!moved || moved.length === 0) return false
+  const kitIds = [...new Set(lines.flatMap(l => (l.kit_id ? [l.kit_id] : [])))]
+  await recomputeKitPointers(db, kitIds)
+  await logActivity('RESTOCK_PACKING', { id: list.id, event_id: list.event_id, lines: lines.length })
+  return true
+}
+
+/** ใบที่คืนของแล้ว สำหรับคืนชั้น (ทีมจัดของ) — ไม่ต้องการอีเวนต์เปิด (ปิดไปตอนคืนของได้) */
+async function loadReturnedList(db: Db, listId: string): Promise<PackingListRow | { error: string }> {
+  let list: PackingListRow | null
+  try {
+    list = await loadPackingListRow(db, listId)
+  } catch (e) {
+    console.error('loadReturnedList', e)
+    return { error: 'โหลดใบจัดของไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  }
+  if (!list) return { error: NOT_FOUND }
+  if (list.status === 'done') return { error: 'ใบนี้คืนชั้นครบแล้ว' }
+  if (list.status !== 'returned') return { error: 'คืนชั้นได้เฉพาะใบที่คืนของแล้ว' }
+  return list
+}
+
+/** คืนชั้นทีละบรรทัด — ทีมจัดของ · ใบต้องคืนแล้ว · คืนชั้นซ้ำ = error · ครบทุกบรรทัด = ใบคืนชั้นแล้ว (listDone) */
+export async function restockLine(lineId: string): Promise<{ error: string } | { success: true; listDone: boolean }> {
+  const team = await getPackingTeam()
+  if (!team) return { error: NO_ACCESS }
+  const db = createServiceClient()
+  const line = await loadLine(db, lineId)
+  if (!line) return { error: 'ไม่พบบรรทัดนี้ในใบจัดของ' }
+  const list = await loadReturnedList(db, line.list_id)
+  if ('error' in list) return list
+
+  const failed = await restockOne(db, list, line, team.userId)
+  if (failed) return { error: failed }
+  const listDone = await finishRestockIfComplete(db, list, team.userId).catch(e => {
+    console.error('restockLine finish', e)
+    return false
+  })
+  refreshFlow(list, [line.kit_id])
+  return { success: true, listDone }
+}
+
+/** คืนชั้นทุกบรรทัดที่เหลือของใบ — ทีมจัดของ · พังกลางทาง = error บอกจำนวนที่ทำไปแล้ว (กดซ้ำทำต่อได้) */
+export async function restockAll(listId: string): Promise<{ error: string } | { success: true; listDone: boolean }> {
+  const team = await getPackingTeam()
+  if (!team) return { error: NO_ACCESS }
+  const db = createServiceClient()
+  const list = await loadReturnedList(db, listId)
+  if ('error' in list) return list
+  const lines = await loadPackingLines(db, [listId]).catch(() => null)
+  if (!lines) return { error: 'โหลดใบจัดของไม่สำเร็จ ลองใหม่อีกครั้ง' }
+
+  let done = 0
+  for (const line of lines.filter(l => !l.restocked_at)) {
+    const failed = await restockOne(db, list, line, team.userId)
+    if (failed) {
+      refreshFlow(list, lines.map(l => l.kit_id))
+      return { error: `${failed} — คืนชั้นไปแล้ว ${done} บรรทัด กดอีกครั้งเพื่อทำต่อ` }
+    }
+    done++
+  }
+  const listDone = await finishRestockIfComplete(db, list, team.userId).catch(e => {
+    console.error('restockAll finish', e)
+    return false
+  })
+  refreshFlow(list, lines.map(l => l.kit_id))
+  return { success: true, listDone }
 }
 
 /** ให้หน้าจอรู้ว่าผู้ใช้เป็นทีมจัดของไหม (ซ่อนปุ่ม — server ตรวจซ้ำทุก action) */

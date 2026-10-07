@@ -6,18 +6,9 @@ import { redirect } from 'next/navigation'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
 import { getEventManager, EVENT_PERMISSION_KEYS } from '@/lib/event-permissions'
-import { loadBookingsForEvent, recomputeKitPointers } from '@/lib/kit-bookings'
-import type { ActionState, KitContent, Item, Database } from '@/types'
-import { isClosedEvent } from '../jobs/tracking/tracking-logic'
-import { planReturnUse } from '../shelves/consumable-logic'
-import { moveStock } from '@/lib/stock'
-
-// แถวกระเป๋า + ของในกระเป๋า ที่ processEventReturn select มา (items เป็น object เดียวต่อแถว)
-type CloseKitContent = {
-  quantity: number | null
-  items: Pick<Item, 'id' | 'name' | 'serial_number' | 'status' | 'image_url' | 'is_consumable' | 'unit'> | null
-}
-type CloseKitRow = { id: string; name: string; kit_contents: CloseKitContent[] | null }
+import { recomputeKitPointers } from '@/lib/kit-bookings'
+import type { ActionState, KitContent, Database } from '@/types'
+import { closeEventCore } from './close-core'
 
 
 // Recompute crm_leads.assigned_* roll-up arrays as the UNION of every linked event's
@@ -529,84 +520,8 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 }
 
 
-/** สถานะที่เลือกได้ตอนรับคืนอุปกรณ์ (ใช้ร่วมกับแท็บรับคืนในหน้าเช็คของ) */
-const RETURN_STATUSES = ['available', 'damaged', 'maintenance', 'lost']
-
-/** สถานะใบงานที่ถือว่าจบแล้ว — ตรงกับ POOL_DONE_STATUSES ใน jobs/tracking/tracking-logic.ts */
-const POOL_FINISHED_STATUSES = ['done', 'skipped']
-
-/**
- * ใบงานหน้างานของงานที่ผูกอีเวนต์นี้จบเอง เมื่ออีเวนต์ถูกปิดจากการคืนกระเป๋า
- * — ไม่คืน error และไม่ throw ออกไป: การคืนกระเป๋าต้องสำเร็จอยู่ดีแม้ใบงานจะอัปเดตพลาด
- * — leadId ว่าง (อีเวนต์ที่ไม่ได้มาจากงาน CRM) → ข้ามเงียบๆ
- * — งานหนึ่งงานมีได้หลายอีเวนต์ (เช่น พรีเวดดิ้ง + วันงานจริง) แต่ใบงานหน้างานมีใบเดียวต่อทั้งงาน
- *   จึงปิดได้ต่อเมื่อ "ทุกอีเวนต์" ของงานนี้ปิดครบแล้ว ไม่ใช่แค่ใบที่เพิ่งคืนกระเป๋า
- *   (งานที่มีอีเวนต์เดียว = ใบที่เพิ่งปิดคือใบสุดท้ายอยู่แล้ว พฤติกรรมเหมือนเดิม)
- */
-async function autoFinishOnsiteJobs(leadId: string | null, actorId: string) {
-    if (!leadId) return
-
-    const supabase = createServiceClient()
-
-    const { data: leadEvents, error: eventsErr } = await supabase
-        .from('events')
-        .select('id, status')
-        .eq('crm_lead_id', leadId)
-
-    if (eventsErr) {
-        console.error('[events] auto-finish onsite: fetch events failed:', eventsErr.message)
-        return
-    }
-    // ยังมีอีเวนต์ที่ไม่ปิด → งานหน้างานยังไม่จบ (ไม่มีอีเวนต์เลย = ไม่ควรเกิด แต่ก็ไม่ปิดให้)
-    if (!leadEvents || leadEvents.length === 0) return
-    if (leadEvents.some(e => !isClosedEvent(e.status as string | null))) return
-
-    const { data: jobs, error } = await supabase
-        .from('jobs')
-        .select('id, status')
-        .eq('crm_lead_id', leadId)
-        .eq('job_type', 'onsite')
-
-    if (error) {
-        console.error('[events] auto-finish onsite: fetch failed:', error.message)
-        return
-    }
-
-    for (const job of jobs || []) {
-        const oldStatus = (job.status as string) || ''
-        if (POOL_FINISHED_STATUSES.includes(oldStatus)) continue
-
-        const { error: updErr } = await supabase
-            .from('jobs')
-            .update({ status: 'done', updated_at: new Date().toISOString() })
-            .eq('id', job.id)
-        if (updErr) {
-            console.error('[events] auto-finish onsite: update failed:', updErr.message)
-            continue
-        }
-
-        // ไทม์ไลน์ของใบงาน (job_activities) แบบเดียวกับที่พูลงานบันทึกตอนรับ/คืน/ข้าม
-        await supabase.from('job_activities').insert({
-            job_id: job.id,
-            created_by: actorId,
-            activity_type: 'status_change',
-            description: 'จบอัตโนมัติ: ปิดอีเวนต์แล้ว',
-            old_status: oldStatus,
-            new_status: 'done',
-        })
-        await logActivity('AUTO_FINISH_POOL_JOB', {
-            jobId: job.id,
-            jobType: 'onsite',
-            leadId,
-            oldStatus,
-        })
-        revalidatePath(`/jobs/${job.id}`)
-    }
-
-    revalidatePath('/jobs')
-    revalidatePath('/jobs/tracking')
-}
-
+// แกนการปิดงาน (ตรวจ → ตัดยอดวัสดุสิ้นเปลือง → snapshot → สถานะอุปกรณ์ → ปิดอีเวนต์ → ใบงานหน้างานจบเอง)
+// อยู่ใน ./close-core.ts ใช้ร่วมกับใบจัดของ (packing/actions.ts) — หน้านี้ส่ง keepItemStatuses: false = พฤติกรรมเดิมทุกอย่าง
 export async function processEventReturn(
     eventId: string,
     itemStatuses: { itemId: string, status: string }[],
@@ -615,177 +530,15 @@ export async function processEventReturn(
 ): Promise<{ error: string } | { success: true }> {
      const manager = await getEventManager('close')
      if (!manager) return { error: 'ไม่มีสิทธิ์ปิดงานอีเวนต์ — ให้ admin เปิดสิทธิ์ในหน้าตั้งค่า' }
-     const userId = manager.userId
 
-     const supabase = createServiceClient()
-
-     // Fetch event details before processing
-     const { data: event } = await supabase
-         .from('events')
-         .select('*')
-         .eq('id', eventId)
-         .single()
-
-     if (event?.status === 'completed') {
-         return { error: 'อีเวนต์นี้ปิดงานไปแล้ว' }
-     }
-
-     // กระเป๋าของอีเวนต์นี้ = การจอง (event_kits)
-     const bookedKitIds = (await loadBookingsForEvent(supabase, eventId)).map(b => b.kitId)
-     const { data: kits } = bookedKitIds.length === 0 ? { data: [] } : await supabase
-         .from('kits')
-         .select(`
-             id,
-             name,
-             kit_contents(
-                 quantity,
-                 items(id, name, serial_number, status, image_url, is_consumable, unit)
-             )
-         `)
-         .in('id', bookedKitIds)
-         .overrideTypes<CloseKitRow[], { merge: false }>()
-
-     const contentsOf = (k: CloseKitRow) => (k.kit_contents || []).filter((kc): kc is CloseKitContent & { items: NonNullable<CloseKitContent['items']> } => !!kc.items?.id)
-     // วัสดุสิ้นเปลืองไม่มีสถานะรับคืน — ใช้ไปเท่าไรตัดยอดผ่าน consumableUse
-     const consumableIds = new Set(
-         (kits || []).flatMap(k => contentsOf(k).filter(kc => kc.items.is_consumable).map(kc => kc.items.id as string))
-     )
-     if (itemStatuses.some(s => consumableIds.has(s.itemId))) {
-         return { error: 'วัสดุสิ้นเปลืองไม่ต้องเลือกสถานะ — กรอกจำนวนที่ใช้ไปแทน' }
-     }
-
-     // รับคืนได้แค่ ใช้ได้ / เสียหาย / ซ่อมบำรุง / หาย และเฉพาะอุปกรณ์ปกติในกระเป๋าของงานนี้
-     const allowedItemIds = new Set(
-         (kits || []).flatMap(k => contentsOf(k).filter(kc => !kc.items.is_consumable).map(kc => kc.items.id as string))
-     )
-     if (itemStatuses.some(s => !RETURN_STATUSES.includes(s.status) || !allowedItemIds.has(s.itemId))) {
-         return { error: 'สถานะอุปกรณ์ไม่ถูกต้อง — เลือกได้แค่ ใช้ได้ / เสียหาย / ซ่อมบำรุง / หาย' }
-     }
-
-     // วัสดุสิ้นเปลือง: ตัดยอดที่ใช้ไป "ก่อน" บันทึกปิดงาน — ล้มกลางทาง = ยังไม่ปิดงาน กดยืนยันซ้ำได้
-     // คู่ (กระเป๋า, ของ) ที่งานนี้ตัดไปแล้วถูกข้าม จึงไม่ตัดซ้ำ
-     const { data: usedRows } = await supabase
-         .from('stock_movements')
-         .select('kit_id, item_id, delta')
-         .eq('event_id', eventId)
-         .eq('reason', 'use')
-     const alreadyCut = (usedRows || [])
-         .filter(r => r.kit_id)
-         .map(r => ({ kitId: r.kit_id as string, itemId: r.item_id, used: -r.delta }))
-     const kitConsumables = (kits || []).flatMap(k =>
-         contentsOf(k).filter(kc => kc.items.is_consumable).map(kc => ({ kitId: k.id, itemId: kc.items.id as string, name: kc.items.name as string }))
-     )
-     const plan = planReturnUse(kitConsumables, consumableUse, alreadyCut)
-     if ('error' in plan) return { error: plan.error }
-
-     for (const cut of plan.cuts) {
-         const name = kitConsumables.find(c => c.kitId === cut.kitId && c.itemId === cut.itemId)?.name || 'วัสดุสิ้นเปลือง'
-         const res = await moveStock(supabase, {
-             itemId: cut.itemId,
-             delta: -cut.used,
-             reason: 'use',
-             eventId,
-             kitId: cut.kitId,
-             userId,
-             note: `ปิดงาน ${event?.name || ''}`.trim(),
-         })
-         if ('error' in res) return { error: `ตัดยอด ${name} ไม่สำเร็จ: ${res.error} — ยังไม่ได้ปิดงาน` }
-         await logActivity('DRAW_STOCK', { itemId: cut.itemId, name, delta: -cut.used, balance: res.balance, eventId, kitId: cut.kitId })
-     }
-     if (plan.cuts.length > 0) {
-         revalidatePath('/items')
-         revalidatePath('/shelves')
-         revalidatePath('/stock/dashboard')
-     }
-     // จำนวนใช้ไปจริงของงานนี้ต่อคู่: ที่ตัดไว้ก่อนหน้า > ที่ส่งมา > 0
-     const usedFor = (kitId: string, itemId: string) =>
-         alreadyCut.find(c => c.kitId === kitId && c.itemId === itemId)?.used
-         ?? consumableUse.find(c => c.kitId === kitId && c.itemId === itemId)?.used
-         ?? 0
-
-     // Build kits snapshot
-     const kitsSnapshot = kits?.map(kit => ({
-         kitId: kit.id,
-         kitName: kit.name,
-         items: kit.kit_contents?.map((kc) => ({
-             itemId: kc.items?.id,
-             itemName: kc.items?.name,
-             serialNumber: kc.items?.serial_number,
-             status: itemStatuses.find(s => s.itemId === kc.items?.id)?.status || kc.items?.status,
-             quantity: kc.quantity,
-             imageUrl: kc.items?.image_url,
-             ...(kc.items?.is_consumable ? { isConsumable: true, used: usedFor(kit.id, kc.items.id) } : {})
-         })) || []
-     })) || []
-
-     // 1. Save to event_closures table
-     const { error: closureError } = await supabase
-         .from('event_closures')
-         .insert({
-             event_name: event?.name || 'Unknown Event',
-             event_date: event?.event_date,
-             event_location: event?.location,
-             closed_by: userId,
-             kits_snapshot: kitsSnapshot,
-             image_urls: imageUrls
-         })
-
-     if (closureError) {
-         console.error('Failed to save closure record:', closureError)
-         // Continue anyway - don't block the return process
-     }
-
-     // 2. Update item statuses (optimized batch update)
-     const statusGroups: Record<string, string[]> = {}
-     for (const { itemId, status } of itemStatuses) {
-         if (!statusGroups[status]) statusGroups[status] = []
-         statusGroups[status].push(itemId)
-     }
-
-     await Promise.all(
-         Object.entries(statusGroups).map(([status, ids]) => 
-             supabase.from('items').update({ status }).in('id', ids)
-         )
-     )
-
-     // 4. Soft-close the event — keep the row so event_staff / staff_checkins /
-     //    job_cost_events links survive. Status flips to 'completed'.
-     const { error } = await supabase
-        .from('events')
-        .update({ status: 'completed' })
-        .eq('id', eventId)
-
-     if (error) {
-         console.error("Close event failed", error)
-         return { error: 'ปิดงานไม่สำเร็จ' }
-     }
-
-     // 3. ปล่อยกระเป๋า — ชี้ไปงานถัดไปที่จองไว้ (ไม่มี = ว่าง) การจองของงานนี้เก็บไว้เป็นประวัติ
-     await recomputeKitPointers(supabase, bookedKitIds)
-
-     await logActivity('CLOSE_EVENT', {
+     return closeEventCore(createServiceClient(), {
          eventId,
-         name: event?.name || 'Unknown Event',
-         closureRecorded: !closureError
-     }, undefined)
-
-     // 5. ปิดอีเวนต์แล้ว → ใบงานหน้างานของงานที่ผูกอีเวนต์นี้จบเอง (หายจากแท็บหน้างาน)
-     //    จงใจไม่ให้ล้มการคืนกระเป๋า: อีเวนต์ปิดสำเร็จไปแล้ว ใบงานพลาดก็แค่บันทึกไว้ใน console
-     //    อีเวนต์ที่ไม่ได้ผูกกับงาน CRM (crm_lead_id ว่าง) ข้ามเงียบๆ
-     try {
-         await autoFinishOnsiteJobs((event?.crm_lead_id as string) ?? null, userId)
-     } catch (e) {
-         console.error('[events] auto-finish onsite jobs threw:', e)
-     }
-
-     revalidatePath('/events')
-     revalidatePath('/items')
-     revalidatePath('/kits')
-     revalidatePath('/events/event-closures')
-     revalidatePath('/events/calendar')
-     revalidatePath('/crm')
-
-     return { success: true }
+         userId: manager.userId,
+         itemStatuses,
+         imageUrls,
+         consumableUse,
+         keepItemStatuses: false,
+     })
 }
 
 // Upload a closure photo. The browser client is `anon` (this app uses a custom

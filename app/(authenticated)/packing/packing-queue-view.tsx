@@ -1,6 +1,6 @@
 'use client'
 
-// คิว /packing ของทีมจัดของ — 3 กลุ่ม: รอเปิดใบ · กำลังทำ (เลือกของ/กำลังหยิบ) · พร้อมรับ
+// คิว /packing ของทีมจัดของ — 5 กลุ่ม: รอเปิดใบ · กำลังทำ (เลือกของ/กำลังหยิบ) · พร้อมรับ · ออกงาน · รอคืนชั้น (เรียงวันงานจาก loader)
 // ปุ่ม "เปิดใบจัดของ" = createPackingList แล้วไปหน้าใบ · การ์ดที่มีใบแล้วกดเปิดใบได้ทั้งการ์ด
 import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
@@ -44,7 +44,7 @@ export function QueueCardBody({ card }: { card: PackingQueueCard }) {
       {card.list && (
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           <PackingStatusChip status={card.list.status} picked={card.list.pickedCount} total={card.list.lineCount} />
-          {card.list.status !== 'picking' && (
+          {(card.list.status === 'selecting' || card.list.status === 'ready') && (
             <span className="text-xs text-zinc-500 tabular-nums">
               หยิบแล้ว {card.list.pickedCount}/{card.list.lineCount}
             </span>
@@ -119,7 +119,9 @@ export default function PackingQueueView({ queue, loadError = null }: { queue: P
       </Link>
     ) : null
 
-  const total = queue.awaiting.length + queue.active.length + queue.ready.length
+  const out = queue.out ?? []
+  const returned = queue.returned ?? []
+  const total = queue.awaiting.length + queue.active.length + queue.ready.length + out.length + returned.length
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -127,7 +129,7 @@ export default function PackingQueueView({ queue, loadError = null }: { queue: P
         <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight md:text-3xl">
           <ClipboardList className="h-6 w-6 text-zinc-500" /> ใบจัดของ
         </h2>
-        <p className="text-sm text-muted-foreground">เลือกของตามแพ็กเกจของงาน เดินหยิบตามชั้น ถ่ายรูปยืนยัน แล้ววางที่จุดรับของ</p>
+        <p className="text-sm text-muted-foreground">เลือกของตามแพ็กเกจของงาน เดินหยิบตามชั้น ถ่ายรูปยืนยัน วางที่จุดรับของ แล้วคืนชั้นเมื่อทีมหน้างานคืนของ</p>
       </div>
 
       {loadError && (
@@ -156,6 +158,14 @@ export default function PackingQueueView({ queue, loadError = null }: { queue: P
       </Section>
 
       <Section title="พร้อมรับ" hint="จัดเสร็จแล้ว วางไว้ที่จุดรับของ รอทีมหน้างานมารับ" cards={queue.ready} empty="ยังไม่มีใบที่พร้อมรับ">
+        {listCard}
+      </Section>
+
+      <Section title="ออกงาน" hint="ทีมหน้างานรับของไปแล้ว รอคืนของที่จุดรับของ" cards={out} empty="ไม่มีใบที่ออกงานอยู่">
+        {listCard}
+      </Section>
+
+      <Section title="รอคืนชั้น" hint="ทีมหน้างานคืนของแล้ว — นำของจากจุดรับของขึ้นชั้นบ้านเดิม" cards={returned} empty="ไม่มีใบที่รอคืนชั้น">
         {listCard}
       </Section>
     </div>

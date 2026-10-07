@@ -10,6 +10,8 @@ import {
   isFloatingJob,
   ONSITE_ARRIVED_STATUS,
   ONSITE_JOB_TYPE,
+  ONSITE_LOADING_STATUS,
+  shouldAdvanceTo,
   shouldAdvanceToOnsite,
   sortFloating,
   splitFloating,
@@ -123,5 +125,20 @@ assert.equal(shouldAdvanceToOnsite('preparing', []), false)
 // ลำดับที่แอดมินแก้เอง (ตัด/สลับขั้น) ยังตัดสินจากลำดับจริง ไม่ใช่ชื่อขั้นที่ hardcode
 assert.equal(shouldAdvanceToOnsite('awaiting_claim', ['awaiting_claim', 'onsite']), true)
 assert.equal(shouldAdvanceToOnsite('loading', ['onsite', 'loading']), false)
+
+// ---- ขยับเป็น "ขนของ" อัตโนมัติเมื่อทีมรับของจากจุดรับของ (shouldAdvanceTo ทั่วไป) ----
+assert.equal(ONSITE_LOADING_STATUS, 'loading')
+// ก่อนขนของ = ขยับ
+assert.equal(shouldAdvanceTo('preparing', ONSITE_LOADING_STATUS, PIPELINE), true)
+// อยู่ที่ขนของแล้ว / เลยไปแล้ว (ออกหน้างาน) = ไม่แตะ ห้ามถอยหลัง
+assert.equal(shouldAdvanceTo('loading', ONSITE_LOADING_STATUS, PIPELINE), false)
+assert.equal(shouldAdvanceTo('onsite', ONSITE_LOADING_STATUS, PIPELINE), false)
+// ไม่มีขั้นขนของในลำดับ / ถูกข้าม = ไม่แตะ
+assert.equal(shouldAdvanceTo('preparing', ONSITE_LOADING_STATUS, ['awaiting_claim', 'preparing', 'onsite']), false)
+assert.equal(shouldAdvanceTo('skipped', ONSITE_LOADING_STATUS, ['skipped', 'loading']), false)
+// wrapper เดิมให้ผลเท่ากับ shouldAdvanceTo(..., 'onsite', ...)
+for (const s of [...PIPELINE, 'skipped', 'unknown_status', '']) {
+  assert.equal(shouldAdvanceToOnsite(s, PIPELINE), shouldAdvanceTo(s, ONSITE_ARRIVED_STATUS, PIPELINE))
+}
 
 console.log('board-logic.check: all passed')

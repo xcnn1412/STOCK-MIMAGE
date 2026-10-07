@@ -8,13 +8,18 @@ import {
   canConfirmReady,
   canPickLine,
   canStartPicking,
+  canHandOver,
   canTransition,
   checkPackingLines,
   isMissingPacking,
   isPackedStatus,
+  isRestockComplete,
   lineAvailability,
   parsePickupSpotForm,
+  parseReturnInput,
   pickRoute,
+  restockPlan,
+  returnLogCondition,
   scaffoldLines,
   shelfPlaceLabel,
 } from './packing-logic'
@@ -33,7 +38,9 @@ ok(canTransition('picking', 'ready'), 'กำลังหยิบ → พร้
 ok(canTransition('ready', 'picking'), 'ถอย พร้อมรับ → กำลังหยิบ')
 ok(canTransition('picking', 'selecting'), 'ถอย กำลังหยิบ → เลือกของ')
 ok(!canTransition('selecting', 'ready'), 'ข้ามขั้นไม่ได้')
-ok(!canTransition('ready', 'out'), 'รับของยังไม่เปิดในเฟสนี้')
+ok(canTransition('ready', 'out'), 'พร้อมรับ → ออกงาน (รับของ)')
+ok(canTransition('out', 'returned') && canTransition('returned', 'done'), 'ออกงาน → คืนแล้ว → คืนชั้นแล้ว')
+ok(!canTransition('out', 'ready') && !canTransition('returned', 'out'), 'ตั้งแต่ออกงานถอยไม่ได้')
 ok(!canTransition('ready', 'selecting'), 'พร้อมรับถอยไปเลือกของตรงๆ ไม่ได้')
 ok(!canTransition('done', 'selecting'), 'คืนชั้นแล้วแก้ไม่ได้')
 ok(canCancelList('selecting') && canCancelList('picking') && !canCancelList('ready'), 'ยกเลิกได้เฉพาะเลือกของ/กำลังหยิบ')
@@ -184,6 +191,73 @@ ok(isMissingPacking(['E1', 'E2'], [{ eventId: 'E1', status: 'ready' }]), 'อี
 eq(parsePickupSpotForm({ name: '  จุดรับของ A ', code: ' A ' }), { name: 'จุดรับของ A', code: 'A', note: null, is_active: true }, 'ตัดช่องว่าง')
 ok(err(parsePickupSpotForm({ name: '', code: 'A' })).includes('ชื่อ'), 'ไม่มีชื่อ = error')
 ok(err(parsePickupSpotForm({ name: 'A', code: '' })).includes('รหัส'), 'ไม่มีรหัส = error')
+
+// --- เฟส 4: รับของ / คืนของ / คืนชั้น ----------------------------------------------
+{
+  const L = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  ok('ok' in canHandOver({ status: 'ready' }, L), 'รับของใบพร้อมรับ ไม่ส่ง lineIds = ผ่าน')
+  ok('ok' in canHandOver({ status: 'ready' }, L, ['a', 'b', 'c', 'x']), 'ติ๊กครบ (id แปลกปลอมข้าม)')
+  ok(err(canHandOver({ status: 'ready' }, L, ['a'])).includes('ขาด 2'), 'ติ๊กไม่ครบ = ระบุจำนวนที่ขาด')
+  ok(err(canHandOver({ status: 'picking' }, L)).includes('พร้อมรับ'), 'ใบกำลังหยิบรับของไม่ได้')
+  ok(err(canHandOver({ status: 'out' }, L)).includes('รับของไปแล้ว'), 'รับซ้ำ')
+  ok(err(canHandOver({ status: 'ready' }, [])).includes('ยังไม่มีของ'), 'ใบว่าง')
+}
+{
+  const lines = [
+    { id: 'l1', item_id: 'i1', kit_id: null, unitName: 'คอม 1' },
+    { id: 'l2', item_id: null, kit_id: 'k1', unitName: 'กระเป๋า A' },
+  ]
+  const kitStates = {
+    k1: [
+      { id: 'ki1', name: 'คอมในกระเป๋า', status: 'in_use' },
+      { id: 'ki2', name: 'กล้อง', status: 'in_use' },
+      { id: 'ki3', name: 'แฟลชเสีย', status: 'damaged' },
+      { id: 'kc', name: 'กระดาษ', status: 'available', is_consumable: true },
+      { id: 'kx', name: 'ของงานอื่น', status: 'in_use', outElsewhere: true },
+    ],
+  }
+  const all = (c1 = 'available', c2 = 'available') => [{ lineId: 'l1', condition: c1 }, { lineId: 'l2', condition: c2 }]
+  ok(err(parseReturnInput({ lines: [{ lineId: 'l1', condition: 'available' }] }, lines, kitStates)).includes('กระเป๋า A'), 'ขาดสภาพ = error ระบุชื่อ')
+  ok(err(parseReturnInput({ lines: all('broken') }, lines, kitStates)).includes('สภาพไม่ถูกต้อง'), 'สภาพนอก 4 ค่า')
+  ok(err(parseReturnInput({ lines: [...all(), { lineId: 'l1', condition: 'lost' }] }, lines, kitStates)).includes('ซ้ำ'), 'บรรทัดซ้ำ')
+  ok(err(parseReturnInput({ lines: [...all(), { lineId: 'zz', condition: 'lost' }] }, lines, kitStates)).includes('ไม่อยู่ในใบนี้'), 'บรรทัดที่ไม่ใช่ของใบ')
+  ok(err(parseReturnInput({ lines: all(), kitItems: [{ itemId: 'nope', condition: 'lost' }] }, lines, kitStates)).includes('ไม่อยู่ในกระเป๋า'), 'ชิ้นนอกกระเป๋า')
+  ok(err(parseReturnInput({ lines: all(), kitItems: [{ itemId: 'kc', condition: 'lost' }] }, lines, kitStates)).includes('วัสดุสิ้นเปลือง'), 'วัสดุสิ้นเปลืองระบุสภาพไม่ได้')
+  ok(err(parseReturnInput({ lines: all(), kitItems: [{ itemId: 'kx', condition: 'lost' }] }, lines, kitStates)).includes('งานอื่น'), 'ชิ้นที่ออกงานกับงานอื่น')
+  ok(err(parseReturnInput({ lines: all(), kitItems: [{ itemId: 'ki1', condition: 'lost' }, { itemId: 'ki1', condition: 'damaged' }] }, lines, kitStates)).includes('ซ้ำ'), 'ชิ้นซ้ำ')
+  ok(err(parseReturnInput({ lines: all(), consumableUse: [{ kitId: 'k1', itemId: 'kc', used: 1.5 }] }, lines, kitStates)).includes('จำนวนเต็ม'), 'ใช้ไปไม่ใช่จำนวนเต็ม')
+  ok(err(parseReturnInput(null, lines, kitStates)).includes('ไม่ถูกต้อง'), 'ไม่มีข้อมูล')
+
+  const okAll = parseReturnInput({ lines: all(), consumableUse: [{ kitId: 'k1', itemId: 'kc', used: 2 }], note: '  ' }, lines, kitStates)
+  ok(!('error' in okAll), 'ใช้ได้ทั้งหมด ผ่าน')
+  if (!('error' in okAll)) {
+    eq(okAll.kitItems, [], 'ใช้ได้ทั้งหมด = ไม่มีชิ้นที่ต้องตั้งสถานะ')
+    eq(okAll.lines.map(l => l.condition), ['available', 'available'], 'สภาพบรรทัด')
+    eq(okAll.note, null, 'หมายเหตุว่าง = null')
+    eq(okAll.consumableUse, [{ kitId: 'k1', itemId: 'kc', used: 2 }], 'วัสดุสิ้นเปลือง')
+  }
+  const one = parseReturnInput({ lines: all('damaged', 'available'), kitItems: [{ itemId: 'ki2', condition: 'maintenance' }] }, lines, kitStates)
+  ok(!('error' in one) && one.kitItems.length === 1 && one.kitItems[0].itemId === 'ki2' && one.kitItems[0].condition === 'maintenance', 'ระบุบางชิ้น: ชิ้นอื่นใช้ได้')
+  const lostBag = parseReturnInput({ lines: all('available', 'lost') }, lines, kitStates)
+  ok(!('error' in lostBag) && lostBag.kitItems.map(k => `${k.itemId}:${k.condition}`).join() === 'ki1:lost,ki2:lost', 'กระเป๋าหายทั้งใบ (ไม่ระบุชิ้น) = ชิ้นที่ออกงานให้งานนี้หายทุกชิ้น ไม่แตะของเสียเดิม/วัสดุ/ของงานอื่น')
+}
+{
+  eq(restockPlan({ item_id: 'i1', kit_id: null, return_condition: 'damaged', restocked_at: null }), { kind: 'item', itemId: 'i1', itemStatus: 'damaged' }, 'อุปกรณ์เดี่ยว = สภาพตอนคืน')
+  eq(restockPlan({ item_id: 'i1', kit_id: null, return_condition: null, restocked_at: null }), { kind: 'item', itemId: 'i1', itemStatus: 'available' }, 'ไม่ระบุ = ใช้ได้')
+  eq(
+    restockPlan({ item_id: null, kit_id: 'k1', return_condition: 'available', restocked_at: null }, [
+      { id: 'a', name: 'a', status: 'in_use' },
+      { id: 'b', name: 'b', status: 'maintenance' },
+      { id: 'c', name: 'c', status: 'in_use', outElsewhere: true },
+      { id: 'd', name: 'd', status: 'in_use', is_consumable: true },
+    ]),
+    { kind: 'kit', kitId: 'k1', kitItemIds: ['a'] },
+    'กระเป๋า = เฉพาะชิ้นที่ยังออกงานให้งานนี้',
+  )
+  ok(err(restockPlan({ item_id: 'i1', kit_id: null, return_condition: null, restocked_at: '2026-10-07' })).includes('คืนชั้นแล้ว'), 'คืนชั้นซ้ำ')
+  ok(isRestockComplete([{ restocked_at: 'x' }, { restocked_at: 'y' }]) && !isRestockComplete([{ restocked_at: 'x' }, { restocked_at: null }]), 'คืนชั้นครบไหม')
+  eq((['available', 'damaged', 'maintenance', 'lost'] as const).map(returnLogCondition), ['good', 'damaged', 'damaged', 'lost'], 'condition ใน event_logs')
+}
 
 console.log(`${n} assertions`)
 console.log('packing-logic: ผ่านทั้งหมด')

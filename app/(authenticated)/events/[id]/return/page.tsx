@@ -1,7 +1,10 @@
-import { supabaseServer as supabase } from '@/lib/supabase-server'
+import { createServiceClient, supabaseServer as supabase } from '@/lib/supabase-server'
 import { getEventManager } from '@/lib/event-permissions'
 import { notFound, redirect } from 'next/navigation'
+import { loadPackingListDetail, loadPackingListForEvent } from '../../../packing/queries'
+import type { PackingListRow } from '../../../packing/types'
 import CheckListForm from './return-checklist'
+import { PackingCloseView, PackingNotReturned } from './packing-close-view'
 import type { Item } from '@/types'
 
 export const revalidate = 0
@@ -15,6 +18,36 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
 
   // Already closed — nothing to check in.
   if (event.status === 'completed') redirect('/events')
+
+  // อีเวนต์ที่มีใบจัดของ: คืนแล้ว / คืนชั้นแล้ว (อีเวนต์ยังเปิด) = ยืนยันปิดงานแบบสรุป · ต่ำกว่านั้น = ยังไม่คืนของ (ปิดแบบเดิมไม่ได้)
+  // ไม่มีใบ = หน้าเดิมทุกอย่าง
+  const db = createServiceClient()
+  let packingList: PackingListRow | null
+  try {
+    packingList = await loadPackingListForEvent(db, event.id)
+  } catch (e) {
+    console.error('EventReturnPage packing list', e)
+    return (
+      <div className="mx-auto max-w-xl rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        โหลดใบจัดของของอีเวนต์นี้ไม่สำเร็จ — ลองโหลดหน้าใหม่อีกครั้ง
+      </div>
+    )
+  }
+  if (packingList) {
+    if (packingList.status === 'returned' || packingList.status === 'done') {
+      const summary = await loadPackingListDetail(db, packingList.id).catch(e => {
+        console.error('EventReturnPage packing summary', e)
+        return null
+      })
+      if (summary) return <PackingCloseView detail={summary} />
+      return (
+        <div className="mx-auto max-w-xl rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          โหลดสรุปคืนของไม่สำเร็จ — ลองโหลดหน้าใหม่อีกครั้ง
+        </div>
+      )
+    }
+    return <PackingNotReturned list={packingList} eventName={event.name || 'อีเวนต์'} />
+  }
 
   // 1. Get kits assigned to event
   // กระเป๋าของอีเวนต์นี้ = การจอง (event_kits)

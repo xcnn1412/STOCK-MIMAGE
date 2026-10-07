@@ -1,8 +1,9 @@
 'use client'
 
-// หน้าใบจัดของ /packing/[id] — หัวงาน + ขั้นตอน 3 ขั้นของเฟสนี้ (เลือกของ → กำลังหยิบ → พร้อมรับ)
-// เลือกของ = SelectStep · กำลังหยิบ = PickStep + ConfirmStep · พร้อมรับขึ้นไป = สรุป (+ ปุ่มแก้ไข ถอยเป็นกำลังหยิบ ก่อนรับของ)
-// ยกเลิกใบได้เฉพาะ เลือกของ/กำลังหยิบ (useConfirm) · action revalidatePath หน้านี้อยู่แล้ว ไม่ต้อง router.refresh()
+// หน้าใบจัดของ /packing/[id] — หัวงาน + stepper 6 ขั้น (เลือกของ → กำลังหยิบ → พร้อมรับ → ออกงาน → คืนแล้ว → คืนชั้นแล้ว)
+// เลือกของ = SelectStep · กำลังหยิบ = PickStep + ConfirmStep · พร้อมรับ = ReadySummary (+ ปุ่มแก้ไข ถอยเป็นกำลังหยิบ ก่อนรับของ)
+// ออกงาน = OutSummary · คืนแล้ว = RestockStep (คืนชั้น) · คืนชั้นแล้ว = DoneSummary
+// ยกเลิกใบได้เฉพาะ เลือกของ/กำลังหยิบ (useConfirm) · ตั้งแต่ออกงานไม่มีปุ่มแก้ไข/ยกเลิก · action revalidatePath หน้านี้อยู่แล้ว ไม่ต้อง router.refresh()
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -19,13 +20,15 @@ import { PACKING_STATUS_LABELS, canCancelList } from '../packing-logic'
 import { PackingStatusChip } from '../status-chip'
 import type { PackingListDetail, PackingStatus, PickupSpot } from '../types'
 import ConfirmStep from './confirm-step'
+import { DoneSummary, OutSummary } from './out-summary'
 import PickStep, { lineTags, routeOf } from './pick-step'
+import RestockStep from './restock-step'
 import SelectStep from './select-step'
 
 const PILL = 'inline-flex items-center rounded px-2 py-0.5 text-xs font-medium'
-const STEPS: PackingStatus[] = ['selecting', 'picking', 'ready']
+const STEPS: PackingStatus[] = ['selecting', 'picking', 'ready', 'out', 'returned', 'done']
 
-/** ลำดับขั้นปัจจุบันใน stepper (ออกงาน/คืนแล้ว/คืนชั้นแล้ว = ผ่านครบทั้ง 3 ขั้นของเฟสนี้) */
+/** ลำดับขั้นปัจจุบันใน stepper (สถานะไม่รู้จัก = ท้ายสุด) */
 export const stepIndex = (status: PackingStatus) => {
   const i = STEPS.indexOf(status)
   return i === -1 ? STEPS.length : i
@@ -34,9 +37,9 @@ export const stepIndex = (status: PackingStatus) => {
 function Stepper({ status }: { status: PackingStatus }) {
   const current = stepIndex(status)
   return (
-    <ol className="grid grid-cols-3 gap-1.5" aria-label="ขั้นตอนใบจัดของ">
+    <ol className="grid grid-cols-3 gap-1.5 sm:grid-cols-6" aria-label="ขั้นตอนใบจัดของ">
       {STEPS.map((s, i) => {
-        const done = i < current || (i === current && s === 'ready')
+        const done = i < current || (i === current && s === 'done')
         const active = i === current
         return (
           <li
@@ -56,7 +59,7 @@ function Stepper({ status }: { status: PackingStatus }) {
   )
 }
 
-/** สรุปใบที่พร้อมรับขึ้นไป: จุดรับของ + รูป + รายการตามเส้นทาง + ปุ่มแก้ไข (เฉพาะพร้อมรับ) */
+/** สรุปใบที่พร้อมรับ: จุดรับของ + รูป + รายการตามเส้นทาง + ปุ่มแก้ไข (ถอยเป็นกำลังหยิบ ก่อนรับของ) */
 function ReadySummary({ detail, closed }: { detail: PackingListDetail; closed: boolean }) {
   const { list } = detail
   const [busy, setBusy] = useState(false)
@@ -81,7 +84,7 @@ function ReadySummary({ detail, closed }: { detail: PackingListDetail; closed: b
     <div className="space-y-4">
       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100" data-testid="packing-ready">
         <div className="flex items-center gap-1.5 font-semibold">
-          <MapPinned className="h-4 w-4 shrink-0" /> {list.status === 'ready' ? 'พร้อมรับ' : PACKING_STATUS_LABELS[list.status]} — วางไว้ที่ {detail.spot?.name ?? 'ไม่ระบุจุด'}
+          <MapPinned className="h-4 w-4 shrink-0" /> พร้อมรับ — วางไว้ที่ {detail.spot?.name ?? 'ไม่ระบุจุด'}
         </div>
         <div className="mt-0.5 text-xs">จัดเสร็จเมื่อ {thaiDateTime(list.packed_at)}</div>
       </div>
@@ -121,13 +124,12 @@ function ReadySummary({ detail, closed }: { detail: PackingListDetail; closed: b
         ))}
       </div>
 
-      {list.status === 'ready' && !closed && (
+      {!closed && (
         <Button variant="outline" className="min-h-11 w-full sm:w-auto" disabled={busy} onClick={reopen}>
           {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Pencil className="mr-1 h-4 w-4" />}
           แก้ไข (ถอยเป็นกำลังหยิบ)
         </Button>
       )}
-      {list.status !== 'ready' && <p className="text-xs text-muted-foreground">ใบนี้ถูกรับของไปแล้ว — แก้ไขไม่ได้</p>}
       {dialog}
     </div>
   )
@@ -200,7 +202,7 @@ export default function PackingListView({ detail, extraUnits, spots }: { detail:
 
       <Stepper status={list.status} />
 
-      {closed && (
+      {closed && stepIndex(list.status) <= STEPS.indexOf('ready') && (
         <div className="rounded-lg border border-zinc-300 bg-zinc-100 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
           อีเวนต์นี้ปิดงานไปแล้ว — ดูได้อย่างเดียว แก้ใบจัดของไม่ได้
         </div>
@@ -229,7 +231,10 @@ export default function PackingListView({ detail, extraUnits, spots }: { detail:
           <ConfirmStep detail={detail} spots={spots} />
         </>
       )}
-      {list.status !== 'selecting' && list.status !== 'picking' && <ReadySummary detail={detail} closed={closed} />}
+      {list.status === 'ready' && <ReadySummary detail={detail} closed={closed} />}
+      {list.status === 'out' && <OutSummary detail={detail} />}
+      {list.status === 'returned' && <RestockStep detail={detail} />}
+      {list.status === 'done' && <DoneSummary detail={detail} />}
       {dialog}
     </div>
   )
