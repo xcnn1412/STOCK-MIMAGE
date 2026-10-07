@@ -2,7 +2,7 @@
 
 // ชิ้นส่วนที่การ์ดในหน้าลูกค้า (/crm/[id]) ใช้ร่วมกัน: ชนิดข้อมูลของหน้า + หัวการ์ดพับได้ + ปุ่มบันทึก/ยกเลิก + ช่องกรอก/แถวแสดงผล
 
-import { type ReactNode } from 'react'
+import { type HTMLAttributes, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -100,6 +100,10 @@ export interface EditableCardProps {
   onCancel: () => void
   /** ป้ายต่อท้ายชื่อหัวการ์ด */
   badge?: ReactNode
+  /** มีการ์ดใบอื่นกำลังแก้อยู่ — ซ่อนดินสอ (ฟอร์มใช้ร่วม 3 ใบ แก้ทีละใบกัน draft ปนกัน) */
+  editLocked?: boolean
+  /** บรรทัดสรุปตอนพับ */
+  summary?: ReactNode
 }
 
 
@@ -150,58 +154,80 @@ export const toFormInstallments = (list: LeadInstallment[]): FormInstallment[] =
 export const multiline = (text: string): ReactNode => <span className="whitespace-pre-line">{text}</span>
 
 // Reusable collapsible card header
-export function CollapsibleCardHeader({ icon, iconBg, title, badge, collapsed, editing, onEdit, onToggle }: {
+export function CollapsibleCardHeader({ icon, iconBg, title, badge, summary, collapsed, editing, editLocked, onEdit, onToggle, saving = false, onSave, onCancel }: {
   icon: ReactNode
   iconBg: string
   title: string
   /** ป้ายต่อท้ายชื่อการ์ด (หน้าใบงานใส่ "CRM") — ไม่ส่ง = ไม่มี node เพิ่ม */
   badge?: ReactNode
+  /** บรรทัดสรุปใต้ชื่อ แสดงเฉพาะตอนพับ — ให้รู้ว่าการ์ดมีอะไรโดยไม่ต้องกาง */
+  summary?: ReactNode
   collapsed: boolean
   editing?: boolean
+  editLocked?: boolean
   /** ไม่ส่ง = การ์ดนี้ไม่มีปุ่มแก้ไข */
   onEdit?: () => void
   onToggle: () => void
+  saving?: boolean
+  /** ส่งคู่กับ onCancel = ตอนแก้ไขหัวการ์ดมีปุ่มบันทึก/ยกเลิก (ฟอร์มยาว ไม่ต้องเลื่อนลงล่าง) */
+  onSave?: () => void
+  onCancel?: () => void
 }) {
+  const showTopActions = editing && onSave && onCancel
   return (
     <CardHeader className="pb-3">
-      <div className="flex items-center justify-between">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <div className={`flex items-center justify-center h-6 w-6 rounded-md ${iconBg}`}>
-            {icon}
-          </div>
-          {title}
-          {badge}
-        </CardTitle>
-        <div className="flex items-center gap-1">
-          {onEdit && !collapsed && !editing && (
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <div className={`flex items-center justify-center h-6 w-6 shrink-0 rounded-md ${iconBg}`}>
+              {icon}
+            </div>
+            {title}
+            {badge}
+          </CardTitle>
+          {collapsed && summary && (
+            <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400 truncate">{summary}</p>
+          )}
+        </div>
+        {showTopActions ? (
+          <CardEditActions placement="top" saving={saving} onSave={onSave} onCancel={onCancel} />
+        ) : (
+          <div className="flex items-center gap-1 -mr-2 shrink-0">
+            {onEdit && !collapsed && !editing && !editLocked && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 w-9 p-0 text-zinc-400 hover:text-blue-600"
+                onClick={onEdit}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 w-7 p-0 text-zinc-400 hover:text-blue-600"
-              onClick={onEdit}
+              className="h-9 w-9 p-0 text-zinc-400 hover:text-zinc-600"
+              onClick={onToggle}
             >
-              <Pencil className="h-3.5 w-3.5" />
+              {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-zinc-400 hover:text-zinc-600"
-            onClick={onToggle}
-          >
-            {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
     </CardHeader>
   )
 }
 
-// Save/Cancel buttons for per-card editing
-export function CardEditActions({ saving, onSave, onCancel }: { saving: boolean; onSave: () => void; onCancel: () => void }) {
+// Save/Cancel buttons for per-card editing — top = หัวการ์ด (ย่อ) · bottom = ท้ายฟอร์ม ติดขอบล่างจอบนมือถือ
+export function CardEditActions({ saving, onSave, onCancel, placement = 'bottom' }: {
+  saving: boolean
+  onSave: () => void
+  onCancel: () => void
+  placement?: 'top' | 'bottom'
+}) {
   const tc = useLocale().t.crm.detail
-  return (
-    <div className="flex items-center gap-2 pt-3 mt-3 border-t border-zinc-100 dark:border-zinc-800">
+  const buttons = (
+    <>
       <Button
         onClick={onSave}
         disabled={saving}
@@ -220,6 +246,16 @@ export function CardEditActions({ saving, onSave, onCancel }: { saving: boolean;
         <X className="h-3.5 w-3.5" />
         {tc.cancel}
       </Button>
+    </>
+  )
+  if (placement === 'top') {
+    return <div data-testid="card-actions-top" className="flex items-center gap-1.5 shrink-0">{buttons}</div>
+  }
+  return (
+    <div data-testid="card-actions-bottom" className="sticky bottom-0 z-10 bg-card pb-1 sm:static">
+      <div className="flex items-center gap-2 pt-3 mt-3 border-t border-zinc-100 dark:border-zinc-800">
+        {buttons}
+      </div>
     </div>
   )
 }
@@ -234,23 +270,40 @@ export function EditField({
   onChange,
   type = 'text',
   placeholder,
+  prefix,
+  inputMode,
+  min,
+  autoCapitalize,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   type?: string
   placeholder?: string
+  /** ข้อความนำหน้าในกล่อง เช่น "฿" */
+  prefix?: string
+  inputMode?: HTMLAttributes<HTMLInputElement>['inputMode']
+  min?: number
+  autoCapitalize?: string
 }) {
   return (
     <div>
       <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{label}</Label>
-      <Input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="h-9 text-sm"
-      />
+      <div className="relative">
+        {prefix && (
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">{prefix}</span>
+        )}
+        <Input
+          type={type}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          inputMode={inputMode}
+          min={min}
+          autoCapitalize={autoCapitalize}
+          className={prefix ? 'h-9 text-sm pl-7' : 'h-9 text-sm'}
+        />
+      </div>
     </div>
   )
 }
@@ -286,7 +339,7 @@ export function EditSelect({
     <div>
       <Label className="text-xs font-medium text-zinc-500 mb-1.5 block">{label}</Label>
       <Select {...selectProps}>
-        <SelectTrigger className="h-9 text-sm">
+        <SelectTrigger className="h-9 text-sm w-full">
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent position="popper" className="max-h-[300px] overflow-y-auto">
@@ -303,11 +356,23 @@ export function EditSelect({
 // Info Row helper — Read-only display
 // ============================================================================
 
-export function InfoRow({ label, value }: { label: string; value: ReactNode }) {
+export function InfoRow({ label, value, hideEmpty = true, multiline = false }: {
+  label: string
+  value: ReactNode
+  /** false = ค่าว่างยังแสดงแถวพร้อม "ไม่ระบุ" (ช่องหลักที่ควรรู้ว่ายังขาด) · true = ค่าว่างไม่แสดงแถว */
+  hideEmpty?: boolean
+  /** ข้อความยาวหลายบรรทัด — ชิดซ้ายเสมอ คงการขึ้นบรรทัด */
+  multiline?: boolean
+}) {
+  const { locale } = useLocale()
+  const empty = value === null || value === undefined || value === '' || value === false
+  if (empty && hideEmpty) return null
   return (
-    <div className="flex justify-between items-start gap-4">
-      <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{label}</span>
-      <span className="text-sm text-zinc-900 dark:text-zinc-100 text-right">{value || '—'}</span>
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:items-start sm:gap-4">
+      <span className="text-xs text-zinc-500 dark:text-zinc-400 sm:w-28 sm:shrink-0">{label}</span>
+      <span className={`text-sm text-zinc-900 dark:text-zinc-100 ${multiline ? 'text-left whitespace-pre-line' : 'text-left sm:text-right'}`}>
+        {empty ? <span className="text-zinc-400">{locale === 'th' ? 'ไม่ระบุ' : 'Not set'}</span> : value}
+      </span>
     </div>
   )
 }

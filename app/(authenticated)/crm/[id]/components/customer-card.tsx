@@ -11,7 +11,7 @@ import { CollapsibleCardHeader, CardEditActions, EditField, EditSelect, InfoRow,
 
 // Customer Info
 export function CustomerCard({
-  lead, form, updateForm, editing, collapsed, saving, onEdit, onToggle, onSave, onCancel, badge,
+  lead, form, updateForm, editing, collapsed, saving, onEdit, onToggle, onSave, onCancel, badge, editLocked, summary,
   settings, workTypeOptions, packagePicker, onPackagesSaved,
 }: EditableCardProps & {
   settings: CrmSetting[]
@@ -33,8 +33,8 @@ export function CustomerCard({
   const legacyPackage = pkgSetting ? getSettingLabel(pkgSetting) : lead.package_name
   // แถวแพ็กเกจแบบชิป (โหมดดูเมื่อมีแพ็กเกจของงาน · โหมดแก้ = เลือก/แก้ได้) — บันทึกแยกจากปุ่มบันทึกของการ์ดด้วย setLeadPackages
   const packageRow = (canEdit: boolean) => packagePicker && (
-    <div className="flex justify-between items-start gap-4">
-      <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0 w-28">{tc.package}</span>
+    <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-start sm:gap-4">
+      <span className="text-xs text-zinc-500 dark:text-zinc-400 sm:w-28 sm:shrink-0">{tc.package}</span>
       <PackagePicker
         leadId={lead.id}
         event={{ date: lead.event_date, time: lead.event_time, endTime: lead.event_end_time }}
@@ -57,16 +57,19 @@ export function CustomerCard({
         icon={<User className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />}
         iconBg="bg-blue-50 dark:bg-blue-950/40"
         title={tc.customerInfo}
-        badge={badge}
-        editing={editing} onEdit={onEdit} onToggle={onToggle}
+        badge={badge} summary={summary}
+        editing={editing} editLocked={editLocked} onEdit={onEdit} onToggle={onToggle}
+        saving={saving} onSave={onSave} onCancel={onCancel}
       />
       {!collapsed && (
         <CardContent className="space-y-3">
           {editing ? (
             <div className="space-y-4">
               <EditField label={tc.name} value={form.customer_name} onChange={v => updateForm('customer_name', v)} />
-              <EditField label={tc.lineId} value={form.customer_line} onChange={v => updateForm('customer_line', v)} placeholder="@line_id" />
-              <EditField label={tc.phone} value={form.customer_phone} onChange={v => updateForm('customer_phone', v)} placeholder="0xx-xxx-xxxx" />
+              <div className="grid gap-4 sm:grid-cols-2 sm:gap-3">
+                <EditField label={tc.lineId} value={form.customer_line} onChange={v => updateForm('customer_line', v)} placeholder="@line_id" autoCapitalize="none" />
+                <EditField label={tc.phone} value={form.customer_phone} onChange={v => updateForm('customer_phone', v)} placeholder="0xx-xxx-xxxx" type="tel" />
+              </div>
               <EditSelect
                 label={tc.type}
                 value={form.customer_type}
@@ -103,9 +106,9 @@ export function CustomerCard({
             </div>
           ) : (
             <>
-              <InfoRow label={tc.name} value={lead.customer_name} />
+              <InfoRow label={tc.name} value={lead.customer_name} hideEmpty={false} />
               <InfoRow label={tc.lineId} value={lead.customer_line} />
-              <InfoRow label={tc.phone} value={lead.customer_phone} />
+              <InfoRow label={tc.phone} value={lead.customer_phone} hideEmpty={false} />
               <InfoRow label={tc.type} value={typeSetting ? getSettingLabel(typeSetting) : lead.customer_type} />
               <InfoRow label={locale === 'th' ? 'ประเภทงาน' : 'Work Type'} value={workTypeLabel || lead.work_type} />
               {lead.work_type === 'sale' && (
