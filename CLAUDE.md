@@ -16,6 +16,17 @@ There is no test suite. `.env.local` must contain `NEXT_PUBLIC_SUPABASE_URL`, `N
 
 One-off operational scripts live in `scripts/` (e.g., `create-admin.js`, `hash-existing-pins.ts`, `revert-rls.ts`, `seed-advance-test.ts`). They are not wired to `package.json` — invoke them directly via `node` / `tsx` as needed.
 
+### ชุดตรวจ (ไม่มี test runner — ใช้สคริปต์ `*.check.ts`)
+
+ทุกโมดูลสำคัญมีชุดตรวจแบบไม่แตะฐานข้อมูลจริง รันด้วย `npx tsx <ไฟล์>` บรรทัดสุดท้ายต้องเป็น `<ชื่อ>: ผ่านทั้งหมด` (อ่าน header ของแต่ละไฟล์ก่อน — บางตัวแตะ DB จริง เช่น `scripts/salary-check.ts`, `scripts/mcp-e2e.check.ts`, `scripts/tracking-snapshot-check.ts`):
+- กติกาบริสุทธิ์ข้างไฟล์: `app/(authenticated)/finance/*.check.ts`, `crm/types.check.ts`, `salary/compute-event-schedule.check.ts`, `jobs/**/*-logic.check.ts`, `shelves/*-logic.check.ts`, `reports/report-stats.check.ts`, `lib/finance/*.check.ts`
+- flow กับฐานข้อมูลจำลองในหน่วยความจำ (ดัก `Module._load` แทน `next/*`, `@/lib/supabase-server`, `@/lib/logger`): `scripts/finance-*.check.ts`, `scripts/claim-*.check.ts`, `scripts/crm-leads-load.check.ts`, `scripts/purchasing-flow.check.ts`, `scripts/salary-edit-flow.check.ts`, `scripts/layout-requests.check.ts`, `scripts/session-hardening.check.ts`, `scripts/proxy-session.check.ts`
+- static render เทียบ HTML: `scripts/crm-lead-detail-render.check.ts` (หน้า lead 3 ชุดข้อมูล + การ์ดการเงินโหมดแก้ไข) — แก้ส่วนแสดงผลที่ไม่ตั้งใจเปลี่ยนหน้าตา ให้ render ก่อน/หลังแล้ว `cmp` ต้องเท่ากันทุกไบต์
+
+**ฐานข้อมูลจำลองมีรายการคอลัมน์ของแต่ละตาราง (SCHEMA) และตัดผลที่ 1,000 แถวเหมือน PostgREST** — เพิ่มคอลัมน์ใน select ของโค้ดจริงแล้วต้องเติมใน SCHEMA ของสคริปต์ที่เกี่ยว ไม่งั้นชุดตรวจล้ม (เคยพลาดกับ `events.event_time` ใน finance-access/finance-integrity) และเปลี่ยนกติกาธุรกิจ (เช่น บล็อกเบิกเมื่อมีใบค้าง) ต้องไล่แก้ fixture ที่คาดผลเดิม · หลังแก้โมดูลไหน ให้รันชุดตรวจทุกตัวที่ import ไฟล์นั้น (grep path ใน `scripts/`)
+
+**Baseline ที่ใช้เทียบ:** `npx tsc --noEmit --incremental false` = error เดิม 1 จุด (`check-update-view.tsx`) · eslint: โฟลเดอร์ `kits`, `events`, `crm` ต้องเป็น 0 ปัญหา (ทั้ง error และ warning) ตลอด ส่วนที่เหลือมี error เก่าราว 300 จุด กติกาคือ "ไฟล์ที่แตะต้องไม่มี error เพิ่ม" · นับ eslint จากบรรทัดสรุป `✖ N problems` หรือ `-f json` — อย่า grep path ด้วย `^[^:]*:` เพราะ drive letter ของ Windows มี `:` (เคยได้ 0 ปลอม)
+
 ## Versioning & release (semver `MAJOR.MINOR.PATCH`)
 
 เลข version ตาม semver — ขยับเลขไหนดูจากขนาดของงาน:
@@ -115,9 +126,29 @@ CRM (lead) ──► Events ──► Event Closures ──► Costs ──► F
 
 CRM leads can spawn Events (`crm_lead_id` FK) and Jobs (`CREATE_JOBS_FROM_LEAD`). Events can be imported into the Costs module (`IMPORT_EVENT_TO_COSTS`, `job_cost_events` table). Finance generates PDF expense vouchers with QR codes via `@react-pdf/renderer` under `/api/pdf/*`. When touching these handoffs, log the link/unlink with the matching `LINK_*`/`UNLINK_*`/`SYNC_*` action types.
 
+### PostgREST ตัดทุกคำขอที่ 1,000 แถว (db-max-rows)
+
+Supabase ของโปรเจกต์นี้คืนไม่เกิน 1,000 แถวต่อคำขอ **แม้ใส่ `.range(0, 4999)`** และไม่แจ้งเตือน (เคยทำให้ /finance และ /crm เห็นข้อมูลไม่ครบ) การอ่านใดที่อาจเกิน 1,000 แถวต้องวน `.range()` ทีละหน้าผ่าน `lib/read-all-rows.ts::readAllRows(build)` โดย `build(from, to)` ต้องเรียงแบบคงที่ (เช่น `created_at` + `id`) — Finance ใช้ `finance/claim-db.ts::readAllRows` ของตัวเอง (มี retry คอลัมน์ที่ยังไม่ migrate) ส่วนโค้ดอื่นใช้ตัวใน `lib/` · dropdown ที่ใส่ `.limit()` ตั้งใจไว้ไม่นับ
+
+โค้ดอ่านใหม่ **ไม่ใช้ `.or()`** — ฐานข้อมูลจำลองในชุดตรวจ throw ทันที ให้อ่านแยกชุดแล้วรวมด้วย id แทน (แบบ `getQueueClaims`, `getOutstandingClaims`, `getLeads` แบบ window)
+
 ### Database conventions
 
 Supabase types are generated to `types/database.types.ts` and re-exported from `types/index.ts`. The repo accumulates **two flavors of SQL files**: ad-hoc patches archived in `docs/legacy-sql/` (`add_*.sql`, `create_*.sql`, `update_*.sql` — historical) and proper migrations in `supabase/migrations/` (datestamped, current convention). New schema changes go in `supabase/migrations/` only; the legacy SQL files are kept in `docs/legacy-sql/` for reference.
+
+### CRM module (โครงหลัง refactor 2026-10-07, v1.43.2–v1.45.3)
+
+- `crm/types.ts` เป็นที่เดียวของ type และกติกา: `CrmLead` (เต็ม), `BoardLead` (`Pick` ตาม `BOARD_LEAD_KEYS` + `total_installments_paid` + `installments`), `CrmSetting`, `SystemUser`, `boardStatuses/unknownStatuses` (คอลัมน์บอร์ด = สถานะที่ตั้งค่า + สถานะที่มีในข้อมูลจริง — การ์ดห้ามหายจากบอร์ด), `isWonStatus/isFirstWon/NOT_WON_STATUSES` (นิยาม "ปิดการขาย" เดียวทั้งระบบ **ห้ามเทียบ `=== 'accepted'`** — jobs/tracking/reports/sales-board/pl ใช้ตัวนี้ผ่าน re-export ใน `sales-board/commission-logic.ts`), `staleLeadIds` (กฎเก็บเข้าคลัง), `bangkokToday/addDays`
+- `getLeads({ window: { days }, full, includeArchived })`: บอร์ด /crm โหลดเฉพาะงานที่แตะใน 60 วันหรือวันงานยังไม่ถึง (`?all=1`, `?days=`, `?q=`) ด้วยคอลัมน์แบบเบา `BOARD_COLUMNS` — มุมมองที่รับ `BoardLead` อ่านคอลัมน์ที่ไม่ได้โหลดจะไม่ผ่าน tsc · dashboard และ download โหลดทุกแถวรวม archived (download ใช้ `full: true`)
+- สถานะ kanban ที่ยังมี lead ใช้อยู่ ลบ/ปิดไม่ได้ (`kanbanStatusInUse`) · เก็บเข้าคลังเป็นชุด (`archiveStaleLeads`) และ `deleteLead` = แอดมินเท่านั้น · สร้างใบงานอัตโนมัติเมื่อเข้าสถานะ won ครั้งแรก (`isFirstWon`)
+- หน้า lead: `crm/[id]/lead-detail.tsx` เป็นตัวคุม state (≤ 500 บรรทัด) ส่วนแสดงผลอยู่ใน `crm/[id]/components/*` + `shared.tsx` · กล่องยืนยันใช้ `finance/use-confirm.tsx` + `toast` ห้าม `window.confirm/alert` · ไม่ต้อง `router.refresh()` หลัง action ที่ `revalidatePath('/crm/[id]')` อยู่แล้ว
+- `crm_*` ยังไม่อยู่ใน `types/database.types.ts` (regenerate ต้องใช้ Supabase access token) — ใช้ type เขียนมือใน `crm/types.ts` และ `.overrideTypes<T>()` / `.single<T>()` ที่ขอบเขต query
+- migration `20261007_crm_status_seed_and_credit.sql` เพิ่มแถวสถานะ `lead`/`rejected` และเปลี่ยนค่าสถานะ "รายรับเงินสดย่อย Office" เป็น `credit` — รันซ้ำได้ โค้ดมี fallback ให้บอร์ดถูกก่อนรัน
+
+### กติกา Finance / Salary ที่เพิ่ม 2026-10-06
+
+- **ใบค้างเคลียร์** (`finance/claim-rules.ts::outstandingKind`): ทดลองจ่ายที่จ่ายแล้วยังไม่เคลียร์ · เคลียร์แล้วแต่ยังมีเงินต้องคืนและแอดมินยังไม่ยืนยัน · รอใบกำกับภาษี → `createClaim` และการยื่น (`submitCore`) ปฏิเสธ **ทุกคนรวมแอดมิน** · โหลดด้วย `finance/outstanding-data.ts::getOutstandingClaims(userId, all)` (cache ต่อ request รับค่าเดี่ยว) แสดงด้วย `OutstandingAlert/OutstandingPill` ที่ sidebar (`badges['/finance']`), แท็บใบเบิก, คิว, รายการ, หน้าสร้าง, หน้าใบเบิก · ใบ paid/refund_confirmed ใช้ banner เขียว `data-testid="paid-banner"`
+- **เวลาตามอีเวนต์** (`salary/compute.ts::applyEventSchedule`): เช็คอิน onsite ที่ผูกอีเวนต์ซึ่งมี `event_time` ใช้ `event_date + event_time/event_end_time` เป็นเวลาเข้า/ออกตอนคิดสลิป — ทำที่ชั้น mapping ใน `salary/actions.ts` (`rawToCheckinInput`, `toSlipCheckinRow`) เวลากดจริงใน `staff_checkins` ไม่ถูกแก้ · แถว `schedule_source === 'event'` ล็อกช่องเวลาในสลิป · เพดานที่รู้: query ช่วงงวดยังกรองด้วยเวลากดจริง
 
 ### What's New (/whats-new)
 
@@ -185,6 +216,13 @@ Fable5: ตรวจกับ criteria → JSON {pass, score, passed_ids, failur
 3. Critic ตอบ **JSON สั้น** ห้ามเรียงความ
 4. เปิด **prompt caching** กับส่วนที่คงที่
 5. **Early exit** เมื่อผ่าน / score นิ่ง 2 รอบ / ถึง threshold
+
+### ทำคู่ขนานด้วย worktree (ใช้กับ executor หลายตัว)
+
+- `git worktree add -b <branch> ../stock-wt-<x> main` แล้วทำ junction `cmd /c mklink /J "<wt>\node_modules" "<repo>\node_modules"` (path ไทยใช้ได้) + copy `.env.local` → executor แต่ละตัวแก้ได้เฉพาะชุดไฟล์ของตัวเอง (ระบุใน prompt) ห้าม commit · planner เป็นคน commit, bump version, ใส่ What's New, tag, merge
+- branch ที่สองให้ `git rebase main` หลัง branch แรก merge แล้วค่อย bump เป็นเลขถัดไป (ไฟล์ release ไม่ชนกัน)
+- **ก่อน `git worktree remove --force` ต้องลบ junction ก่อน** ด้วย PowerShell `[IO.Directory]::Delete('<wt>\node_modules')` (ลบเฉพาะลิงก์) — ถ้าปล่อยให้ git ลบแบบ recursive จะตามลิงก์เข้าไปลบ `node_modules` จริง · `cmd /c rmdir` กับ path ไทยจาก Git Bash ใช้ไม่ได้
+- ก่อน bump version ให้ `git fetch` แล้วดู version บน `main` ก่อนเสมอ (เคยมี session คู่ขนาน merge เลขสูงกว่าไปแล้ว)
 
 ## Conventions worth following
 
