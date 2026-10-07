@@ -16,9 +16,10 @@ import {
   Target, Award, Trophy, Repeat, Coins, Gauge, MessagesSquare,
   Shield, Activity, KeyRound, UserX, Globe, Network,
   Calculator, CircleHelp, Settings,
+  PackageCheck, ScanLine, Truck, ArchiveRestore, Warehouse,
 } from 'lucide-react'
 
-export type HowtoViewType = 'landing' | 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin' | 'salary'
+export type HowtoViewType = 'landing' | 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin' | 'salary' | 'equipment'
 
 export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType } = {}) {
   const { locale } = useLocale()
@@ -2049,6 +2050,18 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
             title={isEn ? 'Packing lists — /packing' : 'ใบจัดของ — /packing'}
             color="violet"
           />
+          <div className="mb-3 rounded-lg border border-violet-200 dark:border-violet-900/50 bg-violet-50/40 dark:bg-violet-950/20 p-3 space-y-2">
+            <TipCard
+              tone="violet"
+              icon={<Boxes className="h-4 w-4" />}
+              titleTh="คู่มือเต็มทั้งเส้น"
+              titleEn="Full step-by-step guide"
+              descTh="ตั้งค่า → ขาย → จัดของ → รับ/คืน → คืนชั้น → การใช้งาน อ่านแยกตามฝ่ายได้ที่หมวด อุปกรณ์"
+              descEn="Setup → sales → packing → pickup/return → restock → usage, by team, in the Equipment guide."
+              isEn={isEn}
+            />
+            <MenuLink href="/howto/equipment" labelEn="Equipment guide (full flow)" labelTh="คู่มืออุปกรณ์ (ทั้งเส้น)" />
+          </div>
           <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-400">
             {isEn
               ? 'Every event gets its equipment through one packing list. Booking kits directly from the event form or the job pool has been removed — the list books kits and items for you.'
@@ -5169,6 +5182,691 @@ export default function HowtoView({ view = 'landing' }: { view?: HowtoViewType }
       </section>
       )}
 
+      {/* ════════════════════════════════════════════════════════════════
+          MODULE: EQUIPMENT FLOW (ใบจัดของทั้งเส้น)
+          ════════════════════════════════════════════════════════════════ */}
+      {view === 'equipment' && (
+      <section className="space-y-6">
+        <ModuleHero mod={MODULES.find(m => m.slug === 'equipment')!} isEn={isEn} backHref="/howto" />
+        <ModuleSubToc mod={MODULES.find(m => m.slug === 'equipment')!} isEn={isEn} />
+
+        {/* ── Start here ───────────────────────────────────────────── */}
+        <div id="equip-start" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Boxes className="h-4 w-4" />}
+            title={isEn ? 'Start here — the whole equipment flow' : 'เริ่มที่นี่ — flow อุปกรณ์ทั้งเส้น'}
+            color="violet"
+          />
+          <div className="rounded-xl border-2 border-violet-200 dark:border-violet-900 bg-gradient-to-br from-violet-50 to-white dark:from-violet-950/20 dark:to-zinc-900 p-4 space-y-2">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              {isEn
+                ? 'From the moment sales pick a package until every item is back on its shelf, the equipment of an event moves through one packing list. 1 event = 1 packing list.'
+                : 'ตั้งแต่ทีมขายเลือกแพ็กเกจ จนของทุกชิ้นกลับขึ้นชั้น อุปกรณ์ของอีเวนต์เดินผ่าน "ใบจัดของ" ใบเดียว — 1 อีเวนต์ = 1 ใบจัดของ'}
+            </p>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+              {isEn
+                ? 'On the job tracking page, readiness item 5 is now called "จัดของ" (packing), replacing the old "กระเป๋า" (kits).'
+                : 'ในหน้าติดตามงาน ความพร้อมข้อที่ 5 ชื่อ "จัดของ" (แทน "กระเป๋า" เดิม)'}
+            </p>
+          </div>
+
+          <div className="mt-4">
+            <FlowchartBox
+              title={isEn ? 'One event — from the sale to the shelf' : 'หนึ่งอีเวนต์ — ตั้งแต่ขายจนของกลับขึ้นชั้น'}
+              subtitle={isEn ? 'sales → packing team → on-site team → packing team' : 'ทีมขาย → ทีมจัดของ → ทีมหน้างาน → ทีมจัดของ'}
+              color="purple"
+            >
+              <FlowNode variant="start" emoji="🛒" title={isEn ? 'Sales pick a package (+ booth unit)' : 'ทีมขายเลือกแพ็กเกจ (+ตู้)'} />
+              <FlowArrow />
+              <FlowNode variant="user" emoji="📝" title={isEn ? 'Packing team opens the packing list' : 'ทีมจัดของเปิดใบจัดของ'} />
+              <FlowArrow />
+              <FlowNode variant="user" emoji="🔎" title={isEn ? 'Select the items' : 'เลือกของ'} />
+              <FlowArrow />
+              <FlowNode variant="user" emoji="🧺" title={isEn ? 'Pick them shelf by shelf' : 'หยิบตามชั้น'} />
+              <FlowArrow />
+              <FlowNode variant="admin" emoji="📦" title={isEn ? 'Photo + place at the pickup spot' : 'ถ่ายรูป + วางที่จุดรับของ'} subtitle={isEn ? 'list becomes "พร้อมรับ" (ready)' : 'ใบเป็น "พร้อมรับ"'} />
+              <FlowArrow />
+              <FlowNode variant="user" emoji="🚚" title={isEn ? 'On-site team scans the QR and takes the items' : 'ทีมหน้างานสแกน QR รับของ'} subtitle={isEn ? 'list becomes "ออกงาน" (out) · the on-site job on the event-day board becomes "ขนของ" (loading)' : 'ใบเป็น "ออกงาน" · ใบงานบนบอร์ดวันงานเป็น "ขนของ"'} />
+              <FlowArrow />
+              <FlowNode variant="user" emoji="📍" title={isEn ? 'Check in on-site as usual' : 'เช็คอินหน้างานตามเดิม'} />
+              <FlowArrow />
+              <FlowNode variant="user" emoji="↩️" title={isEn ? 'Back at the office, scan the QR and return' : 'กลับมาสแกน QR คืนของ'} subtitle={isEn ? 'list becomes "คืนแล้ว" (returned) · the event closes' : 'ใบเป็น "คืนแล้ว" · อีเวนต์ปิด'} />
+              <FlowArrow />
+              <FlowNode variant="success" emoji="🗄️" title={isEn ? 'Packing team puts everything back on the shelves' : 'ทีมจัดของคืนชั้น'} subtitle={isEn ? 'list becomes "คืนชั้นแล้ว" (restocked)' : 'ใบเป็น "คืนชั้นแล้ว"'} />
+            </FlowchartBox>
+          </div>
+        </div>
+
+        {/* ── Roles ────────────────────────────────────────────────── */}
+        <div id="equip-roles" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Users className="h-4 w-4" />}
+            title={isEn ? 'Who does what' : 'ใครทำอะไร'}
+            color="violet"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="🛒 ทีมขาย"
+              titleEn="🛒 Sales"
+              lines={isEn
+                ? ['Pick the package, the booth unit and the build style for the job', 'Watch the "equipment may run short" warning']
+                : ['เลือกแพ็กเกจ ตู้ และแบบประกอบให้งาน', 'ดูคำเตือน "อุปกรณ์อาจไม่พอ"']}
+            />
+            <FeatureBlock
+              titleTh="🧺 ทีมจัดของ"
+              titleEn="🧺 Packing team"
+              lines={isEn
+                ? ['People in the department set as "ทีมจัดของ" in /jobs/settings', 'Open the list, select, pick, confirm and restock', 'Set up the stock settings and packages together with the admin']
+                : ['คนในแผนก "ทีมจัดของ" ที่ตั้งไว้ใน /jobs/settings', 'เปิดใบ เลือกของ หยิบ ยืนยัน และคืนชั้น', 'ตั้งค่าคลังและแพ็กเกจร่วมกับแอดมิน']}
+            />
+            <FeatureBlock
+              titleTh="🚚 ทีมหน้างาน"
+              titleEn="🚚 On-site team"
+              lines={isEn
+                ? ['Everyone who can use Events or Stock', 'Take and return the items at the pickup-spot QR']
+                : ['ทุกคนที่มีสิทธิ์อีเวนต์หรือคลัง', 'รับของ / คืนของที่จุด QR']}
+            />
+            <FeatureBlock
+              titleTh="✅ ผู้ปิดงาน"
+              titleEn="✅ Event closers"
+              lines={isEn
+                ? ['Admins and the people listed in Settings > Events', 'Close the event']
+                : ['แอดมิน และรายชื่อใน ตั้งค่า > อีเวนต์', 'ปิดอีเวนต์']}
+            />
+            <FeatureBlock
+              titleTh="🛠️ แอดมิน"
+              titleEn="🛠️ Admin"
+              lines={isEn
+                ? ['Sets up everything', 'Can change the packages of every job']
+                : ['ตั้งค่าทุกอย่าง', 'แก้แพ็กเกจของทุกงานได้']}
+            />
+          </div>
+        </div>
+
+        {/* ── Terms ────────────────────────────────────────────────── */}
+        <div id="equip-terms" className="scroll-mt-6">
+          <SectionHeader
+            icon={<BookOpen className="h-4 w-4" />}
+            title={isEn ? 'Words used in this guide' : 'ศัพท์ที่ใช้'}
+            color="violet"
+          />
+          <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <NewItem icon={<Tag className="h-3.5 w-3.5" />} titleTh="ประเภทอุปกรณ์" titleEn="Equipment category" descTh="กลุ่มของอุปกรณ์ เช่น กล้อง ไฟ ตู้ประกอบ" descEn="A group of equipment, e.g. cameras, lights, booth frames." isEn={isEn} />
+            <NewItem icon={<Package className="h-3.5 w-3.5" />} titleTh="หน่วยอุปกรณ์" titleEn="Equipment unit" descTh="อุปกรณ์เดี่ยว 1 ชิ้น หรือกระเป๋า 1 ใบ (ของข้างในไปทั้งใบ)" descEn="One single item, or one kit bag (everything inside goes with it)." isEn={isEn} />
+            <NewItem icon={<Boxes className="h-3.5 w-3.5" />} titleTh="แพ็กเกจ / ข้อกำหนด / ตัวเลือกอุปกรณ์" titleEn="Package / requirement / allowed items" descTh="แพ็กเกจมีข้อกำหนด = ประเภท × จำนวนต่อชุด แต่ละข้อมีตัวเลือกอุปกรณ์ (ไม่เลือก = ทุกชิ้นในประเภท)" descEn="A package has requirements = category × quantity per set. Each has allowed items (none chosen = every item of the category)." isEn={isEn} />
+            <NewItem icon={<Building2 className="h-3.5 w-3.5" />} titleTh="ตู้" titleEn="Booth" descTh={'ประเภทที่ติ๊ก "ทีมขายเลือกชิ้นเอง" แต่ละชุดตู้เป็นอุปกรณ์ 1 ชิ้น'} descEn="A category marked so that sales pick the exact unit. Each booth set is one item." isEn={isEn} />
+            <NewItem icon={<Hammer className="h-3.5 w-3.5" />} titleTh="แบบประกอบ" titleEn="Build style" descTh="ป้ายบอกแบบ (ประกอบ 1/2/3) ไม่บังคับ ไม่มีชิ้นส่วนต่างกัน ตู้ชุดเดียวกันใช้ได้แบบเดียวต่องาน" descEn="A label for the style (build 1/2/3). Optional, no different parts. One booth set uses one style per job." isEn={isEn} />
+            <NewItem icon={<ClipboardList className="h-3.5 w-3.5" />} titleTh="ใบจัดของ (6 สถานะ)" titleEn="Packing list (6 states)" descTh="เลือกของ → กำลังหยิบ → พร้อมรับ → ออกงาน → คืนแล้ว → คืนชั้นแล้ว" descEn="Selecting → picking → ready → out → returned → restocked." isEn={isEn} />
+            <NewItem icon={<QrCode className="h-3.5 w-3.5" />} titleTh="จุดรับของ (QR)" titleEn="Pickup spot (QR)" descTh="จุดในออฟฟิศที่วางของที่จัดเสร็จ มี QR ให้สแกนรับและคืนของ" descEn="A place in the office where packed items wait, with a QR to scan for taking and returning them." isEn={isEn} />
+            <NewItem icon={<Sparkles className="h-3.5 w-3.5" />} titleTh="ของเสริม" titleEn="Extras" descTh="หน่วยอุปกรณ์นอกแพ็กเกจที่ทีมจัดของเติมเข้าใบ" descEn="Units outside the package that the packing team adds to the list." isEn={isEn} />
+          </ul>
+          <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'List state' : 'สถานะใบ'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Meaning' : 'ความหมาย'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900 text-xs">
+                <tr><td className="px-3 py-2 font-medium text-zinc-800 dark:text-zinc-200">📝 {isEn ? 'เลือกของ (selecting)' : 'เลือกของ'}</td><td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{isEn ? 'The packing team chooses an item for every requirement' : 'ทีมจัดของเลือกชิ้นให้ครบทุกข้อกำหนด'}</td></tr>
+                <tr><td className="px-3 py-2 font-medium text-zinc-800 dark:text-zinc-200">🧺 {isEn ? 'กำลังหยิบ (picking)' : 'กำลังหยิบ'}</td><td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{isEn ? 'Items are taken off the shelves one by one' : 'กำลังหยิบของลงจากชั้นทีละชิ้น'}</td></tr>
+                <tr><td className="px-3 py-2 font-medium text-zinc-800 dark:text-zinc-200">📦 {isEn ? 'พร้อมรับ (ready)' : 'พร้อมรับ'}</td><td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{isEn ? 'Packed, photographed and waiting at the pickup spot' : 'จัดเสร็จ ถ่ายรูปแล้ว วางรอที่จุดรับของ'}</td></tr>
+                <tr><td className="px-3 py-2 font-medium text-zinc-800 dark:text-zinc-200">🚚 {isEn ? 'ออกงาน (out)' : 'ออกงาน'}</td><td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{isEn ? 'The on-site team has taken the items' : 'ทีมหน้างานรับของไปแล้ว'}</td></tr>
+                <tr><td className="px-3 py-2 font-medium text-zinc-800 dark:text-zinc-200">↩️ {isEn ? 'คืนแล้ว (returned)' : 'คืนแล้ว'}</td><td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{isEn ? 'Back at the pickup spot, waiting to be restocked' : 'ของกลับมาที่จุดรับของ รอคืนชั้น'}</td></tr>
+                <tr><td className="px-3 py-2 font-medium text-zinc-800 dark:text-zinc-200">🗄️ {isEn ? 'คืนชั้นแล้ว (restocked)' : 'คืนชั้นแล้ว'}</td><td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{isEn ? 'Everything is back on its shelf. Done.' : 'ของทุกชิ้นกลับขึ้นชั้นแล้ว จบ'}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ════ SETUP ════ */}
+        <p className="text-xs font-bold uppercase tracking-wider text-purple-700 dark:text-purple-400 pt-2">
+          {isEn ? 'First-time setup (admin / equipment keeper)' : 'ตั้งค่าครั้งแรก (แอดมิน/ผู้ดูแลอุปกรณ์)'}
+        </p>
+
+        {/* ── Setup: team ──────────────────────────────────────────── */}
+        <div id="equip-setup-team" className="scroll-mt-6">
+          <SectionHeader
+            icon={<UserCog className="h-4 w-4" />}
+            title={isEn ? 'Setup 1–3: the packing team and event closers' : 'ตั้งค่าขั้น 1–3: ทีมจัดของ และผู้ปิดงาน'}
+            color="violet"
+          />
+          <div className="rounded-lg border border-violet-200/60 dark:border-violet-900/50 bg-white dark:bg-zinc-900 p-3 space-y-2 mb-3">
+            <p className="text-[11px] font-bold text-violet-700 dark:text-violet-300 uppercase tracking-wider">
+              {isEn ? 'All 7 setup steps' : 'ตั้งค่าทั้งหมด 7 ขั้น'}
+            </p>
+            <TimelineRow time="1" emoji="👥" textTh={'/users ตั้งแผนก "ทีมจัดของ" ให้คนในทีม'} textEn={'/users: put the team in the "ทีมจัดของ" department'} tagTh="ทีม" tagEn="team" isEn={isEn} />
+            <TimelineRow time="2" emoji="🧩" textTh="/jobs/settings ตั้งทีมของพูลงาน" textEn="/jobs/settings: set the job pool team" tagTh="ทีม" tagEn="team" isEn={isEn} />
+            <TimelineRow time="3" emoji="✅" textTh={'ตั้งค่า > อีเวนต์ ตั้ง "ผู้ปิดงาน"'} textEn={'Settings > Events: set the event closers'} tagTh="ปิดงาน" tagEn="close" isEn={isEn} />
+            <TimelineRow time="4" emoji="🏷️" textTh="ตั้งค่าคลัง → ประเภทอุปกรณ์" textEn="Stock settings → equipment categories" tagTh="คลัง" tagEn="stock" isEn={isEn} />
+            <TimelineRow time="5" emoji="📦" textTh="ใส่ประเภทให้อุปกรณ์และกระเป๋าทุกชิ้น" textEn="Give every item and kit bag a category" tagTh="คลัง" tagEn="stock" isEn={isEn} />
+            <TimelineRow time="6" emoji="🎁" textTh="คลังอุปกรณ์ → แพ็กเกจ" textEn="Stock → packages" tagTh="แพ็กเกจ" tagEn="package" isEn={isEn} variant="highlight" />
+            <TimelineRow time="7" emoji="📍" textTh="ตั้งค่าคลัง → จุดรับของ + พิมพ์ QR" textEn="Stock settings → pickup spots + print the QR" tagTh="QR" tagEn="QR" isEn={isEn} variant="success" />
+          </div>
+          <RoleCard
+            role="admin"
+            title={isEn ? 'Steps 1–3' : 'ขั้น 1–3'}
+            steps={[
+              { n: 1, label: isEn ? 'Open /users and set the department "ทีมจัดของ" (packing team) for everyone in the team.' : 'เปิด /users ตั้งแผนก "ทีมจัดของ" ให้คนในทีม', tag: null },
+              { n: 2, label: isEn ? 'Open /jobs/settings, tab "job pool team": set "หน้าที่: จัดของ" (duty: packing) and "แผนกที่ดูแลอุปกรณ์" (department in charge of equipment) to the packing team.' : 'เปิด /jobs/settings แท็บทีมของพูลงาน ตั้ง "หน้าที่: จัดของ" และ "แผนกที่ดูแลอุปกรณ์" เป็นทีมจัดของ', tag: null },
+              { n: 3, label: isEn ? 'Settings > Events: set the "ผู้ปิดงาน" (event closers) to include the people who return items, if you want the event to close by itself at return.' : 'ตั้งค่า > อีเวนต์ ตั้ง "ผู้ปิดงาน" ให้ครอบคนที่จะคืนของ ถ้าอยากให้อีเวนต์ปิดเองตอนคืน', tag: null },
+            ]}
+          />
+        </div>
+
+        {/* ── Setup: categories ────────────────────────────────────── */}
+        <div id="equip-setup-categories" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Tag className="h-4 w-4" />}
+            title={isEn ? 'Setup 4–5: equipment categories' : 'ตั้งค่าขั้น 4–5: ประเภทอุปกรณ์'}
+            color="violet"
+          />
+          <RoleCard
+            role="admin"
+            title={isEn ? 'Stock → Stock settings → Equipment categories' : 'คลังอุปกรณ์ → ตั้งค่าคลัง → ประเภทอุปกรณ์'}
+            steps={[
+              { n: 1, label: isEn ? 'Add, reorder or turn off categories. A category can be deleted only when no item uses it.' : 'เพิ่ม / เรียง / ปิดใช้ / ลบ ประเภท (ลบได้เมื่อไม่มีของอ้างถึง)', tag: null },
+              { n: 2, label: isEn ? 'For booth categories tick "ทีมขายเลือกชิ้นเอง" (sales pick the unit) and type the build styles, one per line.' : 'ประเภทตู้ ให้ติ๊ก "ทีมขายเลือกชิ้นเอง" และใส่ "แบบประกอบ" (1 บรรทัดต่อแบบ)', tag: null },
+              { n: 3, label: isEn ? 'The "เพิ่มอุปกรณ์" (add item) button on a category row opens the add-item form with that category already chosen.' : 'ปุ่ม "เพิ่มอุปกรณ์" ในแถวประเภท พาไปฟอร์มเพิ่มอุปกรณ์ที่เลือกประเภทไว้แล้ว', tag: null },
+              { n: 4, label: isEn ? 'Every item and kit bag can get a category in the item form and in the kit edit box.' : 'อุปกรณ์และกระเป๋าทุกชิ้นเลือกประเภทได้ที่ฟอร์มอุปกรณ์ และกล่องแก้ไขกระเป๋า', tag: null },
+            ]}
+          />
+          <div className="mt-3 rounded-lg border border-violet-200/60 dark:border-violet-900/50 bg-white dark:bg-zinc-900 p-3 space-y-2">
+            <p className="text-[11px] font-bold text-violet-700 dark:text-violet-300 uppercase tracking-wider">
+              {isEn ? 'Example: a booth category' : 'ตัวอย่าง: ประเภทตู้'}
+            </p>
+            <TimelineRow time="1" emoji="🏷️" textTh={'ประเภท "ตู้ประกอบ" — ติ๊กทีมขายเลือกชิ้นเอง'} textEn={'Category "ตู้ประกอบ" — sales pick the unit'} tagTh="ติ๊ก" tagEn="ticked" isEn={isEn} />
+            <TimelineRow time="2" emoji="🔧" textTh="แบบประกอบ: ประกอบ 1 / ประกอบ 2 / ประกอบ 3" textEn="Build styles: ประกอบ 1 / 2 / 3" tagTh="แบบ" tagEn="styles" isEn={isEn} />
+            <TimelineRow time="3" emoji="📦" textTh={'อุปกรณ์ "ตู้ประกอบ ชุด 1", "ตู้ประกอบ ชุด 2"'} textEn={'Items "ตู้ประกอบ ชุด 1", "ตู้ประกอบ ชุด 2"'} tagTh="อุปกรณ์" tagEn="items" isEn={isEn} variant="success" />
+          </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="sky" icon={<Edit3 className="h-4 w-4" />} titleTh="เปลี่ยนชื่อประเภทได้" titleEn="Renaming a category" descTh="เปลี่ยนชื่อประเภทแล้ว ชื่อบนอุปกรณ์เปลี่ยนตามให้เอง" descEn="Rename a category and the name on its items changes too." isEn={isEn} />
+            <TipCard tone="emerald" icon={<Filter className="h-4 w-4" />} titleTh="กรองตามประเภท" titleEn="Filter by category" descTh="หน้ารายการอุปกรณ์กรองตามประเภทได้" descEn="The item list can be filtered by category." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Setup: packages ──────────────────────────────────────── */}
+        <div id="equip-setup-packages" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Boxes className="h-4 w-4" />}
+            title={isEn ? 'Setup 6: packages' : 'ตั้งค่าขั้น 6: แพ็กเกจ'}
+            color="violet"
+          />
+          <RoleCard
+            role="admin"
+            title={isEn ? 'Stock → Packages' : 'คลังอุปกรณ์ → แพ็กเกจ'}
+            steps={[
+              { n: 1, label: isEn ? 'Add a package: name, details, price (used to fill the quoted price in CRM) and active.' : 'เพิ่มแพ็กเกจ: ชื่อ รายละเอียด ราคา (ใช้เติมราคาเสนอใน CRM) เปิดใช้', tag: null },
+              { n: 2, label: isEn ? 'On the edit page add requirements = category × quantity per set.' : 'ในหน้าแก้ เพิ่มข้อกำหนด = ประเภท × จำนวนต่อชุด', tag: null },
+              { n: 3, label: isEn ? 'For each requirement press "ตัวเลือก" (options) and tick the items that may be used. Nothing ticked = every item of the category.' : 'ต่อข้อกำหนด กด "ตัวเลือก" ติ๊กชิ้นที่ใช้ได้ (ไม่ติ๊ก = ทุกชิ้นในประเภท)', tag: null },
+              { n: 4, label: isEn ? 'Items that live inside a kit bag cannot be chosen alone — choose the whole bag instead.' : 'ของที่อยู่ในกระเป๋าเลือกเดี่ยวไม่ได้ ให้เลือกกระเป๋าทั้งใบแทน', tag: null },
+              { n: 5, label: isEn ? 'Press "บันทึกข้อกำหนด" (save requirements).' : 'กด "บันทึกข้อกำหนด"', tag: null },
+            ]}
+          />
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="sky" icon={<Repeat className="h-4 w-4" />} titleTh="คัดลอก / เรียง / ปิดใช้" titleEn="Copy / reorder / turn off" descTh="คัดลอกแพ็กเกจ เรียงลำดับ และปิดใช้ได้ ลบได้เมื่อไม่มีงานใช้" descEn="Packages can be copied, reordered and turned off. Delete only when no job uses it." isEn={isEn} />
+            <TipCard tone="amber" icon={<AlertCircle className="h-4 w-4" />} titleTh="ที่เดียวที่ตั้งแพ็กเกจ" titleEn="The only place for packages" descTh="รายการแพ็กเกจเดิมในตั้งค่า CRM ถูกย้ายมาที่นี่ที่เดียวแล้ว" descEn="The old package list in the CRM settings has moved here." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Setup: pickup spots ──────────────────────────────────── */}
+        <div id="equip-setup-spots" className="scroll-mt-6">
+          <SectionHeader
+            icon={<QrCode className="h-4 w-4" />}
+            title={isEn ? 'Setup 7: pickup spots and their QR' : 'ตั้งค่าขั้น 7: จุดรับของ และ QR'}
+            color="violet"
+          />
+          <RoleCard
+            role="admin"
+            title={isEn ? 'Stock settings → Pickup spots' : 'ตั้งค่าคลัง → จุดรับของ'}
+            steps={[
+              { n: 1, label: isEn ? 'Add a spot: name and code (and a note if you like).' : 'เพิ่มจุด: ชื่อ + รหัส (+หมายเหตุ)', tag: null },
+              { n: 2, label: isEn ? 'Press "พิมพ์ QR จุดรับของ" (print pickup-spot QR) — one A4 sheet.' : 'กด "พิมพ์ QR จุดรับของ" (แผ่น A4)', tag: null },
+              { n: 3, label: isEn ? 'Stick it at the spot.' : 'ติดไว้ที่จุดนั้น', tag: null },
+              { n: 4, label: isEn ? 'Scanning it opens the spot page: you see the lists placed there and can take or return items.' : 'สแกนแล้วเปิดหน้าจุด: เห็นใบที่วางอยู่ รับของ / คืนของได้', tag: null },
+            ]}
+          />
+        </div>
+
+        {/* ════ SALES ════ */}
+        <p className="text-xs font-bold uppercase tracking-wider text-sky-700 dark:text-sky-400 pt-2">
+          {isEn ? 'Sales' : 'ทีมขาย'}
+        </p>
+
+        {/* ── Sales: pick a package ────────────────────────────────── */}
+        <div id="equip-sales-pick" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Package className="h-4 w-4" />}
+            title={isEn ? 'Pick packages for a job' : 'เลือกแพ็กเกจให้งาน'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <FeatureBlock
+              titleTh="1. กล่องเพิ่มลูกค้า"
+              titleEn="1. Add-customer box"
+              lines={isEn
+                ? ['Pick the first package (1 set)', 'Fills the quoted price if it is empty']
+                : ['เลือกแพ็กเกจแรก 1 ชุด', 'เติมราคาเสนอให้ถ้ายังว่าง']}
+            />
+            <FeatureBlock
+              titleTh="2. การ์ดลูกค้าในหน้า lead"
+              titleEn="2. Customer card on the lead page"
+              lines={isEn
+                ? ['Press "แก้แพ็กเกจ" (edit packages)', 'Pick several packages + the number of sets']
+                : ['กดปุ่ม "แก้แพ็กเกจ"', 'เลือกได้หลายแพ็กเกจ + จำนวนชุด']}
+            />
+            <FeatureBlock
+              titleTh="3. หน้าติดตามงาน"
+              titleEn="3. Job tracking page"
+              lines={isEn
+                ? ['The "แพ็กเกจ" (packages) column']
+                : ['คอลัมน์ "แพ็กเกจ"']}
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="violet" icon={<Lock className="h-4 w-4" />} titleTh="ใครแก้แพ็กเกจได้" titleEn="Who can change packages" descTh="ผู้สร้างการ์ด แอดมิน และฝ่ายประสานงาน" descEn="Whoever created the card, admins and the coordination team." isEn={isEn} />
+            <TipCard tone="emerald" icon={<CheckCircle2 className="h-4 w-4" />} titleTh="เติมระบบที่ใช้บริการให้เอง" titleEn="Service field filled for you" descTh={'ชื่อแพ็กเกจของงานขึ้นในช่อง "ระบบที่ใช้บริการ" ให้เอง'} descEn={'The package names appear in the "ระบบที่ใช้บริการ" (services) field automatically.'} isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Sales: booth ─────────────────────────────────────────── */}
+        <div id="equip-sales-booth" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Building2 className="h-4 w-4" />}
+            title={isEn ? 'Booth set and build style' : 'เลือกชุดตู้ และแบบประกอบ'}
+          />
+          <RoleCard
+            role="user"
+            title={isEn ? 'When the package has a booth category' : 'เมื่อแพ็กเกจมีประเภทตู้'}
+            steps={[
+              { n: 1, label: isEn ? 'Choose the "ชุดตู้" (booth set). Labels: ว่าง (free) / ต่อคิว (back-to-back) / ชน (clash) / ไม่พร้อม (not available). If only one set is free it is chosen for you.' : 'ต้องเลือก "ชุดตู้" ป้ายบอก ว่าง / ต่อคิว / ชน / ไม่พร้อม (ถ้ามีชุดว่างชุดเดียว ระบบเลือกให้เอง)', tag: null },
+              { n: 2, label: isEn ? 'Choose the build style if you like. Optional, and can be changed later until the items are taken.' : 'เลือกแบบประกอบได้ (ไม่บังคับ แก้ทีหลังได้จนก่อนรับของ)', tag: null },
+              { n: 3, label: isEn ? 'A set that clashes with another job at the same time can still be chosen, after a confirmation.' : 'ชุดที่ชนกับงานอื่นเวลาทับกัน เลือกได้แต่จะถามยืนยันก่อน', tag: null },
+            ]}
+          />
+          <div className="mt-3">
+            <TipCard tone="amber" icon={<Lock className="h-4 w-4" />} titleTh="ตู้ที่ขายแล้วถูกล็อก" titleEn="A sold booth is locked" descTh="ในใบจัดของ ทีมจัดของเปลี่ยนตู้ที่ทีมขายเลือกไม่ได้ ถ้าตู้เสีย ทีมจัดของจะแจ้งให้ทีมขายเปลี่ยน" descEn="The packing team cannot change the booth that sales chose. If it breaks, the packing team asks sales to change it." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Sales: warning ───────────────────────────────────────── */}
+        <div id="equip-sales-warning" className="scroll-mt-6">
+          <SectionHeader
+            icon={<AlertTriangle className="h-4 w-4" />}
+            title={isEn ? '"Equipment may run short" warnings' : 'คำเตือน "อุปกรณ์อาจไม่พอ"'}
+            color="amber"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="amber" icon={<AlertTriangle className="h-4 w-4" />} titleTh="เหลือง — อุปกรณ์อาจไม่พอ" titleEn="Yellow — may run short" descTh="รวมงานอื่นที่ยังไม่ได้เลือกของแล้ว อุปกรณ์อาจไม่พอ" descEn="Counting other jobs whose items are not chosen yet, there may not be enough." isEn={isEn} />
+            <div className="rounded-lg border p-3 border-red-200 dark:border-red-900/50 bg-red-50/40 dark:bg-red-950/20 text-red-700 dark:text-red-400">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <XCircle className="h-4 w-4 shrink-0" />
+                <p className="text-xs font-bold">{isEn ? 'Red — not enough' : 'แดง — ไม่พอ'}</p>
+              </div>
+              <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                {isEn
+                  ? 'Items already chosen for sure are not enough, or the same booth set is sold to another job on the same day.'
+                  : 'ของที่ถูกเลือกแน่นอนแล้วไม่พอ หรือตู้ชุดเดียวกันถูกขายให้งานอื่นวันเดียวกัน'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3">
+            <FeatureBlock
+              titleTh="ขึ้นที่ไหนบ้าง"
+              titleEn="Where it shows"
+              lines={isEn
+                ? [
+                    'Right under the package picker',
+                    'On the job row and on the customer card',
+                    'The panel "แพ็กเกจที่ขายแล้วแต่อุปกรณ์อาจไม่พอ" on the home page and the job tracking page (jobs in the next 30 days)',
+                  ]
+                : [
+                    'ใต้ช่องเลือกแพ็กเกจทันที',
+                    'บนแถวงาน และการ์ดลูกค้า',
+                    'แผง "แพ็กเกจที่ขายแล้วแต่อุปกรณ์อาจไม่พอ" บนหน้าแรกและหน้าติดตามงาน (งานใน 30 วัน)',
+                  ]}
+            />
+          </div>
+          <div className="mt-3">
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="เป็นคำเตือน ไม่ห้ามขาย" titleEn="A warning, not a block" descTh="ขายต่อได้ เพราะของจริงทีมจัดของเป็นคนเลือก ตั้งแต่งานมีใบจัดของแล้ว ระบบนับจากของในใบจริง" descEn="You can still sell, because the packing team chooses the real items. Once a job has a packing list, the count uses the items on the list." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ════ PACKING TEAM ════ */}
+        <p className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-400 pt-2">
+          {isEn ? 'Packing team' : 'ทีมจัดของ'}
+        </p>
+
+        {/* ── Pack: queue ──────────────────────────────────────────── */}
+        <div id="equip-pack-queue" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ClipboardList className="h-4 w-4" />}
+            title={isEn ? 'The packing queue — /packing' : 'คิวใบจัดของ — /packing'}
+            color="violet"
+          />
+          <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-400">
+            {isEn ? 'Menu Stock → Packing lists. The queue has 5 groups:' : 'เมนู คลังอุปกรณ์ → ใบจัดของ แบ่งเป็น 5 กลุ่ม'}
+          </p>
+          <div className="rounded-lg border border-violet-200/60 dark:border-violet-900/50 bg-white dark:bg-zinc-900 p-3 space-y-2">
+            <TimelineRow time="1" emoji="🕒" textTh="รอเปิดใบ — งานที่มีแพ็กเกจแต่ยังไม่มีใบ" textEn="Waiting — jobs with a package but no list yet" tagTh="รอเปิดใบ" tagEn="waiting" isEn={isEn} />
+            <TimelineRow time="2" emoji="🧺" textTh="กำลังทำ — ใบที่กำลังเลือกของหรือหยิบ" textEn="In progress — lists being selected or picked" tagTh="กำลังทำ" tagEn="in progress" isEn={isEn} />
+            <TimelineRow time="3" emoji="📦" textTh="พร้อมรับ — วางรอที่จุดรับของ" textEn="Ready — waiting at the pickup spot" tagTh="พร้อมรับ" tagEn="ready" isEn={isEn} variant="success" />
+            <TimelineRow time="4" emoji="🚚" textTh="ออกงาน — ทีมหน้างานรับไปแล้ว" textEn="Out — taken by the on-site team" tagTh="ออกงาน" tagEn="out" isEn={isEn} />
+            <TimelineRow time="5" emoji="🗄️" textTh="รอคืนชั้น — คืนแล้ว รอเก็บขึ้นชั้น" textEn="To restock — returned, waiting for the shelves" tagTh="รอคืนชั้น" tagEn="restock" isEn={isEn} variant="highlight" />
+          </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="violet" icon={<ClipboardList className="h-4 w-4" />} titleTh="เปิดใบได้ 2 ที่" titleEn="Two ways to open a list" descTh={'จากคิว หรือจากช่อง "จัดของ" ในหน้าติดตามงาน (ปุ่ม "เปิดใบจัดของ" สำหรับงานที่มีแพ็กเกจ งานที่ยังไม่มีแพ็กเกจจะบอกให้ทีมขายเลือกก่อน)'} descEn={'From the queue, or from the "จัดของ" box on the job tracking page (button "เปิดใบจัดของ" for jobs with a package; jobs without one ask sales to pick it first).'} isEn={isEn} />
+            <TipCard tone="sky" icon={<Bell className="h-4 w-4" />} titleTh={'แจ้งเตือน "งานรอจัดของ"'} titleEn={'"Job waiting to be packed" notification'} descTh="ทีมจัดของได้แจ้งเตือนเมื่องานตอบรับแล้วและมีแพ็กเกจ" descEn="The packing team is notified when a job is accepted and has a package." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Pack: select ─────────────────────────────────────────── */}
+        <div id="equip-pack-select" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ListChecks className="h-4 w-4" />}
+            title={isEn ? 'Step 1: select the items' : 'ขั้นเลือกของ'}
+            color="violet"
+          />
+          <RoleCard
+            role="user"
+            title={isEn ? 'Fill every requirement' : 'เลือกให้ครบทุกข้อกำหนด'}
+            steps={[
+              { n: 1, label: isEn ? 'The list is laid out from the package × number of sets.' : 'โครงใบมาจากแพ็กเกจ × จำนวนชุด', tag: null },
+              { n: 2, label: isEn ? 'For each category choose an item slot by slot. Labels: ว่าง (free) / ต่อคิว (back-to-back) / ชน (clash) / ไม่พร้อม (not available) / ออกงานอยู่ (out at another job).' : 'ต่อประเภท เลือกชิ้นทีละช่อง ป้ายบอก ว่าง / ต่อคิว / ชน / ไม่พร้อม / ออกงานอยู่', tag: null },
+              { n: 3, label: isEn ? 'The booth chosen by sales is already there with its build style (locked).' : 'ตู้ที่ทีมขายเลือกขึ้นให้พร้อมแบบประกอบ (ล็อก)', tag: null },
+              { n: 4, label: isEn ? 'Add "ของเสริม" (extras): any unit outside the package.' : 'เติม "ของเสริม" ได้ เป็นหน่วยใดก็ได้นอกแพ็กเกจ', tag: null },
+              { n: 5, label: isEn ? 'Press "บันทึกรายการ" (save) to keep a draft, or "สร้างใบจัดของ" (create) once every requirement is filled.' : 'กด "บันทึกรายการ" เก็บไว้ก่อน หรือ "สร้างใบจัดของ" (ต้องเลือกครบทุกข้อกำหนด)', tag: null },
+            ]}
+          />
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <TipCard tone="amber" icon={<AlertTriangle className="h-4 w-4" />} titleTh="ชน = ถามยืนยัน" titleEn="Clash = asks first" descTh="ชิ้นที่ชนกับงานอื่นเลือกได้ แต่ระบบถามยืนยันก่อน" descEn="An item that clashes with another job can be chosen after a confirmation." isEn={isEn} />
+            <TipCard tone="sky" icon={<Truck className="h-4 w-4" />} titleTh="ออกงานอยู่ = จองล่วงหน้า" titleEn="Out = book ahead" descTh="เลือกไว้ล่วงหน้าได้ แต่หยิบได้เมื่อชิ้นนั้นคืนชั้นแล้ว" descEn="You can choose it ahead, but you can pick it only after it is back on the shelf." isEn={isEn} />
+            <TipCard tone="violet" icon={<Ban className="h-4 w-4" />} titleTh="ยกเลิกใบ" titleEn="Cancel the list" descTh={'กด "ยกเลิกใบ" ได้ก่อนใบเป็นพร้อมรับ'} descEn="The list can be cancelled before it is ready." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Pack: pick ───────────────────────────────────────────── */}
+        <div id="equip-pack-pick" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Warehouse className="h-4 w-4" />}
+            title={isEn ? 'Step 2: pick from the shelves' : 'ขั้นกำลังหยิบ'}
+            color="violet"
+          />
+          <RoleCard
+            role="user"
+            title={isEn ? 'Walk the route and tick each item' : 'เดินตามเส้นทาง แล้วกดทีละชิ้น'}
+            steps={[
+              { n: 1, label: isEn ? 'The list is sorted as a walking route: room › cabinet › shelf.' : 'รายการเรียงเป็นเส้นทางเดิน ห้อง › ตู้ › ชั้น', tag: null },
+              { n: 2, label: isEn ? 'Press "หยิบแล้ว" (picked) item by item. The item becomes "ออกงาน" (out) right away; a kit bag takes out every usable item inside.' : 'กด "หยิบแล้ว" ทีละชิ้น ของเป็น "ออกงาน" ทันที (กระเป๋า = นำออกทุกชิ้นที่ใช้ได้)', tag: null },
+              { n: 3, label: isEn ? 'Pressed by mistake? Use "ยกเลิกหยิบ" (undo pick).' : 'กดผิด กด "ยกเลิกหยิบ" ได้', tag: null },
+              { n: 4, label: isEn ? 'Cannot pick an item (broken or out at another job)? Press "เปลี่ยนของ" (swap) and choose another allowed item.' : 'ชิ้นที่หยิบไม่ได้ (เสีย / ออกงานอยู่) กด "เปลี่ยนของ" เลือกชิ้นอื่นในตัวเลือก', tag: null },
+            ]}
+          />
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="emerald" icon={<Printer className="h-4 w-4" />} titleTh="พิมพ์ใบจัดของ" titleEn="Print the packing list" descTh={'กด "พิมพ์ใบจัดของ" ได้แผ่น A4 มี QR สแกนกลับมาหน้าใบ'} descEn="Print it on A4. Its QR brings you back to the list." isEn={isEn} />
+            <TipCard tone="sky" icon={<RefreshCw className="h-4 w-4" />} titleTh="ถอยกลับไปเลือกของ" titleEn="Back to selecting" descTh="ถ้ายังไม่ได้หยิบอะไร ถอยกลับไปขั้นเลือกของได้" descEn="If nothing is picked yet, you can go back to selecting." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Pack: confirm ────────────────────────────────────────── */}
+        <div id="equip-pack-confirm" className="scroll-mt-6">
+          <SectionHeader
+            icon={<PackageCheck className="h-4 w-4" />}
+            title={isEn ? 'Step 3: confirm packing' : 'ยืนยันจัดของ'}
+            color="violet"
+          />
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Needed' : 'ต้องมี'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'What to do' : 'ทำอย่างไร'}</th>
+                  <th className="px-3 py-2.5 text-left font-semibold">{isEn ? 'Done when' : 'ผ่านเมื่อ'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-900 text-xs">
+                <ChecklistRow emoji="🧺" label={isEn ? 'All picked' : 'หยิบครบ'} required={isEn ? 'Press "หยิบแล้ว" on every line' : 'กด "หยิบแล้ว" ครบทุกรายการ'} passes={isEn ? 'No line left' : 'ไม่เหลือรายการค้าง'} />
+                <ChecklistRow emoji="📸" label={isEn ? 'Photo' : 'รูป'} required={isEn ? 'Photo of the packed set (from the gallery is fine)' : 'ถ่ายรูปชุดที่จัดเสร็จ (เลือกจากคลังรูปได้)'} passes={isEn ? 'At least 1 photo' : 'อย่างน้อย 1 รูป'} />
+                <ChecklistRow emoji="📍" label={isEn ? 'Pickup spot' : 'จุดรับของ'} required={isEn ? 'Choose where you place the set' : 'เลือกจุดที่วางของ'} passes={isEn ? 'A spot is chosen' : 'เลือกจุดแล้ว'} />
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3">
+            <FlowchartBox title={isEn ? 'Press "ยืนยันจัดของ" (confirm packing)' : 'กด "ยืนยันจัดของ"'} color="purple">
+              <FlowNode variant="admin" emoji="📦" title={isEn ? 'The list becomes "พร้อมรับ" (ready)' : 'ใบเป็น "พร้อมรับ"'} />
+              <FlowArrow />
+              <FlowNode variant="user" emoji="🔔" title={isEn ? 'The team lead and the event team are notified' : 'แจ้งเตือนหัวหน้างานและทีมในอีเวนต์'} />
+              <FlowArrow />
+              <FlowNode variant="success" emoji="✅" title={isEn ? 'The job passes the "จัดของ" (packing) item' : 'งานผ่านข้อ "จัดของ"'} />
+            </FlowchartBox>
+          </div>
+          <div className="mt-3">
+            <TipCard tone="sky" icon={<Edit3 className="h-4 w-4" />} titleTh={'ยังแก้ได้ด้วยปุ่ม "แก้ไข"'} titleEn="Still editable" descTh={'ก่อนมีคนรับของ กด "แก้ไข" ใบจะถอยกลับเป็นกำลังหยิบ'} descEn="Before anyone takes the items, press แก้ไข (edit) to go back to picking." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Pack: restock ────────────────────────────────────────── */}
+        <div id="equip-pack-restock" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ArchiveRestore className="h-4 w-4" />}
+            title={isEn ? 'Restock: put everything back' : 'คืนชั้น'}
+            color="violet"
+          />
+          <RoleCard
+            role="user"
+            title={isEn ? 'After the items come back' : 'หลังของกลับมาแล้ว'}
+            steps={[
+              { n: 1, label: isEn ? 'You get the "คืนของแล้ว" (items returned) notification.' : 'ได้แจ้งเตือน "คืนของแล้ว"', tag: null },
+              { n: 2, label: isEn ? 'Open the list from the "รอคืนชั้น" (to restock) group.' : 'เปิดใบจากกลุ่ม "รอคืนชั้น"', tag: null },
+              { n: 3, label: isEn ? 'Lines are sorted by home shelf and show the condition at return.' : 'รายการเรียงตามชั้นบ้านของแต่ละชิ้น มีป้ายสภาพตอนคืน', tag: null },
+              { n: 4, label: isEn ? 'Press "คืนชั้นแล้ว" (restocked) line by line, or "คืนชั้นทั้งหมด" (restock all).' : 'กด "คืนชั้นแล้ว" ทีละรายการ หรือ "คืนชั้นทั้งหมด"', tag: null },
+              { n: 5, label: isEn ? 'Usable items go back to "พร้อมใช้" (available). When every line is done the list is "คืนชั้นแล้ว" — finished.' : 'ของที่ใช้ได้กลับเป็นพร้อมใช้ ครบทุกรายการ = ใบเป็นคืนชั้นแล้ว จบ', tag: null },
+            ]}
+          />
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="amber" icon={<Hammer className="h-4 w-4" />} titleTh="ของเสีย / ซ่อม / หาย" titleEn="Broken / repair / lost" descTh="มีกล่องสรุปให้เห็น ของพวกนี้ถูกตั้งสถานะไปแล้วตั้งแต่ตอนคืนของ" descEn="A summary box lists them. Their status was already set when they were returned." isEn={isEn} />
+            <TipCard tone="emerald" icon={<CheckCircle2 className="h-4 w-4" />} titleTh="ไม่ต้องรอปิดงาน" titleEn="No need to wait for closing" descTh="คืนชั้นได้แม้อีเวนต์ยังไม่ปิด" descEn="You can restock even if the event is not closed yet." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ════ ON-SITE / CLOSING ════ */}
+        <p className="text-xs font-bold uppercase tracking-wider text-sky-700 dark:text-sky-400 pt-2">
+          {isEn ? 'On-site team / event closers' : 'ทีมหน้างาน / ผู้ปิดงาน'}
+        </p>
+
+        {/* ── Site: handover ───────────────────────────────────────── */}
+        <div id="equip-site-handover" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ScanLine className="h-4 w-4" />}
+            title={isEn ? 'Take the items (pickup)' : 'รับของ'}
+          />
+          <RoleCard
+            role="user"
+            title={isEn ? 'At the office, before you leave' : 'ที่ออฟฟิศ ก่อนออกงาน'}
+            steps={[
+              { n: 1, label: isEn ? 'Scan the QR at the pickup spot.' : 'สแกน QR จุดรับของ', tag: null },
+              { n: 2, label: isEn ? 'Open the "พร้อมรับ" (ready) list of your job.' : 'เปิดใบ "พร้อมรับ" ของงาน', tag: null },
+              { n: 3, label: isEn ? 'Tick every item while loading the car (or press "ครบทุกชิ้น" — all items).' : 'ติ๊กทุกชิ้นขณะขึ้นรถ (หรือกด "ครบทุกชิ้น")', tag: null },
+              { n: 4, label: isEn ? 'Press "ยืนยันรับของ" (confirm pickup).' : 'กด "ยืนยันรับของ"', tag: null },
+              { n: 5, label: isEn ? 'The list is now "ออกงาน" (out). The on-site job on the event-day board becomes "ขนของ" (loading) by itself.' : 'ใบเป็นออกงาน ใบงานหน้างานบนบอร์ดวันงานเป็น "ขนของ" เอง', tag: null },
+            ]}
+          />
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="sky" icon={<MapPin className="h-4 w-4" />} titleTh="เช็คอินหน้างานตามเดิม" titleEn="Check in on-site as usual" descTh={'เช็คอินแล้วใบงานเลื่อนเป็น "ออกหน้างาน"'} descEn={'Checking in moves the job to "ออกหน้างาน" (on-site).'} isEn={isEn} />
+            <TipCard tone="emerald" icon={<QrCode className="h-4 w-4" />} titleTh="QR กระเป๋ายังใช้ได้" titleEn="Kit QR codes still work" descTh="QR กระเป๋ายังใช้นำออก / รับคืนรายชิ้นหน้างานได้" descEn="Kit QR codes still check single items out and in on site." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Site: return ─────────────────────────────────────────── */}
+        <div id="equip-site-return" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ArrowDownToLine className="h-4 w-4" />}
+            title={isEn ? 'Return the items' : 'คืนของ'}
+          />
+          <RoleCard
+            role="user"
+            title={isEn ? 'Back at the office' : 'กลับถึงออฟฟิศ'}
+            steps={[
+              { n: 1, label: isEn ? 'Put the items at the same spot and scan its QR.' : 'วางของที่จุดเดิม แล้วสแกน QR', tag: null },
+              { n: 2, label: isEn ? 'Open the "ออกงาน" (out) list.' : 'เปิดใบ "ออกงาน"', tag: null },
+              { n: 3, label: isEn ? 'Set the condition of every line: ใช้ได้ (OK) / เสียหาย (damaged) / ซ่อม (repair) / หาย (lost). "ใช้ได้ทั้งหมด" sets all to OK.' : 'เลือกสภาพทุกรายการ ใช้ได้ / เสียหาย / ซ่อม / หาย (มีปุ่ม "ใช้ได้ทั้งหมด")', tag: null },
+              { n: 4, label: isEn ? 'Open a kit bag to set each item inside.' : 'กระเป๋า กดขยายเพื่อระบุรายชิ้น', tag: null },
+              { n: 5, label: isEn ? 'Fill in the consumables used. Photos and a note are optional.' : 'กรอกวัสดุสิ้นเปลืองที่ใช้ไป ถ่ายรูป / หมายเหตุ (ไม่บังคับ)', tag: null },
+              { n: 6, label: isEn ? 'Press "ยืนยันคืนของ" (confirm return). If something is not OK you are asked to confirm.' : 'กด "ยืนยันคืนของ" (ถ้ามีของสภาพไม่ปกติ ระบบจะถามยืนยัน)', tag: null },
+            ]}
+          />
+          <div className="mt-3">
+            <TipCard tone="amber" icon={<Zap className="h-4 w-4" />} titleTh="มีผลทันที" titleEn="Takes effect right away" descTh="ของเสีย / ซ่อม / หาย ถูกตั้งสถานะทันที และวัสดุสิ้นเปลืองถูกตัดยอดทันที" descEn="Broken / repair / lost items get their status at once, and consumables are deducted at once." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Close ────────────────────────────────────────────────── */}
+        <div id="equip-close" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Lock className="h-4 w-4" />}
+            title={isEn ? 'Closing the event' : 'ปิดอีเวนต์'}
+          />
+          <FlowchartBox title={isEn ? 'After "ยืนยันคืนของ"' : 'หลังกด "ยืนยันคืนของ"'} color="sky">
+            <FlowNode variant="decision" emoji="❓" title={isEn ? 'Is the person returning an event closer?' : 'คนคืนของมีสิทธิ์ปิดงานไหม?'} />
+            <FlowArrow label={isEn ? 'yes' : 'มี'} />
+            <FlowNode variant="success" emoji="🔒" title={isEn ? 'The event closes right away' : 'อีเวนต์ปิดให้ทันที'} subtitle={isEn ? 'the on-site job is finished' : 'ใบงานหน้างานจบ'} />
+            <FlowArrow label={isEn ? 'no' : 'ไม่มี'} />
+            <FlowNode variant="admin" emoji="✅" title={isEn ? 'An event closer opens the close page of the event' : 'ผู้ปิดงานเปิดหน้าปิดงานของอีเวนต์'} subtitle={isEn ? 'sees the summary from the list, presses "ปิดงาน" — no ticking again' : 'เห็นสรุปจากใบ กด "ปิดงาน" ได้เลย ไม่ต้องติ๊กซ้ำ'} />
+          </FlowchartBox>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="amber" icon={<Ban className="h-4 w-4" />} titleTh="ยังไม่คืนของ = ปิดแบบเดิมไม่ได้" titleEn="Not returned = cannot close the old way" descTh="อีเวนต์ที่ยังไม่คืนของปิดแบบเดิมไม่ได้ หน้าปิดงานมีลิงก์ไปที่ใบจัดของ" descEn="An event whose items are not returned cannot be closed the old way. The close page links to the list." isEn={isEn} />
+            <TipCard tone="sky" icon={<History className="h-4 w-4" />} titleTh="งานเก่าที่ไม่มีใบจัดของ" titleEn="Old events without a list" descTh="งานเก่าที่จองกระเป๋าแบบเดิม ใช้หน้าปิดงานเดิมเหมือนเดิม" descEn="Old events that booked kits the old way close on the old close page as before." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ════ FOLLOW-UP ════ */}
+        <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 pt-2">
+          {isEn ? 'Follow-up' : 'ติดตามผล'}
+        </p>
+
+        {/* ── Readiness ────────────────────────────────────────────── */}
+        <div id="equip-readiness" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Gauge className="h-4 w-4" />}
+            title={isEn ? 'Job tracking: the "จัดของ" item' : 'หน้าติดตามงาน: ข้อ "จัดของ"'}
+            color="emerald"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <FeatureBlock
+              titleTh="ผ่านเมื่อไร"
+              titleEn="When it passes"
+              lines={isEn
+                ? [
+                    'Every event of the job that is not closed has a list at "พร้อมรับ" (ready) or later',
+                    'Old jobs that booked kits the old way pass when the kits are fully packed',
+                    '"ไม่ต้องจัด" (no packing needed) can still be set',
+                  ]
+                : [
+                    'ทุกอีเวนต์ที่ยังไม่ปิดของงานมีใบถึง "พร้อมรับ" ขึ้นไป',
+                    'งานเก่าที่จองกระเป๋าแบบเดิม จัดครบก็ผ่าน',
+                    'ยังตั้ง "ไม่ต้องจัด" ได้',
+                  ]}
+            />
+            <FeatureBlock
+              titleTh={'ช่อง "จัดของ"'}
+              titleEn={'The "จัดของ" box'}
+              lines={isEn
+                ? ['Shows the list state', 'Shows "หยิบแล้ว x/y" (picked x of y)']
+                : ['แสดงสถานะใบ', 'แสดง "หยิบแล้ว x/y"']}
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <TipCard tone="sky" icon={<Bell className="h-4 w-4" />} titleTh="งานรอจัดของ" titleEn="Job waiting to be packed" descTh="ส่งถึงทีมจัดของ" descEn="Goes to the packing team." isEn={isEn} />
+            <TipCard tone="emerald" icon={<Bell className="h-4 w-4" />} titleTh="ของพร้อมรับ" titleEn="Items ready for pickup" descTh="ส่งถึงหัวหน้างาน และทีมในอีเวนต์" descEn="Goes to the team lead and the event team." isEn={isEn} />
+            <TipCard tone="violet" icon={<Bell className="h-4 w-4" />} titleTh="คืนของแล้ว" titleEn="Items returned" descTh="ส่งถึงทีมจัดของ" descEn="Goes to the packing team." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Usage ────────────────────────────────────────────────── */}
+        <div id="equip-usage" className="scroll-mt-6">
+          <SectionHeader
+            icon={<BarChart3 className="h-4 w-4" />}
+            title={isEn ? 'Usage page — /stock/usage' : 'หน้าการใช้งาน — /stock/usage'}
+            color="emerald"
+          />
+          <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-400">
+            {isEn
+              ? 'Menu Stock → Usage. Period chips: ภาพรวม (all time) / เดือนนี้ (this month) / 3 เดือน (3 months) / ปีนี้ (this year).'
+              : 'เมนู คลังอุปกรณ์ → การใช้งาน มีชิปช่วงเวลา ภาพรวม / เดือนนี้ / 3 เดือน / ปีนี้'}
+          </p>
+          <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <NewItem icon={<TrendingUp className="h-3.5 w-3.5" />} titleTh="ชิ้นที่ใช้บ่อย" titleEn="Most used items" descTh="จำนวนครั้ง ชั่วโมง ใช้ล่าสุด ค้นหาได้" descEn="Times used, hours, last used. Searchable." isEn={isEn} />
+            <NewItem icon={<Tag className="h-3.5 w-3.5" />} titleTh="ตามประเภท" titleEn="By category" descTh="รวมชิ้นที่ไม่ได้ใช้ด้วย" descEn="Includes items that were never used." isEn={isEn} />
+            <NewItem icon={<Boxes className="h-3.5 w-3.5" />} titleTh="ตามแพ็กเกจ" titleEn="By package" descTh="ขายไปกี่ชุด มีใบจัดของกี่งาน" descEn="How many sets were sold, how many jobs have a list." isEn={isEn} />
+            <NewItem icon={<Building2 className="h-3.5 w-3.5" />} titleTh="ตู้และแบบประกอบ" titleEn="Booths and build styles" descTh="ตู้แต่ละชุดใช้แบบไหนบ่อย" descEn="Which style each booth set is used with." isEn={isEn} />
+            <NewItem icon={<Activity className="h-3.5 w-3.5" />} titleTh="ตอนนี้" titleEn="Right now" descTh="พร้อมรับ / ออกงาน / รอคืนชั้น" descEn="Ready / out / to restock." isEn={isEn} />
+            <NewItem icon={<CalendarDays className="h-3.5 w-3.5" />} titleTh="กราฟชั่วโมงรายเดือน และคน" titleEn="Monthly hours chart and people" descTh="ชั่วโมงใช้งานแต่ละเดือน และใครจัด / รับ / คืนของ" descEn="Hours of use per month, and who packed, took and returned items." isEn={isEn} />
+          </ul>
+          <div className="mt-3">
+            <TipCard tone="sky" icon={<Clock className="h-4 w-4" />} titleTh="ชั่วโมงใช้งานคิดอย่างไร" titleEn="How hours are counted" descTh="นับจากตอนรับของถึงตอนคืนของ ถ้าไม่มีเวลาให้ใช้ช่วงเวลาของอีเวนต์แทน" descEn="From pickup to return. If those times are missing, the event time is used." isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Trophies ─────────────────────────────────────────────── */}
+        <div id="equip-trophies" className="scroll-mt-6">
+          <SectionHeader
+            icon={<Trophy className="h-4 w-4" />}
+            title={isEn ? 'Trophies' : 'ถ้วยรางวัล'}
+            color="amber"
+          />
+          <p className="mb-3 text-xs text-zinc-600 dark:text-zinc-400">
+            {isEn ? 'Shown on the home page and in /reports.' : 'แสดงบนหน้าแรก และหน้า /reports'}
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <TipCard tone="amber" icon={<Trophy className="h-4 w-4" />} titleTh="นักจัดของ" titleEn="Top packer" descTh="ยืนยันจัดของมากที่สุด" descEn="Confirmed the most packing lists." isEn={isEn} />
+            <TipCard tone="emerald" icon={<Trophy className="h-4 w-4" />} titleTh="นักคืนของ" titleEn="Top restocker" descTh="คืนชั้นครบมากที่สุด" descEn="Fully restocked the most lists." isEn={isEn} />
+            <TipCard tone="violet" icon={<Award className="h-4 w-4" />} titleTh="รับหน้าที่จัดของ" titleEn="Packing duty" descTh="กดรับหน้าที่จัดของในพูลงานมากที่สุด" descEn="Took the packing duty in the job pool the most." isEn={isEn} />
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">
+            {isEn ? 'The two new tracks use an existing picture frame for now.' : 'เฟรมรูปของ 2 สายใหม่ ยังใช้เฟรมเดิมชั่วคราว'}
+          </p>
+        </div>
+
+        {/* ── FAQ ──────────────────────────────────────────────────── */}
+        <div id="equip-faq" className="scroll-mt-6">
+          <SectionHeader
+            icon={<CircleHelp className="h-4 w-4" />}
+            title={isEn ? 'Frequently asked questions' : 'คำถามที่พบบ่อย'}
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="หยิบไม่ได้เพราะชิ้นนั้นออกงานอยู่ ทำไง?" titleEn="Cannot pick an item that is out at another job?" descTh={'กด "เปลี่ยนของ" เลือกชิ้นอื่น หรือรอให้ชิ้นนั้นคืนชั้นก่อน'} descEn="Press เปลี่ยนของ (swap) for another item, or wait until it is back on the shelf." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="ตู้ที่ขายไว้เสีย ทำไง?" titleEn="The sold booth is broken?" descTh="แจ้งทีมขายให้เปลี่ยนชุดตู้ที่หน้าติดตามงาน หรือการ์ดลูกค้า" descEn="Ask sales to change the booth set on the job tracking page or the customer card." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="กดยืนยันจัดของไม่ได้?" titleEn="Cannot confirm packing?" descTh="เช็ก 3 อย่าง: หยิบครบหรือยัง มีรูปอย่างน้อย 1 รูป และเลือกจุดรับของแล้ว" descEn="Check: everything picked, at least 1 photo, and a pickup spot chosen." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="เปิดใบจัดของไม่ได้?" titleEn="Cannot open a packing list?" descTh="งานยังไม่มีแพ็กเกจ (ให้ทีมขายเลือกก่อน) หรือคุณไม่ได้อยู่ในทีมจัดของ" descEn="The job has no package yet (sales must pick one), or you are not in the packing team." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="รับของไปแล้ว อยากแก้ใบ?" titleEn="Want to change the list after pickup?" descTh="ทำไม่ได้ ต้องคืนของก่อน" descEn="Not possible. Return the items first." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="คืนของแล้ว ทำไมอีเวนต์ไม่ปิด?" titleEn="Returned, but the event did not close?" descTh={'คนคืนของไม่มีสิทธิ์ปิดงาน ให้ผู้ปิดงานกด "ปิดงาน" จากหน้าปิดงานของอีเวนต์'} descEn="The person returning is not an event closer. An event closer presses ปิดงาน on the close page." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="กระเป๋าใบเดียวถูกขายสองงานวันเดียวกัน?" titleEn="One kit bag sold to two jobs on the same day?" descTh="ระบบเตือน แต่ไม่ห้าม ของจริงจะกันกันเองตอนหยิบ (ชิ้นที่ออกงานอยู่หยิบซ้ำไม่ได้)" descEn="You get a warning, not a block. The real items sort it out at picking (an item that is out cannot be picked again)." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="ทำไมเห็นเฟรมถ้วยซ้ำกัน?" titleEn="Why do two trophies share a frame?" descTh="เฟรมของถ้วย 2 สายใหม่ยังใช้เฟรมเดิมชั่วคราว" descEn="The two new trophy tracks use an existing frame for now." isEn={isEn} />
+            <TipCard tone="sky" icon={<CircleHelp className="h-4 w-4" />} titleTh="งานเก่าที่จองกระเป๋าไว้แบบเดิม?" titleEn="Old jobs that booked kits the old way?" descTh={'ยังปิดงานได้ตามเดิม ดูความพร้อมที่ช่อง "จัดของ" ในหน้าติดตามงาน'} descEn={'They still close the old way. Check the "จัดของ" box on the job tracking page.'} isEn={isEn} />
+          </div>
+        </div>
+
+        {/* ── Menu shortcuts ───────────────────────────────────────── */}
+        <div id="equip-menu" className="scroll-mt-6">
+          <SectionHeader
+            icon={<ExternalLink className="h-4 w-4" />}
+            title={isEn ? 'Menu shortcuts' : 'เมนูทั้งหมด'}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <MenuLink href="/stock/settings"           labelEn="Stock settings"        labelTh="ตั้งค่าคลัง" />
+            <MenuLink href="/packages"                 labelEn="Packages"              labelTh="แพ็กเกจ" />
+            <MenuLink href="/packing"                  labelEn="Packing lists"         labelTh="ใบจัดของ" />
+            <MenuLink href="/stock/usage"              labelEn="Equipment usage"       labelTh="การใช้งาน" />
+            <MenuLink href="/jobs/tracking"            labelEn="Job tracking"          labelTh="ติดตามงาน" />
+            <MenuLink href="/crm"                      labelEn="CRM"                   labelTh="CRM" />
+            <MenuLink href="/reports"                  labelEn="Team stats"            labelTh="สถิติทีม" />
+            <MenuLink href="/jobs/settings"            labelEn="Job pool team"         labelTh="ทีมของพูลงาน" />
+            <MenuLink href="/settings?section=events"  labelEn="Event closers"         labelTh="ผู้ปิดงาน" />
+          </div>
+        </div>
+      </section>
+      )}
+
       {/* ── Footer note (landing only) ─────────────────────────────── */}
       {view === 'landing' && (
         <p className="text-xs text-zinc-400 text-center pt-4">
@@ -5535,7 +6233,7 @@ interface ModuleSubGroup {
 interface ModuleConfig {
   id: string                    // anchor id used inside a module page (e.g. "mod-overview")
   /** URL slug — module is reachable at /howto/{slug} */
-  slug: 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin' | 'salary'
+  slug: 'overview' | 'crm' | 'events' | 'jobs' | 'stock' | 'costs' | 'finance' | 'kpi' | 'security' | 'checkin' | 'salary' | 'equipment'
   accent: ModuleAccent
   Icon: typeof BookOpen
   titleTh: string
@@ -6073,6 +6771,78 @@ const MODULES: ModuleConfig[] = [
           { id: 'salary-admin-close',   titleTh: '7. ปิดงวด',                titleEn: '7. Close the period' },
           { id: 'salary-admin-pay',     titleTh: '8. สรุปยอดโอน และจ่ายเงิน', titleEn: '8. Transfer summary & pay' },
           { id: 'salary-admin-reopen',  titleTh: '9. เปิดแก้ไขหลังปิดงวด',    titleEn: '9. Reopen after closing' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'mod-equipment',
+    slug: 'equipment',
+    accent: 'violet',
+    Icon: Boxes,
+    titleTh: 'อุปกรณ์ — flow ใบจัดของทั้งเส้น',
+    titleEn: 'Equipment — the whole packing flow',
+    descTh: 'ตั้งค่า → ขาย → จัดของ → รับ/คืน → คืนชั้น → การใช้งาน สำหรับทุกฝ่าย',
+    descEn: 'Setup → sales → packing → pickup/return → restock → usage, for every team.',
+    badge: { th: 'ฟีเจอร์ใหม่', en: 'NEW', tone: 'new' },
+    groups: [
+      {
+        titleTh: 'เริ่มที่นี่',
+        titleEn: 'Start here',
+        items: [
+          { id: 'equip-start', titleTh: 'ภาพรวม flow', titleEn: 'The whole flow' },
+          { id: 'equip-roles', titleTh: 'ใครทำอะไร',   titleEn: 'Who does what' },
+          { id: 'equip-terms', titleTh: 'ศัพท์',        titleEn: 'Words' },
+        ],
+      },
+      {
+        titleTh: 'ตั้งค่าครั้งแรก (แอดมิน/ผู้ดูแลอุปกรณ์)',
+        titleEn: 'First-time setup (admin / equipment keeper)',
+        items: [
+          { id: 'equip-setup-team',       titleTh: '1–3. ทีมจัดของ + ผู้ปิดงาน', titleEn: '1–3. Packing team + closers' },
+          { id: 'equip-setup-categories', titleTh: '4–5. ประเภทอุปกรณ์',        titleEn: '4–5. Categories' },
+          { id: 'equip-setup-packages',   titleTh: '6. แพ็กเกจ',               titleEn: '6. Packages' },
+          { id: 'equip-setup-spots',      titleTh: '7. จุดรับของ + QR',         titleEn: '7. Pickup spots + QR' },
+        ],
+      },
+      {
+        titleTh: 'ทีมขาย',
+        titleEn: 'Sales',
+        items: [
+          { id: 'equip-sales-pick',    titleTh: 'เลือกแพ็กเกจ',            titleEn: 'Pick packages' },
+          { id: 'equip-sales-booth',   titleTh: 'ชุดตู้ + แบบประกอบ',       titleEn: 'Booth set + style' },
+          { id: 'equip-sales-warning', titleTh: 'คำเตือนอุปกรณ์อาจไม่พอ',   titleEn: 'Shortage warnings' },
+        ],
+      },
+      {
+        titleTh: 'ทีมจัดของ',
+        titleEn: 'Packing team',
+        items: [
+          { id: 'equip-pack-queue',   titleTh: 'คิวใบจัดของ',  titleEn: 'Packing queue' },
+          { id: 'equip-pack-select',  titleTh: 'เลือกของ',     titleEn: 'Select' },
+          { id: 'equip-pack-pick',    titleTh: 'กำลังหยิบ',    titleEn: 'Pick' },
+          { id: 'equip-pack-confirm', titleTh: 'ยืนยันจัดของ', titleEn: 'Confirm' },
+          { id: 'equip-pack-restock', titleTh: 'คืนชั้น',      titleEn: 'Restock' },
+        ],
+      },
+      {
+        titleTh: 'ทีมหน้างาน / ผู้ปิดงาน',
+        titleEn: 'On-site team / event closers',
+        items: [
+          { id: 'equip-site-handover', titleTh: 'รับของ',    titleEn: 'Pickup' },
+          { id: 'equip-site-return',   titleTh: 'คืนของ',    titleEn: 'Return' },
+          { id: 'equip-close',         titleTh: 'ปิดอีเวนต์', titleEn: 'Close the event' },
+        ],
+      },
+      {
+        titleTh: 'ติดตามผล',
+        titleEn: 'Follow-up',
+        items: [
+          { id: 'equip-readiness', titleTh: 'ข้อ "จัดของ" + แจ้งเตือน', titleEn: 'Packing item + notifications' },
+          { id: 'equip-usage',     titleTh: 'หน้าการใช้งาน',          titleEn: 'Usage page' },
+          { id: 'equip-trophies',  titleTh: 'ถ้วยรางวัล',             titleEn: 'Trophies' },
+          { id: 'equip-faq',       titleTh: 'คำถามที่พบบ่อย',          titleEn: 'FAQ' },
+          { id: 'equip-menu',      titleTh: 'เมนูทั้งหมด',             titleEn: 'Menu shortcuts' },
         ],
       },
     ],
