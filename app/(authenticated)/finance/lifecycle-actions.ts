@@ -18,6 +18,8 @@ import { createNotifications } from '@/lib/notifications'
 import { paymentLock, reasonRequiredForTransition, receiptRequiredForSubmit } from './claim-rules'
 import { BULK_TRANSITIONS, CLAIM_TRANSITIONS, findTransition, type TransitionKey } from './claim-transitions'
 import { getOutstandingClaims } from './outstanding-data'
+import { markClaimsFiled } from './actions'
+import { thaiTodayIso } from '@/lib/thai-date'
 import {
   CLAIM_ID_RE,
   CLAIM_SYNC_SELECT,
@@ -1205,4 +1207,195 @@ export async function bulkClaimAction(
   }
   const done = results.filter(r => r.ok).length
   return { results, done, failed: results.length - done }
+}
+
+// ============================================================================
+// ปิดใบ: เคลียร์กับสำนักงานบัญชีแล้ว (admin) — ใบที่จ่าย/เคลียร์นอกระบบไปแล้ว ปิดเป็น "ชำระเงินแล้ว" ทีละหลายใบ
+// วันที่จ่ายเลือกได้ (ลงเที่ยงวันเวลาไทย ให้จัดเดือนแบบไทยไม่คลาด) · ทดลองจ่าย: ใช้หมด = paid / มีเงินคืน = refund_confirmed
+// ทุกใบที่ปิดได้ → เข้าแฟ้ม (markClaimsFiled) + ประวัติ close_external + activity CLOSE_CLAIM_EXTERNAL + แจ้งผู้เบิก
+// ============================================================================
+
+export type CloseExternalAdvance = { mode: 'spent' | 'refund'; refund?: number }
+export type CloseExternalInput = {
+  ids: string[]
+  /** YYYY-MM-DD ตามเวลาไทย */
+  paidDate: string
+  reason: string
+  advances?: Record<string, CloseExternalAdvance>
+}
+
+/** สถานะที่ปิดทางนี้ไม่ได้ — แบบร่างยังไม่ได้ยื่น · ใบที่ปฏิเสธ/ยกเลิกต้องเปิดใบก่อน */
+const CLOSE_EXTERNAL_BLOCKED = ['draft', 'rejected', 'cancelled']
+
+export async function closeClaimsExternal(
+  input: CloseExternalInput,
+): Promise<{ error?: string; results?: BulkResult[]; done?: number; failed?: number; filedError?: string }> {
+  // ไฟล์ 'use server' — ตรวจอินพุตทั้งหมดก่อนแตะฐานข้อมูล
+  const { ids, paidDate, reason, advances = {} } = (input ?? {}) as CloseExternalInput
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > BULK_LIMIT) return { error: 'ทำได้ครั้งละ 1–50 ใบ' }
+  if (!ids.every(id => typeof id === 'string' && CLAIM_ID_RE.test(id))) return { error: 'รหัสใบเบิกไม่ถูกต้อง' }
+  const list = ids.map(id => id.toLowerCase())
+  if (new Set(list).size !== list.length) return { error: 'มีใบเบิกซ้ำกันในรายการ' }
+  // วันที่จริง (ไม่ใช่ 2026-02-30) และไม่เกินวันนี้ตามเวลาไทย
+  if (typeof paidDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)
+    || Number.isNaN(Date.parse(`${paidDate}T00:00:00Z`))
+    || new Date(`${paidDate}T00:00:00Z`).toISOString().slice(0, 10) !== paidDate) {
+    return { error: 'วันที่จ่ายไม่ถูกต้อง' }
+  }
+  if (paidDate > thaiTodayIso()) return { error: 'วันที่จ่ายต้องไม่เกินวันนี้' }
+  const reasonText = typeof reason === 'string' ? reason.trim() : ''
+  if (!reasonText) return { error: REASON_REQUIRED_ERROR }
+  if (reasonText.length > 500) return { error: 'เหตุผลยาวเกิน 500 ตัวอักษร' }
+  if (!advances || typeof advances !== 'object') return { error: 'ข้อมูลทดลองจ่ายไม่ถูกต้อง' }
+  const advanceOf = new Map<string, { mode: 'spent' | 'refund'; refund: number }>()
+  for (const [key, a] of Object.entries(advances)) {
+    if (!a || (a.mode !== 'spent' && a.mode !== 'refund')) return { error: 'ข้อมูลทดลองจ่ายไม่ถูกต้อง' }
+    const refund = a.mode === 'refund' ? Number(a.refund) : 0
+    if (a.mode === 'refund' && !(Number.isFinite(refund) && refund > 0)) return { error: 'ยอดเงินคืนต้องมากกว่า 0' }
+    advanceOf.set(key.toLowerCase(), { mode: a.mode, refund: Math.round(refund * 100) / 100 })
+  }
+
+  const { userId, role } = await getSession()
+  if (!userId || role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้น' }
+
+  const supabase = createServiceClient()
+  // ทดลองจ่ายทุกใบต้องมีตัวเลือก และเงินคืนไม่เกินยอดเบิก — ตรวจครบก่อนเขียนใบแรก
+  const { data: heads, error: headError } = await supabase
+    .from('expense_claims')
+    .select('id, claim_number, claim_type, amount')
+    .in('id', list)
+  if (headError) return { error: `เกิดข้อผิดพลาด: ${headError.message}` }
+  for (const h of (heads ?? []) as { id: string; claim_number: string; claim_type: string; amount: number | string }[]) {
+    if (h.claim_type !== 'advance') continue
+    const a = advanceOf.get(h.id)
+    if (!a) return { error: `ใบทดลองจ่าย ${h.claim_number}: เลือก "ใช้หมด" หรือ "มีเงินคืน" ก่อน` }
+    if (a.mode === 'refund' && a.refund > (Number(h.amount) || 0)) {
+      return { error: `ใบทดลองจ่าย ${h.claim_number}: เงินคืนเกินยอดเบิก` }
+    }
+  }
+
+  const ctx: Ctx = { supabase, userId, batch: { batchId: crypto.randomUUID(), batchSize: list.length } }
+  // เที่ยงวันเวลาไทย — เดือนไทยของ paid_at ตรงกับวันที่ที่เลือกเสมอ
+  const paidAt = new Date(`${paidDate}T12:00:00+07:00`).toISOString()
+  const results: BulkResult[] = []
+  for (const id of list) {
+    let outcome: Outcome
+    try {
+      outcome = await closeExternalCore(ctx, id, { paidAt, paidDate, reasonText, advance: advanceOf.get(id) })
+    } catch (e) {
+      console.error('closeClaimsExternal:', e)
+      outcome = fail('เกิดข้อผิดพลาด')
+    }
+    results.push('error' in outcome.res
+      ? { id, claimNumber: outcome.claimNumber, ok: false, error: outcome.res.error }
+      : { id, claimNumber: outcome.claimNumber, ok: true })
+  }
+
+  const closed = results.filter(r => r.ok).map(r => r.id)
+  // เข้าแฟ้มด้วยตัวเดียวกับปุ่ม "เข้าแฟ้ม" (ตรวจ admin + จำจำนวนไฟล์ + activity MARK_CLAIM_FILED เอง)
+  const filed: { error?: string } = closed.length > 0 ? await markClaimsFiled(closed) : {}
+  revalidatePath('/finance')
+  revalidatePath('/finance/payouts')
+  revalidatePath('/costs')
+  for (const id of closed) revalidatePath(`/finance/${id}`)
+  return { results, done: closed.length, failed: results.length - closed.length, ...(filed.error ? { filedError: filed.error } : {}) }
+}
+
+async function closeExternalCore(
+  ctx: Ctx,
+  id: string,
+  opts: { paidAt: string; paidDate: string; reasonText: string; advance?: { mode: 'spent' | 'refund'; refund: number } },
+): Promise<Outcome> {
+  const { supabase, userId } = ctx
+  const { data: claim } = await supabase.from('expense_claims').select('*').eq('id', id).single()
+  if (!claim) return fail('ไม่พบใบเบิก')
+  const claimNumber = claim.claim_number as string
+  if (claim.deleted_at) return fail('ใบเบิกนี้ถูกซ่อนอยู่ — กู้คืนก่อน', claimNumber)
+  if (CLOSE_EXTERNAL_BLOCKED.includes(claim.status)) return fail('ใบแบบร่าง/ถูกปฏิเสธ/ยกเลิก ปิดทางนี้ไม่ได้', claimNumber)
+  const isAdvance = claim.claim_type === 'advance'
+  if (isAdvance && !opts.advance) return fail('ใบทดลองจ่าย: เลือก "ใช้หมด" หรือ "มีเงินคืน" ก่อน', claimNumber)
+
+  // Petty-cash guardrail เดียวกับ adminOverrideStatus: รายการลูกของเดือนที่ปิดแล้วแก้ไม่ได้
+  // (กติกา "วงเงินที่มีรายการลูก" กันเฉพาะการถอยเป็น draft/pending/ยกเลิก/ปฏิเสธ — ปิดเป็นจ่ายแล้วไม่เข้าเงื่อนไข)
+  if (claim.pettycash_fund_id) {
+    const { data: parentFund } = await supabase
+      .from('expense_claims')
+      .select('pettycash_closed_at')
+      .eq('id', claim.pettycash_fund_id)
+      .single()
+    if (parentFund?.pettycash_closed_at) {
+      return fail('รอบเดือนของวงเงินปิดแล้ว — เปิดรอบอีกครั้งก่อนจึงจะแก้สถานะรายการลูกได้', claimNumber)
+    }
+  }
+
+  const fromStatus = claim.status as string
+  const refund = isAdvance && opts.advance?.mode === 'refund' ? opts.advance.refund : 0
+  // ใบที่จ่ายแล้ว (ไม่ใช่ทดลองจ่าย) หรือยืนยันเงินคืนแล้ว = ปิดอยู่แล้ว — ไม่เขียนสถานะ แค่ลงประวัติ + เข้าแฟ้ม
+  const alreadyClosed = fromStatus === 'refund_confirmed' || (fromStatus === 'paid' && !isAdvance)
+  const toStatus = alreadyClosed ? fromStatus : refund > 0 ? 'refund_confirmed' : 'paid'
+
+  let row = claim as CostSyncClaim
+  if (!alreadyClosed) {
+    const now = new Date().toISOString()
+    const payload: Record<string, unknown> = {
+      status: toStatus,
+      // ponytail: ทดลองจ่ายที่จ่ายไปแล้วในระบบคงวันที่จ่ายเดิม — ไม่ย้ายเดือนจ่ายย้อนหลังโดยไม่ตั้งใจ
+      paid_at: claim.paid_at ?? opts.paidAt,
+      paid_by: claim.paid_by ?? userId,
+      cancelled_at: null,
+      cancelled_by: null,
+      reject_reason: null,
+    }
+    if (!claim.approved_by) payload.approved_by = userId
+    if (!claim.approved_at) payload.approved_at = now
+    if (!claim.submitted_at) payload.submitted_at = now
+    if (isAdvance) {
+      const amount = Number(claim.amount) || 0
+      Object.assign(payload, {
+        actual_spent_amount: Math.round((amount - refund) * 100) / 100,
+        actual_spent_items: claim.actual_spent_items ?? [],
+        refund_amount: refund,
+        advance_settled_at: now,
+        advance_settled_by: userId,
+        ...(refund > 0 ? { refund_confirmed_at: now, refund_confirmed_by: userId } : {}),
+      })
+    }
+    const written = await updateClaimFromStatus(supabase, id, fromStatus, payload)
+    if (written.error) return fail('เกิดข้อผิดพลาดในการเปลี่ยนสถานะ', claimNumber)
+    if (!written.row) return fail(STALE_STATUS_ERROR, claimNumber)
+    row = written.row
+  }
+  const synced = await syncClaimCostItem(supabase, row, userId)
+
+  await Promise.all([
+    supabase.from('expense_claim_logs').insert({
+      claim_id: id,
+      action: 'close_external',
+      changed_by: userId,
+      changes: { status: { from: fromStatus, to: toStatus }, paid_at: claim.paid_at ?? opts.paidAt, refund_amount: refund },
+      note: `[ปิดกับสำนักงานบัญชี] ${opts.reasonText}`,
+    }),
+    logActivity('CLOSE_CLAIM_EXTERNAL', {
+      claimId: id,
+      claimNumber,
+      fromStatus,
+      toStatus,
+      paidDate: opts.paidDate,
+      reason: opts.reasonText,
+      refund,
+      ...batchOf(ctx),
+    }),
+    claim.submitted_by && claim.submitted_by !== userId
+      ? createNotifications({
+        userIds: [claim.submitted_by],
+        type: 'expense_approved',
+        title: `ใบเบิก ${claimNumber} ถูกปิดเป็น "เคลียร์กับสำนักงานบัญชีแล้ว"`,
+        body: opts.reasonText,
+        referenceType: 'expense_claim',
+        referenceId: id,
+        actorId: userId,
+      })
+      : null,
+  ])
+  return done(synced, claimNumber)
 }

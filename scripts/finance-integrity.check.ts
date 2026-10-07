@@ -1200,6 +1200,112 @@ async function main() {
   }
   pass('v1.25.0 ขั้น 1 createClaim intent=submit → รออนุมัติ + submitted_at + ประวัติ submit + activity สร้าง/ยื่น + แจ้งแอดมินทุกคน · ไม่แนบ (ค่าอื่นๆ/งาน) → error ไม่เขียน ไม่ขอเลข · ทดลองจ่ายไม่แนบยื่นได้ · ไม่ส่ง intent = แบบร่าง ไม่แจ้ง · submitClaim แจ้งแอดมิน · markAsPaid แจ้งผู้เบิก · reopenRejectedClaim เฉพาะเจ้าของ + ใบที่ถูกปฏิเสธ (ล้างช่องอนุมัติ, STALE ไม่มีผลข้างเคียง) · เหตุผลบังคับเฉพาะถอย/เปิดใบที่ปิด/ปิดใบที่จ่ายแล้ว/แก้ใบที่จ่ายแล้ว')
 
+  // ══ v1.46.0 ปิดใบ: เคลียร์กับสำนักงานบัญชีแล้ว (closeClaimsExternal) ═══════════════════
+  {
+    const { closeClaimsExternal } = lifecycle
+    const today = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
+    const tomorrow = new Date(Date.now() + 31 * 3_600_000).toISOString().slice(0, 10)
+    const REASON = 'เคลียร์กับสำนักงานบัญชีแล้ว'
+    const approvedEvent = seedClaim({ status: 'approved', submitted_by: STAFF, title: 'ปิดนอกระบบ งาน' })
+    const advSpent = seedClaim({ claim_type: 'advance', job_event_id: null, status: 'paid', amount: 1000, paid_at: '2026-09-05T03:00:00.000Z', paid_by: ADMIN, approved_by: ADMIN, approved_at: '2026-09-04T03:00:00.000Z', submitted_at: '2026-09-04T02:00:00.000Z' })
+    const advRefund = seedClaim({ claim_type: 'advance', job_event_id: null, status: 'approved', amount: 1000 })
+    const rejected = seedClaim({ status: 'rejected', reject_reason: 'ผิด' })
+    const all = [approvedEvent, advSpent, advRefund, rejected]
+    const advances = { [advSpent]: { mode: 'spent' as const }, [advRefund]: { mode: 'refund' as const, refund: 300 } }
+    const snapshot = () => JSON.stringify(db.expense_claims)
+
+    // (a) ไม่ใช่แอดมิน → error ไม่เขียนอะไร
+    loginAs(STAFF)
+    let before = snapshot()
+    let mark = ops.length
+    let res = await closeClaimsExternal({ ids: all, paidDate: today, reason: REASON, advances })
+    assert.match(String(res.error), /Admin/)
+    assert.equal(writesSince(mark).length, 0)
+    assert.equal(snapshot(), before)
+
+    // (b) เหตุผลว่าง / วันที่ผิด / วันที่อนาคต → error ก่อนอ่านอะไรเลย
+    loginAs(ADMIN)
+    for (const [paidDate, reason] of [[today, '   '], ['2026-02-30', REASON], ['7/10/2026', REASON], [tomorrow, REASON]]) {
+      mark = ops.length
+      res = await closeClaimsExternal({ ids: all, paidDate, reason, advances })
+      assert.ok(res.error, `${paidDate} / "${reason}": ต้องได้ error`)
+      assert.equal(ops.length, mark, `${paidDate} / "${reason}": ต้องไม่อ่านฐานข้อมูล`)
+    }
+    // เงินคืน 0 หรือเกินยอดเบิก → error ไม่เขียน
+    for (const refund of [0, 1001]) {
+      mark = ops.length
+      res = await closeClaimsExternal({ ids: [advRefund], paidDate: today, reason: REASON, advances: { [advRefund]: { mode: 'refund', refund } } })
+      assert.ok(res.error, `refund ${refund}: ต้องได้ error`)
+      assert.equal(writesSince(mark).length, 0)
+    }
+
+    // (g) ทดลองจ่ายที่ไม่มีตัวเลือก → ปฏิเสธทั้งชุดก่อนเขียน
+    before = snapshot()
+    mark = ops.length
+    res = await closeClaimsExternal({ ids: all, paidDate: today, reason: REASON, advances: { [advSpent]: { mode: 'spent' } } })
+    assert.match(String(res.error), /ใช้หมด/)
+    assert.equal(writesSince(mark).length, 0)
+    assert.equal(snapshot(), before)
+
+    // (c)(d)(e)(f) ชุดจริง — ใบที่ถูกปฏิเสธล้มใบเดียว ที่เหลือปิดได้
+    const paidDate = '2026-09-30'
+    const activityMark = activity.length
+    const notesMark = notifications.length
+    res = await closeClaimsExternal({ ids: all, paidDate, reason: `  ${REASON} #AC-77  `, advances })
+    assert.equal(res.error, undefined, JSON.stringify(res))
+    assert.equal(res.done, 3)
+    assert.equal(res.failed, 1)
+    assert.deepEqual(res.results?.filter(r => !r.ok).map(r => r.id), [rejected])
+    assert.equal(claimRow(rejected).status, 'rejected')
+    assert.equal(claimRow(rejected).filed_at, null)
+
+    // (c) ใบงานที่อนุมัติแล้ว → จ่ายแล้ว ณ เที่ยงวันไทยของวันที่เลือก + ต้นทุน + ประวัติ + activity + เข้าแฟ้ม
+    const ev = claimRow(approvedEvent)
+    assert.equal(ev.status, 'paid')
+    assert.equal(ev.paid_at, new Date('2026-09-30T12:00:00+07:00').toISOString())
+    assert.equal(ev.paid_by, ADMIN)
+    assert.ok(ev.approved_by && ev.approved_at, 'approved_by/at ต้องมี')
+    assert.equal(costItemsOf(approvedEvent).length, 1, 'ต้องมีรายการต้นทุน 1 รายการ')
+    const evLog = logsOf(approvedEvent).filter(l => l.action === 'close_external')
+    assert.equal(evLog.length, 1)
+    assert.equal(evLog[0].note, `[ปิดกับสำนักงานบัญชี] ${REASON} #AC-77`)
+    assert.deepEqual((evLog[0].changes as Row).status, { from: 'approved', to: 'paid' })
+    assert.ok(ev.filed_at, 'ต้องเข้าแฟ้ม')
+    assert.equal(outstandingKind(ev as never), null)
+    const closeActs = activity.slice(activityMark).filter(a => a.action === 'CLOSE_CLAIM_EXTERNAL')
+    assert.equal(closeActs.length, 3)
+    assert.ok(activity.slice(activityMark).some(a => a.action === 'MARK_CLAIM_FILED'))
+    assert.equal((closeActs[0].details as Row).paidDate, paidDate)
+    const closeNotes = notifications.slice(notesMark)
+    assert.equal(closeNotes.length, 3, 'แจ้งผู้เบิกใบละครั้ง')
+    assert.match(String(closeNotes[0].title), /เคลียร์กับสำนักงานบัญชีแล้ว/)
+
+    // (d) ทดลองจ่าย ใช้หมด → เคลียร์แล้ว เงินคืน 0 ยังจ่ายแล้ว (วันที่จ่ายเดิมคงไว้)
+    const sp = claimRow(advSpent)
+    assert.deepEqual(
+      { status: sp.status, actual: sp.actual_spent_amount, refund: sp.refund_amount, settled: !!sp.advance_settled_at, paid_at: sp.paid_at, filed: !!sp.filed_at },
+      { status: 'paid', actual: 1000, refund: 0, settled: true, paid_at: '2026-09-05T03:00:00.000Z', filed: true },
+    )
+    assert.equal(outstandingKind(sp as never), null)
+
+    // (e) ทดลองจ่าย มีเงินคืน 300 → ยืนยันเงินคืนแล้ว
+    const rf = claimRow(advRefund)
+    assert.deepEqual(
+      { status: rf.status, actual: rf.actual_spent_amount, refund: rf.refund_amount, settled: !!rf.advance_settled_at, confirmedBy: rf.refund_confirmed_by, confirmed: !!rf.refund_confirmed_at, paid_at: rf.paid_at },
+      { status: 'refund_confirmed', actual: 700, refund: 300, settled: true, confirmedBy: ADMIN, confirmed: true, paid_at: new Date('2026-09-30T12:00:00+07:00').toISOString() },
+    )
+    assert.equal(outstandingKind(rf as never), null)
+
+    // ใบที่จ่ายแล้วอยู่แล้ว (ไม่ใช่ทดลองจ่าย) → สำเร็จ ไม่เปลี่ยนสถานะ แค่ลงประวัติ + เข้าแฟ้ม
+    const alreadyPaid = seedClaim({ status: 'paid', paid_at: '2026-08-01T05:00:00.000Z', paid_by: ADMIN, approved_by: ADMIN, approved_at: '2026-08-01T04:00:00.000Z' })
+    res = await closeClaimsExternal({ ids: [alreadyPaid], paidDate, reason: REASON })
+    assert.equal(res.done, 1)
+    assert.equal(claimRow(alreadyPaid).paid_at, '2026-08-01T05:00:00.000Z')
+    assert.ok(claimRow(alreadyPaid).filed_at)
+    assert.equal(logsOf(alreadyPaid).filter(l => l.action === 'close_external').length, 1)
+  }
+  pass('v1.46.0 closeClaimsExternal: ไม่ใช่แอดมิน/เหตุผลว่าง/วันที่ผิดหรืออนาคต/ทดลองจ่ายไม่มีตัวเลือก/เงินคืนนอกช่วง → error ไม่เขียน · ใบงาน → จ่ายแล้ว ณ เที่ยงวันไทย + ต้นทุน + close_external + CLOSE_CLAIM_EXTERNAL + แจ้งผู้เบิก + เข้าแฟ้ม · ทดลองจ่าย ใช้หมด/มีเงินคืน → ไม่ค้างเคลียร์ · ใบที่ถูกปฏิเสธล้มใบเดียว')
+
   console.log('\nfinance-integrity: ผ่านทั้งหมด')
 }
 

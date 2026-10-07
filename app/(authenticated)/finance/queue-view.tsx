@@ -18,6 +18,7 @@ import { calcTax } from '@/lib/finance/money'
 import { cn } from '@/lib/utils'
 import { confirmRefundReceived } from './actions'
 import BundleDialog, { type BundleClaimRef } from './bundle-dialog'
+import CloseExternalDialog from './close-external-dialog'
 import { paymentLock } from './claim-rules'
 import { CLAIM_TRANSITIONS, type TransitionKey } from './claim-transitions'
 import {
@@ -28,7 +29,7 @@ import {
 import { MAX_BUNDLE_SELECTION, claimFileCount, rememberListQuery, selectableIds } from './claims-filter'
 import {
   approveAsPendingMonthEnd, approveClaim, bulkClaimAction, hideClaim, listHiddenClaims, markAsPaid, markAsPendingMonthEnd,
-  markAsWaitingTaxInvoice, rejectClaim, restoreClaim, sendBackClaim, type BulkAction,
+  markAsWaitingTaxInvoice, rejectClaim, restoreClaim, sendBackClaim, type BulkAction, type BulkResult,
 } from './lifecycle-actions'
 import type { QueueClaim } from './queue-data'
 import { QueueGroups, QueueHeadline, QueueTools } from './queue-groups'
@@ -128,6 +129,7 @@ export default function QueueView({
   const [rowErrors, setRowErrors] = useState<ReadonlyMap<string, string>>(() => new Map())
   const [sendBackFor, setSendBackFor] = useState<{ claim: QueueClaim; fromPanel: boolean } | null>(null)
   const [bundleFor, setBundleFor] = useState<BundleClaimRef[] | null>(null)
+  const [closeFor, setCloseFor] = useState<QueueClaim[] | null>(null)
   const [hidden, setHidden] = useState<{ open: boolean; loading: boolean; rows: QueueClaim[]; error: string | null }>(
     { open: false, loading: false, rows: [], error: null })
 
@@ -351,6 +353,19 @@ export default function QueueView({
     if (done > 0) refresh()
   }
 
+  /** ปิดกับสำนักงานบัญชี: ใบที่สำเร็จออกจากที่เลือก ใบที่ไม่สำเร็จค้างไว้พร้อมข้อความ (แบบเดียวกับ runBulk) */
+  const onClosedExternal = (results: BulkResult[]) => {
+    const applied = applyBulkResults(selected, results)
+    setSelected(applied.selected)
+    setRowErrors(prev => {
+      const next = new Map(prev)
+      applied.succeeded.forEach(id => next.delete(id))
+      applied.errors.forEach((message, id) => next.set(id, message))
+      return next
+    })
+    if (applied.succeeded.size > 0) refresh()
+  }
+
   const toggleHidden = async () => {
     if (hidden.open) {
       setHidden(h => ({ ...h, open: false }))
@@ -379,6 +394,9 @@ export default function QueueView({
       {confirmDialog}
       {bundleFor && (
         <BundleDialog claims={bundleFor} isAdmin isEn={isEn} onClose={() => setBundleFor(null)} onFiled={refresh} />
+      )}
+      {closeFor && (
+        <CloseExternalDialog claims={closeFor} isEn={isEn} onClose={() => setCloseFor(null)} onDone={onClosedExternal} />
       )}
       <SendBackDialog
         open={!!sendBackFor}
@@ -546,6 +564,7 @@ export default function QueueView({
           onExit={exitSelecting}
           onBulk={action => { void runBulk(action) }}
           onBundle={() => setBundleFor(selectedClaims.map(toBundleRef))}
+          onCloseExternal={() => setCloseFor(selectedClaims)}
         />
       )}
     </div>

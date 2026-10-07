@@ -3,7 +3,7 @@
 // แสดงผลล้วน ไม่มี hook · ผู้เรียกคำนวณว่าปุ่มไหนกดได้ (bulkEligible) และเรียก server action เอง
 // ============================================================================
 
-import { FileStack, Loader2, X } from 'lucide-react'
+import { FileStack, Landmark, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { BulkAction } from './lifecycle-actions'
@@ -35,11 +35,13 @@ export interface QueueSelectionBarProps {
   onExit: () => void
   onBulk: (action: BulkAction) => void
   onBundle: () => void
+  /** ปิดใบ: เคลียร์กับสำนักงานบัญชีแล้ว (admin) */
+  onCloseExternal?: () => void
 }
 
 export function QueueSelectionBar({
   count, selectAllLabel, selectAllDisabled, bulk, busy, overBulkMax, atSelectLimit, selectLimit, isEn,
-  onSelectAll, onClear, onExit, onBulk, onBundle,
+  onSelectAll, onClear, onExit, onBulk, onBundle, onCloseExternal,
 }: QueueSelectionBarProps) {
   return (
     <div
@@ -78,6 +80,12 @@ export function QueueSelectionBar({
             <FileStack aria-hidden="true" />
             {isEn ? 'Bundle documents' : 'จับชุดเอกสาร'}
           </Button>
+          {onCloseExternal && (
+            <Button size="lg" type="button" variant="outline" className="shrink-0 px-4" onClick={onCloseExternal} disabled={count === 0 || overBulkMax || !!busy}>
+              <Landmark aria-hidden="true" />
+              {isEn ? 'Close with accountant' : 'ปิดกับสำนักงานบัญชี'}
+            </Button>
+          )}
         </div>
         {(overBulkMax || atSelectLimit) && (
           <p className="text-xs font-medium text-amber-800 dark:text-amber-200" role="status">

@@ -31,6 +31,7 @@ import assert from 'node:assert/strict'
 import Module from 'node:module'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { outstandingKind } from '../app/(authenticated)/finance/claim-rules'
 import { dirname, join } from 'node:path'
 import { isValidElement, type ReactElement } from 'react'
 
@@ -160,7 +161,7 @@ const COLUMNS: Record<string, string[]> = {
     'vat_mode', 'withholding_tax_rate', 'cost_date', 'recorded_by', 'notes', 'created_at',
   ],
   event_closures: ['id', 'event_name', 'event_date', 'event_location', 'created_at'],
-  events: ['id', 'name', 'event_date', 'location', 'status', 'created_at'],
+  events: ['id', 'name', 'event_date', 'event_time', 'event_end_time', 'location', 'status', 'created_at'],
   purchase_items: ['id', 'list_id', 'title', 'quantity', 'status', 'actual_price', 'sort_order', 'created_at', 'expense_claim_id'],
   purchase_lists: ['id', 'title', 'crm_lead_id', 'created_at'],
   crm_leads: ['id', 'customer_name', 'event_location', 'event_date', 'event_end_date', 'status', 'created_at'],
@@ -1823,6 +1824,8 @@ async function main() {
 
   // ── action: การเขียนพร้อมกัน / อัปโหลด ─────────────────────────────────────────────
   resetDb()
+  // v1.43.0: ยื่น/สร้างใบใหม่ถูกกันเมื่อผู้เบิกมีใบค้างเคลียร์ — ชุดนี้วัดการยื่น/สร้างตามปกติ จึงซ่อนใบค้างของ STAFF_TOP ตลอดส่วน action
+  const hideOwedTop = () => { for (const r of db.expense_claims.filter(r => r.submitted_by === STAFF_TOP && !r.deleted_at && outstandingKind(r as unknown as Parameters<typeof outstandingKind>[0]))) r.deleted_at = pgTs(FIXED_NOW - DAY) }
   const act = async (name: string, viewer: string, call: () => Promise<Record<string, unknown>>, extra?: (r: ActionRun) => Partial<ActionGolden>) => {
     const r = await runAction(viewer, call)
     const rest: Partial<ActionRun> = { ...r }
@@ -1837,7 +1840,9 @@ async function main() {
   const approved = seedClaim({ status: 'approved', approved_by: ADMIN, approved_at: pgTs(FIXED_NOW - DAY) })
   await act('markAsPaid', ADMIN, () => actions.markAsPaid(approved))
   const draft = seedClaim({ status: 'draft', submitted_at: null })
+  hideOwedTop()
   await act('submitClaim', STAFF_TOP, () => actions.submitClaim(draft))
+  hideOwedTop()
   await act('createClaim(intent=submit)', STAFF_TOP, () => actions.createClaim(claimForm([imageFile('ใบเสร็จ.jpg')], 'submit')))
   const advance = seedClaim({
     claim_type: 'advance', job_event_id: null, status: 'paid', amount: 5000, unit_price: 5000, total_amount: 5000, withholding_tax_rate: 0,
@@ -1853,11 +1858,13 @@ async function main() {
   taxForm.append('tax_invoice_numbers', 'IV2569/00001')
   await act('uploadTaxInvoice', STAFF_TOP, () => actions.uploadTaxInvoice(waitingTax, taxForm))
   const five = () => [1, 2, 3, 4, 5].map(i => imageFile(`ใบเสร็จ-${i}.jpg`))
+  hideOwedTop()
   await act('createClaim(5 images)', STAFF_TOP, () => actions.createClaim(claimForm(five(), 'draft')), r => ({
     uploadOptions: meter.uploads.map(u => u.options),
     result: r.raw.error ? `error: ${String(r.raw.error)}` : 'success',
   }))
   failUpload = path => /_1\.jpg$/.test(path)
+  hideOwedTop()
   await act('createClaim(5 images, 2nd fails)', STAFF_TOP, () => actions.createClaim(claimForm(five(), 'draft')), () => ({ removed: meter.removes.flat().length }))
   failUpload = null
   // AC16 (ขั้น 3): 5 รูป + รูปย่อที่ส่งคู่มา (receipt_thumbs) — ไม่ใช่ action ของ golden (golden ไม่มีรูปย่อ)

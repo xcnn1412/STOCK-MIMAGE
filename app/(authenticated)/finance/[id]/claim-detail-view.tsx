@@ -7,10 +7,11 @@ import { toast } from 'sonner'
 import { useConfirm } from '../use-confirm'
 import { claimFileCount, filedState, financeListHref } from '../claims-filter'
 import BundleDialog from '../bundle-dialog'
+import CloseExternalDialog from '../close-external-dialog'
 import {
   ArrowLeft, CheckCircle2, XCircle, Clock, Trash2, FileText,
   Banknote, User, Calendar, Tag, MessageSquare, Edit3, Save, X,
-  Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert,
+  Receipt, Percent, Upload, History, FileDown, Send, Ban, ShieldAlert, Landmark,
   Wallet, RefreshCw, Plus, Building2, ListChecks, Hash, AlertCircle,
   ChevronDown, ChevronRight, Coins, Lock, FileStack, FolderCheck,
   Undo2, EyeOff, ArchiveRestore,
@@ -30,7 +31,7 @@ import { calcTax } from '@/lib/finance/money'
 import { THUMB_MAX_DIMENSION, THUMB_MAX_MB } from '@/lib/finance/receipt-thumbs'
 import { thaiTodayIso } from '@/lib/thai-date'
 import EventSelectCombobox from '../new/event-select-combobox'
-import { canSeeWorkPanel, receiptRequiredForSubmit, reasonRequiredForTransition, reasonRequiredForEdit, paymentLock } from '../claim-rules'
+import { canSeeWorkPanel, receiptRequiredForSubmit, reasonRequiredForTransition, reasonRequiredForEdit, paymentLock, outstandingKind } from '../claim-rules'
 import { ReceiptThumb, appendFilePairs, settleThumb, type FilePair } from './receipt-thumb'
 import { OutstandingAlert } from '../outstanding-alert'
 import type { OutstandingClaim } from '../outstanding-data'
@@ -177,6 +178,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const [sendBackOpen, setSendBackOpen] = useState(false)
   const [actionError, setActionError] = useState<ActionErrorState>(null)
   const [bundleOpen, setBundleOpen] = useState(false)
+  const [closeExternalOpen, setCloseExternalOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   // รายชื่องานของกล่องเลือกงาน — โหลดครั้งแรกที่กด "แก้ไข" (หน้าเปิดเร็วขึ้น ไม่ต้องอ่านตารางงานทุกครั้ง) แล้วเก็บไว้
   const [jobEvents, setJobEvents] = useState<JobEventOption[] | null>(null)
@@ -329,6 +331,9 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
   const isHidden = !!claim.deleted_at
   // รายการเงินสดย่อย (วงเงิน / เติมเงิน / รายการในกล่อง) ซ่อนไม่ได้ — ยอดของกล่องจะเพี้ยน ให้ยกเลิกรายการแทน
   const canHide = isAdmin && !isHidden && !isPettyCash && !claim.pettycash_fund_id
+  // ปิดกับสำนักงานบัญชี: ใบที่ยังเปิดอยู่ หรือจ่ายแล้วแต่ยังค้างเคลียร์ (ทดลองจ่าย/ใบกำกับ)
+  const canCloseExternal = isAdmin && !isHidden
+    && (!['paid', 'refund_confirmed', 'rejected', 'cancelled', 'draft'].includes(claim.status) || outstandingKind(claim) !== null)
   // ส่งกลับให้แก้แล้ว: ใบกลับเป็นแบบร่างพร้อมสิ่งที่ต้องแก้ (เจ้าของใบและแอดมินเห็น)
   const sentBackReason = isDraft && (isOwner || isAdmin) ? (claim.reject_reason || '').trim() : ''
   // แอดมินบังคับเปลี่ยนสถานะ: ต้องมีเหตุผลเฉพาะตอนถอยสถานะ / ปิดใบที่จ่ายแล้ว / จ่ายทั้งที่เอกสารไม่ครบ — เดินหน้าตามขั้นตอนไม่ต้อง
@@ -873,6 +878,14 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
           isEn={isEn}
           onClose={() => setBundleOpen(false)}
           onFiled={() => router.refresh()}
+        />
+      )}
+      {closeExternalOpen && (
+        <CloseExternalDialog
+          claims={[claim]}
+          isEn={isEn}
+          onClose={() => setCloseExternalOpen(false)}
+          onDone={results => { if (results.some(r => r.ok)) router.refresh() }}
         />
       )}
       {canSendBack && (
@@ -3345,6 +3358,19 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* ── ปิดกับสำนักงานบัญชี — ใบที่เคลียร์นอกระบบไปแล้ว ── */}
+            {canCloseExternal && (
+              <div className="border-t border-zinc-200 dark:border-zinc-700 pt-3 flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" onClick={() => setCloseExternalOpen(true)} disabled={busy !== null}>
+                  <Landmark className="h-4 w-4" aria-hidden="true" />
+                  {isEn ? 'Close with accountant' : 'ปิดกับสำนักงานบัญชี'}
+                </Button>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                  {isEn ? 'Already settled with the accounting office outside the system' : 'ใบที่เคลียร์กับสำนักงานบัญชีไปแล้ว — ปิดเป็นชำระเงินแล้ว + เข้าแฟ้ม'}
+                </span>
               </div>
             )}
 
