@@ -153,6 +153,17 @@ export default function CrmSettingsView({ settings }: { settings: CrmSetting[] }
         </div>
       )}
 
+      {/* แพ็กเกจย้ายไปตาราง packages แล้ว — รายการในแท็บนี้เหลือไว้แปลงชื่อของงานเก่า (package_name เป็นคีย์) */}
+      {activeTab === 'package' && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+          แพ็กเกจใหม่ตั้งที่{' '}
+          <Link href="/packages" className="font-semibold underline">
+            คลังอุปกรณ์ → แพ็กเกจ
+          </Link>{' '}
+          รายการนี้ใช้แสดงชื่อของงานเก่าเท่านั้น
+        </div>
+      )}
+
       {/* Content */}
       <Card>
         <CardHeader className="pb-3 flex flex-row items-center justify-between">

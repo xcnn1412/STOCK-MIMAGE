@@ -34,6 +34,12 @@ export default async function TrackingPage({
         canManageKits,
         myDepartment,
         poolDepartments,
+        leadPackages,
+        packagesForPicker,
+        salesPickUnits,
+        unitBookings,
+        capacityWarnings,
+        canEditPackages,
     } = snapshot
 
     // TrackingView อ่าน ?tab/?view/?date/?mode ด้วย useSearchParams — ต้องอยู่ใต้ Suspense
@@ -60,6 +66,12 @@ export default async function TrackingPage({
                 canManageKits={canManageKits}
                 myDepartment={myDepartment}
                 poolDepartments={poolDepartments}
+                leadPackages={leadPackages}
+                packagesForPicker={packagesForPicker}
+                salesPickUnits={salesPickUnits}
+                unitBookings={unitBookings}
+                capacityWarnings={capacityWarnings}
+                canEditPackages={canEditPackages}
             />
         </Suspense>
     )

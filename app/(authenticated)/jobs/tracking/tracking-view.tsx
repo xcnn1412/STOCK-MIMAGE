@@ -77,6 +77,8 @@ import PoolTabs, { ClaimButton, ClaimChip, DutyGate, KitSummary, ReleaseChip, na
 import { StaffEditor, VehicleCell, defaultEventId, type Person, type SaveFn, type StaffRole, type VehicleSyncFn } from './editors'
 import DutyTab, { claimedDutyCount, dutyKey, dutySummary, unclaimedDutyCount } from './duty-tabs'
 import { DESIGN_OPTIONS } from './design-options'
+import PackagePicker from '../../packages/package-picker'
+import type { CapacityWarning, CategoryUnits, LeadPackageRow, PickerPackage, UnitBooking } from '../../packages/types'
 
 export type { TrackingLead, Person, StaffRole }
 
@@ -663,6 +665,12 @@ export default function TrackingView({
     isAdmin = false,
     myDepartment = null,
     poolDepartments,
+    leadPackages = {},
+    packagesForPicker = [],
+    salesPickUnits = {},
+    unitBookings = [],
+    capacityWarnings = {},
+    canEditPackages = {},
 }: {
     leads: TrackingLead[]
     roleLabels: Record<string, string>
@@ -691,6 +699,18 @@ export default function TrackingView({
     myDepartment?: string | null
     /** แผนกที่รับได้ของแต่ละจุด (job_settings) — ไม่ส่ง = ทุกปุ่มกดได้ (สิทธิ์จริงบังคับฝั่ง server) */
     poolDepartments?: PoolDepartments
+    /** แพ็กเกจของงาน (leadId → รายการ) — ช่อง "แพ็กเกจ" ในตารางภาพรวม/การ์ดมือถือ */
+    leadPackages?: Record<string, LeadPackageRow[]>
+    /** แพ็กเกจที่เลือกได้ (เปิดใช้ + ที่งานเลือกไว้แม้ปิดใช้) */
+    packagesForPicker?: PickerPackage[]
+    /** หน่วยของประเภทที่ทีมขายเลือกชิ้นเอง (ตู้) */
+    salesPickUnits?: CategoryUnits
+    /** ชิ้นที่งานอื่นเลือกไว้แล้ว — ป้ายความว่าง */
+    unitBookings?: UnitBooking[]
+    /** คำเตือนอุปกรณ์อาจไม่พอต่องาน */
+    capacityWarnings?: Record<string, CapacityWarning[]>
+    /** งานที่ผู้ใช้คนนี้เลือก/แก้แพ็กเกจได้ */
+    canEditPackages?: Record<string, boolean>
 }) {
     const [rows, setRows] = useState(leads)
     /**
@@ -1142,6 +1162,20 @@ export default function TrackingView({
     /** เพิ่งกดรับหน้าที่นี้ (draft ยังรอ server ตามมา) — เปิดเครื่องมือให้เองตอนช่องสลับเป็นตัวแก้ไข */
     const justClaimedDuty = (leadId: string, duty: PrepDuty) => !!dutyDraft[dutyKey(leadId, duty)]
 
+    /** ช่อง "แพ็กเกจ" ระดับงาน (ตารางภาพรวม + การ์ดมือถือ) — ชิป + ป้ายอุปกรณ์อาจไม่พอ · แก้ได้เฉพาะแอดมิน/ฝ่ายประสานงาน/ผู้สร้างการ์ด */
+    const packageCell = (lead: TrackingLead) => (
+        <PackagePicker
+            leadId={lead.id}
+            event={{ date: lead.event_date, time: lead.event_time, endTime: lead.event_end_time }}
+            value={leadPackages[lead.id] ?? []}
+            packages={packagesForPicker}
+            categoryUnits={salesPickUnits}
+            unitBookings={unitBookings}
+            warnings={capacityWarnings[lead.id]}
+            canEdit={!!canEditPackages[lead.id]}
+        />
+    )
+
     /**
      * การ์ดมือถือ: หน้าที่ที่ฉันแก้ได้ (ผู้รับ/manager) หรือยังรับได้ = แสดงเต็มเหมือนเดิม
      * ที่เหลือ (คนอื่นรับไปแล้ว / แผนกฉันรับไม่ได้) ยุบเป็นบรรทัดเดียว แตะเพื่อขยาย (เนื้อในอ่านอย่างเดียวตาม D3)
@@ -1504,11 +1538,12 @@ export default function TrackingView({
 
             {/* ตารางกว้างกว่าจอได้ — เลื่อนซ้ายขวาในกรอบ (Table ห่อด้วย overflow-x-auto อยู่แล้ว) ข้อความในช่องขึ้นบรรทัดใหม่แทนการถูกตัด */}
             <div className="hidden md:block rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden shadow-sm">
-                <Table className="min-w-[1500px] table-fixed [&_td]:whitespace-normal [&_td]:break-words">
+                <Table className="min-w-[1700px] table-fixed [&_td]:whitespace-normal [&_td]:break-words">
                     <TableHeader>
                         <TableRow className="bg-zinc-50/80 dark:bg-zinc-900/50 hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 [&_th]:h-10 [&_th]:text-[11px] [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-zinc-500 dark:[&_th]:text-zinc-400">
                             <TableHead className="w-11">ลำดับ</TableHead>
                             <TableHead className="w-68">งาน</TableHead>
+                            <TableHead className="w-52">แพ็กเกจ</TableHead>
                             <TableHead className="w-42">ออกแบบ</TableHead>
                             <TableHead className="w-44">สีฉาก</TableHead>
                             <TableHead className="w-44">ซัพพลายเออร์</TableHead>
@@ -1521,14 +1556,14 @@ export default function TrackingView({
                     <TableBody>
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={9} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={10} className="text-center text-sm text-zinc-500 py-10">
                                     ยังไม่มีงานที่ตอบรับ
                                 </TableCell>
                             </TableRow>
                         )}
                         {rows.length > 0 && visible.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={9} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={10} className="text-center text-sm text-zinc-500 py-10">
                                     ไม่มีงานในช่วงนี้
                                 </TableCell>
                             </TableRow>
@@ -1536,7 +1571,7 @@ export default function TrackingView({
                         {sections.map(section => (
                             <Fragment key={section.key}>
                                 <TableRow className="hover:bg-transparent">
-                                    <TableCell colSpan={9} className="bg-zinc-100/70 dark:bg-zinc-900/80 border-y border-zinc-200/70 dark:border-zinc-800 py-1.5">
+                                    <TableCell colSpan={10} className="bg-zinc-100/70 dark:bg-zinc-900/80 border-y border-zinc-200/70 dark:border-zinc-800 py-1.5">
                                         <span className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
                                             <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500" aria-hidden />
                                             {section.label}
@@ -1582,6 +1617,7 @@ export default function TrackingView({
                                             >
                                                 <TableCell className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
                                                 <TableCell><JobCell lead={lead} today={today} /></TableCell>
+                                                <TableCell>{packageCell(lead)}</TableCell>
                                                 <TableCell>{designGate(lead)}</TableCell>
                                                 <TableCell><BackdropCell lead={lead} save={save} /></TableCell>
                                                 <TableCell><SupplierCell lead={lead} save={save} /></TableCell>
@@ -1606,6 +1642,7 @@ export default function TrackingView({
                                             >
                                                 <TableCell rowSpan={span} className="text-xs text-zinc-400 tabular-nums pt-3.5">{seq}</TableCell>
                                                 <TableCell><JobCell lead={lead} today={today} showEvents={false} /></TableCell>
+                                                <TableCell rowSpan={span}>{packageCell(lead)}</TableCell>
                                                 <TableCell rowSpan={span}>{designGate(lead)}</TableCell>
                                                 <TableCell rowSpan={span}><BackdropCell lead={lead} save={save} /></TableCell>
                                                 <TableCell rowSpan={span}><SupplierCell lead={lead} save={save} /></TableCell>
@@ -1679,6 +1716,11 @@ export default function TrackingView({
                                     <JobCell lead={lead} today={today} showEvents={lead.events.length <= 1} />
                                     {/* ป้ายยาวได้ (ขาด: ...) — อยู่บรรทัดของตัวเอง ไม่เบียดชื่องานจนล้นจอ */}
                                     <div><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></div>
+                                </div>
+
+                                <div>
+                                    <div className="text-[11px] text-zinc-500">แพ็กเกจ</div>
+                                    {packageCell(lead)}
                                 </div>
 
                                 {lead.events.length >= 2 ? (

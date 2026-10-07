@@ -337,6 +337,20 @@ branch `feature/equipment-p1` · baseline: `tsc --incremental false` = 1 error �
 }
 ```
 
+**ผลรอบ A (e2c71ae):** WP1 + WP2 (P2-1…P2-8) commit แล้ว
+
+**ผล Critic เฟส 2 (2026-10-07): ผ่านทั้งสองรอบ รอบละครั้ง** `{"pass": true, "score": 0.97, "passed_ids": ["P2-1"…"P2-16"], "failures": []}` — tsc 1 error เดิม · ชุดตรวจ 14 ตัวผ่าน (รวม `scripts/packages-render.check.ts`, `scripts/package-picker-render.check.ts` ที่ Critic เพิ่ม) · eslint ไฟล์ที่แตะ 0 error, warning เท่า baseline (crm/actions 1, add-lead-dialog 11, crm-dashboard 3 เท่าเดิม) · merge เข้า main เป็น v1.48.0 (ยังไม่ push)
+ส่วนที่ยอมรับต่างจากเกณฑ์: CHECK ของ `lead_package_units` เป็น `(item_id IS NULL OR kit_id IS NULL)` ไม่ใช่ `<>` เพราะ FK เป็น ON DELETE SET NULL (ใช้ `<>` แล้วลบอุปกรณ์/กระเป๋าที่ถูกเลือกไว้ไม่ได้) · แบบประกอบไม่บังคับ (ตาม Q17)
+ยังไม่ได้ลอง: ทุกหน้าในเบราว์เซอร์จริง · migration บน postgres ชั่วคราว (Docker ไม่ได้เปิด) · **prod ต้องรัน `20261011_packages.sql` ก่อน deploy** (loadPickerContext มี try/catch ถ้ายังไม่รันหน้าจะไม่ล้ม แต่หน้า /packages จะว่าง) · ของเจ้าของที่ควรลองจริง: (1) ตั้งแพ็กเกจ "ตู้ประกอบ" ที่มีข้อกำหนดประเภท "ตู้ประกอบ" (2) เลือกให้งาน 2 งานวันเดียวกันด้วยตู้ชุดเดียวกัน → ต้องขึ้นแดง (3) กล่องเพิ่มลูกค้าเลือกแพ็กเกจแล้วราคาเสนอเติมให้ (4) ดูแผงใหม่บนหน้าแรก (5) ตารางติดตามงานกว้าง 1,700px เลื่อนซ้ายขวา และการ์ดมือถือ
+
+**ผลรอบ B (รายละเอียดจาก Executor):** WP3 + WP4 (P2-9…P2-16)
+- ไฟล์ใหม่: `packages/lead-packages.ts` (loadLeadPackageRows, loadLeadPackages, loadPickerPackages) · `packages/capacity-data.ts` (loadCapacityInputs, warningsForLeads, capacityWarningsForLeads, loadPickerContext — พัง/ยังไม่ migrate = ข้อมูลว่าง หน้าไม่ล้ม) · `packages/package-picker.tsx` · `components/dashboard-alerts/{capacity-warnings.ts,.check.ts,capacity-panel.tsx}`
+- กติกา pure เพิ่มใน `package-logic.ts`: canEditLeadPackages, checkLeadPicks, leadPackageName, quotedPriceFor, unitAvailability (ป้าย ว่าง/ต่อคิว/ชน/ไม่พร้อม ใช้ resourceClashes), capacitySummary — ครอบใน package-logic.check
+- `setLeadPackages` คืน `{ success, warnings, quotedPrice, packageName }` — หน้า lead ใช้ quotedPrice/packageName ปรับฟอร์มการ์ดการเงิน · การ์ดการเงินเลิกส่ง `package_name` ให้ updateLead (กันค่าเก่าในฟอร์มทับชื่อที่เพิ่ง sync)
+- ป้ายความว่างในตารางภาพรวมโหลดชิ้นที่งานอื่นเลือกตั้งแต่วันนี้ถึงวันงานไกลสุดในตาราง (ไม่เกิน 365 วัน) · คำเตือนต่องานคิดเฉพาะ [วันนี้, +30]
+- งานที่เลือก "จำนวนชุด" แล้วตู้ยังไม่ครบ = ป้ายเหลือง "ยังไม่เลือก ตู้ประกอบ n" (ไม่บล็อกการบันทึก — กล่องเพิ่มลูกค้าบันทึกแพ็กเกจโดยยังไม่เลือกตู้)
+- กระดิ่ง `packing_requested` เลื่อนไปเฟส 3 ตามแผน
+
 ### เฟส 3 — ใบจัดของ + จุดรับของ + ความพร้อม "จัดของ" (v1.49.0, migration 3.3 + 3.4) · ขนาด L (แตกเป็น 3 WP)
 
 - WP1 กติกา + server: `packing/packing-logic.ts` (+check: โครงบรรทัดจากแพ็กเกจ, สถานะ/transition ที่ถูกต้อง, เส้นทางหยิบเรียงตามชั้น, ป้ายความว่างจาก clash ทั่วไป, `isMissingPacking`), `packing/actions.ts` (create/setLines/pick/unpick/confirm/reopen/cancel + bridge `event_kits`), `packing/queries.ts`, `scripts/packing-flow.check.ts` (ฐานข้อมูลจำลอง: เปิดใบ → เลือก → หยิบ → ยืนยัน; กรณีหยิบของที่ in_use ต้องถูกปฏิเสธ; ยกเลิกใบคืนสถานะ), ขยาย `kitBookingClashes` → `resourceClashes`, `tracking-logic.ts` ป้าย + `isMissingKits` + `tracking-logic.check.ts`, logger, notifications

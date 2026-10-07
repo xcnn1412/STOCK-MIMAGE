@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { DateRangeFilter } from '@/components/date-range-filter'
 import { boardStatuses, unknownStatuses, getStatusConfig, type BoardLead, type CrmSetting, type LeadStatus, type SystemUser } from './types'
-import { AddLeadDialog } from './components/add-lead-dialog'
+import { AddLeadDialog, type NewLeadPackage } from './components/add-lead-dialog'
 import { KanbanBoard } from './components/kanban-board'
 import { useLocale } from '@/lib/i18n/context'
 
@@ -32,11 +32,13 @@ interface CrmDashboardProps {
   /** all = โหลดทุกแถว · ไม่งั้นโหลดเฉพาะงานที่เคลื่อนไหวใน days วันหรือยังไม่ถึงวันงาน */
   window?: { days: number; all: boolean; shown: number; total: number }
   initialSearch?: string
+  /** แพ็กเกจที่เปิดใช้ (ตาราง packages) — ตัวเลือกในกล่องเพิ่มลูกค้า */
+  packages?: NewLeadPackage[]
 }
 
 const subscribeNever = () => () => {}
 
-export default function CrmDashboard({ leads, settings, users, window: loadWindow, initialSearch = '' }: CrmDashboardProps) {
+export default function CrmDashboard({ leads, settings, users, window: loadWindow, initialSearch = '', packages = [] }: CrmDashboardProps) {
   const { locale, t } = useLocale()
   const tc = t.crm
   const [search, setSearch] = useState(initialSearch)
@@ -458,6 +460,7 @@ export default function CrmDashboard({ leads, settings, users, window: loadWindo
         onOpenChange={setAddDialogOpen}
         settings={settings}
         users={users}
+        packages={packages}
       />
 
       {/* Mobile FAB */}

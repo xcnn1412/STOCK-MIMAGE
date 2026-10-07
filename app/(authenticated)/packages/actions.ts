@@ -4,9 +4,12 @@ import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity } from '@/lib/logger'
 import { getKitManager } from '@/lib/kit-bookings'
-import { checkOptionUnits, copyName, parsePackageForm, parseRequirementRows } from './package-logic'
+import { requireAuth } from '@/lib/auth'
+import { canEditLeadPackages, checkLeadPicks, checkOptionUnits, copyName, leadPackageName, parsePackageForm, parseRequirementRows, quotedPriceFor } from './package-logic'
+import { capacityWarningsForLeads } from './capacity-data'
+import { loadPickerPackages } from './lead-packages'
 import { loadCategoryUnits, loadPackageDetail } from './queries'
-import type { RequirementRowInput } from './types'
+import type { CapacityWarning, CategoryUnits, LeadPackagePick, PickerPackage, RequirementRowInput } from './types'
 
 const NO_ACCESS = 'เฉพาะ admin และแผนกที่ดูแลอุปกรณ์เท่านั้นที่แก้แพ็กเกจได้'
 const DUPLICATE = 'มีแพ็กเกจชื่อนี้อยู่แล้ว'
@@ -235,4 +238,128 @@ export async function reorderPackages(ids: string[]): Promise<Result> {
   await logActivity('REORDER_PACKAGES', { ids })
   revalidateAll()
   return { success: true }
+}
+
+// --- แพ็กเกจของงาน (เฟส 2 รอบ B) --------------------------------------------------
+
+export type SetLeadPackagesResult =
+  | { error: string }
+  | {
+      success: true
+      /** คำเตือนอุปกรณ์อาจไม่พอของงานนี้หลังบันทึก — แสดงใต้ตัวเลือกทันที */
+      warnings: CapacityWarning[]
+      /** ราคาเสนอที่เพิ่งเติมให้ (null = ไม่ได้แก้) — หน้า lead ใช้ปรับค่าในฟอร์มการ์ดการเงิน */
+      quotedPrice: number | null
+      packageName: string | null
+    }
+
+/**
+ * แทนที่แพ็กเกจของงานทั้งชุด (lead_packages + lead_package_units) แล้วคืนคำเตือนอุปกรณ์อาจไม่พอ
+ * สิทธิ์: แอดมิน · ฝ่ายประสานงาน · ผู้สร้างการ์ด · sync crm_leads.package_name = ชื่อแพ็กเกจคั่น " + " และเติมราคาเสนอเมื่อยังว่าง
+ * ponytail: หลายคำขอไม่อยู่ใน transaction เดียว — พังกลางทาง ผู้ใช้กดบันทึกซ้ำได้ (แทนที่ทั้งชุด)
+ */
+export async function setLeadPackages(leadId: string, picks: LeadPackagePick[]): Promise<SetLeadPackagesResult> {
+  const session = await requireAuth()
+  if (!session) return { error: 'กรุณาเข้าสู่ระบบใหม่' }
+  const db = createServiceClient()
+
+  const { data: lead } = await db
+    .from('crm_leads')
+    .select('id, customer_name, created_by, quoted_price')
+    .eq('id', leadId)
+    .maybeSingle<{ id: string; customer_name: string | null; created_by: string | null; quoted_price: number | null }>()
+  if (!lead) return { error: 'ไม่พบงานนี้' }
+  if (!canEditLeadPackages({ userId: session.userId, isAdmin: session.role === 'admin', department: session.department }, lead.created_by)) {
+    return { error: 'เฉพาะแอดมิน ฝ่ายประสานงาน และผู้สร้างการ์ดเท่านั้นที่เลือกแพ็กเกจให้งานได้' }
+  }
+
+  const { data: existing, error: existingError } = await db.from('lead_packages').select('id, package_id').eq('lead_id', leadId)
+  if (existingError) return { error: 'อ่านแพ็กเกจเดิมของงานไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  const existingRows = (existing ?? []) as { id: string; package_id: string }[]
+
+  let pkgList: PickerPackage[]
+  let units: CategoryUnits
+  try {
+    const ids = [...new Set([...(Array.isArray(picks) ? picks.map(p => String(p?.packageId ?? '')) : []), ...existingRows.map(r => r.package_id)])].filter(Boolean)
+    pkgList = await loadPickerPackages(db, { onlyIds: ids })
+    const salesPickCats = [...new Set(pkgList.flatMap(p => p.requirements.filter(r => r.salesPick).map(r => r.categoryId)))]
+    units = await loadCategoryUnits(db, { categoryIds: salesPickCats })
+  } catch (e) {
+    console.error('setLeadPackages load', e)
+    return { error: 'โหลดข้อมูลแพ็กเกจไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  }
+  const pkgById = Object.fromEntries(pkgList.map(p => [p.id, p]))
+  const checked = checkLeadPicks(picks, pkgById, units, existingRows.map(r => r.package_id))
+  if ('error' in checked) return checked
+
+  // 1) ลบแพ็กเกจที่ถูกเอาออก (ชิ้นที่เลือกลบตามด้วย CASCADE)
+  const keep = new Set(checked.map(p => p.packageId))
+  const removed = existingRows.filter(r => !keep.has(r.package_id)).map(r => r.id)
+  if (removed.length) {
+    const { error } = await db.from('lead_packages').delete().in('id', removed)
+    if (error) return { error: 'ลบแพ็กเกจเดิมของงานไม่สำเร็จ' }
+  }
+
+  // 2) upsert ที่เหลือ (id เดิมคงอยู่ — ลำดับที่เลือกเดิมไม่เปลี่ยน) แล้วแทนที่ชิ้นที่เลือกทั้งชุด
+  if (checked.length) {
+    const { data: saved, error } = await db
+      .from('lead_packages')
+      .upsert(
+        checked.map(p => ({ lead_id: leadId, package_id: p.packageId, quantity: p.quantity, created_by: session.userId })),
+        { onConflict: 'lead_id,package_id', ignoreDuplicates: false },
+      )
+      .select('id, package_id')
+    if (error || !saved) {
+      console.error('setLeadPackages upsert', error)
+      return { error: 'บันทึกแพ็กเกจของงานไม่สำเร็จ' }
+    }
+    const lpIdOf = new Map((saved as { id: string; package_id: string }[]).map(r => [r.package_id, r.id]))
+    const { error: clearError } = await db.from('lead_package_units').delete().in('lead_package_id', [...lpIdOf.values()])
+    if (clearError) return { error: 'ล้างชิ้นที่เลือกเดิมไม่สำเร็จ' }
+    const rows = checked.flatMap(p =>
+      p.units.map(u => ({
+        lead_package_id: lpIdOf.get(p.packageId)!,
+        requirement_id: u.requirementId,
+        item_id: u.kind === 'item' ? u.unitId : null,
+        kit_id: u.kind === 'kit' ? u.unitId : null,
+        variant: u.variant,
+      })),
+    )
+    if (rows.length) {
+      const { error: unitError } = await db.from('lead_package_units').insert(rows)
+      if (unitError) {
+        console.error('setLeadPackages units', unitError)
+        return { error: unitError.code === '23505' ? 'มีชิ้นที่ถูกเลือกซ้ำในงานนี้' : 'บันทึกชิ้นที่เลือกไม่สำเร็จ' }
+      }
+    }
+  }
+
+  // 3) sync ชื่อแพ็กเกจบนการ์ด CRM (ทุกหน้าที่อ่าน package_name แสดงค่าดิบได้) + เติมราคาเสนอเมื่อยังว่าง
+  const packageName = leadPackageName(checked, pkgById)
+  const quotedPrice = quotedPriceFor(lead.quoted_price, checked, pkgById)
+  const { error: leadError } = await db
+    .from('crm_leads')
+    .update({ package_name: packageName, ...(quotedPrice !== null ? { quoted_price: quotedPrice } : {}), updated_at: new Date().toISOString() })
+    .eq('id', leadId)
+  if (leadError) console.error('setLeadPackages lead sync', leadError)
+
+  await logActivity('SET_LEAD_PACKAGES', {
+    leadId,
+    customer_name: lead.customer_name,
+    picks: checked.map(p => ({ packageId: p.packageId, name: pkgById[p.packageId]?.name, quantity: p.quantity, units: p.units })),
+    ...(quotedPrice !== null ? { quoted_price: quotedPrice } : {}),
+  })
+  revalidatePath('/jobs/tracking')
+  revalidatePath(`/crm/${leadId}`)
+  revalidatePath('/crm')
+  revalidatePath('/dashboard')
+
+  // 4) คำเตือนหลังบันทึก — คิดพังไม่ทำให้การบันทึกล้ม (คืน [] แทน)
+  let warnings: CapacityWarning[] = []
+  try {
+    warnings = (await capacityWarningsForLeads(db, { leadIds: [leadId] })).warnings[leadId] ?? []
+  } catch (e) {
+    console.error('setLeadPackages warnings', e)
+  }
+  return { success: true, warnings, quotedPrice, packageName }
 }

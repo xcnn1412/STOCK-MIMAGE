@@ -611,11 +611,23 @@ export async function createLead(formData: FormData) {
   // and only displayed (grouped by event) on the CRM lead page. The new-lead dialog no
   // longer collects staff, so there is no staff_assignments insert here.
 
+  // แพ็กเกจแรกของงาน (ตาราง packages) — 1 ชุด ยังไม่เลือกตู้ (เลือกทีหลังที่การ์ดลูกค้า/หน้าติดตามงาน)
+  // บันทึกไม่สำเร็จไม่ทำให้การสร้างการ์ดล้ม: package_name เก็บชื่อไว้แล้ว เลือกแพ็กเกจซ้ำได้ทีหลัง
+  const packageId = (formData.get('package_id') as string || '').trim()
+  if (packageId) {
+    const { data: pkg } = await supabase.from('packages').select('id').eq('id', packageId).eq('is_active', true).maybeSingle()
+    const { error: pkgError } = pkg
+      ? await supabase.from('lead_packages').insert({ lead_id: data.id, package_id: packageId, quantity: 1, created_by: userId })
+      : { error: { message: 'ไม่พบแพ็กเกจหรือปิดใช้แล้ว' } }
+    if (pkgError) console.error('createLead lead_packages', pkgError)
+  }
+
   await logActivity('CREATE_CRM_LEAD', {
     id: data.id,
     customer_name: lead.customer_name,
     is_returning: lead.is_returning,
     lead_source: lead.lead_source,
+    ...(packageId ? { package_id: packageId } : {}),
   })
 
   revalidatePath('/crm')

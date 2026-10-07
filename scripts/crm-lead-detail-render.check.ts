@@ -24,7 +24,7 @@ const noopActions = () => new Proxy({}, {
 })
 const toast = Object.assign(() => {}, { error() {}, success() {}, info() {}, warning() {} })
 M._load = function (this: unknown, request: string, ...rest: unknown[]) {
-  if (/^(\.\.\/)+(jobs\/)?actions$/.test(request)) return noopActions()
+  if (/^(\.\.\/)+(jobs\/)?actions$/.test(request) || /packages\/actions$/.test(request)) return noopActions()
   if (request === 'next/navigation') {
     const real = realLoad.call(this, request, ...rest) as object
     return { ...real, useRouter: () => ({ refresh() {}, push() {}, replace() {}, back() {}, forward() {}, prefetch() {} }) }
@@ -130,6 +130,24 @@ const FIXTURES: Record<'A' | 'B' | 'C', Props> = {
       ],
     },
     leadJobs: [{ id: uid(601), job_type: 'graphic', title: 'ออกแบบกรอบรูป' }],
+    // แพ็กเกจของงาน 1 รายการ (2 ชุด + ตู้ที่ทีมขายเลือก 1 ชิ้นจาก 2) + คำเตือนเหลือง 1 ข้อ — การ์ดลูกค้าโหมดดูต้องเป็นชิป
+    packagePicker: {
+      value: [{
+        id: uid(701), packageId: uid(711), packageName: 'Selfie Studio Booth', price: 15000, isActive: true, quantity: 2,
+        units: [{ requirementId: uid(721), unitId: uid(731), kind: 'item', unitName: 'ตู้ประกอบ ชุด 1', variant: 'ประกอบ 2' }],
+      }],
+      packages: [{
+        id: uid(711), name: 'Selfie Studio Booth', price: 15000, is_active: true,
+        requirements: [{ id: uid(721), categoryId: uid(741), categoryName: 'ตู้ประกอบ', quantity: 1, salesPick: true, variants: ['ประกอบ 1', 'ประกอบ 2'], optionUnitIds: null }],
+      }],
+      categoryUnits: { [uid(741)]: [{ id: uid(731), kind: 'item', name: 'ตู้ประกอบ ชุด 1', status: 'available' }, { id: uid(732), kind: 'item', name: 'ตู้ประกอบ ชุด 2', status: 'available' }] },
+      unitBookings: [],
+      warnings: [{
+        categoryId: uid(751), categoryName: 'คอมพิวเตอร์', packageName: 'Selfie Studio Booth', level: 'yellow', need: 2, capacity: 2,
+        demandSure: 0, demandPlanned: 1, message: 'คอมพิวเตอร์ อาจไม่พอ — ต้องใช้ 2 มีที่ใช้ได้ 2 และงานอื่นที่เวลาทับอาจใช้อีก 1', leadIds: [uid(102)],
+      }],
+      canEdit: true,
+    },
   },
   // B: สตาฟ · ลูกค้าใหม่ · ไม่มีอีเวนต์/งวด/กิจกรรม · เก็บเข้าคลังแล้ว
   B: {
@@ -153,6 +171,15 @@ for (const [name, props] of Object.entries(FIXTURES)) {
   const html = renderToStaticMarkup(createElement(LeadDetail, props))
   assert.ok(html.length > 1000, `${name}: HTML ว่าง`)
   assert.ok(html.includes(props.lead.customer_name), `${name}: ต้องมีชื่อลูกค้า`)
+  if (props.packagePicker?.value.length) {
+    // แพ็กเกจของงาน → ชิปชื่อแพ็กเกจ ×จำนวน + ตู้ที่เลือก + แบบประกอบ + ป้ายอุปกรณ์อาจไม่พอ + ยังเลือกตู้ไม่ครบ (โหมดดู ไม่มีปุ่มแก้)
+    for (const s of ['Selfie Studio Booth', '×2', 'ตู้ประกอบ ชุด 1 (ประกอบ 2)', 'อุปกรณ์อาจไม่พอ: คอมพิวเตอร์', 'ยังไม่เลือก ตู้ประกอบ 1']) {
+      assert.ok(html.includes(s), `${name}: การ์ดลูกค้าต้องมี "${s}"`)
+    }
+    assert.ok(!html.includes('แก้แพ็กเกจ'), `${name}: โหมดดูไม่มีปุ่มแก้แพ็กเกจ`)
+  } else {
+    assert.ok(!html.includes('ยังไม่เลือกแพ็กเกจ'), `${name}: ไม่มีแพ็กเกจของงาน = แสดงชื่อเดิมเหมือนก่อน`)
+  }
   if (outDir) fs.writeFileSync(path.join(outDir, `${name}.html`), html)
   console.log(`PASS  ${name}  sha1=${crypto.createHash('sha1').update(html).digest('hex')}  (${html.length} chars)`)
 }
@@ -184,6 +211,26 @@ if (FinancialCard) {
   // 30,000 ยังไม่รวม VAT · หัก ณ ที่จ่าย 3% → VAT 2,100 · หัก 900 · สุทธิ 31,200 · จ่ายแล้ว 5,000 + 10,000 → ค้าง 16,200
   for (const s of ['฿30,000', '+฿2,100', '-฿900', '฿31,200', '฿16,200', 'หัก ณ ที่จ่าย 3%']) assert.ok(html.includes(s), `D: สรุปภาษีต้องมี ${s}`)
   console.log(`PASS  D  FinancialCard แก้ไข: ${n} งวด ช่องจำนวน+อัปโหลดครบ · สรุปภาษีถูก`)
+}
+
+// E: การ์ดลูกค้าโหมดแก้ไข (ข้อมูลชุด A) — ช่องแพ็กเกจเป็น PackagePicker ที่มีปุ่ม "แก้แพ็กเกจ" (ไม่ใช่ dropdown crm_settings เดิม)
+//    ชุด C (ไม่ส่ง packagePicker) ยังเห็นชื่อเดิมอ่านอย่างเดียว
+{
+  /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+  const { CustomerCard } = require('../app/(authenticated)/crm/[id]/components/customer-card') as typeof import('../app/(authenticated)/crm/[id]/components/customer-card')
+  const { buildLeadForm } = require('../app/(authenticated)/crm/[id]/shared') as typeof import('../app/(authenticated)/crm/[id]/shared') // eslint-disable-line @typescript-eslint/no-require-imports
+  const noop = () => {}
+  const card = (p: Props) => renderToStaticMarkup(createElement(CustomerCard, {
+    lead: p.lead, form: buildLeadForm(p.lead, p.settings), updateForm: noop, editing: true, collapsed: false, saving: false,
+    onEdit: noop, onToggle: noop, onSave: noop, onCancel: noop,
+    settings: p.settings, workTypeOptions: [{ value: 'event', label: 'อีเวนต์' }], packagePicker: p.packagePicker,
+  }))
+  const a = card(FIXTURES.A)
+  assert.ok(a.includes('แก้แพ็กเกจ') && a.includes('Selfie Studio Booth'), 'E: โหมดแก้ของชุด A ต้องเป็น PackagePicker')
+  assert.ok(!a.includes('เลือกระบบที่ใช้บริการ'), 'E: ไม่มี dropdown แพ็กเกจแบบเดิม (placeholder tc.selectPackage)')
+  const c = card({ ...FIXTURES.C, lead: { ...FIXTURES.C.lead, package_name: 'pkg_a' } })
+  assert.ok(c.includes('แพ็กเกจ A') && !c.includes('แก้แพ็กเกจ'), 'E: ไม่มีข้อมูลแพ็กเกจของงาน = ชื่อเดิมอ่านอย่างเดียว')
+  console.log('PASS  E  CustomerCard แก้ไข: ช่องแพ็กเกจเป็น PackagePicker')
 }
 
 console.log('crm-lead-detail-render: ผ่านทั้งหมด')

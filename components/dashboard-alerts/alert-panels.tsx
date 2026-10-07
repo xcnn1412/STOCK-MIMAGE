@@ -9,6 +9,8 @@ import MyJobsPanel from './my-jobs-panel'
 import DutyWarningPanel from './duty-warning-panel'
 import type { DashboardStats } from './dashboard-stats'
 import { buildDutyWarnings, type DutyWarningRow } from './duty-warnings'
+import CapacityPanel from './capacity-panel'
+import { buildCapacityRows } from './capacity-warnings'
 
 /** ป้ายไทยของสิ่งที่ขาดแต่ละหน้าที่ — ใช้ในกราฟแท่งบน dashboard */
 const MISSING_BAR_LABELS: Record<string, string> = {
@@ -71,7 +73,23 @@ export function buildAlertData(snapshot: TrackingSnapshot) {
         missingByDuty: missingByDuty(warnings),
     }
 
-    return { leadDates, warnings, myJobsCount, stats }
+    // แผง "แพ็กเกจที่ขายแล้วแต่อุปกรณ์อาจไม่พอ" — คำเตือนคิดไว้แล้วใน snapshot (packages/capacity-data.ts) ที่นี่คัดผู้เห็น + ช่วงวัน
+    const capacityRows = buildCapacityRows({
+        leads: rows,
+        warningsByLead: snapshot.capacityWarnings ?? {},
+        leadCreatedBy: snapshot.leadCreatedBy ?? {},
+        kitDepartments: snapshot.dutyDepartments.kits ?? [],
+        excludedLeadIds: [...snapshot.archivedLeadIds, ...snapshot.prepDoneLeadIds],
+        viewer: {
+            userId: currentUserId,
+            department: snapshot.myDepartment,
+            isAdmin: snapshot.isAdmin,
+            canManagePool: snapshot.canManagePool,
+        },
+        today: new Date(),
+    })
+
+    return { leadDates, warnings, myJobsCount, stats, capacityRows }
 }
 
 export default function AlertPanels({
@@ -92,8 +110,8 @@ export default function AlertPanels({
     showMyJobs?: boolean
 }) {
     const { poolJobs, jobStatusLabels, currentUserId } = snapshot
-    const { leadDates, warnings, myJobsCount } = buildAlertData(snapshot)
-    if ((!showMyJobs || myJobsCount === 0) && warnings.length === 0) return <>{emptyFallback}</>
+    const { leadDates, warnings, myJobsCount, capacityRows } = buildAlertData(snapshot)
+    if ((!showMyJobs || myJobsCount === 0) && warnings.length === 0 && capacityRows.length === 0) return <>{emptyFallback}</>
 
     // ทั้งสองแผงคืน null เองเมื่อว่าง — หน้าที่ไม่มีเรื่องเตือนจึงเหมือนเดิมทุกประการ
     return (
@@ -108,6 +126,7 @@ export default function AlertPanels({
                 />
             )}
             <DutyWarningPanel rows={warnings} collapsible={compactWarnings} className={className} />
+            <CapacityPanel rows={capacityRows} className={className} />
         </>
     )
 }

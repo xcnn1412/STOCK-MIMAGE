@@ -15,7 +15,7 @@ import { getStatusConfig, type CrmLead, type CrmSetting } from '../types'
 import { useLocale } from '@/lib/i18n/context'
 import { compressImage } from '@/lib/utils'
 import { useConfirm } from '../../finance/use-confirm'
-import { buildLeadForm, multiline, toFormInstallments, type CardSection, type EditableCardProps, type LeadActivity, type LeadForm, type LeadJob, type SystemUser } from './shared'
+import { buildLeadForm, multiline, toFormInstallments, type CardSection, type EditableCardProps, type LeadActivity, type LeadPackagePickerData, type LeadForm, type LeadJob, type SystemUser } from './shared'
 import { LeadHeader, GraphicJobsLink } from './components/lead-header'
 import { CostSummaryCard } from './components/cost-summary-card'
 import { LinkedEventsCard } from './components/linked-events-card'
@@ -40,10 +40,12 @@ interface LeadDetailProps {
   leadJobs?: LeadJob[]
   /** profiles.role — ปุ่มลบโชว์เฉพาะแอดมิน */
   role?: string | null
+  /** แพ็กเกจของงาน + ข้อมูลของ PackagePicker (การ์ดลูกค้า) — ไม่ส่ง = แสดงชื่อแพ็กเกจเดิมจาก package_name */
+  packagePicker?: LeadPackagePickerData
 }
 
 // Server actions ที่หน้านี้เรียกทุกตัว revalidatePath('/crm/<id>') เอง → ไม่ต้องสั่งรีเฟรชหน้าตามหลัง
-export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary, leadJobs = [], role = null }: LeadDetailProps) {
+export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary, leadJobs = [], role = null, packagePicker }: LeadDetailProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.detail
@@ -85,8 +87,6 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     setForm(prev => ({ ...prev, [key]: value }))
   }
 
-  const packages = settings.filter(s => s.category === 'package' && s.is_active)
-
   const workTypeOptions = [
     { value: 'sale', label: locale === 'th' ? 'ขาย' : 'Sale' },
     { value: 'event', label: locale === 'th' ? 'อีเวนต์' : 'Event' },
@@ -124,7 +124,8 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     const fieldsBySection: Record<CardSection, (keyof LeadForm)[]> = {
       customer: ['customer_name', 'customer_line', 'customer_phone', 'customer_type', 'work_type', 'unit_count', 'lead_source', 'is_returning'],
       event: ['event_date', 'event_end_date', 'event_time', 'event_end_time', 'event_location', 'event_details', 'required_roles'],
-      financial: ['package_name', 'quoted_price', 'confirmed_price', 'deposit', 'vat_mode', 'wht_rate', 'quotation_ref', 'notes'],
+      // package_name ไม่ส่ง — แพ็กเกจบันทึกแยกด้วย setLeadPackages (ค่าในฟอร์มอาจเก่ากว่า แล้วทับชื่อที่เพิ่ง sync)
+      financial: ['quoted_price', 'confirmed_price', 'deposit', 'vat_mode', 'wht_rate', 'quotation_ref', 'notes'],
     }
 
     fieldsBySection[section].forEach(key => {
@@ -333,13 +334,10 @@ export default function LeadDetail({ lead, activities, settings, users, installm
   // displays it grouped by event — see the "Staff & Roles" card, which links out
   // to each event's edit page for changes.
 
-  // Auto-fill price when package changes
-  const handlePackageChange = (val: string) => {
-    updateForm('package_name', val)
-    const pkg = packages.find(p => p.value === val)
-    if (pkg?.price) {
-      updateForm('quoted_price', pkg.price)
-    }
+  // แพ็กเกจบันทึกแยกด้วย setLeadPackages — ฟอร์มการ์ดไม่รีเซ็ตตาม props จึงต้องตามชื่อ/ราคาเสนอที่ server เพิ่งเติมให้เอง
+  const handlePackagesSaved = ({ quotedPrice, packageName }: { quotedPrice: number | null; packageName: string | null }) => {
+    updateForm('package_name', packageName ?? '')
+    if (quotedPrice !== null) updateForm('quoted_price', quotedPrice)
   }
 
   // ---------- Payment Proof Upload ----------
@@ -429,9 +427,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
           <CustomerCard
             {...cardProps('customer')}
             settings={settings}
-            packages={packages}
             workTypeOptions={workTypeOptions}
-            onPackageChange={handlePackageChange}
+            packagePicker={packagePicker}
+            onPackagesSaved={handlePackagesSaved}
           />
           <EventCard
             {...cardProps('event')}

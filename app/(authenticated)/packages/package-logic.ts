@@ -6,7 +6,12 @@ import type {
   CapacityWarning,
   CategoryUnit,
   CategoryUnits,
+  LeadPackagePick,
+  PickerPackage,
   RequirementRowInput,
+  UnitAvailability,
+  UnitBooking,
+  UnitKind,
 } from './types'
 
 export const MAX_PACKAGE_NAME = 80
@@ -262,4 +267,161 @@ export function capacityWarnings(input: CapacityInput): CapacityWarning[] {
     }
   }
   return out
+}
+
+// --- แพ็กเกจของงาน (เฟส 2 รอบ B) --------------------------------------------------
+
+export const MAX_LEAD_PACKAGE_QTY = 20
+
+/**
+ * แผนกที่แก้แพ็กเกจของทุกงานได้เหมือนแอดมิน — ค่าเดียวกับ COORDINATOR_DEPARTMENT ใน jobs/actions.ts และ jobs/purchasing/purchasing-logic.ts
+ * (ไม่ import จาก purchasing-logic เพราะลากโมดูล costs/sales-board เข้า bundle ฝั่ง client — เปลี่ยนชื่อแผนกต้องแก้ทุกที่)
+ */
+export const COORDINATOR_DEPARTMENT = 'ฝ่ายประสานงาน'
+
+/**
+ * เลือก/แก้แพ็กเกจของงานได้ไหม — กติกาเดียวกับการแก้การ์ด CRM: แอดมิน · ฝ่ายประสานงาน · ผู้สร้างการ์ด
+ * (server ตรวจซ้ำใน setLeadPackages · ฝั่งหน้าจอใช้ซ่อนปุ่มเท่านั้น)
+ */
+export function canEditLeadPackages(
+  viewer: { userId: string | null | undefined; isAdmin: boolean; department: string | null | undefined },
+  createdBy: string | null | undefined,
+): boolean {
+  if (viewer.isAdmin || viewer.department === COORDINATOR_DEPARTMENT) return true
+  return !!viewer.userId && !!createdBy && viewer.userId === createdBy
+}
+
+/** หน่วยที่ตรวจแล้ว พร้อมชนิด (ไว้เขียน item_id/kit_id) */
+export interface CheckedLeadUnit {
+  requirementId: string
+  unitId: string
+  kind: UnitKind
+  variant: string | null
+}
+
+export interface CheckedLeadPick {
+  packageId: string
+  quantity: number
+  units: CheckedLeadUnit[]
+}
+
+/**
+ * ตรวจแพ็กเกจที่เลือกให้งานทั้งชุด (pure — server เรียกก่อนเขียน) คืนรายการที่ทำความสะอาดแล้ว หรือ { error } ไทย
+ * - แพ็กเกจต้องมีอยู่และเปิดใช้ (ยกเว้นที่งานเลือกไว้แล้วก่อนถูกปิดใช้ — keepIds) · ซ้ำในงานเดียวไม่ได้
+ * - จำนวนชุดเป็นจำนวนเต็ม 1–20
+ * - เลือกชิ้นได้เฉพาะข้อกำหนดที่ประเภทติ๊ก "ทีมขายเลือกชิ้นเอง" · ไม่เกิน จำนวนต่อชุด × จำนวนชุด
+ * - ชิ้นต้องอยู่ในตัวเลือกของข้อกำหนด (allowedUnits) · แบบประกอบต้องเป็นค่าหนึ่งในแบบของประเภท
+ * - ชิ้นเดียวกันซ้ำในงานเดียวไม่ได้ (แม้คนละแบบประกอบ — เป็นตู้ชุดเดียวกัน)
+ */
+export function checkLeadPicks(
+  raw: unknown,
+  packages: Record<string, PickerPackage>,
+  unitsByCategory: CategoryUnits,
+  keepIds: string[] = [],
+): CheckedLeadPick[] | { error: string } {
+  if (!Array.isArray(raw)) return { error: 'ข้อมูลแพ็กเกจไม่ถูกต้อง' }
+  const keep = new Set(keepIds)
+  const seenPackages = new Set<string>()
+  const seenUnits = new Set<string>()
+  const out: CheckedLeadPick[] = []
+  for (const item of raw) {
+    const p = (item ?? {}) as Partial<LeadPackagePick>
+    const pkg = packages[String(p.packageId ?? '')]
+    if (!pkg) return { error: 'ไม่พบแพ็กเกจที่เลือก — โหลดหน้าใหม่แล้วลองอีกครั้ง' }
+    if (!pkg.is_active && !keep.has(pkg.id)) return { error: `แพ็กเกจ "${pkg.name}" ปิดใช้แล้ว เลือกให้งานใหม่ไม่ได้` }
+    if (seenPackages.has(pkg.id)) return { error: `เลือกแพ็กเกจ "${pkg.name}" ซ้ำ — ปรับจำนวนชุดแทน` }
+    seenPackages.add(pkg.id)
+    const quantity = Number(p.quantity)
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_LEAD_PACKAGE_QTY) {
+      return { error: `จำนวนชุดของ "${pkg.name}" ต้องเป็นจำนวนเต็ม 1–${MAX_LEAD_PACKAGE_QTY}` }
+    }
+
+    const units: CheckedLeadUnit[] = []
+    for (const u of Array.isArray(p.units) ? p.units : []) {
+      const req = pkg.requirements.find(r => r.id === u?.requirementId)
+      if (!req) return { error: `ข้อกำหนดของ "${pkg.name}" เปลี่ยนไปแล้ว — โหลดหน้าใหม่แล้วเลือกอีกครั้ง` }
+      if (!req.salesPick) return { error: `"${req.categoryName}" ทีมจัดของเป็นคนเลือกชิ้น ทีมขายเลือกเองไม่ได้` }
+      const unitId = String(u.itemId || u.kitId || '')
+      if (!unitId) return { error: `เลือก${req.categoryName}ให้ครบก่อนบันทึก` }
+      const unit = allowedUnits(req, unitsByCategory[req.categoryId] ?? []).find(x => x.id === unitId)
+      if (!unit) return { error: `ชิ้นที่เลือกไม่ได้อยู่ในตัวเลือกของ "${req.categoryName}" ใน "${pkg.name}"` }
+      if (seenUnits.has(unitId)) return { error: `${unit.name} ถูกเลือกซ้ำในงานนี้ — ตู้ชุดเดียวกันใช้ได้ครั้งเดียวต่องาน` }
+      seenUnits.add(unitId)
+      const variant = String(u.variant ?? '').trim() || null
+      if (variant && !req.variants.includes(variant)) return { error: `แบบประกอบ "${variant}" ไม่มีใน${req.categoryName}` }
+      units.push({ requirementId: req.id, unitId, kind: unit.kind, variant })
+    }
+    for (const req of pkg.requirements) {
+      const count = units.filter(u => u.requirementId === req.id).length
+      if (count > req.quantity * quantity) {
+        return { error: `${req.categoryName} ใน "${pkg.name}" เลือกได้ไม่เกิน ${req.quantity * quantity} ชิ้น` }
+      }
+    }
+    out.push({ packageId: pkg.id, quantity, units })
+  }
+  return out
+}
+
+/** ชื่อแพ็กเกจของงานสำหรับ crm_leads.package_name — ตามลำดับที่เลือก คั่น " + " · ไม่มี = null */
+export function leadPackageName(picks: { packageId: string }[], packages: Record<string, { name: string }>): string | null {
+  const names = picks.map(p => packages[p.packageId]?.name).filter((n): n is string => !!n)
+  return names.length ? names.join(' + ') : null
+}
+
+/**
+ * ราคาเสนอที่จะเติมให้ — เฉพาะเมื่อราคาเสนอปัจจุบันว่าง/0 · Σ ราคา × จำนวนชุด (ข้ามแพ็กเกจที่ไม่ใส่ราคา)
+ * คืน null = ไม่ต้องแก้ราคาเสนอ
+ */
+export function quotedPriceFor(
+  current: number | null | undefined,
+  picks: { packageId: string; quantity: number }[],
+  packages: Record<string, { price: number | null }>,
+): number | null {
+  if (current && Number(current) > 0) return null
+  let total = 0
+  for (const p of picks) {
+    const price = packages[p.packageId]?.price
+    if (price !== null && price !== undefined) total += Number(price) * p.quantity
+  }
+  return total > 0 ? total : null
+}
+
+export const AVAILABILITY_LABELS: Record<UnitAvailability, string> = {
+  free: 'ว่าง',
+  queued: 'ต่อคิว',
+  clash: 'ชน',
+  unavailable: 'ไม่พร้อม',
+}
+
+/**
+ * ป้ายความว่างของหน่วยหนึ่งเทียบกับงานที่กำลังเลือก (หัวข้อ 5.2 ฉบับทีมขาย)
+ * ไม่พร้อม = สถานะ เสีย/ซ่อม/หาย/กำลังซื้อ/หมด · ชน = งานอื่นวันเดียวกันเวลาทับ หรือฝั่งใดไม่มีเวลา · ต่อคิว = วันเดียวกันเวลาไม่ทับ
+ * leadNames = ชื่องานอื่นที่เลือกชิ้นนี้ไว้ (เฉพาะที่ชน/ต่อคิว)
+ */
+export function unitAvailability(
+  unit: { id: string; status: string },
+  target: { leadId: string; eventDate: string | null; eventTime?: string | null; eventEndTime?: string | null },
+  bookings: UnitBooking[],
+): { status: UnitAvailability; leadNames: string[] } {
+  if (!isUsableStatus(unit.status)) return { status: 'unavailable', leadNames: [] }
+  const mine = bookings.filter(b => b.unitId === unit.id && b.leadId !== target.leadId)
+  const clashes = resourceClashes(
+    mine.map(b => ({ resourceId: b.unitId, eventId: b.leadId, eventDate: b.eventDate, eventTime: b.eventTime, eventEndTime: b.eventEndTime })),
+    { resourceId: unit.id, eventId: target.leadId, eventDate: target.eventDate, eventTime: target.eventTime, eventEndTime: target.eventEndTime },
+  )
+  const nameOf = (leadId: string) => mine.find(b => b.leadId === leadId)?.leadName ?? 'งานอื่น'
+  const hard = clashes.filter(c => c.status !== 'queued')
+  if (hard.length) return { status: 'clash', leadNames: hard.map(c => nameOf(c.eventId)) }
+  if (clashes.length) return { status: 'queued', leadNames: clashes.map(c => nameOf(c.eventId)) }
+  return { status: 'free', leadNames: [] }
+}
+
+/** ป้ายสรุปบนแถวงาน: "อุปกรณ์ไม่พอ: ตู้ประกอบ" (มีแดง) / "อุปกรณ์อาจไม่พอ: คอมพิวเตอร์, กล้อง" · ไม่มีคำเตือน = null */
+export function capacitySummary(
+  warnings: Pick<CapacityWarning, 'level' | 'categoryName'>[],
+): { level: CapacityWarning['level']; text: string } | null {
+  if (warnings.length === 0) return null
+  const level = warnings.some(w => w.level === 'red') ? 'red' : 'yellow'
+  const names = [...new Set(warnings.map(w => w.categoryName))].join(', ')
+  return { level, text: `${level === 'red' ? 'อุปกรณ์ไม่พอ' : 'อุปกรณ์อาจไม่พอ'}: ${names}` }
 }

@@ -3,7 +3,10 @@
 // server-only: มี service-role client อยู่ข้างใน — ห้าม import จาก client component
 import { createServiceClient } from '@/lib/supabase-server'
 import { getSessionLight } from '@/lib/auth'
-import { NOT_WON_STATUSES } from '../../crm/types'
+import { NOT_WON_STATUSES, addDays, bangkokToday } from '../../crm/types'
+import { loadPickerContext } from '../../packages/capacity-data'
+import { canEditLeadPackages } from '../../packages/package-logic'
+import type { CapacityWarning, CategoryUnits, LeadPackageRow, PickerPackage, UnitBooking } from '../../packages/types'
 import type { TrackingLead } from './tracking-view'
 import { CLAIM_CATEGORY, VEHICLES, canActOnPool, isClosedEvent, isPrepDuty, parseWaived, POOL_TEAM_DEFAULTS, type ClaimKind, type DutyClaim, type EventVehicle, type PoolDepartments, type PoolJob } from './tracking-logic'
 import type { JobStatusLabels, KitBookingRow, PoolKit } from './pool-tabs'
@@ -82,7 +85,26 @@ export interface TrackingSnapshot {
     dutyDepartments: DutyDepartments
     /** แผนกที่กดรับได้ของทุกจุด (dutyDepartments + ใบงานหน้างาน) — ปุ่มรับใช้ตัดสินว่ากดได้ไหม */
     poolDepartments: PoolDepartments
+    /** แพ็กเกจของงาน (leadId → รายการ) — ไม่มี key = ยังไม่เลือก · ยังไม่รัน migration 20261011 = {} */
+    leadPackages: Record<string, LeadPackageRow[]>
+    /** แพ็กเกจที่เลือกได้ใน PackagePicker (เปิดใช้ + ที่งานเหล่านี้เลือกไว้แม้ปิดใช้) */
+    packagesForPicker: PickerPackage[]
+    /** หน่วยของประเภทที่ทีมขายเลือกชิ้นเอง (ตู้) */
+    salesPickUnits: CategoryUnits
+    /** ชิ้นที่งานอื่นเลือกไว้แล้ว — ป้ายความว่างใน PackagePicker */
+    unitBookings: UnitBooking[]
+    /** คำเตือนอุปกรณ์อาจไม่พอต่องาน (คิดเฉพาะงานที่วันงานอยู่ใน [วันนี้, +30 วัน]) */
+    capacityWarnings: Record<string, CapacityWarning[]>
+    /** ผู้ใช้คนนี้เลือก/แก้แพ็กเกจของงานไหนได้ (แอดมิน / ฝ่ายประสานงาน / ผู้สร้างการ์ด) */
+    canEditPackages: Record<string, boolean>
+    /** ผู้สร้างการ์ดของแต่ละงาน (crm_leads.created_by) — แผงเตือนอุปกรณ์อาจไม่พอใช้ตัดสินว่าใครเห็น */
+    leadCreatedBy: Record<string, string | null>
 }
+
+/** ช่วงวันงานที่คิดคำเตือนอุปกรณ์อาจไม่พอ (สเปค 5.1: วันนี้ → +30 วัน) */
+export const CAPACITY_AHEAD_DAYS = 30
+/** ป้ายความว่างของชิ้นในตารางภาพรวมโหลดล่วงหน้าไม่เกินนี้ (งานไกลกว่านี้ป้ายอาจไม่ครบ — คำเตือนหลังบันทึกยังถูก) */
+const PICKER_AHEAD_DAYS = 365
 
 /** ตัวเลือกของ getTrackingSnapshot — ไม่ส่ง = ค่าเดิม (ตัดงานเก่า, อ่าน session จาก cookie) */
 export interface TrackingSnapshotOptions {
@@ -122,7 +144,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
 
     // --- ระลอก A: งาน + กระเป๋า + การตั้งค่า + คน + session ---------------------
     // คอลัมน์ของงานที่หน้านี้ใช้ — backdrop_note มาทีหลัง (20260925) จึงถอดออกได้ตอน fallback ข้างล่าง
-    const LEAD_COLS = 'id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, backdrop_note, tracking_checklist, required_roles, archived_at, prep_done_at' as const
+    const LEAD_COLS = 'id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, backdrop_note, tracking_checklist, required_roles, archived_at, prep_done_at, created_by' as const
     const cutoff = pastCutoffDate()
     // cast: supabase-js type แถวได้เฉพาะจาก literal — fallback ส่ง string เดียวกันที่ถอด backdrop_note ออก
     const leadsQueryFor = (cols: string) => {
@@ -175,6 +197,17 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     }
 
     const leadIds = (leads || []).map(l => l.id)
+
+    // แพ็กเกจของงาน + คำเตือนอุปกรณ์อาจไม่พอ — โหลดขนานกับระลอก B/C (ไม่พึ่งอีเวนต์) · พัง/ยังไม่ migrate = ว่าง หน้าไม่ล้ม
+    // ป้ายความว่างของชิ้น: โหลดชิ้นที่งานอื่นเลือกตั้งแต่วันนี้ถึงวันงานไกลสุดในตาราง (ไม่เกิน 365 วัน)
+    const today = bangkokToday(Date.now())
+    const capacityTo = addDays(today, CAPACITY_AHEAD_DAYS)
+    const lastDate = (leads || []).reduce<string>((max, l) => (l.event_date && l.event_date > max ? l.event_date : max), capacityTo)
+    const pickerTo = [lastDate, addDays(today, PICKER_AHEAD_DAYS)].sort()[0]
+    const pickerPromise = loadPickerContext(supabase, leadIds, {
+        warningLeadIds: (leads || []).filter(l => l.event_date && l.event_date >= today && l.event_date <= capacityTo).map(l => l.id),
+        dateRange: { from: today, to: pickerTo },
+    })
 
     // --- ระลอก B: อีเวนต์ / ใบงาน / การรับหน้าที่ ของงานชุดนี้ -------------------
     type EventRow = { id: string; name: string | null; event_date: string | null; status: string | null; crm_lead_id: string | null; event_time?: string | null; event_end_time?: string | null }
@@ -399,6 +432,15 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
         kits: poolDepartments.kits,
     }
 
+    const picker = await pickerPromise
+    const viewer = { userId: currentUserId, isAdmin: sessionRole === 'admin', department: myDepartment }
+    const leadCreatedBy: Record<string, string | null> = {}
+    const canEditPackages: Record<string, boolean> = {}
+    for (const l of leads || []) {
+        leadCreatedBy[l.id] = (l.created_by as string | null) ?? null
+        canEditPackages[l.id] = canEditLeadPackages(viewer, leadCreatedBy[l.id])
+    }
+
     return {
         rows,
         archivedLeadIds: (leads || []).filter(l => l.archived_at).map(l => l.id as string),
@@ -420,5 +462,12 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
         canManageKits,
         dutyDepartments,
         poolDepartments,
+        leadPackages: picker.leadPackages,
+        packagesForPicker: picker.packages,
+        salesPickUnits: picker.salesPickUnits,
+        unitBookings: picker.unitBookings,
+        capacityWarnings: picker.capacityWarnings,
+        canEditPackages,
+        leadCreatedBy,
     }
 }

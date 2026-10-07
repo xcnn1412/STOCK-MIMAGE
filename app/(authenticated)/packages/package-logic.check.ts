@@ -3,16 +3,22 @@
 import assert from 'node:assert/strict'
 import {
   allowedUnits,
+  canEditLeadPackages,
+  capacitySummary,
   capacityWarnings,
+  checkLeadPicks,
   checkOptionUnits,
   copyName,
+  leadPackageName,
+  quotedPriceFor,
+  unitAvailability,
   MAX_PACKAGE_NAME,
   parsePackageForm,
   parseRequirementRows,
   requirementSummary,
   sortPackages,
 } from './package-logic'
-import type { CapacityInput, CapacityJob, CategoryUnit } from './types'
+import type { CapacityInput, CapacityJob, CategoryUnit, CategoryUnits, PickerPackage } from './types'
 
 // --- parsePackageForm -----------------------------------------------------------
 assert.deepEqual(parsePackageForm({ name: '  360DSLR ', description: ' ', price: '', is_active: true }), {
@@ -211,5 +217,83 @@ assert.deepEqual(capacityWarnings(base()), [])
   assert.equal(ws[0].need, 3)
   assert.equal(ws[0].packageName, 'Selfie + 360')
 }
+
+// --- แพ็กเกจของงาน (รอบ B) -------------------------------------------------------
+
+// สิทธิ์เลือกแพ็กเกจ: แอดมิน / ฝ่ายประสานงาน / ผู้สร้างการ์ด
+assert.equal(canEditLeadPackages({ userId: 'u1', isAdmin: true, department: null }, 'u2'), true)
+assert.equal(canEditLeadPackages({ userId: 'u1', isAdmin: false, department: 'ฝ่ายประสานงาน' }, 'u2'), true)
+assert.equal(canEditLeadPackages({ userId: 'u2', isAdmin: false, department: 'ฝ่ายขาย' }, 'u2'), true)
+assert.equal(canEditLeadPackages({ userId: 'u1', isAdmin: false, department: 'ฝ่ายขาย' }, 'u2'), false)
+assert.equal(canEditLeadPackages({ userId: null, isAdmin: false, department: null }, null), false)
+
+{
+  const booth: PickerPackage = {
+    id: 'P1', name: 'Selfie', price: 15000, is_active: true,
+    requirements: [
+      { id: 'R-booth', categoryId: 'booth', categoryName: 'ตู้ประกอบ', quantity: 1, salesPick: true, variants: ['ประกอบ 1', 'ประกอบ 2'], optionUnitIds: null },
+      { id: 'R-pc', categoryId: 'pc', categoryName: 'คอมพิวเตอร์', quantity: 1, salesPick: false, variants: [], optionUnitIds: null },
+    ],
+  }
+  const old: PickerPackage = { id: 'P2', name: '360', price: null, is_active: false, requirements: [] }
+  const pkgs = { P1: booth, P2: old }
+  const units: CategoryUnits = {
+    booth: [
+      { id: 'B1', kind: 'item', name: 'ตู้ประกอบ ชุด 1', status: 'available' },
+      { id: 'B2', kind: 'kit', name: 'ตู้ประกอบ ชุด 2', status: 'available' },
+      { id: 'B3', kind: 'item', name: 'ชิ้นในกระเป๋า', status: 'available', inKit: true },
+    ],
+    pc: [{ id: 'C1', kind: 'item', name: 'PC 1', status: 'available' }],
+  }
+  const ok = checkLeadPicks([{ packageId: 'P1', quantity: 2, units: [{ requirementId: 'R-booth', itemId: 'B1', variant: 'ประกอบ 2' }, { requirementId: 'R-booth', kitId: 'B2' }] }], pkgs, units)
+  assert.ok(Array.isArray(ok))
+  assert.deepEqual((ok as Exclude<typeof ok, { error: string }>)[0].units.map(u => [u.unitId, u.kind, u.variant]), [['B1', 'item', 'ประกอบ 2'], ['B2', 'kit', null]])
+  const err = (raw: unknown, keep: string[] = []) => {
+    const r = checkLeadPicks(raw, pkgs, units, keep)
+    assert.ok('error' in r, `ต้องเป็น error: ${JSON.stringify(raw)}`)
+    return r.error
+  }
+  assert.ok(err([{ packageId: 'P1', quantity: 1, units: [{ requirementId: 'R-booth', itemId: 'B1' }, { requirementId: 'R-booth', itemId: 'B1' }] }]).includes('ซ้ำ')) // ชิ้นเดียวกันซ้ำในงานเดียว
+  assert.ok(err([{ packageId: 'P1', quantity: 1, units: [{ requirementId: 'R-booth', itemId: 'B1' }, { requirementId: 'R-booth', kitId: 'B2' }] }]).includes('ไม่เกิน 1')) // เกินจำนวน × ชุด
+  assert.ok(err([{ packageId: 'P1', quantity: 1, units: [{ requirementId: 'R-pc', itemId: 'C1' }] }]).includes('ทีมจัดของ')) // ประเภทที่ไม่ใช่ sales_pick
+  assert.ok(err([{ packageId: 'P1', quantity: 1, units: [{ requirementId: 'R-booth', itemId: 'B1', variant: 'ประกอบ 9' }] }]).includes('แบบประกอบ'))
+  assert.ok(err([{ packageId: 'P1', quantity: 1, units: [{ requirementId: 'R-booth', itemId: 'B3' }] }]).includes('ตัวเลือก')) // ของในกระเป๋าไม่ใช่หน่วย
+  assert.ok(err([{ packageId: 'P1', quantity: 0, units: [] }]).includes('1–20'))
+  assert.ok(err([{ packageId: 'P1', quantity: 21, units: [] }]).includes('1–20'))
+  assert.ok(err([{ packageId: 'P1', quantity: 1, units: [] }, { packageId: 'P1', quantity: 1, units: [] }]).includes('ซ้ำ'))
+  assert.ok(err([{ packageId: 'P2', quantity: 1, units: [] }]).includes('ปิดใช้')) // ปิดใช้ = เลือกใหม่ไม่ได้
+  assert.ok(Array.isArray(checkLeadPicks([{ packageId: 'P2', quantity: 1, units: [] }], pkgs, units, ['P2']))) // ...แต่ที่เลือกไว้แล้วคงได้
+  assert.ok(err([{ packageId: 'X', quantity: 1, units: [] }]).includes('ไม่พบ'))
+  assert.deepEqual(checkLeadPicks([], pkgs, units), [])
+
+  // ชื่อบนการ์ด CRM + ราคาเสนอ
+  assert.equal(leadPackageName([{ packageId: 'P2' }, { packageId: 'P1' }], pkgs), '360 + Selfie')
+  assert.equal(leadPackageName([], pkgs), null)
+  assert.equal(quotedPriceFor(0, [{ packageId: 'P1', quantity: 2 }, { packageId: 'P2', quantity: 1 }], pkgs), 30000) // ข้ามแพ็กเกจที่ไม่ใส่ราคา
+  assert.equal(quotedPriceFor(null, [{ packageId: 'P1', quantity: 1 }], pkgs), 15000)
+  assert.equal(quotedPriceFor(5000, [{ packageId: 'P1', quantity: 1 }], pkgs), null) // มีราคาเสนอแล้ว = ไม่แตะ
+  assert.equal(quotedPriceFor(0, [{ packageId: 'P2', quantity: 1 }], pkgs), null)
+}
+
+// ป้ายความว่างของชิ้น: ว่าง / ต่อคิว / ชน (เวลาทับ หรือไม่มีเวลา) / ไม่พร้อม
+{
+  const target = { leadId: 'L0', eventDate: '2026-10-20', eventTime: '10:00', eventEndTime: '14:00' }
+  const bk = (leadId: string, eventDate: string, eventTime: string | null, eventEndTime: string | null) => ({ unitId: 'B1', leadId, leadName: `งาน ${leadId}`, eventDate, eventTime, eventEndTime })
+  const unit = { id: 'B1', status: 'available' }
+  assert.equal(unitAvailability(unit, target, []).status, 'free')
+  assert.equal(unitAvailability(unit, target, [bk('L0', '2026-10-20', '10:00', '14:00')]).status, 'free') // งานตัวเอง
+  assert.equal(unitAvailability(unit, target, [bk('L1', '2026-10-21', '10:00', '14:00')]).status, 'free') // คนละวัน
+  assert.equal(unitAvailability(unit, target, [bk('L1', '2026-10-20', '14:00', '18:00')]).status, 'queued') // จบตรงเริ่มพอดี
+  const clash = unitAvailability(unit, target, [bk('L1', '2026-10-20', '12:00', '16:00')])
+  assert.equal(clash.status, 'clash')
+  assert.deepEqual(clash.leadNames, ['งาน L1'])
+  assert.equal(unitAvailability(unit, target, [bk('L1', '2026-10-20', null, null)]).status, 'clash') // ไม่มีเวลา = เช็คไม่ได้
+  assert.equal(unitAvailability({ id: 'B1', status: 'maintenance' }, target, []).status, 'unavailable')
+}
+
+// ป้ายสรุปบนแถวงาน
+assert.equal(capacitySummary([]), null)
+assert.deepEqual(capacitySummary([{ level: 'yellow', categoryName: 'คอมพิวเตอร์' }, { level: 'yellow', categoryName: 'กล้อง' }]), { level: 'yellow', text: 'อุปกรณ์อาจไม่พอ: คอมพิวเตอร์, กล้อง' })
+assert.deepEqual(capacitySummary([{ level: 'yellow', categoryName: 'คอมพิวเตอร์' }, { level: 'red', categoryName: 'คอมพิวเตอร์' }]), { level: 'red', text: 'อุปกรณ์ไม่พอ: คอมพิวเตอร์' })
 
 console.log('package-logic.check: ผ่านทั้งหมด')

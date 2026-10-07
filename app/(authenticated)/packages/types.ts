@@ -162,3 +162,73 @@ export interface CapacityWarning {
   /** ประเภทที่ทีมขายเลือกชิ้นเอง: ชิ้นที่ชนกับงานอื่น */
   unitId?: string
 }
+
+// --- แพ็กเกจของงาน (lead_packages / lead_package_units) — เฟส 2 รอบ B ------------------
+
+/** ชิ้นที่ทีมขายเลือกให้ข้อกำหนดหนึ่งของงาน (เฉพาะประเภทที่ทีมขายเลือกชิ้นเอง) */
+export interface LeadPackageUnit {
+  requirementId: string
+  unitId: string
+  kind: UnitKind
+  /** ชื่อหน่วย (ไม่พบแล้ว = 'ชิ้นที่ถูกลบ') */
+  unitName: string
+  /** แบบประกอบ — ป้ายบอกเท่านั้น ไม่บังคับ */
+  variant: string | null
+}
+
+/** แพ็กเกจหนึ่งรายการของงาน พร้อมชื่อ/ราคา และชิ้นที่ทีมขายเลือก */
+export interface LeadPackageRow {
+  id: string
+  packageId: string
+  packageName: string
+  price: number | null
+  /** แพ็กเกจยังเปิดใช้ไหม (ปิดใช้แล้วยังแสดงในงานเดิมได้) */
+  isActive: boolean
+  /** จำนวนชุด */
+  quantity: number
+  units: LeadPackageUnit[]
+}
+
+/** สิ่งที่ PackagePicker ส่งให้ setLeadPackages — แทนที่ทั้งชุดของงาน (ลำดับ = ลำดับที่เลือก) */
+export interface LeadPackagePick {
+  packageId: string
+  quantity: number
+  units: { requirementId: string; itemId?: string | null; kitId?: string | null; variant?: string | null }[]
+}
+
+/** ข้อกำหนดของแพ็กเกจในรูปที่ตัวเลือกแพ็กเกจของงานใช้ */
+export interface PickerRequirement {
+  id: string
+  categoryId: string
+  categoryName: string
+  quantity: number
+  /** ประเภทที่ทีมขายเลือกชิ้นเอง (ตู้) */
+  salesPick: boolean
+  /** แบบประกอบของประเภท ([] = ไม่มี) */
+  variants: string[]
+  /** id หน่วยในตัวเลือก — null = ทุกหน่วยในประเภท */
+  optionUnitIds: string[] | null
+}
+
+/** แพ็กเกจที่เลือกให้งานได้ (เปิดใช้ + ที่งานเลือกไว้แล้วแม้ปิดใช้) */
+export interface PickerPackage {
+  id: string
+  name: string
+  price: number | null
+  is_active: boolean
+  requirements: PickerRequirement[]
+}
+
+/** ชิ้นที่งานหนึ่งเลือกไว้แล้ว พร้อมช่วงเวลางาน — ใช้ทำป้ายความว่าง (ว่าง/ต่อคิว/ชน) */
+export interface UnitBooking {
+  unitId: string
+  leadId: string
+  leadName: string
+  eventDate: string | null
+  eventTime?: string | null
+  eventEndTime?: string | null
+  variant?: string | null
+}
+
+/** ป้ายความว่างของหน่วยหนึ่งเทียบกับงานที่กำลังเลือก */
+export type UnitAvailability = 'free' | 'queued' | 'clash' | 'unavailable'
