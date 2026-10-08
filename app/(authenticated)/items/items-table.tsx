@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Eye, Trash, ArrowUpDown, Search, Filter, RefreshCw, Droplet } from "lucide-react"
+import { Eye, Trash, ArrowUpDown, Search, Filter, RefreshCw, Droplet, Barcode } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { deleteItemAction } from './[id]/delete-action'
 import { cleanupOrphanedItems } from './cleanup-items'
@@ -226,6 +226,12 @@ export default function ItemsTable({ initialItems, categories, kits, canManageKi
             <Droplet className="h-4 w-4" />
             เฉพาะวัสดุสิ้นเปลือง
           </Button>
+          <Link href={`/items/print?ids=${sortedItems.slice(0, 200).map(i => i.id).join(',')}`} className="w-full sm:w-auto">
+            <Button variant="outline" className="gap-2 w-full" disabled={sortedItems.length === 0} title="พิมพ์บาร์โค้ดของรายการที่แสดงอยู่ (ครั้งละไม่เกิน 200 ชิ้น)">
+              <Barcode className="h-4 w-4" />
+              พิมพ์บาร์โค้ด ({Math.min(sortedItems.length, 200)})
+            </Button>
+          </Link>
       </div>
 
       {/* Mobile View (Cards) */}
@@ -289,6 +295,11 @@ export default function ItemsTable({ initialItems, categories, kits, canManageKi
                             {item.price ? `$${item.price.toLocaleString()}` : <span className="text-muted-foreground">-</span>}
                          </div>
                          <div className="flex items-center gap-1">
+                             <Link href={`/items/print?ids=${item.id}`}>
+                                <Button variant="ghost" size="sm" className="h-8" aria-label={`พิมพ์บาร์โค้ด ${item.name}`}>
+                                    <Barcode className="h-4 w-4" />
+                                </Button>
+                            </Link>
                              <Link href={`/items/${item.id}`}>
                                 <Button variant="ghost" size="sm" className="h-8 group">
                                     <Eye className="h-4 w-4 mr-1.5 text-muted-foreground group-hover:text-foreground" /> {t.common.view}
@@ -477,6 +488,11 @@ export default function ItemsTable({ initialItems, categories, kits, canManageKi
                 </TableCell>
                 <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
+                         <Link href={`/items/print?ids=${item.id}`} title="พิมพ์บาร์โค้ด">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`พิมพ์บาร์โค้ด ${item.name}`}>
+                                <Barcode className="h-4 w-4" />
+                            </Button>
+                        </Link>
                          <Link href={`/items/${item.id}`}>
                             <Button variant="ghost" size="sm" className="h-8">
                                 <Eye className="h-4 w-4 mr-1.5" />
