@@ -16,9 +16,10 @@ import type { CrmSetting } from '../../types'
 export function StaffCard({ eventStaffGroups, staffRoles }: { eventStaffGroups: LeadEventStaff[]; staffRoles: CrmSetting[] }) {
   const { locale } = useLocale()
   // Get role label from settings
+  // หน้าที่ที่ไม่อยู่ในตั้งค่า (ถูกลบ/ปิดใช้) ไม่โชว์รหัสดิบ
   const getRoleLabel = (roleValue: string) => {
     const setting = staffRoles.find(s => s.value === roleValue)
-    if (!setting) return roleValue
+    if (!setting) return locale === 'th' ? 'ไม่ระบุหน้าที่' : 'No role'
     return locale === 'th' ? setting.label_th : setting.label_en
   }
   const getRoleColor = (roleValue: string) => {
@@ -82,8 +83,9 @@ export function StaffCard({ eventStaffGroups, staffRoles }: { eventStaffGroups: 
                         <div className="flex items-center justify-center h-7 w-7 rounded-full bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
                           {(s.full_name || '?').charAt(0).toUpperCase()}
                         </div>
-                        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate flex-1 min-w-0">
-                          {s.full_name || s.user_id}
+                        <span className={`text-sm truncate flex-1 min-w-0 ${s.full_name ? 'font-medium text-zinc-900 dark:text-zinc-100' : 'text-zinc-400'}`}>
+                          {/* ผู้ใช้ที่ไม่มี profile แล้ว (ถูกลบ) ไม่โชว์รหัสยาวๆ */}
+                          {s.full_name || (locale === 'th' ? 'ไม่พบผู้ใช้' : 'User not found')}
                         </span>
                         <Badge
                           variant="secondary"
