@@ -278,19 +278,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
 
       {graphicJobs.length > 0 && <GraphicJobsLink leadId={lead.id} count={graphicJobs.length} />}
 
-      {costSummary && (costSummary.claimCount > 0 || costSummary.revenue > 0) && (
-        <CostSummaryCard costSummary={costSummary} linkedEventCount={linkedEvents.length} />
-      )}
-
-      {linkedEvents.length > 0 && <LinkedEventsCard linkedEvents={linkedEvents} onPhaseChange={handlePhaseChange} />}
-
       <StatusBar settings={settings} status={lead.status} loading={loading} getStatusLabel={getStatusLabel} onChange={handleStatusChange} />
 
-      <TagsBar settings={settings} tags={tags} status={lead.status} loading={loading} getStatusLabel={getStatusLabel} onToggle={handleToggleTag} />
-
-      <StaffCard eventStaffGroups={eventStaffGroups} staffRoles={staffRoles} />
-
-      {/* Two Column Layout */}
+      {/* ข้อมูลที่แก้บ่อยสุด (ลูกค้า/อีเวนต์/การเงิน + ไทม์ไลน์) อยู่ถัดจากสถานะ — สรุปต้นทุน/อีเวนต์ที่ผูก/แท็ก/ทีมงาน ลงล่าง (v1.54.1) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Customer + Event + Financial Info */}
         <LeadCards
@@ -321,6 +311,16 @@ export default function LeadDetail({ lead, activities, settings, users, installm
           />
         </div>
       </div>
+
+      {costSummary && (costSummary.claimCount > 0 || costSummary.revenue > 0) && (
+        <CostSummaryCard costSummary={costSummary} linkedEventCount={linkedEvents.length} />
+      )}
+
+      {linkedEvents.length > 0 && <LinkedEventsCard linkedEvents={linkedEvents} onPhaseChange={handlePhaseChange} />}
+
+      <TagsBar settings={settings} tags={tags} status={lead.status} loading={loading} getStatusLabel={getStatusLabel} onToggle={handleToggleTag} />
+
+      <StaffCard eventStaffGroups={eventStaffGroups} staffRoles={staffRoles} />
       {confirmDialog}
     </div>
   )

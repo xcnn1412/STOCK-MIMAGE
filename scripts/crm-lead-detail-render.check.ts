@@ -171,6 +171,12 @@ const outDir = process.argv[2]
 if (outDir) fs.mkdirSync(outDir, { recursive: true })
 const write = (name: string, html: string) => { if (outDir) fs.writeFileSync(path.join(outDir, `${name}.html`), html) }
 const countIn = (html: string, needle: string) => html.split(needle).length - 1
+// ส่วนการ์ด 3 ใบ (ลูกค้า → อีเวนต์ → การเงิน) = ตั้งแต่หัว "ข้อมูลลูกค้า" ถึงก่อนไทม์ไลน์ (v1.54.1 การ์ดย้ายขึ้นมาก่อนสรุปต้นทุน/แท็ก/ทีมงาน)
+const cardsOf = (html: string) => {
+  const start = html.indexOf('ข้อมูลลูกค้า')
+  const end = html.indexOf('ไทม์ไลน์กิจกรรม', start)
+  return start < 0 ? '' : html.slice(start, end > start ? end : undefined)
+}
 // รูปสลิปต้องอยู่ใน <a href> (เปิดขนาดเต็มได้โดยไม่พึ่ง hover)
 const SLIP_LINK = /<a [^>]*href="https:\/\/x\.supabase\.co\/[^"]*slip-1\.jpg"[^>]*><img /
 const HTML: Partial<Record<'A' | 'B' | 'C', string>> = {}
@@ -187,9 +193,14 @@ for (const [name, props] of Object.entries(FIXTURES) as ['A' | 'B' | 'C', Props]
   } else {
     assert.ok(!html.includes('ยังไม่เลือกแพ็กเกจ'), `${name}: ไม่มีแพ็กเกจของงาน = แสดงชื่อเดิมเหมือนก่อน`)
   }
-  // ส่วนการ์ด 3 ใบ (ลูกค้า → อีเวนต์ → การเงิน) อยู่ท้ายหน้า
-  const cards = html.slice(html.indexOf('ข้อมูลลูกค้า'))
-  assert.ok(cards.length < html.length, `${name}: ต้องมีการ์ดข้อมูลลูกค้า`)
+  const cards = cardsOf(html)
+  assert.ok(cards.length > 0 && cards.length < html.length, `${name}: ต้องมีการ์ดข้อมูลลูกค้า`)
+  // ลำดับหน้า (v1.54.1): แถบสถานะ → การ์ด 3 ใบ → ไทม์ไลน์ → สรุปต้นทุน/อีเวนต์ที่ผูก/แท็ก/ทีมงาน
+  const at = (s: string) => html.indexOf(s)
+  assert.ok(at('สถานะปัจจุบัน') < at('ข้อมูลลูกค้า') && at('ข้อมูลลูกค้า') < at('ไทม์ไลน์กิจกรรม'), `${name}: สถานะ → การ์ด → ไทม์ไลน์`)
+  for (const s of ['สรุปต้นทุน', 'อีเวนต์ที่เชื่อมต่อ', 'แท็กทั่วไป', 'ทีมงาน & หน้าที่']) {
+    if (at(s) >= 0) assert.ok(at(s) > at('ไทม์ไลน์กิจกรรม'), `${name}: "${s}" ต้องอยู่หลังไทม์ไลน์`)
+  }
   assert.equal((cards.match(/\d{4}-\d{2}-\d{2}/g) || []).length, 0, `${name}: การ์ดโหมดดูไม่มีวันที่แบบ YYYY-MM-DD`)
   assert.equal(countIn(html, 'card-actions-top') + countIn(html, 'card-actions-bottom'), 0, `${name}: โหมดดูไม่มีปุ่มบันทึก/ยกเลิก`)
   HTML[name] = html
@@ -203,12 +214,15 @@ for (const [name, props] of Object.entries(FIXTURES) as ['A' | 'B' | 'C', Props]
   for (const s of ['20 ธันวาคม 2642', '21 ธันวาคม 2642', '15 สิงหาคม 2569', '14 สิงหาคม 2569']) assert.ok(A.includes(s), `A: ต้องมีวันที่ไทย "${s}"`)
   assert.ok(C.includes('1 มกราคม 2563'), 'C: วันจัดงานเป็นวันที่ไทย')
   // ชุด B ข้อมูลโล่ง: ไม่มีแถว "—" · ช่องหลักที่ว่าง (วันจัดงาน) ขึ้น "ไม่ระบุ" ไม่เกิน 4
-  const bCards = B.slice(B.indexOf('ข้อมูลลูกค้า'))
+  const bCards = cardsOf(B)
   assert.equal(countIn(bCards, '>—<'), 0, 'B: การ์ดไม่มีแถว "—"')
   const bUnset = countIn(bCards, 'ไม่ระบุ')
   assert.ok(bUnset >= 1 && bUnset <= 4, `B: "ไม่ระบุ" 1–4 ครั้ง (ได้ ${bUnset})`)
   assert.ok(!bCards.includes('LINE ID') && !bCards.includes('เลขใบเสนอราคา'), 'B: ช่องไม่หลักที่ว่างถูกซ่อน')
-  assert.equal(countIn(C.slice(C.indexOf('ข้อมูลลูกค้า')), '>—<'), 0, 'C: การ์ดไม่มีแถว "—"')
+  assert.equal(countIn(cardsOf(C), '>—<'), 0, 'C: การ์ดไม่มีแถว "—"')
+  // การ์ดทีมงาน (v1.54.1): ผู้ใช้ที่ไม่มี profile / หน้าที่ที่ไม่อยู่ในตั้งค่า ไม่โชว์รหัสดิบ
+  assert.ok(A.includes('ไม่พบผู้ใช้') && A.includes('ไม่ระบุหน้าที่'), 'A: ทีมงานที่หาไม่เจอแสดง "ไม่พบผู้ใช้" / "ไม่ระบุหน้าที่"')
+  assert.ok(!A.includes('unknown_role') && !A.includes(uid(3)), 'A: ไม่มีรหัสดิบของผู้ใช้/หน้าที่ในการ์ดทีมงาน')
   // สลิป: โหมดดูอัปโหลด/เปลี่ยนได้ ไม่มีปุ่มลบ · รูปเป็นลิงก์
   assert.equal(countIn(A, '>ลบ<'), 0, 'A: โหมดดูไม่มีปุ่มลบสลิป')
   assert.ok(A.includes('อัพโหลดสลิป') && A.includes('เปลี่ยน') && A.includes('ดูขนาดเต็ม'), 'A: โหมดดูยังอัปโหลด/เปลี่ยน/ดูสลิปได้')
