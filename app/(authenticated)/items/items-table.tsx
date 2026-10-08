@@ -125,6 +125,7 @@ export default function ItemsTable({ initialItems, categories, kits, canManageKi
       item.name.toLowerCase().includes(searchText) ||
       (item.category || '').toLowerCase().includes(searchText) ||
       (item.serial_number || '').toLowerCase().includes(searchText) ||
+      (item.code || '').toLowerCase().includes(searchText) ||
       kitName.toLowerCase().includes(searchText) ||
       eventName.toLowerCase().includes(searchText) ||
       shelfOf(item).toLowerCase().includes(searchText)
@@ -269,7 +270,8 @@ export default function ItemsTable({ initialItems, categories, kits, canManageKi
                              
                              <div className="mt-2 text-sm grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
                                  <div>{t.items.columns.qty}: <span className="text-foreground">{qtyText(item)}</span></div>
-                                 <div className="truncate">SN: <span className="text-foreground">{item.serial_number || '-'}</span></div>
+                                 <div className="truncate font-mono">รหัส: <span className="text-foreground">{item.code || '-'}</span></div>
+                                 <div className="truncate col-span-2">SN: <span className="text-foreground">{item.serial_number || '-'}</span></div>
                              </div>
                          </div>
                      </div>
@@ -360,7 +362,9 @@ export default function ItemsTable({ initialItems, categories, kits, canManageKi
               <TableHead onClick={() => handleSort('quantity')} className="cursor-pointer hover:bg-zinc-50 w-[6%]">
                   <div className="flex items-center gap-1">{t.items.columns.qty} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
-              <TableHead className="w-[8%]">{t.items.columns.serial}</TableHead>
+              <TableHead onClick={() => handleSort('code')} className="cursor-pointer hover:bg-zinc-50 w-[9%]">
+                  <div className="flex items-center gap-1">รหัส / {t.items.columns.serial} <ArrowUpDown className="h-3 w-3" /></div>
+              </TableHead>
               <TableHead onClick={() => handleSort('kit')} className="cursor-pointer hover:bg-zinc-50 w-[12%]">
                   <div className="flex items-center gap-1">{t.items.columns.kit} <ArrowUpDown className="h-3 w-3" /></div>
               </TableHead>
@@ -428,7 +432,10 @@ export default function ItemsTable({ initialItems, categories, kits, canManageKi
                   />
                 </TableCell>
                 <TableCell className="text-center">{qtyText(item)}</TableCell>
-                <TableCell className="font-mono text-xs truncate" title={displaySerial}>{displaySerial}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  <span className="block font-semibold" title="รหัสอุปกรณ์ (ระบบออกให้)">{item.code || '-'}</span>
+                  <span className="block text-zinc-500 truncate" title={item.serial_number || ''}>{displaySerial}</span>
+                </TableCell>
                 <TableCell className="truncate">
                     {canManageKits && !item.is_consumable ? (
                         <InlineSelect

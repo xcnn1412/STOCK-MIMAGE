@@ -191,6 +191,11 @@ export default function EditItemForm({ item, categories, returnTo }: { item: Ite
               <label htmlFor="name" className="text-sm font-medium leading-none">{t.items.fields.name}</label>
               <Input id="name" name="name" defaultValue={item.name} required />
             </div>
+
+            <div className="space-y-2">
+              <label htmlFor="item_code" className="text-sm font-medium leading-none">รหัสอุปกรณ์ (ระบบออกให้ ใช้ทำบาร์โค้ด)</label>
+              <Input id="item_code" value={item.code || '-'} readOnly className="font-mono bg-muted" />
+            </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
