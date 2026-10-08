@@ -175,6 +175,8 @@ export interface Database {
           is_consumable: boolean
           unit: string | null
           min_quantity: number | null
+          /** รหัสอุปกรณ์ที่ระบบออกให้ MI-000001 (migration 20261015) — DB ใส่เอง แก้ไม่ได้ ใช้ทำบาร์โค้ด */
+          code: string
         }
         Insert: {
           id?: string
