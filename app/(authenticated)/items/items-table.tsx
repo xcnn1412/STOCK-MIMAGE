@@ -9,6 +9,10 @@ import { Eye, Trash, ArrowUpDown, Search, Filter, RefreshCw, Droplet } from "luc
 import { Card } from "@/components/ui/card"
 import { deleteItemAction } from './[id]/delete-action'
 import { cleanupOrphanedItems } from './cleanup-items'
+import { quickUpdateItem } from './actions'
+import { QUICK_STATUSES } from './quick-statuses'
+import type { EquipmentCategory } from '../stock/categories'
+import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
@@ -37,8 +41,28 @@ import { stockLevel } from '../shelves/consumable-logic'
 const qtyText = (item: Item) => (item.is_consumable ? `${item.quantity ?? 0} ${item.unit || ''}`.trim() : String(item.quantity || 1))
 const inKitsOf = (item: Item) => (item.kit_contents || []).reduce((n, c) => n + (c.quantity || 0), 0)
 
-export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
+export interface ItemsTableProps {
+  initialItems: Item[]
+  categories: EquipmentCategory[]
+  kits: { id: string; name: string }[]
+  /** ย้ายของเข้า/ออกกระเป๋าได้ (admin / แผนกที่ดูแลกระเป๋า) */
+  canManageKits: boolean
+}
+
+const NONE = 'none'
+const isQuickStatus = (s: string) => (QUICK_STATUSES as readonly string[]).includes(s)
+
+export default function ItemsTable({ initialItems, categories, kits, canManageKits }: ItemsTableProps) {
   const { t } = useLanguage()
+  const categoryOpts = [{ value: NONE, label: 'ไม่ระบุ' }, ...categories.map(c => ({ value: c.id, label: c.name }))]
+  const kitOpts = [{ value: NONE, label: 'ไม่อยู่ในกระเป๋า' }, ...kits.map(k => ({ value: k.id, label: k.name }))]
+  // สถานะปัจจุบันที่ตั้งเองไม่ได้ (เช่น กำลังใช้งาน) ยังต้องอยู่ในรายการให้ช่องแสดงค่าได้ แต่เลือกกลับไม่ได้
+  const statusOpts = (current: string) =>
+    (isQuickStatus(current) ? [...QUICK_STATUSES] : [current, ...QUICK_STATUSES]).map(k => ({
+      value: k,
+      label: t.items.status[k as keyof typeof t.items.status] || k,
+      disabled: !isQuickStatus(k),
+    }))
   const items = initialItems
   const [isPending, startTransition] = useTransition()
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null)
@@ -395,11 +419,26 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                   {item.name}
                   {item.is_consumable && <div><ConsumableBadge /></div>}
                 </TableCell>
-                <TableCell className="truncate" title={item.category || ''}>{item.category || '-'}</TableCell>
+                <TableCell title={item.category || ''}>
+                  <InlineSelect
+                    value={item.category_id || NONE}
+                    options={categoryOpts}
+                    ariaLabel={`ประเภทของ ${item.name}`}
+                    onChange={v => quickUpdateItem(item.id, { category_id: v === NONE ? null : v })}
+                  />
+                </TableCell>
                 <TableCell className="text-center">{qtyText(item)}</TableCell>
                 <TableCell className="font-mono text-xs truncate" title={displaySerial}>{displaySerial}</TableCell>
                 <TableCell className="truncate">
-                    {kit ? (
+                    {canManageKits && !item.is_consumable ? (
+                        <InlineSelect
+                          value={kit?.id || NONE}
+                          options={kitOpts}
+                          ariaLabel={`กระเป๋าของ ${item.name}`}
+                          disabled={!!event}
+                          onChange={v => quickUpdateItem(item.id, { kit_id: v === NONE ? null : v })}
+                        />
+                    ) : kit ? (
                         <span className="text-sm truncate block" title={kit.name}>📦 {kit.name}</span>
                     ) : !shelfOf(item) && (
                         <span className="text-zinc-400 text-sm">-</span>
@@ -416,7 +455,15 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
                     )}
                 </TableCell>
                 <TableCell>
-                  {item.is_consumable ? <StockBadge item={item} /> : <StatusBadge status={displayStatus} t={t} />}
+                  {item.is_consumable ? <StockBadge item={item} /> : event ? <StatusBadge status={displayStatus} t={t} /> : (
+                    <InlineSelect
+                      value={displayStatus}
+                      options={statusOpts(displayStatus)}
+                      ariaLabel={`สถานะของ ${item.name}`}
+                      className={STATUS_STYLES[displayStatus]}
+                      onChange={v => quickUpdateItem(item.id, { status: v })}
+                    />
+                  )}
                 </TableCell>
                 <TableCell className="text-right">
                   {item.price ? `$${item.price}` : '-'}
@@ -486,17 +533,57 @@ export default function ItemsTable({ initialItems }: { initialItems: Item[] }) {
   )
 }
 
+const STATUS_STYLES: Record<string, string> = {
+  available: "bg-green-100 text-green-800 hover:bg-green-100 border-transparent",
+  in_use: "bg-blue-100 text-blue-800 hover:bg-blue-100 border-transparent",
+  maintenance: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100 border-transparent",
+  lost: "bg-red-100 text-red-800 hover:bg-red-100 border-transparent",
+  purchasing: "bg-purple-100 text-purple-800 hover:bg-purple-100 border-transparent",
+  damaged: "bg-orange-100 text-orange-800 hover:bg-orange-100 border-transparent",
+  out_of_stock: "bg-gray-100 text-gray-800 hover:bg-gray-100 border-transparent",
+}
+
+/**
+ * ช่องเลือกในตาราง — เปลี่ยนแล้วบันทึกทันที ไม่ต้องเข้าหน้ารายละเอียด
+ * ไม่ถือ state ค่าเอง: action revalidate /items แล้ว props ใหม่ส่งค่าจริงกลับมา · ระหว่างรอปิดช่องไว้
+ */
+function InlineSelect({ value, options, onChange, ariaLabel, disabled, className }: {
+  value: string
+  options: { value: string; label: string; disabled?: boolean }[]
+  onChange: (v: string) => Promise<{ error?: string; warning?: string }>
+  ariaLabel: string
+  disabled?: boolean
+  className?: string
+}) {
+  const [pending, startTransition] = useTransition()
+  return (
+    <Select
+      value={value}
+      disabled={disabled || pending}
+      onValueChange={v => {
+        if (v === value) return
+        startTransition(async () => {
+          const r = await onChange(v)
+          if (r.error) toast.error(r.error)
+          else if (r.warning) toast.warning(r.warning)
+        })
+      }}
+    >
+      <SelectTrigger size="sm" aria-label={ariaLabel} className={cn('h-7 w-full max-w-full px-2 text-xs shadow-none', className)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(o => (
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled}>{o.label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function StatusBadge({ status, t }: { status: string, t: ReturnType<typeof useLanguage>['t'] }) {
-  const styles: Record<string, string> = {
-    available: "bg-green-100 text-green-800 hover:bg-green-100 border-transparent",
-    in_use: "bg-blue-100 text-blue-800 hover:bg-blue-100 border-transparent",
-    maintenance: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100 border-transparent",
-    lost: "bg-red-100 text-red-800 hover:bg-red-100 border-transparent",
-    purchasing: "bg-purple-100 text-purple-800 hover:bg-purple-100 border-transparent",
-    damaged: "bg-orange-100 text-orange-800 hover:bg-orange-100 border-transparent",
-    out_of_stock: "bg-gray-100 text-gray-800 hover:bg-gray-100 border-transparent",
-  }
-  
+  const styles = STATUS_STYLES
+
   const statusLabel = status === 'in_use' ? t.items.status.in_use : (t.items.status[status as keyof typeof t.items.status] || status)
 
   return <Badge variant="outline" className={styles[status] || ""}>{statusLabel}</Badge>
