@@ -9,7 +9,9 @@ import { getKitManager } from '@/lib/kit-bookings'
 import { moveStock } from '@/lib/stock'
 import { parseConsumableFields } from '@/app/(authenticated)/shelves/consumable-logic'
 import { resolveCategory } from '@/app/(authenticated)/stock/categories'
-import type { ActionState, Database } from '@/types'
+import { addItemToKit, removeItemFromKit } from '@/app/(authenticated)/kits/[id]/actions'
+import { QUICK_STATUSES } from './quick-statuses'
+import type { ActionState } from '@/types'
 
 
 export async function createItem(prevState: ActionState, formData: FormData) {
@@ -135,4 +137,62 @@ export async function createItem(prevState: ActionState, formData: FormData) {
 
   revalidatePath('/items')
   redirect('/items')
+}
+
+/**
+ * แก้ด่วนจากตาราง /items ทีละช่อง: ประเภท · สถานะ · กระเป๋า (ส่งมาเฉพาะช่องที่เปลี่ยน)
+ * กระเป๋า = ย้ายผ่าน addItemToKit/removeItemFromKit ของหน้ากระเป๋า (สิทธิ์ + กติกาออกงานอยู่ที่นั่น)
+ * วัสดุสิ้นเปลืองแก้ได้เฉพาะประเภท (ยอด/สถานะ/กระเป๋าหลายใบจัดการที่หน้าชั้นและหน้ากระเป๋า)
+ */
+export async function quickUpdateItem(
+  itemId: string,
+  patch: { category_id?: string | null; status?: string; kit_id?: string | null },
+): Promise<{ error?: string; warning?: string }> {
+  const session = await requireAuth()
+  if (!session?.userId) return { error: 'Unauthorized: No active session' }
+
+  const supabase = createServiceClient()
+  const { data: item } = await supabase
+    .from('items')
+    .select('id, name, status, category, is_consumable, kit_contents(id, kit_id)')
+    .eq('id', itemId)
+    .maybeSingle<{ id: string; name: string; status: string | null; category: string | null; is_consumable: boolean | null; kit_contents: { id: string; kit_id: string }[] }>()
+  if (!item) return { error: 'ไม่พบอุปกรณ์ — โหลดหน้าใหม่แล้วลองอีกครั้ง' }
+
+  if ('category_id' in patch) {
+    const cat = await resolveCategory(supabase, patch.category_id ?? '')
+    if ('error' in cat) return cat
+    const { error } = await supabase.from('items').update(cat).eq('id', itemId)
+    if (error) return { error: 'บันทึกประเภทไม่สำเร็จ' }
+    await logActivity('UPDATE_ITEM', { itemId, name: item.name, field: 'category', from: item.category, to: cat.category })
+  }
+
+  if (patch.status !== undefined) {
+    if (item.is_consumable) return { error: 'วัสดุสิ้นเปลืองไม่มีสถานะ — ดูระดับสต็อกที่หน้าชั้น' }
+    if (!(QUICK_STATUSES as readonly string[]).includes(patch.status)) return { error: 'สถานะนี้ตั้งเองไม่ได้ — "กำลังใช้งาน" เปลี่ยนตามการหยิบ/คืนของ' }
+    const { error } = await supabase.from('items').update({ status: patch.status }).eq('id', itemId)
+    if (error) return { error: 'บันทึกสถานะไม่สำเร็จ' }
+    await logActivity('UPDATE_ITEM', { itemId, name: item.name, field: 'status', from: item.status, to: patch.status })
+  }
+
+  let warning: string | undefined
+  if ('kit_id' in patch) {
+    if (item.is_consumable) return { error: 'วัสดุสิ้นเปลืองอยู่ได้หลายกระเป๋า — จัดการที่หน้ากระเป๋า' }
+    const current = item.kit_contents[0]
+    const next = patch.kit_id || null
+    if (current?.kit_id !== next) {
+      if (current) {
+        const removed = await removeItemFromKit(current.id, current.kit_id)
+        if (removed?.error) return removed
+      }
+      if (next) {
+        const added = await addItemToKit(next, itemId, 1)
+        if (added?.error) return added
+        warning = added?.warning
+      }
+    }
+  }
+
+  revalidatePath('/items')
+  return warning ? { warning } : {}
 }

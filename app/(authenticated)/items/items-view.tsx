@@ -6,8 +6,9 @@ import { Plus } from "lucide-react"
 import ItemsTable from './items-table'
 import { useLanguage } from '@/contexts/language-context'
 import type { Item } from '@/types'
+import type { ItemsTableProps } from './items-table'
 
-export default function ItemsView({ items }: { items: Item[] }) {
+export default function ItemsView({ items, ...rest }: { items: Item[] } & Omit<ItemsTableProps, 'initialItems'>) {
     const { t } = useLanguage()
     
     return (
@@ -21,7 +22,7 @@ export default function ItemsView({ items }: { items: Item[] }) {
                 </Link>
             </div>
 
-            <ItemsTable initialItems={items} />
+            <ItemsTable initialItems={items} {...rest} />
         </div>
     )
 }
