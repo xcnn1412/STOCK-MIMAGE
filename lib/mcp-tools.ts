@@ -13,7 +13,9 @@ import {
   isPast,
   kitReadinessByLead,
   missingLabel,
+  type PoolJob,
 } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
+import { DESIGN_OPTIONS } from '@/app/(authenticated)/jobs/tracking/design-options'
 import { CLAIM_STATUSES, CLAIM_TYPES, getCategoryLabel, getClaimStatusLabel } from '@/app/(authenticated)/costs/types'
 import { isOpenClaim } from './finance/conditions'
 import { claimsQuery, readAllRows, selectColumns, type ClaimsQueryFilters } from '@/app/(authenticated)/finance/claim-db'
@@ -563,35 +565,56 @@ const eventClosures = defineTool({
   },
 })
 
+/** ป้ายไทยของสถานะออกแบบ (9 ขั้นใน DESIGN_OPTIONS) — ค่าว่าง = ยังไม่เริ่ม · ค่าที่ไม่รู้จักแสดงดิบ */
+const DESIGN_LABEL: Record<string, string> = Object.fromEntries(DESIGN_OPTIONS.map(o => [o.value, o.label]))
+const designLabel = (v: string | null | undefined) => DESIGN_LABEL[v || 'not_started'] ?? (v as string)
+
 const jobReadiness = defineTool({
   name: 'job_readiness',
   module: 'jobs',
-  description: 'งานที่ยังไม่พร้อม (กติกาเดียวกับหน้าติดตามงาน) — คืนชื่อลูกค้า วันงาน สิ่งที่ยังขาด (ออกแบบ/จัดคน/จัดรถ/เวลาเริ่ม/จัดของ) และกระเป๋าที่จองไว้',
-  schema: z.object({}),
-  async run() {
+  description: 'งานในหน้าติดตามงาน (ค่าเริ่มต้น = เฉพาะงานที่ยังไม่พร้อม กติกาเดียวกับหน้าติดตามงาน · scope=all เห็นทุกงานรวมที่พร้อมแล้ว) — '
+    + 'คืนชื่อลูกค้า วันงาน สถานะออกแบบ (ระดับงาน + รายใบงานกราฟิก) สิ่งที่ยังขาด (ออกแบบ/จัดคน/จัดรถ/เวลาเริ่ม/จัดของ) และกระเป๋าที่จองไว้ '
+    + '· บรรทัดสรุปนับจำนวนงานต่อสถานะออกแบบให้แล้ว',
+  schema: z.object({
+    scope: z.enum(['not_ready', 'all']).optional().describe('not_ready = เฉพาะงานที่ยังขาดอะไรสักอย่าง (ค่าเริ่มต้น) · all = ทุกงานในหน้าติดตามงาน ใช้สรุปแยกตามสถานะออกแบบ'),
+    include_past: z.boolean().optional().describe('true = รวมงานที่วันงานผ่านไปแล้ว (ค่าเริ่มต้นไม่รวม เหมือนหน้าติดตามงาน)'),
+  }),
+  async run(_db, args) {
     // ponytail: getTrackingSnapshot สร้าง service client เอง (ไม่รับ db) — ส่ง session เปล่าเพราะไม่มี cookie ใน /api/mcp
     const snap = await getTrackingSnapshot({ session: {} })
     const today = new Date()
     // เหมือน tracking-view: มุมมองปกติไม่รวมงานที่ผ่านไปแล้ว · ออกแบบตัดสินจากใบงานกราฟิก (ไม่มีใบ = ขาด)
-    const base = snap.rows.filter(r => !isPast(r, today))
+    const base = args.include_past ? snap.rows : snap.rows.filter(r => !isPast(r, today))
     const kitReadiness = kitReadinessByLead(snap.rows, snap.poolJobs, snap.kitBookings, undefined, snap.packingLists)
     const readyByJobs = designReadyByLead(snap.poolJobs)
     const kitName = new Map(snap.kits.map(k => [k.id, k.name]))
+    const graphicJobs = new Map<string, PoolJob[]>()
+    for (const j of snap.poolJobs) {
+      if (j.job_type !== 'graphic' || !j.crm_lead_id) continue
+      graphicJobs.set(j.crm_lead_id, [...(graphicJobs.get(j.crm_lead_id) ?? []), j])
+    }
 
-    const notReady = base
-      .map(r => ({ lead: r, missing: getMissing(r, kitReadiness.get(r.id), readyByJobs.get(r.id) ?? false) }))
-      .filter(x => x.missing.length > 0)
-    const rows = notReady.map(({ lead, missing }) => ({
+    const all = base.map(r => ({ lead: r, missing: getMissing(r, kitReadiness.get(r.id), readyByJobs.get(r.id) ?? false) }))
+    const picked = args.scope === 'all' ? all : all.filter(x => x.missing.length > 0)
+    const rows = picked.map(({ lead, missing }) => ({
       leadId: lead.id,
       customer: lead.customer_name,
       eventDate: lead.event_date,
       location: lead.event_name,
+      // สถานะออกแบบระดับงาน = crm_leads.design_status (cache จากใบกราฟิกใบหลัก) · รายใบ = ใบเก่าที่ยังไม่ตั้งค่าตกไปใช้ค่าระดับงาน (เหมือน DesignCell)
+      design_status: designLabel(lead.design_status),
+      design_jobs: (graphicJobs.get(lead.id) ?? []).map(j => ({ title: j.title, status: j.status, design_status: designLabel(j.design_status || lead.design_status) })),
+      ready: missing.length === 0,
       missing: missing.map(m => missingLabel(m, lead, snap.roleLabels)),
       kits: snap.kitBookings
         .filter(b => b.leadId === lead.id)
         .map(b => ({ name: kitName.get(b.kitId) ?? 'ไม่ระบุชื่อ', event: b.eventName, packed: b.packed })),
     }))
-    return capped(rows, `งานที่ยังไม่พร้อม ${rows.length} จาก ${base.length} งาน`)
+    const byDesign = new Map<string, number>()
+    for (const r of rows) byDesign.set(r.design_status, (byDesign.get(r.design_status) ?? 0) + 1)
+    const counts = [...byDesign].map(([k, n]) => `${k} ${n}`).join(' · ')
+    const head = args.scope === 'all' ? `งานในหน้าติดตามงาน ${rows.length} งาน` : `งานที่ยังไม่พร้อม ${rows.length} จาก ${base.length} งาน`
+    return capped(rows, counts ? `${head} · สถานะออกแบบ: ${counts}` : head)
   },
 })
 
@@ -1142,7 +1165,7 @@ const commissionSummary = defineTool({
 // ทุกคนที่มีโมดูล CRM เห็นทุกลีด (เหมือนหน้า CRM) · ไม่ขอ/ไม่ส่ง customer_line และ notes · เบอร์โทรส่งแค่ 4 ตัวท้าย (phone_last4)
 
 const LEAD_COLUMNS = 'id, status, customer_name, customer_phone, customer_type, work_type, unit_count, lead_source, event_date, event_end_date, '
-  + 'event_time, event_end_time, event_location, package_name, quoted_price, confirmed_price, deposit, vat_mode, assigned_sales, is_returning, quotation_ref, created_at'
+  + 'event_time, event_end_time, event_location, package_name, quoted_price, confirmed_price, deposit, vat_mode, assigned_sales, is_returning, quotation_ref, created_at, design_status'
 
 type RawLead = {
   id: string
@@ -1161,6 +1184,7 @@ type RawLead = {
   assigned_sales: string[] | null
   is_returning: boolean | null
   created_at: string
+  design_status: string | null
 }
 
 /** '081-234-5678' → '***-***-5678' · ตัวเลขน้อยกว่า 4 หลัก/ไม่มี = null */
@@ -1212,6 +1236,7 @@ function leadRow(l: RawLead, labels: CrmLabels, names: Map<string, string>) {
     is_returning: !!l.is_returning,
     phone_last4: phoneLast4(l.customer_phone),
     created_at: day(l.created_at),
+    design_status: designLabel(l.design_status),
   }
 }
 
@@ -1219,7 +1244,7 @@ const searchLeads = defineTool({
   name: 'search_leads',
   module: 'crm',
   description: 'ค้นหาลีดใน CRM ตามคำค้น (ชื่อลูกค้า / สถานที่ / เลขใบเสนอราคา) สถานะ ช่วงวันงาน คนขาย หรือประเภทงาน (ค่าเริ่มต้น 50 รายการ ใหม่สุดก่อน) — '
-    + 'คืนลูกค้า สถานะ ประเภทงาน วันงาน เวลา สถานที่ แพ็กเกจ ราคาเสนอ/ยืนยัน มัดจำ คนขาย ลูกค้าเก่าหรือไม่ เบอร์โทร 4 ตัวท้าย และวันที่สร้าง (ไม่มี LINE/เบอร์เต็ม/โน้ต)',
+    + 'คืนลูกค้า สถานะ ประเภทงาน วันงาน เวลา สถานที่ แพ็กเกจ ราคาเสนอ/ยืนยัน มัดจำ คนขาย ลูกค้าเก่าหรือไม่ เบอร์โทร 4 ตัวท้าย วันที่สร้าง และสถานะออกแบบ (ไม่มี LINE/เบอร์เต็ม/โน้ต)',
   schema: z.object({
     q: z.string().max(100).optional().describe('คำค้น: ชื่อลูกค้า สถานที่จัดงาน หรือเลขใบเสนอราคา (ค้นแบบบางส่วน)'),
     status: z.string().max(50).optional().describe('สถานะ เช่น lead, quotation_sent, accepted, success, rejected, cancelled หรือป้ายภาษาไทยตามหน้า CRM'),
