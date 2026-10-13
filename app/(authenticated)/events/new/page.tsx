@@ -19,7 +19,7 @@ export default async function NewEventPage({ searchParams }: PageProps) {
   // Fetch all user profiles for staff/seller selection
   const { data: profiles } = await supabase
     .from('profiles')
-    .select('id, full_name, role')
+    .select('id, full_name, nickname, role')
     .order('full_name')
 
   // Fetch staff role settings

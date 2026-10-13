@@ -3,7 +3,14 @@
 export interface Profile {
   id: string
   full_name: string | null
+  nickname?: string | null
   role: string
+}
+
+/** ป้ายชื่อในส่วน "ทีมงาน & หน้าที่": `ชื่อเล่น | ชื่อจริง` · ไม่มีชื่อเล่น = ชื่อจริง */
+export function staffLabel(p: { full_name: string | null; nickname?: string | null } | undefined, fallback = ''): string {
+  const name = p?.full_name || fallback
+  return p?.nickname ? `${p.nickname} | ${name}` : name
 }
 
 export interface StaffRole {

@@ -18,7 +18,7 @@ import { useLanguage } from '@/contexts/language-context'
 import EventsLogSheet, { type EventLog } from '../../events-log-sheet'
 import type { Event } from '@/types'
 import { EVENT_PHASES } from '../../../crm/event-phases'
-import type { Profile, StaffRole, StaffAssignment } from '../../event-form-types'
+import { staffLabel, type Profile, type StaffRole, type StaffAssignment } from '../../event-form-types'
 
 const Label = ({ children, htmlFor, className }: { children: React.ReactNode; htmlFor?: string; className?: string }) => (
   <label htmlFor={htmlFor} className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${className}`}>{children}</label>
@@ -307,7 +307,7 @@ export default function EditEventForm({
                     <SelectContent>
                       {profiles.map(p => (
                         <SelectItem key={p.id} value={p.id}>
-                          {p.full_name || p.id}
+                          {staffLabel(p, p.id)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -356,7 +356,7 @@ export default function EditEventForm({
                           {(a.full_name || '?').charAt(0).toUpperCase()}
                         </div>
                         <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
-                          {a.full_name}
+                          {staffLabel(profiles.find(p => p.id === a.user_id), a.full_name)}
                         </span>
                         {a.user_id.startsWith('legacy_') && (
                           <Badge variant="outline" className="text-[9px] shrink-0 border-amber-300 text-amber-600 dark:text-amber-400">
