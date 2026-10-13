@@ -278,16 +278,18 @@ export const MAX_LEAD_PACKAGE_QTY = 20
  * (ไม่ import จาก purchasing-logic เพราะลากโมดูล costs/sales-board เข้า bundle ฝั่ง client — เปลี่ยนชื่อแผนกต้องแก้ทุกที่)
  */
 export const COORDINATOR_DEPARTMENT = 'ฝ่ายประสานงาน'
+/** ทีมแอดมิน (แผนก ไม่ใช่ role admin) — แก้แพ็กเกจของทุกงานได้เหมือนฝ่ายประสานงาน · ค่าตรงกับ lib/departments.ts */
+export const ADMIN_DEPARTMENT = 'ฝ่ายแอดมิน'
 
 /**
- * เลือก/แก้แพ็กเกจของงานได้ไหม — กติกาเดียวกับการแก้การ์ด CRM: แอดมิน · ฝ่ายประสานงาน · ผู้สร้างการ์ด
+ * เลือก/แก้แพ็กเกจของงานได้ไหม — แอดมิน · ฝ่ายแอดมิน · ฝ่ายประสานงาน · ผู้สร้างการ์ด
  * (server ตรวจซ้ำใน setLeadPackages · ฝั่งหน้าจอใช้ซ่อนปุ่มเท่านั้น)
  */
 export function canEditLeadPackages(
   viewer: { userId: string | null | undefined; isAdmin: boolean; department: string | null | undefined },
   createdBy: string | null | undefined,
 ): boolean {
-  if (viewer.isAdmin || viewer.department === COORDINATOR_DEPARTMENT) return true
+  if (viewer.isAdmin || viewer.department === COORDINATOR_DEPARTMENT || viewer.department === ADMIN_DEPARTMENT) return true
   return !!viewer.userId && !!createdBy && viewer.userId === createdBy
 }
 

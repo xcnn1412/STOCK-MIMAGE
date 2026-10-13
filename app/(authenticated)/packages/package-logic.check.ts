@@ -232,6 +232,7 @@ assert.deepEqual(capacityWarnings(base()), [])
 // สิทธิ์เลือกแพ็กเกจ: แอดมิน / ฝ่ายประสานงาน / ผู้สร้างการ์ด
 assert.equal(canEditLeadPackages({ userId: 'u1', isAdmin: true, department: null }, 'u2'), true)
 assert.equal(canEditLeadPackages({ userId: 'u1', isAdmin: false, department: 'ฝ่ายประสานงาน' }, 'u2'), true)
+assert.equal(canEditLeadPackages({ userId: 'u1', isAdmin: false, department: 'ฝ่ายแอดมิน' }, 'u2'), true)
 assert.equal(canEditLeadPackages({ userId: 'u2', isAdmin: false, department: 'ฝ่ายขาย' }, 'u2'), true)
 assert.equal(canEditLeadPackages({ userId: 'u1', isAdmin: false, department: 'ฝ่ายขาย' }, 'u2'), false)
 assert.equal(canEditLeadPackages({ userId: null, isAdmin: false, department: null }, null), false)

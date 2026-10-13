@@ -273,7 +273,7 @@ export async function setLeadPackages(leadId: string, picks: LeadPackagePick[]):
     .maybeSingle<{ id: string; customer_name: string | null; created_by: string | null; quoted_price: number | null; status: string | null }>()
   if (!lead) return { error: 'ไม่พบงานนี้' }
   if (!canEditLeadPackages({ userId: session.userId, isAdmin: session.role === 'admin', department: session.department }, lead.created_by)) {
-    return { error: 'เฉพาะแอดมิน ฝ่ายประสานงาน และผู้สร้างการ์ดเท่านั้นที่เลือกแพ็กเกจให้งานได้' }
+    return { error: 'เฉพาะแอดมิน ฝ่ายแอดมิน ฝ่ายประสานงาน และผู้สร้างการ์ดเท่านั้นที่เลือกแพ็กเกจให้งานได้' }
   }
 
   const { data: existing, error: existingError } = await db.from('lead_packages').select('id, package_id').eq('lead_id', leadId)
