@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import {
     LogOut, Menu, X,
     PanelLeftClose, PanelLeftOpen,
-    ChevronDown, ChevronRight, User, BookOpen, Trophy, Sparkles, Plug,
+    ChevronDown, ChevronRight, User, BookOpen, GraduationCap, Trophy, Sparkles, Plug,
 } from "lucide-react"
 import { logout } from '@/app/login/actions'
 import { useLanguage } from '@/contexts/language-context'
@@ -336,6 +336,28 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
                     )}
                     <BookOpen className="h-4 w-4 shrink-0" />
                     {(!collapsed || isMobile) && <span className="truncate">{t.nav.howto || 'คู่มือใช้งาน'}</span>}
+                </Link>
+
+                {/* เรียนรู้ระบบ — คู่มือพาทำทีละขั้น (เห็นได้ทุก user, หน้า static ใต้ /learn) */}
+                <Link
+                    href="/learn/packing"
+                    onClick={isMobile ? closeMobile : undefined}
+                    className={`
+                        relative w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-[13.5px] font-medium
+                        transition-all duration-150
+                        ${collapsed && !isMobile ? 'justify-center' : ''}
+                        ${isActive('/learn')
+                            ? 'bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-semibold'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20'
+                        }
+                    `}
+                    title="เรียนรู้ระบบจัดของ"
+                >
+                    {isActive('/learn') && (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-emerald-500 dark:bg-emerald-400" />
+                    )}
+                    <GraduationCap className="h-4 w-4 shrink-0" />
+                    {(!collapsed || isMobile) && <span className="truncate">เรียนรู้ระบบจัดของ</span>}
                 </Link>
 
                 {/* What's New — บันทึกอัปเดตของระบบ (เห็นได้ทุก user, ข้อมูลจาก whats-new/updates.ts) */}
