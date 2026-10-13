@@ -351,13 +351,13 @@ export default function Sidebar({ role, allowedModules = ['stock'], licenseExpir
                             : 'text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20'
                         }
                     `}
-                    title="เรียนรู้ระบบจัดของ"
+                    title="บทเรียน"
                 >
                     {isActive('/learn') && (
                         <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-emerald-500 dark:bg-emerald-400" />
                     )}
                     <GraduationCap className="h-4 w-4 shrink-0" />
-                    {(!collapsed || isMobile) && <span className="truncate">เรียนรู้ระบบจัดของ</span>}
+                    {(!collapsed || isMobile) && <span className="truncate">บทเรียน</span>}
                 </Link>
 
                 {/* What's New — บันทึกอัปเดตของระบบ (เห็นได้ทุก user, ข้อมูลจาก whats-new/updates.ts) */}
