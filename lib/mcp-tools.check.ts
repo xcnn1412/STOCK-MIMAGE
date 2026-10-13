@@ -111,12 +111,17 @@ const tables: Record<string, Row[]> = {
     { id: 'lead-ready', status: 'accepted', customer_name: 'คุณพร้อม', event_location: 'โรงแรม A', event_date: plus(2), event_end_date: null, event_time: '09:00:00', event_end_time: null, design_status: 'completed', supplier_note: null, backdrop_note: null, tracking_checklist: ['car_triton'], required_roles: {}, archived_at: null, prep_done_at: null },
     { id: 'lead-missing', status: 'accepted', customer_name: 'คุณขาด', event_location: 'ออฟฟิศ B', event_date: plus(10), event_end_date: null, event_time: null, event_end_time: null, design_status: 'not_started', supplier_note: null, backdrop_note: null, tracking_checklist: [], required_roles: { photographer: 2 }, archived_at: null, prep_done_at: null },
     { id: 'lead-past', status: 'accepted', customer_name: 'คุณผ่านไปแล้ว', event_location: 'ที่เก่า', event_date: plus(-3), event_end_date: null, event_time: null, event_end_time: null, design_status: 'not_started', supplier_note: null, backdrop_note: null, tracking_checklist: [], required_roles: {}, archived_at: null, prep_done_at: null },
-    { id: 'lead-lost', status: 'lost', customer_name: 'ไม่ได้งาน', event_location: null, event_date: plus(3), event_end_date: null, event_time: null, event_end_time: null, design_status: 'not_started', supplier_note: null, backdrop_note: null, tracking_checklist: [], required_roles: {}, archived_at: null, prep_done_at: null },
+    { id: 'lead-lost', status: 'rejected', customer_name: 'ไม่ได้งาน', event_location: null, event_date: plus(3), event_end_date: null, event_time: null, event_end_time: null, design_status: 'not_started', supplier_note: null, backdrop_note: null, tracking_checklist: [], required_roles: {}, archived_at: null, prep_done_at: null },
   ],
   jobs: [
     { id: 'job-g1', job_type: 'graphic', status: 'done', title: 'ออกแบบ', assigned_to: [], claimed_by: null, crm_lead_id: 'lead-ready', design_status: 'completed', archived_at: null, created_at: '2026-01-01' },
+    { id: 'job-g2', job_type: 'graphic', status: 'open', title: 'ออกแบบ backdrop', assigned_to: [], claimed_by: null, crm_lead_id: 'lead-missing', design_status: 'in_progress', archived_at: null, created_at: '2026-01-02' },
+    { id: 'job-g3', job_type: 'graphic', status: 'open', title: 'ออกแบบ frame', assigned_to: [], claimed_by: null, crm_lead_id: 'lead-missing', design_status: null, archived_at: null, created_at: '2026-01-03' },
   ],
   job_settings: [],
+  packing_lists: [],
+  lead_packages: [],
+  packages: [],
   lead_duty_claims: [],
   event_vehicles: [],
   activity_logs: [],
@@ -164,7 +169,7 @@ function lead(id: string, extra: Row): Row {
     id, status: 'lead', customer_name: id, customer_line: `LINE-${id}-SECRET`, customer_phone: null, customer_type: 'บริษัท', work_type: null,
     unit_count: null, lead_source: 'facebook', event_date: null, event_end_date: null, event_time: null, event_end_time: null,
     event_location: null, event_details: null, package_name: null, quoted_price: 0, confirmed_price: 0, deposit: 0, vat_mode: 'none',
-    wht_rate: 0, assigned_sales: [], is_returning: false, quotation_ref: null, notes: 'NOTE-SECRET โทร 089-999-9999', archived_at: null, ...extra,
+    wht_rate: 0, assigned_sales: [], is_returning: false, quotation_ref: null, design_status: null, notes: 'NOTE-SECRET โทร 089-999-9999', archived_at: null, ...extra,
   }
 }
 const act = (id: string, lead_id: string, old_status: string | null, new_status: string, created_at: string, activity_type = 'status_change'): Row =>
@@ -183,7 +188,7 @@ const salesTables: Record<string, Row[]> = {
     { id: 's3', full_name: 'ช่างภาพ หนึ่ง', nickname: null, pin: '3333' },
   ],
   crm_leads: [
-    lead('L1', { status: 'accepted', customer_name: 'บริษัท เอ จำกัด', customer_phone: '081-234-5678', work_type: 'sale', unit_count: 2,
+    lead('L1', { status: 'accepted', customer_name: 'บริษัท เอ จำกัด', customer_phone: '081-234-5678', work_type: 'sale', unit_count: 2, design_status: 'sent',
       event_date: '2026-10-15', event_time: '09:30:00', event_location: 'ไบเทค บางนา', event_details: 'บูธ 3x3', package_name: 'basic',
       quoted_price: 12000, confirmed_price: 10000, deposit: 3000, vat_mode: 'excluded', assigned_sales: ['s1'], is_returning: true,
       quotation_ref: 'QT-001', created_at: '2026-09-05T03:00:00Z' }),
@@ -502,11 +507,25 @@ async function main() {
       .map(l => ({ id: l.id, missing: tracking.getMissing(l, kitR.get(l.id), design.get(l.id) ?? false).map(m => tracking.missingLabel(m, l, snap.roleLabels)) }))
     assert.deepEqual(r.rows.map(x => ({ id: x.leadId, missing: x.missing })), expected)
     assert.deepEqual(r.rows.map(x => x.leadId), ['lead-missing'])
-    assert.deepEqual(r.rows[0].missing, ['ออกแบบ', 'จัดคน (ช่างภาพ 2)', 'จัดรถ', 'เวลาเริ่ม', 'กระเป๋า'])
+    assert.deepEqual(r.rows[0].missing, ['ออกแบบ', 'จัดคน (ช่างภาพ 2)', 'จัดรถ', 'เวลาเริ่ม', 'จัดของ'])
     assert.equal(r.rows[0].customer, 'คุณขาด')
     assert.deepEqual(r.rows[0].kits, [{ name: 'กระเป๋า 2', event: 'งานบริษัท B', packed: false }])
     assert.match(r.summary, /ยังไม่พร้อม 1 จาก 2 งาน/)
-    pass('job_readiness — ตรงกับ getMissing/missingLabel ของหน้าติดตามงาน (ไม่รวมงานผ่านไปแล้ว)')
+    // สถานะออกแบบ: ระดับงานจาก crm_leads.design_status · รายใบจาก jobs.design_status (ใบที่ยังไม่ตั้งค่าตกไปใช้ระดับงาน) · ready + ยอดต่อสถานะในบรรทัดสรุป
+    assert.equal(r.rows[0].design_status, 'ยังไม่เริ่ม')
+    assert.equal(r.rows[0].ready, false)
+    assert.deepEqual(r.rows[0].design_jobs, [
+      { title: 'ออกแบบ backdrop', status: 'open', design_status: 'กำลังออกแบบ' },
+      { title: 'ออกแบบ frame', status: 'open', design_status: 'ยังไม่เริ่ม' },
+    ])
+    assert.match(r.summary, /สถานะออกแบบ: ยังไม่เริ่ม 1/)
+    const all = await call('job_readiness', { scope: 'all' })
+    assert.deepEqual(all.rows.map(x => [x.leadId, x.ready, x.design_status]), [['lead-ready', true, 'ส่งภาพ+เสร็จสมบูรณ์'], ['lead-missing', false, 'ยังไม่เริ่ม']])
+    assert.match(all.summary, /ติดตามงาน 2 งาน · สถานะออกแบบ: ส่งภาพ\+เสร็จสมบูรณ์ 1 · ยังไม่เริ่ม 1/)
+    const past = await call('job_readiness', { scope: 'all', include_past: true })
+    assert.ok(past.rows.some(x => x.leadId === 'lead-past'))
+    assert.ok(!past.rows.some(x => x.leadId === 'lead-lost'), 'งานที่ไม่ได้ปิดการขายไม่อยู่ในหน้าติดตามงาน')
+    pass('job_readiness — ตรงกับ getMissing/missingLabel ของหน้าติดตามงาน (ไม่รวมงานผ่านไปแล้ว) · สถานะออกแบบระดับงาน/รายใบ · scope=all + include_past · ยอดต่อสถานะ')
   }
 
   // ═══ my_claims (T2) ══════════════════════════════════════════════════════════
@@ -839,9 +858,10 @@ async function main() {
     assert.deepEqual(l1, {
       id: 'L1', customer: 'บริษัท เอ จำกัด', status: 'ตอบรับแล้ว', work_type: 'ขาย', event_date: '2026-10-15', event_end_date: null,
       event_time: '09:30', event_location: 'ไบเทค บางนา', package: 'แพ็กเกจเบสิก', quoted_price: 12000, confirmed_price: 10000, deposit: 3000,
-      assigned_sales: ['สมชาย ขายเก่ง (ชาย)'], is_returning: true, phone_last4: '***-***-5678', created_at: '2026-09-05',
+      assigned_sales: ['สมชาย ขายเก่ง (ชาย)'], is_returning: true, phone_last4: '***-***-5678', created_at: '2026-09-05', design_status: 'ส่งลูกค้าตรวจ',
     })
     const byId = (id: string) => all.rows.find(x => x.id === id)!
+    assert.equal(byId('L2').design_status, 'ยังไม่เริ่ม') // ไม่มีค่า = ยังไม่เริ่ม (เหมือนหน้าติดตามงาน)
     assert.equal(byId('L2').phone_last4, null) // '12' สั้นกว่า 4 หลัก
     assert.equal(byId('L3').phone_last4, null) // ไม่มีเบอร์
     assert.equal(byId('L4').phone_last4, '***-***-4567') // '02 123 4567' → ตัวเลขล้วน

@@ -117,6 +117,11 @@ function opPred(col: string, op: string, raw: string): Pred {
       const re = likeToRegex(String(raw))
       return g => typeof g(col) === 'string' && re.test(g(col) as string)
     }
+    case 'in': {
+      // รูปแบบ PostgREST '(a,b,c)' — ใช้กับ .not('col', 'in', '(…)') ของ tracking/data.ts
+      const list = String(raw).replace(/^\(|\)$/g, '').split(',').map(x => x.trim().replace(/^"|"$/g, ''))
+      return g => list.includes(String(g(col)))
+    }
     default: throw new Error(`fake-db: ไม่รองรับ operator ${op}`)
   }
 }
@@ -191,6 +196,8 @@ class Query implements PromiseLike<Result> {
     return this
   }
   limit(n: number) { this.max = n; return this }
+  /** type-only ใน supabase-js — ไม่มีผลกับข้อมูล */
+  overrideTypes() { return this }
   range(from: number, to: number) { this.offset = from; this.max = to - from + 1; return this }
 
   private rowsOf(table: string): Row[] {

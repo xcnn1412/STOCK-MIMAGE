@@ -62,7 +62,7 @@ claude.ai ──(1) GET /api/mcp ไม่มี token → 401 + WWW-Authenticat
 | `upcoming_events` | events | อีเวนต์ที่ยังไม่ปิดใน N วัน: วัน เวลา สถานที่ กระเป๋าที่จอง จัดครบหรือยัง |
 | `event_detail` | events | อีเวนต์หนึ่งงาน (id หรือชื่อ): กระเป๋า ของในกระเป๋า สถานะ ทีมงาน |
 | `event_closures` | events | ประวัติปิดงานในช่วงวันที่: ของเสีย/หาย วัสดุสิ้นเปลืองที่ใช้ |
-| `job_readiness` | jobs | งานที่ยังไม่พร้อมจาก `getTrackingSnapshot`: ลูกค้า วันงาน สิ่งที่ยังขาด (`missingLabel`) |
+| `job_readiness` | jobs | งานในหน้าติดตามงานจาก `getTrackingSnapshot`: ลูกค้า วันงาน สถานะออกแบบ (ระดับงาน + รายใบกราฟิก ป้ายจาก `DESIGN_OPTIONS`) `ready` สิ่งที่ยังขาด (`missingLabel`) · `scope` not_ready (ค่าเริ่มต้น) / all · `include_past` · summary นับงานต่อสถานะออกแบบ |
 
 - `app/api/mcp/route.ts`: `withMcpAuth(handler, verifyAccessToken, { required: true, resourceMetadataPath: '/.well-known/oauth-protected-resource' })` · ทุก tools/call: rate limit (`checkRateLimit(\`mcp:${tokenId}\`)` ปรับ limit 60/นาที) → run → `logActivity('MCP_TOOL_CALL', { tool, args, rows }, undefined, userId)` → อัปเดต `last_used_at` (ไม่เกินนาทีละครั้ง) · error ของ tool คืนเป็น `isError: true` ข้อความไทย ไม่ throw
 - `app/.well-known/oauth-protected-resource/route.ts` (+ variant path `/api/mcp`), `app/.well-known/oauth-authorization-server/route.ts`, `app/api/oauth/{register,token,revoke}/route.ts` — ทุกตัวตอบ CORS preflight (`OPTIONS`) และ JSON ตาม RFC 8414 / 9728 / 7591
