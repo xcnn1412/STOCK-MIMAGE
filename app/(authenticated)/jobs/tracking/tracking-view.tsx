@@ -420,6 +420,19 @@ function BackdropCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
     )
 }
 
+/** บันทึกพิเศษ — บันทึกอิสระเหมือนซัพพลายเออร์ (ช่องแบบเดียวกัน คนละคอลัมน์ใน crm_leads) */
+function SpecialNoteCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
+    return (
+        <NoteCell
+            note={lead.special_note}
+            label="บันทึกพิเศษ"
+            title={lead.customer_name || 'ไม่ระบุลูกค้า'}
+            placeholder="ระบุบันทึกพิเศษ / ข้อตกลง / สิ่งที่ต้องระวัง ..."
+            onSave={v => { if (v !== lead.special_note) save(lead.id, { special_note: v }) }}
+        />
+    )
+}
+
 // กรอบงานวันเดียวกันในตาราง: เส้นข้างซ้าย/ขวา (บน/ล่างใส่เฉพาะแถวแรก/ท้ายของวัน)
 const DAY_FRAME = 'border-l-2 border-l-zinc-300 dark:border-l-zinc-600 border-r-2 border-r-zinc-300 dark:border-r-zinc-600'
 
@@ -1043,7 +1056,7 @@ export default function TrackingView({
 
     const save = (
         id: string,
-        patch: { design_status?: string; supplier_note?: string | null; backdrop_note?: string | null; tracking_checklist?: string[] }
+        patch: { design_status?: string; supplier_note?: string | null; backdrop_note?: string | null; special_note?: string | null; tracking_checklist?: string[] }
     ) => {
         setRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)))
         startTransition(async () => {
@@ -1558,6 +1571,7 @@ export default function TrackingView({
                             <TableHead className="w-44">จัดคน</TableHead>
                             <TableHead className="w-40">จัดรถ</TableHead>
                             <TableHead className="w-40">กระเป๋า</TableHead>
+                            <TableHead className="w-44">บันทึกพิเศษ</TableHead>
                             <TableHead className="w-44">ความพร้อม</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -1632,6 +1646,7 @@ export default function TrackingView({
                                                 <TableCell>{dutyGate(lead, 'staffing', <StaffEditor lead={lead} all={rows} people={people} roles={roles} roleLabels={roleLabels} onSaved={onStaffSaved} onRequiredRolesSaved={onRequiredRolesSaved} pinnedEventId={null} defaultOpen={justClaimedDuty(lead.id, 'staffing')} />)}</TableCell>
                                                 <TableCell>{dutyGate(lead, 'vehicle', <VehicleCell lead={lead} all={rows} onSaved={syncVehicle} eventId={null} eventVehicles={eventVehicles} autoFocus={justClaimedDuty(lead.id, 'vehicle')} />)}</TableCell>
                                                 <TableCell>{dutyGate(lead, 'kits', <KitSummary lead={lead} bookings={kitBookings} packing={packing} eventId={null} />)}</TableCell>
+                                                <TableCell><SpecialNoteCell lead={lead} save={save} /></TableCell>
                                                 <TableCell><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></TableCell>
                                             </TableRow>
                                         )
@@ -1655,6 +1670,7 @@ export default function TrackingView({
                                                 <TableCell rowSpan={span}><BackdropCell lead={lead} save={save} /></TableCell>
                                                 <TableCell rowSpan={span}><SupplierCell lead={lead} save={save} /></TableCell>
                                                 <TableCell colSpan={3} />
+                                                <TableCell rowSpan={span}><SpecialNoteCell lead={lead} save={save} /></TableCell>
                                                 <TableCell rowSpan={span}><ReadinessCell lead={lead} roleLabels={roleLabels} kit={kitReadiness.get(lead.id)} designReady={designReady.get(lead.id)} /></TableCell>
                                             </TableRow>
                                             {lead.events.map((ev, si) => (
@@ -1773,6 +1789,10 @@ export default function TrackingView({
                                     <div>
                                         <div className="text-[11px] text-zinc-500">ซัพพลายเออร์</div>
                                         <SupplierCell lead={lead} save={save} />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <div className="text-[11px] text-zinc-500">บันทึกพิเศษ</div>
+                                        <SpecialNoteCell lead={lead} save={save} />
                                     </div>
                                 </div>
                             </div>

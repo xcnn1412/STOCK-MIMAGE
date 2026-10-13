@@ -644,7 +644,7 @@ async function main() {
   // ── (g) ความพร้อม "จัดของ" ──────────────────────────────────────────────────
   const trackingLead = {
     id: LEAD_WON, customer_name: 'บริษัท ทดสอบ จำกัด', event_name: 'สยาม', event_date: DAY, event_end_date: null, event_time: '10:00', event_end_time: '14:00',
-    design_status: 'completed', supplier_note: null, backdrop_note: null, tracking_checklist: [], required_roles: {},
+    design_status: 'completed', supplier_note: null, backdrop_note: null, special_note: null, tracking_checklist: [], required_roles: {},
     events: [{ id: EV1, name: 'งานทดสอบ สยาม', event_date: DAY, status: null }], staff: [],
   }
   const readiness = async () => {
