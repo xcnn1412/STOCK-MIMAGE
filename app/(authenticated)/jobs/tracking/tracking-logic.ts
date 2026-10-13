@@ -13,6 +13,8 @@ export interface TrackingLead {
   supplier_note: string | null
   /** สีฉาก / โทนสี / รายละเอียดฉาก — บันทึกอิสระเหมือน supplier_note */
   backdrop_note: string | null
+  /** บันทึกพิเศษ — บันทึกอิสระเหมือน supplier_note */
+  special_note: string | null
   tracking_checklist: string[] // may contain vehicle keys 'car_triton' | 'car_champ'
   /** ตำแหน่งที่ต้องการ: { "<staff_role value>": จำนวนคน } — {} = ยังไม่กำหนด */
   required_roles: Record<string, number>

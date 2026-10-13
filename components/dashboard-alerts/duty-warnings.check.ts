@@ -54,6 +54,7 @@ const lead = (id: string, event_date: string | null): TrackingLead => ({
     design_status: 'completed',
     supplier_note: null,
     backdrop_note: null,
+    special_note: null,
     tracking_checklist: ['car_triton'],
     required_roles: {},
     events: [],

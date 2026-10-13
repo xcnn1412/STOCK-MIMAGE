@@ -452,6 +452,7 @@ const trackingLead = {
   design_status: 'pending',
   supplier_note: null,
   backdrop_note: null,
+  special_note: null,
   tracking_checklist: [],
   required_roles: {},
   events: [{ id: 'E1', name: 'งานแต่งคุณเอ', event_date: '2026-10-20', status: 'planned', event_time: '10:00', event_end_time: '18:00' }],

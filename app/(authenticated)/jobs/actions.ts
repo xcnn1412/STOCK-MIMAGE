@@ -2803,6 +2803,7 @@ export async function updateLeadTracking(
         design_status?: string
         supplier_note?: string | null
         backdrop_note?: string | null
+        special_note?: string | null
         tracking_checklist?: string[]
         required_roles?: Record<string, number>
     }
@@ -2824,6 +2825,9 @@ export async function updateLeadTracking(
     }
     if (patch.backdrop_note !== undefined) {
         update.backdrop_note = patch.backdrop_note?.trim() || null
+    }
+    if (patch.special_note !== undefined) {
+        update.special_note = patch.special_note?.trim() || null
     }
     if (patch.tracking_checklist !== undefined) {
         if (patch.tracking_checklist.some(k => !CHECKLIST_KEYS.includes(k))) return { error: 'รายการจัดรถไม่ถูกต้อง' }
@@ -2854,6 +2858,9 @@ export async function updateLeadTracking(
         // instance ยังไม่รัน migration สีฉาก — บอกให้ชัดแทน error ดิบของ Postgres
         if (error.code === '42703' && error.message.includes('backdrop_note')) {
             return { error: 'ยังไม่ได้เปิดใช้ช่องสีฉากในฐานข้อมูล — รัน migration 20260925_crm_leads_backdrop_note.sql ก่อน' }
+        }
+        if (error.code === '42703' && error.message.includes('special_note')) {
+            return { error: 'ยังไม่ได้เปิดใช้ช่องบันทึกพิเศษในฐานข้อมูล — รัน migration 20261016_crm_leads_special_note.sql ก่อน' }
         }
         return { error: error.message }
     }

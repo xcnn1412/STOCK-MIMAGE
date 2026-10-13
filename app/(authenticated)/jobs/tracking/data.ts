@@ -151,10 +151,11 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     const supabase = createServiceClient()
 
     // --- ระลอก A: งาน + กระเป๋า + การตั้งค่า + คน + session ---------------------
-    // คอลัมน์ของงานที่หน้านี้ใช้ — backdrop_note มาทีหลัง (20260925) จึงถอดออกได้ตอน fallback ข้างล่าง
-    const LEAD_COLS = 'id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, backdrop_note, tracking_checklist, required_roles, archived_at, prep_done_at, created_by' as const
+    // คอลัมน์ของงานที่หน้านี้ใช้ — backdrop_note (20260925) และ special_note (20261016) มาทีหลัง จึงถอดออกได้ตอน fallback ข้างล่าง
+    const LEAD_COLS = 'id, customer_name, event_location, event_date, event_end_date, event_time, event_end_time, design_status, supplier_note, backdrop_note, special_note, tracking_checklist, required_roles, archived_at, prep_done_at, created_by' as const
+    const LATE_COLS = ['backdrop_note', 'special_note']
     const cutoff = pastCutoffDate()
-    // cast: supabase-js type แถวได้เฉพาะจาก literal — fallback ส่ง string เดียวกันที่ถอด backdrop_note ออก
+    // cast: supabase-js type แถวได้เฉพาะจาก literal — fallback ส่ง string เดียวกันที่ถอดคอลัมน์ที่ยังไม่ migrate ออก
     const leadsQueryFor = (cols: string) => {
         const base = supabase.from('crm_leads').select(cols as typeof LEAD_COLS).not('status', 'in', `(${NOT_WON_STATUSES.join(',')})`) // ทุกสถานะ won (crm/types::isWonStatus)
         return (opts?.includePast
@@ -196,12 +197,20 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
     ])
     let leads = leadsData
     if (leadsError) {
-        // ponytail: instance ที่ยังไม่รัน migration 20260925_crm_leads_backdrop_note.sql → ถามใหม่โดยไม่เอาคอลัมน์นั้น
-        // (ช่องสีฉากจะว่างและบันทึกไม่ได้จนกว่าจะ migrate) — ลบ fallback นี้ได้เมื่อทุก instance migrate แล้ว
-        if (leadsError.code !== '42703' || !leadsError.message.includes('backdrop_note')) throw new Error(leadsError.message)
-        const retry = await leadsQueryFor(LEAD_COLS.replace('backdrop_note, ', ''))
-        if (retry.error) throw new Error(retry.error.message)
-        leads = retry.data
+        // ponytail: instance ที่ยังไม่รัน migration สีฉาก/บันทึกพิเศษ → ถอดคอลัมน์ที่ Postgres บอกว่าไม่มีออกทีละตัวแล้วถามใหม่
+        // (ช่องนั้นจะว่างและบันทึกไม่ได้จนกว่าจะ migrate) — ลบ fallback นี้ได้เมื่อทุก instance migrate แล้ว
+        let cols: string = LEAD_COLS
+        let err: { code?: string; message: string } | null = leadsError
+        for (let i = 0; i < LATE_COLS.length && err; i++) {
+            const e = err
+            const missing = LATE_COLS.find(c => e.code === '42703' && e.message.includes(c) && cols.includes(`${c}, `))
+            if (!missing) break
+            cols = cols.replace(`${missing}, `, '')
+            const retry = await leadsQueryFor(cols)
+            err = retry.error
+            leads = retry.data
+        }
+        if (err) throw new Error(err.message)
     }
 
     const leadIds = (leads || []).map(l => l.id)
@@ -404,6 +413,7 @@ export async function getTrackingSnapshot(opts?: TrackingSnapshotOptions): Promi
         design_status: l.design_status || 'not_started',
         supplier_note: l.supplier_note,
         backdrop_note: l.backdrop_note ?? null,
+        special_note: l.special_note ?? null,
         // กรองเหลือเฉพาะ key รถ — key checklist เก่า (lock_queue/on_site) ไม่ใช้แล้วและไม่ผ่าน validation
         tracking_checklist: (Array.isArray(l.tracking_checklist) ? (l.tracking_checklist as string[]) : []).filter(k => VEHICLES.some(v => v.key === k)),
         // "ไม่ต้องจัด" อ่านจาก key skip_* ใน tracking_checklist ดิบ (ก่อนกรองเหลือแต่ key รถ)
