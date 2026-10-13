@@ -23,7 +23,7 @@ export default async function EditEventPage(props: { params: Promise<{ id: strin
   // 3. Fetch all user profiles for staff/seller selection
   const { data: profiles } = await supabase
     .from('profiles')
-    .select('id, full_name, role')
+    .select('id, full_name, nickname, role')
     .order('full_name')
 
   // 4. Fetch staff — event_staff (keyed by event_id) is the single source of truth for
