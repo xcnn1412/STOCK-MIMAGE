@@ -987,6 +987,31 @@ export function layoutMonth(
   })
 }
 
+/**
+ * รายการบนปฏิทิน: งานที่มีอีเวนต์ (lead.events — ไม่รวมที่ปิดแล้ว) ซึ่งมีวันที่ → 1 รายการต่ออีเวนต์
+ * (id = `${leadId}#${eventId}`, วัน/เวลา/ชื่อ/ทีมของอีเวนต์นั้น, ไม่มีวันสิ้นสุด) · ไม่มีอีเวนต์ที่มีวันที่ → งานเดิมตามวันของ CRM
+ * ponytail: งานที่อีเวนต์ปิดหมดแล้วกลับไปโชว์ที่วัน CRM — ถ้าอยากเห็นย้อนหลังตามอีเวนต์ ต้องโหลดอีเวนต์ที่ปิดแล้วเพิ่มใน data.ts
+ */
+export function expandByEvent(leads: TrackingLead[]): TrackingLead[] {
+  return leads.flatMap((lead) => {
+    const dated = lead.events.filter((e) => e.event_date)
+    if (dated.length === 0) return [lead]
+    return dated.map((e) => ({
+      ...lead,
+      id: `${lead.id}#${e.id}`,
+      event_name: e.name || lead.event_name,
+      event_date: e.event_date!.slice(0, 10),
+      event_end_date: null,
+      event_time: e.event_time ?? null,
+      event_end_time: e.event_end_time ?? null,
+      staff: lead.staff.filter((s) => s.event_id === e.id),
+    }))
+  })
+}
+
+/** id ของงานจริงจากรายการที่ expandByEvent สร้าง (ไม่มี # = id เดิม) */
+export const leadIdOf = (id: string): string => id.split('#')[0]
+
 /** ภาระของหนึ่งวัน: จำนวนงานที่คร่อมวันนั้น และจำนวนที่ยังขาดอะไรอยู่ (ตาม missingOf ของผู้เรียก) */
 export function dayLoad(
   leads: TrackingLead[],

@@ -9,7 +9,9 @@ import {
     addDays,
     colorMapFor,
     dayLoad,
+    expandByEvent,
     layoutMonth,
+    leadIdOf,
     leadsOnDate,
     monthGrid,
     nextJobDate,
@@ -178,20 +180,30 @@ export default function CalendarView({
 
     const grid = monthGrid(date)
     const allDays = grid.weeks.flat()
-    // สีคิดจากงานทั้งหมด (ไม่ใช่หลังกรอง) — กดกรองแล้วสีของงานไม่เปลี่ยน
-    const colorByLead = colorMapFor(allDays.map(d => leadsOnDate(rows, d)))
-    const shown = onlyMissing ? rows.filter(l => missingOf(l).length > 0) : rows
+    // งานที่มีหลายอีเวนต์แตกเป็นรายการต่ออีเวนต์ (วันของอีเวนต์ ไม่ใช่วัน CRM) — ความพร้อม/จัดคน/จัดรถยังอิงงานจริง
+    const realById = new Map(rows.map(l => [l.id, l]))
+    const realOf = (entry: TrackingLead) => realById.get(leadIdOf(entry.id)) ?? entry
+    const entries = expandByEvent(rows)
+    // สีคิดจากงานทั้งหมด (ไม่ใช่หลังกรอง) — กดกรองแล้วสีของงานไม่เปลี่ยน · อีเวนต์ของงานเดียวกันสีเดียวกัน
+    const colorByReal = colorMapFor(allDays.map(d => leadsOnDate(entries, d).map(realOf)))
+    const colorByLead: Record<string, number> = Object.fromEntries(entries.map(e => [e.id, colorByReal[leadIdOf(e.id)] ?? 0]))
+    const shown = onlyMissing ? entries.filter(l => missingOf(realOf(l)).length > 0) : entries
     const weeks = layoutMonth(shown, grid, colorByLead)
-    const byId = new Map(rows.map(l => [l.id, l]))
+    const byId = new Map(entries.map(l => [l.id, l]))
     const selected = picked && picked.startsWith(grid.month) ? picked : date
 
     const firstOfMonth = `${grid.month}-01`
     const lastOfMonth = addDays(shiftMonth(date, 1), -1)
-    const next = nextJobDate(rows, lastOfMonth > todayStr ? lastOfMonth : todayStr)
+    const next = nextJobDate(entries, lastOfMonth > todayStr ? lastOfMonth : todayStr)
     const monthTitle = parseDate(firstOfMonth).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })
     const showPastBanner = !pastLoaded && lastOfMonth < addDays(todayStr, -30)
 
-    const h: Handlers = { missingOf, onOpenDay, onEditStaff, onEditVehicle }
+    const h: Handlers = {
+        missingOf: l => missingOf(realOf(l)),
+        onOpenDay,
+        onEditStaff: id => onEditStaff(leadIdOf(id)),
+        onEditVehicle: id => onEditVehicle(leadIdOf(id)),
+    }
 
     // ลูกศรซ้าย/ขวา = เปลี่ยนเดือน, t = วันนี้ — ไม่ทำงานตอนพิมพ์ในช่องกรอก
     useEffect(() => {
@@ -262,7 +274,7 @@ export default function CalendarView({
                         {week.days.map((day, col) => {
                             const inMonth = day.startsWith(grid.month)
                             const weekend = col >= 5
-                            const load = dayLoad(rows, day, missingOf)
+                            const load = dayLoad(entries, day, h.missingOf)
                             const dayLeads = leadsOnDate(shown, day)
                             const hidden = week.bars.filter(
                                 b => b.row >= MAX_ROWS && b.startCol <= col && col < b.startCol + b.span

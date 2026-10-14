@@ -5,6 +5,8 @@ import {
   addDays,
   colorMapFor,
   dayLoad,
+  expandByEvent,
+  leadIdOf,
   layoutMonth,
   monthGrid,
   parseDate,
@@ -441,6 +443,41 @@ const onDateFixture = [
 assert.deepEqual(leadsOnDate(onDateFixture, T).map((l) => l.id), ['a', 'y', 'z', 'b'])
 assert.deepEqual(leadsOnDate(onDateFixture, '2026-08-31').map((l) => l.id), ['a', 'c'])
 assert.deepEqual(leadsOnDate(onDateFixture, '2026-09-10').map((l) => l.id), [])
+
+// --- expandByEvent (ปฏิทินวางตามวันอีเวนต์ ไม่ใช่วัน CRM) -----------------
+{
+  const multi = mk({
+    id: 'm',
+    event_date: '2026-09-05', // วัน CRM — ต้องไม่ถูกใช้เมื่อมีอีเวนต์
+    event_end_date: '2026-09-06',
+    events: [
+      { id: 'e1', name: 'ติดตั้ง', event_date: '2026-09-04T00:00:00', status: 'planned', event_time: '13:00', event_end_time: null },
+      { id: 'e2', name: 'งานจริง', event_date: '2026-09-05', status: 'planned', event_time: '09:00', event_end_time: '12:00' },
+      { id: 'nd', name: 'ไม่มีวัน', event_date: null, status: 'planned' },
+    ],
+    staff: [
+      { user_id: 'u1', name: 'สมชาย', nickname: 'ชาย', role: 'ช่างภาพ', event_id: 'e1' },
+      { user_id: 'u2', name: 'สมหญิง', nickname: null, role: 'ผู้ช่วย', event_id: 'e2' },
+    ],
+  })
+  const none = mk({ id: 'n', event_date: '2026-09-10', events: [] })
+  const out = expandByEvent([multi, none])
+  assert.deepEqual(out.map((l) => l.id), ['m#e1', 'm#e2', 'n']) // อีเวนต์ไม่มีวันไม่ออก · ไม่มีอีเวนต์ = งานเดิม
+  assert.equal(out[0].event_date, '2026-09-04') // timestamp เต็มถูกตัดเหลือ YYYY-MM-DD
+  assert.equal(out[0].event_end_date, null)
+  assert.equal(out[0].event_time, '13:00')
+  assert.equal(out[0].event_name, 'ติดตั้ง')
+  assert.deepEqual(out[0].staff.map((s) => s.user_id), ['u1']) // ทีมเฉพาะของอีเวนต์นั้น
+  assert.deepEqual(out[1].staff.map((s) => s.user_id), ['u2'])
+  assert.equal(out[2], none)
+  assert.deepEqual(leadsOnDate(out, '2026-09-04').map((l) => l.id), ['m#e1'])
+  assert.deepEqual(leadsOnDate(out, '2026-09-05').map((l) => l.id), ['m#e2'])
+  assert.deepEqual(leadsOnDate(out, '2026-09-06'), []) // วันสิ้นสุดของ CRM ไม่มีผล
+  assert.equal(leadIdOf('m#e1'), 'm')
+  assert.equal(leadIdOf('n'), 'n')
+  const mult = mk({ id: 'x', events: [{ id: 'e9', name: '', event_date: '2026-09-07', status: null }] })
+  assert.equal(expandByEvent([mult])[0].event_name, 'งาน') // ชื่ออีเวนต์ว่าง → ชื่องานจาก CRM
+}
 
 // --- hour range ------------------------------------------------------------
 assert.equal(dayAB.hourStart, 6) // default 06:00 even though the earliest job is 09:00
