@@ -6,7 +6,9 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import {
+    CLAIM_WAIVER_ITEM,
     DUTY_LABELS_TH,
+    WAIVER_LABELS,
     VEHICLES,
     dutyKey,
     emphasizedClaims,
@@ -201,6 +203,8 @@ export default function DutyTab({
 
     const waitingLeads = visible.filter(l => !claimOf(l) && !isClaimWaived(l, duty))
     const claimedLeads = visible.filter(l => claimOf(l))
+    // งานที่ตั้ง "ไม่ต้อง…" ไว้และยังไม่มีคนรับ — แยกกลุ่มให้เห็น ไม่หายไปจากแท็บ
+    const waivedLeads = visible.filter(l => !claimOf(l) && isClaimWaived(l, duty))
     // เรืองแสงเฉพาะงานที่ใกล้วันงานที่สุดของหน้าที่นี้
     const emphasis = emphasizedClaims(waitingLeads.map(l => ({ key: l.id, kind: duty, date: l.event_date })))
 
@@ -275,6 +279,9 @@ export default function DutyTab({
                     </ClaimSection>
                     <ClaimSection label="รับแล้ว" count={claimedLeads.length}>
                         {claimedLeads.map(renderCard)}
+                    </ClaimSection>
+                    <ClaimSection label={`${WAIVER_LABELS[CLAIM_WAIVER_ITEM[duty]!]} (ตั้งไว้ที่ภาพรวม)`} count={waivedLeads.length}>
+                        {waivedLeads.map(renderCard)}
                     </ClaimSection>
                 </>
             )}

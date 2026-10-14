@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
-import { BAR_CLASS, STRIPES, formatDate, ymd } from './timeline-view'
+import { BAR_CLASS, DUTY_BLOCKED, STRIPES, formatDate, ymd } from './timeline-view'
 import {
     addDays,
     colorMapFor,
@@ -19,6 +19,7 @@ import {
     BAR_COLORS,
     MISSING_LABELS,
     type MissingItem,
+    type PrepDuty,
     type TrackingLead,
 } from './tracking-logic'
 
@@ -53,15 +54,21 @@ interface Handlers {
     onOpenDay: (date: string) => void
     onEditStaff: (leadId: string) => void
     onEditVehicle: (leadId: string) => void
+    /** D3: จัดคน/จัดรถ แก้ได้เฉพาะผู้รับหน้าที่นั้น (หรือแอดมิน/ฝ่ายประสานงาน) — กติกาเดียวกับไทม์ไลน์ */
+    mayEdit: (leadId: string, duty: 'staffing' | 'vehicle') => boolean
 }
 
 /** ป๊อปโอเวอร์รายละเอียดงาน — ครอบชิปงาน (trigger) */
-function LeadPopover({ lead, children, missingOf, onOpenDay, onEditStaff, onEditVehicle }: Handlers & {
+function LeadPopover({ lead, children, missingOf, onOpenDay, onEditStaff, onEditVehicle, mayEdit }: Handlers & {
     lead: TrackingLead
     children: ReactNode
 }) {
     const missing = missingOf(lead)
     const names = [...new Map(lead.staff.map(s => [s.user_id, s.nickname || s.name])).values()]
+    const canStaff = mayEdit(lead.id, 'staffing')
+    const canVehicle = mayEdit(lead.id, 'vehicle')
+    // ปุ่มที่กดไม่ได้บอกเหตุผลเป็นข้อความ (มือถือไม่มี tooltip)
+    const blocked = [!canStaff && DUTY_BLOCKED.staffing, !canVehicle && DUTY_BLOCKED.vehicle].filter(Boolean)
     return (
         <Popover>
             <PopoverTrigger asChild>{children}</PopoverTrigger>
@@ -94,10 +101,10 @@ function LeadPopover({ lead, children, missingOf, onOpenDay, onEditStaff, onEdit
                     )}
                 </div>
                 <div className="flex flex-wrap gap-1.5 pt-1">
-                    <Button size="sm" variant="outline" onClick={() => onEditStaff(lead.id)}>
+                    <Button size="sm" variant="outline" disabled={!canStaff} onClick={() => onEditStaff(lead.id)}>
                         จัดคน
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => onEditVehicle(lead.id)}>
+                    <Button size="sm" variant="outline" disabled={!canVehicle} onClick={() => onEditVehicle(lead.id)}>
                         จัดรถ
                     </Button>
                     {lead.event_date && (
@@ -106,6 +113,7 @@ function LeadPopover({ lead, children, missingOf, onOpenDay, onEditStaff, onEdit
                         </Button>
                     )}
                 </div>
+                {blocked.length > 0 && <div className="text-[11px] text-zinc-400">{blocked.join(' · ')}</div>}
             </PopoverContent>
         </Popover>
     )
@@ -160,6 +168,7 @@ export default function CalendarView({
     onEditVehicle,
     pastLoaded,
     onLoadPast,
+    canEditDuty,
 }: {
     rows: TrackingLead[]
     today: Date
@@ -172,6 +181,8 @@ export default function CalendarView({
     onEditVehicle: (leadId: string) => void
     pastLoaded: boolean
     onLoadPast: () => void
+    /** ไม่ส่ง = แก้ได้ทุกงาน (server ปฏิเสธซ้ำอีกชั้น) */
+    canEditDuty?: (leadId: string, duty: PrepDuty) => boolean
 }) {
     const todayStr = ymd(today)
     const [onlyMissing, setOnlyMissing] = useState(false)
@@ -196,13 +207,15 @@ export default function CalendarView({
     const lastOfMonth = addDays(shiftMonth(date, 1), -1)
     const next = nextJobDate(entries, lastOfMonth > todayStr ? lastOfMonth : todayStr)
     const monthTitle = parseDate(firstOfMonth).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })
-    const showPastBanner = !pastLoaded && lastOfMonth < addDays(todayStr, -30)
+    // เดือนที่มีวันใดก็ตามก่อนวันตัด 30 วัน = ช่วงต้นเดือนอาจว่างเพราะยังไม่โหลด ไม่ใช่เพราะไม่มีงาน
+    const showPastBanner = !pastLoaded && firstOfMonth < addDays(todayStr, -30)
 
     const h: Handlers = {
         missingOf: l => missingOf(realOf(l)),
         onOpenDay,
         onEditStaff: id => onEditStaff(leadIdOf(id)),
         onEditVehicle: id => onEditVehicle(leadIdOf(id)),
+        mayEdit: (id, duty) => canEditDuty?.(leadIdOf(id), duty) ?? true,
     }
 
     // ลูกศรซ้าย/ขวา = เปลี่ยนเดือน, t = วันนี้ — ไม่ทำงานตอนพิมพ์ในช่องกรอก
@@ -211,6 +224,8 @@ export default function CalendarView({
             if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
             const el = e.target as HTMLElement | null
             if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return
+            // มีหน้าต่าง/ป๊อปโอเวอร์/รายการเลือกเปิดอยู่ (Radix ใส่ data-state=open) — ไม่เปลี่ยนเดือนข้างหลัง
+            if (document.querySelector('[role="dialog"][data-state="open"], [role="listbox"]')) return
             if (e.key === 'ArrowLeft') onDateChange(shiftMonth(date, -1))
             else if (e.key === 'ArrowRight') onDateChange(shiftMonth(date, 1))
             else if (e.key === 't' || e.key === 'T') onDateChange(todayStr)
