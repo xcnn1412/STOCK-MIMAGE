@@ -791,6 +791,24 @@ export function layoutDay(
   return { date, hourStart, hourEnd: 24, lanes, colorByLead }
 }
 
+/**
+ * สีของงานในช่วงหลายวัน: ไล่ทีละวันตามลำดับ leadsOnDate งานที่เจอก่อนได้สีก่อน (วนตาม BAR_COLORS)
+ * — ไทม์ไลน์สัปดาห์และปฏิทินใช้ตัวเดียวกัน งานเดียวกันในช่วงวันเดียวกันจึงได้สีเดียวกัน
+ * `perDay` = งานของแต่ละวัน เรียงแบบ leadsOnDate เช่น `days.map((d) => leadsOnDate(leads, d))`
+ */
+export function colorMapFor(perDay: TrackingLead[][]): Record<string, number> {
+  const colorByLead: Record<string, number> = {}
+  let seen = 0
+  for (const dayLeads of perDay) {
+    for (const lead of dayLeads) {
+      if (lead.id in colorByLead) continue
+      colorByLead[lead.id] = seen % BAR_COLORS
+      seen++
+    }
+  }
+  return colorByLead
+}
+
 /** 7 วันนับจาก startDate (rolling) — แต่ละเลนมีบล็อกงานต่อวัน */
 export function layoutWeek(
   leads: TrackingLead[],
@@ -802,15 +820,7 @@ export function layoutWeek(
   const days = Array.from({ length: 7 }, (_, i) => addDays(startDate, i))
   const perDay = days.map((day) => leadsOnDate(leads, day))
 
-  const colorByLead: Record<string, number> = {}
-  let seen = 0
-  for (const dayLeads of perDay) {
-    for (const lead of dayLeads) {
-      if (lead.id in colorByLead) continue
-      colorByLead[lead.id] = seen % BAR_COLORS
-      seen++
-    }
-  }
+  const colorByLead = colorMapFor(perDay)
 
   /** cells ของเลนหนึ่ง: สมาชิกต่อวันมาจาก pick, ธงชนคิดกันเองภายในช่องนั้น */
   const buildCells = (
@@ -889,6 +899,102 @@ export function layoutWeek(
   }
 
   return { days, lanes, colorByLead }
+}
+
+// --- ปฏิทินรายเดือน ------------------------------------------------------------
+
+/** ตารางเดือน: 6 สัปดาห์ × 7 วัน (จันทร์ → อาทิตย์) รวมวันท้าย/ต้นของเดือนข้างเคียง */
+export interface MonthGrid {
+  /** YYYY-MM ของเดือนที่ดู */
+  month: string
+  weeks: string[][]
+}
+
+/** แถบงานหนึ่งแถบในสัปดาห์หนึ่งของปฏิทิน — งานหลายวันที่ข้ามสัปดาห์แตกเป็นหลายแถบ */
+export interface MonthBar {
+  leadId: string
+  /** คอลัมน์เริ่ม 0 (จันทร์) – 6 (อาทิตย์) */
+  startCol: number
+  /** จำนวนวันที่พาด 1–7 */
+  span: number
+  /** แถวในสัปดาห์ (0 = บนสุด) — แถบในสัปดาห์เดียวกันไม่ทับกัน */
+  row: number
+  colorIdx: number
+  /** งานเริ่มก่อนสัปดาห์นี้ (ต่อมาจากแถวก่อน) */
+  continuesLeft: boolean
+  /** งานยังไม่จบในสัปดาห์นี้ (ต่อแถวถัดไป) */
+  continuesRight: boolean
+}
+
+export interface MonthWeek {
+  days: string[]
+  bars: MonthBar[]
+  /** จำนวนแถวที่ใช้ (อย่างน้อย 0) */
+  rows: number
+}
+
+/** ตารางเดือนของวันที่ date — สัปดาห์เริ่มวันจันทร์ ครบ 6 แถว (42 ช่อง) เสมอ */
+export function monthGrid(date: string): MonthGrid {
+  const month = date.slice(0, 7)
+  const first = `${month}-01`
+  const offset = (parseDate(first).getDay() + 6) % 7 // จันทร์ = 0
+  const start = addDays(first, -offset)
+  const weeks = Array.from({ length: 6 }, (_, w) => Array.from({ length: 7 }, (_, d) => addDays(start, w * 7 + d)))
+  return { month, weeks }
+}
+
+/**
+ * แถบงานของทุกสัปดาห์ในตารางเดือน: งานหนึ่งงาน = แถบต่อเนื่องหนึ่งแถบต่อสัปดาห์ที่คร่อม
+ * จัดแถวแบบ greedy (แถวว่างแรก) เรียงแบบ leadsOnDate (วัน, เวลา, id) · งานไม่มีวันที่ไม่แสดง
+ * `colorByLead` = colorMapFor(...) ตัวเดียวกับไทม์ไลน์ — ไม่มีใน map ได้สี 0
+ */
+export function layoutMonth(
+  leads: TrackingLead[],
+  grid: MonthGrid,
+  colorByLead: Record<string, number>
+): MonthWeek[] {
+  const sorted = leads.filter((l) => l.event_date).sort(compareTimeline)
+  return grid.weeks.map((days) => {
+    const first = days[0]
+    const last = days[days.length - 1]
+    const rowEnd: number[] = [] // คอลัมน์สุดท้ายที่ถูกใช้ของแต่ละแถว
+    const bars: MonthBar[] = []
+    for (const lead of sorted) {
+      const start = lead.event_date!
+      const end = lead.event_end_date ?? start
+      // ช่วงวันกลับหัว = ไม่คร่อมวันไหนเลย (ตรงกับ leadsOnDate)
+      if (end < start || start > last || end < first) continue
+      const startCol = start < first ? 0 : days.indexOf(start)
+      const endCol = end > last ? days.length - 1 : days.indexOf(end)
+      let row = rowEnd.findIndex((col) => col < startCol)
+      if (row === -1) {
+        row = rowEnd.length
+        rowEnd.push(endCol)
+      } else {
+        rowEnd[row] = endCol
+      }
+      bars.push({
+        leadId: lead.id,
+        startCol,
+        span: endCol - startCol + 1,
+        row,
+        colorIdx: colorByLead[lead.id] ?? 0,
+        continuesLeft: start < first,
+        continuesRight: end > last,
+      })
+    }
+    return { days, bars, rows: rowEnd.length }
+  })
+}
+
+/** ภาระของหนึ่งวัน: จำนวนงานที่คร่อมวันนั้น และจำนวนที่ยังขาดอะไรอยู่ (ตาม missingOf ของผู้เรียก) */
+export function dayLoad(
+  leads: TrackingLead[],
+  date: string,
+  missingOf: (lead: TrackingLead) => MissingItem[]
+): { total: number; notReady: number } {
+  const onDate = leadsOnDate(leads, date)
+  return { total: onDate.length, notReady: onDate.filter((l) => missingOf(l).length > 0).length }
 }
 
 // --- ภาระงาน / สรุปแผนก -------------------------------------------------------
