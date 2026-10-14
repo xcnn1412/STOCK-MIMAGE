@@ -40,7 +40,7 @@ import {
 } from './tracking-logic'
 
 /** เหตุผลที่คลิกไม่ได้ ตามหน้าที่ที่ยังไม่ได้รับ (D3) — โชว์เป็น tooltip บนแถบ/แทร็ก */
-const DUTY_BLOCKED: Record<'staffing' | 'vehicle', string> = {
+export const DUTY_BLOCKED: Record<'staffing' | 'vehicle', string> = {
     staffing: 'ต้องรับหน้าที่จัดคนก่อน',
     vehicle: 'ต้องรับหน้าที่จัดรถก่อน',
 }

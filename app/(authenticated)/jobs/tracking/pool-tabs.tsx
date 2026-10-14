@@ -28,8 +28,10 @@ import {
     CLAIMING_STATUS,
     CLAIMING_STATUS_LABEL,
     CLAIM_LABELS,
+    CLAIM_WAIVER_ITEM,
     DUTY_LABELS_TH,
     VEHICLES,
+    WAIVER_LABELS,
     daysUntil,
     emphasizedClaims,
     getMissing,
@@ -955,6 +957,9 @@ export default function PoolTabs({
         r => r.job.status === AWAITING_CLAIM_STATUS && !(r.lead && isClaimWaived(r.lead, kind))
     )
     const claimedRows = visible.filter(r => r.job.status !== AWAITING_CLAIM_STATUS)
+    // ใบรอรับของงานที่ตั้ง "ไม่ต้องออกแบบ" — แยกกลุ่มให้เห็น ไม่หายไปจากแท็บ (ยกเลิกได้ที่ตารางภาพรวม)
+    const waivedRows = visible.filter(r => r.job.status === AWAITING_CLAIM_STATUS && !!r.lead && isClaimWaived(r.lead, kind))
+    const waivedItem = CLAIM_WAIVER_ITEM[kind]
     // เรืองแสงเฉพาะใบที่ใกล้วันงานที่สุดของแท็บนี้
     const emphasis = emphasizedClaims(
         waitingRows.map(r => ({ key: r.job.id, kind, date: r.lead?.event_date ?? null }))
@@ -1065,6 +1070,11 @@ export default function PoolTabs({
                     <ClaimSection label="รับแล้ว" count={claimedRows.length}>
                         {claimedRows.map(renderCard)}
                     </ClaimSection>
+                    {waivedItem && (
+                        <ClaimSection label={`${WAIVER_LABELS[waivedItem]} (ตั้งไว้ที่ภาพรวม)`} count={waivedRows.length}>
+                            {waivedRows.map(renderCard)}
+                        </ClaimSection>
+                    )}
                 </>
             )}
         </div>

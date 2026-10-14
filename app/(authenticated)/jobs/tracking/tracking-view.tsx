@@ -434,6 +434,9 @@ function SpecialNoteCell({ lead, save }: { lead: TrackingLead; save: SaveFn }) {
     )
 }
 
+/** จำนวนคอลัมน์ของตารางภาพรวม — แถวหัวกลุ่ม/แถวว่างต้องยืดเต็มเท่านี้ (เพิ่มคอลัมน์แล้วต้องขยับตาม) */
+const TABLE_COLS = 11
+
 // กรอบงานวันเดียวกันในตาราง: เส้นข้างซ้าย/ขวา (บน/ล่างใส่เฉพาะแถวแรก/ท้ายของวัน)
 const DAY_FRAME = 'border-l-2 border-l-zinc-300 dark:border-l-zinc-600 border-r-2 border-r-zinc-300 dark:border-r-zinc-600'
 
@@ -1581,14 +1584,14 @@ export default function TrackingView({
                     <TableBody>
                         {rows.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={10} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={TABLE_COLS} className="text-center text-sm text-zinc-500 py-10">
                                     ยังไม่มีงานที่ตอบรับ
                                 </TableCell>
                             </TableRow>
                         )}
                         {rows.length > 0 && visible.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={10} className="text-center text-sm text-zinc-500 py-10">
+                                <TableCell colSpan={TABLE_COLS} className="text-center text-sm text-zinc-500 py-10">
                                     ไม่มีงานในช่วงนี้
                                 </TableCell>
                             </TableRow>
@@ -1596,7 +1599,7 @@ export default function TrackingView({
                         {sections.map(section => (
                             <Fragment key={section.key}>
                                 <TableRow className="hover:bg-transparent">
-                                    <TableCell colSpan={10} className="bg-zinc-100/70 dark:bg-zinc-900/80 border-y border-zinc-200/70 dark:border-zinc-800 py-1.5">
+                                    <TableCell colSpan={TABLE_COLS} className="bg-zinc-100/70 dark:bg-zinc-900/80 border-y border-zinc-200/70 dark:border-zinc-800 py-1.5">
                                         <span className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
                                             <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500" aria-hidden />
                                             {section.label}
@@ -1818,6 +1821,7 @@ export default function TrackingView({
                     onEditVehicle={id => setEditing({ leadId: id, kind: 'vehicle' })}
                     pastLoaded={pastLoaded}
                     onLoadPast={() => setParams({ past: '1' })}
+                    canEditDuty={canEditDuty}
                 />
             ) : (
                 <TimelineView
