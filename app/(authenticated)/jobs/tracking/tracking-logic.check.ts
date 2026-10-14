@@ -3,6 +3,11 @@
 import assert from 'node:assert/strict'
 import {
   addDays,
+  colorMapFor,
+  dayLoad,
+  layoutMonth,
+  monthGrid,
+  parseDate,
   applyClaimDraft,
   applyDutyDraft,
   availabilityOf,
@@ -1584,6 +1589,87 @@ assert.equal(canWaive('ฝ่ายออกแบบ', false, false, qPools[WAI
 assert.equal(canWaive('ฝ่ายออกแบบ', false, false, qPools[WAIVER_CLAIM_KIND.vehicle]), false)
 assert.equal(canWaive('ทีมออกหน้างาน', false, false, qPools[WAIVER_CLAIM_KIND.kits]), true)
 assert.equal(canWaive(null, false, false, ['ทีมออกหน้างาน']), false)
+
+
+// --- ปฏิทินรายเดือน (monthGrid / layoutMonth / dayLoad) ----------------------
+{
+  // ต.ค. 2026 เริ่มวันพฤหัส → จันทร์ 28 ก.ย. เป็นช่องแรก
+  const oct = monthGrid('2026-10-14')
+  assert.equal(oct.month, '2026-10')
+  assert.equal(oct.weeks.length, 6)
+  assert.equal(oct.weeks.flat().length, 42)
+  assert.equal(oct.weeks[0][0], '2026-09-28')
+  assert.equal(oct.weeks[0][3], '2026-10-01')
+  assert.equal(oct.weeks[5][6], '2026-11-08')
+  assert.ok(oct.weeks.every((w) => w.length === 7 && parseDate(w[0]).getDay() === 1))
+
+  // พ.ย. 2026 เริ่มวันอาทิตย์ → 6 วันนำหน้าจากเดือนก่อน
+  const nov = monthGrid('2026-11-30')
+  assert.equal(nov.weeks[0][0], '2026-10-26')
+  assert.equal(nov.weeks[0].filter((d) => d.startsWith('2026-10')).length, 6)
+  assert.equal(nov.weeks[0][6], '2026-11-01')
+  assert.equal(nov.weeks.flat().length, 42)
+
+  // ก.พ. 2027 เริ่มวันจันทร์ 28 วันพอดี → ยังได้ 6 แถว
+  const feb = monthGrid('2027-02-01')
+  assert.equal(feb.weeks[0][0], '2027-02-01')
+  assert.equal(feb.weeks.length, 6)
+  assert.equal(feb.weeks.flat().length, 42)
+
+  const leads = [
+    // คร่อม อา. 11 ต.ค. → จ. 12 ต.ค. (ข้ามสัปดาห์)
+    mk({ id: 'multi', event_date: '2026-10-10', event_end_date: '2026-10-13', event_time: '10:00' }),
+    mk({ id: 'b', event_date: '2026-10-14', event_time: '13:00' }),
+    mk({ id: 'a', event_date: '2026-10-14', event_time: '09:00' }),
+    mk({ id: 'nodate', event_date: null }),
+  ]
+  const days = oct.weeks.flat()
+  const colors = colorMapFor(days.map((d) => leadsOnDate(leads, d)))
+  const weeks = layoutMonth(leads, oct, colors)
+  assert.equal(weeks.length, 6)
+  assert.ok(weeks.every((w) => w.bars.every((b) => b.leadId !== 'nodate')))
+  assert.ok(!('nodate' in colors))
+
+  // งานหลายวันข้ามสัปดาห์ → 2 แถบ พร้อมธงต่อซ้าย/ขวา
+  const multiBars = weeks.flatMap((w, i) => w.bars.filter((b) => b.leadId === 'multi').map((b) => ({ ...b, week: i })))
+  assert.equal(multiBars.length, 2)
+  assert.deepEqual(
+    multiBars.map(({ week, startCol, span, continuesLeft, continuesRight }) => ({ week, startCol, span, continuesLeft, continuesRight })),
+    [
+      { week: 1, startCol: 5, span: 2, continuesLeft: false, continuesRight: true },
+      { week: 2, startCol: 0, span: 2, continuesLeft: true, continuesRight: false },
+    ]
+  )
+  // สีเดียวกับที่ colorMapFor ให้ (ตัวเดียวกับไทม์ไลน์สัปดาห์)
+  assert.ok(multiBars.every((b) => b.colorIdx === colors.multi))
+
+  // สองงานวันเดียวกัน → แถว 0 และ 1 เรียงตามเวลา (a 09:00 ก่อน b 13:00) · ไม่ทับงาน multi ที่จบ 13 ต.ค.
+  const w3 = weeks[2]
+  const rowOf = (id: string) => w3.bars.find((b) => b.leadId === id)!.row
+  assert.equal(rowOf('a'), 0)
+  assert.equal(rowOf('b'), 1)
+  assert.equal(rowOf('multi'), 0) // จ.–อ. แถว 0 · a เริ่มพุธ ใช้แถว 0 ต่อได้
+  assert.equal(w3.rows, 2)
+
+  // แถบในสัปดาห์เดียวกันไม่ทับกัน
+  for (const w of weeks) {
+    for (const x of w.bars)
+      for (const y of w.bars) {
+        if (x === y || x.row !== y.row) continue
+        assert.ok(x.startCol + x.span <= y.startCol || y.startCol + y.span <= x.startCol)
+      }
+  }
+
+  // layoutWeek ใช้ colorMapFor ตัวเดียวกัน → งานเดียวกันได้สีเดียวกันเมื่อช่วงวันเท่ากัน
+  const wk = layoutWeek(leads, oct.weeks[0][0], [], {})
+  assert.deepEqual(wk.colorByLead, colorMapFor(wk.days.map((d) => leadsOnDate(leads, d))))
+
+  // dayLoad
+  const missingOf = (l: TrackingLead) => (l.id === 'b' ? (['staff'] as const).slice() : [])
+  assert.deepEqual(dayLoad(leads, '2026-10-14', missingOf), { total: 2, notReady: 1 })
+  assert.deepEqual(dayLoad(leads, '2026-10-12', missingOf), { total: 1, notReady: 0 })
+  assert.deepEqual(dayLoad(leads, '2026-10-20', missingOf), { total: 0, notReady: 0 })
+}
 
 
 console.log('tracking-logic.check: all passed')

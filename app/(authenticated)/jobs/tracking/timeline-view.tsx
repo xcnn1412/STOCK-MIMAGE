@@ -46,7 +46,7 @@ const DUTY_BLOCKED: Record<'staffing' | 'vehicle', string> = {
 }
 
 /** palette 10 สี — index มาจาก seam (colorIdx) งานเดียวกันได้สีเดียวกันทุกเลน */
-const BAR_CLASS: string[] = [
+export const BAR_CLASS: string[] = [
     'bg-violet-200 text-violet-900 dark:bg-violet-900/50 dark:text-violet-100',
     'bg-sky-200 text-sky-900 dark:bg-sky-900/50 dark:text-sky-100',
     'bg-emerald-200 text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100',
@@ -75,7 +75,7 @@ const barClass = (item: { colorIdx: number; packed?: boolean }) =>
 
 const packedLabel = (packed: boolean) => (packed ? 'จัดครบ' : 'ยังไม่จัด')
 
-const STRIPES =
+export const STRIPES =
     'bg-[repeating-linear-gradient(45deg,transparent_0_6px,rgba(0,0,0,.10)_6px_12px)] dark:bg-[repeating-linear-gradient(45deg,transparent_0_6px,rgba(255,255,255,.14)_6px_12px)]'
 
 const LANE_W = 160

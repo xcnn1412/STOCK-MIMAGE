@@ -73,6 +73,7 @@ import {
     type PrepDuty,
 } from './tracking-logic'
 import TimelineView, { formatDate, ymd } from './timeline-view'
+import CalendarView from './calendar-view'
 import PoolTabs, { ClaimButton, ClaimChip, DutyGate, KitSummary, ReleaseChip, nameOf, type JobStatusLabels, type KitBookingRow, type KitPackingInfo, type PoolKit } from './pool-tabs'
 import { StaffEditor, VehicleCell, defaultEventId, type Person, type SaveFn, type StaffRole, type VehicleSyncFn } from './editors'
 import DutyTab, { claimedDutyCount, dutyKey, dutySummary, unclaimedDutyCount } from './duty-tabs'
@@ -774,7 +775,8 @@ export default function TrackingView({
     // ไม่ใช่แอดมินพิมพ์ ?tab=onsite ตรงๆ = เด้งกลับภาพรวม (เป็นการซ่อนมุมมอง ไม่ใช่ชั้นสิทธิ์)
     const parsedTab = parseTab(searchParams.get('tab'))
     const tab: PoolTab = parsedTab === 'onsite' && !isAdmin ? 'overview' : parsedTab
-    const view = searchParams.get('view') === 'timeline' ? 'timeline' : 'table'
+    const viewParam = searchParams.get('view')
+    const view = viewParam === 'timeline' || viewParam === 'calendar' ? viewParam : 'table'
     const mode = searchParams.get('mode') === 'week' ? 'week' : 'day'
     const dateParam = searchParams.get('date')
     const todayStr = useSyncExternalStore(subscribeNever, getTodayStr, getTodayStr)
@@ -1382,12 +1384,13 @@ export default function TrackingView({
                     )}
                 </button>
 
-                {/* สลับ ตาราง / ไทม์ไลน์ อยู่ท้ายแถบแท็บ (เฉพาะภาพรวม) — ไม่กินอีกแถว */}
+                {/* สลับ ตาราง / ไทม์ไลน์ / ปฏิทิน อยู่ท้ายแถบแท็บ (เฉพาะภาพรวม) — ไม่กินอีกแถว */}
                 {tab === 'overview' && (
                     <div className="ml-auto mb-1 flex shrink-0 rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-800">
                         {([
                             { key: 'table', label: 'ตาราง', go: () => setParams({ view: null, date: null, mode: null, dept: null, focus: null }) },
                             { key: 'timeline', label: 'ไทม์ไลน์', go: () => setParams({ view: 'timeline', date, mode }) },
+                            { key: 'calendar', label: 'ปฏิทิน', go: () => setParams({ view: 'calendar', date, mode: null, focus: null, dept: null }) },
                         ] as const).map(o => (
                             <button
                                 key={o.key}
@@ -1803,6 +1806,19 @@ export default function TrackingView({
                 ))}
             </div>
                 </>
+            ) : view === 'calendar' ? (
+                <CalendarView
+                    rows={rows}
+                    today={today}
+                    date={date}
+                    missingOf={l => getMissing(l, kitReadiness.get(l.id), designReady.get(l.id))}
+                    onDateChange={d => setParams({ date: d })}
+                    onOpenDay={d => setParams({ view: 'timeline', mode: 'day', date: d })}
+                    onEditStaff={id => setEditing({ leadId: id, kind: 'staff' })}
+                    onEditVehicle={id => setEditing({ leadId: id, kind: 'vehicle' })}
+                    pastLoaded={pastLoaded}
+                    onLoadPast={() => setParams({ past: '1' })}
+                />
             ) : (
                 <TimelineView
                     rows={rows}
