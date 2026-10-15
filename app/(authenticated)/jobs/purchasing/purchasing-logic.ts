@@ -513,8 +513,11 @@ function idField(raw: unknown, label: string): Validated<string | null> {
     return isUuid(raw) ? pass(raw.toLowerCase()) : fail(`${label}ไม่ถูกต้อง`)
 }
 
+/** ลิงก์สินค้ายาวได้ 2,000 ตัวอักษร — ลิงก์ Shopee/Lazada ที่คัดลอกจากแอปติดพารามิเตอร์ติดตามมาด้วย มักเกิน 500 */
+export const MAX_LINK_LENGTH = 2000
+
 function linkField(raw: unknown): Validated<string | null> {
-    const checked = optionalText(raw, 'ลิงก์', 500)
+    const checked = optionalText(raw, 'ลิงก์', MAX_LINK_LENGTH)
     if (!checked.ok || checked.value === null) return checked
     return /^https?:\/\//i.test(checked.value) ? checked : fail('ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https://')
 }

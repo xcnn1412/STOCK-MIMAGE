@@ -23,6 +23,7 @@ import {
     buildClaimPrefill,
     parseClaimItemIds,
     MAX_ITEMS_PER_CLAIM,
+    MAX_LINK_LENGTH,
     formatMoney,
     imageFilesError,
     isLinkableClaim,
@@ -428,11 +429,12 @@ assert.equal(valid(item({ quantity: '   ' })).quantity, null)
 // ร้าน ≤ 120
 assert.ok(valid(item({ vendor: 'x'.repeat(120) })))
 assert.match(invalid(item({ vendor: 'x'.repeat(121) })), /ร้าน.*120/)
-// ลิงก์: ขึ้นต้น http:// หรือ https:// และ ≤ 500
-const link500 = 'https://shop.example/' + 'a'.repeat(500 - 'https://shop.example/'.length)
-assert.equal(link500.length, 500)
-assert.equal(valid(item({ link_url: link500 })).link_url, link500)
-assert.match(invalid(item({ link_url: link500 + 'a' })), /500/)
+// ลิงก์: ขึ้นต้น http:// หรือ https:// และ ≤ 2,000 (ลิงก์ Shopee/Lazada จากแอปมักเกิน 500)
+const linkMax = 'https://shopee.co.th/' + 'a'.repeat(MAX_LINK_LENGTH - 'https://shopee.co.th/'.length)
+assert.equal(linkMax.length, 2000)
+assert.equal(valid(item({ link_url: linkMax })).link_url, linkMax)
+assert.equal(valid(item({ link_url: 'https://shopee.co.th/x?' + 'utm='.repeat(150) })).link_url?.length, 623)
+assert.match(invalid(item({ link_url: linkMax + 'a' })), /2,000/)
 assert.equal(valid(item({ link_url: 'http://a.co' })).link_url, 'http://a.co')
 assert.match(invalid(item({ link_url: 'ftp://a.co' })), /http:\/\/ หรือ https:\/\//)
 assert.match(invalid(item({ link_url: 'www.shopee.co.th/x' })), /http:\/\/ หรือ https:\/\//)
