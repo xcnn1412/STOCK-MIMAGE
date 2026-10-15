@@ -81,6 +81,13 @@ const BAR_ORDER: PurchaseStatus[] = ['done', 'awaiting_delivery', 'purchasing', 
 
 type CardDialog = 'edit' | 'apply' | 'saveTemplate' | 'copy' | 'delete' | 'linkClaim'
 
+/** ตัวคั่นหน้าคำในแถวเงิน — อยู่ในก้อนเดียวกับคำ จึงตัดบรรทัดไปพร้อมกัน */
+const Dot = () => (
+    <span aria-hidden className="mr-2 text-zinc-400 dark:text-zinc-500">
+        ·
+    </span>
+)
+
 export interface ListCardProps {
     /** เช็กลิสต์ตัวเต็ม (ไม่ผ่านตัวกรอง) */
     list: PurchaseList
@@ -304,7 +311,8 @@ export function ListCard({
                             )}
                         </span>
 
-                        {/* เงิน: งบ (ของเช็กลิสต์ หรือผลรวมงบรายการ) · จ่ายจริง · เกินงบ · ยังไม่ใส่ยอดจ่ายจริง · ผูกใบเบิกแล้ว */}
+                        {/* เงิน: งบ (ของเช็กลิสต์ หรือผลรวมงบรายการ) · จ่ายจริง · เกินงบ · ยังไม่ใส่ยอดจ่ายจริง · ผูกใบเบิกแล้ว
+                            ตัวคั่น "·" อยู่ในก้อนเดียวกับคำถัดไป (Dot) จะได้ตัดบรรทัดไปด้วยกัน ไม่ค้างท้ายบรรทัดโดดๆ บนมือถือ */}
                         {(money.budget !== null || money.actual > 0 || money.missingActual > 0 || claimCount.linked > 0) && (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums text-zinc-600 dark:text-zinc-400">
                                 {money.budget !== null && (
@@ -313,10 +321,10 @@ export function ListCard({
                                     </span>
                                 )}
                                 {(money.budget !== null || money.actual > 0) && (
-                                    <>
-                                        {money.budget !== null && <span aria-hidden>·</span>}
-                                        <span>จ่ายจริง {formatMoney(money.actual)}</span>
-                                    </>
+                                    <span>
+                                        {money.budget !== null && <Dot />}
+                                        จ่ายจริง {formatMoney(money.actual)}
+                                    </span>
                                 )}
                                 {money.over && (
                                     <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
@@ -325,11 +333,13 @@ export function ListCard({
                                 )}
                                 {money.missingActual > 0 && (
                                     <span className="text-amber-700 dark:text-amber-400">
+                                        {(money.budget !== null || money.actual > 0) && <Dot />}
                                         ยังไม่ใส่ยอดจ่ายจริง {money.missingActual} รายการ
                                     </span>
                                 )}
                                 {claimCount.linked > 0 && (
                                     <span className="inline-flex items-center gap-1">
+                                        {(money.budget !== null || money.actual > 0 || money.missingActual > 0) && <Dot />}
                                         <Receipt className="h-3.5 w-3.5 shrink-0" aria-hidden />
                                         ผูกใบเบิกแล้ว {claimCount.linked}/{claimCount.total} รายการ
                                     </span>

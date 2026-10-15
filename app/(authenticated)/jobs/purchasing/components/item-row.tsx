@@ -165,28 +165,33 @@ export function ItemRow({ item, list, today, viewer, assigneeName, claim, onStat
                             )}
                         </div>
 
-                        {/* ต้องได้ของภายใน + นับถอยหลังตามสีความด่วน */}
-                        <div className={cn('@4xl:col-start-4 @4xl:row-start-1', !due && 'hidden @4xl:block', dim)}>
-                            {due ? (
-                                <span className="inline-flex flex-wrap items-center gap-x-1.5 @4xl:flex-col @4xl:items-start @4xl:gap-0">
-                                    <span
-                                        className={cn(
-                                            'inline-flex items-center gap-1 tabular-nums',
-                                            item.due_date ? 'text-zinc-700 dark:text-zinc-300' : 'text-zinc-500 dark:text-zinc-400'
-                                        )}
-                                        title={
-                                            item.due_date
-                                                ? 'กำหนดของรายการนี้'
-                                                : list.lead?.event_date
-                                                  ? 'ใช้วันงานของเช็กลิสต์'
-                                                  : 'ใช้กำหนดของเช็กลิสต์'
-                                        }
-                                    >
-                                        <Calendar className="h-3.5 w-3.5 shrink-0 @4xl:hidden" aria-hidden />
-                                        <span className="sr-only">ต้องได้ของภายใน </span>
-                                        {formatThaiDate(due)}
-                                    </span>
-                                    {!done && <span className={urgencyTone(urgency).text}>{countdownLabel(due, today)}</span>}
+                        {/* ต้องได้ของภายใน + นับถอยหลังตามสีความด่วน
+                            กำหนดของรายการเอง = วันที่ + นับถอยหลัง · สืบทอดจากใบ (วันงาน/กำหนดใบ) = นับถอยหลังอย่างเดียว
+                            (หัวการ์ดบอกวันนั้นอยู่แล้ว ไม่ต้องซ้ำทุกแถว) · เสร็จแล้วและไม่มีกำหนดของตัวเอง = ว่าง */}
+                        <div className={cn('@4xl:col-start-4 @4xl:row-start-1', !(due && (item.due_date || !done)) && 'hidden @4xl:block', dim)}>
+                            {due && (item.due_date || !done) ? (
+                                <span
+                                    className="inline-flex flex-wrap items-center gap-x-1.5 @4xl:flex-col @4xl:items-start @4xl:gap-0"
+                                    title={
+                                        item.due_date
+                                            ? 'กำหนดของรายการนี้'
+                                            : `${list.lead?.event_date ? 'ใช้วันงานของเช็กลิสต์' : 'ใช้กำหนดของเช็กลิสต์'} (${formatThaiDate(due)})`
+                                    }
+                                >
+                                    {item.due_date && (
+                                        <span className="inline-flex items-center gap-1 tabular-nums text-zinc-700 dark:text-zinc-300">
+                                            <Calendar className="h-3.5 w-3.5 shrink-0 @4xl:hidden" aria-hidden />
+                                            <span className="sr-only">ต้องได้ของภายใน </span>
+                                            {formatThaiDate(due)}
+                                        </span>
+                                    )}
+                                    {!done && (
+                                        <span className={cn('inline-flex items-center gap-1', urgencyTone(urgency).text)}>
+                                            {!item.due_date && <Calendar className="h-3.5 w-3.5 shrink-0 @4xl:hidden" aria-hidden />}
+                                            {!item.due_date && <span className="sr-only">ต้องได้ของภายใน {formatThaiDate(due)} </span>}
+                                            {countdownLabel(due, today)}
+                                        </span>
+                                    )}
                                 </span>
                             ) : (
                                 <span className="text-zinc-400 dark:text-zinc-500">

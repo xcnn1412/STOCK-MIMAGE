@@ -1,7 +1,7 @@
 'use client'
 
 // หน้าจัดซื้อ (/jobs/purchasing) — เช็กลิสต์ของที่ต้องซื้อ ต้องสั่ง หรือต้องจัดการของแต่ละงาน · สเปค: docs/specs/purchasing-checklist.md
-// ตัวกรองอยู่ใน URL: ?view=board ?status= ?mine=1 ?q= ?done=1 ?list=<id> (ลิงก์เปิดใบ) · ?past=1 มาจาก server (โหลดใบเก่าด้วย)
+// ตัวกรองอยู่ใน URL: ?view=board ?status= ?mine=1 ?urgent=1 ?q= ?done=1 ?list=<id> (ลิงก์เปิดใบ) · ?past=1 มาจาก server (โหลดใบเก่าด้วย)
 // ทุกการเปลี่ยนแปลง: useOptimistic(applyOptimistic) + useTransition → หน้าจอเปลี่ยนทันที ข้อมูลจริงตามมาจาก revalidatePath
 // พลาด = ค่าชั่วคราวหายเองเมื่องานจบ + toast.error · ไม่สั่งโหลดหน้าใหม่เองหลังบันทึก และไม่เก็บสำเนาเช็กลิสต์ใน state
 // ห้าม import ./data (มี service-role client) — ชนิดข้อมูลมาจาก purchasing-logic.ts
@@ -36,6 +36,7 @@ import {
     listsSummary,
     progressOf,
     statusTone,
+    urgencyTone,
     type ListFilter,
     type OptimisticAction,
     type PurchaseClaim,
@@ -83,6 +84,9 @@ const chipClass = (active: boolean) =>
             : 'border border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800'
     )
 
+/** สีจุดบนชิป "ด่วน" — ชุดเดียวกับป้ายความด่วนบนการ์ด */
+const urgentTone = urgencyTone('urgent')
+
 function ChipCount({ n, active }: { n: number; active: boolean }) {
     return <span className={cn('text-[11px] tabular-nums', active ? 'opacity-70' : 'text-zinc-400')}>{n}</span>
 }
@@ -116,6 +120,7 @@ export default function PurchasingView({
     const statusParam = searchParams.get('status')
     const status: PurchaseStatus | 'all' = isPurchaseStatus(statusParam) ? statusParam : 'all'
     const mine = searchParams.get('mine') === '1' && !!currentUserId
+    const urgent = searchParams.get('urgent') === '1'
     const showFinished = searchParams.get('done') === '1'
     const focusId = searchParams.get('list')
     const past = searchParams.get('past') === '1'
@@ -131,8 +136,8 @@ export default function PurchasingView({
     const itemFocus = useFocusReturn()
 
     const viewer: Viewer = { userId: currentUserId, isAdmin, department: myDepartment }
-    const filter: ListFilter = { status, mine, query, showFinished }
-    const itemFiltersActive = status !== 'all' || mine || query.trim() !== ''
+    const filter: ListFilter = { status, mine, query, showFinished, urgent }
+    const itemFiltersActive = status !== 'all' || mine || urgent || query.trim() !== ''
 
     /**
      * เขียนตัวกรองลง URL โดยไม่โหลดข้อมูลใหม่ — history.replaceState (Next ผูกกับ useSearchParams ให้เอง)
@@ -157,7 +162,7 @@ export default function PurchasingView({
     }
     const clearFilters = () => {
         setQuery('')
-        setFilter({ status: null, mine: null, q: null })
+        setFilter({ status: null, mine: null, urgent: null, q: null })
     }
 
     // --- ข้อมูลที่แสดง ---
@@ -168,7 +173,7 @@ export default function PurchasingView({
         return !showFinished && !!full && isListFinished(full)
     }
     // ตัวกรองระดับรายการ (สถานะ / ของฉัน / คำค้น) — การซ่อนใบที่เสร็จแล้วทำเองข้างล่าง ให้ใบที่ลิงก์มาแสดงได้เสมอ
-    const matched = filterLists(lists, { ...filter, showFinished: true }, viewer)
+    const matched = filterLists(lists, { ...filter, showFinished: true }, viewer, today)
     const matchedById = new Map(matched.map(l => [l.id, l]))
 
     /** การ์ดของมุมมองตามงาน — ใบที่ลิงก์มา (?list=) แสดงเสมอแม้ตัวกรองจะซ่อน (มาจากแจ้งเตือน/หน้าแรก) */
@@ -183,7 +188,7 @@ export default function PurchasingView({
     const boardCount = boardLists.reduce((n, l) => n + l.items.length, 0)
 
     // ตัวเลขบนชิปสถานะ = ผลของตัวกรองอื่น (ของฉัน / คำค้น / ซ่อนที่เสร็จ) โดยไม่นับตัวกรองสถานะเอง
-    const facet = filterLists(lists, { ...filter, status: 'all', showFinished: true }, viewer).filter(l => !hiddenFinished(l.id))
+    const facet = filterLists(lists, { ...filter, status: 'all', showFinished: true }, viewer, today).filter(l => !hiddenFinished(l.id))
     const chipCounts = progressOf(facet.flatMap(l => l.items))
     const summary = listsSummary(lists, today)
     const mineOpen = currentUserId
@@ -239,7 +244,7 @@ export default function PurchasingView({
     /** รายการที่เพิ่งเพิ่มถูกตัวกรองซ่อนไหม — ซ่อน = บอก ไม่งั้นผู้ใช้จะนึกว่าเพิ่มไม่ติด */
     const hiddenByFilter = (list: PurchaseList, action: AddItemsAction) => {
         if (!itemFiltersActive) return undefined
-        const probe = filterLists(applyOptimistic([list], action), { ...filter, showFinished: true }, viewer)
+        const probe = filterLists(applyOptimistic([list], action), { ...filter, showFinished: true }, viewer, today)
         const shown = new Set(probe.flatMap(l => l.items.map(i => i.id)))
         const hidden = action.items.filter(d => !shown.has(d.tempId)).length
         return hidden > 0 ? { success: `เพิ่มแล้ว ${action.items.length} รายการ (ซ่อนอยู่ ${hidden} รายการตามตัวกรอง)` } : undefined
@@ -494,6 +499,17 @@ export default function PurchasingView({
                                 ของฉัน <ChipCount n={mineOpen} active={mine} />
                             </button>
                         )}
+                        {/* ด่วน = เลยกำหนด + อีก 0–3 วัน — ตัวเลขเดียวกับ "ด่วน N รายการ" ใต้หัวข้อหน้า */}
+                        <button
+                            type="button"
+                            aria-pressed={urgent}
+                            onClick={() => setFilter({ urgent: urgent ? null : '1' })}
+                            className={chipClass(urgent)}
+                            title="เฉพาะรายการที่เลยกำหนดหรือต้องได้ของภายใน 3 วัน"
+                        >
+                            <span className={cn('h-2 w-2 shrink-0 rounded-full', urgentTone.dot)} aria-hidden />
+                            ด่วน <ChipCount n={summary.urgent} active={urgent} />
+                        </button>
                         <button
                             type="button"
                             aria-pressed={showFinished}
