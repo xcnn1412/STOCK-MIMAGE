@@ -1307,3 +1307,88 @@ export function listsSummary(lists: PurchaseList[], today: string): ListsSummary
     }
     return { lists: lists.length, open, urgent }
 }
+
+// --- สร้างใบเบิกจากรายการจัดซื้อ (ปุ่มในตาราง / หัวการ์ด → /finance/new?items=…) ----------------
+
+/** ค่าตั้งต้นของฟอร์มสร้างใบเบิก (/finance/new) เมื่อเปิดมาจากรายการจัดซื้อ — ผู้ใช้แก้ได้ทุกช่องก่อนยื่น */
+export interface ClaimPrefill {
+    /** 'advance' = ใบทดลองจ่ายทั้งเช็กลิสต์ (ปุ่มหัวการ์ด) · 'other' = เบิกรายการเดียว (ปุ่มในตาราง) */
+    claimType: 'other' | 'advance'
+    title: string
+    /** ยอดตั้งต้น: จ่ายจริง → งบ ของแต่ละรายการ รวมกัน · null = ไม่มีราคาสักรายการ ให้ผู้ใช้กรอกเอง */
+    unitPrice: number | null
+    /** ช่อง "รายละเอียด" — เช็กลิสต์ (+ ร้าน เมื่อรายการเดียว) */
+    description: string
+    /** ช่อง "รายละเอียดเพิ่มเติม" — หมายเหตุของรายการ หรือรายการย่อยทั้งหมดเมื่อหลายรายการ */
+    additionalDetails: string
+    /** รายการที่จะผูกกับใบเบิกอัตโนมัติหลังสร้างสำเร็จ */
+    itemIds: string[]
+    /** เช็กลิสต์ต้นทาง (null = รายการมาจากหลายเช็กลิสต์) — ใช้กลับไปเปิดใบหลังสร้างเสร็จ */
+    listId: string | null
+    listTitle: string
+    /** จำนวนรายการที่ยังไม่มีทั้งจ่ายจริงและงบ — ฟอร์มเตือนให้ตรวจยอด */
+    missingPrice: number
+}
+
+/** จำนวนรายการสูงสุดที่สร้างใบเบิกจากรายการได้ในครั้งเดียว — เท่าเพดานการผูก */
+export const MAX_ITEMS_PER_CLAIM = MAX_ITEMS_PER_LINK
+
+const priceOf = (item: Pick<PurchaseItem, 'est_price' | 'actual_price'>) => item.actual_price ?? item.est_price
+
+/**
+ * ค่าตั้งต้นจากรายการที่เลือก (เรียงตามที่ส่งมา) · titleOf = ชื่อเช็กลิสต์ตาม list_id
+ * รายการเดียว: หัวข้อ = ชื่อรายการ (+ จำนวน) · หลายรายการ: "ทดลองจ่ายค่าจัดซื้อ — <เช็กลิสต์>" และแจกแจงรายการใน "รายละเอียดเพิ่มเติม"
+ * ไม่มีรายการ = null
+ */
+export function buildClaimPrefill(
+    items: PurchaseItem[],
+    titleOf: (listId: string) => string,
+    claimType: ClaimPrefill['claimType']
+): ClaimPrefill | null {
+    if (items.length === 0) return null
+    const listIds = [...new Set(items.map(i => i.list_id))]
+    const listId = listIds.length === 1 ? listIds[0] : null
+    const listTitle = listId ? titleOf(listId) : `${listIds.length} เช็กลิสต์`
+    const priced = items.map(priceOf).filter((p): p is number => p != null)
+    const total = priced.length > 0 ? Math.round(priced.reduce((a, b) => a + b, 0) * 100) / 100 : null
+    const withQty = (item: PurchaseItem) => (item.quantity ? `${item.title} ${item.quantity}` : item.title)
+
+    if (items.length === 1) {
+        const item = items[0]
+        return {
+            claimType,
+            title: withQty(item),
+            unitPrice: total,
+            description: [`เช็กลิสต์ ${listTitle}`, item.vendor ? `ร้าน ${item.vendor}` : null].filter(Boolean).join(' · '),
+            additionalDetails: item.note ?? '',
+            itemIds: [item.id],
+            listId,
+            listTitle,
+            missingPrice: priced.length === 0 ? 1 : 0,
+        }
+    }
+    return {
+        claimType,
+        title: `ทดลองจ่ายค่าจัดซื้อ — ${listTitle}`,
+        unitPrice: total,
+        description: `เช็กลิสต์ ${listTitle} (${items.length} รายการ)`,
+        additionalDetails: items
+            .map(item => {
+                const price = priceOf(item)
+                return `${withQty(item)}${price != null ? ` ฿${formatMoney(price)}` : ''}`
+            })
+            .join(', '),
+        itemIds: items.map(i => i.id),
+        listId,
+        listTitle,
+        missingPrice: items.length - priced.length,
+    }
+}
+
+/** แยกค่า ?items=a,b,c เป็น uuid ที่ไม่ซ้ำ (ตัวพิมพ์เล็ก) — เกินเพดานหรือมีค่าที่ไม่ใช่ uuid = [] (ไม่เดา) */
+export function parseClaimItemIds(raw: unknown): string[] {
+    if (typeof raw !== 'string' || raw === '') return []
+    const ids = [...new Set(raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean))]
+    if (ids.length === 0 || ids.length > MAX_ITEMS_PER_CLAIM || !ids.every(isUuid)) return []
+    return ids
+}

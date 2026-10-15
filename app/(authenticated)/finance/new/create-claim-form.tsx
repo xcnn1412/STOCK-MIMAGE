@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef, useActionState, startTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Send, Save, Camera, Upload, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, ImageIcon, Wallet, Info, Building2, User as UserIcon, Coins } from 'lucide-react'
+import { Send, Save, Camera, Upload, Calendar, Tag, Receipt, Percent, Users, AlertTriangle, UserCheck, ImageIcon, Wallet, Info, Building2, User as UserIcon, Coins, ShoppingCart } from 'lucide-react'
+import Link from 'next/link'
+import type { ClaimPrefill } from '../../jobs/purchasing/purchasing-logic'
 import { createClaim, getOpenPettyCashFund } from '../actions'
 import { receiptRequiredForSubmit } from '../claim-rules'
 import { CLAIM_TYPES, FUNDING_SOURCES, type FundingSource } from '../../costs/types'
@@ -35,6 +37,8 @@ interface Props {
   isAdmin: boolean
   /** ผู้ใช้ที่กำลังกรอก — ใช้เติมบัญชีธนาคารของตัวเองจากโปรไฟล์ */
   viewerId: string
+  /** เปิดมาจากหน้าจัดซื้อ (?items=) — ค่าตั้งต้นของช่องต่างๆ + รายการที่จะผูกอัตโนมัติหลังสร้าง · ไม่มี = ฟอร์มเปล่า */
+  prefill?: ClaimPrefill | null
 }
 
 /** ไฟล์แนบหนึ่งไฟล์: สถานะ/ตัวอย่างสำหรับ FileStatusList + ไฟล์ที่จะส่ง (บีบแล้ว) + รูปย่อ (ไม่มี = null) */
@@ -42,11 +46,11 @@ type ReceiptItem = FileStatusItem & { file: File; thumb: File | null }
 
 const fmtDec = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-export default function CreateClaimForm({ jobEvents, categories, categoryItems, staffProfiles, isAdmin, viewerId }: Props) {
+export default function CreateClaimForm({ jobEvents, categories, categoryItems, staffProfiles, isAdmin, viewerId, prefill = null }: Props) {
   const router = useRouter()
   const { locale } = useLocale()
   const isEn = locale === 'en'
-  const [claimType, setClaimType] = useState<'event' | 'other' | 'advance' | 'petty_cash'>('event')
+  const [claimType, setClaimType] = useState<'event' | 'other' | 'advance' | 'petty_cash'>(prefill?.claimType ?? 'event')
   const isAdvance = claimType === 'advance'
   const isPettyCash = claimType === 'petty_cash'
   // Advance and petty cash share the "single amount, no VAT/WHT, company-funded" shape.
@@ -68,7 +72,11 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   }, [claimType])
   const [fundingSource, setFundingSource] = useState<FundingSource>('company')
   const isPersonalFunded = fundingSource === 'personal'
-  const [selectedCategory, setSelectedCategory] = useState(categories[0]?.value || 'staff')
+  // จากหน้าจัดซื้อ = หมวด "อุปกรณ์" (ไม่มี = หมวดแรกที่เป็นช่องกรอกอิสระ) — หมวดแรกของระบบคือค่าสตาฟซึ่งหัก ณ ที่จ่าย 3% ไม่เหมาะกับของที่ซื้อ
+  const initialCategory = prefill
+    ? (categories.find(c => c.value === 'equipment') ?? categories.find(c => c.detail_source === 'none') ?? categories[0])?.value || 'other'
+    : categories[0]?.value || 'staff'
+  const [selectedCategory, setSelectedCategory] = useState(initialCategory)
   // ไฟล์แนบ: ย่อรูป + ทำรูปย่อทันทีที่เลือก (ระหว่างผู้ใช้กรอกฟอร์มต่อ) · กดส่ง = อัปโหลดทุกไฟล์รอบเดียว
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([])
   const nextReceiptId = useRef(0)
@@ -79,10 +87,9 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
   const receiptsCompressing = receiptItems.some(it => it.status === 'compressing')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
-  const [unitPrice, setUnitPrice] = useState('')
+  const [unitPrice, setUnitPrice] = useState(prefill?.unitPrice != null ? String(prefill.unitPrice) : '')
   const [quantity, setQuantity] = useState('1')
   const [vatMode, setVatMode] = useState('none')
-  const initialCategory = categories[0]?.value || 'staff'
   const [whtRate, setWhtRate] = useState(
     initialCategory === 'staff' || initialCategory === 'service_fee' ? '3' : '0'
   )
@@ -131,7 +138,10 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
         toast.success(result.status === 'pending'
           ? (isEn ? `Claim ${result.claimNumber} submitted — awaiting approval` : `ยื่นใบเบิก ${result.claimNumber} แล้ว — รออนุมัติ`)
           : (isEn ? `Draft ${result.claimNumber} saved — not submitted yet` : `บันทึกแบบร่าง ${result.claimNumber} แล้ว — ยังไม่ได้ยื่น`))
-        router.push('/finance')
+        // สร้างใบได้แต่ผูกรายการจัดซื้อไม่สำเร็จ — ใบเบิกยังอยู่ ผู้ใช้ไปผูกเองจากหน้าจัดซื้อได้
+        if (result.warning) toast.warning(result.warning)
+        // มาจากหน้าจัดซื้อ = กลับไปเปิดเช็กลิสต์นั้น (เห็นป้ายใบเบิกบนรายการทันที)
+        router.push(prefill ? (prefill.listId ? `/jobs/purchasing?list=${prefill.listId}` : '/jobs/purchasing') : '/finance')
         return { success: true }
       }
       // ไฟล์ที่ server บอกชื่อว่าอัปโหลดไม่สำเร็จ = "ไม่สำเร็จ" · ที่เหลือกลับเป็น "พร้อมส่ง" (ยังไม่ได้บันทึกอะไร)
@@ -270,6 +280,34 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
         </p>
       </div>
 
+      {/* เปิดมาจากหน้าจัดซื้อ — บอกที่มา จำนวนรายการ และเตือนยอดที่ยังไม่มีราคา */}
+      {prefill && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-violet-200 bg-violet-50/60 p-4 text-sm dark:border-violet-900 dark:bg-violet-950/20">
+          <ShoppingCart className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" aria-hidden />
+          <div className="min-w-0 space-y-1">
+            <p className="font-medium text-zinc-900 dark:text-zinc-100">
+              {prefill.claimType === 'advance' ? 'ใบทดลองจ่ายจากเช็กลิสต์จัดซื้อ' : 'ใบเบิกจากรายการจัดซื้อ'}
+              {' — '}
+              {prefill.listTitle} · {prefill.itemIds.length} รายการ
+            </p>
+            <p className="text-zinc-600 dark:text-zinc-400">
+              ระบบเติมหัวข้อ ยอด และรายละเอียดให้แล้ว แก้ได้ทุกช่อง · เมื่อบันทึกหรือยื่น รายการที่เลือกจะถูกผูกกับใบเบิกนี้อัตโนมัติ
+            </p>
+            {prefill.missingPrice > 0 && (
+              <p className="text-amber-700 dark:text-amber-400">
+                มี {prefill.missingPrice} รายการที่ยังไม่ได้ใส่งบหรือยอดจ่ายจริง — ยอดที่เติมให้จึงยังไม่ครบ กรุณาตรวจก่อนยื่น
+              </p>
+            )}
+            <Link
+              href={prefill.listId ? `/jobs/purchasing?list=${prefill.listId}` : '/jobs/purchasing'}
+              className="inline-block font-medium text-violet-700 underline-offset-2 hover:underline dark:text-violet-300"
+            >
+              กลับไปหน้าจัดซื้อ
+            </Link>
+          </div>
+        </div>
+      )}
+
       <form
         onSubmit={handleSubmit}
         // Enter ในช่องกรอกไม่ส่งฟอร์ม — ปุ่มแรกคือ "ยื่นใบเบิก" กด Enter/Go ระหว่างกรอกจะยื่นทันทีโดยไม่ตั้งใจ
@@ -322,6 +360,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             })}
           </div>
           <input type="hidden" name="claim_type" value={claimType} />
+          {prefill && <input type="hidden" name="purchase_item_ids" value={prefill.itemIds.join(',')} />}
 
           {/* Funding Source — เงินบริษัท / เงินส่วนตัว */}
           {!isSimpleAmount && (
@@ -461,6 +500,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
             type="text"
             name="title"
             required
+            defaultValue={prefill?.title}
             placeholder={isEn ? 'e.g. Travel expenses' : 'เช่น ค่าเดินทางไปงาน, ค่าอุปกรณ์'}
             className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
           />
@@ -550,6 +590,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
                 <input
                   type="text"
                   name="description"
+                  defaultValue={prefill?.description}
                   placeholder={isEn ? 'e.g. Staff wages for 3 people' : 'เช่น ค่าสตาฟ 3 คน'}
                   className={selectCls}
                 />
@@ -957,6 +998,7 @@ export default function CreateClaimForm({ jobEvents, categories, categoryItems, 
           <textarea
             name="additional_details"
             rows={2}
+            defaultValue={prefill?.additionalDetails}
             placeholder={isEn ? 'Additional notes or details (optional)' : 'รายละเอียดเพิ่มเติม (ไม่บังคับ)'}
             className="w-full px-3 py-2.5 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-base sm:text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none resize-none"
           />

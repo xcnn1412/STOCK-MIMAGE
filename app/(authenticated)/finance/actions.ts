@@ -10,6 +10,7 @@ import { thumbPathFor } from '@/lib/finance/receipt-thumbs'
 import { claimFileCount, thaiMonth } from './claims-filter'
 import { reasonRequiredForEdit, receiptRequiredForSubmit, shouldHaveCostItem } from './claim-rules'
 import { getOutstandingClaims } from './outstanding-data'
+import { parseClaimItemIds } from '../jobs/purchasing/purchasing-logic'
 // ตัวตน ตัวช่วยสถานะ/รายการต้นทุน และข้อความกลาง (ใช้ร่วมกับ lifecycle-actions.ts ซึ่งเป็นที่อยู่ของการเปลี่ยนสถานะทั้งหมด)
 import {
   CLAIM_ID_RE, COST_SYNC_ERROR, RECEIPT_REQUIRED_ERROR, STALE_SETTLE_ERROR, STALE_STATUS_ERROR, claimsQuery, findClaimCostItems,
@@ -520,6 +521,16 @@ export async function createClaim(formData: FormData) {
   const data = { id: inserted.claim.id }
   const claimNumber = inserted.claim.claimNumber
 
+  // รายการจัดซื้อที่ส่งมาจากหน้าจัดซื้อ (purchase_item_ids) — ผูกกับใบที่เพิ่งสร้าง
+  // ผูกไม่สำเร็จ = ใบเบิกยังสร้างสำเร็จ แจ้งเป็นคำเตือน (ผู้ใช้ไปผูกเองจากหน้าจัดซื้อได้) · import ตอนใช้ ไม่โหลดโมดูลจัดซื้อให้ทุกคำขอ
+  let warning: string | undefined
+  const purchaseItemIds = parseClaimItemIds(formData.get('purchase_item_ids'))
+  if (purchaseItemIds.length > 0) {
+    const { linkPurchaseItemsToClaim } = await import('../jobs/purchasing/actions')
+    const linked = await linkPurchaseItemsToClaim(purchaseItemIds, data.id)
+    if ('error' in linked) warning = `สร้างใบเบิก ${claimNumber} แล้ว แต่ผูกรายการจัดซื้อไม่สำเร็จ: ${linked.error}`
+  }
+
   const created = logActivity('CREATE_EXPENSE_CLAIM', {
     claimId: data?.id,
     claimNumber,
@@ -553,7 +564,7 @@ export async function createClaim(formData: FormData) {
   }
 
   revalidatePath('/finance')
-  return { success: true, id: data.id, claimNumber, status }
+  return { success: true, id: data.id, claimNumber, status, warning }
 }
 
 // ============================================================================

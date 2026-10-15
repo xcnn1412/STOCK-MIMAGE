@@ -7,6 +7,7 @@
 // แถวที่ id ชั่วคราว (เพิ่งเพิ่ม รอ server) = แสดงว่ากำลังเพิ่ม ไม่มีปุ่มสถานะและเมนู
 
 import { useRef, useState } from 'react'
+import Link from 'next/link'
 import {
     Calendar,
     ImageIcon,
@@ -343,6 +344,14 @@ export function ItemRow({ item, list, today, viewer, assigneeName, claim, onStat
                                 <DropdownMenuItem className="min-h-9" onSelect={() => onEdit(item.id, menuRef.current)}>
                                     <Pencil aria-hidden /> แก้ไข
                                 </DropdownMenuItem>
+                                {/* เปิดฟอร์มสร้างใบเบิกที่เติมชื่อ/ยอด/ร้านจากรายการนี้ให้แล้ว — บันทึกแล้วผูกกลับมาเอง · ผูกอยู่แล้วไม่แสดง */}
+                                {!item.expense_claim_id && (
+                                    <DropdownMenuItem className="min-h-9" asChild>
+                                        <Link href={`/finance/new?items=${item.id}`}>
+                                            <Receipt aria-hidden /> สร้างใบเบิกจากรายการนี้
+                                        </Link>
+                                    </DropdownMenuItem>
+                                )}
                                 {deletable && (
                                     <>
                                         <DropdownMenuSeparator />
