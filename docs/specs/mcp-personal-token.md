@@ -1,6 +1,6 @@
 # MCP Personal Access Token — ใช้กับ Ollama และโปรแกรมที่ทำ OAuth ไม่ได้ (แผน 2026-10-16)
 
-สถานะ: **แผน ยังไม่ลงมือ** · ต่อยอดจาก `docs/specs/mcp-server.md` (v1.38–1.39, deploy แล้ว) · เวอร์ชัน MINOR (v1.65.0) · branch `feature/mcp-personal-token`
+สถานะ: **ทำแล้ว v1.65.0 (2026-10-16) — ผ่านเกณฑ์ AC1–AC11 ทางชุดตรวจ + static render 390/1100px · ยังไม่ได้ทดสอบกับ ollmcp จริง** · ต่อยอดจาก `docs/specs/mcp-server.md` (v1.38–1.39, deploy แล้ว) · เวอร์ชัน MINOR (v1.65.0) · branch `feature/mcp-personal-token`
 
 ## Problem Statement
 

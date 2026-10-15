@@ -154,6 +154,77 @@ async function insertTokens(db: Db, row: {
   return { accessToken, refreshToken, expiresIn: ACCESS_TTL_S, scope: row.scope }
 }
 
+// ── token ส่วนตัว (สเปค docs/specs/mcp-personal-token.md) ──────────────────────────
+// แถวใน oauth_tokens เดิม client_id = 'personal-token' อายุยาว ไม่มี refresh
+// verifyAccessToken / หน้าแอปที่เชื่อมต่อ / ปุ่มยกเลิก ใช้ได้ทันทีโดยไม่แก้โค้ด
+
+export const PERSONAL_CLIENT_ID = 'personal-token'
+export const PERSONAL_TOKEN_PREFIX = 'stk_'
+export const PERSONAL_TTL_DAYS = [30, 90, 365] as const
+export const MAX_PERSONAL_TOKENS = 5
+
+export type PersonalTokenResult =
+  | { token: string; tokenId: string; expiresAt: string }
+  | { error: string }
+
+/** ออก token ส่วนตัว — คืนค่าจริงครั้งเดียว ฐานข้อมูลเก็บแค่ hash · ผู้เรียกตรวจชื่อ/อายุ/ตัวตนมาแล้ว */
+export async function issuePersonalToken(db: Db, p: { userId: string; name: string; ttlDays: number }): Promise<PersonalTokenResult> {
+  const nowMs = Date.now()
+  const nowIso = new Date(nowMs).toISOString()
+
+  // client แม่ — select แล้ว insert เมื่อไม่มี (เรียกซ้ำได้)
+  const { data: client, error: clientError } = await db
+    .from('oauth_clients')
+    .select('client_id')
+    .eq('client_id', PERSONAL_CLIENT_ID)
+    .maybeSingle()
+  if (clientError) return { error: 'สร้าง token ไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  if (!client) {
+    const { error } = await db.from('oauth_clients').insert({
+      client_id: PERSONAL_CLIENT_ID,
+      client_name: 'Personal access token',
+      redirect_uris: [],
+    })
+    // ชนกับคำขอพร้อมกัน (unique) = มีแถวแล้ว ใช้ต่อได้
+    if (error && error.code !== '23505') return { error: 'สร้าง token ไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  }
+
+  // เพดานต่อคน: นับเฉพาะที่ยังใช้ได้ (ไม่ revoke และยังไม่หมดอายุ)
+  const { count, error: countError } = await db
+    .from('oauth_tokens')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', p.userId)
+    .eq('client_id', PERSONAL_CLIENT_ID)
+    .is('revoked_at', null)
+    .gt('access_expires_at', nowIso)
+  if (countError) return { error: 'สร้าง token ไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  if ((count ?? 0) >= MAX_PERSONAL_TOKENS) {
+    return { error: `มี token ส่วนตัวที่ใช้งานได้ครบ ${MAX_PERSONAL_TOKENS} รายการแล้ว — ยกเลิกรายการที่ไม่ใช้ก่อนสร้างใหม่` }
+  }
+
+  const token = PERSONAL_TOKEN_PREFIX + randomToken()
+  const expiresAt = new Date(nowMs + p.ttlDays * 24 * 60 * 60 * 1000).toISOString()
+  const { data: inserted, error } = await db
+    .from('oauth_tokens')
+    .insert({
+      user_id: p.userId,
+      client_id: PERSONAL_CLIENT_ID,
+      client_name: p.name,
+      access_hash: sha256(token),
+      // คอลัมน์ NOT NULL unique แต่ token ส่วนตัวไม่มี refresh — hash ของค่าสุ่มที่ทิ้งไป
+      refresh_hash: sha256(randomToken()),
+      scope: MCP_SCOPE,
+      code_hash: null,
+      access_expires_at: expiresAt,
+      refresh_expires_at: expiresAt,
+      last_used_at: null,
+    })
+    .select('id')
+    .single()
+  if (error || !inserted) return { error: 'สร้าง token ไม่สำเร็จ ลองใหม่อีกครั้ง' }
+  return { token, tokenId: inserted.id as string, expiresAt }
+}
+
 /** revoke ทุก token ที่สืบมาจาก code เดียวกัน (code ใช้ซ้ำ / refresh ใช้ซ้ำ) */
 async function revokeFamily(db: Db, codeHash: string | null) {
   if (!codeHash) return
