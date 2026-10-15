@@ -328,6 +328,13 @@ export interface ListFilter {
     query: string
     /** false = ซ่อนเช็กลิสต์ที่เสร็จครบแล้ว */
     showFinished: boolean
+    /** เฉพาะรายการด่วน (เลยกำหนด + อีก 0–3 วัน — นิยามเดียวกับตัวเลข "ด่วน" ใต้หัวข้อหน้า) · ต้องส่ง today ให้ filterLists */
+    urgent?: boolean
+}
+
+/** รายการด่วน = เลยกำหนดหรืออีกไม่เกิน 3 วัน (ใกล้ถึง 4–7 วันไม่นับ) */
+export function isPressing(urgency: Urgency | null): boolean {
+    return urgency === 'overdue' || urgency === 'urgent'
 }
 
 /**
@@ -337,9 +344,10 @@ export interface ListFilter {
  * - มีตัวกรอง → ใบที่ไม่เหลือรายการตรงเงื่อนไขถูกซ่อน (ใบว่างจึงหายไปด้วย)
  * - คำค้นตรงชื่อเช็กลิสต์หรือสถานที่ = ทุกรายการในใบนั้นตรงคำค้น · ไม่งั้นดูชื่อรายการและร้าน
  */
-export function filterLists(lists: PurchaseList[], filter: ListFilter, viewer: Viewer): PurchaseList[] {
+export function filterLists(lists: PurchaseList[], filter: ListFilter, viewer: Viewer, today = ''): PurchaseList[] {
     const q = filter.query.trim().toLowerCase()
-    const active = filter.status !== 'all' || filter.mine || q !== ''
+    const urgent = !!filter.urgent
+    const active = filter.status !== 'all' || filter.mine || q !== '' || urgent
     const has = (text: string | null | undefined) => !!text && text.toLowerCase().includes(q)
 
     const out: PurchaseList[] = []
@@ -353,6 +361,7 @@ export function filterLists(lists: PurchaseList[], filter: ListFilter, viewer: V
         const items = list.items.filter(item =>
             (filter.status === 'all' || item.status === filter.status) &&
             (!filter.mine || (!!viewer.userId && item.assignee_id === viewer.userId)) &&
+            (!urgent || isPressing(urgencyOf(item, list, today))) &&
             (listHit || has(item.title) || has(item.vendor)))
         if (items.length > 0) out.push({ ...list, items })
     }
@@ -1293,8 +1302,7 @@ export function listsSummary(lists: PurchaseList[], today: string): ListsSummary
         for (const item of list.items) {
             if (item.status === 'done') continue
             open++
-            const u = urgencyOf(item, list, today)
-            if (u === 'overdue' || u === 'urgent') urgent++
+            if (isPressing(urgencyOf(item, list, today))) urgent++
         }
     }
     return { lists: lists.length, open, urgent }

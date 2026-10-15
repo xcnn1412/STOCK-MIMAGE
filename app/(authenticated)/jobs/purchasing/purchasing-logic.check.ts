@@ -314,6 +314,21 @@ assert.deepEqual(f({ query: 'ใบว่าง' }), [])
 assert.deepEqual(itemIds(f({ query: 'พารากอน', status: 'purchasing' })), { L1: [i3.id] })
 assert.deepEqual(itemIds(f({ query: 'พารากอน', mine: true })), { L1: [i1.id] })
 assert.equal(L1.items.length, 3, 'filterLists ต้องไม่แก้เช็กลิสต์เดิม')
+// ด่วน = เลยกำหนด + อีก 0–3 วัน (นิยามเดียวกับ listsSummary) · ใกล้ถึง/ไม่มีกำหนด/เสร็จแล้วไม่นับ · ใบว่างถูกซ่อน
+{
+    const u1 = mkItem({ list_id: 'U', title: 'เลยมา', due_date: '2026-09-20' })
+    const u2 = mkItem({ list_id: 'U', title: 'พรุ่งนี้', due_date: '2026-10-01' })
+    const u3 = mkItem({ list_id: 'U', title: 'อีก 5 วัน', due_date: '2026-10-05' })
+    const u4 = mkItem({ list_id: 'U', title: 'เสร็จแล้วแต่เลย', status: 'done', due_date: '2026-09-01' })
+    const u5 = mkItem({ list_id: 'U', title: 'ไม่มีกำหนด' })
+    const U = mkList({ id: 'U', items: [u1, u2, u3, u4, u5] })
+    const uf = (patch: Partial<ListFilter>) => filterLists([U, EMPTY, L2], { ...noFilter, ...patch }, me, TODAY)
+    assert.deepEqual(itemIds(uf({ urgent: true })), { U: [u1.id, u2.id] })
+    assert.deepEqual(itemIds(uf({ urgent: true, query: 'พรุ่ง' })), { U: [u2.id] })
+    assert.deepEqual(itemIds(uf({ urgent: false })), { U: U.items.map(i => i.id), E: [], L2: [i4.id] })
+    // ไม่ส่ง today = ไม่มีรายการไหนด่วน (กันใช้ผิด ไม่ใช่ throw)
+    assert.deepEqual(filterLists([U], { ...noFilter, urgent: true }, me), [])
+}
 
 // --- บอร์ด ------------------------------------------------------------------------
 const a1 = mkItem({ title: 'a1', due_date: '2026-10-10' }) // +11 ไม่ด่วน
