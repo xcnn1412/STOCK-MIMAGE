@@ -25,6 +25,8 @@ import {
     type PurchasePerson,
     type PurchaseTemplate,
     type Viewer,
+    buildClaimPrefill,
+    type ClaimPrefill,
 } from './purchasing-logic'
 
 type Db = ReturnType<typeof createServiceClient>
@@ -418,5 +420,42 @@ export async function getClaimPurchaseItems(claimId: string): Promise<ClaimPurch
     } catch (err) {
         console.error('[purchasing] รายการที่ผูกกับใบเบิกโหลดไม่สำเร็จ:', err)
         return []
+    }
+}
+
+/**
+ * ค่าตั้งต้นของฟอร์มสร้างใบเบิก (/finance/new?items=…&type=…) จากรายการจัดซื้อที่เลือก
+ * ผู้เรียกต้องผ่านการตรวจ session แล้ว (หน้า /finance/new ทำ) · รายการที่หาไม่พบถูกข้าม คงลำดับตามที่ส่งมา
+ * พลาดอะไรก็ตาม (รวมยังไม่รัน migration) → null = ฟอร์มเปล่าตามปกติ ห้ามทำให้หน้าสร้างใบเบิกล้ม
+ */
+export async function getClaimPrefill(itemIds: string[], claimType: ClaimPrefill['claimType']): Promise<ClaimPrefill | null> {
+    if (itemIds.length === 0) return null
+    try {
+        const supabase = createServiceClient()
+        const itemsRes = await readByIds<Row>(itemIds, (ids, from, to) =>
+            supabase.from('purchase_items').select(PURCHASE_ITEM_COLUMNS).in('id', ids).order('id').range(from, to))
+        if (itemsRes.error || itemsRes.rows.length === 0) return null
+        const byId = new Map(itemsRes.rows.map(r => [String(r.id), toPurchaseItem(r)]))
+        const items = itemIds.map(id => byId.get(id)).filter((i): i is PurchaseItem => !!i)
+
+        const listIds = [...new Set(items.map(i => i.list_id))]
+        const listRes = await readByIds<Row>(listIds, (ids, from, to) =>
+            supabase.from('purchase_lists').select('id, title, crm_lead_id').in('id', ids).order('id').range(from, to))
+        if (listRes.error) return null
+        const leadIds = [...new Set(listRes.rows.map(r => textOrNull(r.crm_lead_id)).filter((id): id is string => !!id))]
+        const leadRes = await readByIds<Row>(leadIds, (ids, from, to) =>
+            supabase.from('crm_leads').select(PURCHASE_LEAD_COLUMNS).in('id', ids).order('id').range(from, to))
+        if (leadRes.error) return null
+        const leadById = new Map(leadRes.rows.map(l => [String(l.id), toLead(l)]))
+        const titleOf = new Map(
+            listRes.rows.map(l => {
+                const leadId = textOrNull(l.crm_lead_id)
+                return [String(l.id), listTitle({ title: String(l.title ?? ''), lead: (leadId && leadById.get(leadId)) || null })]
+            })
+        )
+        return buildClaimPrefill(items, id => titleOf.get(id) ?? '', claimType)
+    } catch (err) {
+        console.error('[purchasing] ค่าตั้งต้นใบเบิกจากรายการโหลดไม่สำเร็จ:', err)
+        return null
     }
 }

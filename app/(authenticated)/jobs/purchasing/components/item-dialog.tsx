@@ -518,9 +518,17 @@ export function ItemDialog({
                                     ไม่ผูกตอนนี้
                                 </Button>
                             ) : (
-                                <Button ref={claimActionRef} type="button" variant="outline" size="sm" onClick={() => setPicking(true)}>
-                                    <Link2 aria-hidden /> ผูกใบเบิก
-                                </Button>
+                                <span className="flex flex-wrap justify-end gap-1.5">
+                                    {/* ฟอร์มสร้างใบเบิกที่เติมค่าจากรายการนี้ให้ — บันทึกแล้วผูกกลับมาเอง */}
+                                    <Button asChild type="button" variant="outline" size="sm">
+                                        <Link href={`/finance/new?items=${item.id}`}>
+                                            <Receipt aria-hidden /> สร้างใบเบิกใหม่
+                                        </Link>
+                                    </Button>
+                                    <Button ref={claimActionRef} type="button" variant="outline" size="sm" onClick={() => setPicking(true)}>
+                                        <Link2 aria-hidden /> ผูกใบเบิก
+                                    </Button>
+                                </span>
                             )}
                         </div>
 

@@ -20,6 +20,9 @@ import {
     countdownLabel,
     effectiveDue,
     filterLists,
+    buildClaimPrefill,
+    parseClaimItemIds,
+    MAX_ITEMS_PER_CLAIM,
     formatMoney,
     imageFilesError,
     isLinkableClaim,
@@ -941,5 +944,42 @@ assert.deepEqual(
     { lists: 3, open: 4, urgent: 2 }
 )
 assert.deepEqual(listsSummary([], TODAY), { lists: 0, open: 0, urgent: 0 })
+
+// --- ค่าตั้งต้นใบเบิกจากรายการ (buildClaimPrefill / parseClaimItemIds) --------------------------
+{
+    const titleOf = (id: string) => (id === 'L1' ? 'งานสยาม' : id === 'L2' ? 'ของส่วนกลาง' : '?')
+    const c1 = mkItem({ list_id: 'L1', title: 'กรอบรูป', quantity: '200 ใบ', est_price: 3000, actual_price: 3200, vendor: 'สำเพ็ง', note: 'สีขาว' })
+    const c2 = mkItem({ list_id: 'L1', title: 'หมึก', est_price: 3800 })
+    const c3 = mkItem({ list_id: 'L1', title: 'รถตู้', kind: 'other' })
+    const c4 = mkItem({ list_id: 'L2', title: 'กระดาษ', est_price: 600.5 })
+    assert.equal(buildClaimPrefill([], titleOf, 'other'), null)
+    // รายการเดียว: จ่ายจริงชนะงบ · รายละเอียด = เช็กลิสต์ + ร้าน · หมายเหตุลงรายละเอียดเพิ่มเติม
+    assert.deepEqual(buildClaimPrefill([c1], titleOf, 'other'), {
+        claimType: 'other', title: 'กรอบรูป 200 ใบ', unitPrice: 3200, description: 'เช็กลิสต์ งานสยาม · ร้าน สำเพ็ง',
+        additionalDetails: 'สีขาว', itemIds: [c1.id], listId: 'L1', listTitle: 'งานสยาม', missingPrice: 0,
+    })
+    // รายการเดียวไม่มีราคา = unitPrice null + missingPrice 1 · ไม่มีร้าน/หมายเหตุ = ข้อความสั้น
+    assert.deepEqual(buildClaimPrefill([c3], titleOf, 'other'), {
+        claimType: 'other', title: 'รถตู้', unitPrice: null, description: 'เช็กลิสต์ งานสยาม',
+        additionalDetails: '', itemIds: [c3.id], listId: 'L1', listTitle: 'งานสยาม', missingPrice: 1,
+    })
+    // หลายรายการใบเดียว: รวมยอด (จ่ายจริงของ c1 + งบ c2) · รายการที่ไม่มีราคาไม่ใส่ ฿ · นับที่ขาด
+    assert.deepEqual(buildClaimPrefill([c1, c2, c3], titleOf, 'advance'), {
+        claimType: 'advance', title: 'ทดลองจ่ายค่าจัดซื้อ — งานสยาม', unitPrice: 7000, description: 'เช็กลิสต์ งานสยาม (3 รายการ)',
+        additionalDetails: 'กรอบรูป 200 ใบ ฿3,200, หมึก ฿3,800, รถตู้', itemIds: [c1.id, c2.id, c3.id], listId: 'L1', listTitle: 'งานสยาม', missingPrice: 1,
+    })
+    // ข้ามเช็กลิสต์ = ไม่มี listId · ทศนิยมปัด 2 ตำแหน่ง
+    const multi = buildClaimPrefill([c2, c4], titleOf, 'advance')!
+    assert.equal(multi.listId, null)
+    assert.equal(multi.listTitle, '2 เช็กลิสต์')
+    assert.equal(multi.unitPrice, 4400.5)
+    // ?items= : uuid ไม่ซ้ำ ตัวพิมพ์เล็ก · มีค่าเพี้ยน/เกินเพดาน/ว่าง = []
+    const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+    assert.deepEqual(parseClaimItemIds(`${u(1)}, ${u(2).toUpperCase()},${u(1)}`), [u(1), u(2)])
+    assert.deepEqual(parseClaimItemIds(`${u(1)},nope`), [])
+    assert.deepEqual(parseClaimItemIds(Array.from({ length: MAX_ITEMS_PER_CLAIM + 1 }, (_, i) => u(i + 1)).join(',')), [])
+    assert.deepEqual(parseClaimItemIds(''), [])
+    assert.deepEqual(parseClaimItemIds(undefined), [])
+}
 
 console.log('purchasing-logic: ผ่านทั้งหมด')

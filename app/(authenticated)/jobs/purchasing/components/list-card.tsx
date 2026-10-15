@@ -22,6 +22,7 @@ import {
     Receipt,
     Trash2,
     User,
+    Wallet,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -188,6 +189,12 @@ export function ListCard({
     const claimCount = claimsOf(list.items)
     // ผูกใบเบิกได้เฉพาะรายการที่บันทึกแล้ว (แถวที่ยังรอ server ไม่มี id จริง)
     const hasSavedItem = list.items.some(i => !isTempId(i.id))
+    // ใบทดลองจ่ายทั้งเช็กลิสต์ = รายการที่ยังไม่เสร็จและยังไม่ได้ผูกใบเบิก (ของที่ยังต้องใช้เงินซื้อ) — ไม่มี = ปุ่มกดไม่ได้
+    const advanceItems = list.items.filter(i => !isTempId(i.id) && !i.expense_claim_id && i.status !== 'done')
+    const advanceHref = advanceItems.length > 0 ? `/finance/new?type=advance&items=${advanceItems.map(i => i.id).join(',')}` : null
+    const advanceHint = advanceHref
+        ? `เปิดฟอร์มใบทดลองจ่ายที่รวมยอด ${advanceItems.length} รายการที่ยังไม่เสร็จและยังไม่ผูกใบเบิก`
+        : 'ไม่มีรายการที่ยังไม่เสร็จและยังไม่ได้ผูกใบเบิก'
 
     const openDialog = (kind: CardDialog, returnTo: HTMLElement | null = menuRef.current) => {
         focusReturn.remember(returnTo)
@@ -349,6 +356,19 @@ export function ListCard({
                     </span>
                 </button>
 
+                {/* ใบทดลองจ่ายทั้งเช็กลิสต์ — ปุ่มบนหัวการ์ด (จอแคบอยู่ในเมนู ⋯ แทน) */}
+                {advanceHref ? (
+                    <Button asChild type="button" variant="outline" size="sm" className="hidden shrink-0 sm:inline-flex" title={advanceHint}>
+                        <Link href={advanceHref}>
+                            <Wallet aria-hidden /> เบิกทดลองจ่าย
+                        </Link>
+                    </Button>
+                ) : (
+                    <Button type="button" variant="outline" size="sm" className="hidden shrink-0 sm:inline-flex" disabled title={advanceHint}>
+                        <Wallet aria-hidden /> เบิกทดลองจ่าย
+                    </Button>
+                )}
+
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button
@@ -385,6 +405,18 @@ export function ListCard({
                             <Receipt aria-hidden /> ผูกใบเบิกกับหลายรายการ
                             {!hasSavedItem && <span className="ml-auto pl-2 text-[11px] text-zinc-400">ยังไม่มีรายการ</span>}
                         </DropdownMenuItem>
+                        {advanceHref ? (
+                            <DropdownMenuItem className="min-h-9" asChild>
+                                <Link href={advanceHref}>
+                                    <Wallet aria-hidden /> เบิกทดลองจ่ายทั้งเช็กลิสต์
+                                </Link>
+                            </DropdownMenuItem>
+                        ) : (
+                            <DropdownMenuItem className="min-h-9" disabled>
+                                <Wallet aria-hidden /> เบิกทดลองจ่ายทั้งเช็กลิสต์
+                                <span className="ml-auto pl-2 text-[11px] text-zinc-400">ไม่มีรายการค้าง</span>
+                            </DropdownMenuItem>
+                        )}
                         {list.crm_lead_id && (
                             <DropdownMenuItem className="min-h-9" asChild>
                                 <Link href={`/crm/${list.crm_lead_id}`}>
