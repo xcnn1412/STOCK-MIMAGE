@@ -1,33 +1,30 @@
 'use client'
 
 // หน้าต่างสร้างเช็กลิสต์ — 2 แบบ: ผูกงานจาก CRM (งานละหนึ่งใบ) / ทั่วไป (ไม่ผูกงาน ตั้งชื่อเอง)
-// ค้นงาน: เรียก searchPurchaseLeads หลังหยุดพิมพ์ 300ms · เปิดหน้าต่าง = เรียกทันทีด้วยคำค้นว่าง (เสนองานที่ตอบรับแล้ว)
-// คำตอบที่มาถึงหลังคำค้นใหม่กว่าถูกทิ้ง (เลขลำดับคำขอ) · งานที่มีเช็กลิสต์แล้ว = กดแล้วเปิดใบเดิม ไม่สร้างซ้ำ
+// ค้นงาน: LeadSearch (lead-search.tsx) · งานที่มีเช็กลิสต์แล้ว = กดแล้วเปิดใบเดิม ไม่สร้างซ้ำ
 // ไม่ทำแบบชั่วคราว: ต้องรอ id ของใบใหม่จาก server ก่อนเปิด (?list=)
 
-import { useEffect, useId, useRef, useState, useTransition } from 'react'
+import { useId, useState, useTransition } from 'react'
 import { toast } from 'sonner'
-import { Calendar, Loader2, MapPin } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { formatThaiDate } from '@/lib/thai-date'
-import { createPurchaseList, searchPurchaseLeads } from '../actions'
+import { createPurchaseList } from '../actions'
 import {
     validateListInput,
     type CreatePurchaseListInput,
     type PurchaseLeadOption,
     type PurchaseTemplate,
 } from '../purchasing-logic'
+import { LeadMeta, LeadSearch } from './lead-search'
 import { DATE_INPUT_CLASS } from './list-dialogs'
 import { FieldError, SAVE_FAILED } from './shared'
 
-/** หน่วงค้นหลังหยุดพิมพ์ (ms) */
-const SEARCH_DELAY = 300
 /** ค่าของตัวเลือก "ไม่ใช้ชุดสำเร็จรูป" — Radix Select ห้ามใช้สตริงว่างเป็นค่า */
 const NO_TEMPLATE = '__none__'
 
@@ -50,14 +47,7 @@ export function CreateListDialog({ templates, onOpenChange, onCloseAutoFocus, on
     const [mode, setMode] = useState<Mode>('crm')
 
     // --- ผูกงานจาก CRM ---
-    const [query, setQuery] = useState('')
-    /** null = ยังไม่ได้คำตอบแรก */
-    const [leads, setLeads] = useState<PurchaseLeadOption[] | null>(null)
-    const [searching, setSearching] = useState(true)
-    const [searchError, setSearchError] = useState<string | null>(null)
     const [lead, setLead] = useState<PurchaseLeadOption | null>(null)
-    /** เลขลำดับคำขอค้นล่าสุด — คำตอบของคำขอที่เก่ากว่าถูกทิ้ง */
-    const latestRequest = useRef(0)
 
     // --- ทั่วไป ---
     const [title, setTitle] = useState('')
@@ -69,36 +59,6 @@ export function CreateListDialog({ templates, onOpenChange, onCloseAutoFocus, on
     const [error, setError] = useState<string | null>(null)
     const [creating, startCreating] = useTransition()
 
-    // ค้นงาน: ครั้งแรกตอนเปิดหน้าต่าง (คำค้นว่าง → งานที่ตอบรับแล้ว) เรียกทันที · หลังจากนั้นรอหยุดพิมพ์ 300ms ทุกครั้ง
-    useEffect(() => {
-        const delay = latestRequest.current === 0 ? 0 : SEARCH_DELAY
-        const request = ++latestRequest.current
-        const timer = setTimeout(
-            async () => {
-                setSearching(true)
-                try {
-                    const res = await searchPurchaseLeads(query)
-                    if (request !== latestRequest.current) return // มีคำค้นใหม่กว่าแล้ว
-                    if ('error' in res) {
-                        setSearchError(res.error)
-                        setLeads([])
-                    } else {
-                        setSearchError(null)
-                        setLeads(res.leads)
-                    }
-                } catch (err) {
-                    if (request !== latestRequest.current) return
-                    console.error('[purchasing] search leads:', err)
-                    setSearchError('ค้นหางานไม่สำเร็จ กรุณาลองใหม่อีกครั้ง')
-                    setLeads([])
-                } finally {
-                    if (request === latestRequest.current) setSearching(false)
-                }
-            },
-            delay
-        )
-        return () => clearTimeout(timer)
-    }, [query])
 
     const choose = (option: PurchaseLeadOption) => {
         setError(null)
@@ -149,23 +109,6 @@ export function CreateListDialog({ templates, onOpenChange, onCloseAutoFocus, on
             }
         })
     }
-
-    const leadMeta = (option: PurchaseLeadOption) => (
-        <span className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            {option.event_date && (
-                <span className="inline-flex items-center gap-1 tabular-nums">
-                    <Calendar className="h-3 w-3 shrink-0" aria-hidden />
-                    {formatThaiDate(option.event_date)}
-                </span>
-            )}
-            {option.event_location && (
-                <span className="inline-flex min-w-0 items-start gap-1">
-                    <MapPin className="mt-px h-3 w-3 shrink-0" aria-hidden />
-                    <span className="wrap-anywhere">{option.event_location}</span>
-                </span>
-            )}
-        </span>
-    )
 
     const canSubmit = !creating && (mode === 'general' || !!lead)
 
@@ -218,70 +161,14 @@ export function CreateListDialog({ templates, onOpenChange, onCloseAutoFocus, on
                                     <p className="text-sm font-medium text-zinc-900 wrap-anywhere dark:text-zinc-100">
                                         {lead.customer_name || 'ไม่ระบุชื่อลูกค้า'}
                                     </p>
-                                    {leadMeta(lead)}
+                                    <LeadMeta option={lead} />
                                 </div>
                                 <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setLead(null)}>
                                     เปลี่ยนงาน
                                 </Button>
                             </div>
                         ) : (
-                            <Command
-                                shouldFilter={false}
-                                label="ค้นหางานจาก CRM"
-                                className="rounded-lg border border-zinc-200 dark:border-zinc-800"
-                            >
-                                <CommandInput
-                                    value={query}
-                                    onValueChange={setQuery}
-                                    placeholder="พิมพ์ชื่อลูกค้า หรือสถานที่…"
-                                    aria-label="ค้นหางานจาก CRM ด้วยชื่อลูกค้าหรือสถานที่"
-                                    autoFocus
-                                />
-                                <CommandList className="max-h-[min(18rem,40dvh)]">
-                                    {searchError && (
-                                        <p role="alert" className="px-3 py-4 text-sm text-red-600 dark:text-red-400">
-                                            {searchError}
-                                        </p>
-                                    )}
-                                    {!searchError && leads !== null && leads.length === 0 && !searching && (
-                                        <p className="px-3 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                                            {query.trim()
-                                                ? 'ไม่พบงานที่ตรงกับคำค้น — ลองพิมพ์ชื่อลูกค้าหรือสถานที่อื่น'
-                                                : 'ยังไม่มีงานที่ตอบรับแล้วในช่วงนี้ — พิมพ์ชื่อลูกค้าเพื่อค้นหา'}
-                                        </p>
-                                    )}
-                                    {leads !== null && leads.length > 0 && (
-                                        <CommandGroup heading={query.trim() ? 'ผลการค้นหา' : 'งานที่ตอบรับแล้ว เรียงตามวันงาน'}>
-                                            {leads.map(option => (
-                                                <CommandItem
-                                                    key={option.id}
-                                                    value={option.id}
-                                                    onSelect={() => choose(option)}
-                                                    className="flex min-h-11 items-start gap-2 py-2"
-                                                >
-                                                    <span className="min-w-0 flex-1">
-                                                        <span className="block text-sm font-medium wrap-anywhere">
-                                                            {option.customer_name || 'ไม่ระบุชื่อลูกค้า'}
-                                                        </span>
-                                                        {leadMeta(option)}
-                                                    </span>
-                                                    {option.list_id && (
-                                                        <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                                            มีเช็กลิสต์แล้ว
-                                                        </span>
-                                                    )}
-                                                </CommandItem>
-                                            ))}
-                                        </CommandGroup>
-                                    )}
-                                    {searching && (
-                                        <p className="flex items-center gap-2 px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                                            กำลังค้นหา…
-                                        </p>
-                                    )}
-                                </CommandList>
-                            </Command>
+                            <LeadSearch onSelect={choose} />
                         )
                     ) : (
                         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_11rem]">

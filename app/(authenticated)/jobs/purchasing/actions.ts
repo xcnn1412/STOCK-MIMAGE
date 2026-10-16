@@ -428,6 +428,70 @@ export async function updatePurchaseList(listId: string, patch: PurchaseListPatc
     return { success: true }
 }
 
+/**
+ * ผูกเช็กลิสต์ทั่วไปเข้ากับการ์ด CRM ทีหลัง — ชื่อเปลี่ยนเป็นชื่อลูกค้า (กติกาเดียวกับสร้างแบบผูกงาน)
+ * การ์ดหนึ่งมีเช็กลิสต์ได้ใบเดียว · ใบเบิกที่ผูกรายการในเช็กลิสต์ไว้แล้วและยังไม่เลือกงาน → เกาะถัง "โครงสร้าง/ผลิต" ของการ์ด
+ * ponytail: ผูกได้อย่างเดียว ยังไม่มีปลดผูก (ใบเบิกที่เกาะถังไปแล้วจะค้างกับการ์ด)
+ */
+export async function linkPurchaseListToLead(listId: string, leadId: string): Promise<Success | Failure> {
+    const actor = await getActor()
+    if (!actor) return { error: NOT_SIGNED_IN }
+    if (!isUuid(listId)) return { error: LIST_NOT_FOUND }
+    if (!isUuid(leadId)) return { error: 'งานที่เลือกไม่ถูกต้อง' }
+
+    const supabase = createServiceClient()
+    const { list, error } = await loadList(supabase, listId)
+    if (error) return dbFail('load list', error)
+    if (!list) return { error: LIST_NOT_FOUND }
+    if (list.crm_lead_id) return { error: 'เช็กลิสต์นี้ผูกการ์ด CRM อยู่แล้ว' }
+
+    const { data: lead, error: leadError } = await supabase
+        .from('crm_leads')
+        .select('id, customer_name, event_location')
+        .eq('id', leadId)
+        .maybeSingle()
+    if (leadError) return dbFail('load lead', leadError)
+    if (!lead) return { error: 'ไม่พบงานนี้ใน CRM (อาจถูกลบไปแล้ว)' }
+
+    const existing = await findListOfLead(supabase, leadId)
+    if (existing.error) return dbFail('find lead list', existing.error)
+    if (existing.id) return { error: 'งานนี้มีเช็กลิสต์อยู่แล้ว — การ์ดหนึ่งผูกเช็กลิสต์ได้ใบเดียว' }
+
+    const name = (lead.customer_name as string | null)?.trim() || (lead.event_location as string | null)?.trim() || 'งานจาก CRM'
+    const title = [...name].slice(0, 120).join('').trim()
+    const now = new Date().toISOString()
+    const { error: updateError } = await supabase
+        .from('purchase_lists')
+        .update({ crm_lead_id: leadId, title, updated_at: now })
+        .eq('id', listId)
+    if (updateError) {
+        if (updateError.code === '23505') return { error: 'งานนี้มีเช็กลิสต์อยู่แล้ว — การ์ดหนึ่งผูกเช็กลิสต์ได้ใบเดียว' }
+        return dbFail('link list to lead', updateError)
+    }
+
+    // ใบเบิกที่ผูกรายการของเช็กลิสต์นี้ไว้ก่อนแล้ว ยังไม่เลือกงาน → เกาะถังโครงสร้างของการ์ด (best-effort)
+    let movedClaims = 0
+    const { data: linkedItems } = await supabase.from('purchase_items').select('expense_claim_id').eq('list_id', listId)
+    const claimIds = [...new Set((linkedItems || []).map(r => r.expense_claim_id as string | null).filter((id): id is string => !!id))]
+    if (claimIds.length > 0) {
+        const { data: claims } = await supabase.from('expense_claims').select('id, claim_type, job_event_id').in('id', claimIds)
+        const toMove = (claims || []).filter(c => !c.job_event_id && c.claim_type !== 'petty_cash').map(c => c.id as string)
+        if (toMove.length > 0) {
+            const { ensureLeadProductionCostEvent } = await import('@/app/(authenticated)/costs/lead-cost-event')
+            const costEventId = await ensureLeadProductionCostEvent(supabase, leadId, actor.userId)
+            if (costEventId) {
+                const { error: moveError } = await supabase.from('expense_claims').update({ job_event_id: costEventId }).in('id', toMove)
+                if (!moveError) movedClaims = toMove.length
+            }
+        }
+    }
+
+    await logActivity('LINK_PURCHASE_LIST_LEAD', { listId, leadId, title, movedClaims })
+    revalidatePurchasing()
+    revalidatePath(`/crm/${leadId}`)
+    return { success: true }
+}
+
 /** ลบเช็กลิสต์ — ตรวจ canDelete · ลบไฟล์รูปของทุกรายการก่อน แล้วลบใบ (รายการถูกลบตาม ON DELETE CASCADE) */
 export async function deletePurchaseList(listId: string): Promise<Success | Failure> {
     const actor = await getActor()
