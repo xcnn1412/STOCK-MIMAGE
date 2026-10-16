@@ -458,6 +458,14 @@ export async function createClaim(formData: FormData) {
     }
   }
 
+  // รายการจัดซื้อที่ส่งมาจากหน้าจัดซื้อ (purchase_item_ids) — ถ้าเช็กลิสต์ผูกการ์ด CRM และใบยังไม่เลือกอีเวนต์
+  // ให้เกาะ "ถังต้นทุนโครงสร้าง/ผลิต" ของการ์ดนั้นอัตโนมัติ ต้นทุนจะไปโผล่ที่หน้า lead / By CRM / กำไรขาดทุน
+  const purchaseItemIds = parseClaimItemIds(formData.get('purchase_item_ids'))
+  if (!job_event_id && !isPettyCash && purchaseItemIds.length > 0) {
+    const { costEventForPurchaseItems } = await import('../costs/lead-cost-event')
+    job_event_id = await costEventForPurchaseItems(supabase, purchaseItemIds, userId)
+  }
+
   // เลขที่ออกหลังตรวจข้อมูลครบแล้วเท่านั้น
   const numbered = await generateClaimNumber(supabase)
   if ('error' in numbered) return { error: numbered.error }
@@ -476,7 +484,8 @@ export async function createClaim(formData: FormData) {
   const now = new Date().toISOString()
   const insertData: Record<string, any> = {
     claim_type,
-    job_event_id: claim_type === 'event' ? job_event_id : null,
+    // ใบทั่วไป/ทดลองจ่ายก็เกาะรายการต้นทุนได้ (ถังโครงสร้างของ lead) — เงินสดย่อยไม่ผูกงาน
+    job_event_id: isPettyCash ? null : job_event_id,
     title,
     description,
     category,
@@ -524,7 +533,6 @@ export async function createClaim(formData: FormData) {
   // รายการจัดซื้อที่ส่งมาจากหน้าจัดซื้อ (purchase_item_ids) — ผูกกับใบที่เพิ่งสร้าง
   // ผูกไม่สำเร็จ = ใบเบิกยังสร้างสำเร็จ แจ้งเป็นคำเตือน (ผู้ใช้ไปผูกเองจากหน้าจัดซื้อได้) · import ตอนใช้ ไม่โหลดโมดูลจัดซื้อให้ทุกคำขอ
   let warning: string | undefined
-  const purchaseItemIds = parseClaimItemIds(formData.get('purchase_item_ids'))
   if (purchaseItemIds.length > 0) {
     const { linkPurchaseItemsToClaim } = await import('../jobs/purchasing/actions')
     const linked = await linkPurchaseItemsToClaim(purchaseItemIds, data.id)

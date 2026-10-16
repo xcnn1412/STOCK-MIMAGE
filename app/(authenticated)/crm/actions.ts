@@ -9,6 +9,7 @@ import { createNotifications } from '@/lib/notifications'
 import { claimEffectiveAmount, summarizeClaims } from '@/app/(authenticated)/costs/lib/crm-cost-grouping'
 import { autoCreateJobsFromAcceptedLead } from '@/app/(authenticated)/jobs/actions'
 import { readAllRows } from '@/lib/read-all-rows'
+import { isEventPhase } from './event-phases'
 import { BOARD_COLUMNS, DAY_MS, bangkokToday, isFirstWon, staleLeadIds, type BoardLead, type CrmLead, type CrmSetting, type StaleRow, type SystemUser } from './types'
 
 
@@ -290,8 +291,7 @@ export async function setJobCostEventPhase(jobEventId: string, phase: string | n
   const { userId } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const allowedPhases = ['setup', 'main', 'teardown', 'delivery', 'other']
-  const phaseValue = phase && allowedPhases.includes(phase) ? phase : null
+  const phaseValue = isEventPhase(phase) ? phase : null
 
   const supabase = createServiceClient()
   const { data: row, error } = await supabase
@@ -1001,12 +1001,11 @@ export async function createEventFromLead(leadId: string, phase?: string) {
   // 1 CRM lead can be linked to multiple job_cost_events (setup / main / teardown / delivery / etc.)
   // Reverse FK is job_cost_events.linked_lead_id.
 
-  const allowedPhases = ['setup', 'main', 'teardown', 'delivery', 'other']
-  const phaseValue = phase && allowedPhases.includes(phase) ? phase : null
+  const phaseValue = isEventPhase(phase) ? phase : null
 
   // Build a descriptive name that hints at the phase
   const phaseSuffix = phaseValue && phaseValue !== 'main'
-    ? ({ setup: ' [Setup]', teardown: ' [Teardown]', delivery: ' [Delivery]', other: ' [Other]' } as Record<string, string>)[phaseValue] || ''
+    ? ({ setup: ' [Setup]', teardown: ' [Teardown]', delivery: ' [Delivery]', production: ' [Production]', other: ' [Other]' } as Record<string, string>)[phaseValue] || ''
     : ''
 
   // Create job_cost_events (linked to lead via linked_lead_id)

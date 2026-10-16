@@ -1146,6 +1146,33 @@ async function main() {
   missingColumns.clear()
   pass('(x) getClaimPurchaseItems — รายการของใบเบิกเรียงตามเช็กลิสต์ (ชื่อจาก CRM ล่าสุด) แล้วตามลำดับในใบ · id ผิดรูป / ไม่มีรายการ / คิวรีพัง / ยังไม่ติดตั้ง = []')
 
+  // ══ (y) ผูกใบเบิกกับรายการของเช็กลิสต์ที่ผูกการ์ด CRM → ใบเกาะถังต้นทุน "โครงสร้าง/ผลิต" ของการ์ด ═══
+  loginAs(ADMIN)
+  const LP = uid(880)
+  seedList(LP, { title: 'โครงสร้างงานเก่า', crm_lead_id: LEAD_OLD, created_by: ADMIN })
+  const [p1, p2] = (await ok('addPurchaseItems', actions.addPurchaseItems(LP, [{ title: 'ไม้อัด' }, { title: 'สี' }]))).items
+  const costEventsBefore = (db.job_cost_events || []).length
+  await okLog('LINK_PURCHASE_ITEM_CLAIM', actions.linkPurchaseItemsToClaim([p1.id], CLAIM_C))
+  const prodEvents = (db.job_cost_events || []).filter(e => e.linked_lead_id === LEAD_OLD)
+  assert.equal(prodEvents.length, 1, 'สร้างถังต้นทุนของการ์ดหนึ่งแถว')
+  assert.equal(prodEvents[0].phase, 'production')
+  assert.equal(prodEvents[0].revenue, 0, 'ถังโครงสร้างไม่ถือรายได้ (ไม่ซ้ำกับวันงาน)')
+  assert.match(String(prodEvents[0].event_name), /งานเก่าเดือนก่อน/)
+  assert.equal(rowOf('expense_claims', CLAIM_C).job_event_id, prodEvents[0].id)
+  // ใบที่สองของการ์ดเดียวกัน → ใช้ถังเดิม ไม่สร้างซ้ำ
+  await okLog('LINK_PURCHASE_ITEM_CLAIM', actions.linkPurchaseItemsToClaim([p2.id], CLAIM_B2))
+  assert.equal((db.job_cost_events || []).length, costEventsBefore + 1)
+  assert.equal(rowOf('expense_claims', CLAIM_B2).job_event_id, prodEvents[0].id)
+  // ใบที่ผูกงานอยู่แล้ว → ไม่ทับ · เช็กลิสต์ทั่วไป (ไม่ผูกการ์ด) → ไม่สร้างถัง ใบไม่ผูกงาน
+  rowOf('expense_claims', CLAIM_B1).job_event_id = uid(777)
+  await okLog('LINK_PURCHASE_ITEM_CLAIM', actions.linkPurchaseItemsToClaim([p1.id], CLAIM_B1))
+  assert.equal(rowOf('expense_claims', CLAIM_B1).job_event_id, uid(777))
+  const [g1] = (await ok('addPurchaseItems', actions.addPurchaseItems(LA, [{ title: 'ของทั่วไป' }]))).items
+  await okLog('LINK_PURCHASE_ITEM_CLAIM', actions.linkPurchaseItemsToClaim([g1.id], CLAIM_O))
+  assert.equal((db.job_cost_events || []).length, costEventsBefore + 1)
+  assert.ok(!rowOf('expense_claims', CLAIM_O).job_event_id)
+  pass('(y) ผูกรายการของเช็กลิสต์ที่ผูกการ์ด CRM → ใบเบิกเกาะถัง "โครงสร้าง/ผลิต" ของการ์ด (สร้างครั้งเดียว ใช้ซ้ำ · ไม่ทับใบที่ผูกงานอยู่แล้ว · เช็กลิสต์ทั่วไปไม่ผูก)')
+
   console.log('\npurchasing-flow: ผ่านทั้งหมด')
 }
 
