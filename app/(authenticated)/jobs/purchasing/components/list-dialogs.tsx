@@ -13,16 +13,18 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { formatThaiDate } from '@/lib/thai-date'
-import { saveListAsTemplate } from '../actions'
+import { linkPurchaseListToLead, saveListAsTemplate } from '../actions'
 import {
     KIND_LABELS,
     listTitle,
+    type PurchaseLeadOption,
     validateListInput,
     type PurchaseList,
     type PurchaseListInput,
     type PurchasePerson,
     type PurchaseTemplate,
 } from '../purchasing-logic'
+import { LeadMeta, LeadSearch } from './lead-search'
 import { FieldError, PersonSelect, SAVE_FAILED, errorOf } from './shared'
 
 /** กล่องหน้าต่างมาตรฐานของหน้านี้ — เลื่อนในตัวเองเมื่อสูงเกินจอ */
@@ -434,6 +436,94 @@ export function CopyTextDialog({
                 <DialogFooter>
                     <Button type="button" onClick={() => onOpenChange(false)}>
                         ปิด
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
+/**
+ * ผูกเช็กลิสต์ทั่วไปเข้ากับการ์ด CRM ทีหลัง — เลือกงานแล้วกดยืนยัน
+ * งานที่มีเช็กลิสต์แล้วเลือกไม่ได้ (การ์ดหนึ่งผูกได้ใบเดียว) · เรียก action ตรง ข้อมูลจริงตามมาจาก revalidatePath
+ */
+export function LinkLeadDialog({
+    list,
+    onOpenChange,
+    onCloseAutoFocus,
+}: {
+    list: PurchaseList
+    onOpenChange: (open: boolean) => void
+    onCloseAutoFocus: (event: Event) => void
+}) {
+    const [lead, setLead] = useState<PurchaseLeadOption | null>(null)
+    const [error, setError] = useState<string | null>(null)
+    const [linking, startLinking] = useTransition()
+
+    const choose = (option: PurchaseLeadOption) => {
+        if (option.list_id) {
+            setError('งานนี้มีเช็กลิสต์อยู่แล้ว — การ์ดหนึ่งผูกเช็กลิสต์ได้ใบเดียว')
+            return
+        }
+        setError(null)
+        setLead(option)
+    }
+
+    const submit = () => {
+        if (!lead) return
+        startLinking(async () => {
+            try {
+                const res = await linkPurchaseListToLead(list.id, lead.id)
+                if ('error' in res) {
+                    setError(res.error)
+                    return
+                }
+                toast.success(`ผูกเช็กลิสต์กับ "${lead.customer_name || 'งานจาก CRM'}" แล้ว`)
+                onOpenChange(false)
+            } catch (err) {
+                console.error('[purchasing] link list to lead:', err)
+                setError(SAVE_FAILED)
+            }
+        })
+    }
+
+    return (
+        <Dialog open onOpenChange={next => !linking && onOpenChange(next)}>
+            <DialogContent className={DIALOG_CLASS} onCloseAutoFocus={onCloseAutoFocus}>
+                <DialogHeader>
+                    <DialogTitle>ผูกกับการ์ด CRM</DialogTitle>
+                    <DialogDescription className="wrap-anywhere">
+                        {listTitle(list)} — ผูกแล้วชื่อเช็กลิสต์จะเปลี่ยนเป็นชื่อลูกค้า และค่าใช้จ่ายที่เบิกจากรายการในนี้จะนับเข้าต้นทุนของการ์ด
+                    </DialogDescription>
+                </DialogHeader>
+                {lead ? (
+                    <div className="flex items-start gap-3 rounded-lg border border-violet-200 bg-violet-50/60 p-3 dark:border-violet-900 dark:bg-violet-950/30">
+                        <div className="min-w-0 flex-1">
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400">งานที่เลือก</p>
+                            <p className="text-sm font-medium text-zinc-900 wrap-anywhere dark:text-zinc-100">
+                                {lead.customer_name || 'ไม่ระบุชื่อลูกค้า'}
+                            </p>
+                            <LeadMeta option={lead} />
+                        </div>
+                        <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setLead(null)}>
+                            เปลี่ยนงาน
+                        </Button>
+                    </div>
+                ) : (
+                    <LeadSearch onSelect={choose} />
+                )}
+                {error && (
+                    <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                        {error}
+                    </p>
+                )}
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={linking}>
+                        ยกเลิก
+                    </Button>
+                    <Button type="button" onClick={submit} disabled={!lead || linking}>
+                        {linking && <Loader2 className="animate-spin" aria-hidden />}
+                        ผูกกับการ์ดนี้
                     </Button>
                 </DialogFooter>
             </DialogContent>

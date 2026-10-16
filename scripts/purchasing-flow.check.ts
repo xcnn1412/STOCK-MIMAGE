@@ -454,6 +454,7 @@ async function main() {
     actions.createPurchaseList({ title: 'ใบใหม่' }),
     actions.createPurchaseList({ leadId: LEAD_WON }),
     actions.updatePurchaseList(SEED_LIST, { note: 'แก้' }),
+    actions.linkPurchaseListToLead(SEED_LIST, LEAD_QUOTE),
     actions.deletePurchaseList(SEED_LIST),
     actions.addPurchaseItems(SEED_LIST, [{ title: 'ของ' }]),
     actions.updatePurchaseItem(SEED_ITEM, { vendor: 'ร้าน' }),
@@ -495,6 +496,7 @@ async function main() {
     ['createPurchaseList', junk.map(x => [x])],
     ['updatePurchaseList', [...junk.map(x => [x, { note: 'x' }]), ...junk.map(x => [SEED_LIST, x])]],
     ['deletePurchaseList', junk.map(x => [x])],
+    ['linkPurchaseListToLead', [...junk.map(x => [x, LEAD_QUOTE]), ...junk.map(x => [SEED_LIST, x])]],
     ['addPurchaseItems', [...junk.map(x => [x, [{ title: 'x' }]]), ...junk.map(x => [SEED_LIST, x]), [SEED_LIST, [null]], [SEED_LIST, [{ title: 5 }]]]],
     ['updatePurchaseItem', [...junk.map(x => [x, { vendor: 'x' }]), ...junk.map(x => [SEED_ITEM, x])]],
     ['setPurchaseItemStatus', [...junk.map(x => [x, 'done']), ...junk.map(x => [SEED_ITEM, x])]],
@@ -1172,6 +1174,34 @@ async function main() {
   assert.equal((db.job_cost_events || []).length, costEventsBefore + 1)
   assert.ok(!rowOf('expense_claims', CLAIM_O).job_event_id)
   pass('(y) ผูกรายการของเช็กลิสต์ที่ผูกการ์ด CRM → ใบเบิกเกาะถัง "โครงสร้าง/ผลิต" ของการ์ด (สร้างครั้งเดียว ใช้ซ้ำ · ไม่ทับใบที่ผูกงานอยู่แล้ว · เช็กลิสต์ทั่วไปไม่ผูก)')
+
+  // ══ (z) ผูกเช็กลิสต์ทั่วไปกับการ์ด CRM ทีหลัง ═══════════════════════════════════════════
+  loginAs(CREATOR)
+  const LG = uid(890)
+  seedList(LG, { title: 'ขายตู้คุณ H.', crm_lead_id: null, created_by: CREATOR })
+  const [z1, z2] = (await ok('addPurchaseItems', actions.addPurchaseItems(LG, [{ title: 'จอทีวี' }, { title: 'คอม' }]))).items
+  // ใบเบิกที่ผูกรายการไว้ก่อน: ใบหนึ่งยังไม่เลือกงาน (ต้องย้ายไปถัง) · อีกใบผูกงานอยู่แล้ว (ห้ามทับ)
+  rowOf('purchase_items', z1.id).expense_claim_id = CLAIM_C
+  rowOf('purchase_items', z2.id).expense_claim_id = CLAIM_B1
+  rowOf('expense_claims', CLAIM_C).job_event_id = null
+  rowOf('expense_claims', CLAIM_B1).job_event_id = uid(777)
+  // การ์ดที่มีเช็กลิสต์แล้ว / การ์ดที่ไม่มีจริง → error ไม่เขียน
+  const beforeZ = snapshot()
+  await bad(actions.linkPurchaseListToLead(LG, LEAD_WON), /มีเช็กลิสต์อยู่แล้ว/)
+  await bad(actions.linkPurchaseListToLead(LG, uid(999)), /ไม่พบงานนี้/)
+  assert.equal(snapshot(), beforeZ)
+  const zLog = await okLog('LINK_PURCHASE_LIST_LEAD', actions.linkPurchaseListToLead(LG, LEAD_QUOTE))
+  assert.equal(rowOf('purchase_lists', LG).crm_lead_id, LEAD_QUOTE)
+  assert.equal(rowOf('purchase_lists', LG).title, 'สยามดิสคัฟเวอรี่', 'ชื่อเปลี่ยนเป็นชื่อลูกค้า')
+  const quoteBucket = (db.job_cost_events || []).filter(e => e.linked_lead_id === LEAD_QUOTE)
+  assert.equal(quoteBucket.length, 1)
+  assert.equal(rowOf('expense_claims', CLAIM_C).job_event_id, quoteBucket[0].id, 'ใบที่ยังไม่เลือกงานย้ายไปถังโครงสร้าง')
+  assert.equal(rowOf('expense_claims', CLAIM_B1).job_event_id, uid(777), 'ใบที่ผูกงานอยู่แล้วไม่ถูกทับ')
+  assert.equal((zLog.log.details as { movedClaims: number }).movedClaims, 1)
+  // ผูกซ้ำ → error · ชื่อของใบที่ผูกแล้วแก้ไม่ได้ (กติกาเดิม)
+  await bad(actions.linkPurchaseListToLead(LG, LEAD_SUCCESS), /ผูกการ์ด CRM อยู่แล้ว/)
+  await bad(actions.updatePurchaseList(LG, { title: 'ชื่อใหม่' }), /แก้ที่การ์ด CRM/)
+  pass('(z) ผูกเช็กลิสต์ทั่วไปกับการ์ด CRM ทีหลัง — ชื่อเปลี่ยนตามการ์ด · ใบเบิกที่ยังไม่เลือกงานย้ายไปถังโครงสร้าง · การ์ดที่มีใบแล้ว/ไม่มีจริง/ผูกซ้ำ = error')
 
   console.log('\npurchasing-flow: ผ่านทั้งหมด')
 }

@@ -153,6 +153,7 @@ export type ActionType =
     // จัดซื้อ (/jobs/purchasing) — เช็กลิสต์ / รายการ (รวมรูปแนบ) / ชุดสำเร็จรูป
     | 'CREATE_PURCHASE_LIST'
     | 'UPDATE_PURCHASE_LIST'
+    | 'LINK_PURCHASE_LIST_LEAD'
     | 'DELETE_PURCHASE_LIST'
     | 'CREATE_PURCHASE_ITEM'
     | 'UPDATE_PURCHASE_ITEM'

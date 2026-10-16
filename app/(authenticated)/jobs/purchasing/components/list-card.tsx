@@ -14,6 +14,7 @@ import {
     ChevronDown,
     ClipboardCopy,
     ExternalLink,
+    Link2,
     ListPlus,
     MapPin,
     MoreHorizontal,
@@ -74,13 +75,13 @@ import {
 } from '../purchasing-logic'
 import { ItemRow, ROW_GRID } from './item-row'
 import { LinkClaimDialog } from './link-claim-dialog'
-import { ApplyTemplateDialog, CopyTextDialog, EditListDialog, SaveTemplateDialog } from './list-dialogs'
+import { ApplyTemplateDialog, CopyTextDialog, EditListDialog, LinkLeadDialog, SaveTemplateDialog } from './list-dialogs'
 import { ConfirmDelete, useFocusReturn } from './shared'
 
 /** ลำดับส่วนของแถบความคืบหน้า — เสร็จแล้ว (เขียว) เริ่มจากซ้าย แล้วค่อยๆ ถอยไปขั้นต้น */
 const BAR_ORDER: PurchaseStatus[] = ['done', 'awaiting_delivery', 'purchasing', 'planning']
 
-type CardDialog = 'edit' | 'apply' | 'saveTemplate' | 'copy' | 'delete' | 'linkClaim'
+type CardDialog = 'edit' | 'apply' | 'saveTemplate' | 'copy' | 'delete' | 'linkClaim' | 'linkLead'
 
 /** ตัวคั่นหน้าคำในแถวเงิน — อยู่ในก้อนเดียวกับคำ จึงตัดบรรทัดไปพร้อมกัน */
 const Dot = () => (
@@ -417,11 +418,15 @@ export function ListCard({
                                 <span className="ml-auto pl-2 text-[11px] text-zinc-400">ไม่มีรายการค้าง</span>
                             </DropdownMenuItem>
                         )}
-                        {list.crm_lead_id && (
+                        {list.crm_lead_id ? (
                             <DropdownMenuItem className="min-h-9" asChild>
                                 <Link href={`/crm/${list.crm_lead_id}`}>
                                     <ExternalLink aria-hidden /> เปิดการ์ด CRM
                                 </Link>
+                            </DropdownMenuItem>
+                        ) : (
+                            <DropdownMenuItem className="min-h-9" onSelect={() => openDialog('linkLead')}>
+                                <Link2 aria-hidden /> ผูกกับการ์ด CRM
                             </DropdownMenuItem>
                         )}
                         {deletable && (
@@ -518,6 +523,9 @@ export function ListCard({
                     onOpenChange={closeDialog}
                     onCloseAutoFocus={focusReturn.restore}
                 />
+            )}
+            {dialog === 'linkLead' && (
+                <LinkLeadDialog list={list} onOpenChange={closeDialog} onCloseAutoFocus={focusReturn.restore} />
             )}
             {dialog === 'apply' && (
                 <ApplyTemplateDialog
