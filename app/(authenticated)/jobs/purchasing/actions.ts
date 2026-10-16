@@ -962,7 +962,7 @@ export async function linkPurchaseItemsToClaim(
     const supabase = createServiceClient()
     const { data: claim, error: claimError } = await supabase
         .from('expense_claims')
-        .select('id, claim_number, claim_type, status, submitted_by')
+        .select('id, claim_number, claim_type, status, submitted_by, job_event_id')
         .eq('id', claimId)
         .maybeSingle()
     if (claimError) return dbFail('load claim', claimError)
@@ -987,6 +987,13 @@ export async function linkPurchaseItemsToClaim(
     if (updateError) return dbFail('link claim', updateError)
 
     const listIds = [...new Set(rows.map(r => r.list_id))]
+    // ใบที่ยังไม่ผูกงาน + เช็กลิสต์ผูกการ์ด CRM → เกาะถังต้นทุน "โครงสร้าง/ผลิต" ของการ์ดนั้น (เงินสดย่อยไม่ผูก)
+    // ผูกไม่ได้ = ปล่อยผ่าน รายการจัดซื้อผูกใบเบิกสำเร็จไปแล้ว
+    if (!(claim as { job_event_id?: string | null }).job_event_id && claim.claim_type !== 'petty_cash') {
+        const { costEventForPurchaseItems } = await import('@/app/(authenticated)/costs/lead-cost-event')
+        const costEventId = await costEventForPurchaseItems(supabase, ids, actor.userId)
+        if (costEventId) await supabase.from('expense_claims').update({ job_event_id: costEventId }).eq('id', linkTo)
+    }
     // ใบเบิกเดิมของรายการที่ถูกแทนที่ — หน้าของใบนั้นต้องเลิกแสดงรายการเหล่านี้ด้วย
     const replaced = [...new Set(rows.map(r => r.expense_claim_id).filter((id): id is string => !!id && id !== linkTo))]
     await Promise.all([

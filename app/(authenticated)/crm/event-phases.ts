@@ -1,7 +1,7 @@
 // Shared config for job_cost_events.phase
 // Keep in sync with the CHECK constraint in supabase/migrations/20260528_add_job_cost_events_phase.sql
 
-export type EventPhase = 'setup' | 'main' | 'teardown' | 'delivery' | 'other'
+export type EventPhase = 'setup' | 'main' | 'teardown' | 'delivery' | 'production' | 'other'
 
 export const EVENT_PHASES: ReadonlyArray<{
   value: EventPhase
@@ -14,11 +14,12 @@ export const EVENT_PHASES: ReadonlyArray<{
   { value: 'main',     labelTh: 'วันงาน',      labelEn: 'Main',     color: 'emerald', icon: '⭐' },
   { value: 'teardown', labelTh: 'รื้อถอน',     labelEn: 'Teardown', color: 'orange',  icon: '📦' },
   { value: 'delivery', labelTh: 'จัดส่งเพิ่ม', labelEn: 'Delivery', color: 'violet',  icon: '🚚' },
+  { value: 'production', labelTh: 'โครงสร้าง/ผลิต', labelEn: 'Production', color: 'amber', icon: '🏗️' },
   { value: 'other',    labelTh: 'อื่นๆ',       labelEn: 'Other',    color: 'zinc',    icon: '•' },
 ]
 
 export function isEventPhase(v: unknown): v is EventPhase {
-  return typeof v === 'string' && ['setup', 'main', 'teardown', 'delivery', 'other'].includes(v)
+  return typeof v === 'string' && EVENT_PHASES.some(p => p.value === v)
 }
 
 export function getPhaseLabel(phase: string | null | undefined, isEn: boolean): string {
