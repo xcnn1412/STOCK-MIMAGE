@@ -335,7 +335,7 @@ export default function PurchasingView({
         })
     }
 
-    /** ผูกหลายรายการของใบนี้กับใบเบิกเดียว (หน้าต่าง "ผูกใบเบิกกับหลายรายการ") — แถวขึ้นว่าผูกแล้วทันที */
+    /** ผูกหลายรายการของใบนี้กับใบเบิกเดียว (หน้าต่าง "เบิกหลายรายการ") — แถวขึ้นว่าผูกแล้วทันที */
     const linkClaim = (list: PurchaseList, claim: PurchaseClaimOption, itemIds: string[]) => {
         const ids = itemIds.filter(id => !isTempId(id))
         if (ids.length === 0) return

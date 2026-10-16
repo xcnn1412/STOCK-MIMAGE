@@ -113,7 +113,7 @@ export interface ListCardProps {
     onApplyTemplate: (list: PurchaseList, template: PurchaseTemplate) => void
     onUpdateList: (list: PurchaseList, patch: Partial<PurchaseListInput>) => void
     onDeleteList: (list: PurchaseList) => void
-    /** ผูกหลายรายการของใบนี้กับใบเบิกเดียว (หน้าต่าง "ผูกใบเบิกกับหลายรายการ") */
+    /** ผูกหลายรายการของใบนี้กับใบเบิกเดียว (หน้าต่าง "เบิกหลายรายการ" → เชื่อมใบเบิกที่มีอยู่) */
     onLinkClaim: (list: PurchaseList, claim: PurchaseClaimOption, itemIds: string[]) => void
 }
 
@@ -403,7 +403,7 @@ export function ListCard({
                             {list.items.length === 0 && <span className="ml-auto pl-2 text-[11px] text-zinc-400">ยังไม่มีรายการ</span>}
                         </DropdownMenuItem>
                         <DropdownMenuItem className="min-h-9" disabled={!hasSavedItem} onSelect={() => openDialog('linkClaim')}>
-                            <Receipt aria-hidden /> ผูกใบเบิกกับหลายรายการ
+                            <Receipt aria-hidden /> เบิกหลายรายการ
                             {!hasSavedItem && <span className="ml-auto pl-2 text-[11px] text-zinc-400">ยังไม่มีรายการ</span>}
                         </DropdownMenuItem>
                         {advanceHref ? (
