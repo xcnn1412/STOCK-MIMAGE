@@ -155,7 +155,7 @@ Supabase types are generated to `types/database.types.ts` and re-exported from `
 
 ### กติกา Finance / Salary ที่เพิ่ม 2026-10-06
 
-- **ใบค้างเคลียร์** (`finance/claim-rules.ts::outstandingKind`): ทดลองจ่ายที่จ่ายแล้วยังไม่เคลียร์ · เคลียร์แล้วแต่ยังมีเงินต้องคืนและแอดมินยังไม่ยืนยัน · รอใบกำกับภาษี → `createClaim` และการยื่น (`submitCore`) ปฏิเสธ **ทุกคนรวมแอดมิน** · โหลดด้วย `finance/outstanding-data.ts::getOutstandingClaims(userId, all)` (cache ต่อ request รับค่าเดี่ยว) แสดงด้วย `OutstandingAlert/OutstandingPill` ที่ sidebar (`badges['/finance']`), แท็บใบเบิก, คิว, รายการ, หน้าสร้าง, หน้าใบเบิก · ใบ paid/refund_confirmed ใช้ banner เขียว `data-testid="paid-banner"`
+- **ใบค้างเคลียร์** (`finance/claim-rules.ts::outstandingKind`): ทดลองจ่ายที่จ่ายแล้วยังไม่เคลียร์ · เคลียร์แล้วแต่ยังมีเงินต้องคืนและแอดมินยังไม่ยืนยัน · รอใบกำกับภาษี → `createClaim` และการยื่น (`submitCore`) ปฏิเสธ **เฉพาะพนักงาน — แอดมินยกเว้น (v1.68.1)** · โหลดด้วย `finance/outstanding-data.ts::getOutstandingClaims(userId, all)` (cache ต่อ request รับค่าเดี่ยว) แสดงด้วย `OutstandingAlert/OutstandingPill` ที่ sidebar (`badges['/finance']`), แท็บใบเบิก, คิว, รายการ, หน้าสร้าง, หน้าใบเบิก · ใบ paid/refund_confirmed ใช้ banner เขียว `data-testid="paid-banner"`
 - **เวลาตามอีเวนต์** (`salary/compute.ts::applyEventSchedule`): เช็คอิน onsite ที่ผูกอีเวนต์ซึ่งมี `event_time` ใช้ `event_date + event_time/event_end_time` เป็นเวลาเข้า/ออกตอนคิดสลิป — ทำที่ชั้น mapping ใน `salary/actions.ts` (`rawToCheckinInput`, `toSlipCheckinRow`) เวลากดจริงใน `staff_checkins` ไม่ถูกแก้ · แถว `schedule_source === 'event'` ล็อกช่องเวลาในสลิป · เพดานที่รู้: query ช่วงงวดยังกรองด้วยเวลากดจริง
 
 ### What's New (/whats-new)

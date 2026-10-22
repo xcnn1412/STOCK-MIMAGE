@@ -23,8 +23,8 @@ export default async function NewClaimPage({
   // เปิดมาจากหน้าจัดซื้อ: ?items=<id,id,…> (+ ?type=advance = ใบทดลองจ่ายทั้งเช็กลิสต์) → เติมฟอร์มให้ · ค่าเพี้ยน = ฟอร์มเปล่า
   const params = (await searchParams) ?? {}
 
-  // ยังมีรายการค้างเคลียร์ → ไม่แสดงฟอร์ม (createClaim กันซ้ำฝั่ง server อีกชั้น) · ทุกคนรวมแอดมิน
-  const outstanding = await getOutstandingClaims(viewer.userId)
+  // ยังมีรายการค้างเคลียร์ → ไม่แสดงฟอร์ม (createClaim กันซ้ำฝั่ง server อีกชั้น) · แอดมินเบิกได้แม้มีใบค้าง
+  const outstanding = viewer.isAdmin ? [] : await getOutstandingClaims(viewer.userId)
   if (outstanding.length > 0) return <OutstandingBlocked claims={outstanding} />
 
   // getStaffProfiles: แอดมินได้บัญชีธนาคารของทุกคน · คนอื่นได้เฉพาะของตัวเอง (ของเพื่อนร่วมงานขอทีละคนจากฟอร์ม)
