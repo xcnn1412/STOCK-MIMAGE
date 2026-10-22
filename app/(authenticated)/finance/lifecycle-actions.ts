@@ -42,7 +42,7 @@ import { QUEUE_SELECT, type QueueClaim } from './queue-data'
 type ActionResult = { success?: boolean; error?: string }
 
 /** ผู้กด + ชุด (เมื่อมาจาก bulkClaimAction — ลงใน activity ทุกใบของชุด) */
-type Ctx = { supabase: Db; userId: string; batch?: { batchId: string; batchSize: number } }
+type Ctx = { supabase: Db; userId: string; isAdmin?: boolean; batch?: { batchId: string; batchSize: number } }
 
 /** ผลของ core: res = ค่าที่คืนให้ผู้เรียก · changed = สถานะถูกเขียนแล้ว (ต้อง revalidate) */
 type Outcome = { res: { success: true } | { error: string }; changed: boolean; claimNumber: string }
@@ -81,8 +81,8 @@ async function submitCore(ctx: Ctx, id: string): Promise<Outcome> {
   if (receiptRequiredForSubmit(claim.claim_type) && (!claim.receipt_urls || claim.receipt_urls.length === 0)) {
     return fail(RECEIPT_REQUIRED_ERROR, claim.claim_number)
   }
-  // ยังมีรายการค้างเคลียร์ (ไม่นับใบนี้เอง) → ยื่นไม่ได้ ทุกคนรวมแอดมิน · กติกาเดียวกับ createClaim
-  const outstanding = (await getOutstandingClaims(userId)).filter(c => c.id !== id)
+  // ยังมีรายการค้างเคลียร์ (ไม่นับใบนี้เอง) → ยื่นไม่ได้ (แอดมินยกเว้น) · กติกาเดียวกับ createClaim
+  const outstanding = ctx.isAdmin ? [] : (await getOutstandingClaims(userId)).filter(c => c.id !== id)
   if (outstanding.length > 0) {
     return fail(`ยังมีรายการค้างเคลียร์ ${outstanding.length} ใบ (${outstanding.map(c => c.claim_number).join(', ')}) — เคลียร์ให้ครบก่อนจึงยื่นใบเบิกใหม่ได้`, claim.claim_number)
   }
@@ -121,10 +121,10 @@ async function submitCore(ctx: Ctx, id: string): Promise<Outcome> {
 }
 
 export async function submitClaim(id: string): Promise<ActionResult> {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  const r = await submitCore({ supabase: createServiceClient(), userId }, id)
+  const r = await submitCore({ supabase: createServiceClient(), userId, isAdmin: role === 'admin' }, id)
   if (r.changed) {
     revalidatePath('/finance')
     revalidatePath(`/finance/${id}`)

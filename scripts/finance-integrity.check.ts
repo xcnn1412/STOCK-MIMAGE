@@ -1306,6 +1306,31 @@ async function main() {
   }
   pass('v1.46.0 closeClaimsExternal: ไม่ใช่แอดมิน/เหตุผลว่าง/วันที่ผิดหรืออนาคต/ทดลองจ่ายไม่มีตัวเลือก/เงินคืนนอกช่วง → error ไม่เขียน · ใบงาน → จ่ายแล้ว ณ เที่ยงวันไทย + ต้นทุน + close_external + CLOSE_CLAIM_EXTERNAL + แจ้งผู้เบิก + เข้าแฟ้ม · ทดลองจ่าย ใช้หมด/มีเงินคืน → ไม่ค้างเคลียร์ · ใบที่ถูกปฏิเสธล้มใบเดียว')
 
+  // ══ v1.68.1 ใบค้างเคลียร์กันเฉพาะพนักงาน — แอดมินสร้าง/ยื่นได้ ═══════════════════════════════
+  {
+    const owed = (who: string) => seedClaim({ claim_type: 'advance', job_event_id: null, status: 'paid', amount: 500, submitted_by: who, paid_at: '2026-09-05T03:00:00.000Z', paid_by: ADMIN, approved_by: ADMIN, approved_at: '2026-09-04T03:00:00.000Z', submitted_at: '2026-09-04T02:00:00.000Z' })
+    const staffOwed = owed(STAFF)
+    const adminOwed = owed(ADMIN)
+    const staffDraft = seedClaim({ status: 'draft', submitted_by: STAFF })
+    const adminDraft = seedClaim({ status: 'draft', submitted_by: ADMIN })
+
+    loginAs(STAFF)
+    const claimsBefore = db.expense_claims.length
+    assert.match(String((await createClaim(claimForm({ title: 'พนักงานค้าง' }))).error), /ค้างเคลียร์ \d+ ใบ/)
+    assert.equal(db.expense_claims.length, claimsBefore)
+    assert.match(String((await submitClaim(staffDraft)).error), /ค้างเคลียร์ \d+ ใบ/)
+    assert.equal(claimRow(staffDraft).status, 'draft')
+
+    loginAs(ADMIN)
+    const created = await createClaim(claimForm({ title: 'แอดมินค้างแต่เบิกได้' }))
+    assert.equal(created.error, undefined, `แอดมินต้องสร้างได้ (ได้ ${created.error})`)
+    assert.deepEqual(await submitClaim(adminDraft), { success: true })
+    assert.equal(claimRow(adminDraft).status, 'pending')
+
+    for (const id of [staffOwed, adminOwed]) claimRow(id).deleted_at = '2026-09-30T00:00:00.000Z'
+  }
+  pass('v1.68.1 ใบค้างเคลียร์: พนักงาน → สร้าง/ยื่นไม่ได้ ไม่เขียนอะไร · แอดมินที่มีใบค้างเหมือนกัน → สร้างและยื่นได้')
+
   console.log('\nfinance-integrity: ผ่านทั้งหมด')
 }
 

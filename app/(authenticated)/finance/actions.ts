@@ -325,11 +325,11 @@ async function uploadReceiptFiles(supabase: Db, files: File[], claimNumber: stri
 // ============================================================================
 
 export async function createClaim(formData: FormData) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
-  // ยังมีรายการค้างเคลียร์ → เบิกใหม่ไม่ได้ (ทุกคน รวมแอดมิน) — ก่อนเขียนอะไรหรือจองเลขที่
-  const outstanding = await getOutstandingClaims(userId)
+  // ยังมีรายการค้างเคลียร์ → เบิกใหม่ไม่ได้ (แอดมินยกเว้น ตั้งแต่ v1.68.1) — ก่อนเขียนอะไรหรือจองเลขที่
+  const outstanding = role === 'admin' ? [] : await getOutstandingClaims(userId)
   if (outstanding.length > 0) {
     return { error: `ยังมีรายการค้างเคลียร์ ${outstanding.length} ใบ (${outstanding.map(c => c.claim_number).join(', ')}) — เคลียร์ให้ครบก่อนจึงสร้างใบเบิกใหม่ได้` }
   }
