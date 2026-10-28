@@ -1,6 +1,8 @@
 import { getEventAccess } from '@/lib/event-permissions'
 import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-server'
-import EventsView from './events-view'
+import { readAllRows } from '@/lib/read-all-rows'
+import { getCrmSettings } from '../crm/actions'
+import EventsView, { type EventStaffChip } from './events-view'
 import type { EventLog } from './events-log-sheet'
 
 export const revalidate = 0
@@ -28,6 +30,31 @@ export default async function EventsPage() {
   }
 
   const serviceClient = createServiceClient()
+
+  // เจ้าหน้าที่ของแต่ละอีเวนต์ — event_staff เป็นที่เดียวที่ถูกต้อง (ชื่อเล่นก่อน ไม่มีค่อยใช้ชื่อเต็ม)
+  // ป้ายหน้าที่แปลจาก crm_settings หมวด staff_role
+  // ponytail: อ่านทั้งตาราง (ราว 600 แถว) แทน .in(ids) — อีเวนต์หลายร้อยใบทำ URL ยาวเกิน ถ้าโตเป็นหลายพันค่อยกรองด้วยวันงาน
+  type StaffRow = { event_id: string; role: string; profiles: { full_name: string | null; nickname: string | null } | { full_name: string | null; nickname: string | null }[] | null }
+  type RoleSetting = { value: string; label_th: string | null; label_en: string | null }
+  const [{ rows: staffRows }, { data: roleSettings }] = await Promise.all([
+    readAllRows<StaffRow>((from, to) =>
+      serviceClient
+        .from('event_staff')
+        .select('event_id, role, profiles:user_id(full_name, nickname)')
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to)
+    ),
+    getCrmSettings('staff_role'),
+  ])
+  const roleLabel = new Map(((roleSettings || []) as RoleSetting[]).map(s => [s.value, s.label_th || s.label_en || s.value]))
+  const staffByEvent: Record<string, EventStaffChip[]> = {}
+  for (const s of staffRows) {
+    const p = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles
+    const list = staffByEvent[s.event_id] || (staffByEvent[s.event_id] = [])
+    list.push({ name: p?.nickname || p?.full_name || 'ไม่พบผู้ใช้', role: roleLabel.get(s.role) || s.role })
+  }
+
   const { data: logs } = await serviceClient
     .from('activity_logs')
     .select(`
@@ -48,6 +75,7 @@ export default async function EventsPage() {
       canClose={access.close}
       logs={(logs || []) as unknown as EventLog[]}
       leadByEvent={leadByEvent}
+      staffByEvent={staffByEvent}
     />
   )
 }
