@@ -210,9 +210,10 @@ export default function AddCheckinForm({
     return (
       <tr className="border-b bg-muted/20">
         <td className="px-3 py-2.5">{dateField}</td>
+        {/* ลำดับช่องตรงกับหัวตาราง: วันที่ · อีเวนต์ (CRM) · เช็คอิน · หน้าที่ · ตจว. */}
+        <td className="px-3 py-2.5">{eventField}</td>
         <td className="px-3 py-2.5">{timeField}</td>
         <td className="px-3 py-2.5">{dutiesField}</td>
-        <td className="px-3 py-2.5">{eventField}</td>
         <td className="px-3 py-2.5">{oopField}</td>
         <td colSpan={columns - 5} className="px-3 py-2.5 text-right">
           {overnightConfirm || (

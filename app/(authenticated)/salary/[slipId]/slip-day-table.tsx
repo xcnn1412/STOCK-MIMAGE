@@ -4,7 +4,7 @@
 // ตารางรายวันของสลิป (เดสก์ท็อป) — spec: docs/specs/salary-slip-daily-ui.md
 //
 // 1 วัน = 1 แถว (วันที่มีเช็คอินหลายครั้ง = หลายแถวย่อยใต้วันเดียวกัน)
-// รวมข้อมูลต้นทางของวันนั้น (เวลาเข้า–ออก หน้าที่ อีเวนต์ ตจว.) กับเงินของวันนั้น
+// รวมข้อมูลต้นทางของวันนั้น (อีเวนต์/การ์ด CRM + เวลาที่ตั้งไว้ · เวลาเข้า–ออก · หน้าที่ · ตจว.) กับเงินของวันนั้น
 // (ค่าสตาฟ เบิ้ล OT รันเนอร์) ไว้ในแถวเดียว แก้ได้ตรงในช่อง
 //
 // ทุกการแก้ยิง server action ตัวเดียวที่ทำ "แก้ → คำนวณใหม่ → คืนสลิปใหม่" ให้เสร็จ
@@ -21,7 +21,7 @@ import type { SlipCheckinRow, SlipDetail, SlipEventOption } from '../actions'
 import { bangkokParts, shiftDay } from '../compute'
 import type { SalaryDutyRow } from '../settings/actions'
 import {
-  DutiesCell, EventCell, MoneyCell, RunnerCell, TimeCell, ToggleCell,
+  DutiesCell, EventCell, EventCrmInfo, MoneyCell, RunnerCell, TimeCell, ToggleCell,
 } from './components/inline-cells'
 import { CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
@@ -65,10 +65,11 @@ export default function SlipDayTable({
         <thead>
           <tr className="border-b bg-muted/40 text-xs whitespace-nowrap text-muted-foreground">
             <th className="px-3 py-2 text-left font-medium">วันที่</th>
+            {/* คอลัมน์เดียวที่ข้อความยาว — ขอที่ว่างส่วนเกินของตารางมาไว้ที่นี่ ชื่ออีเวนต์จะได้ไม่ตกหลายบรรทัด */}
+            {/* อยู่ก่อน "เช็คอิน" — เวลาที่ตั้งไว้ในอีเวนต์จะได้เทียบกับเวลาเข้า–ออกจริงข้างๆ ได้ทันที */}
+            <th className="w-80 px-3 py-2 text-left font-medium">อีเวนต์ (CRM)</th>
             <th className="px-3 py-2 text-left font-medium">เช็คอิน</th>
             <th className="px-3 py-2 text-left font-medium">หน้าที่</th>
-            {/* คอลัมน์เดียวที่ข้อความยาว — ขอที่ว่างส่วนเกินของตารางมาไว้ที่นี่ ชื่ออีเวนต์จะได้ไม่ตกหลายบรรทัด */}
-            <th className="w-80 px-3 py-2 text-left font-medium">อีเวนต์</th>
             <th className="px-3 py-2 text-left font-medium">ตจว.</th>
             <th className="px-3 py-2 text-right font-medium">ค่าสตาฟ</th>
             <th className="px-3 py-2 text-right font-medium">เบิ้ล</th>
@@ -137,6 +138,24 @@ export default function SlipDayTable({
                     </td>
                   )}
 
+                  {/* อีเวนต์ (CRM) — เฉพาะเช็คอินหน้างาน: ชื่ออีเวนต์ (แก้ได้) + การ์ด CRM + เวลาที่ตั้งไว้ */}
+                  <td className="px-3 py-2.5">
+                    {c && onsite ? (
+                      <div className="space-y-1">
+                        <EventCell
+                          value={c.event_id}
+                          eventName={c.event_name}
+                          events={events}
+                          disabled={!rowEditable}
+                          onSave={next => saveCheckin(c.id, { event_id: next })}
+                        />
+                        <EventCrmInfo checkin={c} />
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+
                   {/* เช็คอิน — ประเภท + เวลาเข้า–ออก */}
                   <td className="px-3 py-2.5">
                     {!c || !inAt ? (
@@ -204,21 +223,6 @@ export default function SlipDayTable({
                         disabled={!rowEditable}
                         ariaLabel={`หน้าที่ ${day.date}`}
                         onSave={next => saveCheckin(c.id, { duties: next })}
-                      />
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </td>
-
-                  {/* อีเวนต์ — เฉพาะเช็คอินหน้างาน */}
-                  <td className="px-3 py-2.5">
-                    {c && onsite ? (
-                      <EventCell
-                        value={c.event_id}
-                        eventName={c.event_name}
-                        events={events}
-                        disabled={!rowEditable}
-                        onSave={next => saveCheckin(c.id, { event_id: next })}
                       />
                     ) : (
                       <span className="text-muted-foreground">—</span>

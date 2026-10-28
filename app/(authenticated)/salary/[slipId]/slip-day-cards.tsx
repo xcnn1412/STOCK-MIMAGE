@@ -23,7 +23,7 @@ import {
 } from '../compute'
 import type { SalaryDutyRow } from '../settings/actions'
 import {
-  DutiesCell, EventCell, MoneyCell, RunnerCell, TimeCell, ToggleCell,
+  DutiesCell, EventCell, EventCrmInfo, MoneyCell, RunnerCell, TimeCell, ToggleCell,
 } from './components/inline-cells'
 import { CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
@@ -258,6 +258,22 @@ function DayCard({
                   {byEvent && ' · เวลาตามอีเวนต์ (แก้ได้ที่หน้าอีเวนต์)'}
                 </p>
 
+                {/* อีเวนต์ (CRM) ก่อนเวลาเข้า — เทียบเวลาที่ตั้งไว้ในอีเวนต์กับเวลาจริงได้ทันที */}
+                {onsite && (
+                  <PanelRow label="อีเวนต์ (CRM)">
+                    <div className="space-y-1">
+                      <EventCell
+                        value={c.event_id}
+                        eventName={c.event_name}
+                        events={events}
+                        disabled={!rowEditable}
+                        onSave={next => edits.saveCheckin(c.id, { event_id: next })}
+                      />
+                      <EventCrmInfo checkin={c} />
+                    </div>
+                  </PanelRow>
+                )}
+
                 <PanelRow label="เวลาเข้า">
                   <TimeCell
                     value={inAt.time}
@@ -299,15 +315,6 @@ function DayCard({
                         disabled={!rowEditable}
                         ariaLabel={`หน้าที่ ${day.date}`}
                         onSave={next => edits.saveCheckin(c.id, { duties: next })}
-                      />
-                    </PanelRow>
-                    <PanelRow label="อีเวนต์">
-                      <EventCell
-                        value={c.event_id}
-                        eventName={c.event_name}
-                        events={events}
-                        disabled={!rowEditable}
-                        onSave={next => edits.saveCheckin(c.id, { event_id: next })}
                       />
                     </PanelRow>
                     <PanelRow label="ตจว.">

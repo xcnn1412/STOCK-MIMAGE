@@ -28,8 +28,8 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { fmtMoney, shortThaiDate } from '../../format'
 import { shiftDay } from '../../compute'
-import { isOvernight } from './day-view-utils'
-import type { SlipEventOption } from '../../actions'
+import { eventScheduleLabel, isOvernight } from './day-view-utils'
+import type { SlipCheckinRow, SlipEventOption } from '../../actions'
 import type { SalaryDutyRow } from '../../settings/actions'
 
 /** ผลของการบันทึกหนึ่งช่อง — ไม่มี error = สำเร็จ (ตัวเรียกเป็นคนอัปเดตสลิปเอง) */
@@ -461,6 +461,42 @@ export function EventCell({ value, eventName, events, onSave, disabled }: EventC
         </Command>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/**
+ * ใต้ช่องอีเวนต์: การ์ด CRM ของอีเวนต์ + ช่วงเวลาที่ตั้งไว้ในอีเวนต์
+ * (ไว้เทียบกับเวลาเช็คอินจริงในคอลัมน์ถัดไป) — ไม่ผูกอีเวนต์ = ไม่แสดงอะไร
+ */
+export function EventCrmInfo({
+  checkin,
+}: {
+  checkin: Pick<SlipCheckinRow, 'event_id' | 'event_time' | 'event_end_time' | 'crm_name' | 'crm_location'>
+}) {
+  if (!checkin.event_id) return null
+  const schedule = eventScheduleLabel(checkin)
+  return (
+    <div className={cn('space-y-1 px-1.5', EVENT_WIDTH)}>
+      {checkin.crm_name && (
+        <p className={cn('text-[11px] text-muted-foreground', EVENT_NAME)}>
+          CRM · {checkin.crm_name}
+          {checkin.crm_location && ` · ${checkin.crm_location}`}
+        </p>
+      )}
+      {checkin.event_time ? (
+        <span
+          title="เวลาที่ตั้งไว้ในอีเวนต์"
+          aria-label={`เวลาที่ตั้งไว้ในอีเวนต์ ${schedule}`}
+          className="inline-flex rounded border px-1.5 py-0.5 text-[11px] tabular-nums"
+        >
+          {schedule}
+        </span>
+      ) : (
+        <span title="เวลาที่ตั้งไว้ในอีเวนต์" className="block text-[11px] text-muted-foreground">
+          {schedule}
+        </span>
+      )}
+    </div>
   )
 }
 
