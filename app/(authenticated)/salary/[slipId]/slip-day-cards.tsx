@@ -25,7 +25,7 @@ import type { SalaryDutyRow } from '../settings/actions'
 import {
   DutiesCell, EventCell, EventCrmInfo, MoneyCell, RunnerCell, TimeCell, ToggleCell,
 } from './components/inline-cells'
-import { CHECK_TYPE_CLASS, CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
+import { CHECK_TYPE_CLASS, CHECK_TYPE_LABEL, checkinDateLabel, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
 import PanelRow from './components/panel-row'
 import SlipFooter from './components/slip-footer'
@@ -211,6 +211,7 @@ function DayCard({
               <span className="tabular-nums">
                 {inAt.time}–{outAt ? outAt.time : 'ยังไม่ออก'}
               </span>
+              <span className="tabular-nums" title="วันที่เช็คอิน">· {checkinDateLabel(inAt.date, outAt?.date)}</span>
               {c.schedule_source === 'event' && (
                 <span
                   title="เวลาเข้า-ออกยึดจากอีเวนต์ — แก้ได้ที่หน้าอีเวนต์"

@@ -23,7 +23,7 @@ import type { SalaryDutyRow } from '../settings/actions'
 import {
   DutiesCell, EventCell, EventCrmInfo, MoneyCell, RunnerCell, TimeCell, ToggleCell,
 } from './components/inline-cells'
-import { CHECK_TYPE_CLASS, CHECK_TYPE_LABEL, dutyColor, toISO } from './components/day-view-utils'
+import { CHECK_TYPE_CLASS, CHECK_TYPE_LABEL, checkinDateLabel, dutyColor, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
 import SlipFooter from './components/slip-footer'
 import { useDayView, type SlipEdits } from './components/use-slip-edits'
@@ -202,6 +202,10 @@ export default function SlipDayTable({
                             </span>
                           )}
                         </div>
+                        {/* วันที่กดจริง — แถวที่ยึดเวลาอีเวนต์ = วันอีเวนต์ · กะข้ามคืนเห็นวันออกด้วย */}
+                        <p className="text-[11px] text-muted-foreground tabular-nums" title="วันที่เช็คอิน">
+                          {checkinDateLabel(inAt.date, outAt?.date)}
+                        </p>
                         {paidElsewhere && (
                           <Link
                             href={`/salary/${c.paid_slip_id}`}

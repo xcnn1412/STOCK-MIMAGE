@@ -7,6 +7,7 @@
 // ============================================================================
 
 import type { SlipCheckinPatch, SlipCheckinRow, SlipEventOption } from '../../actions'
+import { shortThaiDate } from '../../format'
 
 export const CHECK_TYPE_LABEL: Record<SlipCheckinRow['check_type'], string> = {
   office: 'ออฟฟิศ',
@@ -43,6 +44,12 @@ export function chipStyle(color: string) {
 export function eventScheduleLabel(c: { event_time: string | null; event_end_time: string | null }): string {
   if (!c.event_time) return 'ยังไม่ใส่เวลาในอีเวนต์'
   return `${c.event_time.slice(0, 5)}${c.event_end_time ? '–' + c.event_end_time.slice(0, 5) : ''} น.`
+}
+
+/** วันที่เช็คอินจริง ('27 ก.ย. 69') — ออกคนละวัน (กะข้ามคืน) ต่อท้ายวันออกด้วย */
+export function checkinDateLabel(inDate: string, outDate?: string | null): string {
+  const a = shortThaiDate(inDate)
+  return outDate && outDate !== inDate ? `${a} – ${shortThaiDate(outDate)}` : a
 }
 
 /** (วันไทย, เวลาไทย) → instant */
@@ -86,6 +93,7 @@ export function applyCheckinPatch(
     next.event_id = patch.event_id
     const opt = patch.event_id ? events.find(e => e.id === patch.event_id) : undefined
     next.event_name = opt?.name ?? null
+    next.event_date = opt?.event_date ?? null
     next.event_time = opt?.event_time ?? null
     next.event_end_time = opt?.event_end_time ?? null
     next.crm_name = opt?.crm_name ?? null

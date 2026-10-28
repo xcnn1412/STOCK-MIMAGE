@@ -238,6 +238,8 @@ export interface SlipCheckinRow {
   paid_slip_id: string | null
   /** 'event' = เวลาเข้า/ออกข้างบนมาจากตารางอีเวนต์ (เวลากดจริงยังอยู่ใน DB) */
   schedule_source: ScheduleSource
+  /** วันจัดงานของอีเวนต์ที่ผูก ('YYYY-MM-DD') — null = ไม่ผูก */
+  event_date: string | null
   /** เวลาเริ่ม/จบที่ตั้งไว้ในอีเวนต์ที่ผูก ("HH:mm:ss" ตาม DB) — null = ไม่ผูก/ยังไม่ใส่ */
   event_time: string | null
   event_end_time: string | null
@@ -291,10 +293,11 @@ type EmbeddedEvent = { name: string | null; crm_leads?: EmbeddedLead | EmbeddedL
 /** เวลา/การ์ด CRM ของอีเวนต์ที่ฝังมา — ส่วนที่ไม่มี = null (ชุดตรวจฝังมาแค่ชื่อก็ไม่พัง) */
 function eventCrmFields(
   ev: EmbeddedEvent | EmbeddedEvent[] | null | undefined
-): Pick<SlipEventOption, 'event_time' | 'event_end_time' | 'crm_name' | 'crm_location'> {
+): Pick<SlipCheckinRow, 'event_date' | 'event_time' | 'event_end_time' | 'crm_name' | 'crm_location'> {
   const e = Array.isArray(ev) ? ev[0] : ev
   const lead = Array.isArray(e?.crm_leads) ? e?.crm_leads[0] : e?.crm_leads
   return {
+    event_date: e?.event_date ?? null,
     event_time: e?.event_time ?? null,
     event_end_time: e?.event_end_time ?? null,
     crm_name: lead?.customer_name ?? null,
@@ -1457,10 +1460,10 @@ async function listPeriodEvents(
 
   type Raw = { id: string; event_date: string | null } & Omit<EmbeddedEvent, 'event_date'>
   return ((data || []) as unknown as Raw[]).map(e => ({
+    ...eventCrmFields(e),
     id: e.id,
     name: e.name || '(ไม่มีชื่อ)',
     event_date: e.event_date || '',
-    ...eventCrmFields(e),
   }))
 }
 
