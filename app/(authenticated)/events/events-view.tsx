@@ -10,12 +10,12 @@ import EventStatusBadge from './event-status-badge'
 import EventsLogSheet, { type EventLog } from './events-log-sheet'
 import type { Event } from '@/types'
 
-/** เจ้าหน้าที่หนึ่งคนในอีเวนต์ — ชื่อที่แสดง + ป้ายหน้าที่ (ว่าง = ไม่รู้หน้าที่) */
-export type EventStaffChip = { name: string; role: string }
+/** เจ้าหน้าที่หนึ่งคนในอีเวนต์ — ชื่อที่แสดง + ป้ายหน้าที่ (ว่าง = ไม่รู้หน้าที่) + สีของหน้าที่ (hex) */
+export type EventStaffChip = { name: string; role: string; color: string }
 
-/** อีเวนต์เก่าก่อนมีตาราง event_staff เก็บชื่อเป็นข้อความคั่นจุลภาค — แสดงชื่อเดิมโดยไม่รู้หน้าที่ */
+/** อีเวนต์เก่าก่อนมีตาราง event_staff เก็บชื่อเป็นข้อความคั่นจุลภาค — แสดงชื่อเดิมโดยไม่รู้หน้าที่ (สีเทา) */
 function legacyStaff(text: string | null | undefined): EventStaffChip[] {
-  return (text || '').split(',').map(s => s.trim()).filter(Boolean).map(name => ({ name, role: '' }))
+  return (text || '').split(',').map(s => s.trim()).filter(Boolean).map(name => ({ name, role: '', color: '#71717a' }))
 }
 
 export default function EventsView({
@@ -225,13 +225,16 @@ export default function EventsView({
                         <span className="text-zinc-400">{lang === 'th' ? 'ยังไม่จัดเจ้าหน้าที่' : 'No staff assigned'}</span>
                       ) : (
                         <ul className="flex flex-wrap gap-1.5" aria-label={lang === 'th' ? 'เจ้าหน้าที่' : 'Staff'}>
+                          {/* ป้ายสีตามหน้าที่ — หน้าตาเดียวกับแท็กบนบอร์ดวันงาน (/jobs) */}
                           {staff.map((s, i) => (
                             <li
                               key={`${s.name}-${s.role}-${i}`}
-                              className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+                              className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px] font-semibold"
+                              style={{ backgroundColor: `${s.color}15`, color: s.color, boxShadow: `inset 0 0 0 1.5px ${s.color}30` }}
                             >
-                              <span className="font-medium">{s.name}</span>
-                              {s.role && <span className="text-zinc-500 dark:text-zinc-400">· {s.role}</span>}
+                              <span className="h-2 w-2 rounded-full shadow-sm" style={{ backgroundColor: s.color }} />
+                              {s.name}
+                              {s.role && <span className="font-medium opacity-75">· {s.role}</span>}
                             </li>
                           ))}
                         </ul>

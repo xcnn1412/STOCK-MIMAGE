@@ -35,7 +35,7 @@ export default async function EventsPage() {
   // ป้ายหน้าที่แปลจาก crm_settings หมวด staff_role
   // ponytail: อ่านทั้งตาราง (ราว 600 แถว) แทน .in(ids) — อีเวนต์หลายร้อยใบทำ URL ยาวเกิน ถ้าโตเป็นหลายพันค่อยกรองด้วยวันงาน
   type StaffRow = { event_id: string; role: string; profiles: { full_name: string | null; nickname: string | null } | { full_name: string | null; nickname: string | null }[] | null }
-  type RoleSetting = { value: string; label_th: string | null; label_en: string | null }
+  type RoleSetting = { value: string; label_th: string | null; label_en: string | null; color: string | null }
   const [{ rows: staffRows }, { data: roleSettings }] = await Promise.all([
     readAllRows<StaffRow>((from, to) =>
       serviceClient
@@ -47,12 +47,18 @@ export default async function EventsPage() {
     ),
     getCrmSettings('staff_role'),
   ])
-  const roleLabel = new Map(((roleSettings || []) as RoleSetting[]).map(s => [s.value, s.label_th || s.label_en || s.value]))
+  // สีป้าย = สีของหน้าที่ที่ตั้งไว้ใน CRM (ชุดเดียวกับบอร์ดวันงาน) — หน้าที่ที่ไม่มีในตั้งค่าใช้สีเทา
+  const roleSetting = new Map(((roleSettings || []) as RoleSetting[]).map(s => [s.value, s]))
   const staffByEvent: Record<string, EventStaffChip[]> = {}
   for (const s of staffRows) {
     const p = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles
+    const setting = roleSetting.get(s.role)
     const list = staffByEvent[s.event_id] || (staffByEvent[s.event_id] = [])
-    list.push({ name: p?.nickname || p?.full_name || 'ไม่พบผู้ใช้', role: roleLabel.get(s.role) || s.role })
+    list.push({
+      name: p?.nickname || p?.full_name || 'ไม่พบผู้ใช้',
+      role: setting?.label_th || setting?.label_en || s.role,
+      color: setting?.color || '#71717a',
+    })
   }
 
   const { data: logs } = await serviceClient
