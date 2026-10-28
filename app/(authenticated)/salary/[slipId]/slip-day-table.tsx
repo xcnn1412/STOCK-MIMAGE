@@ -23,7 +23,7 @@ import type { SalaryDutyRow } from '../settings/actions'
 import {
   DutiesCell, EventCell, EventCrmInfo, MoneyCell, RunnerCell, TimeCell, ToggleCell,
 } from './components/inline-cells'
-import { CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
+import { CHECK_TYPE_CLASS, CHECK_TYPE_LABEL, dutyColor, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
 import SlipFooter from './components/slip-footer'
 import { useDayView, type SlipEdits } from './components/use-slip-edits'
@@ -163,7 +163,7 @@ export default function SlipDayTable({
                     ) : (
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-1">
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">
+                          <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-medium', CHECK_TYPE_CLASS[c.check_type])}>
                             {CHECK_TYPE_LABEL[c.check_type]}
                           </span>
                           <TimeCell
@@ -252,7 +252,10 @@ export default function SlipDayTable({
                         {sub.siteLines.map(l => (
                           <span key={l.key} className="flex items-center justify-end gap-1">
                             {sub.siteLines.length > 1 && (
-                              <span className="text-[11px] whitespace-nowrap text-muted-foreground">
+                              <span
+                                className="text-[11px] font-medium whitespace-nowrap"
+                                style={{ color: dutyColor(l.duty || '', duties) }}
+                              >
                                 {dutyName.get(l.duty || '') || l.duty}
                               </span>
                             )}

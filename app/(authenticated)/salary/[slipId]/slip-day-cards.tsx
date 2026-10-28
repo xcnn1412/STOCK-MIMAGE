@@ -25,7 +25,7 @@ import type { SalaryDutyRow } from '../settings/actions'
 import {
   DutiesCell, EventCell, EventCrmInfo, MoneyCell, RunnerCell, TimeCell, ToggleCell,
 } from './components/inline-cells'
-import { CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
+import { CHECK_TYPE_CLASS, CHECK_TYPE_LABEL, toISO } from './components/day-view-utils'
 import AddCheckinForm from './components/add-checkin-form'
 import PanelRow from './components/panel-row'
 import SlipFooter from './components/slip-footer'
@@ -205,7 +205,7 @@ function DayCard({
           const paidElsewhere = !!c.paid_slip_id && c.paid_slip_id !== slipId
           return (
             <p key={c.id} className="flex flex-wrap items-center gap-x-1.5">
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-foreground">
+              <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-medium', CHECK_TYPE_CLASS[c.check_type])}>
                 {CHECK_TYPE_LABEL[c.check_type]}
               </span>
               <span className="tabular-nums">
