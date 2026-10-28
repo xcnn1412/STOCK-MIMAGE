@@ -190,11 +190,14 @@ export function applyEventSchedule<T extends { check_type: string; checked_in_at
 ): T & { schedule_source: ScheduleSource } {
   const actual = { ...c, schedule_source: 'actual' as ScheduleSource }
   if (c.check_type !== 'onsite' || !ev?.event_date || !ev.event_time) return actual
-  const start = Date.parse(`${ev.event_date}T${hhmm(ev.event_time)}:00+07:00`)
+  // events.event_date ใน DB จริงเป็น timestamptz ('2026-10-06T00:00:00+00:00') — เอาเฉพาะวัน
+  // ไม่งั้น Date.parse ได้ NaN ทุกแถว = กติกานี้ไม่เคยทำงาน (เจอ 2026-10-29)
+  const day = ev.event_date.slice(0, 10)
+  const start = Date.parse(`${day}T${hhmm(ev.event_time)}:00+07:00`)
   if (Number.isNaN(start)) return actual
   let checked_out_at = c.checked_out_at
   if (ev.event_end_time) {
-    let end = Date.parse(`${ev.event_date}T${hhmm(ev.event_end_time)}:00+07:00`)
+    let end = Date.parse(`${day}T${hhmm(ev.event_end_time)}:00+07:00`)
     if (Number.isNaN(end)) return actual
     if (end <= start) end += 86_400_000
     checked_out_at = new Date(end).toISOString()

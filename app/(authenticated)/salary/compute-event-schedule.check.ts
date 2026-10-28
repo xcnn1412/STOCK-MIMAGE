@@ -49,6 +49,14 @@ assert.equal(applyEventSchedule({ ...base, checked_out_at: '2026-10-06T10:00:00.
 // วันที่พัง → ใช้เวลาจริง
 assert.equal(applyEventSchedule(base, { ...ev, event_date: 'xx' }).schedule_source, 'actual')
 
+// (g) event_date แบบ timestamptz จาก DB จริง ('2026-10-06T00:00:00+00:00' หรือมีเวลาติดมา) → ใช้วันนั้น
+for (const stamp of ['2026-10-06T00:00:00+00:00', '2026-10-06T04:47:17.606+00:00']) {
+  const g = applyEventSchedule(base, { ...ev, event_date: stamp })
+  assert.equal(g.schedule_source, 'event', `event_date ${stamp} ต้องใช้เวลาตามอีเวนต์`)
+  assert.equal(g.checked_in_at, '2026-10-06T03:00:00.000Z')
+  assert.equal(g.checked_out_at, '2026-10-06T13:00:00.000Z')
+}
+
 // (f) ต่อกับ computeSlip: OT 18:00–20:00 = 2 ชม. × 100, บรรทัดหน้างานวันที่ 6, ไม่มี no_checkout
 const r = computeSlip({
   profile: { employment_type: 'freelance', base_salary: 0, work_start: '09:00', work_end: '18:00', ot_rate: 100 },

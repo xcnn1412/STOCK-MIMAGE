@@ -297,7 +297,8 @@ function eventCrmFields(
   const e = Array.isArray(ev) ? ev[0] : ev
   const lead = Array.isArray(e?.crm_leads) ? e?.crm_leads[0] : e?.crm_leads
   return {
-    event_date: e?.event_date ?? null,
+    // events.event_date เป็น timestamptz ใน DB จริง — เก็บเฉพาะวัน ('YYYY-MM-DD') ให้ตัวจัดรูปแบบวันอ่านได้
+    event_date: e?.event_date ? e.event_date.slice(0, 10) : null,
     event_time: e?.event_time ?? null,
     event_end_time: e?.event_end_time ?? null,
     crm_name: lead?.customer_name ?? null,
@@ -1463,7 +1464,7 @@ async function listPeriodEvents(
     ...eventCrmFields(e),
     id: e.id,
     name: e.name || '(ไม่มีชื่อ)',
-    event_date: e.event_date || '',
+    event_date: (e.event_date || '').slice(0, 10),
   }))
 }
 
