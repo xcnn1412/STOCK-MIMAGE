@@ -482,10 +482,10 @@ export function EventCrmInfo({
   checkin: Pick<SlipCheckinRow, 'event_id' | 'event_date' | 'event_time' | 'event_end_time' | 'crm_name' | 'crm_location'>
 }) {
   if (!checkin.event_id) return null
-  // วันจัดงานนำหน้าเวลา — เช็คอินก่อน/หลังวันงาน (ติดตั้ง, เก็บตู้) จะได้เห็นว่าคนละวันกับที่กด
+  // "27 ก.ย. 69 04:00–09:09 น." วันจัดงานนำหน้าเวลา — เช็คอินก่อน/หลังวันงาน (ติดตั้ง, เก็บตู้) จะได้เห็นว่าคนละวันกับที่กด
   const schedule = [checkin.event_date && shortThaiDate(checkin.event_date), eventScheduleLabel(checkin)]
     .filter(Boolean)
-    .join(' · ')
+    .join(' ')
   return (
     <div className={cn('space-y-1 px-1.5', EVENT_WIDTH)}>
       {checkin.crm_name && (
