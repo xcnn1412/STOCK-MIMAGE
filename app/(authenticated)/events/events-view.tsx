@@ -4,11 +4,19 @@ import { useState } from 'react'
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from 'next/link'
-import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar, Eye, EyeOff } from "lucide-react"
+import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar, Eye, EyeOff, Users } from "lucide-react"
 import { useLanguage } from '@/contexts/language-context'
 import EventStatusBadge from './event-status-badge'
 import EventsLogSheet, { type EventLog } from './events-log-sheet'
 import type { Event } from '@/types'
+
+/** เจ้าหน้าที่หนึ่งคนในอีเวนต์ — ชื่อที่แสดง + ป้ายหน้าที่ (ว่าง = ไม่รู้หน้าที่) */
+export type EventStaffChip = { name: string; role: string }
+
+/** อีเวนต์เก่าก่อนมีตาราง event_staff เก็บชื่อเป็นข้อความคั่นจุลภาค — แสดงชื่อเดิมโดยไม่รู้หน้าที่ */
+function legacyStaff(text: string | null | undefined): EventStaffChip[] {
+  return (text || '').split(',').map(s => s.trim()).filter(Boolean).map(name => ({ name, role: '' }))
+}
 
 export default function EventsView({
   events,
@@ -16,6 +24,7 @@ export default function EventsView({
   canClose = false,
   logs = [],
   leadByEvent = {},
+  staffByEvent = {},
 }: {
   events: Event[]
   /** สร้าง / แก้ไขอีเวนต์ได้ */
@@ -25,6 +34,8 @@ export default function EventsView({
   logs?: EventLog[]
   /** งานต้นทาง (CRM) ของอีเวนต์ — ไม่มี key = อีเวนต์ที่สร้างตรงไม่ได้มาจากงาน */
   leadByEvent?: Record<string, { leadId: string; customerName: string | null }>
+  /** เจ้าหน้าที่ที่จัดไว้ในแต่ละอีเวนต์ (จาก event_staff) — ไม่มี key = ยังไม่จัด (ดูข้อความเก่าใน event.staff แทน) */
+  staffByEvent?: Record<string, EventStaffChip[]>
 }) {
   const { t, lang } = useLanguage()
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
@@ -203,6 +214,31 @@ export default function EventsView({
                     )}
                   </div>
                 </div>
+
+                {/* เจ้าหน้าที่ที่รับผิดชอบ — ชื่อเล่น + หน้าที่ · ไม่มี = บอกให้รู้ว่ายังไม่จัด */}
+                {(() => {
+                  const staff = staffByEvent[event.id] ?? legacyStaff(event.staff)
+                  return (
+                    <div className="flex items-start gap-3 text-sm">
+                      <Users className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
+                      {staff.length === 0 ? (
+                        <span className="text-zinc-400">{lang === 'th' ? 'ยังไม่จัดเจ้าหน้าที่' : 'No staff assigned'}</span>
+                      ) : (
+                        <ul className="flex flex-wrap gap-1.5" aria-label={lang === 'th' ? 'เจ้าหน้าที่' : 'Staff'}>
+                          {staff.map((s, i) => (
+                            <li
+                              key={`${s.name}-${s.role}-${i}`}
+                              className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+                            >
+                              <span className="font-medium">{s.name}</span>
+                              {s.role && <span className="text-zinc-500 dark:text-zinc-400">· {s.role}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             </CardContent>
 
