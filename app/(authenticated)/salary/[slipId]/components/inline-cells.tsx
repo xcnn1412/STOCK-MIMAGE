@@ -479,10 +479,13 @@ export function EventCell({ value, eventName, events, onSave, disabled }: EventC
 export function EventCrmInfo({
   checkin,
 }: {
-  checkin: Pick<SlipCheckinRow, 'event_id' | 'event_time' | 'event_end_time' | 'crm_name' | 'crm_location'>
+  checkin: Pick<SlipCheckinRow, 'event_id' | 'event_date' | 'event_time' | 'event_end_time' | 'crm_name' | 'crm_location'>
 }) {
   if (!checkin.event_id) return null
-  const schedule = eventScheduleLabel(checkin)
+  // วันจัดงานนำหน้าเวลา — เช็คอินก่อน/หลังวันงาน (ติดตั้ง, เก็บตู้) จะได้เห็นว่าคนละวันกับที่กด
+  const schedule = [checkin.event_date && shortThaiDate(checkin.event_date), eventScheduleLabel(checkin)]
+    .filter(Boolean)
+    .join(' · ')
   return (
     <div className={cn('space-y-1 px-1.5', EVENT_WIDTH)}>
       {checkin.crm_name && (
@@ -493,14 +496,14 @@ export function EventCrmInfo({
       )}
       {checkin.event_time ? (
         <span
-          title="เวลาที่ตั้งไว้ในอีเวนต์"
-          aria-label={`เวลาที่ตั้งไว้ในอีเวนต์ ${schedule}`}
+          title="วันและเวลาที่ตั้งไว้ในอีเวนต์"
+          aria-label={`วันและเวลาที่ตั้งไว้ในอีเวนต์ ${schedule}`}
           className="inline-flex rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 tabular-nums dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-400"
         >
           {schedule}
         </span>
       ) : (
-        <span title="เวลาที่ตั้งไว้ในอีเวนต์" className="block text-[11px] text-muted-foreground">
+        <span title="วันและเวลาที่ตั้งไว้ในอีเวนต์" className="block text-[11px] text-muted-foreground">
           {schedule}
         </span>
       )}
