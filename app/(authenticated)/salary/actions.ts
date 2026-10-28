@@ -238,6 +238,12 @@ export interface SlipCheckinRow {
   paid_slip_id: string | null
   /** 'event' = เวลาเข้า/ออกข้างบนมาจากตารางอีเวนต์ (เวลากดจริงยังอยู่ใน DB) */
   schedule_source: ScheduleSource
+  /** เวลาเริ่ม/จบที่ตั้งไว้ในอีเวนต์ที่ผูก ("HH:mm:ss" ตาม DB) — null = ไม่ผูก/ยังไม่ใส่ */
+  event_time: string | null
+  event_end_time: string | null
+  /** การ์ด CRM ของอีเวนต์ (crm_leads.customer_name / event_location) — null = ไม่มี */
+  crm_name: string | null
+  crm_location: string | null
 }
 
 /**
@@ -248,6 +254,10 @@ export interface SlipEventOption {
   id: string
   name: string
   event_date: string
+  event_time: string | null
+  event_end_time: string | null
+  crm_name: string | null
+  crm_location: string | null
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -272,8 +282,25 @@ function cmpText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
 }
 
-/** อีเวนต์ที่ PostgREST ฝังมากับแถวเช็คอิน (ชื่อ + ตารางเวลา) */
-type EmbeddedEvent = { name: string | null } & Partial<EventScheduleInput>
+/** การ์ด CRM ที่ฝังมากับอีเวนต์ (crm_leads:crm_lead_id) */
+type EmbeddedLead = { customer_name: string | null; event_location: string | null }
+
+/** อีเวนต์ที่ PostgREST ฝังมากับแถวเช็คอิน (ชื่อ + ตารางเวลา + การ์ด CRM) */
+type EmbeddedEvent = { name: string | null; crm_leads?: EmbeddedLead | EmbeddedLead[] | null } & Partial<EventScheduleInput>
+
+/** เวลา/การ์ด CRM ของอีเวนต์ที่ฝังมา — ส่วนที่ไม่มี = null (ชุดตรวจฝังมาแค่ชื่อก็ไม่พัง) */
+function eventCrmFields(
+  ev: EmbeddedEvent | EmbeddedEvent[] | null | undefined
+): Pick<SlipEventOption, 'event_time' | 'event_end_time' | 'crm_name' | 'crm_location'> {
+  const e = Array.isArray(ev) ? ev[0] : ev
+  const lead = Array.isArray(e?.crm_leads) ? e?.crm_leads[0] : e?.crm_leads
+  return {
+    event_time: e?.event_time ?? null,
+    event_end_time: e?.event_end_time ?? null,
+    crm_name: lead?.customer_name ?? null,
+    crm_location: lead?.event_location ?? null,
+  }
+}
 
 type CheckinRaw = {
   id: string
@@ -1423,22 +1450,23 @@ async function listPeriodEvents(
 
   const { data } = await supabase
     .from('events')
-    .select('id, name, event_date')
+    .select('id, name, event_date, event_time, event_end_time, crm_leads:crm_lead_id(customer_name, event_location)')
     .gte('event_date', shiftDay(from, -7))
     .lte('event_date', shiftDay(periodEnd, 7))
     .order('event_date', { ascending: true })
 
-  type Raw = { id: string; name: string | null; event_date: string | null }
+  type Raw = { id: string; event_date: string | null } & Omit<EmbeddedEvent, 'event_date'>
   return ((data || []) as unknown as Raw[]).map(e => ({
     id: e.id,
     name: e.name || '(ไม่มีชื่อ)',
     event_date: e.event_date || '',
+    ...eventCrmFields(e),
   }))
 }
 
-/** คอลัมน์ของ staff_checkins ที่มุมมองรายวันในหน้าสลิปต้องใช้ (ชื่ออีเวนต์ฝังมาด้วย) */
+/** คอลัมน์ของ staff_checkins ที่มุมมองรายวันในหน้าสลิปต้องใช้ (อีเวนต์ + การ์ด CRM ฝังมาด้วย) */
 const SLIP_CHECKIN_COLUMNS =
-  'id, check_type, checked_in_at, checked_out_at, event_id, duties, province, district, out_of_province, note, paid_slip_id, events:event_id(name, event_date, event_time, event_end_time)'
+  'id, check_type, checked_in_at, checked_out_at, event_id, duties, province, district, out_of_province, note, paid_slip_id, events:event_id(name, event_date, event_time, event_end_time, crm_leads:crm_lead_id(customer_name, event_location))'
 
 type SlipCheckinRaw = {
   id: string
@@ -1472,6 +1500,7 @@ function toSlipCheckinRow(raw: SlipCheckinRaw): SlipCheckinRow {
     out_of_province: !!r.out_of_province,
     note: r.note,
     paid_slip_id: r.paid_slip_id,
+    ...eventCrmFields(r.events),
   }
 }
 

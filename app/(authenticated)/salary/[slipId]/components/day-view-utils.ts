@@ -14,6 +14,15 @@ export const CHECK_TYPE_LABEL: Record<SlipCheckinRow['check_type'], string> = {
   remote: 'นอกสถานที่',
 }
 
+/**
+ * ช่วงเวลาที่ตั้งไว้ในอีเวนต์ ("12:00:00" → "12:00") ไว้เทียบกับเวลาเช็คอินจริง
+ * รูปแบบเดียวกับ eventTimeLabel ของหน้าติดตามงาน
+ */
+export function eventScheduleLabel(c: { event_time: string | null; event_end_time: string | null }): string {
+  if (!c.event_time) return 'ยังไม่ใส่เวลาในอีเวนต์'
+  return `${c.event_time.slice(0, 5)}${c.event_end_time ? '–' + c.event_end_time.slice(0, 5) : ''} น.`
+}
+
 /** (วันไทย, เวลาไทย) → instant */
 export function toISO(date: string, time: string): string {
   return new Date(`${date}T${time}:00+07:00`).toISOString()
@@ -53,7 +62,12 @@ export function applyCheckinPatch(
   }
   if (patch.event_id !== undefined) {
     next.event_id = patch.event_id
-    next.event_name = patch.event_id ? (events.find(e => e.id === patch.event_id)?.name ?? null) : null
+    const opt = patch.event_id ? events.find(e => e.id === patch.event_id) : undefined
+    next.event_name = opt?.name ?? null
+    next.event_time = opt?.event_time ?? null
+    next.event_end_time = opt?.event_end_time ?? null
+    next.crm_name = opt?.crm_name ?? null
+    next.crm_location = opt?.crm_location ?? null
   }
   return next
 }
