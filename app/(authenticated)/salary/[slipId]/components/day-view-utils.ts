@@ -14,6 +14,28 @@ export const CHECK_TYPE_LABEL: Record<SlipCheckinRow['check_type'], string> = {
   remote: 'นอกสถานที่',
 }
 
+/** สีป้ายประเภทเช็คอิน — หน้างานเด่นสุด (มีเงินผูก) ออฟฟิศกลางๆ · ข้อความยังบอกประเภทเอง ไม่ได้พึ่งสีอย่างเดียว */
+export const CHECK_TYPE_CLASS: Record<SlipCheckinRow['check_type'], string> = {
+  office: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+  onsite: 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300',
+  remote: 'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-300',
+}
+
+/**
+ * สีป้ายหน้าที่ — salary_duties ไม่มีคอลัมน์สี จึงไล่สีตามลำดับหน้าที่ในตั้งค่า (คงที่ทุกแถว/ทุกหน้า)
+ * ponytail: ถ้าแอดมินอยากเลือกสีเอง ค่อยเพิ่มคอลัมน์ color ใน salary_duties + ช่องสีในหน้าตั้งค่า
+ */
+const DUTY_PALETTE = ['#2563eb', '#16a34a', '#ea580c', '#7c3aed', '#db2777', '#0d9488', '#ca8a04', '#dc2626']
+export function dutyColor(code: string, duties: { code: string }[]): string {
+  const i = duties.findIndex(d => d.code === code)
+  return i < 0 ? '#71717a' : DUTY_PALETTE[i % DUTY_PALETTE.length]
+}
+
+/** style ป้ายสีแบบเดียวกับแท็กบนบอร์ดวันงาน (/jobs) — พื้นจาง ตัวอักษรเข้ม ขอบบางสีเดียวกัน */
+export function chipStyle(color: string) {
+  return { backgroundColor: `${color}15`, color, boxShadow: `inset 0 0 0 1.5px ${color}30` }
+}
+
 /**
  * ช่วงเวลาที่ตั้งไว้ในอีเวนต์ ("12:00:00" → "12:00") ไว้เทียบกับเวลาเช็คอินจริง
  * รูปแบบเดียวกับ eventTimeLabel ของหน้าติดตามงาน

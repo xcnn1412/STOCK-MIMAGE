@@ -15,7 +15,6 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { toast } from 'sonner'
 import { Check, ChevronDown, RotateCcw } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -28,7 +27,7 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { fmtMoney, shortThaiDate } from '../../format'
 import { shiftDay } from '../../compute'
-import { eventScheduleLabel, isOvernight } from './day-view-utils'
+import { chipStyle, dutyColor, eventScheduleLabel, isOvernight } from './day-view-utils'
 import type { SlipCheckinRow, SlipEventOption } from '../../actions'
 import type { SalaryDutyRow } from '../../settings/actions'
 
@@ -311,11 +310,20 @@ export function DutiesCell({
       ? <span className="text-muted-foreground">—</span>
       : (
         <span className="flex min-w-0 flex-wrap gap-1">
-          {shown.map(code => (
-            <Badge key={code} variant="outline" className="text-[11px] font-normal">
-              {nameOf.get(code) || code}
-            </Badge>
-          ))}
+          {/* ป้ายสีตามหน้าที่ — หน้าตาเดียวกับแท็กบนบอร์ดวันงาน */}
+          {shown.map(code => {
+            const color = dutyColor(code, duties)
+            return (
+              <span
+                key={code}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap"
+                style={chipStyle(color)}
+              >
+                <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                {nameOf.get(code) || code}
+              </span>
+            )
+          })}
         </span>
       )
 
@@ -487,7 +495,7 @@ export function EventCrmInfo({
         <span
           title="เวลาที่ตั้งไว้ในอีเวนต์"
           aria-label={`เวลาที่ตั้งไว้ในอีเวนต์ ${schedule}`}
-          className="inline-flex rounded border px-1.5 py-0.5 text-[11px] tabular-nums"
+          className="inline-flex rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 tabular-nums dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-400"
         >
           {schedule}
         </span>
