@@ -1,156 +1,217 @@
-# Security Vulnerability Scan Report
+# รายงานตรวจสอบความปลอดภัย — รอบ 2026-10-29 (v1.70.4)
 
-## Executive Summary
+> ฉบับนี้แทนรายงานเดิม (ก่อน v1.24.2) ทั้งฉบับ ข้อ 1–3 ของรายงานเดิม (server action ไม่ตรวจ session, คุกกี้ไม่เซ็น, RLS) แก้ไปแล้วตั้งแต่ v1.24.2 และ migration `20260930_lock_public_access.sql`
 
-A security review was conducted on the codebase, specifically focusing on authentication, authorization, and data integrity. The following critical vulnerabilities were identified.
+## ขอบเขตและวิธีตรวจ
 
-## 1. Missing Authentication Checks in Server Actions (Critical)
+- ตรวจโค้ดทั้งระบบ 8 มิติแบบคู่ขนาน (auth/session/proxy · API routes · MCP/OAuth · server actions ฝั่งเงิน · ฝั่ง jobs/CRM/events/check-in · ฝั่ง stock/documents · XSS/injection/headers · Supabase client/RLS/storage) แล้วผู้ประสานงานอ่านโค้ดยืนยันซ้ำทุกข้อระดับ Critical/High และข้อ Medium ส่วนใหญ่
+- **ทดสอบสดกับฐานข้อมูล production ด้วย anon key** (key สาธารณะ) แบบอ่านอย่างเดียว: ตาราง 71 ตารางที่พบใน migration ปฏิเสธทั้งหมด (`42501`), REST `profiles` ตอบ 401, ไม่มีฟังก์ชัน `exec_sql`, anon เรียก `get_schema_summary` ไม่ได้, anon อัปเดต `profiles` ไม่ได้ → **ล็อกดาวน์ RLS มีผลจริง**
+- storage: bucket 12 ใบ **public 11 ใบ** (private เฉพาะ `doc-files`) และ anon **list รายชื่อไฟล์ใน `packing-photos` ได้** (bucket อื่น list ไม่ได้)
+- ไม่ได้ทดสอบ: ค่า env บน Railway (`SESSION_SECRET`, `CRON_SECRET`), การ forward server action ข้ามหน้าใน Next 16 (อ้างอิงโค้ด `action-handler.js::selectWorkerForForwarding`), การเขียนลง storage ด้วย anon (ไม่ทดสอบเพราะเป็นการเขียนบน prod)
 
-**Location:** `app/(authenticated)/items/[id]/actions.ts` (and potentially others)
-**Description:**
-The server actions `updateItem` and `deleteItem` do not explicitly verify that the request is initiated by an authenticated user. They rely on the `createClient` using the `ANON_KEY`. If Row Level Security (RLS) is not strictly configured on the `items` table to deny anonymous writes, **any unauthenticated user** (or attacker) could theoretically call these endpoints to modify or delete data.
+สถานะการยืนยัน: **[ยืนยัน]** = อ่านโค้ดหรือทดสอบสดด้วยตัวเอง · **[ผู้ตรวจย่อย]** = จากรายงานผู้ตรวจย่อย ยังไม่อ่านซ้ำทุกบรรทัด · **[น่าจะใช่]** = ต้องทดสอบเพิ่ม
 
-**Recommendation:**
-Add an explicit session check at the beginning of every Server Action that performs mutation.
+## สรุปผู้บริหาร
 
-```typescript
-import { cookies } from 'next/headers'
+| ระดับ | จำนวน | ต้องทำ |
+|---|---|---|
+| Critical | 1 | แก้ทันที — ผู้ใช้ทุกคนตั้งตัวเองเป็น admin ได้ |
+| High | 7 | แก้ในรอบเดียวกัน (XSS 2, storage policy เปิด, OAuth phishing, CRM/items ไม่เช็กโมดูล, check-out ซ้ำ) |
+| Medium | 17 | แผนถัดไป 1–2 สัปดาห์ |
+| Low / Info | ~25 | ทยอยแก้ |
 
-export async function updateItem(...) {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('session_user_id')?.value
-    if (!userId) {
-        throw new Error("Unauthorized: No active session")
-    }
-    // Proceed...
-}
-```
-
-## 2. Weak Middleware Authentication (Medium)
-
-**Location:** `middleware.ts`
-**Description:**
-The application middleware protects routes by checking for the _existence_ of a `session_user_id` cookie.
-
-```typescript
-const userId = request.cookies.get("session_user_id")?.value;
-```
-
-It does not verify if this cookie is valid, signed, or corresponds to an active session in the database. A malicious actor could manually create a cookie named `session_user_id` with any value and bypass the routing protection to view protected pages (though data fetching might still be blocked if RLS is correct).
-
-**Recommendation:**
-Enhance the middleware to verify the session token, or ensure that all data fetching functions (Server Components) perform a secondary validation of the user's identity before returning sensitive data.
-
-## 3. Potential RLS Misconfiguration (Low - Verification Needed)
-
-**Description:**
-Since the code uses `ANON_KEY` for database interactions, the security of the application relies entirely on Supabase's Row Level Security (RLS). If RLS policies are "public" or disabled for the `items`, `kits`, or `profiles` tables, the system is wide open.
-
-**Recommendation:**
-Audit Supabase SQL policies to ensure that `INSERT`, `UPDATE`, and `DELETE` operations are restricted to authenticated users matching specific roles (e.g., `admin`).
-
-## 4. IP-Based Location Reliance (Info)
-
-**Location:** `lib/logger.ts`
-**Description:**
-The system now relies on Headers (`x-vercel-ip-city`, etc.) for location logging. While standard for cloud deployments, these headers can sometimes be spoofed if the application is not behind a trusted proxy. This isn't critical for logic but affects audit log integrity.
+จุดแข็งที่ยืนยันแล้ว: token HMAC เทียบแบบ constant-time + หมดอายุ 7 วัน, single-session, คุกกี้ httpOnly/secure/lax, PIN bcrypt cost 12, admin จาก DB เท่านั้น, RLS ปิดทุกตาราง, service key ไม่หลุดฝั่ง client, ไม่มีโค้ดฝั่ง browser คุย Supabase ตรง, OAuth PKCE S256 + code ใช้ครั้งเดียว + token เก็บเป็น sha256, MCP tools อ่านอย่างเดียวและเช็ก `allowed_modules` ทุกครั้ง, `.or()` ทุกจุดกรองอักขระแล้ว (ไม่มี filter injection), ไม่มี secret ใน repo
 
 ---
 
-**Next Steps:**
+## Critical
 
-1. Patch all Server Actions to include session existence checks.
-2. Review Supabase RLS policies.
+### C1 · ผู้ใช้ทุกคนตั้งตัวเองเป็น admin ได้ (mass assignment) **[ยืนยัน]**
+- ที่: `app/(authenticated)/profile/actions.ts:16-36` `updateMyProfile`
+- หลักฐาน: `supabase.from('profiles').update(data as Record<string, unknown>).eq('id', userId)` — `data` มาจาก client ทั้งก้อน type ของ TypeScript ไม่มีผลตอน runtime
+- ผล: ยิง server action จากหน้า /profile (ทุกคนเข้าได้) ด้วย `{ role: 'admin', allowed_modules: [...], is_approved: true }` → ได้สิทธิ์ admin ทุกโมดูล รวมถึงแก้ `pin`, `active_session_id` ของตัวเอง
+- แก้: whitelist key 8 ตัว (`full_name, nickname, department, national_id, address, bank_name, bank_account_number, account_holder_name`) ก่อน `.update()` · ทำแบบเดียวกันใน `users/actions.ts:167` `updateUserProfile` และจำกัด `updateUserRole` ให้ `role ∈ {'admin','staff'}` · เพิ่มเคสใน `scripts/session-hardening.check.ts`
+
+## High
+
+### H1 · bucket `packing-photos` เปิดให้ทุกคน (รวม anon) อ่าน/เขียน/ลบ **[ยืนยัน list สด]**
+- ที่: `supabase/migrations/20261012_packing_lists.sql:96-122` `CREATE POLICY packing_photos_all ON storage.objects FOR ALL USING (bucket_id='packing-photos') WITH CHECK (...)` — ไม่ระบุ role = ใช้กับ `public` ซึ่งรวม anon
+- ผล: ใครก็ตามที่มี anon key (อยู่ใน bundle) list/อัปโหลด/เขียนทับ/ลบรูปหลักฐานการจัดของและคืนของได้ และใช้ bucket เป็นที่ฝากไฟล์ฟรี (ทดสอบแล้ว: anon list ได้ ไม่ได้ทดสอบเขียน)
+- แก้: `DROP POLICY IF EXISTS packing_photos_all ON storage.objects;` และลบบล็อกนั้นออกจาก migration — โค้ดอัปโหลดใช้ service role อยู่แล้ว (`packing/actions.ts:523,721`) ไม่ต้องมี policy
+
+### H2 · Stored XSS ในตั๋วงานและการตอบ KPI **[ยืนยัน]**
+- ที่: `lib/rich-text-utils.ts:31-57` ใช้โดย `jobs/tickets/[id]/ticket-detail.tsx:431,577`, `kpi/reports/feedback-timeline.tsx:280` · เขียนดิบที่ `jobs/actions.ts:1987,2072`, `kpi/actions.ts:576`
+- หลักฐาน: `sanitizeHtml` ลบเฉพาะ `on*="..."` ที่มีเครื่องหมายคำพูด (`<img src=x onerror=alert(1)>` ผ่าน, `<svg onload>`, `<iframe srcdoc>` ผ่าน) และสาขา plain text ห่อ `<p>${line}</p>` โดยไม่ escape เลย
+- ผล: พนักงานโพสต์ตอบตั๋ว → script รันในเบราว์เซอร์ admin → เรียก server action ในนาม admin (อนุมัติผู้ใช้ เปลี่ยน role) คุกกี้ httpOnly ป้องกันแค่การขโมยคุกกี้
+- แก้: ติดตั้ง `isomorphic-dompurify` กำหนด allowlist แท็กของ TipTap (p, br, strong, em, span[style,class,data-*], mark, a[href http(s)]) sanitize ตอนเขียนใน 3 action และตอน render · สาขา plain text ต้อง `escapeHtml` ก่อนห่อ
+
+### H3 · XSS ผ่านกล่อง @mention (ชื่อผู้ใช้ลง innerHTML) **[ยืนยัน]**
+- ที่: `components/rich-text-editor.tsx:231-245` `${user.full_name}` / `${user.department}` ใส่ใน `this.container.innerHTML`
+- ผล: ผู้ใช้ตั้ง `full_name = <img src=x onerror=...>` ได้เองตอนสมัคร/ที่ /profile → รันในเครื่องทุกคนที่พิมพ์ `@` ในตัวแก้ไข
+- แก้: สร้าง dropdown ด้วย `createElement`/`textContent` หรือ `escapeHtml` ทุกฟิลด์
+
+### H4 · OAuth: ใครก็ลงทะเบียน client ได้ + หน้าขออนุญาตไม่บอกว่าจะส่ง code ไปโดเมนไหน **[ยืนยัน]**
+- ที่: `app/api/oauth/register/route.ts` (ไม่มี auth, ไม่มี rate limit, รับ https redirect ใดก็ได้) · `app/oauth/authorize/consent-view.tsx:48-50` หัวข้อ hardcode "อนุญาตให้ Claude เข้าถึงข้อมูล" และแสดงแค่ `clientName` ที่ผู้ลงทะเบียนตั้งเอง ไม่แสดง `redirect_uri`
+- ผล: ผู้โจมตีลงทะเบียน `client_name:"Claude"` + `redirect_uris:["https://evil/cb"]` ส่งลิงก์ authorize (ใส่ PKCE ของตัวเอง) ให้พนักงาน/admin กด "อนุญาต" ครั้งเดียว → ได้ MCP read access ทุกโมดูลของเหยื่อ (admin = ใบเบิกทุกคน เช็คอินทั้งทีม CRM ทั้งหมด ยอดขาย)
+- แก้: allowlist host ของ redirect ตอนลงทะเบียน (`claude.ai`, `claude.com`, loopback) · แสดง host ของ redirect เด่นๆ บนหน้าขออนุญาต พร้อมคำเตือนถ้าไม่ใช่โดเมนที่รู้จัก · เลิก hardcode "Claude" · rate limit `register`/`token`
+
+### H5 · CRM: อ่านข้อมูลลูกค้าทั้งหมดโดยไม่ตรวจตัวตน และเขียนได้แค่ล็อกอิน ไม่เช็กโมดูล **[ยืนยัน]**
+- ที่: `crm/actions.ts` — `getLeads` (L176), `getLead` (L285), `getLeadInstallments`, `getLeadCostSummary` ไม่เรียก session เลย · `updateLead` (L637), `updateLeadStatus` (L760: `.update({ status: newStatus })` ไม่ตรวจค่า), `createCrmSetting/updateCrmSetting/deleteCrmSetting` (L67-150) มีแค่ `if (!userId)`
+- ช่องทาง: `/jobs*` ไม่อยู่ใน `MODULE_ROUTES` และ `jobs/[id]/page.tsx`, `job-detail.tsx` import `crm/actions` → ผู้ใช้ที่อนุมัติแล้วทุกคน (ไม่ต้องมีโมดูล crm) POST action ไปที่ `/jobs/<id>` ได้ (ผู้ตรวจย่อยไล่ `action-handler.js::selectWorkerForForwarding` ของ Next 16 แล้ว; คนไม่ล็อกอินยังถูก session gate กัน)
+- ผล: ดึงชื่อ เบอร์ LINE ราคา งวดชำระ ต้นทุนของ lead ทั้งหมด · เปลี่ยนงานเป็น won (สร้างใบงานอัตโนมัติ กระทบค่าคอม/รายได้) · แก้ราคา · ลบงวดชำระ · แก้สถานะ kanban/แพ็กเกจ
+- แก้: helper กลาง `requireModule('crm')` (อ่าน `allowed_modules` จาก DB, admin ผ่าน) เรียกในทุก export ของ crm ทั้งอ่านและเขียน · `updateLeadStatus` ตรวจ `newStatus` กับ `crm_settings` หมวด kanban · CRUD ตั้งค่า = admin · เพิ่ม `/jobs`, `/check-in`, `/overview` เข้า `MODULE_ROUTES` ใน `proxy.ts` และ `nav-config.ts`
+
+### H6 · items: สร้าง/แก้/ลบอุปกรณ์ได้ทุกคนที่ล็อกอิน (ไม่เช็กโมดูล stock) **[ยืนยัน]**
+- ที่: `items/[id]/actions.ts:15,190` `updateItem`, `deleteItem` · `items/actions.ts:17,147` `createItem`, `quickUpdateItem` · `items/cleanup-items.ts:45` — มีแค่ `requireAuth()` (เฉพาะสาขาวัสดุสิ้นเปลืองเรียก `getKitManager()`)
+- ผล: ผู้ใช้ที่มีแค่ finance/crm ลบอุปกรณ์ (พร้อม `kit_contents` และรูปใน storage) แก้ราคา/สถานะ หรือ reset สถานะทั้งคลัง
+- ต่อเนื่อง (Medium): `existing_images` รับ URL จาก client → ใส่ URL รูปของ item อื่นแล้วลบ item ตัวเอง = ลบรูปของคนอื่น (`items/[id]/actions.ts:33-37,216-223`) · อัปโหลดรูปไม่ตรวจ MIME/ขนาด (`contentType: image.type`)
+- แก้: `getKitManager()` หรือ `hasModule('stock')` ทุกฟังก์ชัน · `deleteItem`/`cleanupOrphanedItems` = kit manager/admin · ตอน update เก็บเฉพาะ URL ที่อยู่ใน `currentItem.image_url` เดิม · allowlist MIME (jpeg/png/webp) + จำกัดขนาด
+
+### H7 · check-out ซ้ำกับเช็คอินที่ปิดไปแล้ว → OT พอง **[ยืนยัน]**
+- ที่: `check-in/actions.ts:452-480` `checkOut` → `.update({ checked_out_at: now }).eq('id').eq('user_id')` ไม่มี `.is('checked_out_at', null)` และไม่ตรวจ `paid_slip_id`
+- ผล: พนักงานยิง `checkOut` ใส่เช็คอินออฟฟิศเก่าของตัวเองหลายวันหลัง → เวลาออกเลื่อนเป็นตอนนี้ → `salary/compute.ts` คิด OT ต่อเนื่องข้ามวัน (OT ออฟฟิศไม่มีตัวล็อก `paid_slip_id`)
+- แก้: เพิ่ม `.is('checked_out_at', null).is('paid_slip_id', null)` แล้วคืน error เมื่อไม่มีแถวถูกแก้ · เพิ่ม `logActivity`
+
+## Medium
+
+### M1 · schema และไฟล์ migration ทั้งหมดดาวน์โหลดได้โดยไม่ล็อกอิน **[ยืนยัน]**
+- `app/api/schema/full/route.ts`, `schema/fingerprint`, `api/migrations/list`, `api/migrations/[filename]` ไม่มี auth (proxy ไม่คุม `/api`) — path traversal กันแล้ว (`basename` + `.sql`)
+- ผล: เห็นทุกตาราง/คอลัมน์/ฟังก์ชัน/RLS policy/โครง OAuth → ช่วยการโจมตีขั้นต่อไป
+- แก้: shared secret header (`MASTER_API_TOKEN`) เทียบ constant-time แบบ fail-closed ทั้งฝั่ง route และฝั่ง `/checkupdate` ที่เรียก (page.tsx:44-45)
+
+### M2 · SSRF จาก URL โพสต์ใน content planner **[ยืนยัน]**
+- `content-planner/metrics-lib.ts:72-76,186` — `isTikTok = platform==='tiktok' || /tiktok\.com/i.test(url)` แล้ว `fetch(url, { redirect:'follow' })` อ่าน body ไม่จำกัด ไม่มี timeout · `post_url` ผู้ใช้โมดูล content กรอกเอง · cron รันอัตโนมัติ 50 โพสต์
+- แก้: `new URL(url)` ต้อง `https:` และ hostname ลงท้าย `.tiktok.com` · `redirect:'manual'` · `AbortSignal.timeout` · cap body (ทำแบบ `lib/claim-files.ts::readCapped`)
+
+### M3 · bucket public เก็บไฟล์ส่วนตัว/การเงิน **[ยืนยันสด]**
+- public: `login_selfies`, `checkin-photos` (selfie เช็คอิน + ใบลา/ใบรับรองแพทย์ `check-in/leave-actions.ts:53`), `receipts` (ใบเสร็จ สลิปโอน path `claims/<เลขใบเบิกเรียงลำดับ>/<ms>_<i>`), `crm-payment-proofs` (สลิปลูกค้า), `ticket-attachments`, `purchase-attachments`, `event_closures`, `item-images`, `doc-assets`, `custom-emojis`, `packing-photos` · ใช้ `getPublicUrl` ทุกจุด ไม่มี `createSignedUrl` เลย
+- ผล: ใครได้ลิงก์ (แชร์ต่อ/log/ประวัติเบราว์เซอร์) เปิดได้ตลอดไปแม้ถูกบล็อก · list ไม่ได้ยกเว้น packing-photos (H1)
+- แก้: ตั้ง `checkin-photos`, `receipts`, `crm-payment-proofs`, `login_selfies` เป็น private แล้วเสิร์ฟผ่าน signed URL อายุสั้นหรือ route ที่ตรวจสิทธิ์ (แบบ `doc-files` + `/api/pdf/document/[id]`)
+
+### M4 · costs: แก้/สร้าง/ลิงก์ข้อมูลต้นทุนได้ทุกคน + mass assignment **[ยืนยัน]**
+- `costs/actions.ts:518-538` `updateJobEvent`: `getSession()` แล้ว `.update(data)` ทั้งก้อน (ตั้ง `linked_lead_id`, `source_event_id`, `imported_by` ได้) · `createCostItem` (L588, รับยอดติดลบ), `createJobEventManual` (L703), `linkCostEventToCRM` (L773 เขียน `crm_leads.event_id`), `unlinkCostEventFromCRM`, `syncRevenueFromCRM`, `bulkSyncRevenueFromCRM`, `searchCRMLeadsForLink` (คืนราคา CRM) — แค่ล็อกอิน
+- แก้: admin หรือโมดูล `costs` + whitelist key + ปฏิเสธยอดติดลบ/NaN
+
+### M5 · finance: เคลียร์ทดลองจ่ายเองโดยไม่คืนเงิน · ใส่ URL ใบกำกับภาษีใดก็ได้ **[ผู้ตรวจย่อย]**
+- `finance/actions.ts:1224-1330` `settleAdvanceClaim`: เจ้าของ settle ซ้ำได้โดยแจ้งใช้เต็มจำนวน ไม่ต้องมีใบเสร็จ → `refund_amount=0` → หลุดบล็อก "รอคืนเงิน" (กติกา v1.43.0) โดย admin ไม่ได้ยืนยัน · รายการรับยอดติดลบ
+- `finance/actions.ts:1039-1072` `setTaxInvoiceEntries`: เจ้าของแก้ได้ทุกสถานะ (รวม paid/closed) และใส่ URL ใดก็ได้ → ชี้ไปไฟล์ `/receipts/...` ของคนอื่น แล้วพอ admin `deleteClaim` → `removeStorageByUrls` ลบไฟล์ของเหยื่อ
+- ย่อย (Low): `updateClaim` ไม่ตรวจตัวเลข (ติดลบ/NaN/vat_mode นอกรายการ) ต่างจาก `createClaim` · `uploadTaxInvoice` พิมพ์เลขอย่างเดียวก็เลื่อนเป็น approved · `uploadReceiptFiles` ไม่ตรวจ MIME/ขนาด (`ext` มาจากชื่อไฟล์)
+- แก้: บล็อก non-admin settle ซ้ำเมื่อ `advance_settled_at` มีค่า/`refund_amount>0` · ต้องมีใบเสร็จเมื่อใช้ ≥ เงินทดลอง · `setTaxInvoiceEntries` non-admin เฉพาะสถานะก่อนจ่าย และรับเฉพาะ URL ที่อยู่ในรายการเดิมหรือที่อัปโหลดผ่าน server · `deleteClaim` ลบเฉพาะ path ใต้ `claims/<เลขใบเบิกนั้น>`
+
+### M6 · documents: path ไฟล์แนบมาจาก client · ออกเลขเอกสารของคนอื่นได้ · ทุกคนเห็นเอกสารที่ออกเลขแล้วรวมหนังสือรับรองเงินเดือน **[ยืนยันบางส่วน]**
+- `documents/actions.ts:360,393,498,523,604` + `/api/pdf/document/[id]:57-60`: `meta.file` ผ่าน `sanitizeMeta` ทั้งก้อน → ตั้งเป็น path ของเอกสารอื่น (เห็น path ได้จาก `getDocument`/`listDocuments`) แล้ว `?raw=1` ดาวน์โหลด / `duplicateDocument` ก๊อป / `deleteDraft` ลบต้นฉบับใน bucket private `doc-files` [ผู้ตรวจย่อย]
+- `documents/doc-types.ts:520,527`: `issue` ไม่ `adminOnly` และไม่อยู่ใน `OWNER_ACTIONS` → ใครก็ออกเลขร่างของคนอื่น (ประเภทไม่ต้องอนุมัติ: DN, MM, JA, IA) [ยืนยัน]
+- `documents/actions.ts:60`: non-admin เห็นทุกใบที่ `doc_no` ไม่ว่าง รวม SC (เลขบัตร ที่อยู่ ฐานเงินเดือน) และไม่มี action ใดเช็กโมดูล `documents` [ยืนยัน] · `searchParties` (L798-808) คืนข้อมูลติดต่อจากทุกเอกสารรวมร่างคนอื่น
+- `app/api/pdf/document/[id]` ไม่เช็กโมดูล documents (เช็กแค่ admin/ออกเลขแล้ว/ผู้สร้าง)
+- แก้: `saveDraft` ห้ามรับ `file/file_name/file_size/file_pages` จาก payload และทุกจุดที่ใช้ path ต้องขึ้นต้น `documents/<id>/` · เพิ่ม `'issue'` ใน `OWNER_ACTIONS` · เอกสารประเภท employee/applicant (SC, JA, IA, EL) non-admin เห็นเฉพาะของตัวเอง · `hasModule('documents')` ใน actions และ route PDF
+
+### M7 · QR กระเป๋า: ตั้งสถานะอุปกรณ์ที่ไม่ได้ถูกหยิบ และไม่เช็กโมดูล **[ยืนยัน]**
+- `kits/[id]/check/kit-check-core.ts:111-124` `checkinKitItem` → `.update({ status })` โดยไม่ตรวจ `target.status === 'in_use'`; action ทั้ง 3 ใน `kits/[id]/check/actions.ts` ไม่เช็ก `stock`/`events`
+- ผล: ผู้ใช้ที่ล็อกอินคนใดก็ตั้งของที่ `available` ในกระเป๋าที่จองกับอีเวนต์เปิดอยู่เป็น lost/damaged/maintenance ได้ และ `checkoutItems` เปลี่ยนเป็น `in_use` ได้
+- แก้: require `target.status==='in_use'` เว้นแต่ `allowClosedEvent` · gate ด้วย `hasModule('events') ?? hasModule('stock')`
+
+### M8 · check-in: ย้ายเช็คอินไปอีเวนต์ใดก็ได้ แก้แถวที่จ่ายแล้ว อ่าน GPS/รูปของทุกคน **[ยืนยันบางส่วน]**
+- `check-in/actions.ts:1123,1193,208`: `updateMyCheckinEvent` ไม่ตรวจ `event_staff` และ `paid_slip_id`; `checkIn` รับ `event_id`/`check_type` ใดก็ได้ (กรองแค่ฝั่งหน้าจอ) · ผล: วัน/เวลาคิดสลิปเปลี่ยนผ่าน `applyEventSchedule` (ตอนนี้กติกานี้ทำงานแล้วใน v1.70.4) และแก้แถวที่ปิดงวดแล้ว
+- `check-in/actions.ts:590,621`: `adminDeleteCheckin` ลบแถว `paid_slip_id` ไม่ว่างได้และไม่มี `logActivity`; `adminEditCheckin` แก้ duties/เวลาของแถวที่จ่ายแล้ว
+- `getTodayCheckins` (L756) ไม่ตรวจตัวตนเลย select `*` รวม lat/lng + photo_url ของทุกคน [ยืนยัน]; `getStaffList`, `getActiveDuties` (อัตราค่าจ้าง) เช่นกัน
+- แก้: ต้องเป็นสมาชิก `event_staff` (admin ยกเว้น) · ปฏิเสธเมื่อ `paid_slip_id` ไม่ว่าง (ให้ reopen งวดก่อน) · ตรวจ `check_type ∈ office/onsite/remote` · `requireAuth()` ในฟังก์ชันอ่าน และตัด lat/lng/รูปเมื่อไม่ใช่ admin · `logActivity('DELETE_CHECKIN')`
+
+### M9 · jobs: ตั้งค่างานลบได้โดยไม่ตรวจอะไรเลย · ลบตั๋วและไฟล์แนบของคนอื่น · KPI reply IDOR **[ยืนยันบางส่วน]**
+- `jobs/actions.ts:196` `deleteJobType`: ไม่มี session ไม่จำกัด `category='job_type'` → ลบสถานะ/ทีมพูล/แผนกใดก็ได้ใน `job_settings` [ยืนยัน]; `createJobSetting/updateJobSetting/deleteJobSetting` (L74-145) แค่ `userId`
+- `jobs/actions.ts:1971,2142`: `createTicket` รับ `attachments` JSON จาก client; `deleteTicket` ไม่ตรวจเจ้าของ/admin แล้ว `removeStorageByUrls` ทุก URL → ใส่ URL ไฟล์คนอื่น (content planner, my-job) แล้วลบตั๋ว = ไฟล์หาย (เลี่ยงตัวตรวจของ `deleteTicketAttachment`)
+- `kpi/actions.ts:542,557`: `getEvaluationReplies` ไม่ตรวจตัวตน; `createEvaluationReply` ไม่ตรวจว่าเป็น assignee/ผู้ประเมิน/admin และ `notify_users` ส่งหาใครก็ได้
+- Low ในกลุ่มเดียวกัน: `deleteJob`, CRUD เทมเพลตเช็กลิสต์, `deleteCustomEmoji/toggleCustomEmoji` แค่ล็อกอิน · `my-job` คอมเมนต์อ่าน/เขียนบนงานของคนอื่นได้ (L714,729) · `my-job` อัปโหลดเช็กนามสกุลแต่ `contentType: file.type` · content planner ลบโพสต์ได้ทุกโพสต์ (L569) · `notify_users` สแปมแจ้งเตือนได้ (`crm:937`, `jobs:535`) · `events` ไม่ตรวจค่า `role` ใน `staff_assignments`
+- แก้: ตั้งค่างาน = admin + `.eq('category',...)` · ตั๋ว: รับเฉพาะ URL ใต้ `u-<userId>` ของผู้เรียก และ `deleteTicket` = ผู้สร้าง/admin · KPI reply ตรวจ assignee/evaluator/admin
+
+### M10 · ล็อกอิน: กัน brute-force ได้ไม่ดี + เดาเบอร์โทรได้ **[ผู้ตรวจย่อย]**
+- `app/login/actions.ts:52-53,88-103`: key ของ rate limiter = `x-forwarded-for` ตัวแรก (client ส่งเองได้ถ้า Railway ไม่ strip — ต้องทดสอบ) · limiter ใน memory ต่อ instance หายตอน restart · ตัวนับ `failed_login_attempts` อ่าน-แล้ว-เขียน (ยิงพร้อมกัน N ครั้ง นับเพิ่ม ~1) · PIN 6 หลัก (10^6) bcrypt ≈250ms · ข้อความ "Phone number not found" vs PIN ผิด = enumerate เบอร์ได้ · ตรวจ PIN ก่อนเช็ก blocked/approved (บัญชีถูกบล็อกยังเป็น PIN oracle) · `changePin` ไม่จำกัดครั้งและไม่ rotate session
+- แก้: นับใน SQL แบบ atomic (`set failed_login_attempts = failed_login_attempts + 1 returning`) · key limiter ด้วยเบอร์โทรอย่างเดียว + IP จาก hop ที่เชื่อถือได้ · ข้อความเดียว "เบอร์หรือ PIN ไม่ถูกต้อง" · เช็ก blocked/approved ก่อนเทียบ PIN
+
+### M11 · `SESSION_SECRET` ถอยไปใช้ anon key (ค่าสาธารณะ) เมื่อไม่ตั้ง **[ยืนยันโค้ด; prod ยังไม่ตรวจ]**
+- `lib/session.ts:3`, `proxy.ts:127` · `.env.local` ของเครื่องนี้ไม่มี `SESSION_SECRET` · บน Railway ยังไม่ได้ตรวจ
+- ถ้า prod ไม่ตั้ง: ปลอม token ของ user ใดก็ได้ เหลือแค่ต้องรู้ `active_session_id` (UUID สุ่ม — แต่ถูกส่งไปหน้า /users และ /security ของ admin ดูข้อ L4)
+- แก้: throw ตอน start เมื่อ `NODE_ENV==='production'` และไม่มี `SESSION_SECRET` · ยืนยันค่าบน Railway วันนี้
+
+### M12 · sanitizer ของ rich text เอกสารเลี่ยงได้ **[ผู้ตรวจย่อย]**
+- `documents/doc-types.ts:473-478` regex ต้องมีช่องว่างก่อน `on`, จับ `javascript:` ตรงตัวเท่านั้น → `<img src="x"/onerror=...>`, `href="java&#115;cript:..."`, `<svg>`, `<form>` ผ่าน · ใช้ตอน save (`actions.ts:360`) และ render (`document-view.tsx:672`)
+- แก้: DOMPurify allowlist เดียวกับ H2
+
+### M13 · `xlsx 0.18.5` มี CVE (prototype pollution CVE-2023-30533, ReDoS CVE-2024-22363) **[ยืนยัน version]**
+- ใช้ parse ไฟล์ที่ผู้ใช้อัปโหลดใน `content-planner/actions.ts:299` · npm ไม่มีเวอร์ชันแก้ (SheetJS ย้ายไป CDN)
+- แก้: ติดตั้งจาก `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` หรือเปลี่ยนเป็น `exceljs`
+
+### M14 · ไม่มี Content-Security-Policy **[ยืนยัน]**
+- `next.config.ts` มี nosniff/HSTS/X-Frame-Options แต่ไม่มี CSP → ไม่มีชั้นกัน H2/H3/M12 · `X-XSS-Protection: 1; mode=block` ล้าสมัย
+- แก้: เริ่ม `Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'nonce-…'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data: blob: https://*.supabase.co` แล้วค่อยบังคับ
+
+### M15 · OAuth `register`/`token` ไม่มี rate limit และไม่เคยล้าง client/code หมดอายุ **[ผู้ตรวจย่อย]**
+- แก้: `checkRateLimit` ต่อ IP · job ลบ client ที่ไม่เคยได้ token และ code ที่เลย `expires_at`
+
+### M16 · ตั้งค่าใน `users/actions.ts` ใช้ mass assignment แบบเดียวกับ C1 (admin เท่านั้น) **[ยืนยัน]**
+- `updateUserProfile` (L167) และ `updateUserRole` (L81 รับ string ใดก็ได้) · แก้พร้อม C1
+
+### M17 · example-kits สร้าง/แก้/ลบได้ทุกคน และ `status`/`type` เป็น string อิสระ **[ผู้ตรวจย่อย]**
+- `example-kits/actions.ts:11,83`, `example-kits/[id]/actions.ts:11,44,77,109` · แก้: `getKitManager()` + whitelist
+
+## Low
+
+- **L1** `sales-board/actions.ts:23` `saveMonthTargets` ไม่เรียก `requireAuth` เลย [ยืนยัน] — ใครก็ทับเป้าขายทั้งบริษัท (น่าจะเรียกได้แม้ไม่ล็อกอินผ่าน `/login` — ต้องทดสอบ) · ไม่มี log
+- **L2** CSV formula injection ใน `costs/download`, `crm/download`, `kpi/download`, `overview/export` (ไม่ escape `= + - @`; costs ไม่ double `"`)
+- **L3** `lib/safe-next.ts:4` open redirect ด้วย `/%09/evil.com` (เบราว์เซอร์ตัด tab ออก) [น่าจะใช่] · `items/[id]/actions.ts:181` `redirect(returnTo)` ไม่ตรวจ
+- **L4** `users/page.tsx:18` `select('*')` ส่ง `pin` (bcrypt ของ PIN 6 หลัก แคร็กออฟไลน์ง่าย), `active_session_id`, `failed_login_attempts` ของทุกคนไป client ของ admin · `stock/dashboard/page.tsx:26` ส่งแถวตัวเอง · `/security` แสดง `active_session_id`
+- **L5** `cron/fetch-metrics` รับ secret ทาง query string (ติด log) และเทียบ `===` ไม่ constant-time (fail-closed ถูกแล้ว)
+- **L6** `/api/*` ข้าม license gate (`requireAuth` ไม่เรียก `getLicenseStatus`)
+- **L7** `pdf/payment-voucher` ไม่ตั้ง `Cache-Control: no-store` (route อื่นตั้ง) และไม่ตรวจ `id` เป็น UUID / ไม่ `asciiName()` ใน Content-Disposition
+- **L8** error response ส่ง `err.message` ภายในออกไป (`pdf/document/[id]:129`, `preview:166`, `payment-voucher:62`, `salary:64`, schema routes, `ai-analyze:276`)
+- **L9** `ai-analyze` ไม่จำกัดขนาด input/จำนวน events, `maxOutputTokens 65536`, `request.json()` ไม่ try/catch (admin เท่านั้น)
+- **L10** `lib/auth.ts:48-57` `requireAuth` ไม่เช็ก `is_blocked` (พึ่ง block ล้าง `active_session_id`; บล็อกตรงใน SQL ยังใช้ `/api/*` ได้)
+- **L11** `checkupdate/actions.ts:22` `getAppliedMigrations` ไม่มี auth
+- **L12** `lib/stock.ts:61` `hasModule` ถือว่า `allowed_modules` NULL = มี `stock`
+- **L13** `lib/supabase.ts` client ฝั่ง browser ไม่มีใคร import แล้ว — ลบทิ้งกันคนหยิบกลับมาใช้
+- **L14** `scripts/revert-rls.ts` เรียก `exec_sql` และสร้าง policy `USING (true)` — ฟังก์ชันไม่มีบน prod แล้ว (ตรวจสดแล้ว) แต่ควรลบสคริปต์
+- **L15** personal token: cap 5 มี race (นับแล้วค่อย insert) · token MCP/personal ไม่ผูก `active_session_id` (logout/ถูกเตะไม่ตัด token อายุสูงสุด 365 วัน) — ควรบอกผู้ใช้ที่ /connected-apps และ revoke ทั้งหมดเมื่อ admin บล็อก/รีเซ็ต PIN
+- **L16** `lib/request-origin.ts` สร้าง issuer/endpoint ของ `.well-known` จาก `x-forwarded-host` — ใช้ค่า env คงที่แทน
+- **L17** `.well-known` ประกาศ `client_secret_post` ที่ไม่ได้ implement
+- **L18** `document PDF` / `canViewClaimDocs`: ผู้ใช้ทุกคนดู voucher/bundle ของใบเบิกที่เกี่ยวเงินสดย่อยได้ (ตั้งใจ — ยืนยันว่ารับได้ที่เห็นเลขบัญชีของคนอื่น)
+- **L19** mutation ที่ไม่มี `logActivity`: `checkIn`, `checkOut`, `undoCheckout`, `quickCheckoutStale`, `adminCheckIn`, `adminDeleteCheckin`, `updateMyCheckinEvent`, `createJobType/updateJobType/deleteJobType`, `uploadClosureImage`, `markAsRead`, `updateClaim`, `removeReceiptFile`, `uploadTaxInvoice`, `setTaxInvoiceEntries`, `recreateCostItemFromClaim`, `saveMonthTargets`, `cleanupOrphanedItems`, `uploadPackingPhoto/uploadReturnPhoto`, `markMigrationApplied/unmarkMigrationApplied`
+- **L20** `serverActions.bodySizeLimit: '10mb'` ใช้กับทุก action ของทุกคน — พิจารณา rate limit
+
+## Info
+
+- MCP tools: อ่านอย่างเดียวทั้งหมด เช็ก `allowed_modules` จาก DB ทุกคำขอ admin-only tools กรองสองชั้น rate limit 60/นาที/token · ข้อความอิสระ (note, ชื่อลูกค้า) ส่งกลับโมเดลโดยไม่มี framing "untrusted"
+- `?items=` ของ `/finance/new` อ่าน purchase item ใดก็ได้ด้วย UUID (ไม่ scope เจ้าของ) — ต้องเดา UUID
+- `resource` (RFC 8707) และ `scope` ไม่ถูกตรวจตอน exchange/verify — ไม่มีผลตอนมี scope เดียว
+- check-in: ไม่ตรวจว่า selfie เป็นรูปจริง (path `<userId>/<checkinId>.webp` ทับคนอื่นไม่ได้) · lat/lng เชื่อ client
+- addPettyCashExpense: staff สร้างใบเบิกสถานะ paid กับกองทุนเปิดได้โดยไม่ต้องมีใบเสร็จ — ตั้งใจ (admin audit ตอนปิดเดือน)
+- `proxy.ts` ไม่คุม `/overview*`, `/jobs*`, `/check-in*` (ทราบอยู่แล้ว) — H5 คือผลลัพธ์จริงของช่องนี้
 
 ---
 
-## 2026-09-29 — แก้ช่องโหว่ระบบแจ้งเตือนและไฟล์แนบ Ticket (v1.22.0)
+## สิ่งที่เจ้าของระบบต้องทำบน production (นอกเหนือจากโค้ด)
 
-### แก้แล้ว
+1. ตรวจว่า Railway ตั้ง `SESSION_SECRET` (ค่าสุ่มยาว) และ `CRON_SECRET` แล้ว — ถ้าเพิ่งตั้ง ทุกคนต้องล็อกอินใหม่
+2. รันทันที: `DROP POLICY IF EXISTS packing_photos_all ON storage.objects;`
+3. ตั้ง bucket `checkin-photos`, `receipts`, `crm-payment-proofs`, `login_selfies` เป็น private หลังโค้ดเปลี่ยนไปใช้ signed URL (M3)
+4. SQL ตรวจซ้ำ (คาดว่าได้ 0 แถว ยกเว้นข้อ 2 ก่อน drop):
+   ```sql
+   select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname='public' and c.relkind in ('r','p') and not c.relrowsecurity;
+   select schemaname, tablename, policyname, roles, cmd from pg_policies where schemaname in ('public','storage');
+   select table_name, grantee, privilege_type from information_schema.role_table_grants
+    where table_schema='public' and grantee in ('anon','authenticated');
+   select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and (has_function_privilege('anon',p.oid,'execute') or has_function_privilege('authenticated',p.oid,'execute'));
+   select id, public from storage.buckets order by id;
+   ```
+5. Supabase Dashboard → Authentication → ปิด "Allow new users to sign up" (ระบบไม่ใช้ Supabase Auth)
 
-| จุด | ปัญหา | การแก้ |
+## ลำดับการแก้ที่แนะนำ
+
+| รอบ | ข้อ | ขนาดงาน |
 |---|---|---|
-| `lib/notifications.ts` | ไฟล์ประกาศเป็น server action ทั้งไฟล์ `createNotifications` จึงเป็นปลายทางที่ยิงผ่านเครือข่ายได้โดยไม่ตรวจการล็อกอิน สร้างแจ้งเตือนให้ใครก็ได้ในนามใครก็ได้ | ถอดการประกาศออก เหลือเป็นตัวช่วยฝั่งเซิร์ฟเวอร์ ผู้เรียกทั้ง 7 ไฟล์เป็น server action ที่ตรวจการล็อกอินเอง |
-| `uploadTicketAttachments` / `deleteTicketAttachment` | ระบุตัวผู้ใช้จาก cookie `session_user_id` ที่ไม่ได้เซ็น · ลบไฟล์ใดก็ได้ในบัคเก็ต · โฟลเดอร์และนามสกุลไฟล์มาจาก client ตรงๆ | ใช้ `requireAuth()` · ไฟล์ใหม่เก็บที่ `<โฟลเดอร์>/u-<ผู้อัปโหลด>/<ไฟล์>` ลบได้เฉพาะไฟล์ของตัวเอง (แอดมินลบได้ทุกไฟล์) · โฟลเดอร์ถูกคัดกรอง · นามสกุลมาจากชนิดไฟล์ · ครั้งละไม่เกิน 10 ไฟล์ |
-| policy `ticket_attachments_all` บน `storage.objects` | FOR ALL ไม่ระบุ role — ใครถือ anon key (อยู่ในเบราว์เซอร์ทุกเครื่อง) อัปโหลด เขียนทับ ลบ และไล่รายชื่อไฟล์ในบัคเก็ตได้ตรงๆ | migration `20260929_ticket_attachments_lockdown.sql` ลบ policy ทิ้ง — **ต้องรันบน production** การเปิดดูไฟล์ด้วยลิงก์ไม่กระทบ |
+| 1 (วันนี้) | C1 + M16 whitelist profile/users · H1 drop policy · H7 check-out guard · L1 requireAuth · M11 fail-closed | เล็กมาก (ไม่กี่บรรทัดต่อข้อ) |
+| 2 (สัปดาห์นี้) | H2 + H3 + M12 DOMPurify ชุดเดียว · H4 OAuth allowlist + หน้าขออนุญาต · H5 `requireModule` + `MODULE_ROUTES` เพิ่ม jobs/check-in/overview · H6 items gate · M1 token ให้ schema/migrations · M2 SSRF allowlist | กลาง |
+| 3 | M3 signed URL · M4 costs · M5 finance · M6 documents · M7 kit QR · M8/M9 check-in/jobs/KPI · M10 login counter · M13 xlsx · M14 CSP report-only · M15/M17 | กลาง–ใหญ่ |
+| 4 | Low ทั้งหมด + logActivity ที่ขาด | เล็ก ทยอย |
 
-ตรวจด้วย `npx tsx scripts/ticket-attachments.check.ts` (รัน action จริงกับฐานข้อมูลจำลอง) และทดสอบ migration กับ postgres 17 ในเครื่อง: ก่อนรัน anon ลบไฟล์ได้ หลังรันทำไม่ได้ ส่วน service role ยังทำได้
-
-ข้อจำกัดที่รู้: ไฟล์ที่อัปโหลดก่อนการแก้นี้ไม่มีท่อน `u-<id>` ใน path จึงลบผ่าน action นี้ได้เฉพาะแอดมิน
-
-### ยังเปิดอยู่ — เรียงตามความเสี่ยง
-
-1. **ปิดแล้วใน v1.24.2** · **cookie ที่ไม่ได้เซ็นถูกเชื่อในราว 20 โมดูล** — ตัวช่วย `getSession()` ประจำไฟล์อ่าน `session_user_id` และ `session_role` ตรงๆ (jobs, jobs/my-job, crm, kpi, costs, content-planner, users, security, finance/settings, check-in/leave, events, items, kits, profile ฯลฯ) ผู้ใช้ที่ล็อกอินแล้วแก้ cookie สองตัวนี้เพื่อทำการในนามคนอื่นหรืออ้างเป็นแอดมินใน action เหล่านั้นได้ · ทางแก้: ตัวช่วยกลางแบบเดียวกับ `finance/actions.ts` (ใช้ `requireAuth()` ก่อน ตกไป cookie เก่าเฉพาะเมื่อไม่มี token และอ่าน role จากฐานข้อมูลเสมอ) แล้วเปลี่ยนทีละโมดูล
-2. **ปิดแล้วใน v1.24.2** · **proxy.ts** — ตกไปใช้ `session_user_id` เมื่อ token ไม่มีหรือไม่ผ่าน และด่านหน้าแอดมินใช้ `session_role` ที่ไม่ได้เซ็น (ด่านหน้าแอดมินแก้ใน v1.24.1)
-3. **policy แบบเดียวกันในบัคเก็ตอื่น** — `checkin_photos_all` (รูปเช็คอิน) เป็น FOR ALL ไม่ระบุ role เหมือนกัน · `docs/legacy-sql/setup_storage_policies.sql` ให้ role public เขียนและลบ `login_selfies` ได้ (ต้องตรวจว่ายังใช้อยู่บน production หรือไม่)
-4. **ตัวอัปโหลดอื่นของบัคเก็ต ticket-attachments** — `uploadMyCommentAttachments` (jobs/my-job) และ `uploadContentExampleImages` (content-planner) ยังใช้ cookie ที่ไม่ได้เซ็นและเอานามสกุลจากชื่อไฟล์ · ส่วน cookie **ปิดแล้วใน v1.24.2** (`getSession()` ของทั้งสองไฟล์มาจาก `requireAuth()`) · เรื่องนามสกุลจากชื่อไฟล์ยังเปิดอยู่
-5. **สคริปต์ล้างไฟล์จะลบไฟล์ที่ยังใช้อยู่** — `scripts/cleanup-storage.mjs` และ `cleanup-storage.sql` ตัดสินว่าไฟล์ใน ticket-attachments เป็นไฟล์กำพร้าโดยดูแค่ tickets, ticket_replies, my_job_comments, my_ticket_comments ไม่ได้ดู `kpi_evaluation_replies.attachments` และรูปตัวอย่างของ content-planner — **ห้ามรันแบบ --apply จนกว่าจะแก้**
-
-
-## 2026-09-30 — ปิดสิทธิ์กุญแจสาธารณะ และช่องโหว่ของส่วนใบเบิก (v1.24.1)
-
-พบระหว่างสำรวจเพื่อวางแผน refactor ส่วนใบเบิก (`docs/specs/finance-refactor-plan.md` ขั้น 0) ทุกข้อในหัวข้อ "สิ่งที่พบ" ตรวจกับฐานข้อมูลจริงแบบอ่านอย่างเดียวแล้ว
-
-### สิ่งที่พบ
-
-| # | ปัญหา | หลักฐาน |
-|---|---|---|
-| 1 | **กุญแจสาธารณะ (anon key) อ่านได้ 23 จาก 70 ตาราง รวม 8,102 แถว** โดยไม่ต้องล็อกอิน: `profiles` 52 แถว (PIN ที่เข้ารหัส, เลขบัตรประชาชน, ที่อยู่, เบอร์โทร, เลขบัญชี, `active_session_id`), `staff_checkins` 2,361, `jobs` 588, `job_checklist_items` 2,222, `tickets` 118, `ticket_replies` 441, `events` 187, `event_closures` 461, `items` 343, `kits` 130, `kpi_evaluations` 18 ฯลฯ | นับด้วยกุญแจสาธารณะ 2026-09-30 |
-| 2 | **เข้าระบบเป็นคนอื่นได้** เมื่อรวมข้อ 1 กับ session แบบเก่า: `proxy.ts` ยอมรับ `session_user_id` + `session_id` ที่ไม่ได้เซ็น และทั้งสองค่าอ่านได้จากตาราง `profiles` ด้วยกุญแจสาธารณะ | อ่านโค้ด `proxy.ts` + ข้อ 1 (ไม่ได้ทดลองเข้าจริง) |
-| 3 | คำสั่งแก้และลบด้วยกุญแจสาธารณะไม่ถูกปฏิเสธ บนตาราง `profiles`, `staff_checkins`, `jobs`, `tickets`, `events`, `items`, `kits` | ทดสอบกับ id ที่ไม่มีอยู่จริง (ไม่มีข้อมูลถูกเปลี่ยน) — ไม่ได้พิสูจน์ด้วยการเขียนจริง |
-| 4 | โครงการเปิดให้สมัครบัญชีเอง (`disable_signup = false`) และหลายตารางมี policy `TO authenticated USING (true)` ใครสมัครด้วยอีเมลของตัวเองก็ได้สิทธิ์ `authenticated` | `/auth/v1/settings` + ไฟล์ migration (ไม่ได้ทดลองสมัคร) |
-| 5 | ฟังก์ชันในฐานข้อมูลเรียกได้โดย `authenticated` และบางตัวโดย `anon`: `purge_test_documents`, `purge_test_salary_run`, `issue_document_number`, `next_doc_counter`, `salary_backfill_paid_slip_ids`, `get_schema_summary` · `REVOKE ... FROM PUBLIC` อย่างเดียวไม่ถอนสิทธิ์ที่ Supabase ให้ `anon`/`authenticated` ไว้ตรงๆ | ไฟล์ migration + ทดสอบกับ postgres 17 |
-| 6 | `/finance/download` ส่งเลขบัตรประชาชนและที่อยู่ของทุกคนให้ผู้ใช้ทุกคน · `/finance/new` ส่งเลขบัญชีของทุกคน | อ่านโค้ด |
-| 7 | `finance/settings-actions.ts` ตัดสินสิทธิ์จาก cookie `session_role` (7 ฟังก์ชันที่เขียน) และมี 3 ฟังก์ชันที่ไม่ตรวจการล็อกอิน | อ่านโค้ด |
-| 8 | หน้าพิมพ์ของ `/finance/overview` และ `/finance/download` ใส่ชื่อใบเบิกลง HTML โดยไม่กรอง (stored XSS) | อ่านโค้ด |
-
-### แก้แล้วในรุ่นนี้
-
-| จุด | การแก้ |
-|---|---|
-| `proxy.ts` | อ่าน `profiles` ด้วยกุญแจฝั่ง server · ประตูหน้าแอดมินใช้บทบาทจากฐานข้อมูล ไม่ใช่ cookie · ตรวจด้วย `scripts/proxy-session.check.ts` |
-| ฐานข้อมูล | `supabase/migrations/20260930_lock_public_access.sql`: เปิด RLS ทุกตารางใน public, ลบ policy ทุกตัวของ public และของ `storage.objects`, ถอนสิทธิ์ตาราง วิว ลำดับ และฟังก์ชันจาก `anon` และ `authenticated` · ทดสอบกับ postgres 17 ผ่าน 51 ข้อ · **ต้อง deploy โค้ดก่อน แล้วจึงรันบน production** |
-| ส่วนใบเบิก | ข้อ 6–8 และหน้าของแอดมินตรวจบทบาทที่ยืนยันแล้ว · ตรวจด้วย `scripts/finance-access.check.ts` |
-
-### ต้องทำเองในหน้า Supabase และ Railway
-
-1. Supabase → Authentication → ปิดการสมัครบัญชีใหม่ (ระบบนี้ไม่ได้ใช้ Supabase Auth)
-2. Railway → ตรวจว่าตั้งค่า `SESSION_SECRET` แล้ว ถ้าไม่ได้ตั้ง โค้ดจะใช้กุญแจสาธารณะเป็นกุญแจเซ็น session แทน ซึ่งทำให้ปลอม session ของใครก็ได้
-3. เพราะ PIN ที่เข้ารหัสและ `active_session_id` เคยอ่านได้จากภายนอก: ให้ผู้ใช้ทุกคนเปลี่ยน PIN และล็อกอินใหม่หลังรัน SQL (PIN เป็นตัวเลขสั้น เมื่อได้ค่าที่เข้ารหัสไปแล้วเดาย้อนกลับได้ไม่ยาก)
-
-### กติกาสำหรับ migration ใหม่ (Postgres ตั้งค่าเริ่มต้นให้ไม่ได้)
-
-- ตารางใหม่: `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` และไม่สร้าง policy
-- ฟังก์ชันใหม่: `REVOKE ALL ON FUNCTION ... FROM PUBLIC, anon, authenticated` แล้ว `GRANT EXECUTE ... TO service_role`
-
-### ยังเปิดอยู่ — เรียงตามความเสี่ยง
-
-1. **ปิดแล้วใน v1.24.2** · **session แบบเก่าใน `proxy.ts`**: ยังยอมรับ `session_user_id` ที่ไม่ได้เซ็นเมื่อไม่มี token หลังปิดสิทธิ์กุญแจสาธารณะแล้วคนนอกอ่าน `active_session_id` ไม่ได้ แต่ผู้ใช้ที่ล็อกอินอยู่ยังปลอมเป็นคนอื่นได้ถ้ารู้ค่าทั้งสอง · ทางแก้: เลิกรับ session แบบเก่า (ทุกคนต้องล็อกอินใหม่หนึ่งครั้ง)
-2. **ปิดแล้วใน v1.24.2** · **cookie ที่ไม่ได้เซ็นในราว 20 โมดูล** (ข้อ 1 ของรอบ 2026-09-29) ยังเหมือนเดิม ยกเว้นส่วนใบเบิกที่แก้ครบแล้ว
-3. `/api/schema/*` และ `/api/migrations/*` เปิดให้อ่านโครงสร้างฐานข้อมูลและไฟล์ migration โดยไม่ต้องล็อกอิน (ตั้งใจไว้สำหรับเทียบรุ่นระหว่างเครื่อง — ให้เจ้าของยืนยันว่ายังต้องเปิด)
-4. **ปิดแล้วใน v1.24.2** · `/api/ai-analyze` ตรวจแอดมินจาก cookie `session_role`
-5. ข้อ 4–5 ของรอบ 2026-09-29 (ตัวอัปโหลดอื่น, สคริปต์ล้างไฟล์) ยังเหมือนเดิม
-
-## 2026-09-30 — เลิกรับ session แบบเก่า (v1.24.2)
-
-### เปลี่ยนอะไร
-
-- **ไม่มีโค้ดฝั่ง server อ่าน cookie `session_user_id` / `session_role` อีกแล้ว** — ทั้ง `proxy.ts`, `lib/auth.ts`, `lib/logger.ts`, `getSession()` ประจำไฟล์ของทุกโมดูล, หน้าและ layout ที่เคยอ่านบทบาทจาก cookie และ `/api/ai-analyze` · หน้าล็อกอินเลิกตั้ง cookie สองตัวนี้และลบของเก่าที่ค้างอยู่ · `proxy.ts` ลบ cookie ของ session ทั้งสี่ตัวทุกครั้งที่ส่งไปหน้าล็อกอิน
-- **ตัวตน = `session_token` ที่เซ็นแล้ว + cookie `session_id` ที่ตรงกับ `profiles.active_session_id` ที่ไม่เป็น null** ของโปรไฟล์ที่อนุมัติแล้ว (`proxy.ts` ตรวจ `is_blocked` ด้วย) · ก่อนหน้านี้ `requireAuth()` ยอมรับ token เมื่อ `active_session_id` เป็น null หรือเมื่อไม่มี cookie `session_id` — token ของคนที่ออกจากระบบแล้ว ถูกแอดมินเตะออก หรือถูกระงับ จึงยังใช้ได้จนหมดอายุ 7 วัน
-- **บทบาทมาจากฐานข้อมูลเสมอ** · `requireAuth()` เป็นแหล่งเดียว ถูก cache ต่อคำขอ (`react` `cache`) · `getSessionLight()` ดึงจาก `requireAuth()` จึงได้บทบาทจากฐานข้อมูลด้วย
-- `/api/ai-analyze` (ไม่ผ่าน `proxy.ts`) และ `users/actions.ts` ตรวจแอดมินที่ยืนยันแล้ว — พนักงานได้ `{ error: 'เฉพาะ admin เท่านั้น' }` ก่อนหน้านี้ `updateUserRole` / `updateUserModules` / `toggleUserApproval` / `updateUserProfile` เช็คแค่ว่ามี cookie `session_user_id` (พนักงานเลื่อนตัวเองเป็นแอดมินได้)
-- `logout()` ล้าง `active_session_id` เฉพาะของ session ที่ยืนยันแล้ว ก่อนหน้านี้ตั้ง cookie `session_user_id` เป็น id ของใครก็เตะคนนั้นออกได้
-- ผู้กระทำใน `activity_logs` มาจาก token ที่เซ็นเท่านั้น
-
-ตรวจด้วย `npx tsx scripts/proxy-session.check.ts` และ `npx tsx scripts/session-hardening.check.ts` (รัน `requireAuth`, action, layout, route และ `logout` ตัวจริงกับฐานข้อมูลจำลอง: cookie แบบเก่าอย่างเดียว, `active_session_id` เป็น null, ไม่มี/ไม่ตรง `session_id`, ถูกระงับ, ยังไม่อนุมัติ, token พนักงาน + cookie แอดมินปลอม · และสแกนทั้ง `app/` `lib/` `components/` `proxy.ts`)
-
-### ผลต่อผู้ใช้ และสิ่งที่ต้องทำเอง
-
-- session ที่มีแค่ cookie แบบเก่า (ไม่มี token หรือไม่มี `session_id`) ถูกส่งไปหน้าล็อกอินหนึ่งครั้ง · session ที่ล็อกอินหลังมี token แล้วใช้ต่อได้ตามปกติ
-- ถ้าต้องการให้ทุกคนล็อกอินใหม่จริงตามที่แจ้งในหน้า "มีอะไรใหม่" (แนะนำ เพราะ `active_session_id` เคยอ่านได้จากภายนอกก่อน v1.24.1): หลัง deploy ให้เปลี่ยนค่า `SESSION_SECRET` ใน Railway (token เดิมทั้งหมดใช้ไม่ได้ทันที) หรือรัน `UPDATE profiles SET active_session_id = NULL;` บน production
-
-### ยังเปิดอยู่
-
-1. ข้อ 3 และ 5 ของรอบ v1.24.1 (`/api/schema/*`, `/api/migrations/*` · ตัวอัปโหลดอื่นเอานามสกุลจากชื่อไฟล์, สคริปต์ล้างไฟล์)
-2. ตัวเซ็น session ยังถอยไปใช้กุญแจสาธารณะเมื่อไม่ได้ตั้ง `SESSION_SECRET` (ข้อ 2 ของ "ต้องทำเองในหน้า Supabase และ Railway" รอบ v1.24.1)
-3. ข้อ 3 ของรอบ 2026-09-29 (policy แบบ FOR ALL ในบัคเก็ตอื่น)
+ทุกข้อที่แก้ต้องมีชุดตรวจ (`*.check.ts`) ครอบ: เพิ่มเคส mass-assignment ใน `scripts/session-hardening.check.ts`, เคส checkOut ซ้ำใน flow ของ check-in, และ static scan ว่าทุก export ใน `crm/actions.ts`, `items/**/actions.ts`, `costs/actions.ts` เรียก helper ตรวจโมดูล

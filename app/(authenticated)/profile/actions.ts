@@ -5,6 +5,7 @@ import { saveAvatar, clearAvatar } from '@/lib/avatar'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
+import { pickProfileFields, type ProfilePatch } from '@/lib/profile-fields'
 import bcrypt from 'bcryptjs'
 
 /**
@@ -13,26 +14,21 @@ import bcrypt from 'bcryptjs'
  */
 const getOwnUserId = async (): Promise<string | null> => (await requireAuth())?.userId ?? null
 
-export async function updateMyProfile(data: {
-  full_name?: string
-  nickname?: string
-  department?: string | null
-  national_id?: string
-  address?: string
-  bank_name?: string
-  bank_account_number?: string
-  account_holder_name?: string
-}) {
+export async function updateMyProfile(input: ProfilePatch) {
   const userId = await getOwnUserId()
   if (!userId) {
     return { error: 'Unauthorized: No active session' }
   }
 
+  // กรองคีย์ก่อนเขียนเสมอ — object จาก client ใส่ role/allowed_modules/pin มาด้วยได้
+  const data = pickProfileFields(input)
+  if (Object.keys(data).length === 0) return { error: 'ไม่มีข้อมูลที่แก้ได้' }
+
   const supabase = createServiceClient()
 
   const { error } = await supabase
     .from('profiles')
-    .update(data as Record<string, unknown>)
+    .update(data)
     .eq('id', userId)
 
   if (error) {

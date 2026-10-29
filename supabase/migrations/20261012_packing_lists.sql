@@ -106,18 +106,5 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit = EXCLUDED.file_size_limit,
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-    WHERE schemaname = 'storage'
-      AND tablename = 'objects'
-      AND policyname = 'packing_photos_all'
-  ) THEN
-    CREATE POLICY packing_photos_all
-      ON storage.objects
-      FOR ALL
-      USING (bucket_id = 'packing-photos')
-      WITH CHECK (bucket_id = 'packing-photos');
-  END IF;
-END $$;
+-- (เคยมี policy `packing_photos_all` FOR ALL ไม่ระบุ role ตรงนี้ = anon เขียน/ลบได้ — ถอดออกใน 20261029_drop_packing_photos_policy.sql
+--  โค้ดอัปโหลด/ลบรูปใช้ service role อยู่แล้ว ไม่ต้องมี policy)

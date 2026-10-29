@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
+import { pickProfileFields, isUserRole, type ProfilePatch } from '@/lib/profile-fields'
 import { saveAvatar, clearAvatar } from '@/lib/avatar'
 
 
@@ -73,6 +74,7 @@ export async function updateUserRole(userId: string, role: string) {
         return { error: 'Unauthorized: No active session' }
     }
     if (session.role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
+    if (!isUserRole(role)) return { error: 'บทบาทไม่ถูกต้อง' }
 
     const supabase = createServiceClient()
     
@@ -144,27 +146,22 @@ export async function updateUserModules(userId: string, modules: string[]) {
     revalidatePath('/users')
 }
 
-export async function updateUserProfile(userId: string, data: {
-  full_name?: string
-  nickname?: string
-  department?: string | null
-  national_id?: string
-  address?: string
-  bank_name?: string
-  bank_account_number?: string
-  account_holder_name?: string
-}) {
+export async function updateUserProfile(userId: string, input: ProfilePatch) {
     const session = await requireAuth()
     if (!session) {
         return { error: 'Unauthorized: No active session' }
     }
     if (session.role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
+    // กรองคีย์ก่อนเขียนเสมอ (แบบเดียวกับ updateMyProfile) — บทบาท/โมดูลแก้ผ่าน updateUserRole/updateUserModules เท่านั้น
+    const data = pickProfileFields(input)
+    if (Object.keys(data).length === 0) return { error: 'ไม่มีข้อมูลที่แก้ได้' }
+
     const supabase = createServiceClient()
-    
+
     const { error } = await supabase
       .from('profiles')
-      .update(data as Record<string, unknown>)
+      .update(data)
       .eq('id', userId)
   
     if (error) {

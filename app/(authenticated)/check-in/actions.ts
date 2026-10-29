@@ -467,7 +467,8 @@ export async function checkOut(formData: FormData) {
     checkoutPhotoUrl = await uploadCheckinPhoto(supabase, userId, `${checkinId}_out`, photoBase64)
   }
 
-  const { error } = await supabase
+  // ปิดได้เฉพาะเช็คอินที่ยังเปิดอยู่และยังไม่ถูกคิดสลิป — ยิงซ้ำใส่แถวเก่าจะเลื่อนเวลาออกเป็นตอนนี้แล้ว OT พองข้ามวัน (H7)
+  const { data: closed, error } = await supabase
     .from('staff_checkins')
     .update({
       checked_out_at: new Date().toISOString(),
@@ -475,11 +476,15 @@ export async function checkOut(formData: FormData) {
     })
     .eq('id', checkinId)
     .eq('user_id', userId)
+    .is('checked_out_at', null)
+    .is('paid_slip_id', null)
+    .select('id')
 
   if (error) {
     console.error('Check-out error:', error)
     return { error: 'เกิดข้อผิดพลาดในการ Check-out' }
   }
+  if (!closed || closed.length === 0) return { error: 'เช็คอินนี้ปิดไปแล้ว' }
 
   revalidatePath('/check-in')
   return { success: true }
