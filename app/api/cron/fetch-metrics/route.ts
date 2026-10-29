@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase-server'
 import { fetchMetricsForUrl } from '@/app/(authenticated)/content-planner/metrics-lib'
@@ -5,7 +6,7 @@ import { fetchMetricsForUrl } from '@/app/(authenticated)/content-planner/metric
 // ============================================================================
 // Cron: ดึงยอดโพสต์อัตโนมัติทั้งชุด (เรียกโดย pg_cron / ตัวตั้งเวลาภายนอก)
 //   GET/POST /api/cron/fetch-metrics
-//   Auth: Authorization: Bearer <CRON_SECRET>  หรือ  ?secret=<CRON_SECRET>
+//   Auth: Authorization: Bearer <CRON_SECRET>  หรือ  x-cron-secret  (?secret= เลิกใช้ — ยังรับชั่วคราว)
 // เงื่อนไข: โพสต์สถานะ "โพสต์แล้ว" ที่มีลิงก์โพสต์ และโพสต์มาไม่เกิน 90 วัน
 // (โพสต์เก่ากว่านั้นยอดแทบไม่ขยับแล้ว ไม่เผา quota/เสี่ยงโดน rate limit ฟรี)
 // ============================================================================
@@ -15,20 +16,29 @@ export const maxDuration = 300
 const MAX_POSTS_PER_RUN = 50
 const WINDOW_DAYS = 90
 
+// เทียบแบบ constant-time บน sha256 (ความยาวเท่ากันเสมอ) แบบ lib/master-token.ts
+function same(given: string, secret: string): boolean {
+  const a = createHash('sha256').update(given).digest()
+  const b = createHash('sha256').update(secret).digest()
+  return timingSafeEqual(a, b)
+}
+
 function authorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET
   if (!secret) return false // fail-closed: ไม่ตั้ง CRON_SECRET = ปิด endpoint
-  const header = request.headers.get('authorization') || ''
-  if (header === `Bearer ${secret}`) return true
-  return new URL(request.url).searchParams.get('secret') === secret
+  const auth = request.headers.get('authorization') || ''
+  const given = auth.startsWith('Bearer ') ? auth.slice(7) : request.headers.get('x-cron-secret')
+  if (given) return same(given, secret)
+  // ทางเดิม ?secret= (ติด access log) — รับอีก 1 release แล้วเลิก
+  const legacy = new URL(request.url).searchParams.get('secret')
+  if (!legacy) return false
+  console.warn('[cron/fetch-metrics] ?secret= เลิกใช้แล้ว — ส่งผ่าน header Authorization: Bearer แทน')
+  return same(legacy, secret)
 }
 
 async function run(request: Request) {
-  if (!process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'CRON_SECRET is not configured' }, { status: 503 })
-  }
   if (!authorized(request)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const supabase = createServiceClient()

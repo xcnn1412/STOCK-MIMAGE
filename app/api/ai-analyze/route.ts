@@ -1,6 +1,9 @@
 import { NextRequest } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 
+const MAX_BODY_BYTES = 200 * 1024
+const MAX_EVENTS = 500
+
 const COST_LABELS: Record<string, string> = {
   staff: 'ค่าแรง', travel: 'ค่าเดินทาง', electrical_equipment: 'อุปกรณ์ไฟฟ้า',
   struture: 'โครงสร้าง', service_fee: 'ค่าบริการ', other: 'อื่นๆ',
@@ -139,8 +142,26 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: 'GEMINI_API_KEY not configured' }), { status: 500 })
   }
 
-  const { events, includeSections, customPrompt } = await request.json()
-  const dataPayload = buildDataPayload(events, includeSections)
+  // จำกัดขนาด input (L9): ทั้งก้อน ≤ 200 KB, อีเวนต์ ≤ 500 รายการ, JSON เพี้ยน → 400
+  const raw = await request.text()
+  if (Buffer.byteLength(raw) > MAX_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: 'ข้อมูลใหญ่เกินไป' }), { status: 413 })
+  }
+  let parsed: { events?: unknown; includeSections?: unknown; customPrompt?: unknown }
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return new Response(JSON.stringify({ error: 'รูปแบบข้อมูลไม่ถูกต้อง' }), { status: 400 })
+  }
+  const { events, includeSections } = parsed ?? {}
+  const customPrompt = typeof parsed?.customPrompt === 'string' ? parsed.customPrompt : ''
+  if (!Array.isArray(events) || !Array.isArray(includeSections)) {
+    return new Response(JSON.stringify({ error: 'รูปแบบข้อมูลไม่ถูกต้อง' }), { status: 400 })
+  }
+  if (events.length > MAX_EVENTS) {
+    return new Response(JSON.stringify({ error: `อีเวนต์เกิน ${MAX_EVENTS} รายการ` }), { status: 413 })
+  }
+  const dataPayload = buildDataPayload(events, includeSections.map(String))
 
   let userPrompt = `จากข้อมูลอีเวนต์ต่อไปนี้ (${events.length} อีเวนต์):\n${dataPayload}\n\n`
   if (customPrompt?.trim()) {
@@ -172,7 +193,7 @@ export async function POST(request: NextRequest) {
     ],
     generationConfig: {
       temperature: 0.3,
-      maxOutputTokens: 65536,
+      maxOutputTokens: 8192,
     },
   }
 
@@ -273,5 +294,6 @@ export async function POST(request: NextRequest) {
     ? 'API quota เต็มแล้ว กรุณาสร้าง API Key ใหม่ที่ Google AI Studio หรือรอ quota reset'
     : 'ไม่สามารถเชื่อมต่อ Gemini ได้ กรุณาลองใหม่'
   
-  return new Response(JSON.stringify({ error: errorMessage, details: errors }), { status: isQuotaError ? 429 : 500 })
+  // รายละเอียด error ของแต่ละรุ่นอยู่ใน console.error ด้านบนเท่านั้น (L8)
+  return new Response(JSON.stringify({ error: errorMessage }), { status: isQuotaError ? 429 : 500 })
 }

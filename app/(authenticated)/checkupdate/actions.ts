@@ -3,6 +3,7 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { requireAuth } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
+import { logActivity } from '@/lib/logger'
 
 async function getSession() {
   const session = await requireAuth()
@@ -23,6 +24,8 @@ export async function getAppliedMigrations(): Promise<{
   data: AppliedMigration[]
   bootstrapped: boolean
 }> {
+  // รายชื่อ migration ที่รันแล้วเป็นข้อมูลภายใน — แอดมินเท่านั้น (L11)
+  if ((await getSession()).role !== 'admin') return { data: [], bootstrapped: false }
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('_app_migrations')
@@ -72,6 +75,7 @@ export async function markMigrationApplied(formData: FormData) {
     return { error: error.message }
   }
 
+  await logActivity('MARK_MIGRATION_APPLIED', { filename, checksum })
   revalidatePath('/checkupdate')
   return { ok: true }
 }
@@ -92,6 +96,7 @@ export async function unmarkMigrationApplied(formData: FormData) {
     .eq('filename', filename)
 
   if (error) return { error: error.message }
+  await logActivity('UNMARK_MIGRATION_APPLIED', { filename })
   revalidatePath('/checkupdate')
   return { ok: true }
 }

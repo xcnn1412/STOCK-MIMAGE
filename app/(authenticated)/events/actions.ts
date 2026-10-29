@@ -501,6 +501,7 @@ export async function uploadClosureImage(formData: FormData): Promise<{ url?: st
     }
 
     const { data } = supabase.storage.from('event_closures').getPublicUrl(path)
+    await logActivity('UPLOAD_CLOSURE_IMAGE', { event_id: eventId, path })
     return { url: data.publicUrl }
 }
 

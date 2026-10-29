@@ -61,7 +61,7 @@
 
 เกณฑ์รอบ 3: ทุกข้อมีเคสใน check script ที่เกี่ยว (finance-access / packing-flow / claim-* / layout-requests …) หรือ static scan ใหม่ · tsc/eslint ตามกติกาเดิม · M3 ต้องมีเคส: ไม่ล็อกอิน → 401, ล็อกอิน → 302 ไป signed URL, path ไม่อยู่ใน bucket ที่อนุญาต → 404
 
-## รอบ 4 — v1.72.1 (Low + logActivity)
+## รอบ 4 — v1.72.1 (Low + logActivity) — ✅ โค้ดครบ 2026-10-29 · ยกเว้น: L12 (`allowed_modules` null = stock คงไว้ตามเจตนาเดิม), L18 (ตั้งใจ), L20 (ไม่ทำ), L15 เฉพาะตอนบล็อก (ไม่มี action รีเซ็ต PIN โดยแอดมิน), L6 เฉพาะเมื่อ `LICENSE_EXPIRES_AT` ตั้งแล้วแต่หมดอายุ (ไม่ตั้ง = proxy กันหน้าอยู่แล้ว API ยังผ่าน) · env ใหม่ `APP_ORIGIN` (ไม่บังคับ) · cron ยังรับ `?secret=` อีกหนึ่งรุ่น
 
 L1–L20 ตามรายงาน: CSV escape (`= + - @` + double quote), `safe-next` ตัด control char, `users/page.tsx` select เฉพาะคอลัมน์ที่ใช้ (ไม่มี `pin`, `active_session_id`), cron secret ทาง header + constant-time, `Cache-Control: no-store` ใน `pdf/payment-voucher`, error response ไม่ส่ง `err.message`, `requireAuth` เช็ก `is_blocked`, `getAppliedMigrations` = admin, ลบ `lib/supabase.ts` singleton และ `scripts/revert-rls.ts`, `logActivity` ให้ mutation ที่ขาด (เพิ่ม `ActionType`) · `.well-known` ใช้ env คงที่ · personal token revoke เมื่อ block/reset PIN
 

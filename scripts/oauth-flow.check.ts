@@ -265,7 +265,7 @@ async function main() {
     assert.deepEqual(m.code_challenge_methods_supported, ['S256'])
     assert.deepEqual(m.grant_types_supported, ['authorization_code', 'refresh_token'])
     assert.deepEqual(m.response_types_supported, ['code'])
-    assert.deepEqual(m.token_endpoint_auth_methods_supported, ['none', 'client_secret_post'])
+    assert.deepEqual(m.token_endpoint_auth_methods_supported, ['none'])
     assert.deepEqual(m.scopes_supported, ['mcp:read'])
 
     for (const handler of [prMeta, prMetaMcp]) {
@@ -283,6 +283,13 @@ async function main() {
     forwarded('other.example.org', 'http')
     assert.equal((await json(await asMeta.GET())).issuer, 'http://other.example.org')
     assert.equal((await json(await prMetaMcp.GET())).resource, 'http://other.example.org/api/mcp')
+    // ตั้ง APP_ORIGIN แล้ว issuer คงที่ — header ปลอมไม่มีผล (L16) · ตัด / ท้าย
+    env.APP_ORIGIN = 'https://fixed.example.com/'
+    assert.equal((await json(await asMeta.GET())).issuer, 'https://fixed.example.com')
+    assert.equal((await json(await asMeta.GET())).token_endpoint, 'https://fixed.example.com/api/oauth/token')
+    assert.deepEqual((await json(await prMetaMcp.GET())).authorization_servers, ['https://fixed.example.com'])
+    delete env.APP_ORIGIN
+    assert.equal((await json(await asMeta.GET())).issuer, 'http://other.example.org')
     forwarded()
 
     // OPTIONS (CORS preflight) ทุก endpoint

@@ -28,11 +28,11 @@ const fileUrl = (path: string) => `${STORAGE_BASE}/receipts/${path}`
 const STALE = 'ใบเบิกนี้ถูกเปลี่ยนสถานะไปแล้ว กรุณาโหลดหน้าใหม่'
 
 const person = (id: string, full_name: string, role: string): Row =>
-  ({ id, full_name, nickname: null, role, department: 'สตาฟ', is_approved: true, active_session_id: `sess-${id}` })
+  ({ id, full_name, nickname: null, role, department: 'สตาฟ', is_approved: true, is_blocked: false, active_session_id: `sess-${id}` })
 
 /** คอลัมน์ที่มีจริง — insert/update/select ที่อ้างคอลัมน์อื่นได้ error แบบ PostgREST (กันโค้ดพิมพ์ชื่อผิดแล้วผ่านแบบเงียบ) */
 const COLUMNS: Record<string, string[]> = {
-  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'active_session_id'],
+  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'is_blocked', 'active_session_id'],
   expense_claims: [
     'id', 'claim_number', 'original_claim_number', 'claim_type', 'job_event_id', 'title', 'description', 'category',
     'amount', 'unit_price', 'unit', 'quantity', 'total_amount', 'vat_mode', 'include_vat', 'withholding_tax_rate',

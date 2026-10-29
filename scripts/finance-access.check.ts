@@ -32,7 +32,7 @@ const BANK_COLS = ['bank_name', 'bank_account_number', 'account_holder_name'] as
 
 const person = (id: string, n: number, role: string, bank: boolean): Row => ({
   id, full_name: `ผู้ใช้ทดสอบ ${n}`, nickname: `ทดสอบ${n}`, role, department: 'สตาฟ',
-  is_approved: true, active_session_id: `sess-${id}`,
+  is_approved: true, is_blocked: false, active_session_id: `sess-${id}`,
   bank_name: bank ? 'ธนาคารทดสอบ' : null,
   bank_account_number: bank ? `000-0-0000${n}-0` : null,
   account_holder_name: bank ? `บัญชีทดสอบ ${n}` : null,

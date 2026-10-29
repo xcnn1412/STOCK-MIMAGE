@@ -3,6 +3,7 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { getKitManager } from '@/lib/kit-bookings'
 import { readAllRows } from '@/lib/read-all-rows'
+import { logActivity } from '@/lib/logger'
 
 /** สถานะใบจัดของที่ยังไม่คืนชั้น — หน่วยในใบเหล่านี้ยังออกงานอยู่จริง ห้ามรีเซ็ต */
 const OPEN_PACKING_STATUSES = ['selecting', 'picking', 'ready', 'out', 'returned']
@@ -111,6 +112,8 @@ export async function cleanupOrphanedItems() {
     if (updateError) {
         return { error: updateError.message }
     }
+
+    await logActivity('CLEANUP_ORPHANED_ITEMS', { count: orphanedItemIds.length, item_ids: orphanedItemIds })
     
     return { 
         success: true, 

@@ -61,7 +61,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ slipId: st
   } catch (err) {
     console.error('Salary slip PDF generation error:', err)
     return NextResponse.json(
-      { error: 'สร้าง PDF ไม่สำเร็จ', details: err instanceof Error ? err.message : undefined },
+      { error: 'สร้าง PDF ไม่สำเร็จ' }, // รายละเอียดอยู่ใน console.error เท่านั้น (L8)
       { status: 500 }
     )
   }

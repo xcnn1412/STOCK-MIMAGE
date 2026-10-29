@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { csvCell } from '@/lib/csv'
 import {
     Download, FileSpreadsheet, Filter, CheckCircle2, Users, Calendar, DollarSign
 } from 'lucide-react'
@@ -245,8 +246,8 @@ export default function DownloadView({ leads, settings }: { leads: Lead[]; setti
         const { headers, rows } = buildCsvData()
         const bom = '\uFEFF'
         const csvContent = bom + [
-            headers.map(h => `"${h}"`).join(','),
-            ...rows.map(r => r.map(c => `"${(c || '').replace(/"/g, '""')}"`).join(',')),
+            headers.map(csvCell).join(','),
+            ...rows.map(r => r.map(csvCell).join(',')),
         ].join('\n')
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })

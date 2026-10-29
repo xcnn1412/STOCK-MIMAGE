@@ -9,6 +9,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
+import { csvCell } from '@/lib/csv'
 import { ArrowLeft, FileSpreadsheet, FileText, Sparkles, Check } from 'lucide-react'
 import {
   type PLLead, type PLClaim, type PLInstallment, type PLJobEvent, type PLCostItem,
@@ -163,14 +164,13 @@ export default function ExportView({ leads, claims, jobEvents, costItems, instal
 
   function exportCsv() {
     const sheets = buildSheets()
-    const cell = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
     let out = ''
     for (const s of sheets) {
       out += `=== ${s.name} ===\n`
       if (s.rows.length) {
         const headers = Object.keys(s.rows[0])
-        out += headers.join(',') + '\n'
-        out += s.rows.map(row => headers.map(hd => cell(row[hd])).join(',')).join('\n') + '\n'
+        out += headers.map(csvCell).join(',') + '\n'
+        out += s.rows.map(row => headers.map(hd => csvCell(row[hd])).join(',')).join('\n') + '\n'
       }
       out += '\n'
     }

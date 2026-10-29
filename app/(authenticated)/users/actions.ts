@@ -65,6 +65,17 @@ export async function toggleUserBlock(userId: string, currentlyBlocked: boolean)
 
   await logActivity(currentlyBlocked ? 'UNBLOCK_USER' : 'BLOCK_USER', {}, userId)
 
+  // token MCP / personal ไม่ผูก session — บล็อกแล้วต้องเพิกถอนทุกตัวด้วย ไม่งั้นยังใช้ได้ถึงหมดอายุ (L15)
+  if (!currentlyBlocked) {
+    const { data: revoked } = await supabase
+      .from('oauth_tokens')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .is('revoked_at', null)
+      .select('id')
+    if (revoked?.length) await logActivity('MCP_TOKENS_REVOKED_BY_ADMIN', { count: revoked.length, reason: 'block' }, userId)
+  }
+
   revalidatePath('/users')
 }
 

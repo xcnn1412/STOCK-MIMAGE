@@ -280,6 +280,25 @@ export type ActionType =
     | 'UPDATE_CHECKIN_LOCATION'
     | 'EDIT_CHECKIN'
     | 'DELETE_CHECKIN'
+    | 'CHECK_IN'
+    | 'CHECK_OUT'
+    | 'UNDO_CHECKOUT'
+    | 'QUICK_CHECKOUT_STALE'
+    | 'ADMIN_CHECK_IN'
+    | 'UPDATE_MY_CHECKIN_EVENT'
+    // ไฟล์แนบ / งานดูแลระบบ (L19)
+    | 'UPLOAD_CLOSURE_IMAGE'
+    | 'UPLOAD_PACKING_PHOTO'
+    | 'UPLOAD_RETURN_PHOTO'
+    | 'UPDATE_EXPENSE_CLAIM'
+    | 'REMOVE_CLAIM_RECEIPT'
+    | 'UPLOAD_TAX_INVOICE'
+    | 'SET_TAX_INVOICE_ENTRIES'
+    | 'RECREATE_COST_ITEM_FROM_CLAIM'
+    | 'UPDATE_MONTH_TARGETS'
+    | 'CLEANUP_ORPHANED_ITEMS'
+    | 'MARK_MIGRATION_APPLIED'
+    | 'UNMARK_MIGRATION_APPLIED'
     // Sales Board — เป้าค่าคอมแอดมิน
     | 'UPDATE_COMMISSION_TARGET'
     // User Profile
@@ -290,6 +309,7 @@ export type ActionType =
     | 'MCP_CONNECT'
     | 'MCP_REVOKE'
     | 'MCP_TOKEN_CREATE'
+    | 'MCP_TOKENS_REVOKED_BY_ADMIN'
     | 'MCP_TOOL_CALL'
 
 export async function logActivity(

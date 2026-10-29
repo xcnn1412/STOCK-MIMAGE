@@ -246,6 +246,7 @@ export default function ConnectedAppsView({ connections, isAdmin }: Props) {
         <div className="min-w-0 flex-1 basis-56">
           <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">{c.title}</h1>
           <p className="text-sm text-muted-foreground">{c.intro}</p>
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{c.tokenOutlivesLogout}</p>
           {isAdmin && <p className="mt-1 text-xs text-violet-700 dark:text-violet-300">{c.adminNote}</p>}
         </div>
         <CreateTokenDialog />

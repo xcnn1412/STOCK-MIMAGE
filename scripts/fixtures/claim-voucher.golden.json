@@ -35,7 +35,7 @@
           "content-type": "application/pdf",
           "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-101.pdf\"",
           "x-frame-options": "SAMEORIGIN",
-          "cache-control": null
+          "cache-control": "no-store"
         },
         "body": "%PDF-1.4 fake voucher"
       }
@@ -100,7 +100,7 @@
           "content-type": "application/pdf",
           "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-102.pdf\"",
           "x-frame-options": "SAMEORIGIN",
-          "cache-control": null
+          "cache-control": "no-store"
         },
         "body": "%PDF-1.4 fake voucher"
       }
@@ -172,7 +172,7 @@
           "content-type": "application/pdf",
           "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-103.pdf\"",
           "x-frame-options": "SAMEORIGIN",
-          "cache-control": null
+          "cache-control": "no-store"
         },
         "body": "%PDF-1.4 fake voucher"
       }
@@ -212,7 +212,7 @@
           "content-type": "application/pdf",
           "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-104.pdf\"",
           "x-frame-options": "SAMEORIGIN",
-          "cache-control": null
+          "cache-control": "no-store"
         },
         "body": "%PDF-1.4 fake voucher"
       }
@@ -278,7 +278,7 @@
         "content-type": "application/pdf",
         "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-101.pdf\"",
         "x-frame-options": "SAMEORIGIN",
-        "cache-control": null
+        "cache-control": "no-store"
       },
       "body": "%PDF-1.4 fake voucher"
     },
@@ -289,7 +289,7 @@
         "content-type": "application/pdf",
         "content-disposition": "inline; filename=\"payment-voucher-EXP-202609-103.pdf\"",
         "x-frame-options": "SAMEORIGIN",
-        "cache-control": null
+        "cache-control": "no-store"
       },
       "body": "%PDF-1.4 fake voucher"
     },
@@ -303,8 +303,7 @@
         "cache-control": null
       },
       "body": {
-        "error": "Failed to generate PDF",
-        "details": "render failed (จำลอง)"
+        "error": "Failed to generate PDF"
       }
     }
   ],

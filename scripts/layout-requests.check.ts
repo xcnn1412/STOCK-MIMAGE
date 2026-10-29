@@ -36,7 +36,7 @@ type Result = { data: unknown; error: DbError | null; count?: number | null }
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 const ADMIN = uid(1), STAFF = uid(2)
 const person = (id: string, over: Row): Row => ({
-  id, role: 'staff', is_approved: true, active_session_id: `sess-${id}`, department: 'สตาฟ',
+  id, role: 'staff', is_approved: true, is_blocked: false, active_session_id: `sess-${id}`, department: 'สตาฟ',
   full_name: 'ผู้ใช้ทดสอบ', nickname: 'ทดสอบ', allowed_modules: ['stock'],
   national_id: '0000000000001', address: 'ที่อยู่ทดสอบ ถนนทดสอบ แขวงทดสอบ',
   bank_name: 'ธนาคารทดสอบ', bank_account_number: '000-0-00001-0', account_holder_name: 'บัญชีทดสอบ',

@@ -817,6 +817,9 @@ export async function updateClaim(id: string, updateData: {
       note: `อัพโหลดเอกสาร ${newReceiptUrls.length} ไฟล์${editReason ? ` — เหตุผล: ${editReason}` : ''}`,
     })
   }
+  if (Object.keys(changes).length > 0 || newReceiptUrls.length > 0) {
+    await logActivity('UPDATE_EXPENSE_CLAIM', { claim: claim.claim_number, fields: Object.keys(changes), files_added: newReceiptUrls.length })
+  }
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -866,6 +869,7 @@ export async function removeReceiptFile(id: string, url: string) {
     changes: { receipt_urls: { from: existing.length, to: existing.length - 1 } },
     note: 'ลบเอกสารแนบ 1 ไฟล์',
   })
+  await logActivity('REMOVE_CLAIM_RECEIPT', { claim_id: id })
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -1049,6 +1053,7 @@ export async function uploadTaxInvoice(id: string, formData: FormData) {
   }
 
   await Promise.all([writeLogs(), notifyApprover()])
+  await logActivity('UPLOAD_TAX_INVOICE', { claim: claim.claim_number, files: filesAdded, numbers: numbersAdded })
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -1126,6 +1131,7 @@ export async function setTaxInvoiceEntries(
     },
     note: `แก้ไขรายการใบกำกับภาษี (${existingUrls.length} → ${newUrls.length} รายการ)`,
   })
+  await logActivity('SET_TAX_INVOICE_ENTRIES', { claim: claim.claim_number, from: existingUrls.length, to: newUrls.length })
 
   revalidatePath('/finance')
   revalidatePath(`/finance/${id}`)
@@ -1246,6 +1252,7 @@ export async function recreateCostItemFromClaim(claimId: string, jobCostEventId:
   const { error } = await syncClaimCostItem(supabase, claim, userId)
 
   if (error) return { error: 'เกิดข้อผิดพลาดในการสร้างรายการ' }
+  await logActivity('RECREATE_COST_ITEM_FROM_CLAIM', { claim: claim.claim_number, job_event_id: jobCostEventId })
 
   revalidatePath('/costs')
   revalidatePath('/finance')

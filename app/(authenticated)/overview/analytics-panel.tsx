@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { attributeRevenue } from '@/app/(authenticated)/costs/lib/revenue-attribution'
 import { calcTax } from '@/lib/finance/money'
+import { csvCell } from '@/lib/csv'
 
 // ─── Types (mirror overview-view.tsx) ────────────────────────
 
@@ -332,9 +333,9 @@ export default function AnalyticsPanel({ data }: { data: OverviewData }) {
       Math.round(m.profit),
       m.margin.toFixed(1),
       Math.round(m.expensePaidByPaidAt),
-    ].join(',')).join('\n')
+    ].map(csvCell).join(',')).join('\n')
     const totalLabel = isAllYear ? 'รวมทั้งปี' : `รวม (${filterLabel})`
-    const total = `\n${totalLabel},${cur.eventCount},${Math.round(cur.revenueGross)},${Math.round(cur.revenueBase)},${Math.round(cur.revenueVat)},${Math.round(cur.revenueWht)},${Math.round(cur.revenueNet)},${Math.round(cur.costGross)},${Math.round(cur.costVat)},${Math.round(cur.costWht)},${Math.round(cur.vatPayable)},${Math.round(cur.profit)},${cur.margin.toFixed(1)},${Math.round(cur.expensePaidByPaidAt)}`
+    const total = `\n${csvCell(totalLabel)},${cur.eventCount},${Math.round(cur.revenueGross)},${Math.round(cur.revenueBase)},${Math.round(cur.revenueVat)},${Math.round(cur.revenueWht)},${Math.round(cur.revenueNet)},${Math.round(cur.costGross)},${Math.round(cur.costVat)},${Math.round(cur.costWht)},${Math.round(cur.vatPayable)},${Math.round(cur.profit)},${cur.margin.toFixed(1)},${Math.round(cur.expensePaidByPaidAt)}`
     const blob = new Blob(['﻿' + header + rows + total], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

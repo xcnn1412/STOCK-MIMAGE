@@ -526,6 +526,7 @@ export async function uploadPackingPhoto(formData: FormData): Promise<{ url: str
     console.error('uploadPackingPhoto', error)
     return { error: 'อัปโหลดรูปไม่สำเร็จ' }
   }
+  await logActivity('UPLOAD_PACKING_PHOTO', { id: listId, path })
   const { data } = db.storage.from(BUCKET).getPublicUrl(path)
   return { url: data.publicUrl }
 }
@@ -724,6 +725,7 @@ export async function uploadReturnPhoto(formData: FormData): Promise<{ url: stri
     console.error('uploadReturnPhoto', error)
     return { error: 'อัปโหลดรูปไม่สำเร็จ' }
   }
+  await logActivity('UPLOAD_RETURN_PHOTO', { id: listId, path })
   const { data } = db.storage.from(BUCKET).getPublicUrl(path)
   return { url: data.publicUrl }
 }
