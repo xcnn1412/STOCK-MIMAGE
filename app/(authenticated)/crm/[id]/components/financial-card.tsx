@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { AlertTriangle, Calculator, Check, CheckCircle2, DollarSign, FileText, Receipt, Trash2, Upload, Wallet } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import { formatThaiDate } from '@/lib/thai-date'
+import { appFileUrl } from '@/lib/file-url'
 import type { LeadInstallment } from '../../actions'
 import type { CrmLead } from '../../types'
 import {
@@ -425,7 +426,7 @@ function PaymentProof({ editing, proofUrl, isUploading, onUpload, onDelete }: {
       {proofUrl ? (
         <div className={editing ? 'flex items-center gap-2 mt-1' : 'flex items-center gap-2'}>
           <a
-            href={proofUrl}
+            href={appFileUrl(proofUrl)}
             target="_blank"
             rel="noopener noreferrer"
             className={`${editing ? 'w-16 h-16' : 'w-14 h-14'} rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 shrink-0`}
@@ -436,7 +437,7 @@ function PaymentProof({ editing, proofUrl, isUploading, onUpload, onDelete }: {
               </span>
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={proofUrl} alt="receipt" className="w-full h-full object-cover" />
+              <img src={appFileUrl(proofUrl)} alt="receipt" className="w-full h-full object-cover" />
             )}
           </a>
           <div className="flex flex-col gap-1">
@@ -457,7 +458,7 @@ function PaymentProof({ editing, proofUrl, isUploading, onUpload, onDelete }: {
               )}
             </div>
             {!editing && (
-              <a href={proofUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+              <a href={appFileUrl(proofUrl)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
                 {locale === 'th' ? 'ดูขนาดเต็ม' : 'View full size'}
               </a>
             )}

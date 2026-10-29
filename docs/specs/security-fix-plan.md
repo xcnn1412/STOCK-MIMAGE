@@ -43,7 +43,7 @@
 - AC2.7 `GET /api/schema/fingerprint` ไม่มี header → 403; header ถูก → 200 (ทดสอบด้วย route handler ตรง) · `fetchMetricsForUrl('tiktok', 'https://169.254.169.254/x')` และ `http://www.tiktok.com/x` → `{ error }` โดยไม่เรียก `fetch` (mock `globalThis.fetch` ให้ fail)
 - AC2.8 tsc baseline 1 error · eslint ของโฟลเดอร์ `kits`, `events`, `crm` = 0 ปัญหา และไฟล์ที่แตะไม่มี error เพิ่ม · ชุดตรวจทุกตัวที่ import ไฟล์ที่แตะผ่าน (`grep -l` ใน `scripts/`)
 
-## รอบ 3 — v1.72.0 (หลังรอบ 2 merge)
+## รอบ 3 — v1.72.0 (หลังรอบ 2 merge) — ✅ โค้ดครบ 2026-10-29 ยกเว้น M13 (xlsx — ติดตั้ง tarball จาก cdn.sheetjs.com ต้องให้เจ้าของรันเอง: `npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`) · migration ใหม่ `20261030_increment_failed_login.sql` (รันได้ทันที โค้ดมี fallback) และ `20261031_private_buckets.sql` (รันหลัง deploy เท่านั้น)
 
 | ข้อ | สรุปวิธี |
 |---|---|

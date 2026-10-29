@@ -7,6 +7,7 @@ import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
 import { pickProfileFields, type ProfilePatch } from '@/lib/profile-fields'
 import bcrypt from 'bcryptjs'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 /**
  * ผู้ใช้ที่ล็อกอินอยู่ — จาก session ที่ยืนยันแล้ว (requireAuth) เท่านั้น
@@ -175,6 +176,12 @@ export async function changePin(formData: {
   const userId = await getOwnUserId()
   if (!userId) {
     return { error: 'Unauthorized: No active session' }
+  }
+
+  // จำกัด 5 ครั้ง / 15 นาที ต่อผู้ใช้ — กัน session ที่หลุดไปใช้ไล่เดา PIN ปัจจุบัน
+  const limit = checkRateLimit('change-pin:' + userId, { limit: 5, windowMs: 15 * 60_000, lockoutMs: 0 })
+  if (!limit.allowed) {
+    return { error: `เปลี่ยน PIN บ่อยเกินไป กรุณารอ ${limit.retryAfterMinutes} นาที` }
   }
 
   const { currentPin, newPin, confirmPin } = formData

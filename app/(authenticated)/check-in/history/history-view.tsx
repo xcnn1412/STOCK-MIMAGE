@@ -8,6 +8,7 @@ import { updateMyCheckinEvent, updateMyCheckinLocation } from '../actions'
 import type { DutyInput } from '../../salary/compute'
 import { THAI_PROVINCES } from '@/lib/thai-address'
 import EventSelectCombobox from '../../finance/new/event-select-combobox'
+import { appFileUrl } from '@/lib/file-url'
 
 interface CheckinRecord {
   id: string
@@ -238,7 +239,7 @@ export default function HistoryView({ history, allEvents, duties }: {
                         {c.photo_url && (
                           <button onClick={() => setShowPhotoLightbox(c.photo_url)}
                             className="mt-1.5 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 inline-block hover:shadow-md transition-shadow">
-                            <img src={c.photo_url} alt="Check-in photo" className="w-16 h-16 object-cover" />
+                            <img src={appFileUrl(c.photo_url)} alt="Check-in photo" className="w-16 h-16 object-cover" />
                           </button>
                         )}
                       </div>
@@ -391,7 +392,7 @@ export default function HistoryView({ history, allEvents, duties }: {
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setShowPhotoLightbox(null)}>
           <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
-            <img src={showPhotoLightbox} alt="Check-in photo"
+            <img src={appFileUrl(showPhotoLightbox)} alt="Check-in photo"
               className="w-full h-auto rounded-2xl shadow-2xl" />
             <button onClick={() => setShowPhotoLightbox(null)}
               className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform">

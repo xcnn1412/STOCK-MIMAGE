@@ -65,6 +65,8 @@ The Next.js middleware file is named `proxy.ts` and exports `proxy(request)` (ma
 
 Since v1.71.0 `MODULE_ROUTES` covers every nav module including `overview`, `jobs`, `checkin` (admins are auto-granted `overview`, `admin`, `salesboard`, `content`, `documents`, `salary` in the proxy — the rest of an admin's modules still come from `allowed_modules`). Route enforcement is for **pages only**: a server action can be POSTed from any page, so every action that reads or writes module data must call `lib/auth.ts::requireModule(key | key[])` (admin passes; others need one of the keys in `profiles.allowed_modules`, read once per request) — `requireAuth()` alone only proves login. `lib/stock.ts::hasModule` is the older `{ userId } | null` shape of the same check. Reference: `docs/SECURITY_REPORT.md` (รอบ 2026-10-29) and the fix plan `docs/specs/security-fix-plan.md`.
 
+**Private storage buckets (v1.72.0):** `checkin-photos`, `receipts`, `crm-payment-proofs`, `login_selfies` are private once migration `20261031_private_buckets.sql` runs. Stored URLs stay in the public-URL format; every render site wraps them with `lib/file-url.ts::appFileUrl(url)` → `/api/file/<bucket>/<path>` (route = `requireAuth` → 5-minute signed URL → 302). Server-side readers use `storage.download()` (see `lib/claim-files.ts`), never HTTP fetch of the public URL. New code that shows a file from these buckets must go through `appFileUrl`; `scripts/file-url.check.ts` statically scans the known view files.
+
 ### Authentication: signed token + session id only
 
 Since v1.24.2 a user is recognised **only** by:

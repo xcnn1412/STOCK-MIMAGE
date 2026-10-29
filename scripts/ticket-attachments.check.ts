@@ -118,6 +118,8 @@ M._load = function (this: unknown, request: string, ...rest: unknown[]) {
 const { createSessionToken } = require('../lib/session') as typeof import('../lib/session')
 const { uploadTicketAttachments, deleteTicketAttachment } =
   require('../app/(authenticated)/jobs/actions') as typeof import('../app/(authenticated)/jobs/actions')
+const { ownTicketAttachmentUrls } =
+  require('../app/(authenticated)/jobs/ticket-logic') as typeof import('../app/(authenticated)/jobs/ticket-logic')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 // ── ตัวช่วย ────────────────────────────────────────────────────────────────
@@ -436,6 +438,41 @@ async function main() {
     assert.ok(!/getSession\(|cookies\(|session_user_id/.test(body), `${name}: ห้ามอ่าน cookie แบบไม่เซ็น`)
   }
   pass(`(i) static — lib/notifications.ts ไม่มี use server และ export ครบ · client component ${clientFiles.length} ไฟล์ไม่มีตัวไหน import มัน · ${importers.length} ไฟล์ที่ import ขึ้นต้นด้วย use server ทุกไฟล์ · migration มีแค่ DROP POLICY IF EXISTS · สองฟังก์ชันไฟล์แนบเรียก requireAuth() ก่อนแตะสตอเรจ`)
+
+  // ── (j) ไฟล์แนบที่บันทึกลงตั๋ว/คำตอบ: เฉพาะไฟล์ของผู้เรียกเอง · ลบตั๋ว = ผู้สร้าง/admin ─────────
+  loginAs(A)
+  const ownUrl = BUCKET_BASE + encodeURI(await uploadOne('tickets'))
+  loginAs(B)
+  const otherUrl = BUCKET_BASE + encodeURI(await uploadOne('tickets'))
+  const otherBucket = `${PUBLIC_BASE}/finance-receipts/tickets/u-${A}/x.png`
+  const legacyUrl = `${BUCKET_BASE}tickets/1700000000000_abc.png` // ไฟล์ก่อนมีท่อน u-<id>
+  assert.deepEqual(
+    ownTicketAttachmentUrls([ownUrl, otherUrl, otherBucket, legacyUrl, 42, null, { url: ownUrl }, '', `${BUCKET_BASE}tickets/u-${A}/../u-${B}/f.png`], A),
+    [ownUrl],
+    'เก็บเฉพาะ URL ในบัคเก็ต ticket-attachments ใต้ u-<ผู้เรียก>'
+  )
+  assert.deepEqual(ownTicketAttachmentUrls([ownUrl, otherUrl], B), [otherUrl])
+  assert.deepEqual(ownTicketAttachmentUrls('not-an-array', A), [])
+  assert.deepEqual(ownTicketAttachmentUrls([ownUrl], ''), [])
+  logout()
+
+  const fnBody = (name: string) => {
+    const at = jobs.indexOf(`export async function ${name}(`)
+    assert.ok(at > 0, `หา ${name} ใน jobs/actions.ts ไม่เจอ`)
+    const next = jobs.indexOf('\nexport ', at + 10)
+    return jobs.slice(at, next > 0 ? next : undefined)
+  }
+  for (const name of ['createTicket', 'createTicketReply']) {
+    const body = fnBody(name)
+    assert.match(body, /attachments: ownTicketAttachmentUrls\(/, `${name}: attachments ต้องผ่าน ownTicketAttachmentUrls`)
+    assert.doesNotMatch(body, /attachments: JSON\.parse/, `${name}: ห้ามบันทึก attachments จาก client ตรงๆ`)
+  }
+  const delBody = fnBody('deleteTicket')
+  const ownerCheck = delBody.search(/role !== 'admin' && ticket\.created_by !== userId/)
+  assert.ok(ownerCheck > 0, 'deleteTicket: ต้องตรวจผู้สร้าง/admin')
+  assert.ok(ownerCheck < delBody.indexOf(".from('tickets').delete()"), 'deleteTicket: ตรวจสิทธิ์ก่อนลบ')
+  assert.ok(ownerCheck < delBody.indexOf('removeStorageByUrls'), 'deleteTicket: ตรวจสิทธิ์ก่อนลบไฟล์')
+  pass('(j) ownTicketAttachmentUrls เก็บเฉพาะไฟล์ของผู้เรียก (ทิ้งไฟล์คนอื่น บัคเก็ตอื่น ไฟล์เก่าไม่มี u-<id> ค่าที่ไม่ใช่สตริง) · createTicket/createTicketReply ใช้ตัวกรองนี้ · deleteTicket ตรวจผู้สร้าง/admin ก่อนลบ')
 
   console.log('\nticket-attachments: ผ่านทั้งหมด')
 }

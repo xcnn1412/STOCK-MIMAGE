@@ -225,10 +225,11 @@ const listClaim = (n: number, over: Partial<ListClaim> = {}): ListClaim => ({
   const jpg = `${STORAGE}/claims/EXP-1/1_0.jpg`
   const html = tag(jpg)
   assert.ok(/^<img /.test(html), 'เป็น <img>')
-  assert.ok(html.includes(`src="${STORAGE}/claims/EXP-1/1_0_thumb.jpg"`), 'src = รูปย่อ _thumb.jpg')
+  // บัคเก็ต receipts เป็น private (M3) — src ผ่าน /api/file/receipts/… (lib/file-url.ts::appFileUrl)
+  assert.ok(html.includes(`src="/api/file/receipts/claims/EXP-1/1_0_thumb.jpg"`), 'src = รูปย่อ _thumb.jpg ผ่าน /api/file')
   assert.ok(html.includes('loading="lazy"') && html.includes('decoding="async"'), 'lazy + async')
   assert.ok(html.includes('alt="ใบเสร็จ 1"') && html.includes('class="w-full"'))
-  assert.ok(tag(`${STORAGE}/claims/EXP-1/1_1.pdf`).includes(`src="${STORAGE}/claims/EXP-1/1_1.pdf"`), 'PDF ไม่มีรูปย่อ = ไฟล์เดิม')
+  assert.ok(tag(`${STORAGE}/claims/EXP-1/1_1.pdf`).includes(`src="/api/file/receipts/claims/EXP-1/1_1.pdf"`), 'PDF ไม่มีรูปย่อ = ไฟล์เดิม (ผ่าน /api/file)')
   assert.ok(tag('https://evil.example/receipts/a.jpg').includes('src="https://evil.example/receipts/a.jpg"'), 'host อื่น = ไฟล์เดิม')
   // FormData: ตำแหน่งตรงกัน · ไม่มีรูปย่อ = Blob ว่าง
   const fd = new FormData()

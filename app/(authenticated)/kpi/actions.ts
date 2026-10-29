@@ -540,8 +540,54 @@ export async function deleteAllEvaluationsByAssignment(assignmentId: string) {
 // Feedback Replies
 // ============================================================================
 
+/**
+ * คนที่เกี่ยวกับผลประเมินหนึ่งใบ: ผู้ประเมิน (evaluated_by) + เจ้าของ KPI (assignment.assigned_to)
+ * ใช้ตรวจสิทธิ์อ่าน/ตอบความคิดเห็น และจำกัดคนที่ถูกแจ้งเตือน — null = ไม่พบผลประเมิน
+ */
+async function loadEvaluationParties(
+  supabase: ReturnType<typeof createServiceClient>,
+  evaluationId: string
+): Promise<{ evaluatedBy: string | null; assignedTo: string | null; kpiName: string } | null> {
+  if (!evaluationId) return null
+  const { data: evaluation } = await supabase
+    .from('kpi_evaluations')
+    .select('evaluated_by, kpi_assignments(assigned_to, kpi_templates(name))')
+    .eq('id', evaluationId)
+    .single()
+  if (!evaluation) return null
+
+  // kpi_assignments / kpi_templates อาจมาเป็น array หรือ object ตามความสัมพันธ์
+  const assignment = Array.isArray(evaluation.kpi_assignments)
+    ? evaluation.kpi_assignments[0]
+    : evaluation.kpi_assignments
+  const templates = assignment?.kpi_templates
+  const template = Array.isArray(templates) ? templates[0] : templates
+  return {
+    evaluatedBy: evaluation.evaluated_by ?? null,
+    assignedTo: assignment?.assigned_to ?? null,
+    kpiName: template?.name || 'KPI',
+  }
+}
+
+/** อ่าน/ตอบความคิดเห็นได้เฉพาะผู้ประเมิน เจ้าของ KPI หรือแอดมิน */
+function isEvaluationParty(
+  parties: { evaluatedBy: string | null; assignedTo: string | null },
+  userId: string,
+  role: string | undefined
+) {
+  return role === 'admin' || parties.evaluatedBy === userId || parties.assignedTo === userId
+}
+
 export async function getEvaluationReplies(evaluationId: string) {
+  const { userId, role } = await getSession()
+  if (!userId) return { data: [], error: 'Unauthorized' }
+
   const supabase = createServiceClient()
+  const parties = await loadEvaluationParties(supabase, evaluationId)
+  if (!parties || !isEvaluationParty(parties, userId, role)) {
+    return { data: [], error: 'ไม่มีสิทธิ์ดูความคิดเห็นของผลประเมินนี้' }
+  }
+
   const { data, error } = await supabase
     .from('kpi_evaluation_replies')
     .select('*, profiles:created_by(id, full_name)')
@@ -556,25 +602,22 @@ export async function getEvaluationReplies(evaluationId: string) {
 }
 
 export async function createEvaluationReply(evaluationId: string, formData: FormData) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
-  
-  // 1. Get original evaluation to know who to notify
-  const { data: evaluation } = await supabase
-    .from('kpi_evaluations')
-    .select('evaluated_by, kpi_assignments(assigned_to, kpi_templates(name))')
-    .eq('id', evaluationId)
-    .single()
 
-  if (!evaluation) return { error: 'Evaluation not found' }
+  // 1. ผลประเมินต้นทาง — รู้ว่าใครเกี่ยว (ตรวจสิทธิ์ + คนที่จะแจ้งเตือน)
+  const parties = await loadEvaluationParties(supabase, evaluationId)
+  if (!parties) return { error: 'Evaluation not found' }
+  if (!isEvaluationParty(parties, userId, role)) {
+    return { error: 'ตอบความคิดเห็นได้เฉพาะผู้ประเมิน เจ้าของ KPI หรือแอดมิน' }
+  }
 
   const rawContent = formData.get('content') as string
   // ล้าง HTML ตอนเขียน (กัน stored XSS) — ข้อความธรรมดาเก็บตามเดิม escape ตอนแสดง
   const content = rawContent && isHtmlContent(rawContent) ? sanitizeHtml(rawContent) : rawContent
   const attachments = JSON.parse(formData.get('attachments') as string || '[]')
-  const mentionedUsers = (formData.get('notify_users') as string || '').split(',').filter(Boolean)
 
   const reply = {
     evaluation_id: evaluationId,
@@ -593,29 +636,11 @@ export async function createEvaluationReply(evaluationId: string, formData: Form
     return { error: error.message }
   }
 
-  // 3. Notify participants
-  // Handle kpi_assignments which might be an array or object depending on relation
-  const assignments = Array.isArray(evaluation.kpi_assignments) 
-    ? evaluation.kpi_assignments[0] 
-    : evaluation.kpi_assignments
-    
-  const assignedTo = assignments?.assigned_to
-  const evaluatedBy = evaluation.evaluated_by
-  
-  // Handle kpi_templates which might be an array or object
-  const templates = assignments?.kpi_templates
-  const template = Array.isArray(templates) ? templates[0] : templates
-  const kpiName = template?.name || 'KPI'
-  
-  // Notify everyone involved except the sender
-  const participants = new Set<string>()
-  if (assignedTo && assignedTo !== userId) participants.add(assignedTo)
-  if (evaluatedBy && evaluatedBy !== userId) participants.add(evaluatedBy)
-  
-  // Add mentioned users
-  mentionedUsers.forEach(u => participants.add(u))
-  
-  // Remove sender just in case they mentioned themselves
+  // 3. แจ้งเตือนเฉพาะผู้ประเมิน + เจ้าของ KPI (ยกเว้นคนส่ง)
+  // notify_users จาก client ไม่ใช้แล้ว: ผลตัดกับ {ผู้ประเมิน, เจ้าของ KPI} = สองคนนี้อยู่แล้ว
+  // (กันยิงแจ้งเตือนหาใครก็ได้)
+  const { assignedTo, evaluatedBy, kpiName } = parties
+  const participants = new Set([assignedTo, evaluatedBy].filter((u): u is string => !!u))
   participants.delete(userId)
 
   if (participants.size > 0) {

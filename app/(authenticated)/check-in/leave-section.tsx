@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { appFileUrl } from '@/lib/file-url'
 import {
   CalendarDays, Heart, Plane, Briefcase, X, Plus, AlertCircle, CheckCircle2,
   Clock, Sparkles, Camera, ImageIcon, ShieldCheck, Trash2, BarChart3,
@@ -286,7 +287,7 @@ function LeaveCard({
       )}
 
       {leave.attachment_url && (
-        <a href={leave.attachment_url} target="_blank" rel="noopener noreferrer"
+        <a href={appFileUrl(leave.attachment_url)} target="_blank" rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 underline decoration-dotted">
           <ImageIcon className="h-3.5 w-3.5" /> ดูใบรับรอง / เอกสารแนบ
         </a>

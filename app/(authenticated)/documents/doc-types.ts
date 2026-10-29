@@ -467,6 +467,49 @@ export const SC_LOCKED_PARTY_KEYS = [
 /** คีย์ใน meta ของ SC ที่ derive จาก salary_profiles + profiles (นอกนั้น = purpose ผู้ขอกรอกเอง) */
 export const SC_LOCKED_META_KEYS = ['position', 'department', 'start_date', 'base_salary'] as const
 
+// ── ไฟล์แนบ (UP) + เอกสารส่วนตัว — ยามความปลอดภัย (รายงานข้อ M6) ──────────────
+
+/** คีย์ใน meta ที่ uploadDocumentFile เป็นผู้เขียนเท่านั้น — saveDraft ห้ามรับจาก client */
+export const FILE_META_KEYS = ['file', 'file_name', 'file_size', 'file_pages'] as const
+
+/** ตัดคีย์ไฟล์แนบออกจาก meta ที่ client ส่งมา (คืน object ใหม่ ไม่แก้ของเดิม) */
+export function stripFileMeta(meta: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const out = { ...(meta || {}) }
+  for (const k of FILE_META_KEYS) delete out[k]
+  return out
+}
+
+/**
+ * path ไฟล์แนบเป็นของเอกสารนี้จริงไหม — uploadDocumentFile เขียนไว้ที่ `documents/<id>/<uuid>.pdf`
+ * เท่านั้น นอกนั้น (ชี้ไปเอกสารอื่น, มี `..`) ให้ถือว่า "ไม่มีไฟล์"
+ */
+export function isOwnDocPath(path: string | null | undefined, docId: string): boolean {
+  const p = String(path ?? '')
+  if (!docId || p.includes('..') || p.includes('\\')) return false
+  return p.startsWith(`documents/${docId}/`) && p.length > `documents/${docId}/`.length
+}
+
+/** ประเภทเอกสารส่วนตัว (คู่สัญญาเป็นพนักงาน/ผู้สมัคร) — derive จาก DOC_TYPES ไม่ hardcode รหัส */
+export const PERSONAL_DOC_TYPES: DocTypeCode[] = DOC_TYPE_CODES.filter(
+  c => DOC_TYPES[c].party === 'employee' || DOC_TYPES[c].party === 'applicant'
+)
+
+/**
+ * ผู้ใช้คนนี้เห็นเอกสารนี้ไหม — admin เห็นทุกใบ · คนอื่นเห็นร่างของตัวเอง + ใบที่ออกเลขแล้ว
+ * ยกเว้นประเภทส่วนตัว (PERSONAL_DOC_TYPES) ที่เห็นเฉพาะใบที่ตัวเองสร้าง แม้ออกเลขแล้ว
+ */
+export function canViewDocument(
+  doc: { doc_type: string; doc_no: string | null; created_by: string | null },
+  role: string | undefined,
+  userId: string | undefined,
+): boolean {
+  if (role === 'admin') return true
+  const isOwner = !!userId && doc.created_by === userId
+  if (isOwner) return true
+  if ((PERSONAL_DOC_TYPES as string[]).includes(doc.doc_type)) return false
+  return !!doc.doc_no
+}
+
 // ── HTML (richtext meta) ─────────────────────────────────────────────────────
 // ล้าง HTML ด้วย sanitizer ตัวเดียวกับทั้งระบบ (DOMPurify + allowlist ใน lib/rich-text-utils.ts)
 export { sanitizeHtml }
@@ -517,8 +560,11 @@ export const TRANSITIONS: Record<DocAction, TransitionDef> = {
   close:     { from: ['sent'],                to: 'closed',           adminOnly: false },
 }
 
-/** transition ที่เจ้าของเอกสารทำเองได้ (นอกนั้นดูที่ adminOnly) */
-const OWNER_ACTIONS: DocAction[] = ['submit', 'mark_sent', 'close']
+/**
+ * transition ที่ต้องเป็นผู้สร้างเอกสาร (หรือ admin) เท่านั้น — นอกนั้นดูที่ adminOnly
+ * 'issue' อยู่ในนี้ด้วย: ไม่งั้นใครก็ออกเลขร่างของคนอื่นได้ (รายงานความปลอดภัยข้อ M6)
+ */
+const OWNER_ACTIONS: DocAction[] = ['submit', 'issue', 'mark_sent', 'close']
 
 export type TransitionCheck = { ok: true } | { ok: false; reason: string }
 

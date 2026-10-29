@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useTransition } from 'react'
 import Link from 'next/link'
+import { appFileUrl } from '@/lib/file-url'
 import {
   ArrowLeft, ChevronLeft, ChevronRight, CalendarDays, RotateCw,
   Sparkles, Clock, CheckCircle2, X as XIcon, AlertCircle,
@@ -617,7 +618,7 @@ function LeaveListRow({
           {leave.attachment_url && (
             <>
               <span className="mx-1.5">·</span>
-              <a href={leave.attachment_url} target="_blank" rel="noopener noreferrer"
+              <a href={appFileUrl(leave.attachment_url)} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 hover:text-zinc-800 dark:hover:text-zinc-200 underline decoration-dotted"
                 onClick={e => e.stopPropagation()}>
                 <ImageIcon className="h-2.5 w-2.5" /> เอกสาร

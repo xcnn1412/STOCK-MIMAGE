@@ -4,9 +4,9 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { DocumentPDF, type DocumentPdfData } from '@/components/pdf/document-pdf'
 import { createServiceClient } from '@/lib/supabase-server'
 import { stampPdf } from '@/lib/pdf-stamp'
-import { getSession } from '@/app/(authenticated)/documents/session'
+import { requireDocuments } from '@/app/(authenticated)/documents/session'
 import {
-  stampModeOf,
+  canViewDocument, isOwnDocPath, stampModeOf,
   type DocBrandRow, type DocTemplateRow, type DocumentItemRow, type DocumentRow,
 } from '@/app/(authenticated)/documents/doc-types'
 
@@ -18,8 +18,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     // /api ไม่ผ่าน proxy.ts — ต้องเช็ค session เองที่นี่
-    // ใช้ getSession ของโมดูลเอกสาร: รองรับคุกกี้ legacy เหมือน actions ทุกตัว
-    const { userId, role } = await getSession()
+    // ต้องมีสิทธิ์โมดูลเอกสาร (admin ผ่านเสมอ) — กติกาเดียวกับ actions ทุกตัว
+    const { userId, role } = await requireDocuments()
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { id } = await ctx.params
@@ -40,8 +40,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (!docRow) return NextResponse.json({ error: 'ไม่พบเอกสาร' }, { status: 404 })
 
     const doc = docRow as unknown as DocumentRow
-    // admin เห็นทุกใบ; คนอื่นเห็นเฉพาะใบที่ออกเลขแล้ว หรือใบที่ตัวเองสร้าง
-    if (role !== 'admin' && !doc.doc_no && doc.created_by !== userId) {
+    // admin เห็นทุกใบ; คนอื่นเห็นใบที่ออกเลขแล้ว หรือใบที่ตัวเองสร้าง
+    // (เอกสารส่วนตัว พนักงาน/ผู้สมัคร = เฉพาะผู้สร้าง) — canViewDocument ตัวเดียวกับ actions.ts
+    if (!canViewDocument(doc, role, userId)) {
       return NextResponse.json({ error: 'ไม่พบเอกสาร' }, { status: 404 })
     }
 
@@ -54,7 +55,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     // Uint8Array<ArrayBuffer> ชัดเจน — NextResponse รับ BodyInit ที่ไม่ใช่ SharedArrayBuffer
     let source: Uint8Array<ArrayBuffer> | null = null
     if (doc.doc_type === 'UP') {
-      const filePath = String(meta.file ?? '').trim()
+      // รับเฉพาะ path ใต้ documents/<id>/ ของเอกสารนี้ (ที่ uploadDocumentFile เขียน) — นอกนั้น = ไม่มีไฟล์
+      const rawPath = String(meta.file ?? '').trim()
+      const filePath = isOwnDocPath(rawPath, id) ? rawPath : ''
       if (!filePath) return NextResponse.json({ error: 'ยังไม่ได้แนบไฟล์ PDF' }, { status: 404 })
 
       const { data: blob, error: dlErr } = await supabase.storage.from('doc-files').download(filePath)

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { calcTax } from '@/lib/finance/money'
 import { cn } from '@/lib/utils'
+import { appFileUrl } from '@/lib/file-url'
 import { getCategoryLabel, getFundingSourceLabel } from '../costs/types'
 import { paymentLock } from './claim-rules'
 import { advanceState } from './claim-queue'
@@ -131,7 +132,7 @@ export function QueuePanelBody({
               {files.map(f => (
                 <li key={f.url} className="min-w-0">
                   <a
-                    href={f.url}
+                    href={appFileUrl(f.url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     title={f.label}
@@ -144,7 +145,7 @@ export function QueuePanelBody({
                       </span>
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={f.url} alt={f.label} loading="lazy" decoding="async" className="aspect-square w-full object-cover" />
+                      <img src={appFileUrl(f.url)} alt={f.label} loading="lazy" decoding="async" className="aspect-square w-full object-cover" />
                     )}
                     <span className="block truncate px-1.5 py-1 text-xs text-zinc-700 dark:text-zinc-300">{f.label}</span>
                   </a>

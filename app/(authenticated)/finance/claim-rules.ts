@@ -157,3 +157,27 @@ export function outstandingLabel(kind: OutstandingKind, isEn: boolean): string {
   }
   return labels[kind][isEn ? 1 : 0]
 }
+
+/** สถานะก่อนจ่ายเงิน — ผู้เบิก (ไม่ใช่แอดมิน) แก้รายการใบกำกับภาษีได้เฉพาะช่วงนี้ */
+export const TAX_INVOICE_EDITABLE_STATUSES: readonly string[] = [
+  'draft', 'pending', 'approved', 'awaiting_payment', 'waiting_tax_invoice', 'pending_month_end',
+]
+
+/** โฟลเดอร์ย่อยที่ uploadReceiptFiles ใช้กับใบเบิกเดียวกัน (`<เลขใบ><suffix>`) */
+const OWN_CLAIM_FOLDER_SUFFIXES: readonly string[] = ['', '-actual', '-refund', '-tax-invoice', '-return']
+
+/**
+ * URL นี้เป็นไฟล์ในโฟลเดอร์ของใบเบิกนี้ในบัคเก็ต receipts หรือไม่
+ * (`/receipts/claims/<safeName>[-actual|-refund|-tax-invoice|-return]/<ไฟล์>`, safeName ตาม uploadReceiptFiles)
+ * แยก path แบบเดียวกับ removeStorageByUrls (split '/receipts/') — ใช้กันลบ/อ้างไฟล์ของใบอื่น
+ * ค่าว่างคืน false (ผู้เรียกจัดการเอง)
+ */
+export function isOwnClaimFileUrl(url: string, claimNumber: string): boolean {
+  if (typeof url !== 'string' || !url || typeof claimNumber !== 'string' || !claimNumber) return false
+  const parts = url.split('/receipts/')
+  if (parts.length !== 2) return false
+  const m = /^claims\/([^/]+)\/([A-Za-z0-9_-][A-Za-z0-9_.-]*)$/.exec(parts[1])
+  if (!m) return false
+  const safeName = claimNumber.replace(/[^a-zA-Z0-9-]/g, '_')
+  return OWN_CLAIM_FOLDER_SUFFIXES.some(suffix => m[1] === `${safeName}${suffix}`)
+}

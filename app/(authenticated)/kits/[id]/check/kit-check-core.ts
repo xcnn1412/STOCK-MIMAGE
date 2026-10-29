@@ -105,8 +105,8 @@ export async function checkoutKitItems(
 
 /**
  * รับอุปกรณ์ในกระเป๋าคืน (ตั้งสถานะตามที่เลือก) + event_logs checkin + syncPacked
- * ตรวจ: สถานะถูกต้อง · อีเวนต์จองกระเป๋าไว้และยังไม่ปิด · ชิ้นอยู่ในกระเป๋าใบนี้ · ไม่ใช่วัสดุสิ้นเปลือง
- * allowClosedEvent = ยอมอีเวนต์ที่ปิดแล้ว (เฉพาะคืนชั้นจากใบจัดของ — QR กระเป๋าไม่ส่ง)
+ * ตรวจ: สถานะถูกต้อง · อีเวนต์จองกระเป๋าไว้และยังไม่ปิด · ชิ้นอยู่ในกระเป๋าใบนี้ · ไม่ใช่วัสดุสิ้นเปลือง · ชิ้นถูกนำออกอยู่ (in_use)
+ * allowClosedEvent = ยอมอีเวนต์ที่ปิดแล้ว และไม่บังคับ in_use (เฉพาะคืนชั้นจากใบจัดของ — QR กระเป๋าไม่ส่ง)
  */
 export async function checkinKitItem(
   db: Db,
@@ -119,6 +119,8 @@ export async function checkinKitItem(
   const target = (await kitItems(db, kitId)).find(i => i.id === itemId)
   if (!target) return { error: 'อุปกรณ์นี้ไม่ได้อยู่ในกระเป๋าใบนี้' }
   if (target.is_consumable) return { error: CONSUMABLE_ERROR }
+  // รับคืนได้เฉพาะชิ้นที่ถูกนำออกอยู่ (in_use) — เว้นคืนชั้นจากใบจัดของ (allowClosedEvent)
+  if (!allowClosedEvent && target.status !== 'in_use') return { error: 'อุปกรณ์นี้ยังไม่ได้ถูกหยิบออก' }
 
   // Update item
   const { error: updateError } = await db.from('items').update({ status }).eq('id', itemId)

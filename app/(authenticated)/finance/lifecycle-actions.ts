@@ -15,7 +15,7 @@ import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
 import { createNotifications } from '@/lib/notifications'
-import { paymentLock, reasonRequiredForTransition, receiptRequiredForSubmit } from './claim-rules'
+import { isOwnClaimFileUrl, paymentLock, reasonRequiredForTransition, receiptRequiredForSubmit } from './claim-rules'
 import { BULK_TRANSITIONS, CLAIM_TRANSITIONS, findTransition, type TransitionKey } from './claim-transitions'
 import { getOutstandingClaims } from './outstanding-data'
 import { markClaimsFiled } from './actions'
@@ -812,12 +812,14 @@ export async function deleteClaim(id: string): Promise<ActionResult> {
   }
 
   // ลบไฟล์ใบเสร็จออกจาก Storage ไม่ให้กลายเป็น orphan (ใบเสร็จ · ใบกำกับภาษี · ใบเสร็จตอนเคลียร์ · สลิปคืนเงิน)
-  await removeStorageByUrls(supabase, 'receipts', [
+  // เฉพาะไฟล์ในโฟลเดอร์ของใบนี้ — URL ที่ชี้ไปไฟล์ของใบอื่นต้องไม่ถูกลบตาม
+  const ownFileUrls = [
     ...(claim.receipt_urls || []),
     ...(claim.tax_invoice_urls || []),
     ...(claim.actual_receipt_urls || []),
     ...(claim.refund_slip_urls || []),
-  ])
+  ].filter((u: unknown): u is string => typeof u === 'string' && isOwnClaimFileUrl(u, claim.claim_number))
+  await removeStorageByUrls(supabase, 'receipts', ownFileUrls)
 
   await logActivity('DELETE_EXPENSE_CLAIM', {
     claimId: id,

@@ -3,7 +3,12 @@
 // server-only: ออกเครือข่าย — ห้าม import จาก client component
 // ดึงเฉพาะ URL ของระบบเอง: ช่อง URL ในใบเบิกเป็นข้อความที่ผู้ใช้แก้ได้ ถ้าดึงทุก URL
 // server จะกลายเป็นตัวยิงคำขอไปที่ไหนก็ได้แทนผู้ใช้ (SSRF)
+// บัคเก็ต receipts เป็น private แล้ว (M3, migration 20261031) — URL สาธารณะเดิมเปิดผ่าน HTTP ไม่ได้
+// จึงดาวน์โหลดผ่าน service client ด้วย path ที่แยกจาก URL แทน
 // ============================================================================
+
+import { createServiceClient } from '@/lib/supabase-server'
+import { parsePrivateFileUrl } from '@/lib/file-url'
 
 export type ClaimFileKind = 'receipt' | 'settlement' | 'tax_invoice' | 'refund_slip'
 export type ClaimFileFailReason = 'fetch' | 'foreign-host' | 'too-large'
@@ -88,13 +93,16 @@ export async function readCapped(res: Response, max: number): Promise<Uint8Array
 }
 
 /**
- * ดึงไฟล์แนบ — เฉพาะ URL ของระบบเอง ไม่ตาม redirect หมดเวลา 15 วินาที ไม่เกิน 15MB
+ * ดึงไฟล์แนบ — เฉพาะ URL ของระบบเอง หมดเวลา 15 วินาที ไม่เกิน 15MB
+ * บัคเก็ตส่วนตัว (receipts) → ดาวน์โหลดผ่าน service client · อย่างอื่น → fetch ไม่ตาม redirect (เผื่อไว้)
  * คืน contentType ด้วย: หน้าใบเบิกใช้เมื่อดูชนิดจากหัวไฟล์ไม่ออก (พฤติกรรมเดิม)
  */
 export async function fetchClaimFile(
   url: string
 ): Promise<{ bytes: Uint8Array; contentType: string | null } | { failReason: ClaimFileFailReason }> {
   if (!isOwnReceiptUrl(url)) return { failReason: 'foreign-host' }
+  const priv = parsePrivateFileUrl(url)
+  if (priv) return downloadPrivateFile(priv.bucket, priv.path)
   try {
     // redirect: 'error' — URL ของระบบเองที่เด้งไปที่อื่นก็ไม่ตาม
     const res = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
@@ -112,6 +120,32 @@ export async function fetchClaimFile(
     return { bytes, contentType: res.headers.get('content-type') }
   } catch {
     // เครือข่ายหลุด / หมดเวลา / ถูก redirect
+    return { failReason: 'fetch' }
+  }
+}
+
+/** ดาวน์โหลดจากบัคเก็ตส่วนตัวด้วย service client — path ใน URL เข้ารหัสไว้ (%20) ถอดก่อนส่งให้สตอเรจ */
+async function downloadPrivateFile(
+  bucket: string,
+  encodedPath: string
+): Promise<{ bytes: Uint8Array; contentType: string | null } | { failReason: ClaimFileFailReason }> {
+  let path: string
+  try {
+    path = encodedPath.split('/').map(decodeURIComponent).join('/')
+  } catch {
+    return { failReason: 'fetch' }
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const timeout = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), FETCH_TIMEOUT_MS) })
+    const got = await Promise.race([createServiceClient().storage.from(bucket).download(path), timeout])
+    clearTimeout(timer)
+    if (!got || got.error || !got.data) return { failReason: 'fetch' }
+    const blob = got.data
+    if (blob.size > CLAIM_FILE_MAX_BYTES) return { failReason: 'too-large' }
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), contentType: blob.type || null }
+  } catch {
+    clearTimeout(timer)
     return { failReason: 'fetch' }
   }
 }

@@ -7,6 +7,7 @@ import { COST_ITEM_STATUSES, canSeeWorkPanel, claimIdFromCostNote, costItemNote,
 import { STATUS_RANK, isBackwardTransition, reasonRequiredForEdit, reasonRequiredForTransition, receiptRequiredForSubmit } from './claim-rules'
 import { isHiddenClaim, paymentLock } from './claim-rules'
 import { outstandingKind, outstandingLabel } from './claim-rules'
+import { TAX_INVOICE_EDITABLE_STATUSES, isOwnClaimFileUrl } from './claim-rules'
 
 const ID = '00000000-0000-4000-8000-000000000101'
 const EVENT = '00000000-0000-4000-8000-000000000901'
@@ -136,5 +137,24 @@ assert.equal(outstandingKind({ claim_type: 'advance', status: 'approved', advanc
 assert.equal(outstandingKind({ claim_type: 'advance', status: 'refund_confirmed', advance_settled_at: '2026-10-01T00:00:00Z', refund_amount: 150 }), null, 'รับเงินคืนแล้ว → ไม่ค้าง')
 assert.equal(outstandingKind({ claim_type: 'advance', status: 'paid', advance_settled_at: null, deleted_at: '2026-10-01T00:00:00Z' }), null, 'ซ่อนแล้ว → ไม่ค้าง')
 assert.equal(outstandingLabel('advance_unsettled', false), 'ค้างเคลียร์ทดลองจ่าย')
+
+// (k) ไฟล์ของใบเบิกนี้เท่านั้น — กันอ้าง/ลบไฟล์ของใบอื่น (M5)
+const RB = 'https://x.supabase.co/storage/v1/object/public/receipts/claims'
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-001/1700_0.jpg`, 'EXP-001'), true, 'ใบเสร็จของใบนี้')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-001-actual/1700_0.pdf`, 'EXP-001'), true, 'โฟลเดอร์ -actual')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-001-refund/1700_0_thumb.jpg`, 'EXP-001'), true, 'โฟลเดอร์ -refund')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-001-tax-invoice/1700_0.png`, 'EXP-001'), true, 'โฟลเดอร์ -tax-invoice')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-002/1700_0.jpg`, 'EXP-001'), false, 'ใบอื่น')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-0010/1700_0.jpg`, 'EXP-001'), false, 'เลขขึ้นต้นเหมือนกัน (EXP-001 vs EXP-0010)')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-0010-actual/1700_0.jpg`, 'EXP-001'), false, 'เลขขึ้นต้นเหมือนกัน + -actual')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP_X_1/1.jpg`, 'EXP/X 1'), true, 'อักขระพิเศษแปลงเป็น _ แบบ uploadReceiptFiles')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-001/../EXP-002/1.jpg`, 'EXP-001'), false, 'ห้ามไต่โฟลเดอร์')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-001/..`, 'EXP-001'), false, 'ชื่อไฟล์ .. ไม่ได้')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-001/sub/1.jpg`, 'EXP-001'), false, 'โฟลเดอร์ย่อยไม่ได้')
+assert.equal(isOwnClaimFileUrl(`https://x/receipts/claims/EXP-001/1.jpg/receipts/claims/EXP-002/1.jpg`, 'EXP-001'), false, '/receipts/ ซ้ำสองครั้ง')
+assert.equal(isOwnClaimFileUrl(`https://x/storage/v1/object/public/receipts/other/EXP-001/1.jpg`, 'EXP-001'), false, 'นอกโฟลเดอร์ claims')
+assert.equal(isOwnClaimFileUrl('', 'EXP-001'), false, 'ค่าว่าง → false (ผู้เรียกจัดการเอง)')
+assert.equal(isOwnClaimFileUrl(`${RB}/EXP-001/1.jpg`, ''), false, 'ไม่มีเลขใบ → false')
+assert.deepEqual([...TAX_INVOICE_EDITABLE_STATUSES].sort(), ['approved', 'awaiting_payment', 'draft', 'pending', 'pending_month_end', 'waiting_tax_invoice'])
 
 console.log('claim-rules: ผ่านทั้งหมด')

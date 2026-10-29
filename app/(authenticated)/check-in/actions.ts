@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache'
 import { requireAuth } from '@/lib/auth'
 import type { DutyInput } from '../salary/compute'
 import { ONSITE_ARRIVED_STATUS, ONSITE_JOB_TYPE, shouldAdvanceToOnsite } from '../jobs/board-logic'
+import { canUseEvent } from '../jobs/ticket-logic'
 
 /**
  * ผู้ใช้ที่กำลังทำรายการ — จาก session ที่ยืนยันกับฐานข้อมูลแล้ว (requireAuth) เท่านั้น
@@ -18,6 +19,34 @@ import { ONSITE_ARRIVED_STATUS, ONSITE_JOB_TYPE, shouldAdvanceToOnsite } from '.
 async function getSession() {
   const s = await requireAuth()
   return { userId: s?.userId, role: s?.role ?? 'staff' }
+}
+
+const CHECK_TYPES = ['office', 'onsite', 'remote']
+/** แถวที่ถูกประทับ paid_slip_id = คิดเงินในสลิปที่ปิดงวดแล้ว — แก้/ลบ/ย้ายอีเวนต์ไม่ได้จนกว่าจะเปิดงวด */
+const PAID_LOCKED_ERROR = 'รายการนี้คิดสลิปแล้ว ให้แอดมินเปิดงวดก่อน'
+
+/**
+ * ผู้ใช้ผูกเช็คอินกับอีเวนต์นี้ได้ไหม (กติกาใน canUseEvent) — คืนข้อความ error หรือ null
+ * อีเวนต์กำหนดวัน/เวลาคิดสลิป (applyEventSchedule) จึงห้ามผูกกับงานที่ตัวเองไม่ได้อยู่ในทีม
+ */
+async function eventAccessError(
+  supabase: ReturnType<typeof createServiceClient>,
+  eventId: string,
+  userId: string,
+  isAdmin: boolean
+): Promise<string | null> {
+  const [{ data: ev }, { data: staff }] = await Promise.all([
+    supabase.from('events').select('id').eq('id', eventId).maybeSingle(),
+    supabase.from('event_staff').select('user_id').eq('event_id', eventId),
+  ])
+  if (!ev) return 'ไม่พบอีเวนต์นี้'
+  const rows = (staff || []) as { user_id: string }[]
+  const ok = canUseEvent({
+    isAdmin,
+    isMember: rows.some(r => r.user_id === userId),
+    eventHasStaff: rows.length > 0,
+  })
+  return ok ? null : 'คุณไม่ได้อยู่ในทีมของอีเวนต์นี้'
 }
 
 // ─── หน้าที่หน้างาน (salary_duties) ───────────────────────
@@ -61,6 +90,8 @@ async function validateDutyCodes(
 
 /** rate card ที่เปิดใช้อยู่ — ใช้ render checkbox ในฟอร์มเช็คอิน */
 export async function getActiveDuties(): Promise<DutyInput[]> {
+  const { userId } = await getSession()
+  if (!userId) return []
   const supabase = createServiceClient()
 
   const { data, error } = await supabase
@@ -206,10 +237,11 @@ async function autoAdvanceOnsiteJobs(eventId: string, actorId: string) {
 // ─── Quick Check-in (ตัวเอง วันนี้) ───────────────────────
 
 export async function checkIn(formData: FormData) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
 
   const checkType = formData.get('check_type') as string || 'office'
+  if (!CHECK_TYPES.includes(checkType)) return { error: 'ประเภทเช็คอินไม่ถูกต้อง' }
   const eventId = formData.get('event_id') as string || null
   const latitude = formData.get('latitude') ? Number(formData.get('latitude')) : null
   const longitude = formData.get('longitude') ? Number(formData.get('longitude')) : null
@@ -229,6 +261,11 @@ export async function checkIn(formData: FormData) {
     return { error: 'กรุณาเลือกอีเวนต์' }
   }
   const supabase = createServiceClient()
+
+  if (checkType === 'onsite' && eventId) {
+    const accessError = await eventAccessError(supabase, eventId, userId, role === 'admin')
+    if (accessError) return { error: accessError }
+  }
 
   if (checkType === 'onsite' && duties.length === 0) {
     // fail-open: ถ้าระบบยังไม่มี rate card เลย (migration ยังไม่รัน / admin ปิดทุกหน้าที่)
@@ -600,19 +637,30 @@ export async function adminDeleteCheckin(checkinId: string) {
 
   const { data: row } = await supabase
     .from('staff_checkins')
-    .select('photo_url, checkout_photo_url')
+    .select('user_id, check_type, checked_in_at, photo_url, checkout_photo_url, paid_slip_id')
     .eq('id', checkinId)
     .single()
+
+  if (!row) return { error: 'ไม่พบ record' }
+  if (row.paid_slip_id) return { error: PAID_LOCKED_ERROR }
 
   const { error } = await supabase
     .from('staff_checkins')
     .delete()
     .eq('id', checkinId)
+    .is('paid_slip_id', null)
 
   if (error) {
     console.error('Admin delete error:', error)
     return { error: error.message || 'เกิดข้อผิดพลาดในการลบ' }
   }
+
+  await logActivity('DELETE_CHECKIN', {
+    checkin_id: checkinId,
+    user_id: row.user_id,
+    check_type: row.check_type,
+    checked_in_at: row.checked_in_at,
+  }, row.user_id)
 
   // ลบรูปเช็คอิน/เช็คเอาต์ออกจาก Storage ไม่ให้กลายเป็น orphan
   if (row) await removeStorageByUrls(supabase, 'checkin-photos', [row.photo_url, row.checkout_photo_url])
@@ -633,8 +681,18 @@ export async function adminEditCheckin(formData: FormData) {
   const clearCheckout = formData.get('clear_checkout') === 'true'
 
   if (!checkinId) return { error: 'ไม่พบ record' }
+  if (checkType && !CHECK_TYPES.includes(checkType)) return { error: 'ประเภทเช็คอินไม่ถูกต้อง' }
 
   const supabase = createServiceClient()
+
+  // แถวเดิมอ่านครั้งเดียว — ใช้ทั้งกันแถวที่จ่ายแล้ว ตรวจหน้าที่ และเทียบเวลาเข้า/ออก
+  const { data: current } = await supabase
+    .from('staff_checkins')
+    .select('id, user_id, check_type, duties, checked_in_at, checked_out_at, paid_slip_id')
+    .eq('id', checkinId)
+    .single()
+  if (!current) return { error: 'ไม่พบ record' }
+  if (current.paid_slip_id) return { error: PAID_LOCKED_ERROR }
 
   const updates: Record<string, unknown> = {}
   if (checkType) updates.check_type = checkType
@@ -665,12 +723,6 @@ export async function adminEditCheckin(formData: FormData) {
   // ไม่งั้นการแก้แค่เวลา/ตจว. ของเช็คอินเก่าที่ยังไม่ได้ติ๊กหน้าที่จะถูกปฏิเสธทั้งที่ไม่เกี่ยว
   // (คำเตือน no_duty ในสลิปตามเรื่องหน้าที่ที่ยังขาดอยู่แล้ว)
   if (dutiesSet || checkType === 'onsite') {
-    const { data: current } = await supabase
-      .from('staff_checkins')
-      .select('check_type, duties')
-      .eq('id', checkinId)
-      .single()
-    if (!current) return { error: 'ไม่พบ record' }
     const finalType = (updates.check_type as string | undefined) ?? current.check_type
     const finalDuties = (updates.duties as string[] | undefined) ?? ((current.duties as string[] | null) ?? [])
     if (finalType === 'onsite' && finalDuties.length === 0) {
@@ -697,13 +749,7 @@ export async function adminEditCheckin(formData: FormData) {
   const checkoutTime = (formData.get('checkout_time') as string | null) || null
 
   if (checkinDate || checkinTime || checkoutTime) {
-    const { data: existing } = await supabase
-      .from('staff_checkins')
-      .select('id, checked_in_at, checked_out_at')
-      .eq('id', checkinId)
-      .single()
-
-    if (!existing) return { error: 'ไม่พบ record' }
+    const existing = current
 
     let newCheckedInAt: string | null = null
     if (checkinDate || checkinTime) {
@@ -741,6 +787,7 @@ export async function adminEditCheckin(formData: FormData) {
     .from('staff_checkins')
     .update(updates)
     .eq('id', checkinId)
+    .is('paid_slip_id', null)
 
   if (error) {
     console.error('Admin edit error:', error)
@@ -748,7 +795,9 @@ export async function adminEditCheckin(formData: FormData) {
   }
 
   // ฟิลด์เหล่านี้กระทบยอดในสลิปเงินเดือน → ต้องมีร่องรอยใน activity log
-  await logActivity('UPDATE_CHECKIN_DUTIES', { checkin_id: checkinId, ...updates })
+  // ชื่อ UPDATE_CHECKIN_DUTIES คงไว้ (เป็น log "แก้เช็คอิน" ของ action นี้อยู่แล้ว) —
+  // scripts/salary-edit-flow.check.ts ตรวจชุดชื่อ log ของการแก้จากสลิปแบบตรงตัว
+  await logActivity('UPDATE_CHECKIN_DUTIES', { checkin_id: checkinId, ...updates }, current.user_id)
 
   revalidatePath('/check-in')
   revalidatePath('/check-in/history')
@@ -759,6 +808,8 @@ export async function adminEditCheckin(formData: FormData) {
 // ─── Queries ──────────────────────────────────────────────
 
 export async function getTodayCheckins() {
+  const { userId, role } = await getSession()
+  if (!userId) return []
   const supabase = createServiceClient()
 
   const now = new Date()
@@ -805,7 +856,11 @@ export async function getTodayCheckins() {
   const merged = [...(todayRes.data || []), ...(staleRes.data || [])]
   // Sort by checked_in_at ascending (stale first since they're older)
   merged.sort((a, b) => (a.checked_in_at || '').localeCompare(b.checked_in_at || ''))
-  return merged
+  if (role === 'admin') return merged
+  // ไม่ใช่แอดมิน: เห็นว่าใครเช็คอินอยู่ แต่ไม่ได้พิกัด GPS และรูปของคนอื่น (แถวของตัวเองคงเดิม)
+  return merged.map(r => r.user_id === userId
+    ? r
+    : { ...r, latitude: null, longitude: null, photo_url: null, checkout_photo_url: null })
 }
 
 // ─── Shared helper: hydrate [ref:closure:UUID] / [ref:jce:UUID] markers ──────
@@ -963,6 +1018,8 @@ export async function getTodayEvents() {
 }
 
 export async function getStaffList() {
+  const { userId } = await getSession()
+  if (!userId) return []
   const supabase = createServiceClient()
 
   const { data } = await supabase
@@ -1126,7 +1183,7 @@ export async function getCheckinReportData(startDate: string, endDate: string) {
 // in the UPDATE's WHERE clause (defense in depth).
 
 export async function updateMyCheckinEvent(checkinId: string, rawEventRef: string | null) {
-  const { userId } = await getSession()
+  const { userId, role } = await getSession()
   if (!userId) return { error: 'Unauthorized' }
   if (!checkinId) return { error: 'ไม่พบ record' }
 
@@ -1134,7 +1191,7 @@ export async function updateMyCheckinEvent(checkinId: string, rawEventRef: strin
 
   const { data: existing } = await supabase
     .from('staff_checkins')
-    .select('id, user_id, note, check_type')
+    .select('id, user_id, note, check_type, paid_slip_id')
     .eq('id', checkinId)
     .eq('user_id', userId)
     .single()
@@ -1143,6 +1200,7 @@ export async function updateMyCheckinEvent(checkinId: string, rawEventRef: strin
   if (existing.check_type !== 'onsite') {
     return { error: 'แก้ไขอีเวนต์ได้เฉพาะ Check-in ประเภท "ไปหน้างาน" เท่านั้น' }
   }
+  if (existing.paid_slip_id) return { error: PAID_LOCKED_ERROR }
 
   const REF_GLOBAL = /\s*\[ref:(closure|jce):[0-9a-fA-F-]{36}\]/g
   let cleanedNote: string | null = existing.note
@@ -1173,11 +1231,18 @@ export async function updateMyCheckinEvent(checkinId: string, rawEventRef: strin
     ? (cleanedNote ? `${cleanedNote} ${refTag}` : refTag)
     : cleanedNote
 
+  // อีเวนต์กำหนดเวลาคิดสลิป — ย้ายไปได้เฉพาะงานที่ตัวเองอยู่ในทีม (แอดมินยกเว้น)
+  if (newEventId) {
+    const accessError = await eventAccessError(supabase, newEventId, userId, role === 'admin')
+    if (accessError) return { error: accessError }
+  }
+
   const { error } = await supabase
     .from('staff_checkins')
     .update({ event_id: newEventId, note: finalNote })
     .eq('id', checkinId)
     .eq('user_id', userId)
+    .is('paid_slip_id', null)
 
   if (error) {
     console.error('Update my checkin event error:', error)
@@ -1298,11 +1363,12 @@ export async function adminUpdateCheckinEvent(checkinId: string, rawEventRef: st
 
   const { data: existing } = await supabase
     .from('staff_checkins')
-    .select('id, note')
+    .select('id, user_id, note, event_id, paid_slip_id')
     .eq('id', checkinId)
     .single()
 
   if (!existing) return { error: 'ไม่พบ record' }
+  if (existing.paid_slip_id) return { error: PAID_LOCKED_ERROR }
 
   // Strip any existing [ref:...] tag from the note before recomputing.
   const REF_GLOBAL = /\s*\[ref:(closure|jce):[0-9a-fA-F-]{36}\]/g
@@ -1339,11 +1405,19 @@ export async function adminUpdateCheckinEvent(checkinId: string, rawEventRef: st
     .from('staff_checkins')
     .update({ event_id: newEventId, note: finalNote })
     .eq('id', checkinId)
+    .is('paid_slip_id', null)
 
   if (error) {
     console.error('Update checkin event error:', error)
     return { error: error.message || 'เกิดข้อผิดพลาดในการบันทึก' }
   }
+
+  await logActivity('EDIT_CHECKIN', {
+    checkin_id: checkinId,
+    from_event_id: existing.event_id,
+    to_event_id: newEventId,
+    ref: refTag,
+  }, existing.user_id)
 
   revalidatePath('/check-in/report')
   return { success: true }
