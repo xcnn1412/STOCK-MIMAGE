@@ -870,6 +870,13 @@ export async function returnPackingList(listId: string, input: ReturnPackingInpu
   }
   for (const k of parsed.kitItems) {
     problems++
+    // ชิ้นในกระเป๋าที่ไม่ได้ออกงาน (เช่น เสีย/ซ่อมค้างอยู่ตั้งแต่ก่อนหยิบ) ตั้งสภาพตรงๆ — checkinKitItem รับเฉพาะชิ้น in_use (M7, 2026-10-29)
+    const st = (states[k.kitId] ?? []).find(s => s.id === k.itemId)
+    if (st && st.status !== 'in_use') {
+      const { error } = await db.from('items').update({ status: k.condition }).eq('id', k.itemId)
+      if (error) return { error: `ตั้งสภาพ "${st.name}" ไม่สำเร็จ — ยังไม่ได้คืนของ ลองใหม่อีกครั้ง` }
+      continue
+    }
     const res = await checkinKitItem(db, { eventId, kitId: k.kitId, itemId: k.itemId, status: k.condition, note: RETURN_NOTE, userId: user.userId })
     if ('error' in res) return { error: `${res.error} — ยังไม่ได้คืนของ ลองใหม่อีกครั้ง` }
   }

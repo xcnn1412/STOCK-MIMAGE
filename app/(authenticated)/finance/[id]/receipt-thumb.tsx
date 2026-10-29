@@ -9,6 +9,7 @@
 
 import { useState } from 'react'
 import { thumbUrlFor } from '@/lib/finance/receipt-thumbs'
+import { appFileUrl } from '@/lib/file-url'
 
 /**
  * รูปของไฟล์แนบหนึ่งไฟล์ — src = รูปย่อ (ถ้ามี) · loading="lazy" · โหลดรูปย่อไม่ได้ → ใช้ url เดิม
@@ -27,7 +28,7 @@ export function ReceiptThumb({ url, alt, className }: { url: string; alt: string
     <img
       loading="lazy"
       decoding="async"
-      src={failed ? url : thumbUrlFor(url) ?? url}
+      src={appFileUrl(failed ? url : thumbUrlFor(url) ?? url)}
       alt={alt}
       onError={fallback}
       // รูปที่พังก่อน React ผูก onError (ตอนเปิดหน้า) — ตรวจตอนติดตั้ง: โหลดเสร็จแล้วแต่ไม่มีขนาด = พัง

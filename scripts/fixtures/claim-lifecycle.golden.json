@@ -3076,7 +3076,7 @@
         "action": "DELETE_EXPENSE_CLAIM",
         "details": {
           "claimId": "<id1>",
-          "claimNumber": "EXP-202609-137"
+          "claimNumber": "DEL"
         }
       }
     ],

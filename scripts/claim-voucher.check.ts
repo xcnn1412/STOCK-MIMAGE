@@ -180,7 +180,19 @@ class Query implements PromiseLike<Result> {
     return Promise.resolve().then(() => this.run()).then(onfulfilled, onrejected)
   }
 }
-const fakeClient = { from: (table: string) => new Query(table) }
+// บัคเก็ต receipts เป็น private (M3) — fetchClaimFile ดาวน์โหลดผ่าน storage.download แทน HTTP
+// สตอเรจจำลองส่งต่อไปที่ fetch จำลองด้วย URL สาธารณะเดิม (golden ของ URL ที่ถูกดึงจึงคงเดิม)
+const fakeStorage = {
+  from: (bucket: string) => ({
+    async download(path: string) {
+      const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const res = await fetch(`${base}/storage/v1/object/public/${bucket}/${path.split('/').map(encodeURIComponent).join('/')}`)
+      if (!res.ok) return { data: null, error: { message: `HTTP ${res.status}` } }
+      return { data: await res.blob(), error: null }
+    },
+  }),
+}
+const fakeClient = { from: (table: string) => new Query(table), storage: fakeStorage }
 
 // ── fetch จำลอง: จดทุก URL ────────────────────────────────────────────────────
 const fetched: string[] = []

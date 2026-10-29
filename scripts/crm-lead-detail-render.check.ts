@@ -178,7 +178,8 @@ const cardsOf = (html: string) => {
   return start < 0 ? '' : html.slice(start, end > start ? end : undefined)
 }
 // รูปสลิปต้องอยู่ใน <a href> (เปิดขนาดเต็มได้โดยไม่พึ่ง hover)
-const SLIP_LINK = /<a [^>]*href="https:\/\/x\.supabase\.co\/[^"]*slip-1\.jpg"[^>]*><img /
+// บัคเก็ตส่วนตัว (M3): ลิงก์และรูปผ่าน /api/file/<bucket>/<path> (lib/file-url.ts::appFileUrl)
+const SLIP_LINK = /<a [^>]*href="\/api\/file\/receipts\/slip-1\.jpg"[^>]*><img src="\/api\/file\/receipts\/slip-1\.jpg"/
 const HTML: Partial<Record<'A' | 'B' | 'C', string>> = {}
 for (const [name, props] of Object.entries(FIXTURES) as ['A' | 'B' | 'C', Props][]) {
   const html = renderToStaticMarkup(createElement(LeadDetail, props))

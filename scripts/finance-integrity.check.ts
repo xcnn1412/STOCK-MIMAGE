@@ -368,7 +368,7 @@ const {
   markAsPendingMonthEnd, markAsWaitingTaxInvoice, uploadTaxInvoice, markAsPaid, deleteClaim, adminOverrideStatus,
   getJobEventsForSelect, settleAdvanceClaim, confirmRefundReceived, addPettyCashExpense, createPettyCashTopup,
   closePettyCashMonth,
-  reopenRejectedClaim,
+  reopenRejectedClaim, setTaxInvoiceEntries,
 } = { ...actions, ...lifecycle }
 
 // ── ตัวช่วย ──────────────────────────────────────────────────────────────────
@@ -796,11 +796,12 @@ async function main() {
     loginAs(ADMIN)
     const put = (path: string) => { storage.set(`receipts/${path}`, 3); return fileUrl(path) }
     const id = seedClaim({
-      status: 'paid', title: 'P0-B9 ลบใบจ่ายแล้ว',
+      status: 'paid', title: 'P0-B9 ลบใบจ่ายแล้ว', claim_number: 'B9',
       receipt_urls: [put('claims/B9/r1.jpg'), put('claims/B9/r2.jpg')],
       actual_receipt_urls: [put('claims/B9-actual/a1.jpg')],
-      tax_invoice_urls: [put('claims/B9-tax-invoice/t1.pdf'), ''],
-      tax_invoice_numbers: ['IV-1', 'IV-2'],
+      // M5: URL ที่ชี้ไปไฟล์ของใบอื่น (เลขขึ้นต้นเหมือนกัน B90) ต้องไม่ถูกลบตาม
+      tax_invoice_urls: [put('claims/B9-tax-invoice/t1.pdf'), '', put('claims/B90/victim.jpg')],
+      tax_invoice_numbers: ['IV-1', 'IV-2', 'IV-3'],
       refund_slip_urls: [put('claims/B9-refund/s1.jpg')],
     })
     seedCostItem(id, `${claimRow(id).claim_number}::${id}`)
@@ -813,7 +814,7 @@ async function main() {
     assert.deepEqual(removed, [
       'claims/B9-actual/a1.jpg', 'claims/B9-refund/s1.jpg', 'claims/B9-tax-invoice/t1.pdf', 'claims/B9/r1.jpg', 'claims/B9/r2.jpg',
     ], 'ขอลบใบเสร็จ · ใบเสร็จตอนเคลียร์ · ใบกำกับภาษี · สลิปคืนเงิน')
-    assert.deepEqual(storageKeys(), [`receipts/${keep.split('/receipts/')[1]}`], 'ไฟล์ของใบอื่นยังอยู่')
+    assert.deepEqual(storageKeys().sort(), ['receipts/claims/B90/victim.jpg', `receipts/${keep.split('/receipts/')[1]}`].sort(), 'ไฟล์ของใบอื่นยังอยู่ (รวมไฟล์ที่ใบนี้อ้างถึง)')
     storage.clear()
 
     // สถานะอื่นก็ลบรายการ (เดิมลบเฉพาะ approved)
@@ -918,16 +919,54 @@ async function main() {
     const settleLogs = (id: string) => logsOf(id).filter(l => l.action === 'settle_advance').length
     loginAs(STAFF)
 
-    // 1) คนเดียว ทีละครั้ง: เคลียร์แล้วแก้ยอดได้ตามเดิม ไฟล์ของทั้งสองครั้งอยู่ครบ
+    // 1) คนเดียว ทีละครั้ง: ผู้เบิกเคลียร์ได้ครั้งเดียว (M5) — แก้ยอดครั้งที่สองต้องเป็นแอดมิน ไฟล์ของทั้งสองครั้งอยู่ครบ
     const normal = advance()
     let res = await quietly(() => settleAdvanceClaim(normal, settleForm(800, { actual: ['n1.jpg'] })))
     assert.equal(res.error, undefined, `เคลียร์ครั้งแรกต้องสำเร็จ (ได้ ${JSON.stringify(res)})`)
+    {
+      const before = JSON.stringify(claimRow(normal)), keys = storageKeys()
+      res = await quietly(() => settleAdvanceClaim(normal, settleForm(1000, { actual: ['n-again.jpg'] })))
+      assert.equal(res.error, 'เคลียร์ทดลองจ่ายไปแล้ว รอแอดมินยืนยัน — ติดต่อแอดมินถ้าต้องแก้', 'M5: ผู้เบิกเคลียร์ซ้ำไม่ได้')
+      assert.equal(JSON.stringify(claimRow(normal)), before, 'M5: เคลียร์ซ้ำไม่ถูกบันทึก')
+      assert.deepEqual(storageKeys(), keys, 'M5: เคลียร์ซ้ำไม่อัปโหลดไฟล์')
+    }
+    loginAs(ADMIN)
     res = await quietly(() => settleAdvanceClaim(normal, settleForm(700, { actual: ['n2.jpg'] })))
-    assert.equal(res.error, undefined, `แก้ยอดครั้งที่สองต้องสำเร็จ (ได้ ${JSON.stringify(res)})`)
+    assert.equal(res.error, undefined, `แอดมินแก้ยอดครั้งที่สองต้องสำเร็จ (ได้ ${JSON.stringify(res)})`)
+    loginAs(STAFF)
     assert.equal(claimRow(normal).actual_spent_amount, 700)
     assert.equal(claimRow(normal).refund_amount, 300)
     assert.equal((claimRow(normal).actual_receipt_urls as string[]).length, 2, 'ไฟล์ของทั้งสองครั้งอยู่ครบ')
     assert.equal(settleLogs(normal), 2)
+
+    // 1b) M5: ใช้เต็มจำนวนโดยไม่มีใบเสร็จ / ยอดติดลบ → ปฏิเสธ ไม่บันทึก · มีใบเสร็จ → ได้
+    {
+      const full = advance()
+      const before = JSON.stringify(claimRow(full))
+      res = await quietly(() => settleAdvanceClaim(full, settleForm(1000)))
+      assert.equal(res.error, 'กรุณาแนบใบเสร็จค่าใช้จ่ายจริง', 'M5: ใช้เต็มจำนวนต้องมีใบเสร็จ')
+      assert.equal(JSON.stringify(claimRow(full)), before, 'M5: ไม่มีใบเสร็จ → ไม่บันทึก')
+      const neg = new FormData()
+      neg.set('actual_spent_items', JSON.stringify([{ description: 'ค่ารถ', amount: 1500 }, { description: 'หักเอง', amount: -500 }]))
+      neg.append('actual_receipt_files', file('neg.jpg'))
+      const keys = storageKeys()
+      res = await quietly(() => settleAdvanceClaim(full, neg))
+      assert.equal(res.error, 'ยอดค่าใช้จ่ายแต่ละรายการต้องเป็นตัวเลขที่ไม่ติดลบ', 'M5: รายการติดลบ → ปฏิเสธ')
+      const nan = new FormData()
+      nan.set('actual_spent_items', JSON.stringify([{ description: 'ค่ารถ', amount: 'abc' }]))
+      res = await quietly(() => settleAdvanceClaim(full, nan))
+      assert.equal(res.error, 'ยอดค่าใช้จ่ายแต่ละรายการต้องเป็นตัวเลขที่ไม่ติดลบ', 'M5: ยอดไม่ใช่ตัวเลข → ปฏิเสธ')
+      assert.equal(JSON.stringify(claimRow(full)), before, 'M5: ยอดผิด → ไม่บันทึก')
+      assert.deepEqual(storageKeys(), keys, 'M5: ยอดผิด → ไม่อัปโหลด')
+      res = await quietly(() => settleAdvanceClaim(full, settleForm(1000, { actual: ['full.jpg'] })))
+      assert.equal(res.error, undefined, `M5: ใช้เต็มจำนวน + ใบเสร็จ → ได้ (ได้ ${JSON.stringify(res)})`)
+      assert.equal(claimRow(full).refund_amount, 0)
+      const adminFull = advance()
+      loginAs(ADMIN)
+      res = await quietly(() => settleAdvanceClaim(adminFull, settleForm(1000)))
+      assert.equal(res.error, undefined, `M5: แอดมินไม่ต้องมีใบเสร็จ (ได้ ${JSON.stringify(res)})`)
+      loginAs(STAFF)
+    }
 
     // 2) อ่านแล้วยังไม่เขียน มีคนบันทึกการเคลียร์ไปก่อน (ยังไม่เคยเคลียร์ / เคยเคลียร์แล้ว) — ไฟล์ของคำขอนี้ต้องถูกลบ
     const first = advance()
@@ -935,6 +974,7 @@ async function main() {
       { advance_settled_at: '2026-09-30T01:00:00.000Z', advance_settled_by: ADMIN, actual_spent_amount: 500, refund_amount: 500 },
       () => settleAdvanceClaim(first, settleForm(900, { actual: ['r1.jpg'], refund: ['r2.jpg'] })), SETTLE_STALE)
     const again = advance({ advance_settled_at: '2026-09-29T01:00:00.000Z', advance_settled_by: STAFF, actual_spent_amount: 900, refund_amount: 100 })
+    loginAs(ADMIN) // เคลียร์ซ้ำ = แอดมินเท่านั้น (M5)
     await expectStale('settleAdvanceClaim: เคยเคลียร์แล้ว มีคนแก้ยอดไปก่อน', again,
       { advance_settled_at: '2026-09-30T02:00:00.000Z', actual_spent_amount: 600, refund_amount: 400 },
       () => settleAdvanceClaim(again, settleForm(950, { actual: ['r3.jpg'] })), SETTLE_STALE)
@@ -944,6 +984,7 @@ async function main() {
     await expectStale('settleAdvanceClaim: แอดมินยืนยันเงินคืนไปก่อน', confirmed,
       { status: 'refund_confirmed', refund_confirmed_by: ADMIN, refund_confirmed_at: '2026-09-30T03:00:00.000Z' },
       () => settleAdvanceClaim(confirmed, settleForm(100, { refund: ['late.jpg'] })), SETTLE_STALE)
+    loginAs(STAFF)
     const cancelled = advance()
     await expectStale('settleAdvanceClaim: ใบถูกยกเลิกระหว่างทาง', cancelled,
       { status: 'cancelled', cancelled_by: ADMIN, cancelled_at: '2026-09-30T04:00:00.000Z' },
@@ -988,6 +1029,80 @@ async function main() {
     }
   }
   pass('v1.24.3 เคลียร์ใบทดลองจ่าย: ทีละครั้งแก้ยอดได้ · มีคนบันทึกไปก่อน / แอดมินยืนยันเงินคืน / ยกเลิก ระหว่างทาง → "ถูกบันทึกหรือเปลี่ยนสถานะไปแล้ว" ไม่เขียนทับ ไม่มีผลข้างเคียง ไฟล์ถูกลบ · กดพร้อมกันสองครั้ง → สำเร็จหนึ่ง ไฟล์ของอีกคำขอไม่ค้าง · ทางสำรองมีเงื่อนไขเดียวกัน')
+
+  // ══ M5: แก้รายการใบกำกับภาษี — URL ต้องเป็นไฟล์ของใบนี้ · ผู้เบิกแก้ได้เฉพาะก่อนจ่าย ═══════════════════
+  {
+    loginAs(STAFF)
+    const id = seedClaim({ status: 'waiting_tax_invoice', submitted_by: STAFF, claim_number: 'EXP-M5', tax_invoice_urls: [], tax_invoice_numbers: [] })
+    const before = JSON.stringify(claimRow(id))
+    for (const foreign of [fileUrl('claims/EXP-OTHER/victim.jpg'), fileUrl('claims/EXP-M50/victim.jpg'), 'https://evil.example/x.pdf']) {
+      const res = await setTaxInvoiceEntries(id, [{ url: foreign, number: 'IV-1' }])
+      assert.equal(res.error, 'ไฟล์ใบกำกับภาษีต้องอัปโหลดผ่านใบเบิกนี้', `URL ของใบอื่น (${foreign}) → ปฏิเสธ`)
+      assert.equal(JSON.stringify(claimRow(id)), before, 'URL ของใบอื่น → ไม่บันทึก')
+    }
+    const own = fileUrl('claims/EXP-M5-tax-invoice/1700_0.pdf')
+    let res = await setTaxInvoiceEntries(id, [{ url: own, number: 'IV-1' }, { url: '', number: 'IV-2' }])
+    assert.equal(res.error, undefined, `URL ของใบนี้ → ได้ (ได้ ${JSON.stringify(res)})`)
+    assert.deepEqual(claimRow(id).tax_invoice_urls, [own, ''])
+    // ใบเก่าที่มี URL นอกโฟลเดอร์อยู่แล้ว: แก้เลข/สลับลำดับได้ (ไม่ได้เพิ่ม URL ใหม่)
+    const legacyUrl = fileUrl('claims/legacy-path/old.jpg')
+    const legacy = seedClaim({ status: 'approved', submitted_by: STAFF, claim_number: 'EXP-M5L', tax_invoice_urls: [legacyUrl], tax_invoice_numbers: ['A'] })
+    res = await setTaxInvoiceEntries(legacy, [{ url: legacyUrl, number: 'B' }])
+    assert.equal(res.error, undefined, `URL เดิมของใบ → คงไว้ได้ (ได้ ${JSON.stringify(res)})`)
+    // จ่ายแล้ว: ผู้เบิกแก้ไม่ได้ แอดมินได้
+    const paid = seedClaim({ status: 'paid', submitted_by: STAFF, claim_number: 'EXP-M5P', tax_invoice_urls: [], tax_invoice_numbers: [] })
+    const paidBefore = JSON.stringify(claimRow(paid))
+    res = await setTaxInvoiceEntries(paid, [{ url: '', number: 'IV-9' }])
+    assert.equal(res.error, 'แก้ใบกำกับภาษีได้เฉพาะก่อนจ่ายเงิน — ติดต่อแอดมินถ้าต้องแก้', 'ใบจ่ายแล้ว → ผู้เบิกแก้ไม่ได้')
+    assert.equal(JSON.stringify(claimRow(paid)), paidBefore, 'ใบจ่ายแล้ว → ไม่บันทึก')
+    loginAs(ADMIN)
+    res = await setTaxInvoiceEntries(paid, [{ url: '', number: 'IV-9' }])
+    assert.equal(res.error, undefined, `แอดมินแก้ใบจ่ายแล้วได้ (ได้ ${JSON.stringify(res)})`)
+    res = await setTaxInvoiceEntries(paid, [{ url: fileUrl('claims/EXP-OTHER/victim.jpg'), number: 'IV-9' }])
+    assert.equal(res.error, 'ไฟล์ใบกำกับภาษีต้องอัปโหลดผ่านใบเบิกนี้', 'แอดมินก็ใส่ URL ของใบอื่นไม่ได้')
+    loginAs(STAFF)
+  }
+  // ══ M5: ไฟล์แนบรับเฉพาะ JPG/PNG/WebP/PDF ≤ 15MB · updateClaim ตรวจตัวเลขแบบ createClaim ════════════════
+  {
+    loginAs(STAFF)
+    const id = seedClaim({ status: 'draft', submitted_by: STAFF })
+    const before = JSON.stringify(claimRow(id)), keys = storageKeys()
+    const bad = [
+      new File(['<svg/>'], 'x.jpg', { type: 'image/svg+xml' }),
+      new File(['<html>'], 'x.pdf', { type: 'text/html' }),
+      new File([new Uint8Array(15 * 1024 * 1024 + 1)], 'big.jpg', { type: 'image/jpeg' }),
+    ]
+    for (const f of bad) {
+      const fd = new FormData()
+      fd.append('receipt_files', file('ok.jpg'))
+      fd.append('receipt_files', f)
+      const res = await quietly(() => updateClaim(id, { title: 'แก้' }, fd))
+      assert.equal(res.error, 'รองรับเฉพาะ JPG/PNG/WebP/PDF ไม่เกิน 15MB', `ไฟล์ ${f.type} ${f.size}B → ปฏิเสธ`)
+      assert.equal(JSON.stringify(claimRow(id)), before, 'ไฟล์ผิดชนิด → ไม่บันทึก')
+      assert.deepEqual(storageKeys(), keys, 'ไฟล์ผิดชนิด → ไม่อัปโหลดอะไรเลย')
+    }
+    // นามสกุลมาจากชนิดไฟล์ ไม่ใช่ชื่อไฟล์
+    const fd = new FormData()
+    fd.append('receipt_files', new File([new Uint8Array(3)], 'evil.html', { type: 'image/png' }))
+    const ok = await quietly(() => updateClaim(id, { title: 'แก้' }, fd))
+    assert.equal(ok.error, undefined, `PNG ชื่อ .html → อัปโหลดได้ (ได้ ${JSON.stringify(ok)})`)
+    assert.ok((claimRow(id).receipt_urls as string[]).at(-1)!.endsWith('.png'), 'เก็บเป็น .png ตามชนิดไฟล์')
+    for (const [patch, msg] of [
+      [{ amount: -1 }, 'จำนวนเงิน ราคาต่อหน่วย และจำนวน ต้องเป็นตัวเลขที่ไม่ติดลบ'],
+      [{ unit_price: Number.NaN }, 'จำนวนเงิน ราคาต่อหน่วย และจำนวน ต้องเป็นตัวเลขที่ไม่ติดลบ'],
+      [{ quantity: 0 }, 'จำนวนต้องมีอย่างน้อย 1'],
+      [{ vat_mode: 'weird' }, 'รูปแบบ VAT ไม่ถูกต้อง'],
+      [{ withholding_tax_rate: 150 }, 'อัตราหัก ณ ที่จ่ายต้องอยู่ระหว่าง 0–100%'],
+    ] as const) {
+      const snap = JSON.stringify(claimRow(id))
+      const res = await quietly(() => updateClaim(id, patch))
+      assert.equal(res.error, msg, `updateClaim ${JSON.stringify(patch)} → ${msg}`)
+      assert.equal(JSON.stringify(claimRow(id)), snap, 'ตัวเลขผิด → ไม่บันทึก')
+    }
+  }
+  pass('M5 uploadReceiptFiles ชนิด/ขนาดนอกรายการ → ปฏิเสธก่อนอัปโหลด · นามสกุลจากชนิดไฟล์ · updateClaim ตัวเลขติดลบ/NaN/VAT ผิด → ปฏิเสธ')
+
+  pass('M5 setTaxInvoiceEntries: URL ของใบอื่น/นอกระบบ → ปฏิเสธไม่บันทึก · URL ของใบนี้/URL เดิม → ได้ · ใบจ่ายแล้วผู้เบิกแก้ไม่ได้ แอดมินได้')
 
   // ══ v1.25.0 ขั้น 1: ยื่นทันที · แจ้งเตือนยื่น/จ่าย · เปิดใบที่ถูกปฏิเสธ · เหตุผลเฉพาะที่จำเป็น ═══════════════
   {

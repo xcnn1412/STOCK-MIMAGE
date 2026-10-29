@@ -33,6 +33,7 @@ import { thaiTodayIso } from '@/lib/thai-date'
 import EventSelectCombobox from '../new/event-select-combobox'
 import { canSeeWorkPanel, receiptRequiredForSubmit, reasonRequiredForTransition, reasonRequiredForEdit, paymentLock, outstandingKind } from '../claim-rules'
 import { ReceiptThumb, appendFilePairs, settleThumb, type FilePair } from './receipt-thumb'
+import { appFileUrl } from '@/lib/file-url'
 import { OutstandingAlert } from '../outstanding-alert'
 import type { OutstandingClaim } from '../outstanding-data'
 
@@ -1483,7 +1484,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     {claim.receipt_urls.map((url, i) => (
                       <div key={url} className="space-y-1.5">
                         <div className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded text-xs">
-                          <a href={url} target="_blank" rel="noopener noreferrer" className="truncate text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 hover:underline">
+                          <a href={appFileUrl(url)} target="_blank" rel="noopener noreferrer" className="truncate text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 hover:underline">
                             {isEn ? 'File' : 'ไฟล์'} {i + 1} — {decodeURIComponent(url.split('/').pop() || '')}
                           </a>
                           <button
@@ -1816,7 +1817,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       return (
                         <a
                           key={i}
-                          href={url}
+                          href={appFileUrl(url)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="group relative block rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden hover:border-emerald-400 hover:shadow-md transition-all aspect-[4/3] bg-zinc-50 dark:bg-zinc-800"
@@ -1953,7 +1954,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     {claim.actual_receipt_urls.map((url, i) => {
                       const isPdf = url.toLowerCase().endsWith('.pdf')
                       return (
-                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="group relative block rounded-lg border border-amber-200 dark:border-amber-800 overflow-hidden hover:border-amber-400 hover:shadow-md transition-all aspect-[4/3] bg-amber-50 dark:bg-amber-950/20">
+                        <a key={i} href={appFileUrl(url)} target="_blank" rel="noopener noreferrer" className="group relative block rounded-lg border border-amber-200 dark:border-amber-800 overflow-hidden hover:border-amber-400 hover:shadow-md transition-all aspect-[4/3] bg-amber-50 dark:bg-amber-950/20">
                           {isPdf ? (
                             <div className="flex flex-col items-center justify-center h-full gap-2 text-amber-400">
                               <FileText className="h-10 w-10" />
@@ -1984,7 +1985,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                     {claim.refund_slip_urls.map((url, i) => {
                       const isPdf = url.toLowerCase().endsWith('.pdf')
                       return (
-                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="group relative block rounded-lg border border-emerald-200 dark:border-emerald-800 overflow-hidden hover:border-emerald-400 hover:shadow-md transition-all aspect-[4/3] bg-emerald-50 dark:bg-emerald-950/20">
+                        <a key={i} href={appFileUrl(url)} target="_blank" rel="noopener noreferrer" className="group relative block rounded-lg border border-emerald-200 dark:border-emerald-800 overflow-hidden hover:border-emerald-400 hover:shadow-md transition-all aspect-[4/3] bg-emerald-50 dark:bg-emerald-950/20">
                           {isPdf ? (
                             <div className="flex flex-col items-center justify-center h-full gap-2 text-emerald-400">
                               <FileText className="h-10 w-10" />
@@ -2062,7 +2063,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                               </div>
                               {url ? (
                                 <a
-                                  href={url}
+                                  href={appFileUrl(url)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="group block rounded-md border border-sky-200 dark:border-sky-800 overflow-hidden bg-white dark:bg-zinc-900 hover:border-sky-400 hover:shadow-md transition-all aspect-[4/3]"
@@ -2103,7 +2104,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                                   </span>
                                   {entry.url ? (
                                     <a
-                                      href={entry.url}
+                                      href={appFileUrl(entry.url)}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="flex items-center gap-1 px-2 py-1 text-[11px] text-sky-600 hover:text-sky-700 hover:underline shrink-0"
@@ -3348,7 +3349,7 @@ export default function ClaimDetailView({ claim, role, categories = [], logs = [
                       {claim.refund_slip_urls.map((url, i) => {
                         const isPdf = url.toLowerCase().endsWith('.pdf')
                         return (
-                          <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg border border-orange-200 dark:border-orange-800 overflow-hidden aspect-[4/3] bg-orange-50 dark:bg-orange-950/20">
+                          <a key={i} href={appFileUrl(url)} target="_blank" rel="noopener noreferrer" className="block rounded-lg border border-orange-200 dark:border-orange-800 overflow-hidden aspect-[4/3] bg-orange-50 dark:bg-orange-950/20">
                             {isPdf
                               ? <div className="flex flex-col items-center justify-center h-full gap-1 text-orange-400"><FileText className="h-6 w-6" /><span className="text-[10px]">PDF</span></div>
                               : <ReceiptThumb url={url} alt={`${isEn ? 'return slip' : 'สลิปคืน'} ${i + 1}`} className="w-full h-full object-cover" />}

@@ -584,6 +584,7 @@ async function main() {
   await scenario('deleteClaim/approved-job-linked', async () => {
     const id = seedClaim({
       status: 'approved', approved_by: ADMIN, approved_at: '2026-09-12T03:00:00.000Z',
+      claim_number: 'DEL', // ไฟล์อยู่ในโฟลเดอร์ของใบนี้ — deleteClaim ลบเฉพาะไฟล์ของใบตัวเอง (M5)
       receipt_urls: [putFile('claims/DEL/r1.jpg'), putFile('claims/DEL/r2.jpg')],
       actual_receipt_urls: [putFile('claims/DEL-actual/a1.jpg')],
       tax_invoice_urls: [putFile('claims/DEL-tax-invoice/t1.pdf'), ''],

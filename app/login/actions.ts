@@ -15,6 +15,38 @@ import type { ActionState } from '@/types'
 const MAX_FAILED_ATTEMPTS = 10
 const LOCKOUT_DURATION_MS = 30 * 60 * 1000 // 30 minutes
 
+/** ข้อความเดียวสำหรับ "ไม่พบเบอร์" และ "PIN ผิด" */
+const INVALID_CREDENTIALS = 'เบอร์โทรหรือ PIN ไม่ถูกต้อง'
+const tooManyAttempts = (minutes: number) => `พยายามเข้าสู่ระบบมากเกินไป กรุณารอ ${minutes} นาที`
+
+/**
+ * นับ PIN ผิด +1 แบบ atomic ผ่าน rpc increment_failed_login (migration 20261030) คืนจำนวนครั้งล่าสุด
+ * rpc ใช้ไม่ได้ (42883/PGRST202 = ยังไม่ได้รัน migration หรือ error อื่น) → อ่าน-แล้ว-เขียนแบบเดิม ให้ลำดับ deploy ไม่สำคัญ
+ */
+async function recordFailedLogin(
+    supabase: ReturnType<typeof createServiceClient>,
+    userId: string,
+    previousAttempts: number | null | undefined
+): Promise<number> {
+    const { data, error } = await supabase.rpc('increment_failed_login', {
+        p_user: userId,
+        p_max: MAX_FAILED_ATTEMPTS,
+        p_lock_minutes: LOCKOUT_DURATION_MS / 60000,
+    })
+    if (!error && typeof data === 'number') return data
+    if (error && error.code !== '42883' && error.code !== 'PGRST202') {
+        console.error('increment_failed_login failed — fallback to read-modify-write:', error)
+    }
+
+    const currentAttempts = (previousAttempts || 0) + 1
+    const updateData: Record<string, unknown> = { failed_login_attempts: currentAttempts }
+    if (currentAttempts >= MAX_FAILED_ATTEMPTS) {
+        updateData.locked_until = new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString()
+    }
+    await supabase.from('profiles').update(updateData).eq('id', userId)
+    return currentAttempts
+}
+
 // Phone validation: Thai mobile format (0X-XXXX-XXXX) or international
 const PHONE_REGEX = /^(\+?66|0)[0-9]{8,9}$/
 
@@ -47,12 +79,14 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
         return { error: 'PIN must be exactly 6 digits' }
     }
 
-    // Rate limiting: 5 attempts per 15 minutes per IP+phone
+    // Rate limiting: 5 ครั้ง / 15 นาที ต่อ IP+เบอร์ และ 20 ครั้ง / 15 นาที ต่อเบอร์ (กันสลับ IP ไล่เดา PIN)
     const headersList = await headers()
     const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
     const rateLimitResult = checkRateLimit(`${ip}:${cleanedPhone}`)
-    if (!rateLimitResult.allowed) {
-        return { error: `พยายามเข้าสู่ระบบมากเกินไป กรุณารอ ${rateLimitResult.retryAfterMinutes} นาที` }
+    const phoneLimitResult = checkRateLimit('login-phone:' + cleanedPhone, { limit: 20, windowMs: 15 * 60_000 })
+    const limited = [rateLimitResult, phoneLimitResult].find(r => !r.allowed)
+    if (limited) {
+        return { error: tooManyAttempts(limited.retryAfterMinutes) }
     }
 
     // Use service role client for secure server-side operations
@@ -66,7 +100,7 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
     }
 
     try {
-        // 1. Verify Credentials
+        // 1. Verify Credentials — ไม่พบเบอร์ใช้ข้อความเดียวกับ PIN ผิด (กันไล่เช็กว่าเบอร์ไหนมีในระบบ)
         const { data: user, error } = await supabase
             .from('profiles')
             .select('*')
@@ -74,42 +108,34 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
             .single()
 
         if (error || !user) {
-            return { error: 'Phone number not found' }
+            return { error: INVALID_CREDENTIALS }
         }
 
         // 2. Account Lockout Check
         const lockedUntil = (user as any).locked_until ? new Date((user as any).locked_until) : null
         if (lockedUntil && lockedUntil > new Date()) {
-            const minutesLeft = Math.ceil((lockedUntil.getTime() - Date.now()) / 60000)
-            return { error: `บัญชีถูกล็อคชั่วคราว กรุณารอ ${minutesLeft} นาที หรือติดต่อผู้ดูแลระบบ` }
+            return { error: tooManyAttempts(Math.ceil((lockedUntil.getTime() - Date.now()) / 60000)) }
         }
 
-        // 3. Verify PIN
+        // 3. Verify PIN — ก่อนบอกว่าบัญชีถูกระงับ/รออนุมัติ (บัญชีที่ถูกระงับต้องไม่ใช่ช่องทดลอง PIN)
         const pinValid = await bcrypt.compare(pin, user.pin || '')
         if (!pinValid) {
-            // Increment failed attempts
-            const currentAttempts = ((user as any).failed_login_attempts || 0) + 1
-            const updateData: Record<string, any> = { failed_login_attempts: currentAttempts }
+            const currentAttempts = await recordFailedLogin(supabase, user.id, (user as any).failed_login_attempts)
 
             if (currentAttempts >= MAX_FAILED_ATTEMPTS) {
-                updateData.locked_until = new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString()
                 await logActivity('ACCOUNT_LOCKED', {
                     phone: cleanedPhone,
                     attempts: currentAttempts,
                     ip
                 }, undefined, user.id)
+                return { error: tooManyAttempts(LOCKOUT_DURATION_MS / 60000) }
             }
-
-            await supabase.from('profiles').update(updateData).eq('id', user.id)
 
             const remaining = MAX_FAILED_ATTEMPTS - currentAttempts
-            if (remaining > 0 && remaining <= 3) {
-                return { error: `รหัส PIN ไม่ถูกต้อง (เหลืออีก ${remaining} ครั้งก่อนบัญชีถูกล็อค)` }
+            if (remaining <= 3) {
+                return { error: `${INVALID_CREDENTIALS} (เหลืออีก ${remaining} ครั้ง)` }
             }
-            if (currentAttempts >= MAX_FAILED_ATTEMPTS) {
-                return { error: 'บัญชีถูกล็อค 30 นาที เนื่องจากใส่รหัสผิดเกินจำนวนครั้งที่กำหนด' }
-            }
-            return { error: 'รหัส PIN ไม่ถูกต้อง' }
+            return { error: INVALID_CREDENTIALS }
         }
 
         if ((user as any).is_blocked) {

@@ -15,6 +15,7 @@ import { hhmm, type DutyInput } from '../salary/compute'
 import { THAI_PROVINCES } from '@/lib/thai-address'
 import EventSelectCombobox from '../finance/new/event-select-combobox'
 import Link from 'next/link'
+import { appFileUrl } from '@/lib/file-url'
 
 // ─── Image compression for smartphone photos ──────────────────────
 function compressImage(file: File, maxSize: number, quality: number): Promise<string> {
@@ -1051,7 +1052,7 @@ export default function CheckInView({
                   {c.photo_url ? (
                     <button onClick={() => setShowPhotoLightbox(c.photo_url)}
                       className="h-8 w-8 rounded-full overflow-hidden shrink-0 border border-zinc-200 dark:border-zinc-700 hover:ring-2 hover:ring-zinc-300 transition-all">
-                      <img src={c.photo_url} alt="" className="h-full w-full object-cover" />
+                      <img src={appFileUrl(c.photo_url)} alt="" className="h-full w-full object-cover" />
                     </button>
                   ) : (
                     <span className="text-lg shrink-0">{type?.emoji || '🏢'}</span>
@@ -1074,7 +1075,7 @@ export default function CheckInView({
                           {c.checkout_photo_url && (
                             <button onClick={() => setShowPhotoLightbox(c.checkout_photo_url)}
                               className="h-4 w-4 rounded-sm overflow-hidden border border-emerald-300 dark:border-emerald-700 hover:ring-1 hover:ring-emerald-400 transition-all shrink-0">
-                              <img src={c.checkout_photo_url} alt="" className="h-full w-full object-cover" />
+                              <img src={appFileUrl(c.checkout_photo_url)} alt="" className="h-full w-full object-cover" />
                             </button>
                           )}
                           <p className="text-[10px] text-emerald-500 font-medium">ออก {formatTime(c.checked_out_at)}</p>
@@ -1219,7 +1220,7 @@ export default function CheckInView({
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setShowPhotoLightbox(null)}>
           <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
-            <img src={showPhotoLightbox} alt="Check-in photo"
+            <img src={appFileUrl(showPhotoLightbox)} alt="Check-in photo"
               className="w-full h-auto rounded-2xl shadow-2xl" />
             <button onClick={() => setShowPhotoLightbox(null)}
               className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform">
@@ -1477,7 +1478,7 @@ function ActiveSessionCard({
         {session.photo_url && (
           <button onClick={() => onLightbox(session.photo_url!)}
             className="block rounded-lg overflow-hidden border border-white/60 dark:border-zinc-700/60 hover:shadow-md transition-shadow shrink-0">
-            <img src={session.photo_url} alt="Check-in photo" className="h-12 w-12 object-cover" />
+            <img src={appFileUrl(session.photo_url)} alt="Check-in photo" className="h-12 w-12 object-cover" />
           </button>
         )}
       </div>

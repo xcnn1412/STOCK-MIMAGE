@@ -3,14 +3,32 @@
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { requireAuth } from '@/lib/auth'
+import { requireModule, type AuthSession } from '@/lib/auth'
 import type { Database } from '@/types/database.types'
 import { readAllRows } from '@/lib/read-all-rows'
 
 
-async function getSession() {
-  const session = await requireAuth()
+/** ทุก action ต้องมีโมดูล costs (admin ผ่าน) — ไม่มีสิทธิ์ = userId ว่าง → { error: 'Unauthorized' } */
+function costsSession(session: AuthSession | null) {
   return { userId: session?.userId, role: session?.role }
+}
+
+/** จำนวนเงิน/อัตรา: ว่าง = 0 · ต้องเป็นตัวเลขจริงและไม่ติดลบ */
+function isValidAmount(v: unknown): boolean {
+  if (v === undefined || v === null || v === '') return true
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0
+}
+const BAD_AMOUNT = 'จำนวนเงินไม่ถูกต้อง'
+
+/** คีย์ที่ฟอร์มหน้า /costs/events/[id] ส่งมาแก้ได้ — ห้ามรับ linked_lead_id, source_event_id, imported_by, created_by, id */
+const JOB_EVENT_EDITABLE = ['revenue', 'revenue_vat_mode', 'revenue_wht_rate', 'status'] as const
+type JobEventEdit = { revenue?: number; revenue_vat_mode?: string; revenue_wht_rate?: number; status?: string }
+
+function pickJobEventFields(data: Record<string, unknown>): JobEventEdit {
+  const out: Record<string, unknown> = {}
+  for (const k of JOB_EVENT_EDITABLE) if (data[k] !== undefined) out[k] = data[k]
+  return out as JobEventEdit
 }
 
 // ============================================================================
@@ -85,7 +103,7 @@ function toBEGregorian(dateStr: string | null): string | null {
 
 /** Import Event จากตาราง events (งานที่ยังเปิดอยู่) */
 export async function importEventFromStock(eventId: string) {
-  const { userId } = await getSession()
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -202,7 +220,7 @@ export async function importEventFromStock(eventId: string) {
 
 /** Import Event จากตาราง event_closures (งานที่ปิดแล้ว) */
 export async function importEventFromClosure(closureId: string) {
-  const { userId } = await getSession()
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -252,7 +270,7 @@ export async function importEventFromClosure(closureId: string) {
 
 /** Sync revenue จาก CRM Lead สำหรับ cost event (4-Tier Matching) */
 export async function syncRevenueFromCRM(jobEventId: string) {
-  const { userId } = await getSession()
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -395,7 +413,7 @@ export async function syncRevenueFromCRM(jobEventId: string) {
 
 /** Bulk sync revenue จาก CRM สำหรับ cost events ทั้งหมดที่ยังไม่มีราคาขาย (4-Tier) */
 export async function bulkSyncRevenueFromCRM() {
-  const { userId } = await getSession()
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -515,19 +533,12 @@ export async function bulkSyncRevenueFromCRM() {
 // ============================================================================
 
 /** อัปเดต Revenue / Status / Notes */
-export async function updateJobEvent(id: string, data: {
-  revenue?: number
-  revenue_vat_mode?: string
-  revenue_wht_rate?: number
-  status?: string
-  notes?: string
-  event_name?: string
-  event_date?: string
-  event_location?: string
-  staff?: string
-}) {
-  const { userId } = await getSession()
+export async function updateJobEvent(id: string, input: JobEventEdit) {
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
+
+  const data = pickJobEventFields((input ?? {}) as Record<string, unknown>)
+  if (!isValidAmount(data.revenue) || !isValidAmount(data.revenue_wht_rate)) return { error: BAD_AMOUNT }
 
   const supabase = createServiceClient()
 
@@ -551,7 +562,7 @@ export async function updateJobEvent(id: string, data: {
 
 /** ลบ Job Event + cost items ทั้งหมด (CASCADE) */
 export async function deleteJobEvent(id: string) {
-  const { userId, role } = await getSession()
+  const { userId, role } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
   if (role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถลบได้' }
 
@@ -586,10 +597,12 @@ export async function deleteJobEvent(id: string) {
 
 /** เพิ่มรายการต้นทุน */
 export async function createCostItem(formData: FormData) {
-  const { userId } = await getSession()
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
+
+  if (!['amount', 'unit_price', 'quantity', 'withholding_tax_rate'].every(k => isValidAmount(formData.get(k)))) return { error: BAD_AMOUNT }
 
   const jobEventId = formData.get('job_event_id') as string
   const title = formData.get('title') as string || null
@@ -652,9 +665,10 @@ export async function updateCostItem(id: string, data: {
   cost_date?: string | null
   notes?: string | null
 }) {
-  const { userId, role } = await getSession()
+  const { userId, role } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
   if (role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถแก้ไขได้' }
+  if (![data.amount, data.unit_price, data.quantity, data.withholding_tax_rate].every(isValidAmount)) return { error: BAD_AMOUNT }
 
   const supabase = createServiceClient()
 
@@ -678,7 +692,7 @@ export async function updateCostItem(id: string, data: {
 
 /** ลบรายการต้นทุน */
 export async function deleteCostItem(id: string) {
-  const { userId, role } = await getSession()
+  const { userId, role } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
   if (role !== 'admin') return { error: 'เฉพาะ Admin เท่านั้นที่สามารถลบได้' }
 
@@ -701,10 +715,12 @@ export async function deleteCostItem(id: string) {
 
 /** สร้าง Job Event แบบ Manual (ไม่ import จากระบบ) */
 export async function createJobEventManual(formData: FormData) {
-  const { userId } = await getSession()
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
+
+  if (!isValidAmount(formData.get('revenue'))) return { error: BAD_AMOUNT }
 
   const eventName = formData.get('event_name') as string
   const eventDate = formData.get('event_date') as string || null
@@ -748,7 +764,7 @@ export async function createJobEventManual(formData: FormData) {
 
 /** ค้นหา CRM Leads เพื่อเลือก link กับ Cost Event */
 export async function searchCRMLeadsForLink(query: string) {
-  const { userId } = await getSession()
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized', data: [] }
 
   const supabase = createServiceClient()
@@ -771,7 +787,7 @@ export async function searchCRMLeadsForLink(query: string) {
 
 /** Link Cost Event กับ CRM Lead (Manual) + ดึง revenue มาเลย */
 export async function linkCostEventToCRM(jobEventId: string, leadId: string) {
-  const { userId } = await getSession()
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -825,7 +841,7 @@ export async function linkCostEventToCRM(jobEventId: string, leadId: string) {
 
 /** Unlink CRM Lead จาก Cost Event */
 export async function unlinkCostEventFromCRM(jobEventId: string) {
-  const { userId } = await getSession()
+  const { userId } = costsSession(await requireModule('costs'))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()

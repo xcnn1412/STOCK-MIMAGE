@@ -235,7 +235,19 @@ class Query implements PromiseLike<Result> {
     return Promise.resolve().then(() => this.run()).then(onfulfilled, onrejected)
   }
 }
-const fakeClient = { from: (table: string) => new Query(table) }
+// บัคเก็ต receipts เป็น private (M3) — fetchClaimFile ดาวน์โหลดผ่าน storage.download แทน HTTP
+// สตอเรจจำลองส่งต่อไปที่ fetch จำลองด้วย URL สาธารณะเดิม เพื่อให้บันทึกคำขอ/การดึงพร้อมกัน/AC10 ตรวจได้เหมือนเดิม
+const fakeStorage = {
+  from: (bucket: string) => ({
+    async download(path: string) {
+      const url = `${HOST}/storage/v1/object/public/${bucket}/${path.split('/').map(encodeURIComponent).join('/')}`
+      const res = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) })
+      if (!res.ok) return { data: null, error: { message: `HTTP ${res.status}` } }
+      return { data: await res.blob(), error: null }
+    },
+  }),
+}
+const fakeClient = { from: (table: string) => new Query(table), storage: fakeStorage }
 
 // ── แทนโมดูลที่ต้องมี Next/ฐานข้อมูลจริง ─────────────────────────────────────
 const cookieJar = new Map<string, string>()
@@ -333,7 +345,7 @@ async function main() {
   for (let i = 0; i < 61; i++) serve(own(`c4-${i}.jpg`), JPEG, 'image/jpeg')
   serve(own('c5-600.pdf'), await makePdf(600, [200, 200]), 'application/pdf')
   for (let i = 0; i < 20; i++) serve(own(`c6-${i}.jpg`), JPEG, 'image/jpeg')
-  remote.set(own('c6-declared-big.jpg'), () => new Response(JPEG.slice(), { headers: { 'content-type': 'image/jpeg', 'content-length': String(16 * MB) } }))
+  remote.set(own('c6-declared-big.jpg'), () => new Response(new Uint8Array(16 * MB), { headers: { 'content-type': 'image/jpeg', 'content-length': String(16 * MB) } }))
   remote.set(own('c6-stream-big.jpg'), () => {
     let sent = 0
     // ไม่ประกาศขนาด ส่งทีละ 1MB ไปเรื่อยๆ — ต้องหยุดอ่านเมื่อเกิน 15MB

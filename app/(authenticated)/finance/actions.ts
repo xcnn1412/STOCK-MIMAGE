@@ -8,7 +8,8 @@ import { thaiTodayIso, thaiYearMonth } from '@/lib/thai-date'
 import { PAID_STATUSES, TERMINAL_STATUSES } from '@/lib/finance/conditions'
 import { thumbPathFor } from '@/lib/finance/receipt-thumbs'
 import { claimFileCount, thaiMonth } from './claims-filter'
-import { reasonRequiredForEdit, receiptRequiredForSubmit, shouldHaveCostItem } from './claim-rules'
+import { TAX_INVOICE_EDITABLE_STATUSES, isOwnClaimFileUrl, reasonRequiredForEdit, receiptRequiredForSubmit, shouldHaveCostItem } from './claim-rules'
+import { CLAIM_FILE_MAX_BYTES } from '@/lib/claim-files'
 import { getOutstandingClaims } from './outstanding-data'
 import { parseClaimItemIds } from '../jobs/purchasing/purchasing-logic'
 // ตัวตน ตัวช่วยสถานะ/รายการต้นทุน และข้อความกลาง (ใช้ร่วมกับ lifecycle-actions.ts ซึ่งเป็นที่อยู่ของการเปลี่ยนสถานะทั้งหมด)
@@ -274,7 +275,19 @@ type Uploaded = { urls: string[]; thumbUrls: string[]; error?: undefined } | { u
  * (เดิมข้ามไฟล์ที่พังแบบเงียบ ใบเบิกได้ใบเสร็จน้อยกว่าที่เลือกโดยไม่มีใครรู้) · ผู้เรียกต้องไม่บันทึกอะไรเมื่อได้ error
  * thumbUrls = URL ของรูปย่อที่ขึ้นไปแล้ว — ผู้เรียกลบทิ้งพร้อม urls เมื่อบันทึกไม่สำเร็จ
  */
+/** ชนิดไฟล์ที่รับเป็นไฟล์แนบใบเบิก → นามสกุลที่ใช้เก็บ (ไม่เชื่อนามสกุลจากชื่อไฟล์) */
+const RECEIPT_MIME_EXT: Readonly<Record<string, string>> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'application/pdf': 'pdf',
+}
+
 async function uploadReceiptFiles(supabase: Db, files: File[], claimNumber: string, thumbs?: (File | null)[]): Promise<Uploaded> {
+  // ตรวจทุกไฟล์ก่อนอัปโหลดอะไรขึ้นไป — ชนิดนอกรายการหรือใหญ่เกิน = ไม่อัปโหลดเลยทั้งคำขอ
+  if (files.some(f => !RECEIPT_MIME_EXT[f.type] || f.size > CLAIM_FILE_MAX_BYTES)) {
+    return { error: 'รองรับเฉพาะ JPG/PNG/WebP/PDF ไม่เกิน 15MB' }
+  }
   const safeName = claimNumber.replace(/[^a-zA-Z0-9-]/g, '_')
   const stamp = Date.now()
   const bucket = () => supabase.storage.from('receipts')
@@ -285,12 +298,14 @@ async function uploadReceiptFiles(supabase: Db, files: File[], claimNumber: stri
   }
 
   const results = await Promise.all(files.map((file, i) => {
-    const ext = file.name.split('.').pop() || 'jpg'
+    const ext = RECEIPT_MIME_EXT[file.type]
     const filePath = `claims/${safeName}/${stamp}_${i}.${ext}`
-    const thumb = thumbs?.[i] ?? null
+    // รูปย่อรับเฉพาะ JPG/PNG/WebP (ไม่ใช่ PDF) ขนาดไม่เกินเพดาน — นอกนั้นข้ามรูปย่อ (หน้าจอใช้ไฟล์เดิมแทน)
+    const rawThumb = thumbs?.[i] ?? null
+    const thumb = rawThumb && RECEIPT_MIME_EXT[rawThumb.type] && rawThumb.type !== 'application/pdf' && rawThumb.size <= CLAIM_FILE_MAX_BYTES ? rawThumb : null
     return Promise.all([
       put(filePath, file, file.type),
-      thumb && ext.toLowerCase() !== 'pdf' ? put(thumbPathFor(filePath), thumb, thumb.type || 'image/jpeg') : null,
+      thumb && ext !== 'pdf' ? put(thumbPathFor(filePath), thumb, thumb.type) : null,
     ])
   }))
 
@@ -632,6 +647,20 @@ export async function updateClaim(id: string, updateData: {
     if (!switchable.includes(claim.claim_type) || !switchable.includes(String(updateData.claim_type))) {
       return { error: 'เปลี่ยนประเภทใบเบิกได้เฉพาะระหว่าง "เบิกงานอีเวนต์" กับ "ค่าอื่นๆ" เท่านั้น' }
     }
+  }
+
+  // ตัวเลขตรวจแบบเดียวกับ createClaim — เฉพาะช่องที่ส่งมา (ค่าจากผู้เรียกเป็น runtime ใดก็ได้)
+  const numsGiven = (['amount', 'unit_price', 'quantity'] as const).filter(k => k in updateData).map(k => updateData[k])
+  if (!numsGiven.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0)) {
+    return { error: 'จำนวนเงิน ราคาต่อหน่วย และจำนวน ต้องเป็นตัวเลขที่ไม่ติดลบ' }
+  }
+  if ('quantity' in updateData && (updateData.quantity as number) < 1) return { error: 'จำนวนต้องมีอย่างน้อย 1' }
+  if ('vat_mode' in updateData && !['none', 'included', 'excluded'].includes(String(updateData.vat_mode))) {
+    return { error: 'รูปแบบ VAT ไม่ถูกต้อง' }
+  }
+  if ('withholding_tax_rate' in updateData) {
+    const w = updateData.withholding_tax_rate
+    if (typeof w !== 'number' || !Number.isFinite(w) || w < 0 || w > 100) return { error: 'อัตราหัก ณ ที่จ่ายต้องอยู่ระหว่าง 0–100%' }
   }
 
   // A closed petty-cash month is frozen — its leftover snapshot (refund_amount)
@@ -1047,7 +1076,7 @@ export async function setTaxInvoiceEntries(
 
   const { data: claim } = await supabase
     .from('expense_claims')
-    .select('submitted_by, tax_invoice_urls, tax_invoice_numbers, claim_number')
+    .select('submitted_by, status, tax_invoice_urls, tax_invoice_numbers, claim_number')
     .eq('id', id)
     .single()
 
@@ -1055,10 +1084,21 @@ export async function setTaxInvoiceEntries(
   const isAdmin = role === 'admin'
   const isOwner = claim.submitted_by === userId
   if (!isAdmin && !isOwner) return { error: 'คุณไม่มีสิทธิ์แก้ไขใบเบิกนี้' }
+  // ผู้เบิกแก้ได้เฉพาะก่อนจ่ายเงิน — หลังจากนั้นแอดมินเท่านั้น
+  if (!isAdmin && !TAX_INVOICE_EDITABLE_STATUSES.includes(claim.status)) {
+    return { error: 'แก้ใบกำกับภาษีได้เฉพาะก่อนจ่ายเงิน — ติดต่อแอดมินถ้าต้องแก้' }
+  }
 
   const cleaned = (entries || [])
     .map(e => ({ url: String(e?.url || '').trim(), number: String(e?.number || '').trim() }))
     .filter(e => e.url || e.number)
+
+  // URL ต้องเป็นไฟล์ในโฟลเดอร์ของใบนี้ (อัปโหลดผ่านใบเบิกนี้) หรือเป็นค่าที่บันทึกไว้อยู่แล้ว (ใบเก่า) —
+  // กันชี้ไปไฟล์ของใบอื่นแล้วถูกลบไปพร้อมใบนี้ · ใช้กับแอดมินด้วย (หน้าจอไม่เคยส่ง URL อื่น)
+  const storedUrls = new Set(((claim.tax_invoice_urls as string[]) || []).filter(Boolean))
+  if (cleaned.some(e => e.url && !storedUrls.has(e.url) && !isOwnClaimFileUrl(e.url, claim.claim_number))) {
+    return { error: 'ไฟล์ใบกำกับภาษีต้องอัปโหลดผ่านใบเบิกนี้' }
+  }
 
   const newUrls = cleaned.map(e => e.url)
   const newNumbers = cleaned.map(e => e.number)
@@ -1248,6 +1288,10 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
   if (!['approved', 'paid', 'pending_month_end', 'waiting_tax_invoice'].includes(claim.status)) {
     return { error: 'อัพเดทค่าใช้จ่ายจริงได้หลังจากใบเบิกถูกอนุมัติแล้วเท่านั้น' }
   }
+  // ผู้เบิกเคลียร์ได้ครั้งเดียว — เคลียร์ซ้ำ (เช่น แจ้งใช้เต็มจำนวนเพื่อลบยอดต้องคืน) ต้องให้แอดมินทำ
+  if (!isAdmin && (claim.advance_settled_at || Number(claim.refund_amount) > 0)) {
+    return { error: 'เคลียร์ทดลองจ่ายไปแล้ว รอแอดมินยืนยัน — ติดต่อแอดมินถ้าต้องแก้' }
+  }
 
   // Accept itemized breakdown (preferred) or a single total.
   // If items are provided, actual_spent_amount = sum(items[].amount).
@@ -1257,10 +1301,15 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
     try {
       const parsed = JSON.parse(itemsRaw)
       if (Array.isArray(parsed)) {
+        // ยอดของทุกรายการต้องเป็นตัวเลขที่ไม่ติดลบ (ช่องว่าง = 0)
+        const amountOf = (x: { amount?: unknown } | null) => (x?.amount === undefined || x?.amount === null || x?.amount === '' ? 0 : Number(x.amount))
+        if (!parsed.every((x: { amount?: unknown } | null) => Number.isFinite(amountOf(x)) && amountOf(x) >= 0)) {
+          return { error: 'ยอดค่าใช้จ่ายแต่ละรายการต้องเป็นตัวเลขที่ไม่ติดลบ' }
+        }
         items = parsed
           .map((x: any) => ({
             description: String(x?.description ?? '').trim(),
-            amount: Number(x?.amount) || 0,
+            amount: amountOf(x),
           }))
           .filter(i => i.amount > 0 || i.description.length > 0)
       }
@@ -1287,6 +1336,11 @@ export async function settleAdvanceClaim(id: string, formData: FormData) {
   // Collect file uploads (+ รูปย่อที่หน้าจอส่งคู่มาใน *_thumbs)
   const { files: actualReceiptFiles, thumbs: actualReceiptThumbs } = formFiles(formData, 'actual_receipt_files', 'actual_receipt_thumbs')
   const { files: refundSlipFiles, thumbs: refundSlipThumbs } = formFiles(formData, 'refund_slip_files', 'refund_slip_thumbs')
+
+  // ผู้เบิกใช้เต็ม (หรือเกิน) เงินทดลองจ่าย = ไม่มีเงินคืน → ต้องมีใบเสร็จค่าใช้จ่ายจริงอย่างน้อย 1 ไฟล์ (ใหม่หรือที่แนบไว้แล้ว)
+  if (!isAdmin && actualSpent >= advanceAmount && actualReceiptFiles.length === 0 && !((claim.actual_receipt_urls as string[] | null) || []).some(Boolean)) {
+    return { error: 'กรุณาแนบใบเสร็จค่าใช้จ่ายจริง' }
+  }
 
   let newActualReceiptUrls: string[] = []
   // รูปย่อของคำขอนี้ — บันทึกไม่สำเร็จต้องลบทิ้งพร้อมไฟล์เดิม

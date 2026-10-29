@@ -6,11 +6,12 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { logActivity, type ActionType } from '@/lib/logger'
 import { createNotifications, type NotificationType } from '@/lib/notifications'
 import { formatAddress, parseAddress } from '@/lib/thai-address'
-import { getSession } from './session'
+import { requireDocuments } from './session'
 import {
   DOC_TYPES, TRANSITIONS, EDITABLE_STATUSES, SC_LOCKED_META_KEYS, SC_LOCKED_PARTY_KEYS,
   calcDocumentTotals, calcItemAmount,
-  canTransition, isMetaEmpty, sanitizeMeta,
+  canTransition, canViewDocument, isMetaEmpty, isOwnDocPath, sanitizeMeta, stripFileMeta,
+  FILE_META_KEYS, PERSONAL_DOC_TYPES,
   type DocAction, type DocBrandRow, type DocTypeCode, type DocumentItemRow,
   type DocumentLogRow, type DocumentRow, type VatMode,
 } from './doc-types'
@@ -22,7 +23,7 @@ const SELECT_DOC = '*, creator:profiles!documents_created_by_fkey(id, full_name)
 // ============================================================================
 
 export async function getBrands(activeOnly = true): Promise<DocBrandRow[]> {
-  const { userId } = await getSession()
+  const { userId } = await requireDocuments()
   if (!userId) return []
 
   const supabase = createServiceClient()
@@ -46,7 +47,7 @@ export interface DocumentFilters {
 }
 
 export async function listDocuments(filters?: DocumentFilters) {
-  const { userId, role } = await getSession()
+  const { userId, role } = await requireDocuments()
   if (!userId) return { data: [], error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -81,11 +82,13 @@ export async function listDocuments(filters?: DocumentFilters) {
 
   const { data, error } = await query
   if (error) return { data: [], error: error.message }
-  return { data: (data || []) as unknown as DocumentRow[], error: null }
+  // เอกสารส่วนตัว (พนักงาน/ผู้สมัคร) — non-admin เห็นเฉพาะใบที่ตัวเองสร้าง แม้ออกเลขแล้ว
+  const rows = ((data || []) as unknown as DocumentRow[]).filter(d => canViewDocument(d, role, userId))
+  return { data: rows, error: null }
 }
 
 export async function getDocument(id: string) {
-  const { userId, role } = await getSession()
+  const { userId, role } = await requireDocuments()
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -93,7 +96,7 @@ export async function getDocument(id: string) {
   if (error || !data) return { error: 'ไม่พบเอกสาร' }
 
   const doc = data as unknown as DocumentRow
-  if (role !== 'admin' && !doc.doc_no && doc.created_by !== userId) {
+  if (!canViewDocument(doc, role, userId)) {
     return { error: 'ไม่มีสิทธิ์เข้าถึงเอกสารนี้' }
   }
 
@@ -143,7 +146,7 @@ export interface RefCandidate {
 }
 
 export async function listRefCandidates(brand_code: string, types: string[]): Promise<RefCandidate[]> {
-  const { userId } = await getSession()
+  const { userId } = await requireDocuments()
   if (!userId || !brand_code || !types?.length) return []
 
   const supabase = createServiceClient()
@@ -245,7 +248,7 @@ async function scDefaultsFor(
  * แทนที่จะปล่อยให้สร้างร่างเปล่าแล้วไปตันตอนส่งอนุมัติ
  */
 export async function getSalaryCertificateDefaults() {
-  const { userId } = await getSession()
+  const { userId } = await requireDocuments()
   if (!userId) return { error: 'Unauthorized' }
   return scDefaultsFor(createServiceClient(), userId)
 }
@@ -263,7 +266,7 @@ async function nextDraftNo(supabase: any, userId: string): Promise<string | null
 }
 
 export async function createDocument(params: { brand_code: string; doc_type: DocTypeCode }) {
-  const { userId } = await getSession()
+  const { userId } = await requireDocuments()
   if (!userId) return { error: 'Unauthorized' }
 
   const def = DOC_TYPES[params.doc_type]
@@ -331,7 +334,7 @@ export interface SaveDraftPayload {
 }
 
 export async function saveDraft(id: string, payload: SaveDraftPayload) {
-  const { userId, role } = await getSession()
+  const { userId, role } = await requireDocuments()
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -357,7 +360,11 @@ export async function saveDraft(id: string, payload: SaveDraftPayload) {
     party_id_card: payload.party_id_card ?? null,
     party_birth_date: payload.party_birth_date || null,
   }
-  const metaOut = sanitizeMeta(payload.meta)
+  // ช่องไฟล์แนบ (file/file_name/file_size/file_pages) เขียนได้เฉพาะ uploadDocumentFile —
+  // ทิ้งของ client แล้วคืนค่าเดิมจาก DB (ไม่งั้นชี้ path ไปไฟล์ของเอกสารอื่นได้ — รายงานข้อ M6)
+  const metaOut = sanitizeMeta(stripFileMeta(payload.meta))
+  const dbMeta = (doc.meta || {}) as Record<string, unknown>
+  for (const k of FILE_META_KEYS) if (k in dbMeta) metaOut[k] = dbMeta[k]
 
   // ── ยาม SC ────────────────────────────────────────────────────────────────
   // พนักงานออกหนังสือรับรองเงินเดือนให้ตัวเองได้ แต่ตัวเลขต้องมาจากฐานข้อมูล
@@ -440,16 +447,20 @@ export interface UploadedDocFile {
   file_pages: number
 }
 
-/** อ่าน path ไฟล์แนบจาก meta ('' = ยังไม่แนบ) */
-function docFilePath(meta: unknown): string {
-  return String((meta as Record<string, unknown> | null)?.file ?? '').trim()
+/**
+ * อ่าน path ไฟล์แนบจาก meta ('' = ยังไม่แนบ) — รับเฉพาะ path ใต้ `documents/<id>/` ของเอกสารนี้
+ * (ที่ uploadDocumentFile เขียน) นอกนั้นถือว่าไม่มีไฟล์ กันลบ/คัดลอกไฟล์ของเอกสารอื่น
+ */
+function docFilePath(meta: unknown, docId: string): string {
+  const p = String((meta as Record<string, unknown> | null)?.file ?? '').trim()
+  return isOwnDocPath(p, docId) ? p : ''
 }
 
 export async function uploadDocumentFile(
   id: string,
   formData: FormData
 ): Promise<UploadedDocFile | { error: string }> {
-  const { userId, role } = await getSession()
+  const { userId, role } = await requireDocuments()
   if (!userId) return { error: 'Unauthorized' }
 
   const file = formData.get('file')
@@ -494,7 +505,7 @@ export async function uploadDocumentFile(
     .eq('id', id)
   if (error) return { error: error.message }
 
-  const old = docFilePath(doc.meta)
+  const old = docFilePath(doc.meta, id)
   if (old && old !== storagePath) await supabase.storage.from(DOC_FILES_BUCKET).remove([old])
 
   await logActivity('UPLOAD_DOCUMENT_FILE', {
@@ -505,7 +516,7 @@ export async function uploadDocumentFile(
 }
 
 export async function deleteDraft(id: string) {
-  const { userId, role } = await getSession()
+  const { userId, role } = await requireDocuments()
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -519,7 +530,7 @@ export async function deleteDraft(id: string) {
   if (error) return { error: error.message }
 
   // ไฟล์แนบ (UP) — ลบแบบ best-effort ไม่มีไฟล์ก็ผ่าน ลบไม่สำเร็จก็ไม่ทำให้ลบร่างล้มเหลว
-  const filePath = docFilePath(doc.meta)
+  const filePath = docFilePath(doc.meta, id)
   if (filePath) await supabase.storage.from(DOC_FILES_BUCKET).remove([filePath])
 
   await logActivity('DELETE_DOCUMENT', { document_id: id, draft_no: doc.draft_no })
@@ -528,14 +539,14 @@ export async function deleteDraft(id: string) {
 }
 
 export async function duplicateDocument(id: string) {
-  const { userId, role } = await getSession()
+  const { userId, role } = await requireDocuments()
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
   const { data: docData } = await supabase.from('documents').select('*').eq('id', id).single()
   const doc = docData as unknown as DocumentRow | null
   if (!doc) return { error: 'ไม่พบเอกสาร' }
-  if (role !== 'admin' && !doc.doc_no && doc.created_by !== userId) return { error: 'ไม่มีสิทธิ์เข้าถึงเอกสารนี้' }
+  if (!canViewDocument(doc, role, userId)) return { error: 'ไม่มีสิทธิ์เข้าถึงเอกสารนี้' }
 
   // SC: คัดลอกใบของคนอื่นแล้วส่งขออนุมัติไม่ได้ — non-admin ได้ข้อมูลของตัวเองเสมอ
   let scSeed: Record<string, unknown> = {}
@@ -598,7 +609,7 @@ export async function duplicateDocument(id: string) {
 
   // ไฟล์แนบ (UP) — คัดลอก object ไปไว้ใต้ id ใหม่ ไม่ให้สำเนาชี้ไฟล์เดียวกับต้นฉบับ
   // (ลบต้นฉบับแล้วสำเนาต้องไม่พัง) — คัดลอกไม่สำเร็จ = ล้างช่องไฟล์ ให้ผู้ใช้แนบใหม่
-  const srcFile = docFilePath(doc.meta)
+  const srcFile = docFilePath(doc.meta, id)
   if (srcFile) {
     const newPath = `documents/${created.id}/${crypto.randomUUID()}.pdf`
     const { error: copyErr } = await supabase.storage.from(DOC_FILES_BUCKET).copy(srcFile, newPath)
@@ -670,7 +681,7 @@ async function validateForIssue(supabase: any, doc: DocumentRow): Promise<string
 }
 
 export async function transitionDocument(id: string, action: DocAction, note?: string) {
-  const { userId, role } = await getSession()
+  const { userId, role } = await requireDocuments()
   if (!userId) return { error: 'Unauthorized' }
 
   const def = TRANSITIONS[action]
@@ -794,14 +805,14 @@ async function notifyTransition(args: {
 // ============================================================================
 
 export async function searchParties(q: string) {
-  const { userId } = await getSession()
+  const { userId, role } = await requireDocuments()
   if (!userId || !q?.trim()) return []
 
   const supabase = createServiceClient()
   const term = q.replace(/[%,]/g, '')
   const { data } = await supabase
     .from('documents')
-    .select('party_name, party_company, party_tax_id, party_address, party_phone, party_email')
+    .select('party_name, party_company, party_tax_id, party_address, party_phone, party_email, doc_type, created_by')
     .ilike('party_name', `%${term}%`)
     .not('party_name', 'is', null)
     .order('created_at', { ascending: false })
@@ -809,7 +820,9 @@ export async function searchParties(q: string) {
 
   const seen = new Set<string>()
   const out: Array<Record<string, string | null>> = []
-  for (const row of (data || []) as unknown as Array<Record<string, string | null>>) {
+  for (const { doc_type, created_by, ...row } of (data || []) as unknown as Array<Record<string, string | null>>) {
+    // ข้อมูลติดต่อจากเอกสารส่วนตัว (พนักงาน/ผู้สมัคร) ของคนอื่น — non-admin ไม่เห็น
+    if (role !== 'admin' && created_by !== userId && (PERSONAL_DOC_TYPES as string[]).includes(doc_type || '')) continue
     const key = `${row.party_name}|${row.party_company || ''}|${row.party_tax_id || ''}`
     if (seen.has(key)) continue
     seen.add(key)

@@ -18,6 +18,9 @@ import { DESIGN_STATUS_VALUES } from './tracking/design-options'
 import { DEPARTMENTS } from '@/lib/departments'
 import { isHtmlContent, sanitizeHtml } from '@/lib/rich-text-utils'
 import { packingRequestedMessage, packingRequestedRecipients } from '../packing/notify'
+import {
+    TICKET_ATTACHMENT_BUCKET, attachmentPathFromUrl, isOwnAttachmentPath, isSafeFolderParts, ownTicketAttachmentUrls,
+} from './ticket-logic'
 
 
 async function getSession() {
@@ -73,8 +76,9 @@ export async function getJobSettings(category?: string) {
 }
 
 export async function createJobSetting(formData: FormData) {
-    const { userId } = await getSession()
-    if (!userId) return { error: 'Unauthorized' }
+    // ตั้งค่างาน (สถานะ/ทีม/แผนก) กระทบทุกคน — แอดมินเท่านั้น
+    const { role } = await getSession()
+    if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
     const supabase = createServiceClient()
     const category = formData.get('category') as string
@@ -96,8 +100,9 @@ export async function createJobSetting(formData: FormData) {
 }
 
 export async function updateJobSetting(id: string, formData: FormData) {
-    const { userId } = await getSession()
-    if (!userId) return { error: 'Unauthorized' }
+    // ตั้งค่างาน (สถานะ/ทีม/แผนก) กระทบทุกคน — แอดมินเท่านั้น
+    const { role } = await getSession()
+    if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
     const supabase = createServiceClient()
     const updates: Record<string, unknown> = {}
@@ -119,8 +124,9 @@ export async function updateJobSetting(id: string, formData: FormData) {
 }
 
 export async function deleteJobSetting(id: string) {
-    const { userId } = await getSession()
-    if (!userId) return { error: 'Unauthorized' }
+    // ตั้งค่างาน (สถานะ/ทีม/แผนก) กระทบทุกคน — แอดมินเท่านั้น
+    const { role } = await getSession()
+    if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
     const supabase = createServiceClient()
     const { error } = await supabase.from('job_settings').delete().eq('id', id)
@@ -132,8 +138,9 @@ export async function deleteJobSetting(id: string) {
 }
 
 export async function toggleJobSetting(id: string, is_active: boolean) {
-    const { userId } = await getSession()
-    if (!userId) return { error: 'Unauthorized' }
+    // ตั้งค่างาน (สถานะ/ทีม/แผนก) กระทบทุกคน — แอดมินเท่านั้น
+    const { role } = await getSession()
+    if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
 
     const supabase = createServiceClient()
     const { error } = await supabase.from('job_settings').update({ is_active }).eq('id', id)
@@ -161,6 +168,8 @@ export async function getJobTypes() {
 }
 
 export async function createJobType(formData: FormData) {
+    const { role } = await getSession()
+    if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
     const supabase = createServiceClient()
     const value = (formData.get('value') as string)?.trim().toLowerCase().replace(/\s+/g, '_')
     const label_th = formData.get('label_th') as string
@@ -179,6 +188,8 @@ export async function createJobType(formData: FormData) {
 }
 
 export async function updateJobType(id: string, formData: FormData) {
+    const { role } = await getSession()
+    if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
     const supabase = createServiceClient()
     const updates: Record<string, unknown> = {}
     const label_th = formData.get('label_th') as string
@@ -188,15 +199,18 @@ export async function updateJobType(id: string, formData: FormData) {
     if (label_en) updates.label_en = label_en
     if (color) updates.color = color
 
-    const { error } = await supabase.from('job_settings').update(updates).eq('id', id)
+    const { error } = await supabase.from('job_settings').update(updates).eq('id', id).eq('category', 'job_type')
     if (error) return { error: error.message }
     revalidatePath('/jobs')
     return { success: true }
 }
 
 export async function deleteJobType(id: string) {
+    const { role } = await getSession()
+    if (role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
     const supabase = createServiceClient()
-    const { error } = await supabase.from('job_settings').delete().eq('id', id)
+    // จำกัดเฉพาะประเภทงาน — id ของสถานะ/ทีมพูล/แผนกต้องลบผ่านทางนี้ไม่ได้
+    const { error } = await supabase.from('job_settings').delete().eq('id', id).eq('category', 'job_type')
     if (error) return { error: error.message }
     revalidatePath('/jobs')
     return { success: true }
@@ -1974,6 +1988,16 @@ function cleanRichText(x: string | null): string | null {
     return x && isHtmlContent(x) ? sanitizeHtml(x) : x
 }
 
+/** ช่อง attachments (JSON array ของ URL) — พังหรือไม่ใช่ array = ไม่มีไฟล์แนบ */
+function parseAttachmentList(raw: FormDataEntryValue | null): unknown {
+    if (typeof raw !== 'string' || !raw) return []
+    try {
+        return JSON.parse(raw)
+    } catch {
+        return []
+    }
+}
+
 export async function createTicket(formData: FormData) {
     const { userId } = await getSession()
     if (!userId) return { error: 'Unauthorized' }
@@ -1993,7 +2017,8 @@ export async function createTicket(formData: FormData) {
         description: cleanRichText(formData.get('description') as string || null),
         priority: formData.get('priority') as string || 'normal',
         desired_outcome: formData.get('desired_outcome') as string || null,
-        attachments: JSON.parse(formData.get('attachments') as string || '[]'),
+        // รับเฉพาะไฟล์ที่ผู้สร้างอัปโหลดเอง — ลบตั๋ว = ลบไฟล์แนบตาม จึงห้ามแนบ URL ของคนอื่น
+        attachments: ownTicketAttachmentUrls(parseAttachmentList(formData.get('attachments')), userId),
         status: 'open',
         created_by: userId,
     }
@@ -2076,7 +2101,7 @@ export async function createTicketReply(ticketId: string, formData: FormData) {
         ticket_id: ticketId,
         reply_type: formData.get('reply_type') as string || 'comment',
         content: cleanRichText(formData.get('content') as string || null),
-        attachments: JSON.parse(formData.get('attachments') as string || '[]'),
+        attachments: ownTicketAttachmentUrls(parseAttachmentList(formData.get('attachments')), userId),
         created_by: userId,
     }
 
@@ -2146,13 +2171,16 @@ export async function getMentionedTicketIds(): Promise<string[]> {
 }
 
 export async function deleteTicket(id: string) {
-    const { userId } = await getSession()
+    const { userId, role } = await getSession()
     if (!userId) return { error: 'Unauthorized' }
 
     const supabase = createServiceClient()
 
     // เก็บ attachment ของ ticket + replies (ที่จะถูก cascade ลบ) ไว้ลบไฟล์ตาม
-    const { data: ticket } = await supabase.from('tickets').select('attachments').eq('id', id).single()
+    const { data: ticket } = await supabase.from('tickets').select('attachments, created_by').eq('id', id).single()
+    if (!ticket) return { error: 'ไม่พบ Ticket' }
+    // ลบตั๋ว = ลบไฟล์แนบทั้งหมดด้วย — เฉพาะผู้สร้างตั๋วหรือแอดมิน
+    if (role !== 'admin' && ticket.created_by !== userId) return { error: 'ลบได้เฉพาะ Ticket ที่คุณสร้างเอง' }
     const { data: replies } = await supabase.from('ticket_replies').select('attachments').eq('ticket_id', id)
 
     const { error } = await supabase.from('tickets').delete().eq('id', id)
@@ -2409,49 +2437,14 @@ const ATTACHMENT_EXT_BY_MIME = new Map<string, string>([
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 const MAX_FILES_PER_UPLOAD = 10 // ตรงกับ maxFiles ของ FileUploadZone
-const ATTACHMENT_BUCKET = 'ticket-attachments'
-// โฟลเดอร์ที่ client ส่งมา: 1–2 ท่อน ท่อนละ A-Z a-z 0-9 _ - ไม่เกิน 64 ตัว
-// (ของจริงที่ส่งมา: 'tickets', uuid ของตั๋ว, 'kpi_evaluations/<uuid>')
-const FOLDER_SEGMENT = /^[A-Za-z0-9_-]{1,64}$/
-
-function isSafeFolderParts(parts: string[]) {
-    return parts.length >= 1 && parts.length <= 2 && parts.every(p => FOLDER_SEGMENT.test(p))
-}
+const ATTACHMENT_BUCKET = TICKET_ATTACHMENT_BUCKET
+// helper ตรวจ path/URL ไฟล์แนบอยู่ใน ./ticket-logic.ts (ชุดตรวจ import ตรงได้)
 
 /** โฟลเดอร์ที่ไม่ผ่านกติกา ('..', '/' นำหน้า, backslash, ว่าง, ยาวเกิน, ลึกเกิน) → 'general' */
 function safeAttachmentFolder(raw: unknown): string {
     if (typeof raw !== 'string') return 'general'
     const parts = raw.split('/')
     return isSafeFolderParts(parts) ? parts.join('/') : 'general'
-}
-
-/**
- * public URL → path ในบัคเก็ต (ถอดรหัส %xx แล้ว) หรือ null ถ้า URL ไม่ใช่ของบัคเก็ตนี้ / path น่าสงสัย
- * ห้าม: ว่าง, '/' นำหน้า, '..', backslash, '//' — ทั้งแบบตรงๆ และแบบเข้ารหัส %xx
- */
-function attachmentPathFromUrl(url: unknown): string | null {
-    if (typeof url !== 'string') return null
-    const marker = `/${ATTACHMENT_BUCKET}/`
-    const idx = url.indexOf(marker)
-    if (idx === -1) return null
-    const encoded = url.slice(idx + marker.length).split(/[?#]/)[0]
-    let path: string
-    try {
-        path = decodeURIComponent(encoded)
-    } catch {
-        return null // %xx พัง
-    }
-    if (!path || path.startsWith('/') || path.includes('..') || path.includes('\\') || path.includes('//')) return null
-    return path
-}
-
-/** path ของไฟล์ที่ userId อัปโหลดเอง: <โฟลเดอร์ 1–2 ท่อน>/u-<userId>/<ไฟล์> */
-function isOwnAttachmentPath(path: string, userId: string) {
-    const parts = path.split('/')
-    if (parts.length < 3) return false
-    const file = parts[parts.length - 1]
-    const owner = parts[parts.length - 2]
-    return owner === `u-${userId}` && file.length > 0 && isSafeFolderParts(parts.slice(0, -2))
 }
 
 export async function uploadTicketAttachments(formData: FormData) {
