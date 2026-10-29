@@ -1,6 +1,16 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 
-const SESSION_SECRET = process.env.SESSION_SECRET || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'fallback-dev-secret-change-in-production'
+/**
+ * กุญแจเซ็น token: SESSION_SECRET → ถอยไป SUPABASE_SERVICE_ROLE_KEY (ค่าลับฝั่ง server — ถ้าหลุดก็จบทุกอย่างอยู่แล้ว)
+ * ห้ามถอยไป anon key: เป็นค่าสาธารณะใน bundle ใครก็ปลอม token ได้ (M11) · ไม่มีทั้งคู่ = หยุดตั้งแต่โหลด
+ * proxy.ts (Edge) ใช้กติกาเดียวกัน — แก้ที่หนึ่งต้องแก้อีกที่
+ */
+export function sessionSecret(): string {
+    const secret = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!secret) throw new Error('SESSION_SECRET (หรือ SUPABASE_SERVICE_ROLE_KEY) ไม่ได้ตั้งค่า — เซ็น session ไม่ได้')
+    return secret
+}
+const SESSION_SECRET = sessionSecret()
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 /**

@@ -124,8 +124,9 @@ export async function proxy(request: NextRequest) {
 
   // 1. Verify the signed session token — the only accepted identity (needs session_id too).
   // cookie id/บทบาทแบบเก่าไม่ได้เซ็น (ใครก็พิมพ์ id คนอื่นใส่ได้) จึงไม่อ่านอีกแล้ว
-  const sessionSecret = process.env.SESSION_SECRET || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'fallback-dev-secret-change-in-production'
-  if (sessionToken && sessionId) {
+  // กุญแจเซ็นเดียวกับ lib/session.ts::sessionSecret — ห้ามถอยไป anon key (ค่าสาธารณะ) · ไม่มีกุญแจ = ไม่รับ token ใดเลย
+  const sessionSecret = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  if (sessionToken && sessionId && sessionSecret) {
     const verified = await verifySessionTokenEdge(sessionToken, sessionSecret)
     if (verified) {
       userId = verified.userId
@@ -137,10 +138,10 @@ export async function proxy(request: NextRequest) {
     // ใช้กุญแจฝั่ง server (อยู่ใน env ของ server เท่านั้น ไม่ถูกส่งไป browser)
     // เดิมใช้กุญแจสาธารณะ ตาราง profiles จึงต้องเปิดให้กุญแจสาธารณะอ่าน = ใครก็อ่านข้อมูลพนักงานได้
     // ต้อง deploy โค้ดนี้ก่อนรัน 20260930_lock_public_access.sql ไม่งั้นทุกคนจะถูกเด้งไปหน้าล็อกอิน
-    // ponytail: ยังถอยไปใช้กุญแจสาธารณะเมื่อไม่มีกุญแจฝั่ง server (เครื่องพัฒนาที่ตั้งค่าไม่ครบ) — หลังปิดสิทธิ์แล้วทางนี้จะอ่านไม่ได้
+    // ไม่ถอยไปใช้กุญแจสาธารณะอีกแล้ว (รายงาน 2026-10-29) — ไม่มีกุญแจฝั่ง server = createClient โยน → catch → session ไม่ผ่าน
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!, // กุญแจฝั่ง server เท่านั้น — ไม่มี = อ่าน profiles ไม่ได้ = ไม่รับ session (fail-closed)
       { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
     )
 

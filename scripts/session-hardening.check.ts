@@ -376,6 +376,38 @@ async function main() {
     assert.equal((await getMyProfile())?.id, ADMIN)
   })
 
+  // ══ 2d. mass assignment (C1/M16 รายงาน 2026-10-29): object จาก client ใส่ role/allowed_modules/pin มาด้วยได้ ══
+  await section('2d updateMyProfile / updateUserProfile เขียนเฉพาะ 8 คอลัมน์โปรไฟล์ · คีย์ต้องห้ามอย่างเดียว → ไม่เขียน · updateUserRole รับเฉพาะ admin/staff', async () => {
+    const { updateMyProfile } = profileActions()
+    const { updateUserProfile, updateUserRole } = usersActions()
+    type Patch = Parameters<typeof updateMyProfile>[0]
+    const attack = {
+      full_name: 'ชื่อใหม่', role: 'admin', allowed_modules: ['admin'], is_approved: true, pin: 'x', active_session_id: 'sess-hijack',
+    } as unknown as Patch
+
+    jar(signed(STAFF, 'sess-staff'))
+    assert.deepEqual(await updateMyProfile(attack), { success: true })
+    assert.equal(profileWrites().length, 1, 'เขียน profiles ครั้งเดียว')
+    assert.deepEqual(profileWrites()[0].payload, { full_name: 'ชื่อใหม่' }, 'payload เหลือเฉพาะคอลัมน์โปรไฟล์')
+    assert.deepEqual(profileWrites()[0].filters, [`eq:id=${STAFF}`])
+    assert.equal(row(STAFF).role, 'staff', 'พนักงานเลื่อนตัวเองเป็นแอดมินไม่ได้')
+    assert.equal(row(STAFF).active_session_id, 'sess-staff')
+    assert.equal(row(STAFF).full_name, 'ชื่อใหม่')
+
+    reset()
+    jar(signed(STAFF, 'sess-staff'))
+    assert.deepEqual(await updateMyProfile({ role: 'admin' } as unknown as Patch), { error: 'ไม่มีข้อมูลที่แก้ได้' })
+    assert.equal(allWrites().length, 0, 'คีย์ต้องห้ามอย่างเดียว → ไม่เขียนฐานข้อมูลเลย')
+
+    reset()
+    jar(ADMIN_VALID[1]())
+    assert.deepEqual(await updateUserProfile(STAFF, attack), { success: true })
+    assert.deepEqual(profileWrites()[0].payload, { full_name: 'ชื่อใหม่' }, 'แอดมินแก้โปรไฟล์แทน → payload เฉพาะคอลัมน์โปรไฟล์')
+    assert.equal(row(STAFF).role, 'staff')
+    assert.deepEqual(await updateUserRole(STAFF, 'superadmin'), { error: 'บทบาทไม่ถูกต้อง' })
+    assert.equal(profileWrites().length, 1, 'บทบาทนอกรายการ → ไม่เขียน')
+  })
+
   // ══ 3. หน้า/เลย์เอาต์ ══
   await section('3a (e) settings/layout: พนักงาน+cookie แอดมินปลอม → redirect /dashboard · (a) cookie แบบเก่า → redirect · (h) แอดมินเห็นหน้า', async () => {
     const Layout = SettingsLayout()
@@ -476,6 +508,20 @@ async function main() {
     const login = read(path.join(ROOT, 'app', 'login', 'actions.ts'))
     assert.ok(!/set\(\s*['"`]session_(user_id|role)['"`]/.test(login), "app/login/actions.ts ต้องไม่ set('session_user_id' / 'session_role')")
     assert.ok(/set\(\s*'session_token'/.test(login) && /set\(\s*'session_id'/.test(login), 'ยังตั้ง session_token + session_id ตอนล็อกอิน')
+
+    // รายงานความปลอดภัย 2026-10-29 รอบ 1 (H7, L1, M11)
+    const between = (src: string, from: string, to: string) => {
+      const a = src.indexOf(from), b = src.indexOf(to)
+      assert.ok(a >= 0 && b > a, `ไม่พบ ${from} … ${to}`)
+      return src.slice(a, b)
+    }
+    const checkOut = between(read(path.join(ROOT, 'app', '(authenticated)', 'check-in', 'actions.ts')), 'export async function checkOut(', 'export async function quickCheckoutStale(')
+    assert.ok(/\.is\(\s*'checked_out_at',\s*null\s*\)/.test(checkOut) && /\.is\(\s*'paid_slip_id',\s*null\s*\)/.test(checkOut), 'checkOut ต้องปิดเฉพาะเช็คอินที่ยังเปิดและยังไม่คิดสลิป (H7)')
+    const saveTargets = between(read(path.join(ROOT, 'app', '(authenticated)', 'sales-board', 'actions.ts')), 'export async function saveMonthTargets(', 'export async function saveCommissionTargets(')
+    assert.ok(/requireAuth\(\)/.test(saveTargets), 'saveMonthTargets ต้องเรียก requireAuth (L1)')
+    for (const f of ['lib/session.ts', 'proxy.ts']) {
+      assert.ok(!/NEXT_PUBLIC_SUPABASE_ANON_KEY/.test(read(path.join(ROOT, f))), `${f} ต้องไม่ใช้ anon key (ค่าสาธารณะ) เป็นกุญแจเซ็น session (M11)`)
+    }
   })
 
   if (failures.length) {

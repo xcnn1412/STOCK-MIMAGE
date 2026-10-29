@@ -18,9 +18,10 @@ async function readTargets(month: string): Promise<{ targets: Record<string, num
 }
 
 // เป้าหมายใช้ร่วมกันทั้งองค์กร — ทุก user เห็นเป้าเดียวกัน
-// ponytail: ไม่เช็ก role — ใครล็อกอินก็ตั้งเป้าได้ (หน้านี้เปิดให้ทุก user อยู่แล้ว)
+// ponytail: ไม่เช็ก role — ใครล็อกอินก็ตั้งเป้าได้ (หน้านี้เปิดให้ทุก user อยู่แล้ว) แต่ต้องล็อกอิน (L1)
 // คงคีย์ cm_* (เป้าค่าคอมแอดมิน) ไว้เสมอ — บันทึก/ล้างเป้าจาก Sales Board ต้องไม่ลบเป้าค่าคอม
 export async function saveMonthTargets(month: string, targets: Record<string, number>) {
+  if (!(await requireAuth())) return { error: 'Unauthorized' }
   if (!MONTH_RE.test(month)) return { error: 'เดือนไม่ถูกต้อง' }
   const cur = await readTargets(month)
   if ('error' in cur) return { error: cur.error }
