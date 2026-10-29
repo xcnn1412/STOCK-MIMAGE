@@ -115,3 +115,10 @@ Planner/Critic = Fable · Executor = Agent `model: opus` agent ใหม่ต�
 2. deploy (Railway ต้องส่ง `x-forwarded-host` / `x-forwarded-proto` — หน้า QR ใช้อยู่แล้วจึงมั่นใจได้)
 3. เปิด claude.ai → Settings → Connectors → Add custom connector → URL `https://<โดเมน>/api/mcp` → ล็อกอินด้วยเบอร์โทร+PIN → กดอนุญาต → ถาม "ของอะไรใกล้หมดบ้าง"
 4. ตรวจที่ `/connected-apps` และหน้า logs ว่ามีรายการ MCP_CONNECT / MCP_TOOL_CALL
+
+## ความปลอดภัยรอบ 2 (H4 / M15, 2026-10-29)
+
+- **allowlist redirect ตอนลงทะเบียน** (`lib/oauth.ts::redirectHostAllowed`): https บน `claude.ai`, `claude.com`, `chatgpt.com` (รวม subdomain) หรือ loopback (`localhost` / `127.0.0.1` / `[::1]` ทุก port) — นอกนั้น `400 invalid_redirect_uri` · เพิ่มโดเมนด้วย env `OAUTH_REDIRECT_HOSTS` (คั่น comma) ซึ่ง**แทน**ค่าเริ่มต้นทั้งชุด (ต้องใส่ claude.ai ฯลฯ ซ้ำเองถ้ายังต้องการ) · authorize/token ยังเทียบ redirect_uri แบบตรงทั้งสตริงเหมือนเดิม client เก่าที่อยู่นอก allowlist จึงยังใช้ได้แต่หน้าอนุญาตขึ้นคำเตือนสีเหลือง
+- **หน้าอนุญาต**: หัวข้อใช้ชื่อแอปที่ลงทะเบียน (ไม่ hardcode "Claude") และแสดง "ส่งรหัสกลับไปที่ <host>" ทุกครั้ง
+- **rate limit ต่อ IP** (ค่าแรกของ `x-forwarded-for`, ไม่มี = `unknown`; in-memory ต่อ process): register 10 ครั้ง/ชม., token 60 ครั้ง/นาที → `429 temporarily_unavailable` + `Retry-After`
+- **ล้างแถวหมดอายุ** (`cleanupExpiredOAuth`): token endpoint เรียกแบบไม่รอผล ชั่วโมงละครั้งต่อ process — ลบ `oauth_codes` ที่ `expires_at` เลยมาเกิน 1 วัน และ `oauth_clients` อายุเกิน 1 วันที่ไม่มีแถวใน `oauth_tokens` และไม่มี code ค้าง (ไม่แตะ `personal-token`) ทีละไม่เกิน 500 client

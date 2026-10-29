@@ -714,7 +714,10 @@ async function main() {
   expectOk(await actions.pickLine(lineOf(LIST2, K1).id as string), 'หยิบกระเป๋า (ใบใหม่)')
   // จำลองตัวชี้ kits.event_id หลุด (โค้ดเก่า) — ของในกระเป๋ายังต้องรอดเพราะอยู่ในใบ
   row('kits', K1).event_id = null
+  expectError(await cleanup.cleanupOrphanedItems(), 'เฉพาะ admin', 'cleanup — ทีมจัดของที่ไม่ใช่ผู้ดูแลกระเป๋าทำไม่ได้ (H6)')
+  loginAs(ADMIN)
   const cleaned = expectOk(await cleanup.cleanupOrphanedItems(), 'cleanup') as { itemIds?: string[] }
+  loginAs(PACKER)
   assert.deepEqual(cleaned.itemIds, [ORPH], 'รีเซ็ตเฉพาะของหลงทางจริง')
   assert.deepEqual([status(I1), status(KI1), status(KI2), status(ORPH)], ['in_use', 'in_use', 'in_use', 'available'])
   pass('(k) cleanupOrphanedItems ไม่รีเซ็ตของในใบกำลังหยิบ (อุปกรณ์เดี่ยว + ของในกระเป๋า) · ของหลงทางจริงยังถูกรีเซ็ต')

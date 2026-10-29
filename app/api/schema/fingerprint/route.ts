@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { masterTokenOk } from '@/lib/master-token'
 import { readPublicSchema, computeFingerprint } from '@/lib/schema-introspect'
 
 // GET /api/schema/fingerprint
@@ -7,7 +8,8 @@ import { readPublicSchema, computeFingerprint } from '@/lib/schema-introspect'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!masterTokenOk(req)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   try {
     const schema = await readPublicSchema()
     const fingerprint = computeFingerprint(schema)
@@ -25,7 +27,8 @@ export async function GET() {
       headers: { 'Cache-Control': 'no-store' },
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+    // ไม่ส่งข้อความ error กลับไปให้ผู้เรียก — log ฝั่ง server แทน
+    console.error('[api/schema/fingerprint]', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'internal error' }, { status: 500 })
   }
 }

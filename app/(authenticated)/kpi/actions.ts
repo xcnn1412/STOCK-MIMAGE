@@ -6,6 +6,7 @@ import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
 import { createNotifications } from '@/lib/notifications'
 import type { Database } from '@/types/database.types'
+import { isHtmlContent, sanitizeHtml } from '@/lib/rich-text-utils'
 
 
 /** ดึง session user id + role */
@@ -569,7 +570,9 @@ export async function createEvaluationReply(evaluationId: string, formData: Form
 
   if (!evaluation) return { error: 'Evaluation not found' }
 
-  const content = formData.get('content') as string
+  const rawContent = formData.get('content') as string
+  // ล้าง HTML ตอนเขียน (กัน stored XSS) — ข้อความธรรมดาเก็บตามเดิม escape ตอนแสดง
+  const content = rawContent && isHtmlContent(rawContent) ? sanitizeHtml(rawContent) : rawContent
   const attachments = JSON.parse(formData.get('attachments') as string || '[]')
   const mentionedUsers = (formData.get('notify_users') as string || '').split(',').filter(Boolean)
 

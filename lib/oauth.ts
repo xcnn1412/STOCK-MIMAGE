@@ -49,8 +49,47 @@ export function validRedirect(uri: string, registered: string[]): boolean {
     return false
   }
   if (url.protocol === 'https:') return true
-  return url.protocol === 'http:'
-    && (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]')
+  return url.protocol === 'http:' && isLoopback(url.hostname)
+}
+
+// ── allowlist host ของ redirect_uri ตอนลงทะเบียน (H4) ──────────────────────────
+// กันผู้โจมตีลงทะเบียน client ชื่อ "Claude" ที่ส่ง code ไปโดเมนตัวเอง · เพิ่มโดเมนด้วย env OAUTH_REDIRECT_HOSTS (คั่น comma)
+
+export const DEFAULT_REDIRECT_HOSTS = ['claude.ai', 'claude.com', 'chatgpt.com']
+
+/** host ที่ยอมให้ลงทะเบียน redirect แบบ https — env OAUTH_REDIRECT_HOSTS (ถ้าตั้ง) แทนค่าเริ่มต้นทั้งชุด */
+export function allowedRedirectHosts(): string[] {
+  const raw = process.env.OAUTH_REDIRECT_HOSTS
+  const fromEnv = (raw ?? '').split(',').map(h => h.trim().toLowerCase()).filter(Boolean)
+  return fromEnv.length > 0 ? fromEnv : DEFAULT_REDIRECT_HOSTS
+}
+
+function isLoopback(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
+}
+
+/** host ของ redirect_uri อยู่ใน allowlist (https + ตรงหรือเป็น subdomain) หรือเป็น loopback (http/https) */
+export function redirectHostAllowed(uri: string): boolean {
+  let url: URL
+  try {
+    url = new URL(uri)
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false
+  if (isLoopback(url.hostname)) return true
+  if (url.protocol !== 'https:') return false
+  const host = url.hostname.toLowerCase()
+  return allowedRedirectHosts().some(h => host === h || host.endsWith('.' + h))
+}
+
+/** hostname ของ redirect_uri สำหรับแสดงบนหน้าอนุญาต ('' เมื่อ URL เสีย) */
+export function redirectHostOf(uri: string): string {
+  try {
+    return new URL(uri).hostname
+  } catch {
+    return ''
+  }
 }
 
 /** โมดูลที่ Claude เห็นได้ — กติกาเดียวกับ hasModule: admin ได้ทุกโมดูล · allowed_modules null = ['stock'] */
@@ -74,7 +113,7 @@ export interface AuthorizeParams {
 }
 
 export type AuthorizeCheck =
-  | { ok: true; clientName: string }
+  | { ok: true; clientName: string; redirectHost: string; knownHost: boolean }
   | { ok: false; error: string }
 
 /** ตรวจคำขอก่อนแสดงปุ่ม/ออก code — ไม่ผ่าน = ห้าม redirect ไป redirect_uri เด็ดขาด */
@@ -85,13 +124,19 @@ export async function checkAuthorizeRequest(db: Db, p: AuthorizeParams): Promise
     .select('client_id, client_name, redirect_uris')
     .eq('client_id', p.clientId)
     .maybeSingle()
-  if (!client) return { ok: false, error: 'ไม่รู้จักแอปนี้ — ให้เพิ่มการเชื่อมต่อใหม่จาก Claude' }
+  if (!client) return { ok: false, error: 'ไม่รู้จักแอปนี้ — ให้เพิ่มการเชื่อมต่อใหม่จากแอปที่ใช้อีกครั้ง' }
   const registered: string[] = Array.isArray(client.redirect_uris) ? client.redirect_uris : []
   if (!validRedirect(p.redirectUri, registered)) return { ok: false, error: 'ที่อยู่ส่งกลับ (redirect_uri) ไม่ตรงกับที่แอปลงทะเบียนไว้' }
   if (p.responseType !== 'code') return { ok: false, error: 'รูปแบบคำขอไม่รองรับ (response_type ต้องเป็น code)' }
   if (!p.codeChallenge) return { ok: false, error: 'คำขอไม่มีรหัสยืนยัน (code_challenge)' }
   if (p.codeChallengeMethod !== 'S256') return { ok: false, error: 'รองรับเฉพาะ code_challenge_method แบบ S256' }
-  return { ok: true, clientName: (client.client_name as string | null) || 'MCP client' }
+  return {
+    ok: true,
+    clientName: (client.client_name as string | null) || 'MCP client',
+    redirectHost: redirectHostOf(p.redirectUri),
+    // client เก่าที่ลงทะเบียนก่อนมี allowlist ยังผ่านได้ แต่หน้าอนุญาตต้องเตือน
+    knownHost: redirectHostAllowed(p.redirectUri),
+  }
 }
 
 // ── code ──────────────────────────────────────────────────────────────────────
@@ -373,6 +418,39 @@ export async function touchToken(db: Db, tokenId: string): Promise<void> {
   await db.from('oauth_tokens').update({ last_used_at: new Date().toISOString() }).eq('id', tokenId)
 }
 
+// ── ล้างแถวหมดอายุ (M15) ─────────────────────────────────────────────────────────
+
+const CLEANUP_AGE_MS = 24 * 60 * 60 * 1000
+const CLEANUP_BATCH = 500
+
+/**
+ * ลบ code ที่หมดอายุเกิน 1 วัน และ client ที่ลงทะเบียนเกิน 1 วันแต่ไม่เคยได้ token (ไม่แตะ personal-token)
+ * client ที่ยังมี code ค้างอยู่ก็ข้าม (เพิ่งกดอนุญาต รอแลก) · best-effort ทีละไม่เกิน 500 แถว
+ */
+export async function cleanupExpiredOAuth(db: Db, nowMs = Date.now()): Promise<{ codes: number; clients: number }> {
+  const cutoff = new Date(nowMs - CLEANUP_AGE_MS).toISOString()
+  const { data: codes } = await db.from('oauth_codes').delete().lt('expires_at', cutoff).select('code_hash')
+
+  const { data: oldClients } = await db
+    .from('oauth_clients')
+    .select('client_id')
+    .lt('created_at', cutoff)
+    .neq('client_id', PERSONAL_CLIENT_ID)
+    .limit(CLEANUP_BATCH)
+  const ids = (oldClients ?? []).map(c => c.client_id as string)
+  if (ids.length === 0) return { codes: codes?.length ?? 0, clients: 0 }
+
+  const [{ data: withTokens }, { data: withCodes }] = await Promise.all([
+    db.from('oauth_tokens').select('client_id').in('client_id', ids),
+    db.from('oauth_codes').select('client_id').in('client_id', ids),
+  ])
+  const keep = new Set([...(withTokens ?? []), ...(withCodes ?? [])].map(r => r.client_id as string))
+  const stale = ids.filter(id => !keep.has(id))
+  if (stale.length === 0) return { codes: codes?.length ?? 0, clients: 0 }
+  const { data: removed } = await db.from('oauth_clients').delete().in('client_id', stale).select('client_id')
+  return { codes: codes?.length ?? 0, clients: removed?.length ?? 0 }
+}
+
 // ── ตอบกลับของ endpoint OAuth (JSON + CORS + ไม่ cache) ──────────────────────────
 
 const CORS_HEADERS = {
@@ -390,6 +468,18 @@ export function oauthJson(body: unknown, status = 200): Response {
 
 export function oauthPreflight(): Response {
   return new Response(null, { status: 204, headers: { ...CORS_HEADERS, 'Access-Control-Max-Age': '86400' } })
+}
+
+/** IP ของผู้เรียก = ค่าแรกของ x-forwarded-for (Railway ใส่ให้) · ไม่มี = 'unknown' */
+export function clientIp(req: Request): string {
+  return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+}
+
+/** 429 + Retry-After เมื่อเรียกถี่เกิน */
+export function tooManyRequests(retryAfterSeconds: number): Response {
+  const res = oauthJson({ error: 'temporarily_unavailable', error_description: `เรียกถี่เกินไป รอ ${retryAfterSeconds} วินาทีแล้วลองใหม่` }, 429)
+  res.headers.set('Retry-After', String(retryAfterSeconds))
+  return res
 }
 
 /** ใบอนุญาตหมดอายุ → 403 ทุก endpoint ของ OAuth/MCP */

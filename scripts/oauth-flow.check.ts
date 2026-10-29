@@ -2,6 +2,7 @@
 // Run:  npx tsx scripts/oauth-flow.check.ts
 //
 // ตรวจ M2 (a)–(g), M3 (metadata + CORS + origin จาก x-forwarded-*), M4 (หน้าอนุญาต + grantAuthorization ฝั่ง server)
+// + H4/AC2.3 (allowlist host ของ redirect, หน้าอนุญาตบอก host, rate limit register/token) + M15 (ล้างแถวหมดอายุ)
 // ไม่แตะฐานข้อมูลหรือเครือข่ายจริง · ผู้ใช้สังเคราะห์
 // บรรทัดสุดท้ายของผลลัพธ์ต้องเป็น "oauth-flow: ผ่านทั้งหมด"
 
@@ -44,7 +45,7 @@ const UNIQUE: Record<string, string[]> = {
 type Filter = (r: Row) => boolean
 class Query implements PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }> {
   private filters: Filter[] = []
-  private op: 'select' | 'insert' | 'update' = 'select'
+  private op: 'select' | 'insert' | 'update' | 'delete' = 'select'
   private payload: Row[] = []
   private patch: Row = {}
   private returning = false
@@ -55,6 +56,10 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
   select() { if (this.op !== 'select') this.returning = true; return this }
   insert(v: Row | Row[]) { this.op = 'insert'; this.payload = Array.isArray(v) ? v : [v]; return this }
   update(p: Row) { this.op = 'update'; this.patch = p; return this }
+  delete() { this.op = 'delete'; return this }
+  neq(c: string, v: unknown) { this.filters.push(r => r[c] !== v); return this }
+  lt(c: string, v: string) { this.filters.push(r => typeof r[c] === 'string' && (r[c] as string) < v); return this }
+  in(c: string, vs: unknown[]) { this.filters.push(r => vs.includes(r[c])); return this }
   eq(c: string, v: unknown) { this.filters.push(r => r[c] === v); return this }
   is(c: string, v: null) { this.filters.push(r => (r[c] ?? null) === v); return this }
   gt(c: string, v: string) { this.filters.push(r => typeof r[c] === 'string' && (r[c] as string) > v); return this }
@@ -84,6 +89,10 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
       return { data: added.map(r => ({ ...r })), error: null }
     }
     const hit = rows.filter(r => this.filters.every(f => f(r)))
+    if (this.op === 'delete') {
+      db[this.table] = rows.filter(r => !hit.includes(r))
+      return { data: hit.map(r => ({ ...r })), error: null }
+    }
     if (this.op === 'update') {
       for (const r of hit) Object.assign(r, this.patch)
       return { data: hit.map(r => ({ ...r })), error: null }
@@ -162,8 +171,12 @@ const issuedSecrets: string[] = []
 async function json(res: Response): Promise<Record<string, unknown>> {
   return (await res.json()) as Record<string, unknown>
 }
-function post(path: string, body: Record<string, unknown> | string, type: 'json' | 'form' = 'json') {
+// ทุกคำขอได้ IP ของตัวเอง (10.0.x.y) — ไม่ให้ rate limit ต่อ IP ของ register/token กระทบเคสเดิม · ส่ง ip เองได้
+let ipSeq = 0
+function post(path: string, body: Record<string, unknown> | string, type: 'json' | 'form' = 'json', ip?: string) {
   const headers = new Headers(currentHeaders)
+  ipSeq++
+  headers.set('x-forwarded-for', ip ?? `10.0.${Math.floor(ipSeq / 250)}.${(ipSeq % 250) + 1}, 172.16.0.1`)
   headers.set('content-type', type === 'json' ? 'application/json' : 'application/x-www-form-urlencoded')
   return new Request(`${ORIGIN}${path}`, { method: 'POST', headers, body: typeof body === 'string' ? body : JSON.stringify(body) })
 }
@@ -337,6 +350,67 @@ async function main() {
     env.NODE_ENV = realNodeEnv
   }
   pass('M2 (a) DCR คืน client_id + บันทึก redirect_uris · http ที่ไม่ใช่ localhost / >10 URI / ชื่อ >100 ตัวอักษรถูกปฏิเสธ')
+
+  // ═══ H4 / AC2.3: allowlist host ของ redirect_uri ตอนลงทะเบียน ═══════════════════
+  const regStatus = async (uri: string) => {
+    const r = await register.POST(post('/api/oauth/register', { client_name: 'x', redirect_uris: [uri] }))
+    return { status: r.status, body: await json(r) }
+  }
+  {
+    const before = db.oauth_clients.length
+    const evil = await regStatus('https://evil.example/cb')
+    assert.equal(evil.status, 400)
+    assert.equal(evil.body.error, 'invalid_redirect_uri')
+    assert.match(String(evil.body.error_description), /claude\.ai/, 'คำอธิบายต้องบอกโดเมนที่อนุญาต')
+    for (const bad of ['https://claude.ai.evil.example/cb', 'https://evilclaude.ai/cb', 'https://chatgpt.com.evil.example/cb', 'http://claude.ai/cb']) {
+      assert.equal((await regStatus(bad)).status, 400, `ต้องปฏิเสธ ${bad}`)
+    }
+    // URI หนึ่งในหลายตัวไม่ผ่าน = ปฏิเสธทั้งคำขอ
+    assert.equal((await register.POST(post('/api/oauth/register', { redirect_uris: [CALLBACK, 'https://evil.example/cb'] }))).status, 400)
+    assert.equal(db.oauth_clients.length, before, 'ที่ถูกปฏิเสธต้องไม่ถูกบันทึก')
+    for (const good of [CALLBACK, 'https://chatgpt.com/connector/oauth/x', 'https://claude.com/cb', 'https://api.claude.ai/cb', 'http://127.0.0.1:5173/cb', 'http://[::1]:7777/cb', 'http://localhost:3000/cb', 'https://localhost:8443/cb']) {
+      assert.equal((await regStatus(good)).status, 201, `ต้องรับ ${good}`)
+    }
+
+    // env OAUTH_REDIRECT_HOSTS แทนค่าเริ่มต้นทั้งชุด (loopback ยังได้)
+    env.OAUTH_REDIRECT_HOSTS = ' example.org , '
+    assert.deepEqual(oauth.allowedRedirectHosts(), ['example.org'])
+    assert.equal((await regStatus('https://app.example.org/cb')).status, 201)
+    assert.equal((await regStatus('https://example.org/cb')).status, 201)
+    assert.equal((await regStatus(CALLBACK)).status, 400)
+    assert.equal((await regStatus('http://127.0.0.1:5173/cb')).status, 201)
+    delete env.OAUTH_REDIRECT_HOSTS
+    assert.deepEqual(oauth.allowedRedirectHosts(), oauth.DEFAULT_REDIRECT_HOSTS)
+    assert.equal((await regStatus('https://app.example.org/cb')).status, 400, 'คืน env แล้วกลับเป็นค่าเริ่มต้น')
+  }
+  pass('H4 allowlist: register รับเฉพาะ claude.ai/claude.com/chatgpt.com (+subdomain) และ loopback · โดเมนปลอม → 400 invalid_redirect_uri · env OAUTH_REDIRECT_HOSTS แทนค่าเริ่มต้น')
+
+  // ═══ H4 / M15: rate limit ต่อ IP ════════════════════════════════════════════
+  {
+    const IP = '203.0.113.9'
+    for (let i = 1; i <= 10; i++) {
+      const r = await register.POST(post('/api/oauth/register', { redirect_uris: [CALLBACK] }, 'json', `${IP}, 10.9.9.9`))
+      assert.equal(r.status, 201, `ครั้งที่ ${i} ต้องผ่าน`)
+    }
+    const blocked = await register.POST(post('/api/oauth/register', { redirect_uris: [CALLBACK] }, 'json', IP))
+    assert.equal(blocked.status, 429, 'ครั้งที่ 11 ใน 1 ชม. ต้องถูกจำกัด')
+    assert.equal((await json(blocked)).error, 'temporarily_unavailable')
+    const retry = Number(blocked.headers.get('retry-after'))
+    assert.ok(retry > 0 && retry <= 3600, `Retry-After ต้องเป็นวินาที (ได้ ${retry})`)
+    assert.equal((await register.POST(post('/api/oauth/register', { redirect_uris: [CALLBACK] }, 'json', '203.0.113.10'))).status, 201, 'IP อื่นยังได้')
+
+    const TIP = '198.51.100.7'
+    const bogus = form({ grant_type: 'refresh_token', refresh_token: 'nope', client_id: 'nope' })
+    for (let i = 1; i <= 60; i++) {
+      const r = await token.POST(post('/api/oauth/token', bogus, 'form', TIP))
+      assert.notEqual(r.status, 429, `token ครั้งที่ ${i} ต้องยังไม่ถูกจำกัด`)
+    }
+    const tBlocked = await token.POST(post('/api/oauth/token', bogus, 'form', TIP))
+    assert.equal(tBlocked.status, 429, 'token ครั้งที่ 61 ใน 1 นาที ต้องถูกจำกัด')
+    assert.ok(Number(tBlocked.headers.get('retry-after')) > 0)
+    assert.notEqual((await token.POST(post('/api/oauth/token', bogus, 'form', '198.51.100.8'))).status, 429, 'IP อื่นยังได้')
+  }
+  pass('H4 rate limit: register 10/ชม./IP, token 60/นาที/IP → 429 temporarily_unavailable + Retry-After · IP อื่นไม่กระทบ')
 
   // ═══ M4: grantAuthorization ฝั่ง server ═════════════════════════════════════
   const VERIFIER = 'v'.repeat(43) + '-verifier-1'
@@ -637,6 +711,32 @@ async function main() {
     assert.ok(!ok.includes('ติดตามงาน'), 'staff ไม่มีโมดูล jobs')
     assert.match(ok, /ชาย/, 'แสดงชื่อผู้ใช้')
     assert.match(ok, /การเชื่อมต่อที่มีอยู่แล้ว/)
+    assert.match(ok, /ส่งรหัสกลับไปที่/)
+    assert.match(ok, />claude\.ai</, 'แสดง host ของ redirect_uri')
+    assert.ok(!ok.includes('ระบบรู้จัก'), 'host ใน allowlist ไม่ต้องมีคำเตือน')
+
+    // ไม่ hardcode "Claude" — client ชื่ออื่นต้องไม่เห็นคำว่า Claude เลย
+    const kittyCb = 'https://chatgpt.com/connector/oauth/kitty'
+    const kittyRes = await register.POST(post('/api/oauth/register', { client_name: 'Kitty', redirect_uris: [kittyCb] }))
+    const kittyId = (await json(kittyRes)).client_id as string
+    const kitty = await renderPage({ ...base, client_id: kittyId, redirect_uri: kittyCb })
+    assert.match(kitty, /อนุญาตให้ Kitty เข้าถึงข้อมูล/)
+    assert.match(kitty, />chatgpt\.com</)
+    assert.match(kitty, /แอปนี้จะเห็นข้อมูลของ/)
+    // ตัดรายการ "การเชื่อมต่อที่มีอยู่แล้ว" ออก (มี client ชื่อ Claude ของจริงจากเคสก่อนหน้า)
+    assert.ok(!kitty.split('การเชื่อมต่อที่มีอยู่แล้ว')[0].includes('Claude'), 'หน้าอนุญาตต้องไม่มีคำว่า Claude แบบ hardcode')
+
+    // host นอก allowlist (ลงทะเบียนตอน env อนุญาต แล้วคืน env) → คำเตือนสีเหลือง
+    const oddCb = 'https://odd.example.net/cb'
+    env.OAUTH_REDIRECT_HOSTS = 'example.net'
+    const oddRes = await register.POST(post('/api/oauth/register', { client_name: 'Claude', redirect_uris: [oddCb] }))
+    delete env.OAUTH_REDIRECT_HOSTS
+    assert.equal(oddRes.status, 201)
+    const odd = await renderPage({ ...base, client_id: (await json(oddRes)).client_id as string, redirect_uri: oddCb })
+    assert.match(odd, />odd\.example\.net</)
+    assert.match(odd, /โดเมนนี้ไม่ใช่ Claude หรือ ChatGPT ที่ระบบรู้จัก/)
+    assert.match(odd, /bg-amber-50/)
+    assert.match(odd, ALLOW_BUTTON, 'client เก่านอก allowlist ยังกดอนุญาตได้ (มีคำเตือน)')
 
     const invalid: [Record<string, string>, string][] = [
       [{ ...base, client_id: 'nope' }, 'client_id ไม่รู้จัก'],
@@ -734,6 +834,40 @@ async function main() {
     assert.equal((await exchange(clientId, c, V2)).status, 200, 'ต่ออายุแล้วใช้ได้ตามปกติ')
   }
   pass('M2 (g) ใบอนุญาตหมดอายุ → token / register / revoke / metadata ตอบ 403 license_expired')
+
+  // ═══ M15: ล้าง code / client หมดอายุ ═══════════════════════════════════════════
+  {
+    const now = Date.now()
+    const old = new Date(now - 2 * 86_400_000).toISOString()
+    const recent = new Date(now - 3_600_000).toISOString()
+    db.oauth_clients.push(
+      { client_id: 'stale-client', client_name: 'x', redirect_uris: [CALLBACK], created_at: old },
+      { client_id: 'stale-with-code', client_name: 'x', redirect_uris: [CALLBACK], created_at: old },
+      { client_id: 'fresh-client', client_name: 'x', redirect_uris: [CALLBACK], created_at: recent },
+      { client_id: oauth.PERSONAL_CLIENT_ID, client_name: 'p', redirect_uris: [], created_at: old },
+    )
+    // client ที่ใช้งานจริง (มี token) แต่ลงทะเบียนนานแล้ว
+    db.oauth_clients.find(c => c.client_id === clientId)!.created_at = old
+    db.oauth_codes.push(
+      { code_hash: 'old-code', client_id: clientId, expires_at: old, used_at: null },
+      { code_hash: 'live-code', client_id: 'stale-with-code', expires_at: new Date(now + 300_000).toISOString(), used_at: null },
+    )
+    const codesBefore = db.oauth_codes.length
+    const res = await oauth.cleanupExpiredOAuth(fakeClient as never, now)
+    const ids = new Set(db.oauth_clients.map(c => c.client_id))
+    assert.ok(!ids.has('stale-client'), 'client เก่าไม่เคยได้ token ต้องถูกลบ')
+    assert.ok(ids.has('stale-with-code'), 'client ที่มี code ค้างต้องอยู่')
+    assert.ok(ids.has('fresh-client'), 'client อายุไม่ถึง 1 วันต้องอยู่')
+    assert.ok(ids.has(clientId), 'client ที่มี token ต้องอยู่')
+    assert.ok(ids.has(oauth.PERSONAL_CLIENT_ID), 'ห้ามลบ personal-token')
+    assert.ok(!db.oauth_codes.some(c => c.code_hash === 'old-code'), 'code หมดอายุเกิน 1 วันต้องถูกลบ')
+    assert.equal(db.oauth_codes.length, codesBefore - 1, 'code ที่ยังไม่เกิน 1 วันต้องอยู่ครบ')
+    assert.equal(res.codes, 1)
+    assert.equal(res.clients, 1)
+    const src = (load('node:fs') as typeof import('node:fs')).readFileSync(__dirname + '/../lib/oauth.ts', 'utf8')
+    assert.ok(!/\.or\(/.test(src), 'lib/oauth.ts ห้ามใช้ .or()')
+  }
+  pass('M15 cleanupExpiredOAuth: ลบ code หมดอายุ >1 วัน + client >1 วันที่ไม่มี token/code · ไม่แตะ personal-token')
 
   console.log('\noauth-flow: ผ่านทั้งหมด')
 }

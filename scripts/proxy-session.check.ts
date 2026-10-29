@@ -23,7 +23,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'SERVER-KEY'
 type Row = Record<string, unknown>
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 const ADMIN = uid(1), STAFF = uid(2), BLOCKED = uid(3), PENDING = uid(4), LOGGED_OUT = uid(5)
-const EVENTS_ONLY = uid(6), STOCK_ONLY = uid(7), NEITHER = uid(8)
+const EVENTS_ONLY = uid(6), STOCK_ONLY = uid(7), NEITHER = uid(8), JOBS_CHECKIN = uid(9)
 const profiles: Row[] = [
   { id: ADMIN, role: 'admin', is_approved: true, is_blocked: false, active_session_id: 'sess-admin', allowed_modules: ['stock'] },
   { id: STAFF, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-staff', allowed_modules: ['stock', 'finance', 'admin'] },
@@ -35,6 +35,7 @@ const profiles: Row[] = [
   { id: EVENTS_ONLY, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-ev', allowed_modules: ['events'] },
   { id: STOCK_ONLY, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-st', allowed_modules: ['stock'] },
   { id: NEITHER, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-no', allowed_modules: ['finance'] },
+  { id: JOBS_CHECKIN, role: 'staff', is_approved: true, is_blocked: false, active_session_id: 'sess-jc', allowed_modules: ['jobs', 'checkin'] },
 ]
 
 const keysUsed: string[] = []
@@ -205,6 +206,22 @@ async function main() {
   assert.equal(await outcome('/stock/usage', ev), '/dashboard', 'มีแต่สิทธิ์อีเวนต์ เข้าแดชบอร์ดการใช้งานไม่ได้')
   assert.equal(await outcome('/stock/usage', no), '/dashboard', 'ไม่มีสิทธิ์สต็อก เข้าแดชบอร์ดการใช้งานไม่ได้')
   pass('การใช้งานอุปกรณ์: stock เข้าได้ · events อย่างเดียว / ไม่มีสิทธิ์ → /dashboard')
+
+  // (11) /jobs /check-in /overview อยู่ใน MODULE_ROUTES แล้ว (รายงานความปลอดภัย 2026-10-29 H5) — เดิมใครล็อกอินก็พิมพ์ URL เข้าได้
+  const jc = signed(JOBS_CHECKIN, 'sess-jc')
+  for (const path of ['/jobs', '/jobs/my-job', `/jobs/${KIT}`, '/jobs/tracking']) {
+    assert.equal(await outcome(path, jc), 'next', `มีสิทธิ์ jobs เข้า ${path} ได้`)
+    assert.equal(await outcome(path, ev), '/dashboard', `ไม่มีสิทธิ์ jobs ต้องเข้า ${path} ไม่ได้`)
+  }
+  for (const path of ['/check-in', '/check-in/history', '/check-in/report']) {
+    assert.equal(await outcome(path, jc), 'next', `มีสิทธิ์ checkin เข้า ${path} ได้`)
+    assert.equal(await outcome(path, ev), '/dashboard', `ไม่มีสิทธิ์ checkin ต้องเข้า ${path} ไม่ได้`)
+  }
+  assert.equal(await outcome('/overview', jc), '/dashboard', 'พนักงานไม่มีสิทธิ์ overview → /dashboard')
+  assert.equal(await outcome('/overview/goals', ev), '/dashboard')
+  assert.equal(await outcome('/overview', signed(ADMIN, 'sess-admin')), 'next', 'แอดมินได้ overview เสมอแม้ allowed_modules ไม่มี (เหมือน layout)')
+  assert.equal(await outcome('/jobs', signed(ADMIN, 'sess-admin')), '/dashboard', 'แอดมินที่ไม่มีโมดูล jobs ก็ถูกคุมเหมือนโมดูลอื่น')
+  pass('ติดตามงาน / เช็คอิน / ภาพรวม: ต้องมีโมดูล jobs / checkin / overview · แอดมินได้ overview เสมอ')
 
   console.log('\nproxy-session: ผ่านทั้งหมด')
 }

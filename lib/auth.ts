@@ -69,6 +69,32 @@ export const requireAuth = cache(async (): Promise<AuthSession | null> => {
     }
 })
 
+/** โมดูลของผู้ใช้ — อ่าน profiles.allowed_modules ครั้งเดียวต่อ request (null = ['stock'] ค่าเริ่มต้นเดียวกับ proxy.ts) */
+const loadModules = cache(async (userId: string): Promise<string[]> => {
+    const { data } = await createServiceClient()
+        .from('profiles')
+        .select('allowed_modules')
+        .eq('id', userId)
+        .maybeSingle()
+    return Array.isArray(data?.allowed_modules) ? (data.allowed_modules as string[]) : ['stock']
+})
+
+/**
+ * ตัวตน + สิทธิ์โมดูล: admin ผ่านทุกโมดูล · คนอื่นต้องมีคีย์ใดคีย์หนึ่งใน profiles.allowed_modules
+ * ไม่ล็อกอินหรือไม่มีสิทธิ์ = null
+ *
+ * server action ที่อ่าน/เขียนข้อมูลของโมดูลต้องเรียกตัวนี้ ไม่ใช่แค่ requireAuth() — proxy.ts คุมแค่ URL
+ * ของหน้า แต่ action ถูกเรียกจากหน้าไหนก็ได้ (รายงานความปลอดภัย 2026-10-29 ข้อ H5/H6)
+ */
+export async function requireModule(keys: string | string[]): Promise<AuthSession | null> {
+    const session = await requireAuth()
+    if (!session) return null
+    if (session.role === 'admin') return session
+    const wanted = Array.isArray(keys) ? keys : [keys]
+    const modules = await loadModules(session.userId)
+    return wanted.some(k => modules.includes(k)) ? session : null
+}
+
 /**
  * Same verified session as requireAuth() in the older { userId, role, sessionId } shape.
  * DB-backed (role comes from the DB row) but cached per request, so calling it next to

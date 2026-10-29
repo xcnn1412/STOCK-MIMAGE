@@ -40,9 +40,13 @@ export default async function CheckUpdatePage() {
           'MASTER_API_URL is not configured. Set it to the master site URL (e.g. https://master.example.com) in this instance\'s env.'
         )
       }
+      // master ปิด endpoint ด้วย header x-master-token — ส่งเฉพาะเมื่อ instance นี้ตั้ง MASTER_API_TOKEN
+      const masterHeaders: Record<string, string> = process.env.MASTER_API_TOKEN
+        ? { 'x-master-token': process.env.MASTER_API_TOKEN }
+        : {}
       const [fpRes, manRes] = await Promise.all([
-        fetch(`${masterApiUrl}/api/schema/fingerprint`, { cache: 'no-store' }),
-        fetch(`${masterApiUrl}/api/migrations/list`, { cache: 'no-store' }),
+        fetch(`${masterApiUrl}/api/schema/fingerprint`, { cache: 'no-store', headers: masterHeaders }),
+        fetch(`${masterApiUrl}/api/migrations/list`, { cache: 'no-store', headers: masterHeaders }),
       ])
       if (!fpRes.ok) throw new Error(`fingerprint: HTTP ${fpRes.status}`)
       if (!manRes.ok) throw new Error(`manifest: HTTP ${manRes.status}`)

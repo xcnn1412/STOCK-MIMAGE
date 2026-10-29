@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { masterTokenOk } from '@/lib/master-token'
 import { readFile } from 'fs/promises'
 import { join, basename } from 'path'
 
@@ -13,9 +14,10 @@ export const revalidate = 0
 const MIGRATIONS_DIR = join(process.cwd(), 'supabase', 'migrations')
 
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ filename: string }> }
 ) {
+  if (!masterTokenOk(req)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   const { filename: raw } = await ctx.params
 
   // Hard sanitization — strip any path segments and reject non-.sql.

@@ -1,9 +1,11 @@
 import { getLicenseStatus } from '@/lib/license'
-import { licenseExpiredResponse, oauthJson, oauthPreflight, randomToken, validRedirect } from '@/lib/oauth'
+import { allowedRedirectHosts, clientIp, licenseExpiredResponse, oauthJson, oauthPreflight, randomToken, redirectHostAllowed, tooManyRequests, validRedirect } from '@/lib/oauth'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { createServiceClient } from '@/lib/supabase-server'
 
 // RFC 7591 — Dynamic Client Registration: Claude ลงทะเบียนตัวเองก่อนขออนุญาต
 // public client เท่านั้น (ไม่มี secret) — ความปลอดภัยมาจาก PKCE + redirect_uri ที่ตรงทั้งสตริง
+// + host ของ redirect ต้องอยู่ใน allowlist (lib/oauth.ts::redirectHostAllowed) · จำกัด 10 ครั้ง/ชม./IP
 
 const MAX_REDIRECTS = 10
 const MAX_NAME = 100
@@ -14,6 +16,9 @@ const bad = (error: string, error_description: string) => oauthJson({ error, err
 
 export async function POST(req: Request) {
   if (getLicenseStatus().expired) return licenseExpiredResponse()
+
+  const rl = checkRateLimit(`oauth-register:${clientIp(req)}`, { limit: 10, windowMs: 3_600_000, lockoutMs: 0 })
+  if (!rl.allowed) return tooManyRequests(rl.retryAfterSeconds)
 
   let body: unknown
   try {
@@ -31,6 +36,9 @@ export async function POST(req: Request) {
   const redirectUris = uris as string[]
   if (!redirectUris.every(u => validRedirect(u, [u]))) {
     return bad('invalid_redirect_uri', 'redirect_uri ต้องเป็น https (http ได้เฉพาะ localhost / 127.0.0.1)')
+  }
+  if (!redirectUris.every(u => redirectHostAllowed(u))) {
+    return bad('invalid_redirect_uri', `redirect_uri ต้องอยู่บนโดเมนที่อนุญาต (${allowedRedirectHosts().join(', ')} หรือ localhost)`)
   }
 
   const rawName = meta.client_name

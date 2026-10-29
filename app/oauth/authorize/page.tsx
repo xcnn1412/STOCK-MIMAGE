@@ -9,7 +9,7 @@ import ConsentView, { type ExistingConnection } from './consent-view'
 
 export const revalidate = 0
 
-// หน้าอนุญาตให้ Claude เข้าถึงข้อมูล (OAuth authorize) — อยู่นอก (authenticated) จึงไม่มี sidebar
+// หน้าอนุญาตให้แอป (Claude / ChatGPT / MCP client) เข้าถึงข้อมูล (OAuth authorize) — อยู่นอก (authenticated) จึงไม่มี sidebar
 // proxy บังคับล็อกอินให้แล้ว (ไม่ได้ล็อกอิน → /login?next=… แล้วกลับมาที่นี่)
 
 type Search = Record<string, string | string[] | undefined>
@@ -60,7 +60,7 @@ export default async function AuthorizePage(props: { searchParams: Promise<Searc
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <p className="rounded-md bg-red-50 p-3 text-red-700 dark:bg-red-950/40 dark:text-red-300">{check.error}</p>
-            <p className="text-zinc-500">ปิดหน้านี้ แล้วลองเพิ่มการเชื่อมต่อใหม่จาก Claude อีกครั้ง</p>
+            <p className="text-zinc-500">ปิดหน้านี้ แล้วลองเพิ่มการเชื่อมต่อใหม่จากแอปที่ใช้อีกครั้ง</p>
           </CardContent>
         </Card>
       </Shell>
@@ -91,6 +91,8 @@ export default async function AuthorizePage(props: { searchParams: Promise<Searc
       <ConsentView
         params={params}
         clientName={check.clientName}
+        redirectHost={check.redirectHost}
+        knownHost={check.knownHost}
         userName={auth.nickname || auth.fullName || 'ผู้ใช้'}
         modules={modules.map(m => MODULE_LABEL[m] ?? m)}
         connections={connections}

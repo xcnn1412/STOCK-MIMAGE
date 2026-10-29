@@ -82,15 +82,21 @@ for (const l of active.filter((_, i) => i % 7 === 0)) {
   for (let k = 0; k < 3; k++) installments.push({ id: uid(100_000 + installments.length), lead_id: l.id, amount: 1000 * (k + 1), is_paid: k !== 1 })
 }
 
+const KANBAN = ['lead', 'quotation_sent', 'accepted', 'rejected', 'pending', 'retired'] // retired = ปิดใช้แล้ว ยังนับว่าเป็นสถานะจริง
 const db: Record<string, Row[]> = {
   crm_leads: shuffle([...active, ...archived]),
   crm_lead_installments: installments,
+  crm_settings: KANBAN.map((value, i) => ({ id: uid(900_000 + i), category: 'kanban_status', value, is_active: value !== 'retired' })),
+  crm_activities: [],
 }
 
 // ── ฐานข้อมูลจำลอง (เฉพาะที่ getLeads / getArchivedLeads ใช้) ───────────────────
 const MAX_ROWS = 1000
 const reads = new Map<string, number>()
 const leadReads = () => reads.get('crm_leads') ?? 0
+/** การเขียนที่ส่งถึงฐานข้อมูลจำลอง (ไม่แก้แถวจริง — แค่จดไว้ตรวจว่าถูกปัดก่อนเขียนหรือไม่) */
+const writes: { table: string; op: string; values?: Row }[] = []
+const totalReads = () => [...reads.values()].reduce((a, b) => a + b, 0)
 /** การอ่าน crm_leads ครั้งที่เท่านี้ (นับสะสม) ได้ error */
 let failAtRead: number | null = null
 
@@ -116,9 +122,16 @@ class Query implements PromiseLike<Result> {
   private sorts: { col: string; asc: boolean }[] = []
   private start = 0
   private end: number | null = null
+  private one = false
+  private op: { kind: 'update' | 'insert' | 'delete'; values?: Row } | null = null
   constructor(private table: string) {}
 
   select(cols = '*') { this.cols = cols; return this }
+  update(values: Row) { this.op = { kind: 'update', values }; return this }
+  insert(values: Row) { this.op = { kind: 'insert', values }; return this }
+  delete() { this.op = { kind: 'delete' }; return this }
+  single() { this.one = true; return this }
+  limit(n: number) { this.start = 0; this.end = n - 1; return this }
   eq(c: string, v: unknown) { return this.where(r => r[c] === v) }
   is(c: string, v: null) {
     assert.equal(v, null, 'ตัวจำลองรองรับเฉพาะ is(col, null)')
@@ -159,7 +172,11 @@ class Query implements PromiseLike<Result> {
   }
 
   private run(): Result {
-    assert.ok(this.cols !== null, 'ตัวจำลองรองรับเฉพาะการอ่าน (select)')
+    if (this.op) {
+      writes.push({ table: this.table, op: this.op.kind, values: this.op.values })
+      return { data: null, error: null }
+    }
+    assert.ok(this.cols !== null, 'ตัวจำลองรองรับเฉพาะการอ่าน (select) หรือ update/insert/delete')
     reads.set(this.table, (reads.get(this.table) ?? 0) + 1)
     if (this.table === 'crm_leads' && failAtRead !== null && leadReads() === failAtRead) {
       return { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout (จำลอง)' } }
@@ -173,7 +190,9 @@ class Query implements PromiseLike<Result> {
     })
     // ไม่มี range = ได้ไม่เกิน MAX_ROWS แถวแรก · มี range ก็ยังได้ไม่เกิน MAX_ROWS ต่อคำขอ
     const stop = Math.min(this.end === null ? Number.POSITIVE_INFINITY : this.end + 1, this.start + MAX_ROWS)
-    return { data: hits.slice(this.start, stop).map(r => this.project(r)), error: null }
+    const rows = hits.slice(this.start, stop).map(r => this.project(r))
+    if (this.one) return rows.length === 1 ? { data: rows[0], error: null } : { data: null, error: { code: 'PGRST116', message: 'ไม่พบแถว (จำลอง)' } }
+    return { data: rows, error: null }
   }
 
   then<A = Result, B = never>(
@@ -193,11 +212,19 @@ const mocks: [RegExp, unknown][] = [
   }],
   [/^next\/cache$/, { revalidatePath() {}, revalidateTag() {} }],
   [/lib\/logger$/, { logActivity: async () => {} }],
-  [/lib\/auth$/, { requireAuth: async () => ({ userId: uid(1), role, sessionId: 'sess-check' }) }],
+  [/lib\/auth$/, {
+    requireAuth: async () => ({ userId: uid(1), role, sessionId: 'sess-check' }),
+    // เหมือน lib/auth.ts: แอดมินผ่านทุกโมดูล · คนอื่นต้องมีโมดูลใดโมดูลหนึ่งใน allowed_modules
+    requireModule: async (keys: string | string[]) => {
+      const wanted = Array.isArray(keys) ? keys : [keys]
+      return role === 'admin' || wanted.some(k => modules.includes(k)) ? { userId: uid(1), role, sessionId: 'sess-check' } : null
+    },
+  }],
   [/lib\/notifications$/, { createNotifications: async () => {} }],
   [/jobs\/actions$/, { autoCreateJobsFromAcceptedLead: async () => ({}) }],
 ]
 let role = 'admin'
+let modules: string[] = ['crm']
 type Loader = (request: string, ...rest: unknown[]) => unknown
 const M = Module as unknown as { _load: Loader }
 const realLoad = M._load
@@ -207,7 +234,7 @@ M._load = function (this: unknown, request: string, ...rest: unknown[]) {
 }
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { getLeads, getArchivedLeads, deleteLead, countStaleLeads, archiveStaleLeads } =
+const { getLeads, getArchivedLeads, getLead, updateLead, updateLeadStatus, createCrmSetting, deleteLead, countStaleLeads, archiveStaleLeads } =
   require('../app/(authenticated)/crm/actions') as typeof import('../app/(authenticated)/crm/actions')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -319,6 +346,80 @@ async function main() {
   assert.equal([...reads.values()].reduce((a, b) => a + b, 0), readsBefore, '(j) ต้องไม่อ่านฐานข้อมูลเลย')
   role = 'admin'
   pass('(j) deleteLead / countStaleLeads / archiveStaleLeads ปัดพนักงานก่อนอ่านข้อมูล')
+
+  // (k) AC2.4 สิทธิ์ตามโมดูล — ไม่มีสิทธิ์ต้องถูกปัดก่อนแตะฐานข้อมูล
+  const target = active.find(l => l.status === 'lead')!
+  const id = target.id as string
+  const touches = () => totalReads() + writes.length
+  const form = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.set(k, v); return f }
+
+  role = 'staff'; modules = ['finance']
+  let t0 = touches()
+  const denied = await getLeads()
+  assert.deepEqual(denied.data, [])
+  assert.ok(denied.error, '(k) finance: getLeads ต้องมี error')
+  assert.ok('error' in (await updateLeadStatus(id, 'accepted')))
+  assert.equal((await getLead(id)).data, null)
+  assert.equal(touches(), t0, '(k) finance: ต้องไม่อ่าน/เขียน crm_leads เลย')
+  pass('(k1) ผู้ใช้ finance: getLeads → { data: [], error } · updateLeadStatus/getLead ถูกปัด ไม่แตะฐานข้อมูล')
+
+  modules = ['jobs']
+  const asJobs = await getLead(id)
+  assert.equal(asJobs.error, undefined)
+  assert.equal(asJobs.data?.id, id)
+  t0 = writes.length
+  assert.ok('error' in (await updateLead(id, form({ customer_name: 'แก้โดย jobs' }))))
+  assert.ok('error' in (await updateLeadStatus(id, 'accepted')))
+  assert.equal(writes.length, t0, '(k) jobs: ต้องไม่เขียน')
+  pass('(k2) ผู้ใช้ jobs: อ่าน getLead ได้ · updateLead / updateLeadStatus ถูกปัด ไม่เขียน')
+
+  modules = ['crm']
+  assert.equal((await getLead(id)).data?.id, id)
+  assert.equal((await getLeads({ status: 'accepted' })).error, undefined)
+  t0 = writes.length
+  assert.deepEqual(await updateLead(id, form({ customer_name: 'แก้โดย crm' })), { success: true })
+  assert.deepEqual(await updateLeadStatus(id, 'accepted'), { success: true })
+  assert.ok(writes.slice(t0).some(w => w.table === 'crm_leads' && w.op === 'update' && w.values?.status === 'accepted'), '(k) crm: ต้องเขียนสถานะ')
+  // สถานะที่ปิดใช้แล้วยังย้ายได้ · สถานะที่ไม่มีในตั้งค่าแต่มี lead ใช้อยู่ก็ย้ายได้
+  assert.deepEqual(await updateLeadStatus(id, 'retired'), { success: true })
+  target.status = 'legacy_x'
+  assert.deepEqual(await updateLeadStatus(active[1].id as string, 'legacy_x'), { success: true })
+  target.status = 'lead'
+  t0 = writes.length
+  assert.deepEqual(await updateLeadStatus(id, 'hacked'), { error: 'สถานะไม่ถูกต้อง' })
+  assert.equal(writes.length, t0, '(k) สถานะแปลกปลอม: ต้องไม่เขียน')
+  t0 = writes.length
+  assert.ok('error' in (await createCrmSetting(form({ category: 'kanban_status', value: 'x', label_th: 'x', label_en: 'x' }))))
+  assert.equal(writes.length, t0, '(k) crm ที่ไม่ใช่แอดมิน: สร้างค่าตั้งค่าไม่ได้')
+  pass("(k3) ผู้ใช้ crm: อ่าน/เขียนได้ · updateLeadStatus(id, 'hacked') → สถานะไม่ถูกต้อง · createCrmSetting ถูกปัด")
+
+  role = 'admin'; modules = []
+  assert.equal((await getLeads()).data.length, ACTIVE)
+  assert.equal((await getLead(id)).data?.id, id)
+  assert.deepEqual(await updateLeadStatus(id, 'accepted'), { success: true })
+  assert.deepEqual(await createCrmSetting(form({ category: 'kanban_status', value: 'x', label_th: 'x', label_en: 'x' })), { success: true })
+  modules = ['crm']
+  pass('(k4) แอดมินไม่มีโมดูลใดเลย: อ่าน/เขียน/ตั้งค่าได้ทั้งหมด')
+
+  // (l) static scan: ทุก export async function ใน crm/actions.ts ตรวจตัวตนภายใน 6 บรรทัดแรกของ body
+  const ts = require('typescript') as typeof import('typescript') // eslint-disable-line @typescript-eslint/no-require-imports
+  const fs = require('node:fs') as typeof import('node:fs') // eslint-disable-line @typescript-eslint/no-require-imports
+  const path = require('node:path') as typeof import('node:path') // eslint-disable-line @typescript-eslint/no-require-imports
+  const srcPath = path.join(__dirname, '../app/(authenticated)/crm/actions.ts')
+  const src = ts.createSourceFile(srcPath, fs.readFileSync(srcPath, 'utf8'), ts.ScriptTarget.Latest, true)
+  const GATE = /\b(crmReader|crmWriter|requireModule|requireAuth)\(/
+  const offenders: string[] = []
+  let scanned = 0
+  for (const st of src.statements) {
+    if (!ts.isFunctionDeclaration(st) || !st.body || !st.name) continue
+    const mods = ts.getModifiers(st) ?? []
+    if (!mods.some(m => m.kind === ts.SyntaxKind.ExportKeyword) || !mods.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)) continue
+    scanned++
+    const first = st.body.getText(src).split(/\r?\n/).slice(1, 7).join('\n')
+    if (!GATE.test(first)) offenders.push(st.name.text)
+  }
+  assert.equal(scanned, (src.text.match(/^export async function /gm) ?? []).length, `(l) สแกน export ไม่ครบ (${scanned})`)
+  assert.deepEqual(offenders, [], `(l) ฟังก์ชันที่ไม่ตรวจสิทธิ์: ${offenders.join(', ')}`)
 
   console.log('\ncrm-leads-load: ผ่านทั้งหมด')
 }

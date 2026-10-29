@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { createServiceClient } from '@/lib/supabase-server'
+import { readCapped } from '@/lib/claim-files'
 
 export interface FetchedMetrics {
   reach?: number
@@ -12,6 +13,31 @@ export interface FetchedMetrics {
   comments?: number
   shares?: number
   saves?: number
+}
+
+export const ERR_BAD_URL = 'ลิงก์ต้องเป็น TikTok, Facebook หรือ Instagram'
+
+const FETCH_TIMEOUT_MS = 10_000
+const TIKTOK_MAX_BYTES = 2 * 1024 * 1024
+const TIKTOK_MAX_HOPS = 2
+
+/** host ตรงกับโดเมนนี้หรือเป็น subdomain ของมัน (กัน tiktok.com.evil.example) */
+function hostIs(host: string, domains: readonly string[]): boolean {
+  const h = host.toLowerCase()
+  return domains.some(d => h === d || h.endsWith(`.${d}`))
+}
+const TIKTOK_DOMAINS = ['tiktok.com'] as const
+const META_DOMAINS = ['facebook.com', 'fb.com', 'instagram.com', 'fb.watch'] as const
+
+/** URL ที่ปลอดภัยจะยิงออกไป: ต้อง https และ host อยู่ในรายชื่อ — กัน SSRF ไป IP ภายใน */
+function safeUrl(raw: string, domains: readonly string[]): URL | null {
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== 'https:') return null
+    return hostIs(u.hostname, domains) ? u : null
+  } catch {
+    return null
+  }
 }
 
 const DESKTOP_UA =
@@ -68,13 +94,28 @@ function collectStats(node: unknown, out: Record<string, unknown>[] = [], depth 
 // ยอมรับได้เพราะล้มเหลวแล้วผู้ใช้ยังกรอกตัวเลขเองได้เหมือนเดิม ไม่มีอะไรเสียหาย
 // ทางอัปเกรดจริง: ใช้ TikTok Display API อย่างเป็นทางการ (ต้องขอ app + OAuth ของเจ้าของบัญชี)
 export async function fetchTikTokMetrics(url: string): Promise<{ metrics?: FetchedMetrics; error?: string }> {
+  const first = safeUrl(url, TIKTOK_DOMAINS)
+  if (!first) return { error: ERR_BAD_URL }
+  let target: URL = first
   try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': DESKTOP_UA, 'Accept-Language': 'th-TH,th;q=0.9,en;q=0.8' },
-      redirect: 'follow',
-    })
-    if (!res.ok) return { error: ERR_TIKTOK }
-    const html = await res.text()
+    // ไม่ให้ fetch ตาม redirect เอง — ตามเองไม่เกิน 2 ครั้ง และทุกปลายทางต้องผ่านกฎเดียวกัน
+    let res: Response | null = null
+    for (let hop = 0; hop <= TIKTOK_MAX_HOPS; hop++) {
+      res = await fetch(target.toString(), {
+        headers: { 'User-Agent': DESKTOP_UA, 'Accept-Language': 'th-TH,th;q=0.9,en;q=0.8' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      })
+      if (![301, 302, 303, 307, 308].includes(res.status)) break
+      const loc: string | null = res.headers.get('location')
+      const next: URL | null = loc ? safeUrl(new URL(loc, target).toString(), TIKTOK_DOMAINS) : null
+      if (!next || hop === TIKTOK_MAX_HOPS) return { error: ERR_TIKTOK }
+      target = next
+    }
+    if (!res || !res.ok) return { error: ERR_TIKTOK }
+    const bytes = await readCapped(res, TIKTOK_MAX_BYTES)
+    if (!bytes) return { error: ERR_TIKTOK }
+    const html = new TextDecoder().decode(bytes)
 
     // ลองทั้งตัวปัจจุบันและตัวเก่า — หน้าเพจบางเวอร์ชันยังส่ง SIGI_STATE มาอยู่
     const candidates: Record<string, unknown>[] = []
@@ -132,6 +173,7 @@ function facebookObjectId(url: string): string | null {
  *  ลองให้แล้วถ้าไม่ได้ก็บอกผู้ใช้ให้กรอกเอง)
  */
 export async function fetchMetaMetrics(url: string): Promise<{ metrics?: FetchedMetrics; error?: string }> {
+  if (!safeUrl(url, META_DOMAINS)) return { error: ERR_BAD_URL }
   const token = await getMetaToken()
   if (!token) return { error: ERR_META_NO_TOKEN }
 
@@ -144,7 +186,7 @@ export async function fetchMetaMetrics(url: string): Promise<{ metrics?: Fetched
       ? `${BASE}${objectId}?fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(token)}`
       : `${BASE}?id=${encodeURIComponent(url)}&fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(token)}`
 
-    const res = await fetch(endpoint, { headers: { Accept: 'application/json' } })
+    const res = await fetch(endpoint, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     const json = (await res.json().catch(() => null)) as Record<string, unknown> | null
     if (!res.ok || !json || json.error) return { error: ERR_META_FAILED }
 
@@ -164,7 +206,7 @@ export async function fetchMetaMetrics(url: string): Promise<{ metrics?: Fetched
       try {
         const insRes = await fetch(
           `${BASE}${nodeId}/insights?metric=post_impressions_unique&access_token=${encodeURIComponent(token)}`,
-          { headers: { Accept: 'application/json' } }
+          { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }
         )
         const ins = (await insRes.json().catch(() => null)) as
           | { data?: { values?: { value?: unknown }[] }[] }
@@ -182,7 +224,10 @@ export async function fetchMetaMetrics(url: string): Promise<{ metrics?: Fetched
 }
 
 /** ดึงตาม URL/แพลตฟอร์ม — จุดเข้าเดียวที่ทั้งปุ่มและ cron ใช้ */
-export async function fetchMetricsForUrl(platform: string, url: string): Promise<{ metrics?: FetchedMetrics; error?: string }> {
-  const isTikTok = platform === 'tiktok' || /tiktok\.com/i.test(url)
-  return isTikTok ? fetchTikTokMetrics(url) : fetchMetaMetrics(url)
+export async function fetchMetricsForUrl(_platform: string, url: string): Promise<{ metrics?: FetchedMetrics; error?: string }> {
+  // ตัดสินจาก host จริงของ URL ไม่ใช่ข้อความดิบ — host ไม่รู้จักไม่ยิงอะไรออกไปเลย
+  // (_platform ไม่ใช้ตัดสินแล้ว: ลิงก์ TikTok ที่ติดป้ายผิดแพลตฟอร์มก็ยังดึงได้)
+  if (safeUrl(url, TIKTOK_DOMAINS)) return fetchTikTokMetrics(url)
+  if (safeUrl(url, META_DOMAINS)) return fetchMetaMetrics(url)
+  return { error: ERR_BAD_URL }
 }

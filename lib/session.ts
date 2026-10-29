@@ -10,7 +10,7 @@ export function sessionSecret(): string {
     if (!secret) throw new Error('SESSION_SECRET (หรือ SUPABASE_SERVICE_ROLE_KEY) ไม่ได้ตั้งค่า — เซ็น session ไม่ได้')
     return secret
 }
-const SESSION_SECRET = sessionSecret()
+// อ่านตอนใช้ ไม่ใช่ตอนโหลดโมดูล — สคริปต์ render ที่ import lib/auth ทางอ้อมโดยไม่มี env ต้องยังรันได้
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 /**
@@ -24,7 +24,7 @@ const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 export function createSessionToken(userId: string): string {
     const timestamp = Date.now().toString()
     const payload = `${userId}:${timestamp}`
-    const signature = createHmac('sha256', SESSION_SECRET)
+    const signature = createHmac('sha256', sessionSecret())
         .update(payload)
         .digest('hex')
     return `${payload}:${signature}`
@@ -45,7 +45,7 @@ export function verifySessionToken(token: string): { userId: string; timestamp: 
 
     // Verify signature
     const payload = `${userId}:${timestampStr}`
-    const expectedSignature = createHmac('sha256', SESSION_SECRET)
+    const expectedSignature = createHmac('sha256', sessionSecret())
         .update(payload)
         .digest('hex')
 

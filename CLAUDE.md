@@ -25,7 +25,7 @@ One-off operational scripts live in `scripts/` (e.g., `create-admin.js`, `hash-e
 
 **ฐานข้อมูลจำลองมีรายการคอลัมน์ของแต่ละตาราง (SCHEMA) และตัดผลที่ 1,000 แถวเหมือน PostgREST** — เพิ่มคอลัมน์ใน select ของโค้ดจริงแล้วต้องเติมใน SCHEMA ของสคริปต์ที่เกี่ยว ไม่งั้นชุดตรวจล้ม (เคยพลาดกับ `events.event_time` ใน finance-access/finance-integrity) และเปลี่ยนกติกาธุรกิจ (เช่น บล็อกเบิกเมื่อมีใบค้าง) ต้องไล่แก้ fixture ที่คาดผลเดิม · หลังแก้โมดูลไหน ให้รันชุดตรวจทุกตัวที่ import ไฟล์นั้น (grep path ใน `scripts/`)
 
-**Baseline ที่ใช้เทียบ:** `npx tsc --noEmit --incremental false` = error เดิม 1 จุด (`check-update-view.tsx`) · eslint: โฟลเดอร์ `kits`, `events`, `crm` ต้องเป็น 0 ปัญหา (ทั้ง error และ warning) ตลอด ส่วนที่เหลือมี error เก่าราว 300 จุด กติกาคือ "ไฟล์ที่แตะต้องไม่มี error เพิ่ม" · นับ eslint จากบรรทัดสรุป `✖ N problems` หรือ `-f json` — อย่า grep path ด้วย `^[^:]*:` เพราะ drive letter ของ Windows มี `:` (เคยได้ 0 ปลอม)
+**Baseline ที่ใช้เทียบ:** `npx tsc --noEmit --incremental false` = error เดิม 1 จุด (`check-update-view.tsx`) · eslint: โฟลเดอร์ `kits`, `events`, `crm` ต้องเป็น 0 **error** ตลอด (ณ 2026-10-29 toolchain `eslint-plugin-react-hooks` 7.x ทำให้ไฟล์เดิมขึ้น warning ใหม่: kits+events 18 warning, crm 25 warning + 1 error เก่าใน `components/kanban-board.tsx:354` — ไม่ใช่ของงานใหม่) ส่วนที่เหลือมี error เก่าราว 300 จุด กติกาคือ "ไฟล์ที่แตะต้องไม่มี error เพิ่ม" · ชุดตรวจความปลอดภัย: `scripts/session-hardening.check.ts`, `scripts/proxy-session.check.ts`, `scripts/items-access.check.ts`, `scripts/master-api-metrics.check.ts`, `scripts/oauth-flow.check.ts`, `scripts/crm-leads-load.check.ts` (AC2.4), `lib/rich-text-utils.check.ts` · นับ eslint จากบรรทัดสรุป `✖ N problems` หรือ `-f json` — อย่า grep path ด้วย `^[^:]*:` เพราะ drive letter ของ Windows มี `:` (เคยได้ 0 ปลอม)
 
 ## Versioning & release (semver `MAJOR.MINOR.PATCH`)
 
@@ -63,7 +63,7 @@ The Next.js middleware file is named `proxy.ts` and exports `proxy(request)` (ma
 
 `MODULE_ROUTES` in `proxy.ts` is **duplicated** from `lib/nav-config.ts` because the middleware runs in the Edge runtime and cannot import the lucide-react icons used in nav-config. **If you add a route to a module, update both.**
 
-⚠️ **`MODULE_ROUTES` is currently a strict subset of `NAV_GROUPS`** — it only covers `stock`, `events`, `kpi`, `costs`, `crm`, `finance`, and `admin`. The `overview`, `jobs`, and `checkin` modules exist in `nav-config.ts` (and therefore hide from the sidebar for users who lack the module) but their URLs (`/overview*`, `/jobs*`, `/check-in*`) are **not** enforced by the proxy. Any authenticated user can reach them by typing the URL. If you need real route-level enforcement for those, add them to `MODULE_ROUTES` and/or guard inside the route's `page.tsx`.
+Since v1.71.0 `MODULE_ROUTES` covers every nav module including `overview`, `jobs`, `checkin` (admins are auto-granted `overview`, `admin`, `salesboard`, `content`, `documents`, `salary` in the proxy — the rest of an admin's modules still come from `allowed_modules`). Route enforcement is for **pages only**: a server action can be POSTed from any page, so every action that reads or writes module data must call `lib/auth.ts::requireModule(key | key[])` (admin passes; others need one of the keys in `profiles.allowed_modules`, read once per request) — `requireAuth()` alone only proves login. `lib/stock.ts::hasModule` is the older `{ userId } | null` shape of the same check. Reference: `docs/SECURITY_REPORT.md` (รอบ 2026-10-29) and the fix plan `docs/specs/security-fix-plan.md`.
 
 ### Authentication: signed token + session id only
 
@@ -79,7 +79,7 @@ Server-side auth helpers in `lib/auth.ts`:
 - `getSessionLight()` — same result as `requireAuth()` reduced to `{ userId, role, sessionId }`; kept for older call sites (it is DB-backed now, but cached).
 - Module helpers (`finance/viewer.ts`, `documents/session.ts`, `salary/session.ts`) delegate to `requireAuth()`; new code should call it directly.
 
-`SESSION_SECRET` still falls back to the anon key when unset (so a missing Railway variable does not lock everyone out); the non-null session-id rule keeps a forged token useless, but production must set a real secret.
+`SESSION_SECRET` falls back to `SUPABASE_SERVICE_ROLE_KEY` when unset (v1.70.5 — never the public anon key; neither set = `lib/session.ts` throws and the proxy accepts no token). Production should still set a real `SESSION_SECRET`; changing/adding it logs everyone out once. Related env added by the security rounds: `MASTER_API_TOKEN` (shared secret for `/api/schema/*` + `/api/migrations/*`, unset = those routes always 403) and `OAUTH_REDIRECT_HOSTS` (comma list overriding the default `claude.ai, claude.com, chatgpt.com` redirect allowlist for OAuth client registration).
 
 ### Two Supabase clients with different trust levels
 

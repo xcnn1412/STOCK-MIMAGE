@@ -1,3 +1,5 @@
+import { sanitizeHtml } from '@/lib/rich-text-utils'
+
 // ============================================================================
 // Document Control — config กลางของโมดูล "เอกสาร"
 // ฟอร์ม / validation / PDF / actions อ่านไฟล์นี้ร่วมกัน (spec: docs/specs/documents-module.md)
@@ -466,16 +468,8 @@ export const SC_LOCKED_PARTY_KEYS = [
 export const SC_LOCKED_META_KEYS = ['position', 'department', 'start_date', 'base_salary'] as const
 
 // ── HTML (richtext meta) ─────────────────────────────────────────────────────
-// ponytail: HTML ในฟิลด์ richtext มาจาก TipTap ของเราเอง (ไม่มี script/on* อยู่แล้ว)
-// ตัวนี้เป็นแค่ยามที่ trust boundary — regex 3 บรรทัด พอสำหรับสิ่งที่เรา render เอง
-// ไม่ใช่ sanitizer ทั่วไป ถ้าวันไหนรับ HTML จากภายนอกจริงๆ ให้เปลี่ยนไปใช้ DOMPurify
-
-export function sanitizeHtml(html: string): string {
-  return String(html)
-    .replace(/<\s*\/?\s*(script|iframe|object|embed|style|link|meta)\b[^>]*>/gi, '')
-    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/(href|src)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*'|javascript:[^\s>]*)/gi, '')
-}
+// ล้าง HTML ด้วย sanitizer ตัวเดียวกับทั้งระบบ (DOMPurify + allowlist ใน lib/rich-text-utils.ts)
+export { sanitizeHtml }
 
 /**
  * ล้าง string ทุกตัวใน meta ก่อนบันทึกลง DB
