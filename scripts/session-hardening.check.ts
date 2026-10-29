@@ -8,6 +8,7 @@
 // ด้วยตัวจำลอง (เทคนิคเดียวกับ scripts/finance-access.check.ts) · ผู้ใช้ทั้งหมดสังเคราะห์
 // ครอบคลุม: (a) cookie แบบเก่าอย่างเดียว (b) active_session_id เป็น null (c) ไม่มี session_id (d) session_id ไม่ตรง
 // (e) token พนักงาน + cookie แอดมินปลอม (f) ถูกระงับ (g) ยังไม่อนุมัติ (h) แอดมินจริงทำได้ (i) พนักงานจริงได้ข้อมูลตัวเอง
+// + ระงับใน SQL โดย session ยังตรง (L10) + ใบอนุญาตหมดอายุ (L6)
 // บรรทัดสุดท้ายของผลลัพธ์ต้องเป็น "session-hardening: ผ่านทั้งหมด"
 
 import assert from 'node:assert/strict'
@@ -303,7 +304,7 @@ async function main() {
     // คอลัมน์ที่ requireAuth อ่าน — คงเดิม (ไม่มี '*' ไม่มีคอลัมน์บัญชี)
     const authSelects = ops.filter(o => o.table === 'profiles' && o.action === 'select')
     assert.equal(authSelects.length, 1, 'requireAuth อ่าน profiles ครั้งเดียว')
-    assert.deepEqual(authSelects[0].cols.split(',').map(c => c.trim()), ['id', 'role', 'is_approved', 'active_session_id', 'department', 'full_name', 'nickname'])
+    assert.deepEqual(authSelects[0].cols.split(',').map(c => c.trim()), ['id', 'role', 'is_approved', 'is_blocked', 'active_session_id', 'department', 'full_name', 'nickname'])
     assert.deepEqual(await getSessionLight(), { userId: ADMIN, role: 'admin', sessionId: 'sess-admin' })
 
     jar(STAFF_FORGED[1]())
@@ -314,6 +315,24 @@ async function main() {
     // แอดมินเปลี่ยนบทบาทแล้วมีผลทันที (ไม่ต้องรอ cookie)
     row(STAFF).role = 'admin'
     assert.equal((await requireAuth())?.role, 'admin', 'role อ่านจากฐานข้อมูลทุกครั้ง')
+
+    // L10: ระงับตรงใน SQL (is_blocked=true แต่ active_session_id ยังตรง) → null
+    row(BLOCKED).active_session_id = 'sess-blocked'
+    jar(signed(BLOCKED, 'sess-blocked'))
+    assert.equal(await requireAuth(), null, 'L10 is_blocked + session ยังตรง → null')
+
+    // L6: ใบอนุญาตหมดอายุ → null แม้เป็นแอดมินที่ถูกต้อง (/api ไม่ผ่าน proxy)
+    const prevLicense = process.env.LICENSE_EXPIRES_AT
+    process.env.LICENSE_EXPIRES_AT = '2000-01-01T00:00:00Z'
+    try {
+      jar(ADMIN_VALID[1]())
+      assert.equal(await requireAuth(), null, 'L6 ใบอนุญาตหมดอายุ → แอดมินก็ได้ null')
+    } finally {
+      if (prevLicense === undefined) delete process.env.LICENSE_EXPIRES_AT
+      else process.env.LICENSE_EXPIRES_AT = prevLicense
+    }
+    jar(ADMIN_VALID[1]())
+    assert.equal((await requireAuth())?.userId, ADMIN, 'คืน env แล้วแอดมินกลับมาได้ session')
   })
 
   // ══ 2. server action ของแอดมิน: forceLogout / updateUserRole ══

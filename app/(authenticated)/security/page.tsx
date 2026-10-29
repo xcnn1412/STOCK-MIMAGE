@@ -41,10 +41,10 @@ export default async function SecurityPage() {
             .order('created_at', { ascending: false })
             .limit(20),
 
-        // Active sessions
+        // Active sessions — กรองฝั่งเซิร์ฟเวอร์ ไม่ส่งค่า active_session_id ไปเบราว์เซอร์ (รายงาน L4)
         supabase
             .from('profiles')
-            .select('id, full_name, phone, role, active_session_id')
+            .select('id, full_name, phone, role')
             .not('active_session_id', 'is', null),
 
         // Locked accounts

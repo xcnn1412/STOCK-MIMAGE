@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('Document template preview PDF error:', err)
     return NextResponse.json(
-      { error: 'สร้าง PDF ตัวอย่างไม่สำเร็จ', details: (err as Error)?.message },
+      { error: 'สร้าง PDF ตัวอย่างไม่สำเร็จ' }, // รายละเอียดอยู่ใน console.error เท่านั้น (L8)
       { status: 500 },
     )
   }

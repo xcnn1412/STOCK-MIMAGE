@@ -7,6 +7,7 @@ import { useLocale } from '@/lib/i18n/context'
 import type { FinanceCategory } from '@/app/(authenticated)/finance/settings-actions'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 import { attributeRevenue } from '../lib/revenue-attribution'
+import { csvCell } from '@/lib/csv'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
 
@@ -63,7 +64,7 @@ export default function DownloadView({ jobEvents, categories }: { jobEvents: Job
       }
     })
 
-    const csv = '\ufeff' + [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n')
+    const csv = '\ufeff' + [headers, ...rows].map(r => r.map(csvCell).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

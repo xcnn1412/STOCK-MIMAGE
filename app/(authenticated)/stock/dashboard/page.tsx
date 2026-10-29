@@ -1,6 +1,7 @@
 import { requireAuth } from '@/lib/auth'
 import { supabaseServer as supabase } from '@/lib/supabase-server'
 import DashboardView from './dashboard-view'
+import type { Profile } from '@/types'
 import ShelfAlerts from './shelf-alerts'
 import { loadShelfHealth } from '@/app/(authenticated)/shelves/queries'
 import { createServiceClient } from '@/lib/supabase-server'
@@ -23,8 +24,9 @@ export default async function StockDashboardPage() {
     { data: templates },
     shelfHealth,
   ] = await Promise.all([
-    supabase.from('profiles').select('*').eq('id', userId).single(),
-    supabase.from('login_logs').select('*').eq('user_id', userId).order('login_at', { ascending: false }).limit(1).single(),
+    // เฉพาะคอลัมน์ที่หน้านี้ใช้ (รายงาน L4) — ไม่ส่ง pin / active_session_id ไปเบราว์เซอร์
+    supabase.from('profiles').select('id, full_name').eq('id', userId).single(),
+    supabase.from('login_logs').select('login_at, latitude, longitude').eq('user_id', userId).order('login_at', { ascending: false }).limit(1).single(),
     supabase.from('items').select('*', { count: 'exact', head: true }),
     supabase.from('items').select('price, status'),
     supabase.from('kits').select('*', { count: 'exact', head: true }),
@@ -38,7 +40,7 @@ export default async function StockDashboardPage() {
     <div className="space-y-6">
     <ShelfAlerts health={shelfHealth} />
     <DashboardView
-      profile={profile}
+      profile={profile as Profile | null}
       latestLog={latestLog as any}
       itemsCount={itemsCount}
       items={(items || []) as any}

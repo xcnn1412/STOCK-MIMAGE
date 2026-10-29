@@ -376,6 +376,7 @@ export async function checkIn(formData: FormData) {
     }
   }
 
+  await logActivity('CHECK_IN', { checkin_id: inserted?.id ?? null, check_type: checkType, event_id: checkType === 'onsite' ? eventId : null })
   revalidatePath('/check-in')
   return { success: true }
 }
@@ -480,6 +481,8 @@ export async function adminCheckIn(formData: FormData) {
     return { error: 'เกิดข้อผิดพลาดในการ Check-in' }
   }
 
+  await logActivity('ADMIN_CHECK_IN', { check_type: checkType, event_id: resolvedEventId, checked_in_at: checkedInAt, checked_out_at: checkedOutAt }, targetUserId)
+
   revalidatePath('/check-in')
   return { success: true }
 }
@@ -522,6 +525,8 @@ export async function checkOut(formData: FormData) {
     return { error: 'เกิดข้อผิดพลาดในการ Check-out' }
   }
   if (!closed || closed.length === 0) return { error: 'เช็คอินนี้ปิดไปแล้ว' }
+
+  await logActivity('CHECK_OUT', { checkin_id: checkinId })
 
   revalidatePath('/check-in')
   return { success: true }
@@ -581,6 +586,8 @@ export async function quickCheckoutStale(checkinId: string) {
     return { error: 'เกิดข้อผิดพลาด' }
   }
 
+  await logActivity('QUICK_CHECKOUT_STALE', { checkin_id: checkinId, checked_out_at: endOfCheckinDay })
+
   revalidatePath('/check-in')
   return { success: true }
 }
@@ -622,6 +629,8 @@ export async function undoCheckout(checkinId: string) {
     console.error('Undo checkout error:', error)
     return { error: 'เกิดข้อผิดพลาด' }
   }
+
+  await logActivity('UNDO_CHECKOUT', { checkin_id: checkinId })
 
   revalidatePath('/check-in')
   return { success: true }
@@ -1248,6 +1257,8 @@ export async function updateMyCheckinEvent(checkinId: string, rawEventRef: strin
     console.error('Update my checkin event error:', error)
     return { error: error.message || 'เกิดข้อผิดพลาดในการบันทึก' }
   }
+
+  await logActivity('UPDATE_MY_CHECKIN_EVENT', { checkin_id: checkinId, event_id: newEventId, ref: refTag })
 
   revalidatePath('/check-in')
   revalidatePath('/check-in/history')

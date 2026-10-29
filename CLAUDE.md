@@ -14,7 +14,7 @@ npx tsc --noEmit # Type-check without emitting (no test runner is configured)
 
 There is no test suite. `.env.local` must contain `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET`, `LICENSE_EXPIRES_AT`, and `LICENSE_EXPIRED_REDIRECT_URL`. `next.config.ts` sets `typescript.ignoreBuildErrors: true` — this is a deliberate workaround for OOM on Windows, **not** a license to merge code with TS errors; always validate with `npx tsc --noEmit`.
 
-One-off operational scripts live in `scripts/` (e.g., `create-admin.js`, `hash-existing-pins.ts`, `revert-rls.ts`, `seed-advance-test.ts`). They are not wired to `package.json` — invoke them directly via `node` / `tsx` as needed.
+One-off operational scripts live in `scripts/` (e.g., `create-admin.js`, `hash-existing-pins.ts`, `seed-advance-test.ts`). They are not wired to `package.json` — invoke them directly via `node` / `tsx` as needed.
 
 ### ชุดตรวจ (ไม่มี test runner — ใช้สคริปต์ `*.check.ts`)
 
@@ -83,12 +83,10 @@ Server-side auth helpers in `lib/auth.ts`:
 
 `SESSION_SECRET` falls back to `SUPABASE_SERVICE_ROLE_KEY` when unset (v1.70.5 — never the public anon key; neither set = `lib/session.ts` throws and the proxy accepts no token). Production should still set a real `SESSION_SECRET`; changing/adding it logs everyone out once. Related env added by the security rounds: `MASTER_API_TOKEN` (shared secret for `/api/schema/*` + `/api/migrations/*`, unset = those routes always 403) and `OAUTH_REDIRECT_HOSTS` (comma list overriding the default `claude.ai, claude.com, chatgpt.com` redirect allowlist for OAuth client registration).
 
-### Two Supabase clients with different trust levels
+### One Supabase client, server-side only
 
-- `lib/supabase.ts` → `createBrowserClient` (anon key). Use in `'use client'` components.
 - `lib/supabase-server.ts` → `createServiceClient()` (service role key, **bypasses RLS**). Use in server actions, server components, and route handlers. The exported `supabaseServer` is a Proxy that re-creates the client per access — never assume a stable singleton. **Never** import `supabase-server.ts` into a client component.
-
-The deprecated `lib/supabase.ts` also exports a module-level `supabase` singleton; prefer calling `createClient()` per component.
+- There is **no browser client** since v1.72.1 (`lib/supabase.ts` was deleted — nothing imported it, and RLS denies the anon key everywhere). Client components get data through server components / server actions only; do not reintroduce `createBrowserClient`.
 
 ### Route layout
 

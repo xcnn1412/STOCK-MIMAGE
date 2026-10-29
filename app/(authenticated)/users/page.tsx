@@ -15,7 +15,8 @@ export default async function UserManagementPage() {
 
     const { data: users } = await supabase
         .from('profiles')
-        .select('*')
+        // เฉพาะคอลัมน์ที่ users-table ใช้ — ไม่ส่ง pin / active_session_id / ข้อมูลล็อกอินผิดไปเบราว์เซอร์ (รายงาน L4)
+        .select('id, full_name, nickname, department, phone, role, is_approved, is_blocked, allowed_modules, national_id, address, bank_name, bank_account_number, account_holder_name, avatar_url')
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
 

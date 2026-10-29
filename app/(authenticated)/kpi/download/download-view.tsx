@@ -7,20 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useLocale } from '@/lib/i18n/context'
+import { csvCell } from '@/lib/csv'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ===== CSV Utility =====
 function toCsv(headers: string[], rows: string[][]): string {
-  const escape = (v: string) => {
-    const s = String(v ?? '')
-    return s.includes(',') || s.includes('"') || s.includes('\n')
-      ? `"${s.replace(/"/g, '""')}"`
-      : s
-  }
   const lines = [
-    headers.map(escape).join(','),
-    ...rows.map((r) => r.map(escape).join(',')),
+    headers.map(csvCell).join(','),
+    ...rows.map((r) => r.map(csvCell).join(',')),
   ]
   // BOM for Excel Thai support
   return '\uFEFF' + lines.join('\r\n')

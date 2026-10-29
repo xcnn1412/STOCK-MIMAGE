@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { verifySessionToken } from './session'
+import { getLicenseStatus } from './license'
 import { createServiceClient } from './supabase-server'
 
 export interface AuthSession {
@@ -19,8 +20,10 @@ export interface AuthSession {
  *
  * 1. Reads session_token + session_id cookies (both required)
  * 2. Verifies HMAC signature & expiry
- * 3. Validates against DB: is_approved, and active_session_id must be non-null
+ * 3. Validates against DB: is_approved, !is_blocked, and active_session_id must be non-null
  *    and equal to the session_id cookie (logged out / logged in elsewhere = null)
+ * 4. ใบอนุญาตหมดอายุ = null — /api/* ไม่ผ่าน proxy.ts จึงต้องกันที่นี่ด้วย (รายงาน L6)
+ *    (env ไม่ได้ตั้ง/ผิดรูปแบบ ไม่นับที่นี่ — proxy ปิดทุกหน้าอยู่แล้ว และชุดตรวจหลายตัวไม่ได้ตั้ง env)
  *
  * Role comes from the DB row, never from a cookie. Legacy session_user_id /
  * session_role cookies are ignored. cache(): one DB round per request.
@@ -34,6 +37,9 @@ export const requireAuth = cache(async (): Promise<AuthSession | null> => {
 
     if (!token || !sessionId) return null
 
+    const license = getLicenseStatus()
+    if (license.configured && license.expired) return null
+
     // Verify HMAC signature and expiry
     const verified = verifySessionToken(token)
     if (!verified) return null
@@ -45,11 +51,12 @@ export const requireAuth = cache(async (): Promise<AuthSession | null> => {
         const supabase = createServiceClient()
         const { data } = await supabase
             .from('profiles')
-            .select('id, role, is_approved, active_session_id, department, full_name, nickname')
+            .select('id, role, is_approved, is_blocked, active_session_id, department, full_name, nickname')
             .eq('id', userId)
             .single()
 
-        if (!data || !data.is_approved) return null
+        // is_blocked: เผื่อระงับตรงใน SQL โดยไม่ล้าง active_session_id (รายงาน L10)
+        if (!data || !data.is_approved || data.is_blocked) return null
 
         // Single-session enforcement — null = logged out / force-logged-out / blocked
         if (!data.active_session_id || data.active_session_id !== sessionId) {

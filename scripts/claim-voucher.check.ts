@@ -47,7 +47,7 @@ const remoteFiles = new Map<string, { bytes: Uint8Array; type: string }>([
 ])
 
 const person = (id: string, role: string, full_name: string): Row =>
-  ({ id, role, full_name, nickname: null, department: 'สตาฟ', is_approved: true, active_session_id: `sess-${id}` })
+  ({ id, role, full_name, nickname: null, department: 'สตาฟ', is_approved: true, is_blocked: false, active_session_id: `sess-${id}` })
 
 const BASE_CLAIM: Row = {
   claim_type: 'other', status: 'pending', quantity: 1, vat_mode: 'none', withholding_tax_rate: 0,

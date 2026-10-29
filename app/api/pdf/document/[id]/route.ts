@@ -129,7 +129,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   } catch (err: any) {
     console.error('Document PDF generation error:', err)
     return NextResponse.json(
-      { error: 'สร้าง PDF ไม่สำเร็จ', details: err?.message },
+      { error: 'สร้าง PDF ไม่สำเร็จ' }, // รายละเอียดอยู่ใน console.error เท่านั้น (L8)
       { status: 500 }
     )
   }

@@ -183,6 +183,7 @@ export async function createJobType(formData: FormData) {
         category: 'job_type', value, label_th, label_en, color, sort_order,
     })
     if (error) return { error: error.message }
+    await logActivity('CREATE_JOB_SETTING', { category: 'job_type', value, label_th })
     revalidatePath('/jobs')
     return { success: true }
 }
@@ -201,6 +202,7 @@ export async function updateJobType(id: string, formData: FormData) {
 
     const { error } = await supabase.from('job_settings').update(updates).eq('id', id).eq('category', 'job_type')
     if (error) return { error: error.message }
+    await logActivity('UPDATE_JOB_SETTING', { id, category: 'job_type', changes: Object.keys(updates).join(', ') })
     revalidatePath('/jobs')
     return { success: true }
 }
@@ -212,6 +214,7 @@ export async function deleteJobType(id: string) {
     // จำกัดเฉพาะประเภทงาน — id ของสถานะ/ทีมพูล/แผนกต้องลบผ่านทางนี้ไม่ได้
     const { error } = await supabase.from('job_settings').delete().eq('id', id).eq('category', 'job_type')
     if (error) return { error: error.message }
+    await logActivity('DELETE_JOB_SETTING', { id, category: 'job_type' })
     revalidatePath('/jobs')
     return { success: true }
 }

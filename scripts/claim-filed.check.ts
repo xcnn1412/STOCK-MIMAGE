@@ -25,7 +25,7 @@ const FILE = (name: string) => `https://fake.supabase.test/storage/v1/object/pub
 const FILED_COLUMNS = ['filed_at', 'filed_by', 'filed_file_count'] as const
 
 const person = (id: string, full_name: string, role: string): Row =>
-  ({ id, full_name, nickname: null, role, department: 'สตาฟ', is_approved: true, active_session_id: `sess-${id}` })
+  ({ id, full_name, nickname: null, role, department: 'สตาฟ', is_approved: true, is_blocked: false, active_session_id: `sess-${id}` })
 
 /** จำนวนไฟล์แนบที่คาด (นับเองจากข้อมูลทดสอบ ไม่เรียกโค้ดจริง) */
 const EXPECTED_FILES: Record<string, number> = { [CLAIM_A]: 3, [CLAIM_B]: 0, [CLAIM_C]: 4, [CLAIM_D]: 3 }

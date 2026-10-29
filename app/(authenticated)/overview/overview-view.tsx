@@ -17,6 +17,7 @@ import PLSummary from './pl-summary'
 import CashArView from './cash-ar-view'
 import DashboardView from './dashboard-view'
 import { attributeRevenue } from '@/app/(authenticated)/costs/lib/revenue-attribution'
+import { csvCell } from '@/lib/csv'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -496,14 +497,14 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       const gfx = e.graphicsIds.map(id => getName(id)).join(';')
       const cc = (k: string) => e.costByCategory[k] || 0
       return [
-        `"${e.name}"`, fmtDate(e.date), `"${e.location || ''}"`, `"${e.seller}"`,
-        `"${e.customerName}"`, `"${e.packageName}"`,
+        e.name, fmtDate(e.date), e.location || '', e.seller,
+        e.customerName, e.packageName,
         e.revenue, e.totalCost, e.profit, e.margin.toFixed(1),
         cc('staff'), cc('travel'), cc('electrical_equipment'), cc('struture'), cc('service_fee'), cc('other'),
         e.expenseTotal, e.expenseCount, e.expensePaid,
         e.checkinCount, e.checkinUniqueStaff, e.checkinHours.toFixed(1),
-        `"${gfx}"`, e.status || '',
-      ].join(',')
+        gfx, e.status || '',
+      ].map(csvCell).join(',')
     }).join('\n')
     const blob = new Blob(['\ufeff' + header + rows], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)

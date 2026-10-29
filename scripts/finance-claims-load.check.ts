@@ -32,7 +32,7 @@ const pick = <T>(list: readonly T[]): T => list[Math.floor(rand() * list.length)
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 const ADMIN = uid(1), STAFF_A = uid(2), STAFF_B = uid(3)
 const person = (id: string, full_name: string, role: string): Row =>
-  ({ id, full_name, nickname: null, role, department: 'สตาฟ', is_approved: true, active_session_id: `sess-${id}` })
+  ({ id, full_name, nickname: null, role, department: 'สตาฟ', is_approved: true, is_blocked: false, active_session_id: `sess-${id}` })
 
 // ── ใบเบิก ────────────────────────────────────────────────────────────────
 const TOTAL = 2500

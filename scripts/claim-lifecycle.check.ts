@@ -41,11 +41,11 @@ const STORAGE_BASE = 'https://fake.supabase.test/storage/v1/object/public'
 const fileUrl = (path: string) => `${STORAGE_BASE}/receipts/${path}`
 
 const person = (id: string, full_name: string, role: string): Row =>
-  ({ id, full_name, nickname: null, role, department: 'สตาฟ', is_approved: true, active_session_id: `sess-${id}` })
+  ({ id, full_name, nickname: null, role, department: 'สตาฟ', is_approved: true, is_blocked: false, active_session_id: `sess-${id}` })
 
 /** คอลัมน์ที่มีจริง (รวมคอลัมน์ของ 20260930_claim_hide_status_time.sql) — อ้างคอลัมน์อื่น = error แบบ PostgREST */
 const COLUMNS: Record<string, string[]> = {
-  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'active_session_id'],
+  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'is_blocked', 'active_session_id'],
   expense_claims: [
     'id', 'claim_number', 'original_claim_number', 'claim_type', 'job_event_id', 'title', 'description', 'category',
     'amount', 'unit_price', 'unit', 'quantity', 'total_amount', 'vat_mode', 'include_vat', 'withholding_tax_rate',

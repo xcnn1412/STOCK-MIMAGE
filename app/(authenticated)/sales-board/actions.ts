@@ -30,6 +30,7 @@ export async function saveMonthTargets(month: string, targets: Record<string, nu
     .from('sales_board_targets')
     .upsert({ month, targets: mergeTargets(cur.targets, targets, 'board'), updated_at: new Date().toISOString() })
   if (error) return { error: error.message }
+  await logActivity('UPDATE_MONTH_TARGETS', { month, targets })
   revalidatePath('/sales-board')
   revalidatePath('/sales-board/commission')
   return { ok: true }

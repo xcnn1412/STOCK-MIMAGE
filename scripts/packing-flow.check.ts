@@ -36,7 +36,7 @@ const PUBLIC_BASE = 'https://fake.supabase.test/storage/v1/object/public'
 
 // ── SCHEMA: ตาราง → คอลัมน์ที่มีจริง ───────────────────────────────────────────
 const SCHEMA: Record<string, string[]> = {
-  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'active_session_id', 'allowed_modules'],
+  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'is_blocked', 'active_session_id', 'allowed_modules'],
   app_settings: ['key', 'value', 'updated_at'],
   job_settings: ['id', 'category', 'value', 'label_th', 'label_en', 'color', 'sort_order', 'is_active'],
   crm_leads: ['id', 'customer_name', 'event_location', 'event_date', 'event_time', 'event_end_time', 'status', 'archived_at', 'created_by', 'quoted_price', 'package_name', 'created_at', 'updated_at'],
@@ -114,7 +114,7 @@ const MAX_ROWS = 1000
 
 // ── ข้อมูลตั้งต้น ──────────────────────────────────────────────────────────────
 const person = (id: string, full_name: string, role: string, department: string, allowed_modules: string[] | null = null): Row =>
-  ({ id, full_name, nickname: null, role, department, is_approved: true, active_session_id: `sess-${id}`, allowed_modules })
+  ({ id, full_name, nickname: null, role, department, is_approved: true, is_blocked: false, active_session_id: `sess-${id}`, allowed_modules })
 const item = (id: string, name: string, category_id: string | null, status = 'available', extra: Row = {}): Row =>
   ({ id, name, serial_number: null, status, category_id, shelf_id: null, is_consumable: false, quantity: null, unit: null, image_url: null, created_at: NOW, ...extra })
 
