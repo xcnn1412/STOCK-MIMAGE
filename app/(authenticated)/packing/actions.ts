@@ -25,7 +25,6 @@ import { advanceOnsiteJobsToLoading } from './board-hook'
 import { packingReadyMessage, packingReadyRecipients, packingReturnedMessage, packingTeamRecipients } from './notify'
 import {
   RETURN_CONDITIONS,
-  canCancelList,
   canConfirmReady,
   canHandOver,
   canPickLine,
@@ -38,6 +37,7 @@ import {
   returnLogCondition,
   scaffoldLines,
 } from './packing-logic'
+import { cancelListCore, reopenListCore, revertPick, unbookKits } from './cancel-core'
 import { getHandoverUser, getPackingTeam, type PackingTeamMember } from './permissions'
 import { loadKitItemStates, loadPackingLines, loadPackingListRow, loadPickupSpot } from './queries'
 import type {
@@ -100,12 +100,6 @@ async function bookKits(db: Db, eventId: string, kitIds: string[]): Promise<stri
     .from('event_kits')
     .upsert(kitIds.map(kit_id => ({ event_id: eventId, kit_id })), { onConflict: 'event_id,kit_id', ignoreDuplicates: true })
   return error ? 'จองกระเป๋าให้อีเวนต์ไม่สำเร็จ' : null
-}
-
-async function unbookKits(db: Db, eventId: string, kitIds: string[]): Promise<string | null> {
-  if (kitIds.length === 0) return null
-  const { error } = await db.from('event_kits').delete().eq('event_id', eventId).in('kit_id', kitIds)
-  return error ? 'ยกเลิกจองกระเป๋าไม่สำเร็จ' : null
 }
 
 /** ชื่อ/สถานะ/การอยู่ในกระเป๋าของหน่วยเหล่านี้ (ตรวจบรรทัดก่อนบันทึก) */
@@ -391,30 +385,6 @@ export async function pickLine(lineId: string): Promise<Result> {
   return { success: true }
 }
 
-/** ย้อนการหยิบของบรรทัดหนึ่ง (คืนสถานะเป็นใช้ได้) — ไม่แตะ picked_at ของใบ ผู้เรียกจัดการเอง */
-async function revertPick(db: Db, line: PackingLineRow, eventId: string, userId: string): Promise<string | null> {
-  if (line.item_id) {
-    const { data: item } = await db.from('items').select('status').eq('id', line.item_id).maybeSingle<{ status: string }>()
-    if (item?.status === 'in_use') {
-      const { error } = await db.from('items').update({ status: 'available' }).eq('id', line.item_id)
-      if (error) return 'คืนสถานะอุปกรณ์ไม่สำเร็จ'
-      await db
-        .from('event_logs')
-        .insert({ event_id: eventId, item_id: line.item_id, kit_id: null, user_id: userId, action: 'checkin', condition: 'good', note: 'ยกเลิกหยิบ (ใบจัดของ)' })
-    }
-    return null
-  }
-  if (line.kit_id) {
-    // ชิ้นที่นำออกให้อีเวนต์นี้ (in_use และการนำออกล่าสุดเป็นของอีเวนต์นี้) → คืนเป็นใช้ได้
-    const states = (await loadKitItemStates(db, [line.kit_id], eventId))[line.kit_id] ?? []
-    for (const i of states.filter(s => !s.is_consumable && s.status === 'in_use' && !s.outElsewhere)) {
-      const res = await checkinKitItem(db, { eventId, kitId: line.kit_id, itemId: i.id, status: 'available', note: 'ยกเลิกหยิบ (ใบจัดของ)', userId })
-      if ('error' in res) return res.error
-    }
-  }
-  return null
-}
-
 /** ยกเลิกหยิบบรรทัดหนึ่ง (เฉพาะขั้นกำลังหยิบ) — คืนสถานะอุปกรณ์/ชิ้นในกระเป๋าเป็นใช้ได้ */
 export async function unpickLine(lineId: string): Promise<Result> {
   const team = await getPackingTeam()
@@ -591,15 +561,8 @@ export async function reopenPacking(listId: string): Promise<Result> {
   const db = createServiceClient()
   const ctx = await loadOpenList(db, listId)
   if ('error' in ctx) return ctx
-  if (ctx.list.status !== 'ready' || !canTransition('ready', 'picking')) return { error: 'แก้ไขได้เฉพาะใบที่พร้อมรับและยังไม่ถูกรับของ' }
-
-  const { error } = await db
-    .from('packing_lists')
-    .update({ status: 'picking', packed_at: null, packed_by: null, staged_at: null, updated_at: new Date().toISOString() })
-    .eq('id', listId)
-    .eq('status', 'ready')
-  if (error) return { error: 'ถอยกลับเป็นกำลังหยิบไม่สำเร็จ' }
-  await logActivity('REOPEN_PACKING', { id: listId, event_id: ctx.list.event_id })
+  const failed = await reopenListCore(db, ctx.list)
+  if (failed) return { error: failed }
   refresh(listId)
   return { success: true }
 }
@@ -614,31 +577,9 @@ export async function cancelPackingList(listId: string): Promise<Result> {
   const db = createServiceClient()
   const ctx = await loadOpenList(db, listId)
   if ('error' in ctx) return ctx
-  if (!canCancelList(ctx.list.status)) return { error: 'ยกเลิกได้เฉพาะใบที่อยู่ในขั้นเลือกของหรือกำลังหยิบ — ใบที่พร้อมรับให้กด "แก้ไข" ก่อน' }
-
-  const lines = await loadPackingLines(db, [listId]).catch(() => null)
-  if (!lines) return { error: 'โหลดใบจัดของไม่สำเร็จ ลองใหม่อีกครั้ง' }
-  for (const line of lines.filter(l => l.picked_at)) {
-    let failed: string | null
-    try {
-      failed = await revertPick(db, line, ctx.list.event_id, team.userId)
-    } catch (e) {
-      console.error('cancelPackingList revert', e)
-      failed = 'คืนสถานะอุปกรณ์ไม่สำเร็จ'
-    }
-    if (failed) return { error: `${failed} — ใบยังไม่ถูกยกเลิก ลองใหม่อีกครั้ง` }
-    await db.from('packing_list_items').update({ picked_at: null, picked_by: null }).eq('id', line.id)
-  }
-
-  const kitIds = [...new Set(lines.flatMap(l => (l.kit_id ? [l.kit_id] : [])))]
-  const unbookError = await unbookKits(db, ctx.list.event_id, kitIds)
-  if (unbookError) return { error: unbookError }
-  // บรรทัดลบตามด้วย ON DELETE CASCADE
-  const { error } = await db.from('packing_lists').delete().eq('id', listId)
-  if (error) return { error: 'ยกเลิกใบจัดของไม่สำเร็จ' }
-  await recomputeKitPointers(db, kitIds)
-
-  await logActivity('CANCEL_PACKING_LIST', { id: listId, event_id: ctx.list.event_id, lead_id: ctx.list.lead_id, lines: lines.length, unbooked_kits: kitIds })
+  const res = await cancelListCore(db, ctx.list, team.userId)
+  if ('error' in res) return res
+  const { kitIds } = res
   refresh(listId, kitIds)
   return { success: true }
 }

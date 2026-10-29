@@ -13,6 +13,7 @@ import { ArrowLeft, Loader2, Users, X, Plus, Link2, Unlink, Check, ChevronsUpDow
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { cn } from "@/lib/utils"
+import { ThaiDatePicker } from "@/components/thai-date-picker"
 import Link from 'next/link'
 import { useLanguage } from '@/contexts/language-context'
 import EventsLogSheet, { type EventLog } from '../../events-log-sheet'
@@ -50,6 +51,7 @@ export default function EditEventForm({
   const locale = lang || 'th'
   const [state, formAction, isPending] = useActionState(updateEvent.bind(null, event.id), { error: '' })
   const [isLinking, startLinkTransition] = useTransition()
+  const isCancelled = event.status === 'cancelled'
 
   // CRM linking state
   const [selectedLeadId, setSelectedLeadId] = useState('')
@@ -118,12 +120,21 @@ export default function EditEventForm({
         <EventsLogSheet logs={logs} />
       </div>
 
+      {/* อีเวนต์ที่ยกเลิกแล้ว — แบนเนอร์ + ปิดฟอร์มทั้งก้อน (server ปฏิเสธซ้ำใน updateEvent) */}
+      {isCancelled && (
+        <div data-testid="cancelled-banner" className="rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+          <div className="font-semibold">{t.events.cancel.editBanner}</div>
+          {event.cancel_reason && <div className="text-xs mt-0.5">{t.events.cancel.reason}: {event.cancel_reason}</div>}
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>{t.common.details}</CardTitle>
           <CardDescription>{t.events.editTitle}: {event.name}</CardDescription>
         </CardHeader>
         <form action={formAction}>
+          <fieldset disabled={isCancelled} className="contents">
           {/* Hidden: structured staff assignments as JSON (only real UUIDs) */}
           <input type="hidden" name="staff_assignments" value={JSON.stringify(assignments.filter(a => !a.user_id.startsWith('legacy_')))} />
           {/* Backward compat: staff as comma-joined names */}
@@ -252,6 +263,12 @@ export default function EditEventForm({
             <div className="space-y-2">
               <Label htmlFor="location">{t.events.fields.location}</Label>
               <Input id="location" name="location" defaultValue={event.location || ''} />
+            </div>
+
+            {/* วันงาน — เปลี่ยนวัน = แจ้งทีมในอีเวนต์ว่าเลื่อน */}
+            <div className="space-y-2">
+              <Label htmlFor="event_date">{t.events.fields.date}</Label>
+              <ThaiDatePicker name="event_date" defaultValue={new Date(event.event_date)} />
             </div>
 
             {/* เวลาเปิด / เวลาปิด — ไม่บังคับ, ล้างช่องเพื่อเอาเวลาออก */}
@@ -415,6 +432,7 @@ export default function EditEventForm({
               {t.common.save}
             </Button>
           </CardFooter>
+          </fieldset>
         </form>
       </Card>
     </div>

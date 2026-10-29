@@ -28,6 +28,7 @@ function getUrl(item: NotificationItem): string {
     case 'crm_lead':      return `/crm/${item.reference_id}`
     case 'salary_slip':   return `/salary/${item.reference_id}`
     case 'packing_list':  return `/packing/${item.reference_id}`
+    case 'event':         return '/events'
     default:              return '/dashboard'
   }
 }

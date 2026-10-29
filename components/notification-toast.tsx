@@ -35,6 +35,8 @@ const TYPE_CONFIG: Record<string, { icon: string; accent: string; glow: string; 
     packing_requested:    { icon: '📦', accent: 'from-sky-400 to-blue-500', glow: 'shadow-sky-400/25', border: '#0ea5e9', iconBg: 'bg-sky-100 dark:bg-sky-900/50', progressBar: 'from-sky-400 to-blue-500' },
     packing_ready:        { icon: '✅', accent: 'from-emerald-400 to-green-400', glow: 'shadow-emerald-400/25', border: '#10b981', iconBg: 'bg-emerald-100 dark:bg-emerald-900/50', progressBar: 'from-emerald-400 to-green-400' },
     packing_returned:     { icon: '🔁', accent: 'from-violet-400 to-purple-500', glow: 'shadow-violet-400/25', border: '#8b5cf6', iconBg: 'bg-violet-100 dark:bg-violet-900/50', progressBar: 'from-violet-400 to-purple-500' },
+    event_cancelled:      { icon: '🚫', accent: 'from-red-400 to-rose-400', glow: 'shadow-red-400/25', border: '#ef4444', iconBg: 'bg-red-100 dark:bg-red-900/50', progressBar: 'from-red-400 to-rose-400' },
+    event_rescheduled:    { icon: '📅', accent: 'from-amber-400 to-orange-400', glow: 'shadow-amber-400/25', border: '#f59e0b', iconBg: 'bg-amber-100 dark:bg-amber-900/50', progressBar: 'from-amber-400 to-orange-400' },
     crm_mentioned:        { icon: '📍', accent: 'from-orange-400 to-amber-400', glow: 'shadow-orange-400/25', border: '#f97316', iconBg: 'bg-orange-100 dark:bg-orange-900/50', progressBar: 'from-orange-400 to-amber-400' },
 }
 
@@ -71,6 +73,8 @@ function getNotificationUrl(item: NotificationItem): string {
             return `/salary/${item.reference_id}`
         case 'packing_list':
             return `/packing/${item.reference_id}`
+        case 'event':
+            return '/events'
         default:
             return '/dashboard'
     }

@@ -18,6 +18,7 @@ import CashArView from './cash-ar-view'
 import DashboardView from './dashboard-view'
 import { attributeRevenue } from '@/app/(authenticated)/costs/lib/revenue-attribution'
 import { csvCell } from '@/lib/csv'
+import { isClosedEvent } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -469,7 +470,7 @@ export default function OverviewView({ data }: { data: OverviewData }) {
       t.revenue += e.revenue; t.cost += e.totalCost; t.profit += e.profit
       t.expenses += e.expenseTotal; t.expenseCount += e.expenseCount; t.expensePaid += e.expensePaid
       t.checkins += e.checkinCount; t.uniqueStaff += e.checkinUniqueStaff; t.checkinHours += e.checkinHours
-      if (e.status === 'completed') t.completed++
+      if (isClosedEvent(e.status)) t.completed++
       Object.entries(e.costByCategory).forEach(([k, v]) => { t.costByCategory[k] = (t.costByCategory[k] || 0) + v })
       Object.entries(e.expenseByStatus).forEach(([k, v]) => { t.expenseByStatus[k] = (t.expenseByStatus[k] || 0) + v })
     })
@@ -671,8 +672,8 @@ export default function OverviewView({ data }: { data: OverviewData }) {
                         ) : <span className="text-zinc-300 dark:text-zinc-600">—</span>}
                       </td>
                       <td className="px-2 py-2.5 text-center">
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${e.status === 'completed' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'}`}>
-                          {e.status === 'completed' ? 'เสร็จ' : 'Draft'}
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${isClosedEvent(e.status) ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'}`}>
+                          {isClosedEvent(e.status) ? 'เสร็จ' : 'Draft'}
                         </span>
                       </td>
                     </tr>

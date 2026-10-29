@@ -21,6 +21,7 @@ import { buildCrmCostGroups, type LeadLite, type ClaimLite, type EventLite, type
 import { getPhaseLabel } from '@/app/(authenticated)/crm/event-phases'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 import { calcTax } from '@/lib/finance/money'
+import { isClosedEvent } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: Pick<JobCostItem, 'id' | 'category' | 'amount' | 'include_vat' | 'vat_mode' | 'withholding_tax_rate'>[] }
 
@@ -477,8 +478,8 @@ export default function EventsListView({ jobEvents, leads, claims }: { jobEvents
                   <div className="flex-1 min-w-0 space-y-1.5">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold truncate">{event.event_name}</p>
-                      <Badge variant={event.status === 'completed' ? 'default' : 'secondary'} className="text-[10px] shrink-0">
-                        {event.status === 'completed' ? (isEn ? 'Done' : 'เสร็จ') : (isEn ? 'Draft' : 'แบบร่าง')}
+                      <Badge variant={isClosedEvent(event.status) ? 'default' : 'secondary'} className="text-[10px] shrink-0">
+                        {isClosedEvent(event.status) ? (isEn ? 'Done' : 'เสร็จ') : (isEn ? 'Draft' : 'แบบร่าง')}
                       </Badge>
                       {/* Revenue status badge */}
                       {event.bearsRevenue ? (

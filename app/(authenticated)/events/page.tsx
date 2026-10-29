@@ -1,4 +1,5 @@
 import { getEventAccess } from '@/lib/event-permissions'
+import { requireAuth } from '@/lib/auth'
 import { supabaseServer as supabase, createServiceClient } from '@/lib/supabase-server'
 import { readAllRows } from '@/lib/read-all-rows'
 import { getCrmSettings } from '../crm/actions'
@@ -10,6 +11,7 @@ export const revalidate = 0
 export default async function EventsPage() {
   // admin หรือคนที่เปิดสิทธิ์ไว้ในหน้าตั้งค่า (แยกสร้าง-แก้ไข กับ ปิดงาน)
   const access = await getEventAccess()
+  const session = await requireAuth()
 
   const { data: events } = await supabase.from('events').select('*').order('event_date', { ascending: false })
 
@@ -30,6 +32,14 @@ export default async function EventsPage() {
   }
 
   const serviceClient = createServiceClient()
+
+  // ชื่อผู้ยกเลิกอีเวนต์ (cancelled_by) — อีเวนต์ที่ยกเลิกมีไม่กี่ใบ
+  const cancellerIds = [...new Set((events || []).map(e => (e as { cancelled_by?: string | null }).cancelled_by).filter((v): v is string => !!v))]
+  const cancelledByName: Record<string, string> = {}
+  if (cancellerIds.length > 0) {
+    const { data: people } = await serviceClient.from('profiles').select('id, full_name, nickname').in('id', cancellerIds)
+    for (const p of people || []) cancelledByName[p.id as string] = (p.nickname as string | null) || (p.full_name as string | null) || '-'
+  }
 
   // เจ้าหน้าที่ของแต่ละอีเวนต์ — event_staff เป็นที่เดียวที่ถูกต้อง (ชื่อเล่นก่อน ไม่มีค่อยใช้ชื่อเต็ม)
   // ป้ายหน้าที่แปลจาก crm_settings หมวด staff_role
@@ -82,6 +92,8 @@ export default async function EventsPage() {
       logs={(logs || []) as unknown as EventLog[]}
       leadByEvent={leadByEvent}
       staffByEvent={staffByEvent}
+      isAdmin={session?.role === 'admin'}
+      cancelledByName={cancelledByName}
     />
   )
 }

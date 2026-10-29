@@ -56,9 +56,12 @@ export type NotificationType =
   | 'packing_requested'     // งานตอบรับแล้วมีแพ็กเกจ → ทีมจัดของ (reference_type = 'crm_lead') — กระดิ่งพาไป /jobs/tracking?tab=kits&lead=<id>
   | 'packing_ready'         // ใบจัดของพร้อมรับ → หัวหน้างาน + คนในอีเวนต์ (reference_type = 'packing_list') — กระดิ่งพาไป /packing/<id>
   | 'packing_returned'      // ทีมหน้างานคืนของแล้ว → ทีมจัดของ (reference_type = 'packing_list') — กระดิ่งพาไป /packing/<id>
+  // อีเวนต์ (reference_type = 'event') — กระดิ่งพาไป /events
+  | 'event_cancelled'       // ยกเลิกอีเวนต์ → ทีมใน event_staff (ไม่แจ้งผู้กด)
+  | 'event_rescheduled'     // เลื่อนวัน/เวลาอีเวนต์ → ทีมใน event_staff
 
 export type ReferenceType =
-  | 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation' | 'crm_lead' | 'document' | 'salary_slip' | 'packing_list'
+  | 'job' | 'ticket' | 'expense_claim' | 'kpi_evaluation' | 'crm_lead' | 'document' | 'salary_slip' | 'packing_list' | 'event'
 
 interface CreateNotificationParams {
   userIds: string[]
