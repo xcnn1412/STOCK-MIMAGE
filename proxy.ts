@@ -5,6 +5,10 @@ import { getLicenseStatus, getExpiredRedirectUrl } from '@/lib/license'
 
 // Module-route mapping (inlined to avoid importing components in edge runtime)
 const MODULE_ROUTES: Record<string, string[]> = {
+  // overview / jobs / checkin เพิ่ม 2026-10-29 (รายงานความปลอดภัย H5) — เดิมใครล็อกอินก็พิมพ์ URL เข้าได้ แม้ sidebar ซ่อน
+  overview: ['/overview'],
+  jobs: ['/jobs'],
+  checkin: ['/check-in'],
   stock: ['/stock/dashboard', '/stock/settings', '/stock/usage', '/items', '/kits', '/packages', '/packing', '/shelves', '/example-kits'],
   events: ['/events'],
   kpi: ['/kpi'],
@@ -165,6 +169,10 @@ export async function proxy(request: NextRequest) {
           }
           if (data.role === 'admin' && !allowedModules.includes('admin')) {
             allowedModules = [...allowedModules, 'admin']
+          }
+          // Admins always get overview — same auto-grant as app/(authenticated)/layout.tsx
+          if (data.role === 'admin' && !allowedModules.includes('overview')) {
+            allowedModules = [...allowedModules, 'overview']
           }
           // Admins always see the sales board (same auto-grant pattern as 'admin')
           if (data.role === 'admin' && !allowedModules.includes('salesboard')) {

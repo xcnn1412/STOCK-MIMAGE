@@ -4,21 +4,22 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { requireAuth } from '@/lib/auth'
+import { requireModule } from '@/lib/auth'
 import { getKitManager } from '@/lib/kit-bookings'
 import { moveStock } from '@/lib/stock'
 import { parseConsumableFields } from '@/app/(authenticated)/shelves/consumable-logic'
 import { resolveCategory } from '@/app/(authenticated)/stock/categories'
 import { addItemToKit, removeItemFromKit } from '@/app/(authenticated)/kits/[id]/actions'
 import { QUICK_STATUSES } from './quick-statuses'
+import { isAllowedImage, IMAGE_RULE_ERROR } from './image-logic'
 import type { ActionState } from '@/types'
 
 
 export async function createItem(prevState: ActionState, formData: FormData) {
-  const session = await requireAuth()
+  const session = await requireModule('stock')
   const userId = session?.userId
   if (!userId) {
-      return { error: 'Unauthorized: No active session' }
+      return { error: 'ไม่มีสิทธิ์โมดูลคลัง' }
   }
 
   const name = formData.get('name') as string
@@ -40,6 +41,7 @@ export async function createItem(prevState: ActionState, formData: FormData) {
   // Handle multiple images
   const images = formData.getAll('images') as File[]
   const validImages = images.filter(img => img.size > 0).slice(0, 4) // Limit to 4
+  if (!validImages.every(isAllowedImage)) return { error: IMAGE_RULE_ERROR }
 
   const supabase = createServiceClient()
   const cat = await resolveCategory(supabase, formData.get('category_id'))
@@ -148,8 +150,8 @@ export async function quickUpdateItem(
   itemId: string,
   patch: { category_id?: string | null; status?: string; kit_id?: string | null },
 ): Promise<{ error?: string; warning?: string }> {
-  const session = await requireAuth()
-  if (!session?.userId) return { error: 'Unauthorized: No active session' }
+  const session = await requireModule('stock')
+  if (!session?.userId) return { error: 'ไม่มีสิทธิ์โมดูลคลัง' }
 
   const supabase = createServiceClient()
   const { data: item } = await supabase

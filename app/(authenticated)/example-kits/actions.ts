@@ -4,20 +4,25 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { requireAuth } from '@/lib/auth'
+import { getKitManager } from '@/lib/kit-bookings'
 import type { Database } from '@/types'
+
+/** ชนิดชุดที่ UI มีให้เลือก (example-kits/new/page.tsx) */
+const TEMPLATE_TYPES = ['example', 'checklist'] as const
 
 
 export async function createTemplate(prevState: any, formData: FormData) {
-  const session = await requireAuth()
-  const userId = session?.userId
-  if (!userId) {
-      return { error: 'Unauthorized: No active session' }
+  if (!(await getKitManager())) {
+      return { error: 'เฉพาะ admin และแผนกที่ดูแลกระเป๋า' }
   }
 
   const name = formData.get('name') as string
   const description = formData.get('description') as string
   const type = formData.get('type') as string || 'example'
+  // ชนิดตามที่หน้า /example-kits/new ให้เลือก
+  if (!(TEMPLATE_TYPES as readonly string[]).includes(type)) {
+      return { error: 'ชนิดชุดตัวอย่างไม่ถูกต้อง' }
+  }
   
   // Helper input, comma separated or similar? 
   // User asked for "add item names only". Let's handle dynamic inputs. 
@@ -81,10 +86,8 @@ export async function createTemplate(prevState: any, formData: FormData) {
 }
 
 export async function deleteTemplate(id: string) {
-    const session = await requireAuth()
-    const userId = session?.userId
-    if (!userId) {
-        throw new Error('Unauthorized: No active session')
+    if (!(await getKitManager())) {
+        throw new Error('เฉพาะ admin และแผนกที่ดูแลกระเป๋า')
     }
 
     const supabase = createServiceClient()

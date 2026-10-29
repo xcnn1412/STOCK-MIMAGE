@@ -1,8 +1,13 @@
 import { getLicenseStatus } from '@/lib/license'
-import { exchangeCode, licenseExpiredResponse, oauthJson, oauthPreflight, refreshTokens, type TokenResult } from '@/lib/oauth'
+import { cleanupExpiredOAuth, clientIp, exchangeCode, licenseExpiredResponse, oauthJson, oauthPreflight, refreshTokens, tooManyRequests, type TokenResult } from '@/lib/oauth'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { createServiceClient } from '@/lib/supabase-server'
 
 // token endpoint — แลก code (+PKCE) เป็น access/refresh หรือหมุน refresh · รับเฉพาะสอง grant นี้
+// จำกัด 60 ครั้ง/นาที/IP · ล้าง code/client หมดอายุชั่วโมงละครั้งต่อ process (best-effort ไม่รอผล)
+
+const CLEANUP_EVERY_MS = 60 * 60 * 1000
+let lastCleanup = 0
 
 /** อ่าน body แบบฟอร์ม (มาตรฐาน OAuth) หรือ JSON — คืนเฉพาะค่าที่เป็นข้อความ */
 async function readParams(req: Request): Promise<Record<string, string>> {
@@ -26,8 +31,16 @@ async function readParams(req: Request): Promise<Record<string, string>> {
 export async function POST(req: Request) {
   if (getLicenseStatus().expired) return licenseExpiredResponse()
 
+  const rl = checkRateLimit(`oauth-token:${clientIp(req)}`, { limit: 60, windowMs: 60_000, lockoutMs: 0 })
+  if (!rl.allowed) return tooManyRequests(rl.retryAfterSeconds)
+
   const p = await readParams(req)
   const db = createServiceClient()
+
+  if (Date.now() - lastCleanup > CLEANUP_EVERY_MS) {
+    lastCleanup = Date.now()
+    void cleanupExpiredOAuth(db).catch(() => {})
+  }
 
   let result: TokenResult
   if (p.grant_type === 'authorization_code') {

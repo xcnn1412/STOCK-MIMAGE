@@ -16,6 +16,7 @@ import {
 import type { PoolTeamCategory, PrepDuty } from './tracking/tracking-logic'
 import { DESIGN_STATUS_VALUES } from './tracking/design-options'
 import { DEPARTMENTS } from '@/lib/departments'
+import { isHtmlContent, sanitizeHtml } from '@/lib/rich-text-utils'
 import { packingRequestedMessage, packingRequestedRecipients } from '../packing/notify'
 
 
@@ -1968,6 +1969,11 @@ export async function getTicket(id: string) {
     return { data: data as Ticket }
 }
 
+// ล้าง HTML ของตั๋ว/คำตอบตอนเขียน (กัน stored XSS) — ข้อความธรรมดาเก็บตามเดิม escape ตอนแสดง
+function cleanRichText(x: string | null): string | null {
+    return x && isHtmlContent(x) ? sanitizeHtml(x) : x
+}
+
 export async function createTicket(formData: FormData) {
     const { userId } = await getSession()
     if (!userId) return { error: 'Unauthorized' }
@@ -1984,7 +1990,7 @@ export async function createTicket(formData: FormData) {
         ticket_number: ticketNum,
         subject: formData.get('subject') as string,
         category: formData.get('category') as string,
-        description: formData.get('description') as string || null,
+        description: cleanRichText(formData.get('description') as string || null),
         priority: formData.get('priority') as string || 'normal',
         desired_outcome: formData.get('desired_outcome') as string || null,
         attachments: JSON.parse(formData.get('attachments') as string || '[]'),
@@ -2069,7 +2075,7 @@ export async function createTicketReply(ticketId: string, formData: FormData) {
     const reply = {
         ticket_id: ticketId,
         reply_type: formData.get('reply_type') as string || 'comment',
-        content: formData.get('content') as string || null,
+        content: cleanRichText(formData.get('content') as string || null),
         attachments: JSON.parse(formData.get('attachments') as string || '[]'),
         created_by: userId,
     }

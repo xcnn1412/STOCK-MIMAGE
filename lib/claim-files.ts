@@ -63,7 +63,7 @@ export function isPdfUrl(url: string): boolean {
 }
 
 /** อ่าน body ทีละก้อน หยุดทันทีเมื่อเกินเพดาน (content-length โกหกหรือไม่ส่งมาก็ไม่อ่านจนหมด) */
-async function readCapped(res: Response, max: number): Promise<Uint8Array | null> {
+export async function readCapped(res: Response, max: number): Promise<Uint8Array | null> {
   if (!res.body) return new Uint8Array(0)
   const reader = res.body.getReader()
   const chunks: Uint8Array[] = []

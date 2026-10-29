@@ -7,6 +7,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import Color from '@tiptap/extension-color'
 import { TextStyle } from '@tiptap/extension-text-style'
 import Highlight from '@tiptap/extension-highlight'
+import { escapeHtml } from '@/lib/escape-html'
 import {
     useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, useMemo,
 } from 'react'
@@ -238,11 +239,11 @@ class MentionListController {
                             data-index="${i}"
                         >
                             <span class="rte-mention-avatar ${i === this.selectedIndex ? 'selected' : ''}">
-                                ${(user.nickname || user.full_name || '?')[0]?.toUpperCase() || '?'}
+                                ${escapeHtml((user.nickname || user.full_name || '?')[0]?.toUpperCase() || '?')}
                             </span>
                             <span class="rte-mention-info">
-                                <span class="rte-mention-name">${user.full_name || 'ไม่ระบุชื่อ'}</span>
-                                ${user.department ? `<span class="rte-mention-dept">${user.department}</span>` : ''}
+                                <span class="rte-mention-name">${escapeHtml(user.full_name || 'ไม่ระบุชื่อ')}</span>
+                                ${user.department ? `<span class="rte-mention-dept">${escapeHtml(user.department)}</span>` : ''}
                             </span>
                         </button>
                     `).join('')}

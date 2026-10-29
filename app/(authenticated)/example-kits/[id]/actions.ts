@@ -2,16 +2,16 @@
 
 import { createServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
-import { requireAuth } from '@/lib/auth'
-
-
-
+import { getKitManager } from '@/lib/kit-bookings'
 import { logActivity } from '@/lib/logger'
 
+const FORBIDDEN = 'เฉพาะ admin และแผนกที่ดูแลกระเป๋า'
+/** สถานะของในเช็กลิสต์ที่ปุ่มใน edit-view.tsx ส่งมา */
+const TEMPLATE_ITEM_STATUSES = ['ready', 'in-progress', 'none'] as const
+
 export async function updateTemplateStatus(itemId: string, status: string) {
-    const session = await requireAuth()
-    const userId = session?.userId
-    if (!userId) return { error: 'Unauthorized' }
+    if (!(await getKitManager())) return { error: FORBIDDEN }
+    if (!(TEMPLATE_ITEM_STATUSES as readonly string[]).includes(status)) return { error: 'สถานะไม่ถูกต้อง' }
 
     const supabase = createServiceClient()
     // Fetch details for log
@@ -42,9 +42,7 @@ export async function updateTemplateStatus(itemId: string, status: string) {
 }
 
 export async function addTemplateItem(templateId: string, name: string, quantity: number) {
-    const session = await requireAuth()
-    const userId = session?.userId
-    if (!userId) return { error: 'Unauthorized' }
+    if (!(await getKitManager())) return { error: FORBIDDEN }
 
     const supabase = createServiceClient()
     // Fetch template name
@@ -75,9 +73,7 @@ export async function addTemplateItem(templateId: string, name: string, quantity
 }
 
 export async function removeTemplateItem(itemId: string, templateId: string) {
-    const session = await requireAuth()
-    const userId = session?.userId
-    if (!userId) return { error: 'Unauthorized' }
+    if (!(await getKitManager())) return { error: FORBIDDEN }
 
     const supabase = createServiceClient()
     // Fetch details before delete
@@ -107,9 +103,7 @@ export async function removeTemplateItem(itemId: string, templateId: string) {
 }
 
 export async function updateTemplateDetails(templateId: string, formData: FormData) {
-    const session = await requireAuth()
-    const userId = session?.userId
-    if (!userId) return { error: 'Unauthorized' }
+    if (!(await getKitManager())) return { error: FORBIDDEN }
 
     const supabase = createServiceClient()
     const name = formData.get('name') as string

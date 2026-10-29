@@ -5,6 +5,8 @@
  * (legacy replies). Provides backward compatibility with old @[Name](uuid)
  * mention format and plain text content.
  */
+import DOMPurify from 'isomorphic-dompurify'
+import { escapeHtml } from './escape-html'
 
 /**
  * Check if content is HTML (from Tiptap) or plain text (legacy)
@@ -25,16 +27,18 @@ export function convertLegacyMentions(text: string): string {
 }
 
 /**
- * Sanitize HTML content to prevent XSS while keeping rich text formatting.
- * Allows: p, br, strong, em, span (with style/class/data-*), mark
+ * ล้าง HTML ด้วย DOMPurify — allowlist เดียวของทั้งระบบ (documents/doc-types.ts ใช้ตัวนี้ด้วย)
+ * แท็ก = เท่าที่ TipTap ของเราผลิตจริง (StarterKit + Color + Highlight + TextStyle + Mention)
+ * href ผ่านเฉพาะ http/https/mailto (URI regexp ค่าเริ่มต้นของ DOMPurify) · ไม่มี img/svg/iframe/form
  */
+const ALLOWED_TAGS = [
+    'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'mark', 'span', 'a',
+    'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'code', 'pre', 'hr',
+]
+const ALLOWED_ATTR = ['class', 'style', 'data-type', 'data-id', 'data-label', 'href', 'target', 'rel']
+
 export function sanitizeHtml(html: string): string {
-    // Basic sanitization — strip script tags and event handlers
-    return html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/\bon\w+\s*=\s*"[^"]*"/gi, '')
-        .replace(/\bon\w+\s*=\s*'[^']*'/gi, '')
-        .replace(/javascript:/gi, '')
+    return DOMPurify.sanitize(String(html ?? ''), { ALLOWED_TAGS, ALLOWED_ATTR, ALLOW_DATA_ATTR: true })
 }
 
 /**
@@ -49,8 +53,8 @@ export function prepareContentForRender(content: string): string {
         return sanitizeHtml(content)
     }
 
-    // Plain text: convert to HTML
-    const withMentions = convertLegacyMentions(content)
+    // Plain text: escape ก่อน แล้วค่อยแปลง mention แบบเก่า (ไม่งั้น <script> ในข้อความดิบหลุดเป็น HTML)
+    const withMentions = convertLegacyMentions(escapeHtml(content))
     // Convert newlines to <br> but preserve existing HTML from mention conversion
     const lines = withMentions.split('\n')
     return lines.map(line => `<p>${line || '<br>'}</p>`).join('')

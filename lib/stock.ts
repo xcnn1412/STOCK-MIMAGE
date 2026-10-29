@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase-server'
-import { requireAuth } from '@/lib/auth'
+import { requireModule } from '@/lib/auth'
 
 // วัสดุสิ้นเปลือง — ยอดคงเหลือ (items.quantity) เปลี่ยนผ่าน moveStock() → rpc adjust_item_stock เท่านั้น
 // rpc ทำ UPDATE แบบมีเงื่อนไข (ห้ามติดลบ) + บันทึก stock_movements ในคำสั่งเดียว (migration 20261007)
@@ -44,22 +44,10 @@ export async function moveStock(db: Db, m: StockMove): Promise<{ balance: number
   return { balance: data as number }
 }
 
-/**
- * ผู้ใช้มีสิทธิ์โมดูลนี้ไหม = admin หรือ profiles.allowed_modules มี key
- * allowed_modules เป็น null = ['stock'] — ค่าเริ่มต้นเดียวกับ proxy.ts
- */
+/** ผู้ใช้มีสิทธิ์โมดูลนี้ไหม — รูปเก่าของ lib/auth.ts::requireModule (ผู้เรียกเดิมใช้ต่อได้) */
 export async function hasModule(key: string): Promise<{ userId: string } | null> {
-  const auth = await requireAuth()
-  if (!auth?.userId) return null
-  if (auth.role === 'admin') return { userId: auth.userId }
-
-  const { data } = await createServiceClient()
-    .from('profiles')
-    .select('allowed_modules')
-    .eq('id', auth.userId)
-    .maybeSingle()
-  const modules: string[] = Array.isArray(data?.allowed_modules) ? data.allowed_modules : ['stock']
-  return modules.includes(key) ? { userId: auth.userId } : null
+  const auth = await requireModule(key)
+  return auth ? { userId: auth.userId } : null
 }
 
 /** ผู้มีสิทธิ์โมดูลสต็อก (เบิกใช้ / ดูประวัติ) */

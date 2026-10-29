@@ -4,7 +4,7 @@ import { createServiceClient, removeStorageByUrls } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { cache } from 'react'
 import { logActivity } from '@/lib/logger'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, requireModule } from '@/lib/auth'
 import { createNotifications } from '@/lib/notifications'
 import { claimEffectiveAmount, summarizeClaims } from '@/app/(authenticated)/costs/lib/crm-cost-grouping'
 import { autoCreateJobsFromAcceptedLead } from '@/app/(authenticated)/jobs/actions'
@@ -14,10 +14,10 @@ import { BOARD_COLUMNS, DAY_MS, bangkokToday, isFirstWon, staleLeadIds, type Boa
 
 
 
-async function getSession() {
-  const session = await requireAuth()
-  return { userId: session?.userId, role: session?.role }
-}
+/** อ่านข้อมูล lead — โมดูล crm หรือ jobs (หน้า /jobs/<id> แสดงการ์ด lead ของงาน) · แอดมินผ่านทุกโมดูล */
+const crmReader = () => requireModule(['crm', 'jobs'])
+/** เขียนข้อมูล CRM — โมดูล crm เท่านั้น · แอดมินผ่านทุกโมดูล */
+const crmWriter = () => requireModule('crm')
 
 // ============================================================================
 // System Users — fetch from profiles
@@ -37,6 +37,7 @@ const loadSystemUsers = cache(async (): Promise<{ data: SystemUser[]; error?: st
 })
 
 export async function getSystemUsers() {
+  if (!(await requireAuth())) return { data: [], error: 'Unauthorized' }
   return loadSystemUsers()
 }
 
@@ -61,12 +62,13 @@ const loadCrmSettings = cache(async (category?: string): Promise<{ data: CrmSett
 })
 
 export async function getCrmSettings(category?: string) {
+  if (!(await requireAuth())) return { data: [], error: 'Unauthorized' }
   return loadCrmSettings(category)
 }
 
 export async function createCrmSetting(formData: FormData) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const session = await requireAuth()
+  if (session?.role !== 'admin') return { error: 'Unauthorized' } // ตั้งค่า CRM = แอดมินเท่านั้น
 
   const supabase = createServiceClient()
   const category = formData.get('category') as string
@@ -90,8 +92,8 @@ export async function createCrmSetting(formData: FormData) {
 }
 
 export async function updateCrmSetting(id: string, formData: FormData) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const session = await requireAuth()
+  if (session?.role !== 'admin') return { error: 'Unauthorized' } // ตั้งค่า CRM = แอดมินเท่านั้น
 
   const supabase = createServiceClient()
   const updates: Record<string, unknown> = {}
@@ -124,8 +126,8 @@ async function kanbanStatusInUse(supabase: ReturnType<typeof createServiceClient
 }
 
 export async function deleteCrmSetting(id: string) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const session = await requireAuth()
+  if (session?.role !== 'admin') return { error: 'Unauthorized' } // ตั้งค่า CRM = แอดมินเท่านั้น
 
   const supabase = createServiceClient()
   const inUse = await kanbanStatusInUse(supabase, id)
@@ -139,8 +141,8 @@ export async function deleteCrmSetting(id: string) {
 }
 
 export async function toggleCrmSetting(id: string, is_active: boolean) {
-  const { userId } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
+  const session = await requireAuth()
+  if (session?.role !== 'admin') return { error: 'Unauthorized' } // ตั้งค่า CRM = แอดมินเท่านั้น
 
   const supabase = createServiceClient()
   if (!is_active) {
@@ -174,7 +176,9 @@ type LeadFilters = {
 
 /** full: true → CrmLead[] (ทุกคอลัมน์) · ไม่งั้น BoardLead[] */
 export async function getLeads<F extends LeadFilters = LeadFilters>(filters?: F) {
-  return loadLeads(filters) as Promise<{ data: F extends { full: true } ? CrmLead[] : BoardLead[]; error?: string }>
+  type Result = { data: F extends { full: true } ? CrmLead[] : BoardLead[]; error?: string }
+  if (!(await crmReader())) return { data: [] as BoardLead[], error: 'Unauthorized' } as Result
+  return loadLeads(filters) as Promise<Result>
 }
 
 async function loadLeads(filters?: LeadFilters): Promise<{ data: BoardLead[]; error?: string }> {
@@ -256,6 +260,7 @@ async function loadLeads(filters?: LeadFilters): Promise<{ data: BoardLead[]; er
 }
 
 export async function getArchivedLeads() {
+  if (!(await crmReader())) return { error: 'Unauthorized', data: [] }
   const supabase = createServiceClient()
   const { rows: data, error } = await readAllRows<CrmLead>((from, to) => supabase
     .from('crm_leads')
@@ -283,12 +288,13 @@ const loadLead = cache(async (id: string) => {
 })
 
 export async function getLead(id: string) {
+  if (!(await crmReader())) return { error: 'Unauthorized', data: null }
   return loadLead(id)
 }
 
 // Update the phase classifier on a job_cost_events row. Lead detail page allows inline editing.
 export async function setJobCostEventPhase(jobEventId: string, phase: string | null) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const phaseValue = isEventPhase(phase) ? phase : null
@@ -342,6 +348,9 @@ export interface LeadCostSummary {
 }
 
 export async function getLeadCostSummary(leadId: string): Promise<LeadCostSummary> {
+  if (!(await crmReader())) {
+    return { revenue: 0, totalClaimed: 0, totalPaid: 0, totalPending: 0, claimCount: 0, byPhase: {}, byStatus: {}, byEvent: [] }
+  }
   const supabase = createServiceClient()
 
   // 1. Get revenue from the lead
@@ -453,6 +462,7 @@ export interface LinkedLeadEvent {
 // Fetch ALL events linked to this lead, from BOTH tables, merged.
 // 1 lead → N events of any kind (operational-only, cost-only, or both).
 export async function getLeadEvents(leadId: string): Promise<{ data: LinkedLeadEvent[]; error?: string }> {
+  if (!(await crmReader())) return { data: [], error: 'Unauthorized' }
   const supabase = createServiceClient()
 
   const [opRes, costRes] = await Promise.all([
@@ -530,7 +540,7 @@ function unitCountFor(raw: FormDataEntryValue | null, workType: string | null): 
 }
 
 export async function createLead(formData: FormData) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -635,7 +645,7 @@ export async function createLead(formData: FormData) {
 }
 
 export async function updateLead(id: string, formData: FormData) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -758,10 +768,18 @@ export async function updateLead(id: string, formData: FormData) {
 }
 
 export async function updateLeadStatus(id: string, newStatus: string) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
+
+  // สถานะต้องเป็นค่าที่ตั้งไว้ในหมวด kanban_status (เปิด/ปิดก็ได้) หรือมี lead ใช้อยู่แล้ว — กันค่าแปลกปลอมเข้าบอร์ด
+  const { data: known } = await supabase
+    .from('crm_settings').select('id').eq('category', 'kanban_status').eq('value', newStatus).limit(1)
+  if (!known?.length) {
+    const { data: used } = await supabase.from('crm_leads').select('id').eq('status', newStatus).limit(1)
+    if (!used?.length) return { error: 'สถานะไม่ถูกต้อง' }
+  }
 
   // Get current status
   const { data: lead } = await supabase.from('crm_leads').select('status').eq('id', id).single()
@@ -805,9 +823,9 @@ export async function updateLeadStatus(id: string, newStatus: string) {
 }
 
 export async function deleteLead(id: string) {
-  const { userId, role } = await getSession()
-  if (!userId) return { error: 'Unauthorized' }
-  if (role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้นที่ลบลูกค้าได้ — พนักงานใช้ "เก็บเข้าคลัง" แทน' }
+  const session = await requireAuth()
+  if (!session) return { error: 'Unauthorized' }
+  if (session.role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้นที่ลบลูกค้าได้ — พนักงานใช้ "เก็บเข้าคลัง" แทน' }
 
   const supabase = createServiceClient()
 
@@ -826,7 +844,7 @@ export async function deleteLead(id: string) {
 }
 
 export async function archiveLead(id: string) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -865,16 +883,14 @@ async function findStaleLeads() {
 }
 
 export async function countStaleLeads() {
-  const { userId, role } = await getSession()
-  if (!userId || role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้น' }
+  if ((await crmReader())?.role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้น' }
   const res = await findStaleLeads()
   if ('error' in res) return { error: res.error }
   return { closed: res.stale.closed.length, cold: res.stale.cold.length }
 }
 
 export async function archiveStaleLeads() {
-  const { userId, role } = await getSession()
-  if (!userId || role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้น' }
+  if ((await crmWriter())?.role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้น' }
   const res = await findStaleLeads()
   if ('error' in res) return { error: res.error }
   const { closed, cold } = res.stale
@@ -893,7 +909,7 @@ export async function archiveStaleLeads() {
 }
 
 export async function unarchiveLead(id: string) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -923,6 +939,7 @@ export async function unarchiveLead(id: string) {
 // ============================================================================
 
 export async function getActivities(leadId: string) {
+  if (!(await crmReader())) return { error: 'Unauthorized', data: [] }
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('crm_activities')
@@ -935,7 +952,7 @@ export async function getActivities(leadId: string) {
 }
 
 export async function createActivity(leadId: string, formData: FormData) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -984,7 +1001,7 @@ export async function createActivity(leadId: string, formData: FormData) {
 // ============================================================================
 
 export async function createEventFromLead(leadId: string, phase?: string) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -1053,6 +1070,7 @@ export async function createEventFromLead(leadId: string, phase?: string) {
 // ============================================================================
 
 export async function checkEventDateConflicts(eventDate: string) {
+  if (!(await crmReader())) return []
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('job_cost_events')
@@ -1079,7 +1097,8 @@ export interface LeadInstallment {
   created_at: string
 }
 
-export async function getLeadInstallments(leadId: string) {
+export async function getLeadInstallments(leadId: string): Promise<LeadInstallment[]> {
+  if (!(await crmReader())) return []
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('crm_lead_installments')
@@ -1099,7 +1118,7 @@ export async function saveAllInstallments(leadId: string, installments: Array<{
   is_paid: boolean
   paid_date: string | null
 }>) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -1163,7 +1182,7 @@ export async function saveAllInstallments(leadId: string, installments: Array<{
 // ============================================================================
 
 export async function uploadPaymentProof(leadId: string, installmentId: string, formData: FormData) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const file = formData.get('file') as File
@@ -1235,7 +1254,7 @@ export async function uploadPaymentProof(leadId: string, installmentId: string, 
 }
 
 export async function deletePaymentProof(leadId: string, installmentId: string) {
-  const { userId } = await getSession()
+  const userId = (await crmWriter())?.userId
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -1286,6 +1305,7 @@ export interface LeadEventStaff {
  * editing happens in each event's edit page).
  */
 export async function getLeadEventStaff(leadId: string): Promise<LeadEventStaff[]> {
+  if (!(await crmReader())) return []
   const supabase = createServiceClient()
 
   const { data: events } = await supabase

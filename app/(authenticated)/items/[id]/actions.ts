@@ -4,19 +4,21 @@ import { createServiceClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { logActivity } from '@/lib/logger'
-import { requireAuth } from '@/lib/auth'
+import { requireModule } from '@/lib/auth'
 import { getKitManager } from '@/lib/kit-bookings'
 import { moveStock } from '@/lib/stock'
 import { parseConsumableFields } from '@/app/(authenticated)/shelves/consumable-logic'
 import { resolveCategory } from '@/app/(authenticated)/stock/categories'
+import { safeNext } from '@/lib/safe-next'
+import { isAllowedImage, IMAGE_RULE_ERROR, keepOwnImages, parseImageUrls } from '../image-logic'
 import type { ActionState } from '@/types'
 
 
 export async function updateItem(id: string, prevState: ActionState, formData: FormData) {
-  const session = await requireAuth()
+  const session = await requireModule('stock')
   const userId = session?.userId
   if (!userId) {
-      return { error: 'Unauthorized: No active session found' }
+      return { error: 'ไม่มีสิทธิ์โมดูลคลัง' }
   }
 
   const name = formData.get('name') as string
@@ -26,26 +28,9 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
   const quantity = formData.get('quantity') as string
   const description = formData.get('description') as string
   
-  // Existing images from hidden input or state management could be passed, 
-  // but for simplicity we might just look at what's in the DB and append/replace?
-  // Ideally, the client sends the 'current_images' (array of urls to keep).
-  // Let's rely on a hidden input 'existing_images' which contains JSON of URLs to KEEP.
-  const existingImagesJson = formData.get('existing_images') as string
-  let finalImages: string[] = []
-  
-  try {
-      finalImages = existingImagesJson ? JSON.parse(existingImagesJson) : []
-  } catch (e) {
-      console.error("Failed to parse existing images", e)
-  }
-
   const newImages = formData.getAll('new_images') as File[]
   const validNewImages = newImages.filter(img => img.size > 0)
-
-  // Validate total count
-  if (finalImages.length + validNewImages.length > 4) {
-      return { error: 'Maximum 4 images allowed.' }
-  }
+  if (!validNewImages.every(isAllowedImage)) return { error: IMAGE_RULE_ERROR }
 
   const supabase = createServiceClient()
   const cat = await resolveCategory(supabase, formData.get('category_id'))
@@ -54,6 +39,14 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
 
   // Fetch current state for logging (+ กติกาวัสดุสิ้นเปลือง)
   const { data: currentItem } = await supabase.from('items').select('*').eq('id', id).single()
+
+  // existing_images (JSON ของ URL ที่จะเก็บไว้) — รับเฉพาะ URL ที่อยู่ใน image_url เดิมของอุปกรณ์นี้ (ที่เหลือกรองทิ้ง)
+  const finalImages = keepOwnImages(formData.get('existing_images'), currentItem?.image_url ?? null)
+
+  // Validate total count
+  if (finalImages.length + validNewImages.length > 4) {
+      return { error: 'Maximum 4 images allowed.' }
+  }
 
   // วัสดุสิ้นเปลือง: แก้/แปลงได้เฉพาะผู้ดูแลกระเป๋า · ยอดและสถานะไม่แก้ผ่านฟอร์มนี้ (เปลี่ยนผ่าน moveStock)
   const wantConsumable = formData.get('is_consumable') === 'on'
@@ -180,18 +173,20 @@ export async function updateItem(id: string, prevState: ActionState, formData: F
   
   const returnTo = formData.get('returnTo') as string
   if (returnTo) {
-      revalidatePath(returnTo)
-      redirect(returnTo)
+      // กัน open redirect: รับเฉพาะ path ภายในเว็บ ไม่ผ่าน = กลับ /items
+      const target = safeNext(returnTo) === returnTo ? returnTo : '/items'
+      revalidatePath(target)
+      redirect(target)
   }
   
   redirect('/items')
 }
 
 export async function deleteItem(id: string) {
-    const session = await requireAuth()
-    const userId = session?.userId
-    if (!userId) {
-        throw new Error('Unauthorized: No active session found')
+    // ลบอุปกรณ์ = ทำลายข้อมูล — เฉพาะ admin และแผนกที่ดูแลกระเป๋า (ผู้เรียกเดิมจับ throw แล้วแจ้ง "ลบไม่สำเร็จ")
+    const manager = await getKitManager()
+    if (!manager) {
+        throw new Error('เฉพาะ admin และแผนกที่ดูแลกระเป๋า')
     }
 
     const supabase = createServiceClient()
@@ -201,16 +196,7 @@ export async function deleteItem(id: string) {
 
     // Delete images from storage. 
     if (item?.image_url) {
-        let imageUrls: string[] = []
-        try {
-             if (item.image_url.startsWith('[')) {
-                 imageUrls = JSON.parse(item.image_url)
-             } else {
-                 imageUrls = [item.image_url]
-             }
-        } catch (e) {
-             console.error("Error parsing image_url for deletion", e)
-        }
+        const imageUrls = parseImageUrls(item.image_url)
 
         if (imageUrls.length > 0) {
              const paths = imageUrls.map(url => {

@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceClient } from '@/lib/supabase-server'
-import { requireAuth } from '@/lib/auth'
+import { getKitManager } from '@/lib/kit-bookings'
 import { readAllRows } from '@/lib/read-all-rows'
 
 /** สถานะใบจัดของที่ยังไม่คืนชั้น — หน่วยในใบเหล่านี้ยังออกงานอยู่จริง ห้ามรีเซ็ต */
@@ -43,11 +43,9 @@ async function itemIdsInOpenPackingLists(supabase: ReturnType<typeof createServi
  * and resets their status to 'available'
  */
 export async function cleanupOrphanedItems() {
-    const session = await requireAuth()
-    const userId = session?.userId
-    
-    if (!userId) {
-        return { error: 'Unauthorized: No active session found' }
+    // รีเซ็ตสถานะอุปกรณ์ทีละมาก — เฉพาะ admin และแผนกที่ดูแลกระเป๋า
+    if (!(await getKitManager())) {
+        return { error: 'เฉพาะ admin และแผนกที่ดูแลกระเป๋า' }
     }
     
     const supabase = createServiceClient()

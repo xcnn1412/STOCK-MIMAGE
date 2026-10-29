@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { masterTokenOk } from '@/lib/master-token'
 import { readdir, readFile } from 'fs/promises'
 import { join } from 'path'
 import { createHash } from 'crypto'
@@ -13,7 +14,8 @@ export const revalidate = 0
 
 const MIGRATIONS_DIR = join(process.cwd(), 'supabase', 'migrations')
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!masterTokenOk(req)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   try {
     const all = await readdir(MIGRATIONS_DIR)
     const sql = all.filter(f => f.endsWith('.sql')).sort()
@@ -38,7 +40,8 @@ export async function GET() {
       headers: { 'Cache-Control': 'no-store' },
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+    // ไม่ส่งข้อความ error กลับไปให้ผู้เรียก — log ฝั่ง server แทน
+    console.error('[api/migrations/list]', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'internal error' }, { status: 500 })
   }
 }

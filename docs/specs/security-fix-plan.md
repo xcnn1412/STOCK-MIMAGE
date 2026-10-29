@@ -4,7 +4,7 @@
 
 ข้อเท็จจริงจาก production (อ่านอย่างเดียว 2026-10-29): พนักงานที่ใช้งานอยู่ 32 คน — มีโมดูล `jobs` 14, `checkin` 30, `overview` 0, `crm` 9 · แอดมิน 4 คน (1 คนไม่มี `overview`/`crm`) · OAuth client ที่ลงทะเบียน = Claude (`claude.ai/api/mcp/auth_callback`) และ ChatGPT (`chatgpt.com/connector/oauth/<id>`) · `/crm/settings` redirect ไป `/settings?section=crm` (admin เท่านั้นอยู่แล้ว)
 
-## รอบ 1 — hotfix-v1.70.5 (ทำเองทันที)
+## รอบ 1 — hotfix-v1.70.5 (ทำเองทันที) — ✅ ส่งแล้ว 2026-10-29 (merge main, ยังไม่ push)
 
 | ข้อ | ที่แก้ | วิธี |
 |---|---|---|
@@ -21,7 +21,7 @@
 - AC1.4 static: `lib/session.ts` และ `proxy.ts` ไม่มี `NEXT_PUBLIC_SUPABASE_ANON_KEY` เป็น fallback ของ secret
 - AC1.5 `npx tsc --noEmit --incremental false` = error เดิม 1 จุด (`check-update-view.tsx`) · session-hardening / proxy-session / proxy-action-redirect ผ่าน
 
-## รอบ 2 — feature/security-round-2 → v1.71.0 (executor คู่ขนาน 5 ตัว ไฟล์ไม่ซ้อนกัน)
+## รอบ 2 — feature/security-round-2 → v1.71.0 (executor คู่ขนาน 5 ตัว ไฟล์ไม่ซ้อนกัน) — ✅ โค้ดครบ 2026-10-29 ทุก AC ผ่าน (รายละเอียดการตัดสินใจของ executor อยู่ใน commit message)
 
 เตรียมก่อน dispatch (planner ทำเอง): `lib/auth.ts::requireModule(keys: string | string[])` — `requireAuth()` แล้ว admin ผ่าน / อื่นอ่าน `profiles.allowed_modules` (cache ต่อ request, null = `['stock']` เหมือน proxy) ต้องมีคีย์ใดคีย์หนึ่ง → คืน `AuthSession | null` · `lib/stock.ts::hasModule` เปลี่ยนเป็นเรียกตัวนี้ · `proxy.ts::MODULE_ROUTES` เพิ่ม `overview: ['/overview']`, `jobs: ['/jobs']`, `checkin: ['/check-in']` และ auto-grant `overview` ให้ admin (เหมือน layout) · เคสใน `proxy-session.check.ts`
 
