@@ -1,5 +1,7 @@
 # รายงานตรวจสอบความปลอดภัย — รอบ 2026-10-29 (v1.70.4)
 
+> **สถานะการแก้ (2026-10-29):** แก้ครบ 4 รอบแล้ว — v1.70.5 (รอบ 1) · v1.71.0 (รอบ 2) · v1.72.0 (รอบ 3) · v1.72.1 (รอบ 4) · รายละเอียดและข้อยกเว้นอยู่ใน `docs/specs/security-fix-plan.md` · ค้างฝั่ง production: ตั้ง env (`SESSION_SECRET`, `CRON_SECRET`, `MASTER_API_TOKEN`, `APP_ORIGIN` ไม่บังคับ), รัน migration `20261029` + `20261030` ทันที และ `20261031` หลัง deploy, อัปเกรด `xlsx` (M13) ด้วย `npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`
+
 > ฉบับนี้แทนรายงานเดิม (ก่อน v1.24.2) ทั้งฉบับ ข้อ 1–3 ของรายงานเดิม (server action ไม่ตรวจ session, คุกกี้ไม่เซ็น, RLS) แก้ไปแล้วตั้งแต่ v1.24.2 และ migration `20260930_lock_public_access.sql`
 
 ## ขอบเขตและวิธีตรวจ
