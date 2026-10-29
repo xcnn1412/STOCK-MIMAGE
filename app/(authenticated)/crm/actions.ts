@@ -9,6 +9,7 @@ import { createNotifications } from '@/lib/notifications'
 import { claimEffectiveAmount, summarizeClaims } from '@/app/(authenticated)/costs/lib/crm-cost-grouping'
 import { autoCreateJobsFromAcceptedLead } from '@/app/(authenticated)/jobs/actions'
 import { readAllRows } from '@/lib/read-all-rows'
+import { CRM_DELETERS_KEY, canDeleteLead } from '@/lib/crm-permissions'
 import { isEventPhase } from './event-phases'
 import { BOARD_COLUMNS, DAY_MS, bangkokToday, isFirstWon, staleLeadIds, type BoardLead, type CrmLead, type CrmSetting, type StaleRow, type SystemUser } from './types'
 
@@ -823,23 +824,58 @@ export async function updateLeadStatus(id: string, newStatus: string) {
 }
 
 export async function deleteLead(id: string) {
-  const session = await requireAuth()
-  if (!session) return { error: 'Unauthorized' }
-  if (session.role !== 'admin') return { error: 'เฉพาะแอดมินเท่านั้นที่ลบลูกค้าได้ — พนักงานใช้ "เก็บเข้าคลัง" แทน' }
+  const deleter = await canDeleteLead()
+  if (!deleter) return { error: 'ไม่มีสิทธิ์ลบลูกค้า — พนักงานใช้ "เก็บเข้าคลัง" แทน' }
 
   const supabase = createServiceClient()
 
-  // เก็บ receipt ของ installment ทั้งหมดใน lead (จะถูก cascade ลบ) ไว้ลบไฟล์ตาม
-  const { data: insts } = await supabase
-    .from('crm_lead_installments').select('receipt_url').eq('lead_id', id)
+  // เก็บ snapshot ไว้ที่ crm_deleted_leads ก่อนลบ (ดูได้ที่ /crm/trash) — เก็บไม่ได้ = ไม่ลบ
+  // ไฟล์สลิปใน storage ยังถูกลบตามเดิม กู้คืนไม่ได้ (snapshot มีแค่ URL เดิม)
+  const [leadRes, instRes, actRes, evRes] = await Promise.all([
+    supabase.from('crm_leads').select('*').eq('id', id).single(),
+    supabase.from('crm_lead_installments').select('*').eq('lead_id', id),
+    supabase.from('crm_activities').select('*').eq('lead_id', id),
+    supabase.from('events').select('id, name, event_date, status').eq('crm_lead_id', id),
+  ])
+  if (leadRes.error || !leadRes.data) return { error: leadRes.error?.message || 'ไม่พบลูกค้า' }
+  const readError = instRes.error || actRes.error || evRes.error
+  if (readError) return { error: readError.message }
+  const lead = leadRes.data as CrmLead
+  const insts = (instRes.data || []) as { receipt_url?: string | null }[]
+
+  const { error: snapError } = await supabase.from('crm_deleted_leads').insert({
+    lead_id: id,
+    customer_name: lead.customer_name,
+    status: lead.status,
+    deleted_by: deleter.userId,
+    snapshot: { lead, installments: insts, activities: actRes.data || [], events: evRes.data || [] },
+  })
+  if (snapError) return { error: `เก็บสำเนาก่อนลบไม่สำเร็จ: ${snapError.message}` }
 
   const { error } = await supabase.from('crm_leads').delete().eq('id', id)
   if (error) return { error: error.message }
 
-  await removeStorageByUrls(supabase, 'crm-payment-proofs', (insts || []).map(i => i.receipt_url))
+  await removeStorageByUrls(supabase, 'crm-payment-proofs', insts.map(i => i.receipt_url))
 
-  await logActivity('DELETE_CRM_LEAD', { id })
+  await logActivity('DELETE_CRM_LEAD', { id, customer_name: lead.customer_name })
   revalidatePath('/crm')
+  revalidatePath('/crm/trash')
+  return { success: true }
+}
+
+// ตั้งค่าผู้ที่ลบลูกค้าได้ (หน้า /settings แท็บ CRM) — admin เท่านั้น; admin ลบได้อยู่แล้วจึงไม่ต้องอยู่ในรายชื่อ
+export async function saveCrmDeleters(ids: string[]): Promise<{ error?: string; success?: boolean }> {
+  const session = await requireAuth()
+  if (session?.role !== 'admin') return { error: 'เฉพาะ admin เท่านั้น' }
+
+  const clean = Array.isArray(ids) ? [...new Set(ids.filter((v): v is string => typeof v === 'string' && !!v))] : []
+  const { error } = await createServiceClient().from('app_settings').upsert(
+    { key: CRM_DELETERS_KEY, value: JSON.stringify(clean), updated_at: new Date().toISOString() },
+  )
+  if (error) return { error: `บันทึกไม่สำเร็จ: ${error.message}` }
+
+  await logActivity('UPDATE_CRM_DELETERS', { ids: clean })
+  revalidatePath('/settings')
   return { success: true }
 }
 

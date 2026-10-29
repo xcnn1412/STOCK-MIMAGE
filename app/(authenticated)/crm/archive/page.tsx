@@ -1,5 +1,6 @@
 import { getArchivedLeads, getCrmSettings, countStaleLeads } from '../actions'
 import { requireAuth } from '@/lib/auth'
+import { canDeleteLead } from '@/lib/crm-permissions'
 import ArchiveView from './archive-view'
 
 export const metadata = {
@@ -10,10 +11,11 @@ export const metadata = {
 export default async function ArchivePage() {
     const session = await requireAuth()
     const isAdmin = session?.role === 'admin'
-    const [leadsResult, settingsResult, staleResult] = await Promise.all([
+    const [leadsResult, settingsResult, staleResult, deleter] = await Promise.all([
         getArchivedLeads(),
         getCrmSettings(),
         isAdmin ? countStaleLeads() : null,
+        canDeleteLead(),
     ])
 
     return (
@@ -21,6 +23,7 @@ export default async function ArchivePage() {
             leads={leadsResult.data}
             settings={settingsResult.data}
             stale={staleResult && !('error' in staleResult) ? staleResult : null}
+            canDelete={!!deleter}
         />
     )
 }

@@ -340,7 +340,7 @@ const en: Dictionary = {
       cancel: 'Cancel',
       viewEvent: 'View Event',
       openEvent: 'Open Event',
-      deleteConfirm: 'Are you sure you want to delete this lead?',
+      deleteConfirm: 'Delete this lead? Its data will be kept in "Deleted leads" (payment slip files are removed permanently).',
 
       // Customer Information
       customerInfo: 'Customer Information',
@@ -429,6 +429,37 @@ const en: Dictionary = {
       sort: 'Sort',
       noSettings: 'No settings configured yet',
       deleteConfirm: 'Delete this setting?',
+    },
+
+    deleters: {
+      title: 'Who can delete leads (besides admins)',
+      desc: 'Can delete leads from CRM; deleted data is kept in "Deleted leads" · users also need access to the CRM module',
+      name: 'Name',
+      canDelete: 'Can delete',
+      noName: 'Unnamed',
+      save: 'Save',
+      saved: 'Saved — takes effect when the user reloads',
+    },
+
+    trash: {
+      title: 'Deleted leads',
+      subtitle: '{count} deleted leads',
+      empty: 'No deleted leads yet',
+      deletedAt: 'Deleted at',
+      deletedBy: 'Deleted by',
+      customer: 'Customer',
+      phone: 'Phone',
+      eventDate: 'Event date',
+      status: 'Status',
+      quoted: 'Quoted',
+      confirmed: 'Confirmed',
+      lead: 'Lead data',
+      installments: 'Installments',
+      activities: 'Activities',
+      events: 'Linked events',
+      none: 'None',
+      show: 'View data',
+      hide: 'Hide',
     },
   },
 }

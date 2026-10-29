@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
     Archive, ArchiveRestore, Search, Calendar, MapPin, User,
     DollarSign, Package, AlertCircle, RefreshCw, MessageSquare,
-    Inbox
+    Inbox, Trash2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,9 +25,11 @@ interface ArchiveViewProps {
     settings: CrmSetting[]
     /** จำนวนงานเก่าที่เก็บเข้าคลังได้ — null = ไม่ใช่แอดมิน (ไม่โชว์การ์ด) */
     stale?: { closed: number; cold: number } | null
+    /** ลิงก์ "รายการที่ลบแล้ว" — เฉพาะคนที่ลบลูกค้าได้ */
+    canDelete?: boolean
 }
 
-export default function ArchiveView({ leads, settings, stale = null }: ArchiveViewProps) {
+export default function ArchiveView({ leads, settings, stale = null, canDelete = false }: ArchiveViewProps) {
     const { locale, t } = useLocale()
     const tc = t.crm
     const router = useRouter()
@@ -82,6 +84,11 @@ export default function ArchiveView({ leads, settings, stale = null }: ArchiveVi
                         }
                     </p>
                 </div>
+                {canDelete && (
+                    <Button asChild variant="outline" size="sm">
+                        <Link href="/crm/trash"><Trash2 className="h-4 w-4 mr-1.5" />{tc.trash.title}</Link>
+                    </Button>
+                )}
             </div>
 
             {/* เก็บงานเก่าเข้าคลังเป็นชุด — แอดมินเท่านั้น กดเองเท่านั้น */}

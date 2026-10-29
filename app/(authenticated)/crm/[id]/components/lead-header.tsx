@@ -8,7 +8,7 @@ import { useLocale } from '@/lib/i18n/context'
 import { isWonStatus, type CrmLead } from '../../types'
 
 export function LeadHeader({
-  lead, displayName, isOverdue, isFullyPaid, loading, linkedEventCount, graphicJobCount, role,
+  lead, displayName, isOverdue, isFullyPaid, loading, linkedEventCount, graphicJobCount, canDelete,
   onOpenEvent, onOpenGraphicJob, onArchive, onDelete,
 }: {
   lead: CrmLead
@@ -19,7 +19,8 @@ export function LeadHeader({
   loading: boolean
   linkedEventCount: number
   graphicJobCount: number
-  role: string | null
+  /** ปุ่มลบ — แอดมิน หรือคนที่ติ๊กไว้ใน ตั้งค่า > CRM */
+  canDelete: boolean
   onOpenEvent: () => void
   onOpenGraphicJob: () => void
   onArchive: () => void
@@ -97,7 +98,7 @@ export function LeadHeader({
             <><Archive className="h-4 w-4" /> Archive</>
           )}
         </Button>
-        {role === 'admin' && (
+        {canDelete && (
           <Button variant="ghost" size="icon" onClick={onDelete} disabled={loading} className="text-red-500 hover:text-red-700 hover:bg-red-50">
             <Trash2 className="h-4 w-4" />
           </Button>

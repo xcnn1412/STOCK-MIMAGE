@@ -58,6 +58,7 @@ export type ActionType =
     | 'CREATE_CRM_LEAD'
     | 'UPDATE_CRM_LEAD'
     | 'DELETE_CRM_LEAD'
+    | 'UPDATE_CRM_DELETERS'
     | 'UPDATE_CRM_STATUS'
     | 'CREATE_CRM_ACTIVITY'
     | 'CREATE_EVENT_FROM_CRM'

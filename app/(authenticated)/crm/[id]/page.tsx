@@ -3,6 +3,7 @@ import { getLead, getActivities, getCrmSettings, getSystemUsers, getLeadInstallm
 import { getJobsByLeadId } from '../../jobs/actions'
 import LeadDetail from './lead-detail'
 import { requireAuth } from '@/lib/auth'
+import { canDeleteLead } from '@/lib/crm-permissions'
 import { createServiceClient } from '@/lib/supabase-server'
 import { loadPickerContext } from '../../packages/capacity-data'
 import { canEditLeadPackages } from '../../packages/package-logic'
@@ -37,7 +38,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
     // แพ็กเกจของงาน + ตัวเลือก + คำเตือนอุปกรณ์อาจไม่พอ (PackagePicker ในการ์ดลูกค้า) — ยังไม่ migrate/พัง = ว่าง
     loadPickerContext(createServiceClient(), [id]),
   ])
-  const session = await requireAuth()
+  const [session, deleter] = await Promise.all([requireAuth(), canDeleteLead()])
 
   if (!leadResult.data) notFound()
   const lead = leadResult.data as CrmLead
@@ -58,6 +59,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
       costSummary={costSummary}
       leadJobs={leadJobs}
       role={session?.role}
+      canDelete={!!deleter}
       packagePicker={{
         value: picker.leadPackages[id] ?? [],
         packages: picker.packages,
