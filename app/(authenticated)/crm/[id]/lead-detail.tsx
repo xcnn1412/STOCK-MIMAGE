@@ -34,14 +34,16 @@ interface LeadDetailProps {
   costSummary?: LeadCostSummary
   /** ใบงานที่แตกจากงานนี้แล้ว — นับใบกราฟิก + ลิงก์ไปหน้าใบงานแต่ละใบ */
   leadJobs?: LeadJob[]
-  /** profiles.role — ปุ่มลบโชว์เฉพาะแอดมิน */
+  /** profiles.role — แอดมินเห็นปุ่มลบเสมอ */
   role?: string | null
+  /** ลบลูกค้าได้ (lib/crm-permissions.ts::canDeleteLead) — แอดมิน + รายชื่อใน ตั้งค่า > CRM */
+  canDelete?: boolean
   /** แพ็กเกจของงาน + ข้อมูลของ PackagePicker (การ์ดลูกค้า) — ไม่ส่ง = แสดงชื่อแพ็กเกจเดิมจาก package_name */
   packagePicker?: LeadPackagePickerData
 }
 
 // Server actions ที่หน้านี้เรียกทุกตัว revalidatePath('/crm/<id>') เอง → ไม่ต้องสั่งรีเฟรชหน้าตามหลัง
-export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary, leadJobs = [], role = null, packagePicker }: LeadDetailProps) {
+export default function LeadDetail({ lead, activities, settings, users, installments: initialInstallments, eventStaffGroups = [], linkedEvents = [], costSummary, leadJobs = [], role = null, canDelete = false, packagePicker }: LeadDetailProps) {
   const router = useRouter()
   const { locale, t } = useLocale()
   const tc = t.crm.detail
@@ -223,8 +225,9 @@ export default function LeadDetail({ lead, activities, settings, users, installm
     })
     if (!ok) return
     setLoading(true)
-    await deleteLead(lead.id)
+    const res = await deleteLead(lead.id)
     setLoading(false)
+    if (res?.error) { toast.error(res.error); return }
     router.push('/crm')
   }
 
@@ -269,7 +272,7 @@ export default function LeadDetail({ lead, activities, settings, users, installm
         loading={loading}
         linkedEventCount={linkedEvents.length}
         graphicJobCount={graphicJobCount}
-        role={role}
+        canDelete={canDelete || role === 'admin'}
         onOpenEvent={handleOpenEvent}
         onOpenGraphicJob={handleOpenGraphicJob}
         onArchive={handleArchive}

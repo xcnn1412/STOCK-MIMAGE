@@ -88,6 +88,10 @@ const db: Record<string, Row[]> = {
   crm_lead_installments: installments,
   crm_settings: KANBAN.map((value, i) => ({ id: uid(900_000 + i), category: 'kanban_status', value, is_active: value !== 'retired' })),
   crm_activities: [],
+  // ตารางที่ deleteLead / canDeleteLead แตะ
+  app_settings: [],
+  events: [],
+  crm_deleted_leads: [],
 }
 
 // ── ฐานข้อมูลจำลอง (เฉพาะที่ getLeads / getArchivedLeads ใช้) ───────────────────
@@ -99,6 +103,10 @@ const writes: { table: string; op: string; values?: Row }[] = []
 const totalReads = () => [...reads.values()].reduce((a, b) => a + b, 0)
 /** การอ่าน crm_leads ครั้งที่เท่านี้ (นับสะสม) ได้ error */
 let failAtRead: number | null = null
+/** insert เข้าตารางนี้ได้ error (จำลองเก็บ snapshot ไม่สำเร็จ) */
+let failInsertInto: string | null = null
+/** ไฟล์ที่ removeStorageByUrls ถูกสั่งลบ */
+const removedFiles: unknown[] = []
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v))
 const compare = (x: unknown, y: unknown) => {
@@ -123,6 +131,7 @@ class Query implements PromiseLike<Result> {
   private start = 0
   private end: number | null = null
   private one = false
+  private maybe = false
   private op: { kind: 'update' | 'insert' | 'delete'; values?: Row } | null = null
   constructor(private table: string) {}
 
@@ -131,6 +140,7 @@ class Query implements PromiseLike<Result> {
   insert(values: Row) { this.op = { kind: 'insert', values }; return this }
   delete() { this.op = { kind: 'delete' }; return this }
   single() { this.one = true; return this }
+  maybeSingle() { this.one = true; this.maybe = true; return this }
   limit(n: number) { this.start = 0; this.end = n - 1; return this }
   eq(c: string, v: unknown) { return this.where(r => r[c] === v) }
   is(c: string, v: null) {
@@ -173,7 +183,10 @@ class Query implements PromiseLike<Result> {
 
   private run(): Result {
     if (this.op) {
+      if (this.op.kind === 'insert' && this.table === failInsertInto) return { data: null, error: { code: '42P01', message: 'insert ล้ม (จำลอง)' } }
       writes.push({ table: this.table, op: this.op.kind, values: this.op.values })
+      // delete ลบแถวจริงในตัวจำลอง (ตรวจได้ว่าลูกค้าหายไปแล้ว) · update/insert แค่จดไว้
+      if (this.op.kind === 'delete') db[this.table] = (db[this.table] ?? []).filter(r => !this.filters.every(f => f(r)))
       return { data: null, error: null }
     }
     assert.ok(this.cols !== null, 'ตัวจำลองรองรับเฉพาะการอ่าน (select) หรือ update/insert/delete')
@@ -191,6 +204,7 @@ class Query implements PromiseLike<Result> {
     // ไม่มี range = ได้ไม่เกิน MAX_ROWS แถวแรก · มี range ก็ยังได้ไม่เกิน MAX_ROWS ต่อคำขอ
     const stop = Math.min(this.end === null ? Number.POSITIVE_INFINITY : this.end + 1, this.start + MAX_ROWS)
     const rows = hits.slice(this.start, stop).map(r => this.project(r))
+    if (this.maybe && rows.length === 0) return { data: null, error: null }
     if (this.one) return rows.length === 1 ? { data: rows[0], error: null } : { data: null, error: { code: 'PGRST116', message: 'ไม่พบแถว (จำลอง)' } }
     return { data: rows, error: null }
   }
@@ -208,7 +222,7 @@ const fakeClient = strict({ from: (table: string) => strict(new Query(table)) })
 const mocks: [RegExp, unknown][] = [
   [/supabase-server$/, {
     createServiceClient: () => fakeClient,
-    removeStorageByUrls: async () => assert.fail('removeStorageByUrls ไม่ควรถูกเรียกในสคริปต์นี้'),
+    removeStorageByUrls: async (_c: unknown, _bucket: string, urls: unknown[]) => { removedFiles.push(...urls) },
   }],
   [/^next\/cache$/, { revalidatePath() {}, revalidateTag() {} }],
   [/lib\/logger$/, { logActivity: async () => {} }],
@@ -234,7 +248,7 @@ M._load = function (this: unknown, request: string, ...rest: unknown[]) {
 }
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { getLeads, getArchivedLeads, getLead, updateLead, updateLeadStatus, createCrmSetting, deleteLead, countStaleLeads, archiveStaleLeads } =
+const { getLeads, getArchivedLeads, getLead, updateLead, updateLeadStatus, createCrmSetting, deleteLead, countStaleLeads, archiveStaleLeads, saveCrmDeleters } =
   require('../app/(authenticated)/crm/actions') as typeof import('../app/(authenticated)/crm/actions')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -337,15 +351,19 @@ async function main() {
   assert.equal((withArch.data as Lead[]).filter(r => r.archived_at !== null).length, ARCHIVED)
   pass(`(i) getLeads({ includeArchived: true }) ได้ ${ACTIVE + ARCHIVED} ราย รวมงานในคลัง ${ARCHIVED}`)
 
-  // (j) พนักงานลบลูกค้า / เก็บงานเก่าเป็นชุดไม่ได้ — ถูกปัดก่อนอ่านอะไรเลย
+  // (j) พนักงานที่ไม่อยู่ในรายชื่อ crm_deleters ลบลูกค้าไม่ได้ · เก็บงานเก่าเป็นชุดไม่ได้ — ถูกปัดก่อนแตะ crm_leads
   role = 'staff'
-  const readsBefore = [...reads.values()].reduce((a, b) => a + b, 0)
-  assert.match(String((await deleteLead(active[0].id as string)).error), /เฉพาะแอดมิน/)
+  const leadReadsBefore = leadReads()
+  const writesBefore = writes.length
+  assert.match(String((await deleteLead(active[0].id as string)).error), /ไม่มีสิทธิ์ลบลูกค้า/)
+  assert.equal(leadReads(), leadReadsBefore, '(j) deleteLead: ต้องไม่อ่าน crm_leads')
+  assert.equal(writes.length, writesBefore, '(j) deleteLead: ต้องไม่เขียน')
+  const readsBefore = totalReads()
   assert.ok('error' in (await countStaleLeads()))
   assert.ok('error' in (await archiveStaleLeads()))
-  assert.equal([...reads.values()].reduce((a, b) => a + b, 0), readsBefore, '(j) ต้องไม่อ่านฐานข้อมูลเลย')
+  assert.equal(totalReads(), readsBefore, '(j) ต้องไม่อ่านฐานข้อมูลเลย')
   role = 'admin'
-  pass('(j) deleteLead / countStaleLeads / archiveStaleLeads ปัดพนักงานก่อนอ่านข้อมูล')
+  pass('(j) deleteLead (ไม่อยู่ในรายชื่อ) / countStaleLeads / archiveStaleLeads ปัดพนักงานก่อนแตะข้อมูลลูกค้า')
 
   // (k) AC2.4 สิทธิ์ตามโมดูล — ไม่มีสิทธิ์ต้องถูกปัดก่อนแตะฐานข้อมูล
   const target = active.find(l => l.status === 'lead')!
@@ -401,13 +419,68 @@ async function main() {
   modules = ['crm']
   pass('(k4) แอดมินไม่มีโมดูลใดเลย: อ่าน/เขียน/ตั้งค่าได้ทั้งหมด')
 
+  // (m) ลบลูกค้า: รายชื่อใน app_settings.crm_deleters + snapshot ก่อนลบ
+  const victim = (n: number) => {
+    const l = active[7 * n] // มีงวดผ่อน 3 งวด
+    db.crm_activities.push({ id: uid(800_000 + n), lead_id: l.id, activity_type: 'note', description: `โน้ต ${n}` })
+    db.events.push({ id: uid(700_000 + n), crm_lead_id: l.id, name: `อีเวนต์ ${n}`, event_date: '2026-11-01', status: 'pending' })
+    for (const i of installments.filter(x => x.lead_id === l.id)) i.receipt_url = `https://x/storage/v1/object/public/crm-payment-proofs/${i.id}.jpg`
+    return l
+  }
+  const leadExists = (id: string) => db.crm_leads.some(r => r.id === id)
+  const snapshotsOf = (id: string) => writes.filter(w => w.table === 'crm_deleted_leads' && w.op === 'insert' && w.values?.lead_id === id)
+
+  role = 'staff'; modules = ['crm']
+  db.app_settings = [{ key: 'crm_deleters', value: JSON.stringify(['someone-else']) }]
+  const v1 = victim(301)
+  assert.ok('error' in (await deleteLead(v1.id as string)))
+  assert.ok(leadExists(v1.id as string) && snapshotsOf(v1.id as string).length === 0, '(m) ไม่อยู่ในรายชื่อ: ต้องไม่ลบ ไม่เก็บ snapshot')
+
+  db.app_settings = [{ key: 'crm_deleters', value: JSON.stringify([uid(1)]) }]
+  failInsertInto = 'crm_deleted_leads'
+  assert.match(String((await deleteLead(v1.id as string)).error), /เก็บสำเนา/)
+  assert.ok(leadExists(v1.id as string), '(m) เก็บ snapshot ไม่สำเร็จ: ต้องไม่ลบ')
+  failInsertInto = null
+
+  assert.deepEqual(await deleteLead(v1.id as string), { success: true })
+  const snaps = snapshotsOf(v1.id as string)
+  assert.equal(snaps.length, 1, '(m) ต้องเก็บ snapshot 1 แถว')
+  const snap = snaps[0].values as { customer_name: string; deleted_by: string; snapshot: { lead: Row; installments: Row[]; activities: Row[]; events: Row[] } }
+  assert.equal(snap.customer_name, v1.customer_name)
+  assert.equal(snap.deleted_by, uid(1))
+  assert.equal(snap.snapshot.lead.id, v1.id)
+  assert.equal(snap.snapshot.lead.notes, v1.notes, '(m) snapshot ต้องเป็นแถวเต็ม')
+  assert.equal(snap.snapshot.installments.length, 3)
+  assert.equal(snap.snapshot.activities.length, 1)
+  assert.deepEqual(snap.snapshot.events.map(e => e.name), ['อีเวนต์ 301'])
+  assert.ok(!leadExists(v1.id as string), '(m) ลูกค้าต้องหายจาก crm_leads')
+  const iSnap = writes.indexOf(snaps[0])
+  const iDel = writes.findIndex(w => w.table === 'crm_leads' && w.op === 'delete')
+  assert.ok(iSnap >= 0 && iDel > iSnap, '(m) ต้องเก็บ snapshot ก่อนลบ')
+  assert.equal(removedFiles.length, 3, '(m) ไฟล์สลิป 3 งวดถูกลบจาก storage')
+  pass('(m1) พนักงาน crm: ไม่อยู่ในรายชื่อ → error · snapshot ล้ม → ไม่ลบ · อยู่ในรายชื่อ → snapshot (lead + งวด + กิจกรรม + อีเวนต์) แล้วลบ')
+
+  role = 'admin'; db.app_settings = []
+  const v2 = victim(302)
+  assert.deepEqual(await deleteLead(v2.id as string), { success: true })
+  assert.equal(snapshotsOf(v2.id as string).length, 1)
+  assert.ok(!leadExists(v2.id as string))
+  pass('(m2) แอดมิน (ไม่อยู่ในรายชื่อ) ลบได้ พร้อม snapshot')
+
+  role = 'staff'
+  const w0 = writes.length
+  assert.ok('error' in (await saveCrmDeleters([uid(2)])))
+  assert.equal(writes.length, w0, '(m3) ไม่ใช่แอดมิน: ต้องไม่เขียน app_settings')
+  role = 'admin'
+  pass('(m3) saveCrmDeleters โดยพนักงาน → { error } ไม่เขียน')
+
   // (l) static scan: ทุก export async function ใน crm/actions.ts ตรวจตัวตนภายใน 6 บรรทัดแรกของ body
   const ts = require('typescript') as typeof import('typescript') // eslint-disable-line @typescript-eslint/no-require-imports
   const fs = require('node:fs') as typeof import('node:fs') // eslint-disable-line @typescript-eslint/no-require-imports
   const path = require('node:path') as typeof import('node:path') // eslint-disable-line @typescript-eslint/no-require-imports
   const srcPath = path.join(__dirname, '../app/(authenticated)/crm/actions.ts')
   const src = ts.createSourceFile(srcPath, fs.readFileSync(srcPath, 'utf8'), ts.ScriptTarget.Latest, true)
-  const GATE = /\b(crmReader|crmWriter|requireModule|requireAuth)\(/
+  const GATE = /\b(crmReader|crmWriter|requireModule|requireAuth|canDeleteLead)\(/
   const offenders: string[] = []
   let scanned = 0
   for (const st of src.statements) {

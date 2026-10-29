@@ -3,6 +3,7 @@ import { getCrmSettings } from '@/app/(authenticated)/crm/actions'
 import { getMetaTokenStatus } from '@/app/(authenticated)/content-planner/actions'
 import type { CrmSetting } from '@/app/(authenticated)/crm/types'
 import { getEventPermissionIds } from '@/lib/event-permissions'
+import { getCrmDeleterIds } from '@/lib/crm-permissions'
 import { requireAuth } from '@/lib/auth'
 import { createServiceClient } from '@/lib/supabase-server'
 import { requestOrigin } from '@/lib/request-origin'
@@ -34,13 +35,14 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const raw = (await searchParams).section
   const wanted = Array.isArray(raw) ? raw[0] : raw
   const initialSection = SECTIONS.find(k => k === wanted)
-  const [categories, categoryItems, staffProfiles, { data: crmSettings }, metaToken, eventPermissionIds, mcp] = await Promise.all([
+  const [categories, categoryItems, staffProfiles, { data: crmSettings }, metaToken, eventPermissionIds, crmDeleterIds, mcp] = await Promise.all([
     getFinanceCategories(false), // include inactive
     getAllCategoryItems(),
     getStaffProfiles(),
     getCrmSettings(),
     getMetaTokenStatus(),
     getEventPermissionIds(),
+    getCrmDeleterIds(),
     getMcpSummary(),
   ])
 
@@ -52,6 +54,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       crmSettings={(crmSettings as CrmSetting[] | null) || []}
       metaToken={metaToken}
       eventPermissionIds={eventPermissionIds}
+      crmDeleterIds={crmDeleterIds}
       mcp={mcp}
       initialSection={initialSection}
     />

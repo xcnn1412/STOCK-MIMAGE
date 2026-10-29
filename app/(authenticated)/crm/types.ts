@@ -181,3 +181,19 @@ export type BoardLead = Pick<CrmLead, (typeof BOARD_LEAD_KEYS)[number]> & { tota
 
 /** ผู้ใช้ที่อนุมัติแล้ว (profiles) สำหรับเลือกเซลส์/กราฟิก/ทีมงาน */
 export type SystemUser = { id: string; full_name: string | null; department: string | null }
+
+/** แถวของ crm_deleted_leads (หน้า /crm/trash) — snapshot ที่ deleteLead เก็บไว้ก่อนลบ */
+export type CrmDeletedLead = {
+  id: string
+  lead_id: string
+  customer_name: string | null
+  status: string | null
+  deleted_by: string | null
+  deleted_at: string
+  snapshot: {
+    lead: Record<string, unknown>
+    installments: Record<string, unknown>[]
+    activities: Record<string, unknown>[]
+    events: Record<string, unknown>[]
+  }
+}

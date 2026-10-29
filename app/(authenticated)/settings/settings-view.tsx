@@ -7,6 +7,7 @@ import FinanceSettingsView from '@/app/(authenticated)/finance/settings/finance-
 import CrmSettingsView from '@/app/(authenticated)/crm/settings/settings-view'
 import MetaTokenSettings from '@/app/(authenticated)/content-planner/meta-token-settings'
 import EventManagersSettings from '@/app/(authenticated)/events/event-managers-settings'
+import CrmDeletersSettings from '@/app/(authenticated)/crm/settings/crm-deleters-settings'
 import McpAdminCard from '@/app/(authenticated)/connected-apps/admin-card'
 import type { FinanceCategory, CategoryItem, StaffProfile } from '@/app/(authenticated)/finance/settings-actions'
 import type { CrmSetting } from '@/app/(authenticated)/crm/types'
@@ -89,13 +90,14 @@ interface Props {
   crmSettings: CrmSetting[]
   metaToken: { connected: boolean; hint: string | null }
   eventPermissionIds: { edit: string[]; close: string[] }
+  crmDeleterIds: string[]
   /** การเชื่อมต่อ Claude (MCP) — มีค่าเฉพาะ admin, null = ไม่แสดงการ์ด */
   mcp: { liveCount: number; endpoint: string } | null
   /** แท็บที่เปิดก่อน (จาก ?section=) — ไม่ส่ง = การเงิน */
   initialSection?: SettingsSection
 }
 
-export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken, eventPermissionIds, mcp, initialSection }: Props) {
+export default function SettingsView({ financeCategories, categoryItems, staffProfiles, crmSettings, metaToken, eventPermissionIds, crmDeleterIds, mcp, initialSection }: Props) {
   const { locale } = useLocale()
   const t = labels[locale] || labels.th
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection ?? 'finance')
@@ -182,6 +184,9 @@ export default function SettingsView({ financeCategories, categoryItems, staffPr
         {activeSection === 'crm' && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
             <CrmSettingsView settings={crmSettings} />
+            <div className="mt-6">
+              <CrmDeletersSettings people={staffProfiles} ids={crmDeleterIds} />
+            </div>
           </div>
         )}
         {activeSection === 'content' && (
