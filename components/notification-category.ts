@@ -78,6 +78,8 @@ export const TYPE_CONFIG: Record<string, TypeConfig> = {
   packing_requested:           { icon: '📦', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',             label: 'งานรอจัดของ' },
   packing_ready:               { icon: '✅', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'ของพร้อมรับ' },
   packing_returned:            { icon: '🔁', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',   label: 'คืนของแล้ว' },
+  event_cancelled:             { icon: '🚫', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',             label: 'ยกเลิกอีเวนต์' },
+  event_rescheduled:           { icon: '📅', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',     label: 'เลื่อนอีเวนต์' },
 }
 
 export const DEFAULT_TYPE_CONFIG: TypeConfig = {

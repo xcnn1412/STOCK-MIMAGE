@@ -63,6 +63,8 @@ function getNotificationUrl(item: NotificationItem): string {
       return `/salary/${item.reference_id}`
     case 'packing_list':
       return `/packing/${item.reference_id}`
+    case 'event':
+      return '/events'
     default:
       return '/dashboard'
   }

@@ -139,7 +139,7 @@ export async function closeEventCore(supabase: Db, input: CloseEventInput): Prom
          .eq('id', eventId)
          .single()
 
-     if (event?.status === 'completed') {
+     if (isClosedEvent(event?.status)) {
          return { error: 'อีเวนต์นี้ปิดงานไปแล้ว' }
      }
 

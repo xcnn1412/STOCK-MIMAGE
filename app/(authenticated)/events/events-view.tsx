@@ -1,14 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState, useTransition } from 'react'
+import { toast } from 'sonner'
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from 'next/link'
-import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar, Eye, EyeOff, Users } from "lucide-react"
+import { CalendarDays, MapPin, Plus, Package, CheckCircle, ArrowUpDown, Clock, Edit3, MoreHorizontal, Calendar, Eye, EyeOff, Users, Ban, RotateCcw } from "lucide-react"
+import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/contexts/language-context'
 import EventStatusBadge from './event-status-badge'
 import EventsLogSheet, { type EventLog } from './events-log-sheet'
 import type { Event } from '@/types'
+import { isClosedEvent } from '../jobs/tracking/tracking-logic'
+import { useConfirm } from '../finance/use-confirm'
+import { cancelEvent, restoreEvent } from './actions'
 
 /** เจ้าหน้าที่หนึ่งคนในอีเวนต์ — ชื่อที่แสดง + ป้ายหน้าที่ (ว่าง = ไม่รู้หน้าที่) + สีของหน้าที่ (hex) */
 export type EventStaffChip = { name: string; role: string; color: string }
@@ -25,6 +30,9 @@ export default function EventsView({
   logs = [],
   leadByEvent = {},
   staffByEvent = {},
+  isAdmin = false,
+  cancelledByName = {},
+  defaultShowClosed = false,
 }: {
   events: Event[]
   /** สร้าง / แก้ไขอีเวนต์ได้ */
@@ -36,15 +44,67 @@ export default function EventsView({
   leadByEvent?: Record<string, { leadId: string; customerName: string | null }>
   /** เจ้าหน้าที่ที่จัดไว้ในแต่ละอีเวนต์ (จาก event_staff) — ไม่มี key = ยังไม่จัด (ดูข้อความเก่าใน event.staff แทน) */
   staffByEvent?: Record<string, EventStaffChip[]>
+  /** แอดมิน — กู้คืนอีเวนต์ที่ยกเลิกได้ */
+  isAdmin?: boolean
+  /** ชื่อผู้ยกเลิก (profiles.id → ชื่อ) */
+  cancelledByName?: Record<string, string>
+  /** เริ่มต้นแสดงการ์ดที่ปิด/ยกเลิกไหม (ค่าเริ่มต้นซ่อน) */
+  defaultShowClosed?: boolean
 }) {
   const { t, lang } = useLanguage()
+  const c = t.events.cancel
+  const { confirm, dialog } = useConfirm()
+  const [, startTransition] = useTransition()
+  const reasonRef = useRef('')
+
+  // ยกเลิกอีเวนต์: กล่องยืนยันพร้อมช่องเหตุผล + ผลกระทบ → server ตรวจซ้ำ (เหตุผล ≥ 3 ตัวอักษร)
+  const handleCancel = async (event: Event) => {
+    reasonRef.current = ''
+    const ok = await confirm({
+      title: c.title,
+      variant: 'destructive',
+      description: (
+        <span className="block space-y-2">
+          <span className="block font-medium text-zinc-900 dark:text-zinc-100">{event.name}</span>
+          <span className="block text-xs">{c.reasonLabel}</span>
+          <Textarea rows={3} autoFocus onChange={e => { reasonRef.current = e.target.value }} />
+        </span>
+      ),
+      details: [
+        { label: c.impactPacking, value: c.impactPackingValue },
+        { label: c.impactKits, value: c.impactKitsValue },
+        { label: c.impactTeam, value: c.impactTeamValue },
+      ],
+      confirmLabel: c.confirm,
+      cancelLabel: c.keep,
+    })
+    if (!ok) return
+    const why = reasonRef.current.trim()
+    if (why.length < 3) { toast.error(c.reasonTooShort); return }
+    startTransition(async () => {
+      const res = await cancelEvent(event.id, why)
+      if ('error' in res) toast.error(res.error)
+      else toast.success(c.done)
+    })
+  }
+
+  const handleRestore = async (event: Event) => {
+    const ok = await confirm({ title: c.restoreTitle, description: c.restoreDesc, variant: 'warning', confirmLabel: c.restore })
+    if (!ok) return
+    startTransition(async () => {
+      const res = await restoreEvent(event.id)
+      if ('error' in res) toast.error(res.error)
+      else toast.success(c.restored)
+    })
+  }
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   // Closed events stay in the DB now (soft-close), so hide them unless asked for.
-  const [showClosed, setShowClosed] = useState(false)
+  const [showClosed, setShowClosed] = useState(defaultShowClosed)
 
-  const closedCount = events.filter(e => e.status === 'completed').length
+  // ปิดแล้ว + ยกเลิก ซ่อนไว้ก่อน (ปุ่มสลับนับรวมทั้งสองแบบ)
+  const closedCount = events.filter(e => isClosedEvent(e.status)).length
 
-  const visibleEvents = showClosed ? events : events.filter(e => e.status !== 'completed')
+  const visibleEvents = showClosed ? events : events.filter(e => !isClosedEvent(e.status))
 
   const sortedEvents = [...visibleEvents].sort((a, b) => {
     const dateA = new Date(a.event_date).getTime()
@@ -108,8 +168,8 @@ export default function EventsView({
           >
             {showClosed ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
             {showClosed
-              ? (lang === 'th' ? 'ซ่อนงานที่ปิดแล้ว' : 'Hide closed')
-              : (lang === 'th' ? 'แสดงงานที่ปิดแล้ว' : 'Show closed')}
+              ? c.hideClosed
+              : c.showClosed}
             {closedCount > 0 && <span className="ml-1.5 opacity-60">{closedCount}</span>}
           </Button>
           <div className="md:hidden">
@@ -125,14 +185,14 @@ export default function EventsView({
           <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1">{lang === 'th' ? 'ทั้งหมด' : 'Total'}</div>
         </div>
         <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl p-4 bg-white dark:bg-zinc-900 shadow-sm">
-          <div className="text-3xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-100">{events.filter(e => e.status === 'completed').length}</div>
+          <div className="text-3xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-100">{events.filter(e => isClosedEvent(e.status) && e.status !== 'cancelled').length}</div>
           <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1">{lang === 'th' ? 'เสร็จสิ้น' : 'Completed'}</div>
         </div>
         <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl p-4 bg-white dark:bg-zinc-900 shadow-sm">
           <div className="text-3xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-100">
             {events.filter(e => {
               const hours = (new Date(e.event_date).getTime() - new Date().getTime()) / (1000 * 60 * 60)
-              return hours > 0 && hours < 48 && e.status !== 'completed'
+              return hours > 0 && hours < 48 && !isClosedEvent(e.status)
             }).length}
           </div>
           <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1">{lang === 'th' ? 'ใกล้ถึง' : 'Upcoming'}</div>
@@ -141,7 +201,7 @@ export default function EventsView({
           <div className="text-3xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-100">
             {events.filter(e => {
               const hours = (new Date(e.event_date).getTime() - new Date().getTime()) / (1000 * 60 * 60)
-              return hours >= 48 && e.status !== 'completed'
+              return hours >= 48 && !isClosedEvent(e.status)
             }).length}
           </div>
           <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1">{lang === 'th' ? 'กำหนดการ' : 'Scheduled'}</div>
@@ -242,6 +302,15 @@ export default function EventsView({
                     </div>
                   )
                 })()}
+
+                {/* อีเวนต์ที่ยกเลิก — เหตุผล + ผู้ยกเลิก */}
+                {event.status === 'cancelled' && (
+                  <div data-testid="cancel-info" className="rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-300 space-y-0.5">
+                    <div className="font-semibold">{c.badge}</div>
+                    <div>{c.reason}: {event.cancel_reason || '-'}</div>
+                    {event.cancelled_by && <div>{c.by}: {cancelledByName[event.cancelled_by] || '-'}</div>}
+                  </div>
+                )}
               </div>
             </CardContent>
 
@@ -269,7 +338,24 @@ export default function EventsView({
                   </Button>
                 </Link>
               )}
-              {canClose && event.status !== 'completed' && (
+              {canClose && !isClosedEvent(event.status) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleCancel(event)}
+                  className="min-h-[44px] border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                >
+                  <Ban className="w-4 h-4" />
+                  {c.button}
+                </Button>
+              )}
+              {isAdmin && event.status === 'cancelled' && (
+                <Button variant="outline" size="sm" onClick={() => handleRestore(event)} className="min-h-[44px]">
+                  <RotateCcw className="w-4 h-4" />
+                  {c.restore}
+                </Button>
+              )}
+              {canClose && !isClosedEvent(event.status) && (
                 <Link href={`/events/${event.id}/return`}>
                   <Button
                     size="sm"
@@ -309,6 +395,8 @@ export default function EventsView({
           </div>
         )}
       </div>
+
+      {dialog}
 
       {/* Mobile FAB - Create Event (admin only) */}
       {canEdit && (

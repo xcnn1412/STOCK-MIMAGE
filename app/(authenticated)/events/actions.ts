@@ -7,8 +7,12 @@ import { logActivity } from '@/lib/logger'
 import { requireAuth } from '@/lib/auth'
 import { getEventManager, EVENT_PERMISSION_KEYS } from '@/lib/event-permissions'
 import { recomputeKitPointers } from '@/lib/kit-bookings'
+import { createNotifications } from '@/lib/notifications'
 import type { ActionState, KitContent, Database } from '@/types'
 import { closeEventCore } from './close-core'
+import { isClosedEvent } from '../jobs/tracking/tracking-logic'
+import { cancelListCore, reopenListCore } from '../packing/cancel-core'
+import { loadPackingListRow } from '../packing/queries'
 
 
 // Recompute crm_leads.assigned_* roll-up arrays as the UNION of every linked event's
@@ -47,6 +51,12 @@ const TIME_HHMM_RE = /^\d{2}:\d{2}$/
 const INVALID_TIME_ERROR = 'รูปแบบเวลาไม่ถูกต้อง (HH:mm)'
 const MISSING_TIME_COLUMN_ERROR =
   'ยังไม่ได้เปิดใช้ช่องเวลาอีเวนต์ในฐานข้อมูล — รัน migration 20260927_events_event_time.sql ก่อน'
+
+/** วันที่ YYYY-MM-DD ตามเวลาไทย (events.event_date เป็น timestamptz บน prod) · ค่าว่าง/อ่านไม่ได้ = '' */
+function bangkokDay(v: unknown): string {
+  const t = typeof v === 'string' && v ? Date.parse(v) : NaN
+  return Number.isNaN(t) ? '' : new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+}
 
 /** อ่านเวลาจากฟอร์ม: คืน '' เมื่อไม่กรอก, คืน null เมื่อรูปแบบผิด */
 function readTimeField(formData: FormData, key: string): string | null {
@@ -310,6 +320,13 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   const hhmm = (v: unknown) => (typeof v === 'string' && v ? v.slice(0, 5) : '')
   const oldEventTime = hhmm((oldEvent as { event_time?: unknown } | null)?.event_time)
   const oldEventEndTime = hhmm((oldEvent as { event_end_time?: unknown } | null)?.event_end_time)
+  if (oldEvent?.status === 'cancelled') return { error: 'อีเวนต์นี้ยกเลิกแล้ว' }
+
+  // วันงาน (ThaiDatePicker ส่ง ISO) — เทียบเป็นวันตามเวลาไทย เขียนเฉพาะเมื่อวันเปลี่ยน
+  const oldDay = bangkokDay(oldEvent?.event_date)
+  const newDateRaw = String(formData.get('event_date') ?? '').trim()
+  const newDay = bangkokDay(newDateRaw) || oldDay
+  const rescheduled = newDay !== oldDay || oldEventTime !== (eventTime || '') || oldEventEndTime !== (eventEndTime || '')
 
   // Staff now lives per-event in event_staff for every event (CRM-linked or not).
   let oldStaff: { user_id: string; full_name: string; role: string }[] = []
@@ -332,6 +349,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   const updatePayload: Record<string, unknown> = { name, location, staff, seller, phase }
   if (eventTime || oldEventTime) updatePayload.event_time = eventTime || null
   if (eventEndTime || oldEventEndTime) updatePayload.event_end_time = eventEndTime || null
+  if (newDay !== oldDay) updatePayload.event_date = newDateRaw
 
   const { error: updateError } = await supabase
       .from('events')
@@ -346,7 +364,7 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
 
   // 2. กระเป๋า = การจองของใบจัดของ (ฟอร์มไม่แตะ event_kits แล้ว) — แต่เวลาเปลี่ยนอาจเปลี่ยนลำดับ
   // ว่ากระเป๋าอยู่กับงานไหนก่อน → คำนวณตัวชี้ใหม่ให้กระเป๋าที่จองให้อีเวนต์นี้
-  if (oldEventTime !== (eventTime || '') || oldEventEndTime !== (eventEndTime || '')) {
+  if (rescheduled) {
       const { data: bookedRows } = await supabase.from('event_kits').select('kit_id').eq('event_id', id)
       const bookedKitIds = (bookedRows || []).map(r => r.kit_id as string)
       if (bookedKitIds.length > 0) await recomputeKitPointers(supabase, bookedKitIds)
@@ -401,6 +419,25 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
   if (oldEventEndTime !== (eventEndTime || '')) {
       fieldChanges.event_end_time = { from: oldEventEndTime || null, to: eventEndTime || null }
   }
+  if (newDay !== oldDay) fieldChanges.event_date = { from: oldDay || null, to: newDay }
+
+  // เลื่อนวัน/เวลา → แจ้งทีมในอีเวนต์ (ไม่แจ้งผู้แก้) + บันทึกกิจกรรมที่ lead · ใบจัดของอิงวันจาก events อยู่แล้ว ไม่ต้องแตะ
+  if (rescheduled) {
+      const when = (day: string, from: string, to: string) => `${day}${from ? ` ${from}` : ''}${to ? `–${to}` : ''}`
+      const text = `เลื่อน ${name}: ${when(oldDay, oldEventTime, oldEventEndTime)} → ${when(newDay, eventTime || '', eventEndTime || '')}`
+      const { data: staffNow } = await supabase.from('event_staff').select('user_id').eq('event_id', id)
+      await createNotifications({
+          userIds: (staffNow || []).map(s => s.user_id as string),
+          type: 'event_rescheduled',
+          title: text,
+          referenceType: 'event',
+          referenceId: id,
+          actorId: userId,
+      })
+      if (oldEvent?.crm_lead_id) {
+          await supabase.from('crm_activities').insert({ lead_id: oldEvent.crm_lead_id, created_by: userId, activity_type: 'note', description: text })
+      }
+  }
 
   // Staff diff
   let addedStaff: { user_id: string; full_name: string; role: string }[] = []
@@ -449,6 +486,106 @@ export async function updateEvent(id: string, prevState: ActionState, formData: 
     revalidatePath(`/crm/${ev.crm_lead_id}`)
   }
   redirect('/events')
+}
+
+
+// ============================================================================
+// ยกเลิก / กู้คืน อีเวนต์ (docs/specs/event-cancel.md)
+// ============================================================================
+
+const RETURN_FLOW = ['out', 'returned', 'done']
+
+/**
+ * ยกเลิกอีเวนต์ — ผู้มีสิทธิ์ปิดงาน (รวมแอดมิน) · เฉพาะอีเวนต์ที่ยังไม่ปิด/ยกเลิก และของยังไม่ออกงาน
+ * ใบจัดของ (เลือกของ/กำลังหยิบ/พร้อมรับ) ถูกยกเลิกผ่าน core เดียวกับ cancelPackingList · การจองกระเป๋าที่เหลือถูกลบ
+ * ทีม/รถ/เช็คอิน/ต้นทุน/ใบเบิก เก็บไว้เป็นประวัติ · lead ไม่เปลี่ยนสถานะ แค่บันทึกกิจกรรม
+ */
+export async function cancelEvent(id: string, reason: string): Promise<{ error: string } | { success: true }> {
+  const manager = await getEventManager('close')
+  if (!manager) return { error: 'ไม่มีสิทธิ์ยกเลิกอีเวนต์ — ให้ admin เปิดสิทธิ์ปิดงานในหน้าตั้งค่า' }
+  const why = String(reason ?? '').trim()
+  if (why.length < 3) return { error: 'กรุณาระบุเหตุผลอย่างน้อย 3 ตัวอักษร' }
+
+  const db = createServiceClient()
+  const { data: ev } = await db.from('events').select('id, name, status, crm_lead_id').eq('id', id)
+    .maybeSingle<{ id: string; name: string; status: string | null; crm_lead_id: string | null }>()
+  if (!ev) return { error: 'ไม่พบอีเวนต์' }
+  if (isClosedEvent(ev.status)) return { error: 'อีเวนต์นี้ปิดงานหรือยกเลิกไปแล้ว' }
+
+  // ใบจัดของ (อีเวนต์ละ 1 ใบ) — ของออกงานแล้วต้องคืนของ + ปิดงานตามปกติ
+  const { data: listRef } = await db.from('packing_lists').select('id, status').eq('event_id', id).maybeSingle<{ id: string; status: string }>()
+  if (listRef && RETURN_FLOW.includes(listRef.status)) {
+    return { error: 'ของออกงานไปแล้ว — ยกเลิกไม่ได้ ให้ใช้ขั้นคืนของและปิดงานตามปกติ' }
+  }
+  let unbooked: string[] = []
+  if (listRef) {
+    const list = await loadPackingListRow(db, listRef.id)
+    if (!list) return { error: 'โหลดใบจัดของไม่สำเร็จ ลองใหม่อีกครั้ง' }
+    if (list.status === 'ready') {
+      const failed = await reopenListCore(db, list)
+      if (failed) return { error: failed }
+      list.status = 'picking'
+    }
+    const res = await cancelListCore(db, list, manager.userId)
+    if ('error' in res) return res
+    unbooked = res.kitIds
+  }
+
+  // การจองกระเป๋าที่เหลือ (อีเวนต์เก่าที่จองตรง) → ลบ แล้วคำนวณตัวชี้กระเป๋าใหม่
+  const { data: kitRows } = await db.from('event_kits').select('kit_id').eq('event_id', id)
+  const kitIds = (kitRows || []).map(r => r.kit_id as string)
+  if (kitIds.length > 0) {
+    const { error: kitErr } = await db.from('event_kits').delete().eq('event_id', id)
+    if (kitErr) return { error: 'ยกเลิกการจองกระเป๋าไม่สำเร็จ' }
+    await recomputeKitPointers(db, kitIds)
+  }
+
+  const { error } = await db.from('events').update({
+    status: 'cancelled',
+    cancelled_at: new Date().toISOString(),
+    cancelled_by: manager.userId,
+    cancel_reason: why,
+  }).eq('id', id)
+  if (error) return { error: 'ยกเลิกอีเวนต์ไม่สำเร็จ' }
+
+  const text = `ยกเลิกอีเวนต์ ${ev.name}: ${why}`
+  if (ev.crm_lead_id) {
+    await db.from('crm_activities').insert({ lead_id: ev.crm_lead_id, created_by: manager.userId, activity_type: 'note', description: text })
+  }
+  const { data: staff } = await db.from('event_staff').select('user_id').eq('event_id', id)
+  await createNotifications({
+    userIds: (staff || []).map(s => s.user_id as string),
+    type: 'event_cancelled',
+    title: `ยกเลิกอีเวนต์ ${ev.name}`,
+    body: why,
+    referenceType: 'event',
+    referenceId: id,
+    actorId: manager.userId,
+  })
+  await logActivity('CANCEL_EVENT', { id, name: ev.name, reason: why, packing_list_id: listRef?.id ?? null, unbooked_kits: [...new Set([...unbooked, ...kitIds])] })
+
+  revalidatePath('/events')
+  revalidatePath('/packing')
+  revalidatePath('/jobs/tracking')
+  if (ev.crm_lead_id) revalidatePath(`/crm/${ev.crm_lead_id}`)
+  return { success: true }
+}
+
+/** กู้อีเวนต์ที่ยกเลิก → upcoming (แอดมินเท่านั้น) · ไม่กู้ใบจัดของ/การจอง — สร้างใบใหม่เอง */
+export async function restoreEvent(id: string): Promise<{ error: string } | { success: true }> {
+  const session = await requireAuth()
+  if (session?.role !== 'admin') return { error: 'เฉพาะ admin เท่านั้นที่กู้คืนอีเวนต์ได้' }
+  const db = createServiceClient()
+  const { data: ev } = await db.from('events').select('id, name, status').eq('id', id)
+    .maybeSingle<{ id: string; name: string; status: string | null }>()
+  if (!ev) return { error: 'ไม่พบอีเวนต์' }
+  if (ev.status !== 'cancelled') return { error: 'อีเวนต์นี้ไม่ได้ถูกยกเลิก' }
+
+  const { error } = await db.from('events').update({ status: 'upcoming', cancelled_at: null, cancelled_by: null, cancel_reason: null }).eq('id', id)
+  if (error) return { error: 'กู้คืนอีเวนต์ไม่สำเร็จ' }
+  await logActivity('RESTORE_EVENT', { id, name: ev.name })
+  revalidatePath('/events')
+  return { success: true }
 }
 
 

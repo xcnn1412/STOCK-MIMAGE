@@ -1094,6 +1094,10 @@ type Tables = Database['public']['Tables']
 export type Event = Tables['events']['Row'] & {
   kits?: Kit[]
   crm_lead_id?: string | null
+  /** ยกเลิกอีเวนต์ (migration 20261102_event_cancel) — status = 'cancelled' */
+  cancelled_at?: string | null
+  cancelled_by?: string | null
+  cancel_reason?: string | null
 }
 
 export type Kit = Tables['kits']['Row'] & {

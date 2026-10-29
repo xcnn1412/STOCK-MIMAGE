@@ -27,6 +27,7 @@ import type { BarSegment } from '../../components/cost-summary-dashboard'
 import type { JobCostEvent, JobCostItem } from '@/types/database.types'
 // คำนวณ VAT + หัก ณ ที่จ่าย (คิดจากยอดก่อน VAT) — สูตรเดียวของทั้งระบบ
 import { calcTax } from '@/lib/finance/money'
+import { isClosedEvent } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 
 type JobEventWithItems = JobCostEvent & { job_cost_items: JobCostItem[] }
 
@@ -181,7 +182,7 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
   }
 
   const handleToggleStatus = () => {
-    const newStatus = jobEvent.status === 'completed' ? 'draft' : 'completed'
+    const newStatus = isClosedEvent(jobEvent.status) ? 'draft' : 'completed'
     startTransition(async () => {
       await updateJobEvent(jobEvent.id, { status: newStatus })
       router.refresh()
@@ -228,10 +229,10 @@ export default function EventCostDetailView({ jobEvent, expenseClaims = [], cate
           </div>
           <Badge
             className="cursor-pointer shrink-0 transition-all hover:scale-105"
-            variant={jobEvent.status === 'completed' ? 'default' : 'secondary'}
+            variant={isClosedEvent(jobEvent.status) ? 'default' : 'secondary'}
             onClick={handleToggleStatus}
           >
-            {jobEvent.status === 'completed' ? (
+            {isClosedEvent(jobEvent.status) ? (
               <><Check className="h-3 w-3 mr-1" />{isEn ? 'Completed' : 'เสร็จสิ้น'}</>
             ) : (
               <span className="flex items-center gap-1.5">

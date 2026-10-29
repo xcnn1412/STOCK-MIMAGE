@@ -6,6 +6,7 @@ import type { PackingListRow } from '../../../packing/types'
 import CheckListForm from './return-checklist'
 import { PackingCloseView, PackingNotReturned } from './packing-close-view'
 import type { Item } from '@/types'
+import { isClosedEvent } from '@/app/(authenticated)/jobs/tracking/tracking-logic'
 
 export const revalidate = 0
 
@@ -17,7 +18,7 @@ export default async function EventReturnPage(props: { params: Promise<{ id: str
   if (!event) notFound()
 
   // Already closed — nothing to check in.
-  if (event.status === 'completed') redirect('/events')
+  if (isClosedEvent(event.status)) redirect('/events')
 
   // อีเวนต์ที่มีใบจัดของ: คืนแล้ว / คืนชั้นแล้ว (อีเวนต์ยังเปิด) = ยืนยันปิดงานแบบสรุป · ต่ำกว่านั้น = ยังไม่คืนของ (ปิดแบบเดิมไม่ได้)
   // ไม่มีใบ = หน้าเดิมทุกอย่าง

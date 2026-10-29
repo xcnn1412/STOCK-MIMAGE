@@ -25,6 +25,8 @@ export type ActionType =
     | 'UPDATE_EVENT'
     | 'DELETE_EVENT'
     | 'CLOSE_EVENT'
+    | 'CANCEL_EVENT'      // ยกเลิกอีเวนต์ (เหตุผล + ใบจัดของที่ถูกยกเลิก)
+    | 'RESTORE_EVENT'     // แอดมินกู้อีเวนต์ที่ยกเลิกกลับเป็น upcoming
     | 'ASSIGN_EVENT_STAFF'
     | 'CREATE_TEMPLATE'
     | 'UPDATE_TEMPLATE'

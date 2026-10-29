@@ -45,8 +45,9 @@ export const READY_DESIGN_STATUSES = ['sent_email_cf', 'completed']
 /**
  * สถานะของอีเวนต์ที่ "ปิดแล้ว" — closeEvent เขียน 'completed' (ดู app/(authenticated)/events/actions.ts)
  * รับ 'closed' ไว้ด้วยเผื่อข้อมูลเก่า/สคริปต์เดิมที่เคยเขียนคำนี้
+ * 'cancelled' (cancelEvent) นับเป็นปิดด้วย — ไม่โผล่ในบอร์ด/QR กระเป๋า/MCP/รายการอีเวนต์ที่เปิดอยู่
  */
-export const CLOSED_EVENT_STATUSES = ['completed', 'closed']
+export const CLOSED_EVENT_STATUSES = ['completed', 'closed', 'cancelled']
 
 /** อีเวนต์ใบนี้ปิดแล้วไหม — ปิดแล้ว = แตะไม่ได้ (จัดคน/จองกระเป๋า) และไม่นับเป็นการจองที่ยังใช้งานอยู่ */
 export const isClosedEvent = (status: string | null | undefined): boolean =>
