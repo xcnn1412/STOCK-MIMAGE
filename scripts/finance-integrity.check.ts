@@ -32,7 +32,7 @@ const person = (id: string, full_name: string, role: string): Row =>
 
 /** คอลัมน์ที่มีจริง — insert/update/select ที่อ้างคอลัมน์อื่นได้ error แบบ PostgREST (กันโค้ดพิมพ์ชื่อผิดแล้วผ่านแบบเงียบ) */
 const COLUMNS: Record<string, string[]> = {
-  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'is_blocked', 'active_session_id'],
+  profiles: ['id', 'full_name', 'nickname', 'role', 'department', 'is_approved', 'is_blocked', 'active_session_id', 'allowed_modules'],
   expense_claims: [
     'id', 'claim_number', 'original_claim_number', 'claim_type', 'job_event_id', 'title', 'description', 'category',
     'amount', 'unit_price', 'unit', 'quantity', 'total_amount', 'vat_mode', 'include_vat', 'withholding_tax_rate',
@@ -50,7 +50,11 @@ const COLUMNS: Record<string, string[]> = {
     'id', 'job_event_id', 'title', 'category', 'description', 'amount', 'unit_price', 'unit', 'quantity', 'include_vat',
     'vat_mode', 'withholding_tax_rate', 'cost_date', 'recorded_by', 'notes', 'created_at',
   ],
-  job_cost_events: ['id', 'event_name', 'event_date', 'event_location', 'status', 'source_event_id', 'created_at'],
+  // คอลัมน์ที่ importEventFromStock (costs/actions.ts) เขียนตอนนำเข้างานจากใบเบิก (v1.74.1) รวมอยู่ด้วย
+  job_cost_events: [
+    'id', 'event_name', 'event_date', 'event_location', 'status', 'source_event_id', 'created_at',
+    'staff', 'seller', 'revenue', 'revenue_vat_mode', 'revenue_wht_rate', 'linked_lead_id', 'phase', 'imported_by',
+  ],
   event_closures: ['id', 'event_name', 'event_date', 'event_location', 'created_at'],
   events: ['id', 'name', 'event_date', 'event_time', 'event_end_time', 'location', 'status', 'created_at'],
 }
@@ -1445,6 +1449,53 @@ async function main() {
     for (const id of [staffOwed, adminOwed]) claimRow(id).deleted_at = '2026-09-30T00:00:00.000Z'
   }
   pass('v1.68.1 ใบค้างเคลียร์: พนักงาน → สร้าง/ยื่นไม่ได้ ไม่เขียนอะไร · แอดมินที่มีใบค้างเหมือนกัน → สร้างและยื่นได้')
+
+  // ══ v1.74.1 เบิกงานอีเวนต์ที่ยังไม่อยู่ในต้นทุน (job_event_id = "stock:<id>") โดยสตาฟที่มี finance แต่ไม่มี costs ═══════
+  // v1.72.0 ให้ importEventFromStock ต้องมีโมดูล costs → สตาฟ 29/30 คนเจอ "ไม่สามารถนำเข้าอีเวนต์ได้: Unauthorized" ตั้งแต่ 29 ต.ค. 2026
+  // (requireModule ของจริงอ่าน profiles.allowed_modules จากตัวจำลอง — null = ['stock'] เหมือน lib/auth.ts)
+  {
+    // ผู้ใช้ใหม่ ไม่มีใบค้างเคลียร์จากบล็อกก่อนหน้า (STAFF มีค้างอยู่หลายใบ)
+    const FIN_STAFF = uid(9)
+    const staff = person(FIN_STAFF, 'สตาฟการเงิน ทดสอบ', 'staff')
+    staff.allowed_modules = ['finance', 'stock', 'events', 'checkin']
+    db.profiles.push(staff)
+    // event_date ว่าง = ข้ามการจับคู่รายได้กับ CRM (ตัวจำลองไม่มีตาราง crm_leads และไม่รองรับ .or())
+    const open = fullRow('events', { name: 'งานใหม่ ยังไม่เข้าต้นทุน', event_date: null, location: 'ลานทดสอบ', status: 'upcoming' })
+    const open2 = fullRow('events', { name: 'งานใหม่ สอง', event_date: null, location: null, status: 'upcoming' })
+    const open3 = fullRow('events', { name: 'งานใหม่ สาม', event_date: null, location: null, status: 'upcoming' })
+    db.events.push(open, open2, open3)
+    const idOf = (r: unknown) => (r as { id?: string }).id as string
+
+    loginAs(FIN_STAFF)
+    const created = await createClaim(claimForm({ claim_type: 'event', title: 'ค่าเดินทางงานใหม่', job_event_id: `stock:${open.id}` }, [file('r.jpg')]))
+    assert.equal(created.error, undefined, `สตาฟที่มี finance ต้องสร้างใบเบิกงานอีเวนต์ได้ (ได้ ${created.error})`)
+    const imported = db.job_cost_events.find(r => r.source_event_id === open.id)
+    assert.ok(imported, 'งานถูกนำเข้าต้นทุน')
+    assert.equal(imported.imported_by, FIN_STAFF)
+    assert.equal(claimRow(idOf(created)).job_event_id, imported.id, 'ใบเบิกผูกกับงานที่เพิ่งนำเข้า')
+    assert.ok(activity.some(a => a.action === 'IMPORT_EVENT_TO_COSTS'), 'มี activity นำเข้างาน')
+
+    // เลือกงานเดิมซ้ำ = ใช้งานที่นำเข้าแล้ว ไม่สร้างซ้ำ
+    const again = await createClaim(claimForm({ claim_type: 'event', title: 'ใบที่สอง งานเดิม', job_event_id: `stock:${open.id}` }, [file('r.jpg')]))
+    assert.equal(again.error, undefined, `ใบที่สองของงานเดิมต้องสร้างได้ (ได้ ${again.error})`)
+    assert.equal(claimRow(idOf(again)).job_event_id, imported.id)
+    assert.equal(db.job_cost_events.filter(r => r.source_event_id === open.id).length, 1, 'งานถูกนำเข้าครั้งเดียว')
+
+    // แก้ไขใบ (updateClaim) เปลี่ยนไปงานใหม่อีกงาน — เส้นเดียวกัน
+    const edited = await updateClaim(idOf(created), { job_event_id: `stock:${open2.id}` })
+    assert.equal((edited as { error?: string }).error, undefined, `แก้ไขเปลี่ยนงานต้องได้ (ได้ ${(edited as { error?: string }).error})`)
+    const imported2 = db.job_cost_events.find(r => r.source_event_id === open2.id)
+    assert.ok(imported2, 'งานที่สองถูกนำเข้า')
+    assert.equal(claimRow(idOf(created)).job_event_id, imported2.id)
+
+    // สตาฟที่ไม่มีทั้ง finance และ costs (เช่น เช็คอินอย่างเดียว) ยังนำเข้าไม่ได้ — ข้อความเดิม ไม่เขียนงาน
+    staff.allowed_modules = ['checkin']
+    const denied = await createClaim(claimForm({ claim_type: 'event', title: 'ไม่มีสิทธิ์', job_event_id: `stock:${open3.id}` }, [file('r.jpg')]))
+    assert.equal(denied.error, 'ไม่สามารถนำเข้าอีเวนต์ได้: Unauthorized')
+    assert.equal(db.job_cost_events.some(r => r.source_event_id === open3.id), false)
+    staff.allowed_modules = null
+  }
+  pass('v1.74.1 เบิกงานอีเวนต์ที่ยังไม่อยู่ในต้นทุน: สตาฟที่มี finance (ไม่มี costs) สร้าง/แก้ใบได้ งานถูกนำเข้าครั้งเดียว · ไม่มีทั้ง finance/costs → "Unauthorized" เดิม ไม่เขียนงาน')
 
   console.log('\nfinance-integrity: ผ่านทั้งหมด')
 }
