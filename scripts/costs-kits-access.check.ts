@@ -214,11 +214,9 @@ async function main() {
   })
 
   // ── M4: costs gate ─────────────────────────────────────────────────────────
-  await check('costs: ผู้ไม่มีโมดูล costs ถูกปฏิเสธทุก export และไม่แตะฐานข้อมูล', async () => {
+  await check('costs: ผู้ไม่มีโมดูล costs ถูกปฏิเสธทุก export (ยกเว้นนำเข้างาน — ข้อถัดไป) และไม่แตะฐานข้อมูล', async () => {
     who = FIN_USER; reset()
     const results = [
-      await costs.importEventFromStock('e1'),
-      await costs.importEventFromClosure('c1'),
       await costs.syncRevenueFromCRM('j1'),
       await costs.bulkSyncRevenueFromCRM(),
       await costs.updateJobEvent('j1', { revenue: 1 }),
@@ -232,7 +230,20 @@ async function main() {
       await costs.unlinkCostEventFromCRM('j1'),
     ]
     for (const r of results) assert.equal((r as { error?: string }).error, 'Unauthorized')
-    assert.deepEqual((results[10] as { data: unknown[] }).data, [])
+    assert.deepEqual((results[8] as { data: unknown[] }).data, [])
+    assert.deepEqual(calls, [])
+  })
+
+  // v1.74.1: ใบเบิกงานอีเวนต์เรียกนำเข้างานเป็นผลข้างเคียง — finance ต้องผ่าน gate (v1.72.0 เคยปิด ทำให้สตาฟเบิกไม่ได้)
+  await check('importEventFromStock/Closure: ผู้มี finance ผ่าน gate (ไม่ใช่ Unauthorized, อ่านฐานข้อมูล, ไม่เขียน) · ผู้ไม่มี costs/finance ยังถูกปฏิเสธโดยไม่แตะฐานข้อมูล', async () => {
+    who = FIN_USER; reset()
+    assert.notEqual((await costs.importEventFromStock('e1')).error, 'Unauthorized')
+    assert.notEqual((await costs.importEventFromClosure('c1')).error, 'Unauthorized')
+    assert.ok(calls.length > 0, 'finance ต้องได้อ่านฐานข้อมูล')
+    assert.deepEqual(writes(), [], 'ไม่มีงานในฐานข้อมูลจำลอง = ไม่เขียนอะไร')
+    who = { userId: 'u-stock', role: 'staff', modules: ['stock', 'events'] }; reset()
+    assert.equal((await costs.importEventFromStock('e1')).error, 'Unauthorized')
+    assert.equal((await costs.importEventFromClosure('c1')).error, 'Unauthorized')
     assert.deepEqual(calls, [])
   })
 

@@ -101,9 +101,13 @@ function toBEGregorian(dateStr: string | null): string | null {
 // Import Event — นำเข้า Event เข้าระบบ Costs
 // ============================================================================
 
+// สองฟังก์ชันนำเข้าด้านล่างถูกเรียกเป็นผลข้างเคียงของใบเบิกงานอีเวนต์ (finance/createClaim · updateClaim) เมื่อเลือกงานที่ยังไม่อยู่ในต้นทุน
+// — ผู้มีโมดูล finance ต้องผ่านด้วย (v1.72.0 บังคับ costs อย่างเดียว ทำให้สตาฟ 29/30 คนเบิกงานอีเวนต์ไม่ได้ — แก้ใน v1.74.1)
+// ตรวจด้วย scripts/costs-kits-access.check.ts
+
 /** Import Event จากตาราง events (งานที่ยังเปิดอยู่) */
 export async function importEventFromStock(eventId: string) {
-  const { userId } = costsSession(await requireModule('costs'))
+  const { userId } = costsSession(await requireModule(['costs', 'finance']))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
@@ -220,7 +224,7 @@ export async function importEventFromStock(eventId: string) {
 
 /** Import Event จากตาราง event_closures (งานที่ปิดแล้ว) */
 export async function importEventFromClosure(closureId: string) {
-  const { userId } = costsSession(await requireModule('costs'))
+  const { userId } = costsSession(await requireModule(['costs', 'finance']))
   if (!userId) return { error: 'Unauthorized' }
 
   const supabase = createServiceClient()
