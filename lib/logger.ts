@@ -1,6 +1,7 @@
 import { createServiceClient } from './supabase-server'
 import { headers, cookies } from 'next/headers'
 import { verifySessionToken } from './session'
+import { clientIp } from './client-ip'
 
 export type ActionType =
     | 'LOGIN'
@@ -324,12 +325,7 @@ export async function logActivity(
     try {
         const supabase = createServiceClient()
         const headersList = await headers()
-        let ip = headersList.get('x-forwarded-for') || 'unknown'
-
-        // Handle multiple IPs (e.g. "1.2.3.4, 5.6.7.8")
-        if (ip.includes(',')) {
-            ip = ip.split(',')[0].trim()
-        }
+        const ip = clientIp(headersList)
 
         const userAgent = headersList.get('user-agent') || 'unknown'
 
