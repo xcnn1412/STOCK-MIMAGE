@@ -7,6 +7,7 @@ import { createServiceClient } from '@/lib/supabase-server'
 import bcrypt from 'bcryptjs'
 import { logActivity } from '@/lib/logger'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { clientIp } from '@/lib/client-ip'
 import { createSessionToken } from '@/lib/session'
 import { requireAuth } from '@/lib/auth'
 import { checkIpBlocked } from '@/lib/ip-check'
@@ -81,7 +82,7 @@ export async function loginWithPhoneAndSelfie(prevState: ActionState, formData: 
 
     // Rate limiting: 5 ครั้ง / 15 นาที ต่อ IP+เบอร์ และ 20 ครั้ง / 15 นาที ต่อเบอร์ (กันสลับ IP ไล่เดา PIN)
     const headersList = await headers()
-    const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+    const ip = clientIp(headersList)
     const rateLimitResult = checkRateLimit(`${ip}:${cleanedPhone}`)
     const phoneLimitResult = checkRateLimit('login-phone:' + cleanedPhone, { limit: 20, windowMs: 15 * 60_000 })
     const limited = [rateLimitResult, phoneLimitResult].find(r => !r.allowed)

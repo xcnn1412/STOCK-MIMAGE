@@ -1,11 +1,16 @@
 import { getLicenseStatus } from '@/lib/license'
-import { licenseExpiredResponse, oauthJson, oauthPreflight, revokeToken } from '@/lib/oauth'
+import { clientIp } from '@/lib/client-ip'
+import { licenseExpiredResponse, oauthJson, oauthPreflight, revokeToken, tooManyRequests } from '@/lib/oauth'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { createServiceClient } from '@/lib/supabase-server'
 
-// RFC 7009 — ยกเลิก token (access หรือ refresh) · ตอบ 200 เสมอ แม้ไม่รู้จัก token
+// RFC 7009 — ยกเลิก token (access หรือ refresh) · ตอบ 200 เสมอ แม้ไม่รู้จัก token · จำกัด 60 ครั้ง/นาที/IP
 
 export async function POST(req: Request) {
   if (getLicenseStatus().expired) return licenseExpiredResponse()
+
+  const rl = checkRateLimit(`oauth-revoke:${clientIp(req.headers)}`, { limit: 60, windowMs: 60_000, lockoutMs: 0 })
+  if (!rl.allowed) return tooManyRequests(rl.retryAfterSeconds)
 
   let token = ''
   try {

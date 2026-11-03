@@ -1,11 +1,12 @@
 import { getLicenseStatus } from '@/lib/license'
-import { allowedRedirectHosts, clientIp, licenseExpiredResponse, oauthJson, oauthPreflight, randomToken, redirectHostAllowed, tooManyRequests, validRedirect } from '@/lib/oauth'
+import { clientIp } from '@/lib/client-ip'
+import { allowedRedirectHosts, licenseExpiredResponse, oauthJson, oauthPreflight, randomToken, redirectHostAllowed, tooManyRequests, validRedirect } from '@/lib/oauth'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { createServiceClient } from '@/lib/supabase-server'
 
 // RFC 7591 — Dynamic Client Registration: Claude ลงทะเบียนตัวเองก่อนขออนุญาต
 // public client เท่านั้น (ไม่มี secret) — ความปลอดภัยมาจาก PKCE + redirect_uri ที่ตรงทั้งสตริง
-// + host ของ redirect ต้องอยู่ใน allowlist (lib/oauth.ts::redirectHostAllowed) · จำกัด 10 ครั้ง/ชม./IP
+// + host ของ redirect ต้องอยู่ใน allowlist (lib/oauth.ts::redirectHostAllowed) · จำกัด 10 ครั้ง/ชม./IP + รวมทุก IP 30 ครั้ง/ชม.
 
 const MAX_REDIRECTS = 10
 const MAX_NAME = 100
@@ -17,8 +18,11 @@ const bad = (error: string, error_description: string) => oauthJson({ error, err
 export async function POST(req: Request) {
   if (getLicenseStatus().expired) return licenseExpiredResponse()
 
-  const rl = checkRateLimit(`oauth-register:${clientIp(req)}`, { limit: 10, windowMs: 3_600_000, lockoutMs: 0 })
+  // ต่อ IP + เพดานรวมทุก IP — header บอก IP ปลอมได้เมื่อเข้า origin ตรงไม่ผ่าน Cloudflare เพดานรวมจึงเป็นด่านสุดท้าย
+  const rl = checkRateLimit(`oauth-register:${clientIp(req.headers)}`, { limit: 10, windowMs: 3_600_000, lockoutMs: 0 })
   if (!rl.allowed) return tooManyRequests(rl.retryAfterSeconds)
+  const all = checkRateLimit('oauth-register:all', { limit: 30, windowMs: 3_600_000, lockoutMs: 0 })
+  if (!all.allowed) return tooManyRequests(all.retryAfterSeconds)
 
   let body: unknown
   try {

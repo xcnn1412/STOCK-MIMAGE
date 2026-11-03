@@ -470,11 +470,6 @@ export function oauthPreflight(): Response {
   return new Response(null, { status: 204, headers: { ...CORS_HEADERS, 'Access-Control-Max-Age': '86400' } })
 }
 
-/** IP ของผู้เรียก = ค่าแรกของ x-forwarded-for (Railway ใส่ให้) · ไม่มี = 'unknown' */
-export function clientIp(req: Request): string {
-  return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
-}
-
 /** 429 + Retry-After เมื่อเรียกถี่เกิน */
 export function tooManyRequests(retryAfterSeconds: number): Response {
   const res = oauthJson({ error: 'temporarily_unavailable', error_description: `เรียกถี่เกินไป รอ ${retryAfterSeconds} วินาทีแล้วลองใหม่` }, 429)

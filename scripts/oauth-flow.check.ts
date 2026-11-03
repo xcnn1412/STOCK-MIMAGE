@@ -153,6 +153,7 @@ const prMetaMcp = load('../app/.well-known/oauth-protected-resource/api/mcp/rout
 const register = load('../app/api/oauth/register/route') as typeof import('../app/api/oauth/register/route')
 const token = load('../app/api/oauth/token/route') as typeof import('../app/api/oauth/token/route')
 const revoke = load('../app/api/oauth/revoke/route') as typeof import('../app/api/oauth/revoke/route')
+const rateLimit = load('../lib/rate-limit') as typeof import('../lib/rate-limit')
 const actions = load('../app/oauth/authorize/actions') as typeof import('../app/oauth/authorize/actions')
 const page = load('../app/oauth/authorize/page') as typeof import('../app/oauth/authorize/page')
 const { renderToStaticMarkup } = load('react-dom/server') as typeof import('react-dom/server')
@@ -171,12 +172,15 @@ const issuedSecrets: string[] = []
 async function json(res: Response): Promise<Record<string, unknown>> {
   return (await res.json()) as Record<string, unknown>
 }
-// ทุกคำขอได้ IP ของตัวเอง (10.0.x.y) — ไม่ให้ rate limit ต่อ IP ของ register/token กระทบเคสเดิม · ส่ง ip เองได้
+// ทุกคำขอได้ IP ของตัวเอง (10.0.x.y) ทาง cf-connecting-ip — ไม่ให้ rate limit ต่อ IP กระทบเคสเดิม
+// ip เป็นข้อความ = cf-connecting-ip · เป็น object = header บอก IP ที่ต้องการเป๊ะ (ไม่เติม cf-connecting-ip ให้)
 let ipSeq = 0
-function post(path: string, body: Record<string, unknown> | string, type: 'json' | 'form' = 'json', ip?: string) {
+function post(path: string, body: Record<string, unknown> | string, type: 'json' | 'form' = 'json', ip?: string | Record<string, string>) {
   const headers = new Headers(currentHeaders)
   ipSeq++
-  headers.set('x-forwarded-for', ip ?? `10.0.${Math.floor(ipSeq / 250)}.${(ipSeq % 250) + 1}, 172.16.0.1`)
+  if (ip === undefined) for (const k of ['oauth-register:all', 'oauth-token:all']) rateLimit.resetRateLimit(k) // เพดานรวมทดสอบเฉพาะในเคส H4
+  if (typeof ip === 'object') for (const [k, v] of Object.entries(ip)) headers.set(k, v)
+  else headers.set('cf-connecting-ip', ip ?? `10.0.${Math.floor(ipSeq / 250)}.${(ipSeq % 250) + 1}`)
   headers.set('content-type', type === 'json' ? 'application/json' : 'application/x-www-form-urlencoded')
   return new Request(`${ORIGIN}${path}`, { method: 'POST', headers, body: typeof body === 'string' ? body : JSON.stringify(body) })
 }
@@ -392,32 +396,60 @@ async function main() {
   }
   pass('H4 allowlist: register รับเฉพาะ claude.ai/claude.com/chatgpt.com (+subdomain) และ loopback · โดเมนปลอม → 400 invalid_redirect_uri · env OAUTH_REDIRECT_HOSTS แทนค่าเริ่มต้น')
 
-  // ═══ H4 / M15: rate limit ต่อ IP ════════════════════════════════════════════
+  // ═══ H4 / M15: rate limit ต่อ IP (cf-connecting-ip → ค่าสุดท้ายของ x-forwarded-for) + เพดานรวมทุก IP ═══
   {
+    const reg = (ip: string | Record<string, string>) => register.POST(post('/api/oauth/register', { redirect_uris: [CALLBACK] }, 'json', ip))
+    rateLimit.resetRateLimit('oauth-register:all')
+
+    // ค่าแรกของ x-forwarded-for เปลี่ยนทุกครั้ง (client ใส่เองได้ Cloudflare ต่อท้าย) แต่ cf-connecting-ip เดิม → bucket เดียวกัน
     const IP = '203.0.113.9'
     for (let i = 1; i <= 10; i++) {
-      const r = await register.POST(post('/api/oauth/register', { redirect_uris: [CALLBACK] }, 'json', `${IP}, 10.9.9.9`))
+      const r = await reg({ 'cf-connecting-ip': IP, 'x-forwarded-for': `10.9.9.${i}, ${IP}` })
       assert.equal(r.status, 201, `ครั้งที่ ${i} ต้องผ่าน`)
     }
-    const blocked = await register.POST(post('/api/oauth/register', { redirect_uris: [CALLBACK] }, 'json', IP))
-    assert.equal(blocked.status, 429, 'ครั้งที่ 11 ใน 1 ชม. ต้องถูกจำกัด')
+    const blocked = await reg({ 'cf-connecting-ip': IP, 'x-forwarded-for': `10.9.9.99, ${IP}` })
+    assert.equal(blocked.status, 429, 'ครั้งที่ 11 ใน 1 ชม. ต้องถูกจำกัด แม้ค่าแรกของ x-forwarded-for เปลี่ยน')
     assert.equal((await json(blocked)).error, 'temporarily_unavailable')
     const retry = Number(blocked.headers.get('retry-after'))
     assert.ok(retry > 0 && retry <= 3600, `Retry-After ต้องเป็นวินาที (ได้ ${retry})`)
-    assert.equal((await register.POST(post('/api/oauth/register', { redirect_uris: [CALLBACK] }, 'json', '203.0.113.10'))).status, 201, 'IP อื่นยังได้')
+    assert.equal((await reg('203.0.113.10')).status, 201, 'IP อื่นยังได้')
+
+    // ไม่มี cf-connecting-ip → คีย์ = ค่าสุดท้ายของ x-forwarded-for · ค่าแรกปลอมไม่ได้ bucket ใหม่
+    const LAST = '203.0.113.20'
+    for (let i = 1; i <= 10; i++) assert.equal((await reg({ 'x-forwarded-for': `1.2.3.${i}, ${LAST}` })).status, 201, `XFF ครั้งที่ ${i} ต้องผ่าน`)
+    assert.equal((await reg({ 'x-forwarded-for': `9.9.9.9, ${LAST}` })).status, 429, 'ไม่มี cf-connecting-ip: ค่าสุดท้ายของ x-forwarded-for เป็นคีย์')
+    assert.equal((await reg({ 'x-forwarded-for': `${LAST}, 203.0.113.21` })).status, 201, 'ค่าสุดท้ายต่างกัน = คีย์ต่างกัน')
+    assert.equal((await reg({})).status, 201, 'ไม่มี header บอก IP เลย = unknown ยังใช้ได้')
+
+    // เพดานรวม register 30/ชม. ไม่ว่า IP ใด (header ปลอมได้เมื่อเข้า origin ตรง)
+    rateLimit.resetRateLimit('oauth-register:all')
+    for (let i = 1; i <= 30; i++) assert.equal((await reg(`198.18.0.${i}`)).status, 201, `รวมครั้งที่ ${i} ต้องผ่าน`)
+    assert.equal((await reg('198.18.1.1')).status, 429, 'register รวมครั้งที่ 31 ใน 1 ชม. ต้องถูกจำกัดแม้ IP ใหม่')
+    rateLimit.resetRateLimit('oauth-register:all')
 
     const TIP = '198.51.100.7'
     const bogus = form({ grant_type: 'refresh_token', refresh_token: 'nope', client_id: 'nope' })
-    for (let i = 1; i <= 60; i++) {
-      const r = await token.POST(post('/api/oauth/token', bogus, 'form', TIP))
-      assert.notEqual(r.status, 429, `token ครั้งที่ ${i} ต้องยังไม่ถูกจำกัด`)
-    }
-    const tBlocked = await token.POST(post('/api/oauth/token', bogus, 'form', TIP))
+    const tok = (ip: string) => token.POST(post('/api/oauth/token', bogus, 'form', ip))
+    rateLimit.resetRateLimit('oauth-token:all')
+    for (let i = 1; i <= 60; i++) assert.notEqual((await tok(TIP)).status, 429, `token ครั้งที่ ${i} ต้องยังไม่ถูกจำกัด`)
+    const tBlocked = await tok(TIP)
     assert.equal(tBlocked.status, 429, 'token ครั้งที่ 61 ใน 1 นาที ต้องถูกจำกัด')
     assert.ok(Number(tBlocked.headers.get('retry-after')) > 0)
-    assert.notEqual((await token.POST(post('/api/oauth/token', bogus, 'form', '198.51.100.8'))).status, 429, 'IP อื่นยังได้')
+    assert.notEqual((await tok('198.51.100.8')).status, 429, 'IP อื่นยังได้')
+
+    // เพดานรวม token 300/นาที
+    rateLimit.resetRateLimit('oauth-token:all')
+    for (let i = 1; i <= 300; i++) assert.notEqual((await tok(`198.19.${Math.floor(i / 200)}.${i % 200}`)).status, 429, `token รวมครั้งที่ ${i} ต้องยังไม่ถูกจำกัด`)
+    assert.equal((await tok('198.19.9.9')).status, 429, 'token รวมครั้งที่ 301 ใน 1 นาที ต้องถูกจำกัดแม้ IP ใหม่')
+    rateLimit.resetRateLimit('oauth-token:all')
+
+    // revoke 60/นาที/IP (token ไม่รู้จัก = ตอบ 200 เปล่า แต่ยังนับ)
+    const RIP = '198.51.100.30'
+    const rev = () => revoke.POST(post('/api/oauth/revoke', form({ token: 'nope' }), 'form', RIP))
+    for (let i = 1; i <= 60; i++) assert.equal((await rev()).status, 200, `revoke ครั้งที่ ${i} ต้องผ่าน`)
+    assert.equal((await rev()).status, 429, 'revoke ครั้งที่ 61 ใน 1 นาที ต้องถูกจำกัด')
   }
-  pass('H4 rate limit: register 10/ชม./IP, token 60/นาที/IP → 429 temporarily_unavailable + Retry-After · IP อื่นไม่กระทบ')
+  pass('H4 rate limit: คีย์ IP = cf-connecting-ip → ค่าสุดท้ายของ x-forwarded-for (ค่าแรกปลอมไม่ช่วย) · register 10/ชม./IP + รวม 30/ชม. · token 60/นาที/IP + รวม 300/นาที · revoke 60/นาที/IP → 429 + Retry-After')
 
   // ═══ M4: grantAuthorization ฝั่ง server ═════════════════════════════════════
   const VERIFIER = 'v'.repeat(43) + '-verifier-1'
