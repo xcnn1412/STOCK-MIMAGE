@@ -240,6 +240,8 @@ export function buildArStatus(leads: PLLead[], installments: PLInstallment[], to
     const arr = insByLead.get(l.id) || []
     let scheduled = 0, paidSum = num(l.deposit), dealOverdue = 0, maxDays = 0, worstDue = ''
     for (const i of arr) {
+      // โอนคืนลูกค้า (ยอดติดลบ) — โอนแล้วหักจากที่เก็บได้ · ยังไม่โอนไม่ใช่ลูกหนี้ค้าง
+      if (num(i.amount) < 0) { if (i.is_paid) paidSum += num(i.amount); continue }
       scheduled += num(i.amount)
       if (i.is_paid) { paidSum += num(i.amount); continue }
       const amt = num(i.amount)

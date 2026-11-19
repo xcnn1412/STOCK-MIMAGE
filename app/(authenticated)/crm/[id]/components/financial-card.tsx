@@ -1,18 +1,18 @@
 'use client'
 
-import { useRef, type Dispatch, type SetStateAction } from 'react'
+import { useRef, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { AlertTriangle, Calculator, Check, CheckCircle2, DollarSign, FileText, Receipt, Trash2, Upload, Wallet } from 'lucide-react'
+import { AlertTriangle, Calculator, Check, CheckCircle2, DollarSign, FileText, Receipt, Trash2, Undo2, Upload, Wallet } from 'lucide-react'
 import { useLocale } from '@/lib/i18n/context'
 import { formatThaiDate } from '@/lib/thai-date'
 import { appFileUrl } from '@/lib/file-url'
 import type { LeadInstallment } from '../../actions'
 import type { CrmLead } from '../../types'
 import {
-  CollapsibleCardHeader, CardEditActions, EditField, EditSelect, InfoRow,
+  CollapsibleCardHeader, CardEditActions, EditField, EditSelect, InfoRow, savedAmount,
   type EditableCardProps, type FormInstallment,
 } from '../shared'
 
@@ -53,8 +53,10 @@ export function calcBalance(v: {
 }) {
   const basePrice = v.confirmedPrice || v.quotedPrice || 0
   const tax = calcTax(basePrice, v.vatMode, v.whtRate)
+  // โอนคืน = งวดยอดติดลบ → "ชำระแล้ว" เป็นยอดสุทธิหลังคืนเงิน
   const totalPaid = v.deposit + v.installments.filter(i => i.is_paid).reduce((s, i) => s + (i.amount || 0), 0)
-  return { basePrice, tax, totalPaid, outstanding: tax.netTotal - totalPaid, agreed: v.confirmedPrice > 0 || totalPaid > 0 }
+  const refunded = -v.installments.filter(i => i.is_paid && i.amount < 0).reduce((s, i) => s + i.amount, 0)
+  return { basePrice, tax, totalPaid, refunded, outstanding: tax.netTotal - totalPaid, agreed: v.confirmedPrice > 0 || totalPaid > 0 || refunded > 0 }
 }
 
 /** calcBalance จากข้อมูลที่บันทึกแล้วของ lead */
@@ -80,14 +82,14 @@ export function FinancialCard(props: FinancialCardProps) {
   const b = editing
     ? calcBalance({
       quotedPrice: form.quoted_price, confirmedPrice: form.confirmed_price, deposit: form.deposit,
-      vatMode: form.vat_mode, whtRate: form.wht_rate, installments: formInstallments,
+      vatMode: form.vat_mode, whtRate: form.wht_rate, installments: formInstallments.map(i => ({ is_paid: i.is_paid, amount: savedAmount(i) })),
     })
     : leadBalance(lead, initialInstallments)
   const { basePrice, tax, totalPaid, outstanding } = b
   const vatMode = editing ? form.vat_mode : (lead.vat_mode || 'none')
   const whtRate = editing ? form.wht_rate : (lead.wht_rate || 0)
   const quotedPrice = editing ? form.quoted_price : (lead.quoted_price || 0)
-  const balance = { agreed: b.agreed, quotedPrice, netTotal: tax.netTotal, totalPaid, outstanding }
+  const balance = { agreed: b.agreed, quotedPrice, netTotal: tax.netTotal, totalPaid, outstanding, refunded: b.refunded }
   // ช่องเงิน: แป้นตัวเลขบนมือถือ + ฿ ในกล่อง
   const money = { type: 'number', inputMode: 'decimal', min: 0, prefix: '฿' } as const
 
@@ -222,7 +224,8 @@ function TaxSummary({ editing, basePrice, vatMode, whtRate, vatAmount, priceBefo
 }
 
 // Outstanding Balance — แสดงเมื่อตกลงราคาแล้ว (ราคายืนยัน หรือมีเงินเข้า) · มีแค่ราคาเสนอ = บรรทัดจางๆ แทน
-function OutstandingBalance({ agreed, quotedPrice, netTotal, totalPaid, outstanding }: {
+function OutstandingBalance({ agreed, quotedPrice, netTotal, totalPaid, outstanding, refunded }: {
+  refunded: number
   agreed: boolean
   quotedPrice: number
   netTotal: number
@@ -251,6 +254,12 @@ function OutstandingBalance({ agreed, quotedPrice, netTotal, totalPaid, outstand
         <span>{L('ชำระแล้ว', 'Paid')}: ฿{totalPaid.toLocaleString()}</span>
         <span>{L('ยอดสุทธิ', 'Net')}: {baht(netTotal)}</span>
       </div>
+      {refunded > 0 && (
+        <div className="flex justify-between text-xs text-rose-600 dark:text-rose-400 mt-1">
+          <span>{L('รวมโอนคืนแล้ว (หักจากชำระแล้ว)', 'Refunded (deducted from paid)')}</span>
+          <span>-{baht(refunded)}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -259,8 +268,12 @@ function OutstandingBalance({ agreed, quotedPrice, netTotal, totalPaid, outstand
 function InstallmentList({ editing, formInstallments, setFormInstallments, initialInstallments, localReceiptUrls, uploadingInstallment, ...proof }: FinancialCardProps) {
   const { locale, t } = useLocale()
   const tc = t.crm.detail
+  // เลขงวดนับเฉพาะงวดชำระ (รายการโอนคืนไม่กินเลข)
+  const payNo = (list: { amount: number; refund?: boolean }[], idx: number) =>
+    list.slice(0, idx + 1).filter(i => !(i.refund ?? i.amount < 0)).length
   const proofFor = (inst: LeadInstallment) => (
     <PaymentProof
+      refund={inst.amount < 0}
       editing={editing}
       proofUrl={localReceiptUrls[inst.id] || inst.receipt_url}
       isUploading={uploadingInstallment === inst.id}
@@ -272,7 +285,8 @@ function InstallmentList({ editing, formInstallments, setFormInstallments, initi
   if (!editing) {
     return (
       <>
-        {initialInstallments.map(inst => {
+        {initialInstallments.map((inst, idx) => {
+          if (inst.amount < 0) return <RefundRow key={inst.id} inst={inst}>{proofFor(inst)}</RefundRow>
           const isOverduePayment = inst.due_date && !inst.is_paid && new Date(inst.due_date) < new Date()
           const borderColor = inst.is_paid
             ? 'border-l-emerald-500'
@@ -284,7 +298,7 @@ function InstallmentList({ editing, formInstallments, setFormInstallments, initi
             <div key={inst.id} className={`border-l-[3px] ${borderColor} rounded-r-lg bg-zinc-50/50 dark:bg-zinc-800/30 px-3 py-2.5`}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
+                  {locale === 'th' ? `ชำระงวด ${payNo(initialInstallments, idx)}` : `Installment ${payNo(initialInstallments, idx)}`}
                 </span>
                 {inst.is_paid ? (
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full">
@@ -333,25 +347,39 @@ function InstallmentList({ editing, formInstallments, setFormInstallments, initi
           <Receipt className="h-3.5 w-3.5" />
           {locale === 'th' ? 'งวดชำระเงิน' : 'Payment Installments'}
         </p>
-        <Button type="button" variant="outline" size="sm" className="h-8 text-xs gap-1"
-          onClick={() => setFormInstallments(prev => [...prev, { installment_number: formInstallments.length + 1, amount: 0, due_date: '', is_paid: false, paid_date: '' }])}>
-          + {locale === 'th' ? 'เพิ่มงวด' : 'Add'}
-        </Button>
+        <div className="flex gap-1.5">
+          <Button type="button" variant="outline" size="sm" className="h-8 text-xs gap-1 text-rose-600 hover:text-rose-700"
+            onClick={() => setFormInstallments(prev => [...prev, { installment_number: formInstallments.length + 1, amount: 0, due_date: '', is_paid: false, paid_date: '', refund: true }])}>
+            <Undo2 className="h-3 w-3" /> {locale === 'th' ? 'โอนเงินคืน' : 'Refund'}
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="h-8 text-xs gap-1"
+            onClick={() => setFormInstallments(prev => [...prev, { installment_number: formInstallments.length + 1, amount: 0, due_date: '', is_paid: false, paid_date: '' }])}>
+            + {locale === 'th' ? 'เพิ่มงวด' : 'Add'}
+          </Button>
+        </div>
       </div>
       {formInstallments.map((inst, idx) => (
-        <div key={idx} className="space-y-2 mb-4 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 relative">
+        <div key={idx} className={inst.refund
+          ? 'space-y-2 mb-4 p-3 rounded-lg border border-rose-200 dark:border-rose-900/40 bg-rose-50/40 dark:bg-rose-950/20 relative'
+          : 'space-y-2 mb-4 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 relative'}>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-              {locale === 'th' ? `ชำระงวด ${inst.installment_number}` : `Installment ${inst.installment_number}`}
-            </span>
+            {inst.refund ? (
+              <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                <Undo2 className="h-3.5 w-3.5" /> {locale === 'th' ? 'โอนเงินคืนลูกค้า' : 'Refund to customer'}
+              </span>
+            ) : (
+              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                {locale === 'th' ? `ชำระงวด ${payNo(formInstallments, idx)}` : `Installment ${payNo(formInstallments, idx)}`}
+              </span>
+            )}
             <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
               onClick={() => setFormInstallments(prev => prev.filter((_, i) => i !== idx).map((item, i) => ({ ...item, installment_number: i + 1 })))}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <EditField label={`${locale === 'th' ? 'จำนวน' : 'Amount'} (฿)`} value={String(inst.amount)} onChange={v => patch(idx, () => ({ amount: Number(v) || 0 }))} type="number" inputMode="decimal" min={0} prefix="฿" />
-            <EditField label={tc.dueDate || 'วันนัดชำระ'} value={inst.due_date} onChange={v => patch(idx, () => ({ due_date: v }))} type="date" />
+            <EditField label={`${inst.refund ? (locale === 'th' ? 'ยอดโอนคืน' : 'Refund amount') : (locale === 'th' ? 'จำนวน' : 'Amount')} (฿)`} value={String(inst.amount)} onChange={v => patch(idx, () => ({ amount: Math.abs(Number(v) || 0) }))} type="number" inputMode="decimal" min={0} prefix="฿" />
+            <EditField label={inst.refund ? (locale === 'th' ? 'กำหนดโอนคืน' : 'Refund due') : (tc.dueDate || 'วันนัดชำระ')} value={inst.due_date} onChange={v => patch(idx, () => ({ due_date: v }))} type="date" />
           </div>
           <div className="flex items-center gap-3 pl-1">
             <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -365,12 +393,12 @@ function InstallmentList({ editing, formInstallments, setFormInstallments, initi
                 className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
               />
               <span className={`text-xs font-medium ${inst.is_paid ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
-                {tc.paid || 'ชำระแล้ว'}
+                {inst.refund ? (locale === 'th' ? 'โอนคืนแล้ว' : 'Refunded') : (tc.paid || 'ชำระแล้ว')}
               </span>
             </label>
             {inst.is_paid && (
               <div className="flex-1 max-w-[180px]">
-                <EditField label={tc.paidDate || 'วันที่ชำระจริง'} value={inst.paid_date} onChange={v => patch(idx, () => ({ paid_date: v }))} type="date" />
+                <EditField label={inst.refund ? (locale === 'th' ? 'วันที่โอนคืน' : 'Refund date') : (tc.paidDate || 'วันที่ชำระจริง')} value={inst.paid_date} onChange={v => patch(idx, () => ({ paid_date: v }))} type="date" />
               </div>
             )}
           </div>
@@ -385,9 +413,38 @@ function InstallmentList({ editing, formInstallments, setFormInstallments, initi
   )
 }
 
+// รายการโอนเงินคืน (โหมดดู) — ยอดเก็บติดลบ แสดงเป็น -฿ · สลิปใช้ PaymentProof ตัวเดิม
+function RefundRow({ inst, children }: { inst: LeadInstallment; children: ReactNode }) {
+  const { locale } = useLocale()
+  const L = (th: string, en: string) => (locale === 'th' ? th : en)
+  return (
+    <div className={`border-l-[3px] ${inst.is_paid ? 'border-l-rose-500' : 'border-l-rose-300 dark:border-l-rose-800'} rounded-r-lg bg-rose-50/40 dark:bg-rose-950/20 px-3 py-2.5`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-1">
+          <Undo2 className="h-3.5 w-3.5" /> {L('โอนเงินคืนลูกค้า', 'Refund to customer')}
+        </span>
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${inst.is_paid ? 'text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-950/40' : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30'}`}>
+          {inst.is_paid ? L('โอนคืนแล้ว', 'Refunded') : L('รอโอนคืน', 'Pending refund')}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+        <span className="text-sm font-bold text-rose-700 dark:text-rose-300">-{baht(-inst.amount)}</span>
+        {!inst.is_paid && inst.due_date && (
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">{L('กำหนดโอนคืน', 'Due')}: {formatThaiDate(inst.due_date)}</span>
+        )}
+      </div>
+      {inst.is_paid && inst.paid_date && (
+        <div className="text-xs text-rose-600 dark:text-rose-400 mt-0.5">{L('วันที่โอนคืน', 'Refund date')}: {formatThaiDate(inst.paid_date)}</div>
+      )}
+      {children}
+    </div>
+  )
+}
+
 // Payment Proof — อัปโหลด/เปลี่ยนสลิปของงวดที่บันทึกแล้ว · ลบได้เฉพาะโหมดแก้ไข (ปุ่มทำลายข้อมูลไม่อยู่ในโหมดดู)
 // ภาพเป็นลิงก์เปิดขนาดเต็มเสมอ ไม่พึ่ง hover (มือถือแตะได้)
-function PaymentProof({ editing, proofUrl, isUploading, onUpload, onDelete }: {
+function PaymentProof({ refund, editing, proofUrl, isUploading, onUpload, onDelete }: {
+  refund?: boolean
   editing: boolean
   proofUrl: string | null
   isUploading: boolean
@@ -396,7 +453,7 @@ function PaymentProof({ editing, proofUrl, isUploading, onUpload, onDelete }: {
 }) {
   const { locale } = useLocale()
   const inputRef = useRef<HTMLInputElement>(null)
-  const title = locale === 'th' ? 'หลักฐานการชำระเงิน' : 'Payment Proof'
+  const title = refund ? (locale === 'th' ? 'สลิปโอนเงินคืน' : 'Refund slip') : (locale === 'th' ? 'หลักฐานการชำระเงิน' : 'Payment Proof')
   const fileInput = (
     <input
       type="file"

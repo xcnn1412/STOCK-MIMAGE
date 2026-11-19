@@ -13,7 +13,7 @@ import { useLocale } from '@/lib/i18n/context'
 import { compressImage } from '@/lib/utils'
 import { formatThaiDate } from '@/lib/thai-date'
 import type { useConfirm } from '../../finance/use-confirm'
-import { buildLeadForm, toFormInstallments, type CardSection, type EditableCardProps, type LeadPackagePickerData, type LeadForm } from './shared'
+import { buildLeadForm, savedAmount, toFormInstallments, type CardSection, type EditableCardProps, type LeadPackagePickerData, type LeadForm } from './shared'
 import { CustomerCard } from './components/customer-card'
 import { EventCard } from './components/event-card'
 import { FinancialCard, baht, leadBalance } from './components/financial-card'
@@ -103,7 +103,7 @@ export function LeadCards({
       section === 'financial'
         ? saveAllInstallments(lead.id, formInstallments.map(inst => ({
           installment_number: inst.installment_number,
-          amount: inst.amount,
+          amount: savedAmount(inst),
           due_date: inst.due_date || null,
           is_paid: inst.is_paid,
           paid_date: inst.paid_date || null,

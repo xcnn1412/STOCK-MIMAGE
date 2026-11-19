@@ -279,6 +279,37 @@ if (FinancialCard) {
   console.log(`PASS  D  FinancialCard แก้ไข: ${n} งวด ช่องจำนวน+อัปโหลดครบ · สรุปภาษีถูก`)
 }
 
+// G: โอนเงินคืนลูกค้า = งวดยอดติดลบ (ข้อมูลชุด A + โอนคืน 5,000 แทรกกลาง) — โหมดดู/แก้ไข ป้าย สลิป ยอด และเลขงวดไม่นับรายการโอนคืน
+if (FinancialCard) {
+  const { toFormInstallments } = require('../app/(authenticated)/crm/[id]/shared') as typeof import('../app/(authenticated)/crm/[id]/shared') // eslint-disable-line @typescript-eslint/no-require-imports
+  const a = FIXTURES.A
+  const [i1, i2] = a.installments
+  const installments = [
+    i1,
+    { ...i1, id: uid(303), installment_number: 2, amount: -5000, due_date: null, paid_date: '2026-09-01', receipt_url: 'https://x.supabase.co/storage/v1/object/public/crm-payment-proofs/refund-1.jpg' },
+    { ...i2, installment_number: 3 },
+  ]
+  const noop = () => {}
+  const props = (editing: boolean) => ({
+    lead: a.lead, editing, collapsed: false, saving: false,
+    form: { ...({} as Parameters<typeof FinancialCard>[0]['form']), quoted_price: a.lead.quoted_price, confirmed_price: a.lead.confirmed_price, deposit: a.lead.deposit, vat_mode: a.lead.vat_mode, wht_rate: a.lead.wht_rate, quotation_ref: '', notes: '' },
+    formInstallments: toFormInstallments(installments), initialInstallments: installments, localReceiptUrls: {}, uploadingInstallment: null,
+    updateForm: noop, setFormInstallments: noop, onEdit: noop, onToggle: noop, onSave: noop, onCancel: noop, onUploadProof: noop, onDeleteProof: noop,
+  })
+  const view = renderToStaticMarkup(createElement(FinancialCard, props(false)))
+  const edit = renderToStaticMarkup(createElement(FinancialCard, props(true)))
+  // ชำระแล้ว = มัดจำ 5,000 + งวด 10,000 − คืน 5,000 = 10,000 → ค้าง 31,200 − 10,000 = 21,200 (ทั้งสองโหมด)
+  for (const [n, h] of [['ดู', view], ['แก้', edit]] as const) {
+    for (const s of ['โอนเงินคืนลูกค้า', 'สลิปโอนเงินคืน', 'โอนคืนแล้ว', '฿21,200', 'รวมโอนคืนแล้ว', 'ชำระงวด 2']) assert.ok(h.includes(s), `G(${n}): ต้องมี "${s}"`)
+    assert.ok(!h.includes('ชำระงวด 3'), `G(${n}): เลขงวดไม่นับรายการโอนคืน`)
+    assert.ok(h.includes('/api/file/crm-payment-proofs/refund-1.jpg'), `G(${n}): สลิปโอนคืนผ่าน appFileUrl`)
+  }
+  assert.ok(view.includes('-฿5,000') && view.includes('1 กันยายน 2569'), 'G(ดู): ยอด -฿5,000 + วันที่โอนคืน')
+  assert.ok(edit.includes('ยอดโอนคืน (฿)') && edit.includes('value="5000"') && !edit.includes('value="-5000"'), 'G(แก้): ช่องยอดโอนคืนกรอกเป็นบวก')
+  assert.equal(countIn(edit, 'type="file"'), 3, 'G(แก้): ที่อัปโหลดสลิปครบ 3 แถว')
+  console.log('PASS  G  โอนเงินคืน: ป้าย/สลิป/ยอดหักจากชำระแล้ว · เลขงวดข้ามรายการโอนคืน')
+}
+
 // E: การ์ดลูกค้าโหมดแก้ไข (ข้อมูลชุด A) — ช่องแพ็กเกจเป็น PackagePicker ที่มีปุ่ม "แก้แพ็กเกจ" (ไม่ใช่ dropdown crm_settings เดิม)
 //    ชุด C (ไม่ส่ง packagePicker) ยังเห็นชื่อเดิมอ่านอย่างเดียว
 {
