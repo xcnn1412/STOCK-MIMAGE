@@ -84,6 +84,8 @@ export interface FormInstallment {
   due_date: string
   is_paid: boolean
   paid_date: string
+  /** โอนเงินคืนลูกค้า — บันทึกเป็นยอดติดลบในตารางงวดเดิม (ฟอร์มเก็บยอดเป็นบวก) */
+  refund?: boolean
 }
 
 /** props ที่การ์ดลูกค้า/อีเวนต์/การเงินรับเหมือนกัน */
@@ -144,11 +146,15 @@ export function buildLeadForm(lead: CrmLead, settings: CrmSetting[]): LeadForm {
 
 export const toFormInstallments = (list: LeadInstallment[]): FormInstallment[] => list.map(inst => ({
   installment_number: inst.installment_number,
-  amount: inst.amount || 0,
+  amount: Math.abs(inst.amount || 0),
   due_date: inst.due_date || '',
   is_paid: inst.is_paid || false,
   paid_date: inst.paid_date || '',
+  ...(inst.amount < 0 ? { refund: true } : {}),
 }))
+
+/** ยอดที่บันทึก: โอนคืน = ติดลบ — ponytail: โอนคืนยอด 0 บันทึกแล้วกลายเป็นงวดชำระ 0 (ไม่มีคอลัมน์ชนิด) */
+export const savedAmount = (inst: FormInstallment) => (inst.refund ? -Math.abs(inst.amount) : inst.amount)
 
 /** ข้อความหลายบรรทัดในกล่องยืนยัน */
 export const multiline = (text: string): ReactNode => <span className="whitespace-pre-line">{text}</span>
